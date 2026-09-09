@@ -1524,10 +1524,18 @@
 	}
 
 	// ---------- spine signal cues (§8.5, narrowed) ----------
-	// When the owning component's named signal fires (the game wires it to a book
-	// event via `registerComponentSignals`), this spine plays the chosen animation.
-	// Authored as `node.cues`; only meaningful inside a component that has declared
-	// signals. Array is reassigned on every edit so Svelte 5 reactivity fires.
+	// When the named signal fires, this spine plays the chosen animation. Authored as
+	// `node.cues`; the array is reassigned on every edit so Svelte 5 reactivity fires.
+
+	/** Cues are authored in BOTH editors, but the signal name means different things.
+	 * In the Component Editor the component DECLARES its signals, so the name is a
+	 * closed list (`componentSignals`, wired to a book event by `registerComponentSignals`)
+	 * and a finished cue can fire `completeSignal` back on the instance's own bus. A
+	 * spine placed straight in a screen has no declaring component: the name is free
+	 * text, matched at runtime on the open bus every Flow `Fire Cue` broadcasts to — and
+	 * there is no per-instance bus to fire `completeSignal` on, so that sub-field is
+	 * hidden here. `componentMode` is the discriminator (only `/components` passes it). */
+	const cueSceneMode = $derived(!componentMode);
 
 	function addCue(n: SpineNode): void {
 		const first = componentSignals[0]?.key ?? '';
@@ -3343,24 +3351,42 @@
 					</label>
 				</div>
 			{/if}
-			{#if componentSignals.length > 0}
+			{#if componentSignals.length > 0 || cueSceneMode}
 				<h4 class="sub-h">Plays on signal</h4>
-				<p class="muted small">
-					When the component's signal fires (the game wires it to a book event), this spine plays
-					the chosen animation.
-				</p>
+				{#if cueSceneMode}
+					<p class="muted small">
+						When the named signal fires, this spine plays the chosen animation. The name is whatever
+						a Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be declared anywhere.
+					</p>
+				{:else}
+					<p class="muted small">
+						When the component's signal fires (the game wires it to a book event), this spine plays
+						the chosen animation.
+					</p>
+				{/if}
 				{#each node.cues ?? [] as cue, i (i)}
 					<div class="bind-grid cue-row">
 						<label class="field">
 							<span>signal</span>
-							<select
-								value={cue.signal}
-								onchange={(e) => updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
-							>
-								{#each componentSignals as s (s.key)}
-									<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
-								{/each}
-							</select>
+							{#if cueSceneMode}
+								<input
+									type="text"
+									placeholder="e.g. characterSpin"
+									value={cue.signal}
+									oninput={(e) =>
+										updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
+								/>
+							{:else}
+								<select
+									value={cue.signal}
+									onchange={(e) =>
+										updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
+								>
+									{#each componentSignals as s (s.key)}
+										<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
+									{/each}
+								</select>
+							{/if}
 						</label>
 						<label class="field">
 							<span>animation</span>
@@ -3401,7 +3427,7 @@
 								onclick={() => removeCue(node as SpineNode, i)}>×</button
 							>
 						</label>
-						{#if !(cue.loop ?? false)}
+						{#if !(cue.loop ?? false) && !cueSceneMode}
 							<label class="field wide">
 								<span>fire signal on complete</span>
 								<input

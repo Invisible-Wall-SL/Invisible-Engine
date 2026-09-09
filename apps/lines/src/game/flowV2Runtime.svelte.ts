@@ -27,6 +27,7 @@
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
+	emitComponentSignal,
 	flipbookCycleMs,
 	getComponent,
 	resolveEffect,
@@ -532,6 +533,13 @@ export const createLinesFlowV2 = (
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload) => {
 			trace('cue', cue);
+			// The author-named half: fire the cue NAME on the open component-signal bus too, so a
+			// spine whose `cues[]` names it plays its animation. Synchronous and payload-less (a
+			// `SignalSource` carries no payload), and NOT awaited — a looping cue has no completion,
+			// so folding it into `awaitCue` would hang the exec chain. A name no spine cue subscribes
+			// is a no-op, so every existing cue is byte-identical: the emitter broadcast below is
+			// untouched and remains the only awaited half.
+			emitComponentSignal(cue);
 			return awaitCue(cue, eventEmitter.broadcastAsync({ type: cue, ...payload } as never));
 		},
 		// Slam-aware delay: every authored Delay node collapses when the player slams the round, so

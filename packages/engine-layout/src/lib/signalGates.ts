@@ -53,3 +53,47 @@ export function isTapArmed(
 export function wantsCompleteListener(loop: boolean | undefined, hasCallback: boolean): boolean {
 	return hasCallback && !loop;
 }
+
+/** The active cue's playback, as `LayoutNodeView` resolves it. */
+export type ActiveCuePlayback = {
+	animation: string;
+	loop?: boolean;
+	/** Set ⇒ the cue declares a completion hand-off, which makes it a ONE-SHOT by construction
+	 *  (see {@link handsOffToIdle}). */
+	completeSignal?: string;
+};
+
+/**
+ * Should an active spine cue play ONCE and then settle back into the resting `defaultAnimation`?
+ *
+ * TRUE is the free-spin-intro shape: `enter → intro` plays through, then the rig idles. FALSE keeps
+ * the cue on the track under its own `loop` flag.
+ *
+ * Three ways it is false, in order:
+ *  - a button STATE animation is in effect — it drives the track declaratively while its state holds,
+ *    so a cue must not steal the hand-off;
+ *  - the cue explicitly asked to LOOP **and declares no `completeSignal`** — a held mode (an idle
+ *    character playing a spin loop for the length of a spin) has no completion to hand off at. This
+ *    clause is the reason the predicate is not just "cue animation ≠ default": that older shape
+ *    matched every idle-plus-a-mode rig and silently forced `loop` to `false`, so a looping cue
+ *    played once. A looping cue now holds until another cue replaces it, which is the only way to
+ *    end one — a fired cue is never cleared;
+ *  - there is no distinct resting animation to hand back TO (absent, or the same clip).
+ *
+ * WHY `completeSignal` OVERRIDES `loop`: a cue carrying one is a one-shot by construction — the
+ * field is documented as "ignored for a looping cue" and `SpineTrack` only attaches a completion
+ * listener when `loop` is false. Honouring `loop` on such a cue would therefore silently drop the
+ * hand-off, so a `hiddenUntilSignal` sibling would never reveal and a `tapArmAfterSignal` tap would
+ * never arm — and a screen held by `showContainer{awaitComplete}` would hang the round forever.
+ * The two fields contradict each other; `completeSignal` is the one with a consequence, so it wins
+ * and the pre-existing behaviour of any doc carrying both is preserved exactly.
+ */
+export function handsOffToIdle(
+	cue: ActiveCuePlayback | undefined,
+	defaultAnimation: string | undefined,
+	hasStateAnimation: boolean,
+): boolean {
+	if (hasStateAnimation || !cue) return false;
+	if (cue.loop && !cue.completeSignal) return false;
+	return !!defaultAnimation && defaultAnimation !== cue.animation;
+}

@@ -17,8 +17,13 @@
  * Module-scoped (private to whichever bundled copy of this package the game pulls
  * in — pnpm gives each game its own copy, so no cross-game leakage). Svelte-free:
  * a signal source is just a minimal `subscribe(run)` event contract, so this module
- * is re-exported from the bare `engine-layout` (type-only) entry. No registered
- * signal ⇒ the spine falls back to `defaultAnimation` (parity).
+ * is re-exported from the bare `engine-layout` (type-only) entry. A signal nothing
+ * ever fires ⇒ the spine falls back to `defaultAnimation` (parity).
+ *
+ * TWO buses live here. The `registry` is the closed, game-wired half described above.
+ * The `open` bus below is the author-named half: a name the game never registered is
+ * still subscribable, and the flow runtime fires every `fireCue` name into it — so a
+ * cue signal an author types in the Scene Editor reaches the spine with no coded entry.
  */
 
 /**
@@ -37,16 +42,68 @@ export interface SignalSource {
 
 const registry = new Map<string, SignalSource>();
 
+/**
+ * The OPEN bus — subscribers for a signal name the game never registered, keyed by name.
+ * Where the `registry` above is wired ONCE at boot (a fixed set of engine signals mapped from
+ * book events), this is the author-named half: any name a scene's spine `cue` mentions gets a
+ * live channel, and {@link emitComponentSignal} fires it. The game's flow runtime emits every
+ * `fireCue` name here, so an author can invent `characterSpin` in the Scene Editor, fire it from
+ * a Flow `fireCue` node, and have the spine react — WITHOUT a coded `registerComponentSignals`
+ * entry per animation trigger.
+ *
+ * A registered name always WINS (see {@link getComponentSignal}), so the two names that are both
+ * a vocab cue and a catalog signal (`specialBookReveal` / `specialBookHide`) resolve exactly as
+ * before through their emitter subscription and cannot double-fire.
+ */
+const open = new Map<string, Set<() => void>>();
+
+const openSource = (key: string): SignalSource => ({
+	subscribe(run) {
+		let subs = open.get(key);
+		if (!subs) {
+			subs = new Set();
+			open.set(key, subs);
+		}
+		subs.add(run);
+		return () => {
+			const current = open.get(key);
+			if (!current) return;
+			current.delete(run);
+			if (current.size === 0) open.delete(key);
+		};
+	},
+});
+
 export function registerComponentSignals(sources: Record<string, SignalSource>): void {
 	for (const [signal, source] of Object.entries(sources)) {
 		registry.set(signal, source);
 	}
 }
 
-export function getComponentSignal(key: string): SignalSource | undefined {
-	return registry.get(key);
+/**
+ * Fire an OPEN-bus signal by name. A no-op when nothing subscribes that name — which is the
+ * common case (the game broadcasts every flow cue through here, and only a handful are named by
+ * a spine cue). Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose
+ * cue swaps the mounted tree) can't corrupt the walk. Never touches the registry, so a
+ * game-registered signal is unaffected.
+ */
+export function emitComponentSignal(key: string): void {
+	const subs = open.get(key);
+	if (!subs) return;
+	for (const run of [...subs]) run();
+}
+
+/**
+ * Resolve a signal name to its source. A GAME-REGISTERED source wins; anything else falls back to
+ * the open bus, so an author-named cue signal is always subscribable. Always returns a source —
+ * an unknown name yields a dormant open channel that simply never fires (the old `undefined`
+ * meant "skip this cue", which is what made an author-named signal impossible).
+ */
+export function getComponentSignal(key: string): SignalSource {
+	return registry.get(key) ?? openSource(key);
 }
 
 export function clearComponentSignals(): void {
 	registry.clear();
+	open.clear();
 }

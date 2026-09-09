@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	import type { EffectNode, LayoutNode, Scene, TextStyle } from './types';
 
@@ -49,11 +49,12 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
-	import { getComponentSignalAnims } from './componentSignalContext';
+	import { getComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
+	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentFiredSignals } from './componentFiredSignalsContext';
-	import { isNodeRevealed } from './signalGates';
+	import { handsOffToIdle, isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
@@ -84,8 +85,46 @@
 
 	// Signal-driven spine-anim overrides (§8.5, spine-only). `undefined` when this
 	// node has no `componentInstance` ancestor providing the context — a scene-level
-	// spine then just uses its static `defaultAnimation` (byte-identical parity).
+	// spine then falls back to `sceneSigAnim` below.
 	const signalAnims = getComponentSignalAnims();
+	// SCENE-LEVEL cue receiver — the fallback for a spine placed DIRECTLY in a screen, with no
+	// `componentInstance` ancestor to own a signal bus. Until this existed, `cues[]` on such a
+	// node was inert (the context was `undefined`, so nothing ever subscribed), which meant a
+	// character dropped on a scene could not react to anything: authoring a cue for it required
+	// first turning it into a component. This subscribes the node's OWN cues and holds the latest
+	// fire, so the same `cues[]` field works in both places.
+	//
+	// Deliberately narrower than the instance bus: no `completeSignal` is carried (there is no
+	// per-instance fired-signal bus out here to fire it ON, so `hiddenUntilSignal` /
+	// `tapArmAfterSignal` have no provider either — see `firedSignals` below), and cues are the
+	// only consumer. An instance-provided map always WINS, so a spine inside a component keeps
+	// exactly today's path and this effect returns immediately.
+	let sceneSigAnim = $state<ComponentSignalAnim | undefined>(undefined);
+	let sceneFire = 0;
+	$effect(() =>
+		untrack(() => {
+			// An owning instance already drives this node — leave it alone (parity).
+			if (signalAnims) return;
+			if (node.kind !== 'spine' || !node.cues?.length) return;
+			const unsubs: (() => void)[] = [];
+			for (const cue of node.cues) {
+				if (!cue.signal || !cue.animation) continue;
+				const { signal, animation, loop } = cue;
+				unsubs.push(
+					getComponentSignal(signal).subscribe(() => {
+						// The monotonic token is what makes a REPEAT fire replay: re-firing the same cue
+						// writes the same animation name, and `SpineTrack`'s value comparison would
+						// otherwise read "already playing" and leave a finished one-shot frozen.
+						sceneFire += 1;
+						sceneSigAnim = { animation, loop, fire: sceneFire };
+					}),
+				);
+			}
+			return () => {
+				for (const unsub of unsubs) unsub();
+			};
+		}),
+	);
 	// Button-state-driven spine-anim overrides — the interaction sibling of `signalAnims`.
 	// `undefined` for a spine with no interactive `componentInstance` ancestor (parity).
 	const stateAnims = getComponentStateAnims();
@@ -798,7 +837,13 @@
 		/>
 	{:else if node.kind === 'spine'}
 		{@const stateAnim = stateAnims?.[node.id]}
-		{@const sigAnim = signalAnims?.[node.id]}
+		<!--
+			An owning `componentInstance`'s cue map wins; a spine placed straight in a screen falls
+			back to its own scene-level subscription (`sceneSigAnim`). Exactly one of the two is ever
+			populated — the effect above no-ops whenever `signalAnims` exists — so this is a fallback,
+			not a merge.
+		-->
+		{@const sigAnim = signalAnims?.[node.id] ?? sceneSigAnim}
 		{@const override = stateAnim ?? sigAnim}
 		<!--
 			Per-instance RESTING overrides: a placement may swap this spine's resting
@@ -866,21 +911,23 @@
 				over the resting `defaultAnimation` — so a spine button reacts to its state
 				immediately and returns to rest when the state clears.
 
-				One-shot → idle hand-off (signal cues only): when a signal cue is active (e.g.
-				`enter` → `intro`) AND the node has a different `defaultAnimation` (the resting
+				One-shot → idle hand-off (signal cues only): when a NON-LOOPING signal cue is active
+				(e.g. `enter` → `intro`) AND the node has a different `defaultAnimation` (the resting
 				`idle`), play the cue animation ONCE then settle into the looping default — the
 				free-spin-intro pattern (intro plays, idle loops, the gate holds the screen until
 				the tap). A state animation loops/holds while its state is active instead, so the
 				hand-off is suppressed while one is in effect. With no override, or no distinct
 				default, this is the prior single-animation behaviour.
+
+				A cue that explicitly asks to LOOP is exempt: the hand-off used to fire on "cue
+				animation ≠ default", which is exactly the idle-plus-a-held-mode shape (an idle
+				character that plays a spin loop for the length of the spin), so the cue's own
+				`loop` was silently overridden to `false` and the mode animation played once. A
+				looping cue now holds until another cue replaces it — which is the only way to end
+				one, since a fired cue is never cleared. An unticked cue is unchanged.
 			-->
 			{@const anim = override?.animation ?? effDefaultAnimation}
-			{@const handsOffToIdle = !!(
-				!stateAnim &&
-				sigAnim &&
-				effDefaultAnimation &&
-				effDefaultAnimation !== sigAnim.animation
-			)}
+			{@const oneShotToIdle = handsOffToIdle(sigAnim, effDefaultAnimation, !!stateAnim)}
 			<!--
 				A signal cue is an EVENT: firing it again asks for a REPLAY, even though the animation
 				name is unchanged. Hand its fire token to the track so the repeat is distinguishable
@@ -902,8 +949,8 @@
 				<SpineTrack
 					trackIndex={0}
 					animationName={anim}
-					loop={handsOffToIdle ? false : (override?.loop ?? effLoop ?? true)}
-					then={handsOffToIdle ? effDefaultAnimation : undefined}
+					loop={oneShotToIdle ? false : (override?.loop ?? effLoop ?? true)}
+					then={oneShotToIdle ? effDefaultAnimation : undefined}
 					thenLoop={effLoop ?? true}
 					{replay}
 					oncomplete={completeSignal && firedSignals

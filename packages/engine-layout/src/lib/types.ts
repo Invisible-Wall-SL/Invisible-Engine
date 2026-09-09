@@ -327,10 +327,13 @@ export interface SpineNode extends BaseNode {
 	skin?: string;
 	/** Signal-driven playback cues (design §8.5, narrowed to spine-only). When the
 	 * named component `signal` fires, this spine plays `animation` on track 0. The
-	 * simplest behavior tier — no timeline/tween. Only active when the spine is
-	 * inside a `componentInstance` whose game registered a matching signal source via
-	 * `registerComponentSignals`; otherwise ignored (a scene-level spine just uses
-	 * `defaultAnimation`, parity). */
+	 * simplest behavior tier — no timeline/tween. Works BOTH inside a `componentInstance`
+	 * (the instance owns the bus and can also carry a cue's `completeSignal`) and on a
+	 * spine placed directly in a scene (`LayoutNodeView` subscribes the node's own cues).
+	 * The signal resolves against the game's `registerComponentSignals` registry first,
+	 * then the open bus — so a name the game never registered still fires when a Flow
+	 * `fireCue` node broadcasts it. A signal nothing ever fires ⇒ `defaultAnimation`
+	 * (parity). */
 	cues?: SpineCue[];
 	/** Button-state-driven playback: when this spine is inside an INTERACTIVE button
 	 * component, the engine resolves the current interaction state (hover / press /

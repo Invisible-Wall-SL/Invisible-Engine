@@ -25,6 +25,7 @@
 		type PinDir,
 	} from 'engine-flow-v2';
 	import { withProjectSounds } from '$lib/soundOptions';
+	import { withSceneCues } from '$lib/sceneCues';
 	import { LIBRARY } from './sample';
 	import { typeColor } from './palette';
 	import {
@@ -87,7 +88,18 @@
 	// `typeof value === 'string'` and never checks membership, so a graph naming a project sound was
 	// always valid — it just could not be authored. A project with no library gets the vocabulary
 	// back unchanged, object identity included.
-	const vocab = $derived(withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions));
+	//
+	// The CUE list is widened the same way, with the author-named cue signals harvested off this
+	// project's scene spines (`data.sceneCues`). Unlike the enums this one is load-bearing for
+	// validation: `refResolves` requires a `fireCue` ref to BE in `vocab.cues`, so without this a
+	// flow could never fire an asset the author placed. Each name becomes a payload-less CueDecl ⇒
+	// exactly `[exec-in, exec-out]`. No author-named cues ⇒ the vocabulary is returned unchanged.
+	const vocab = $derived(
+		withSceneCues(
+			withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions),
+			data.sceneCues ?? [],
+		),
+	);
 
 	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). The
 	// server projects the actual Scene-Editor scenes (`data.containerEvents`); an unsaved project with
