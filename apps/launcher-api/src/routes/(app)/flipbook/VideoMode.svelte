@@ -616,13 +616,17 @@
 		if (!confirm(`Delete variation ${label}? Its render is removed for good.`)) return;
 		tileBusy = v.index;
 		try {
-			const res = await postJson<Session & { error?: string }>('discard', {
+			const res = await postJson<Session & { error?: string; warning?: string }>('discard', {
 				session: session.id,
 				index: v.index,
 			});
 			if (res.error) err = res.error;
 			else {
-				err = '';
+				// The tile IS gone from the grid either way — the author asked for that and it
+				// stands. What a warning reports is the byte removal R2 would not confirm, and
+				// this dialog promised "removed for good", so it cannot be swallowed: it shows
+				// where an error would, exactly as a cancel RunPod would not take does.
+				err = res.warning ?? '';
 				session = res;
 			}
 		} catch (e) {

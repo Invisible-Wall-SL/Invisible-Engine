@@ -721,6 +721,13 @@ def _stub_world():
     _delete = lambda k: (objects.pop(k, None), etags.pop(k, None))[0]  # noqa: E731
     video_runner.storage.delete = _delete
     _shared_storage.delete = _delete
+    # The per-tile delete VERIFIES with `head`, whose contract is that only a real
+    # 404 is absence — so the double answers `None` for a missing key rather than
+    # raising, or every clean discard would report itself unconfirmed.
+    _head = lambda k: ({"size": len(objects[k]), "etag": etags.get(k, '"0"'),  # noqa: E731
+                        "mtime": _time.time()} if k in objects else None)
+    video_runner.storage.head = _head
+    _shared_storage.head = _head
     # `mtime` is part of the real answer and the boot sweep filters on it, so the
     # double has to carry one or the sweep sees every session as ancient.
     video_runner.storage.list_keys = lambda p: [
@@ -2134,6 +2141,53 @@ def test_deleting_a_session_takes_its_hand_off_slots_with_it() -> None:
     check("and so are its hand-off slots", slot in objects, False)
 
 
+def test_a_delete_r2_refused_is_reported_not_drawn_as_gone() -> None:
+    """`storage.delete` swallows every error, so a read-only token produced a
+    session that vanished from the rail while every byte it owned stayed in the
+    bucket — billed, unreachable, and invisible. The delete now re-lists and says
+    so, which is the same verify pass the Sheet Maker's delete already runs."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("refuse me"), ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    before = sorted(k for k in objects if f"/video/{sid}/" in k)
+    check("the session has objects before the delete", bool(before), True)
+
+    # A token that may list but not delete — exactly how R2 answers a misconfigured
+    # key, and indistinguishable from success to every caller before this.
+    video_runner.storage.delete = lambda k: None
+
+    check_raises("a refused delete raises",
+                 lambda: video_runner.delete_session(sid), "still remain")
+    check("nothing was reported gone that is still there",
+          sorted(k for k in objects if f"/video/{sid}/" in k), before)
+    check("and staging is left intact, so the render is still viewable",
+          (tmp / "video" / sid / "001.webp").is_file(), True)
+    # The rail is rebuilt from the stored meta, so the row comes back rather than
+    # leaving the surviving objects with nothing pointing at them.
+    check("the session is listed again after the refusal",
+          any(s["id"] == sid for s in video_runner.list_sessions()), True)
+
+
+def test_a_delete_that_cannot_be_verified_is_not_called_clean() -> None:
+    """"I could not check" is not "there is nothing there". A listing that throws
+    used to be caught and printed while the delete returned ok, so a transport
+    failure read as a successful removal."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("unverifiable"), ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    def _blow_up(prefix):
+        raise URLError("r2 unreachable")
+
+    video_runner.storage.list_keys = _blow_up
+    check_raises("an unverifiable delete raises",
+                 lambda: video_runner.delete_session(sid), "still remain")
+    check("staging survives an unverifiable delete",
+          (tmp / "video" / sid / "001.webp").is_file(), True)
+
+
 def test_the_sweep_rehomes_a_render_nothing_is_coming_back_for() -> None:
     """The backstop. Every terminal path collects now, so a hand-off slot should
     only ever be occupied between a worker's PUT and its collect — but on
@@ -2842,6 +2896,52 @@ def test_discard_one_variation() -> None:
     check_raises("re-rolling a deleted slot is refused",
                  lambda: video_runner.regenerate_variation(
                      sid, {"index": 2}, ctx), "deleted")
+    check("a confirmed removal carries no warning", "warning" in out, False)
+
+
+def test_a_tile_r2_would_not_drop_still_goes_but_says_so() -> None:
+    """The tile's own 🗑 is the opposite call from the session's: the author asked
+    for the tile to go, so it goes even when the byte removal fails — refusing
+    would leave a tile on screen to report a storage problem nobody can act on
+    from the grid. But the confirm dialog says "removed for good", so a survivor
+    is NAMED rather than swallowed. `storage.delete` reports nothing, so before
+    this a read-only token dropped the tile and kept the bytes, silently."""
+    tmp, objects = _stub_world()
+    ctx = ("clientx", "projecty")
+    sid = video_runner.start_session(_req("p", 2), ctx)["id"]
+    _await_session(sid)
+    key = "clientx/projecty/video/%s/002.webp" % sid
+
+    # Lists and heads fine, deletes nothing — a misconfigured key, and until now
+    # indistinguishable from success.
+    video_runner.storage.delete = lambda k: None
+
+    out = video_runner.discard_variation(sid, {"index": 2})
+    check("the tile still goes", out["variations"][1]["status"], "deleted")
+    check("the surviving object is named", "STILL stored in R2" in out.get("warning", ""), True)
+    check("and it really did survive", key in objects, True)
+    check("the warning is never persisted into the session",
+          "warning" in json.loads(objects["clientx/projecty/video/%s/meta.json" % sid]), False)
+
+
+def test_a_tile_whose_removal_cannot_be_confirmed_says_that_instead() -> None:
+    """A HEAD that throws is "could not check", not "it is gone" — the distinction
+    `head` exists to keep (`exists` folds both into False). The wording has to
+    differ too: telling an author their render is still stored when the truth is
+    that nobody could reach R2 sends them looking for an object that may not
+    be there."""
+    tmp, objects = _stub_world()
+    sid = video_runner.start_session(_req("p", 2), ("clientx", "projecty"))["id"]
+    _await_session(sid)
+
+    def _blow_up(key):
+        raise URLError("r2 unreachable")
+
+    video_runner.storage.head = _blow_up
+    out = video_runner.discard_variation(sid, {"index": 2})
+    check("the tile still goes", out["variations"][1]["status"], "deleted")
+    check("and the warning says unconfirmed, not still-stored",
+          "could not be confirmed" in out.get("warning", ""), True)
 
 
 def _capture_workflows():
@@ -3449,6 +3549,8 @@ if __name__ == "__main__":
     test_a_rescue_during_adoption_is_persisted()
     test_stopping_an_orphaned_session_keeps_what_it_delivered()
     test_deleting_a_session_takes_its_hand_off_slots_with_it()
+    test_a_delete_r2_refused_is_reported_not_drawn_as_gone()
+    test_a_delete_that_cannot_be_verified_is_not_called_clean()
     test_the_sweep_rehomes_a_render_nothing_is_coming_back_for()
     test_the_sweep_deletes_what_can_never_be_collected()
     test_the_sweep_keeps_its_hands_off_a_live_session()
@@ -3468,6 +3570,8 @@ if __name__ == "__main__":
     test_a_dead_worker_does_not_wedge_the_runner()
     test_regenerate_one_variation()
     test_discard_one_variation()
+    test_a_tile_r2_would_not_drop_still_goes_but_says_so()
+    test_a_tile_whose_removal_cannot_be_confirmed_says_that_instead()
     test_add_variations_to_a_session()
     test_duplicate_a_variation_with_new_settings()
     test_a_session_has_no_variation_ceiling()
