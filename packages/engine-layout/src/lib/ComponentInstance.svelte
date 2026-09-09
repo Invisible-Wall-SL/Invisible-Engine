@@ -423,6 +423,12 @@
 					// below listens on the override signal. No entry ⇒ the def signal
 					// verbatim (parity).
 					const signal = rebinds?.[cue.signal] || cue.signal;
+					// A half-authored cue drives nothing: `addCue` seeds `animation: ''` and the picker
+					// offers "(choose animation)" = `''`, and a fired cue whose animation is `''` is NOT
+					// nullish — so it wins the `override?.animation ?? defaultAnimation` fall-through in
+					// `LayoutNodeView`, unmounts the track and freezes the rig on its bind pose. Skip it
+					// (mirrors the same guard in the scene-level cue effect there).
+					if (!signal || !cue.animation) continue;
 					const targets = map.get(signal) ?? [];
 					targets.push({
 						nodeId: n.id,
@@ -446,7 +452,8 @@
 	// per-instance bus — so plain art (a sprite) gated by `hiddenUntilSignal` would stay hidden forever.
 	// Collecting them here lets the subscription `$effect` below also listen on those registered signals
 	// (recording the fire without playing any cue). Empty when no gate is set ⇒ no new subscription
-	// (parity). `enter` has no game source (fired by the visible-edge effect), so it's skipped there.
+	// (parity). `enter` is fired by the visible-edge effect below, so both subscribe loops skip it
+	// explicitly (`ENTER_SIGNAL`) — it must never take an open-bus subscription.
 	const gateSignals = ((): Set<string> => {
 		const set = new Set<string>();
 		if (!allowed || !def) return set;
@@ -487,6 +494,10 @@
 		return map;
 	})();
 
+	/** The one component-LIFECYCLE signal: fired by this instance on its visible edge, never by a
+	 *  source. Named once so the two subscribe loops and the visible-edge effect below agree. */
+	const ENTER_SIGNAL = 'enter';
+
 	let signalAnims = $state<Record<string, ComponentSignalAnim>>({});
 	// A cue is an EVENT delivered as STATE, so every fire must be distinguishable from the last:
 	// re-firing the same cue writes the same animation name, and the spine's value comparison then
@@ -525,8 +536,9 @@
 	const tapArmed = $derived(isTapArmed(tapArmSignal, firedSignals));
 	// One `$effect` (re)subscribes to every referenced signal and returns a combined
 	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
-	// inside it and collect each unsubscribe. A signal with no registered source is
-	// skipped (dormant — parity).
+	// inside it and collect each unsubscribe. A name the game never registered resolves to the
+	// OPEN bus (`getComponentSignal` never returns `undefined`), so an author-named cue signal is
+	// live too; a name nothing ever fires stays dormant (parity).
 	//
 	// The subscribe SETUP is `untrack`ed. A registered signal source may EMIT SYNCHRONOUSLY on
 	// subscribe (the seed-on-subscribe latch — e.g. `freeSpinOutroCountUpComplete` fires `run()`
@@ -546,8 +558,12 @@
 		untrack(() => {
 			const unsubs: (() => void)[] = [];
 			for (const [signalKey, targets] of signalToTargets) {
+				// `enter` is fired by THIS instance on its visible edge (see below) — never by a source.
+				// It must not take an open-bus subscription: the bus is fed by every flow `fireCue` name,
+				// so an author who typed `enter` as a scene cue would replay the intro of every mounted
+				// component at once. Skipping keeps `enter` exactly as it was before the open bus existed.
+				if (signalKey === ENTER_SIGNAL) continue;
 				const source = getComponentSignal(signalKey);
-				if (!source) continue;
 				unsubs.push(
 					source.subscribe(() => {
 						fireCue(targets);
@@ -561,9 +577,9 @@
 			// NO spine cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
 			// fire on the per-instance bus (no cue to play). Skip any already handled above (they record too).
 			for (const signalKey of gateSignals) {
+				if (signalKey === ENTER_SIGNAL) continue; // instance-fired — same reason as above.
 				if (signalToTargets.has(signalKey)) continue;
 				const source = getComponentSignal(signalKey);
-				if (!source) continue;
 				unsubs.push(source.subscribe(() => fireComponentSignal(signalKey)));
 			}
 			return () => {
@@ -595,10 +611,10 @@
 		if (selfVisible && !wasVisible) {
 			// Through `fireCue` too: a screen gated "Shows during …" can open a SECOND time (free
 			// spins entered twice in one session), and a value-identical re-write would not replay.
-			fireCue(signalToTargets.get('enter') ?? []);
+			fireCue(signalToTargets.get(ENTER_SIGNAL) ?? []);
 			// Record the `enter` fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
 			// gate can key on `enter` directly (appear on mount) as well as on a spine `completeSignal`.
-			fireComponentSignal('enter');
+			fireComponentSignal(ENTER_SIGNAL);
 		}
 		wasVisible = selfVisible;
 	});

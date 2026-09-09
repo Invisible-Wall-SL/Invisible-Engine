@@ -1,4 +1,5 @@
 import { soundOptionsFor } from '$lib/soundOptions';
+import { collectSceneCueNames } from '$lib/sceneCues';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
@@ -72,6 +73,17 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	const sceneNames: Record<string, string> = Object.fromEntries(
 		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
 	);
+
+	// AUTHOR-NAMED CUES — every `SpineCue.signal` on every scene's spines (nested containers walked).
+	// WHY: a `fireCue` node can only name something in `TemplateVocabulary.cues`, and the engine's cue
+	// list is CLOSED (board / win / free-spin / sound / UI). An author-named cue is therefore the ONLY
+	// way a flow can address an asset the author PLACED — put `characterSpin` on a spine in the Scene
+	// Editor and a `fireCue characterSpin` reaches it through the open component-signal bus
+	// (`emitComponentSignal`). Harvesting the names here is what makes them AUTHORABLE: `withSceneCues`
+	// turns each into a payload-less CueDecl, so the palette, the inspector's ref dropdown,
+	// `derivePins` and the validator all accept it. Best-effort: a project whose scenes name no cue
+	// yields an empty list and the vocabulary is returned untouched.
+	const sceneCues = collectSceneCueNames(layout.scenes ?? []);
 
 	// CONTAINER SYNC — the flow can show/hide any SCENE, so every Scene-Editor screen is a container.
 	// The doc's `containers` were seeded once (the v1→v2 migration froze the then-current screens), so a
@@ -162,6 +174,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		library,
 		libraryEtag,
 		sceneNames,
+		/** Author-named spine cues, so a `fireCue` node can address a placed asset (see the harvest
+		 *  above). Composed onto the vocabulary client-side by `withSceneCues`. */
+		sceneCues,
 		containerEvents,
 	};
 };

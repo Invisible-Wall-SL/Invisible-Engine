@@ -258,6 +258,51 @@ sprites, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
 
+#### Plays on signal — a spine that changes animation during play
+
+Select a **spine** node and its **Spine** section ends with a **Plays on signal** block.
+This is how a character you placed on a screen changes animation while the game runs: each
+row pairs a **signal** name with an animation, and when Invisible Flow broadcasts a cue of
+that name, this spine plays it.
+
+The fields above the block — **default animation**, **skin**, **loop** — stay the rig's
+*resting* state: what it plays when no signal has fired.
+
+Each row is:
+
+- **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). A spine dropped
+  straight onto a screen belongs to no component, so there is no list to pick from: you
+  invent the name here, and Invisible Flow offers it back to you in its **Cues** palette.
+  The match is exact — a name spelled differently on the two sides simply never fires.
+- **animation** — the clip to play. A dropdown of the rig's animations when the editor can
+  read the bundle, a text field when it can't.
+- **loop** — hold the clip, or play it once (below).
+- **×** removes the row; **+ add cue** adds another. A spine can carry as many rows as you
+  need.
+
+**Ticking loop holds the animation.** Left unticked, the clip plays **once** and the rig
+settles back into its **default animation** — the intro-then-idle shape. Ticked, the clip
+**loops until another cue on the same spine replaces it**, which is what a "for as long as
+the reels spin" mode needs.
+
+**A cue is never cleared.** There is no stop signal: going back to idle means firing a
+*second* cue whose animation is the idle clip. A character that idles, spins, then idles
+again is two rows, not one.
+
+**A cue only reaches a spine that is on screen.** Nothing is queued and nothing is
+replayed: if the cue fires while the screen holding the character is hidden, that
+character misses it and stays as it was.
+
+> The same block appears in the **Invisible Component Editor** with two differences: there
+> the **signal** is a **dropdown** of the signals that component declares (a component has a
+> declared list; a loose spine does not), and a one-shot cue can additionally **fire a signal
+> on complete** to sequence a sibling.
+
+> **Firing the cues is the Flow's job.** The end-to-end recipe — name them here, then wire
+> them to the spin and to the end of the round, and the two traps that bite — is in the
+> Invisible Flow guide under
+> [Scene cues](flow.md#scene-cues--animate-a-placed-character).
+
 #### Art bounds — the box a sprite is sized by
 
 Select a **sprite** node and the Properties panel shows an **Art bounds** section: a

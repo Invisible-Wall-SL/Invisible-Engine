@@ -13,9 +13,9 @@ events from the RGS (`reveal`, `winInfo`, `freeSpinTrigger`, …), lifecycle sig
 (`load`, `tapToStart`, `idle`), and player **intents** (`spin`, `stop`, `buyBonus`). Each
 event node is an **entry point**: you run an exec chain off it that fires the game's real
 **actions** (state effects and mechanic commands), broadcasts **cues** (presentation
-signals components listen for), waits with **delays**, forks on **branches**, loops with
-**forEach**, and **shows / hides containers** (screens, stacked by an author-assigned
-z-order).
+signals that components — and spines placed on a screen — listen for), waits with
+**delays**, forks on **branches**, loops with **forEach**, and **shows / hides containers**
+(screens, stacked by an author-assigned z-order).
 
 - **Nodes store a reference, pins are derived.** An event / action / cue / function node
   stores only a *name*; its pins are **derived** from the template's vocabulary (the
@@ -72,10 +72,15 @@ function library:
 
 - **Events** — one entry per template event the game can dispatch (book events, lifecycle
   signals, intents). Adds an **event** entry-point node.
+- **Sources** — a single **Game Signals** node: one exec-out per book and lifecycle moment
+  the game emits. A flow has one, so the section disappears once you have added it. Wiring
+  one of its pins hands that moment to the flow — read the trap below before you do.
 - **Actions** — the game's real effects and mechanic commands (`revealBoard`, `winShow`,
   `stopReel`, `startSpin`, …), each tagged with its category.
 - **Cues** — presentation signals to broadcast (`boardShow`, `specialBookReveal`,
-  `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node.
+  `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
+  own cues **plus every signal name authored on a spine in this project's screens**, so a
+  cue you invented in the Scene Editor is waiting here to be dragged out (see below).
 - **Functions** — reusable sub-graphs from the shared library (see *Collapse to Function*).
   Each row also has **✎** (edit its body) and **✕** (delete it, blocked while it is in use).
 - **Containers** — a **show** and a **hide** button per container the flow declares
@@ -84,6 +89,46 @@ function library:
   the node (see below).
 - **Control** — the flow-control kinds: **Delay**, **Branch**, **ForEach**, **Sequence**,
   **Parallel**, **Compute**.
+
+#### Scene cues — animate a placed character
+
+A spine placed in the **Invisible Scene Editor** carries its own **Plays on signal** rows —
+each pairing a signal name with an animation. Every name used on this project's screens is
+collected into the **Cues** section here, so a name an author invented becomes a node you can
+drag onto the canvas — and one validation accepts as a real reference. Nothing else connects
+the two tools: the names match, or nothing fires.
+
+The whole recipe, for a character that idles, plays a spin loop while the reels turn, then
+returns to idle:
+
+1. **In the Scene Editor**, select the character's spine. Set **default animation** to its
+   idle clip and tick **loop** — that is its resting state.
+2. In the same panel's **Plays on signal** block, **+ add cue** twice: one row
+   `characterSpin` / the spin clip / **loop** ticked, one row `characterIdle` / the idle clip
+   / **loop** ticked. (A looping cue holds until another cue replaces it, and a fired cue is
+   never cleared — which is why returning to idle is a second cue, not an "off".)
+3. **Here in the Flow**, open the palette's **Cues** section: `characterSpin` and
+   `characterIdle` are now in it. Drag both onto the canvas.
+4. Splice `characterSpin` into the exec chain that already runs when the spin starts, and
+   `characterIdle` into the chain that already runs at the end of the round — **in series**,
+   between two nodes that are already wired to each other.
+
+**Trap 1 — insert in series; never wire a fresh Game Signals pin.** The **Game Signals** node
+exposes an exec-out for *every* book and lifecycle moment, but wiring one **hands that moment
+to the flow and switches the game's own coded handling of it off**. Connect a pin the flow does
+not otherwise drive — `reveal`, say — and the board stops revealing, because the flow now owns
+it and the flow does nothing else with it. So take a chain the flow already drives and splice
+the cue node *into* it: delete an existing exec wire, run it into the cue's exec-in, and run
+the cue's exec-out on to the node that used to follow. You would have to anyway — **an exec-out
+only ever runs the first wire you drew from it**, so exec never fans out, and nothing warns you
+about the second wire.
+
+**Trap 2 — the character's screen has to be showing.** A cue fired while its screen is not
+mounted is **lost**, not queued: there is no replay when the screen later appears. If the
+character lives on a screen the flow shows, fire its cue *after* the **show**, never before.
+
+The Scene-Editor half — the block's fields, and exactly what **loop** does — is in
+[the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-that-changes-animation-during-play).
 
 #### Text Message — in-game prompts
 
@@ -148,6 +193,11 @@ palette). It shows the node's derived pins and a kind-specific editor:
   value — number, text, checkbox, or an enum dropdown), or **accessor** (a read-only read
   of `$item` / `$index` / `$engine.<key>` / `$input`). A data-in that is **fed by a wire**
   shows a **wired** tag instead (the wire supplies it).
+- **Fire Cue** — a **Wait for this cue to finish** tick. Off, the cue is broadcast and the
+  chain runs straight on; on, the chain pauses until the cue's listeners are done. Turn it
+  on when a later node undoes what the cue starts (a hide that would erase a win line before
+  its symbols finish animating). It makes no difference to an author-named scene cue: a
+  spine's cue animation is never waited on, so the chain continues either way.
 - **ForEach** — a **Mode** toggle (**sequence** = one item at a time, **parallel** = all
   at once).
 - **Sequence / Parallel** — a **Count** (how many ordered / concurrent exec-outs to
@@ -236,10 +286,12 @@ so authoring here is what the shipped game actually runs.
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. Only the `book-of`
   template vocabulary exists today; an unknown template id falls back to it.
-- **A cue's await flag isn't authorable yet.** A **fireCue** node can be an awaited
-  broadcast (wait for its subscribers before continuing the exec chain) in the data model,
-  but the inspector has no toggle for it yet — a cue authored through the UI is
-  fire-and-forget.
+- **Cues on a spine inside a component instance aren't offered.** The **Cues** section
+  collects signal names from spines placed **directly on a screen**; a spine that lives
+  inside a reusable component instance keeps its cue names in the component's own
+  definition, so they never reach this palette. Such a name is only firable from here if it
+  is also one of the engine's cues or is used by a spine placed directly on a screen —
+  otherwise place the character on the screen itself.
 - **Function inputs/outputs are fixed once created.** A function body's **Entry** / **Result**
   signature (its inputs/outputs) can't be edited yet; adding or removing a function's
   parameters is a later feature.
