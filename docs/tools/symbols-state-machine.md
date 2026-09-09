@@ -317,8 +317,9 @@ Everything a pattern plausibly wants is under the ceiling and plays exactly as s
 
 It is purely how it looks: the same symbols explode, pay the same, and are replaced the same way,
 and the step still ends when the last symbol's animation does. If you also use a **Transition**
-(below), it keeps working: each seat's bridge waits for the last wave, so it still lands on the
-intro rather than playing early into nothing. The step's explosion **sound** fires
+(below), it keeps working and it keeps its meaning: each seat's bridge plays the authored delay
+after **that seat's** explosion, so the bridges sweep across the board with the waves. The step's
+explosion **sound** fires
 once with the first wave, as it always has; a symbol's own per-symbol cue (Invisible Sound →
 Per-symbol cues) now lands with **that symbol's** pop rather than with the step.
 
@@ -340,7 +341,9 @@ explosion fires, so it plays over the explosion's end and the intro's start.
   **FX** (an Invisible FX effect) — the same pickers the Book symbol VFX use. There is no Sprite
   option: a transition has a duration, and a frame has none.
 - **Delay (ms)** — how long after the explosion fires the transition starts. `0` (the default)
-  starts it with the pop. Leave it blank for `0`; it is not written.
+  starts it with the pop. Leave it blank for `0`; it is not written. It is measured from **that
+  seat's own** explosion, so it means the same thing on a board clear, on a cascade, and under an
+  Explosion pattern that pops the seats in waves.
 - **Apply transition** records it; **↺ Clear** removes it. Unset reads _Off — the intro cuts in the
   moment the explosion ends._
 

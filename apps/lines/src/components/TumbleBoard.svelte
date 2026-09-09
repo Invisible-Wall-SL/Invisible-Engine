@@ -421,25 +421,33 @@
 	};
 
 	/**
-	 * Schedule the transition at ONE exploding seat, `delayMs` after the pop fires.
+	 * Schedule the transition at ONE exploding seat, `delayMs` after THAT SEAT's pop fires.
 	 *
-	 * `catchUpMs` is what a PATTERN adds: the ms remaining between this seat's own wave and the LAST
-	 * one. Zero without a pattern (every seat pops in the same frame), so this is byte-identical to
-	 * before patterns existed — and load-bearing with one.
+	 * PER SEAT, and it has to stay per seat, because that is the contract the author is handed: the
+	 * Symbols tool's own words under the Transition section are "Plays at the seat when a symbol
+	 * explodes… Delay = ms after the explosion fires". A delay tuned against a seat's own pop is the
+	 * only thing an author can watch themselves tuning.
 	 *
-	 * The reason it cannot simply ride the seat's own pop is that the two ends of the seam are not
-	 * the same shape. The explosion is PER SEAT and now staggered; the intro it bridges into is ONE
-	 * BOARD-WIDE beat (`tumbleBoardAppear`), fired after the whole explode step resolves. Left on its
-	 * own pop, wave 0's bridge would mount a full spread before the intro it exists to cover, play to
-	 * nobody, and be swept by {@link TRANSITION_LEAK_CAP_MS}. Adding the catch-up lands every seat's
-	 * bridge at the same absolute moment — `delayMs` after the LAST wave — which is where the seam
-	 * actually is.
+	 * The explosion pattern briefly made this board-wide instead — every seat's bridge waited out the
+	 * remaining waves so that all of them landed together, `delayMs` after the LAST one, reasoning
+	 * that the intro they bridge into (`tumbleBoardAppear`) is one board-wide beat. It reads well as
+	 * an argument and it was wrong on the board: a wave-0 seat's bridge arrived a whole spread late,
+	 * over a symbol that had long finished popping, so the cover and the pop it covers came apart.
+	 *
+	 * The tell was that the board CLEAR looked right while a cascade did not, off the same authored
+	 * transition. The clear is fanned out one column per call, so under a column pattern every seat
+	 * in a call shares a wave and the catch-up was always zero there — it only ever fired on the
+	 * cascade, which hands the whole winning set over in a single call. Per-seat everywhere is what
+	 * makes those two agree again.
+	 *
+	 * The seam under a pattern is genuinely two things — a staggered pop and one board-wide intro —
+	 * and a single layer cannot sit on both. It sits on the pop, which is the end it was authored
+	 * against.
 	 */
 	const scheduleTransition = (
 		layer: SymbolTransition,
 		position: Position,
 		tumbleSymbol: TumbleSymbol,
-		catchUpMs: number,
 	) => {
 		// The row the symbol is DRAWN at, not `position.row` (its index in `base`): `TumbleSymbol`
 		// seats it by its COMBINED index, and the cascade splices the refills into the column before
@@ -458,7 +466,7 @@
 			layer,
 		};
 		clearTransitionTimer(entry.key);
-		const delayMs = (layer.delayMs ?? 0) + catchUpMs;
+		const delayMs = layer.delayMs ?? 0;
 		// No delay mounts NOW, in the same flush as the explosion state, so the transition's first
 		// painted frame is the pop's first frame; a `setTimeout(…, 0)` would land a tick later.
 		if (delayMs <= 0) {
@@ -560,10 +568,6 @@
 					rankAgainstBoard: patternScope === 'board',
 				},
 			);
-			// The last wave's offset — what a seat's transition has to WAIT OUT so its bridge lands on
-			// the board-wide intro rather than on its own pop. `0` without a pattern (see
-			// `scheduleTransition`), so nothing about the un-patterned seam changes.
-			const lastDelayMs = delays.reduce((max, delay) => Math.max(max, delay), 0);
 			await Promise.all(
 				explodingPositions.map(async (position, index) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
@@ -586,9 +590,11 @@
 					playSymbolTumbleExplosionSound(tumbleSymbol.rawSymbol.name);
 					tumbleSymbol.symbolState = 'tumbleExplosion';
 					// Scheduled, never awaited — see `transitions`. `symbolY.current` is the seat the
-					// symbol is resting on: `base` was seated where the reels left it.
+					// symbol is resting on: `base` was seated where the reels left it. Scheduled HERE, in
+					// this seat's own wave, so the bridge rides the pop it is covering rather than the
+					// board's last one — see `scheduleTransition`.
 					if (transition) {
-						scheduleTransition(transition, position, tumbleSymbol, lastDelayMs - delayMs);
+						scheduleTransition(transition, position, tumbleSymbol);
 					}
 					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),

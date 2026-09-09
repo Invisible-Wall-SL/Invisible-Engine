@@ -16,10 +16,12 @@
  * the refills arrive in; the step's own contract is untouched (it still ends when the LAST seat
  * reports), so a pattern lengthens the beat by exactly `(waves - 1) × stepMs` and nothing else.
  *
- * The one thing downstream that a pattern DOES move is the explosion → intro transition, and it is
- * handled where that transition is scheduled rather than here: the pop is per seat and staggered
- * while the intro it bridges is one board-wide beat, so each seat's bridge waits out the remaining
- * waves (`scheduleTransition`'s `catchUpMs` in `TumbleBoard.svelte`) and the seam stays a seam.
+ * It moves nothing downstream either — notably NOT the Symbol-SM Transition, whose bridge rides its
+ * own seat's pop (`scheduleTransition` in `TumbleBoard.svelte`) and so simply sweeps along with the
+ * waves. That was tried the other way round once: because the intro a bridge leads into is one
+ * board-wide beat, every bridge was pulled onto the LAST wave, which left an early seat's cover
+ * arriving long after the symbol it covers had finished popping. See that function for the whole
+ * account.
  *
  * See `docs/design/invisible-symbols-state-machine.md` § "Explosion pattern".
  */

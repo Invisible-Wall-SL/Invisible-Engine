@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-08)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame — built and offline-verified, ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-09)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame. Its first live outing found one defect, now fixed: the Transition was being pulled onto the last wave instead of riding its own seat's pop, so a cascade's cover came apart while the board clear looked fine. ⏳ owner visual-verify + a Borut `engine` submodule bump.
 
 ## Current state
 
@@ -220,11 +220,12 @@ Working on `main`:
   round-skip token. An UNKNOWN pattern name answers all-zero rather than throwing: Zod stops one at
   save, but the launcher deploys from `main` while a shipped game pins the engine submodule, so a
   newly added pattern can reach an older engine — and a throw there would take `broadcastAsync`, the
-  `tumbleBoard` book event and the round with it. TRANSITION INTERACTION: the pop is per seat and
-  staggered while the intro it bridges is one board-wide beat, so `scheduleTransition` takes a
-  `catchUpMs` (`lastDelay - thisDelay`) and every seat's bridge lands at the same absolute moment —
-  the authored `delayMs` after the LAST wave. Zero without a pattern, so that seam is byte-identical.
-  Sound: the step-wide
+  `tumbleBoard` book event and the round with it. TRANSITION INTERACTION: none — the bridge rides
+  its OWN seat's pop (`delayMs` after that seat's explosion) and a pattern therefore sweeps the
+  bridges across the board with the waves. It briefly did not: a `catchUpMs` pulled every bridge onto
+  the last wave so they would land on the board-wide intro together, and a wave-0 seat's cover then
+  arrived a whole spread after its symbol had finished popping. Removed 2026-09-09 — see the design
+  doc's "Explosion pattern" for why the pop is the end that wins. Sound: the step-wide
   `playTumbleExplosionSound` still fires ONCE with the first wave; `playSymbolTumbleExplosionSound`
   moved behind the delay so a symbol's own cue lands with its own pop. Both defaults are pruned on
   save (`all`, and a step equal to the default) on the SERVER and in the client setter — they have to
@@ -234,14 +235,14 @@ Working on `main`:
   `pnpm --filter launcher-api check:tumble-pattern` (34).
 - **Explosion → intro Transition** (2026-09-03, default OFF ⇒ byte-parity). Doc-level global
   `transition: { kind: 'spine' | 'flipbook' | 'fx', assetKey?, animationName?, clipId?, effectId?,
-  delayMs? }` — ONE project-wide animation the cascade overlay mounts at every seat whose outgoing
+delayMs? }` — ONE project-wide animation the cascade overlay mounts at every seat whose outgoing
   symbol starts `tumbleExplosion`, `delayMs` after the pop fires, so under `swapStyle: 'emerge'` the
   explosion's end and the intro's start overlap at the same seat instead of hard-cutting. Covers BOTH
   places that seam occurs: the reveal's clear step (`clearOutgoingSymbols`) and every cascade step —
   both reach `TumbleBoard.svelte`'s `tumbleBoardExplode` handler, which is where it is scheduled.
   FIRE-AND-FORGET: never awaited, never gates the explosion beat, never delays the intro or extends the
   round; the intro starts exactly when it did. Gated on `boardSwapsInPlace() && boardSwapStyle() ===
-  'emerge'` (the check `bookEventHandlerMap` uses) — a sliding refill has no intro to bridge. Engine:
+'emerge'` (the check `bookEventHandlerMap` uses) — a sliding refill has no intro to bridge. Engine:
   `TumbleBoard.svelte` owns a keyed per-seat overlay list on the ANIMATING layer (`zIndex` 1, seat
   x/scale from `getSymbolSeat`, y = the symbol's resting `symbolY`); delay 0 mounts in the same flush
   as the explosion state, > 0 via a timer; an entry is removed on its own completion (spine non-loop
@@ -268,7 +269,7 @@ Working on `main`:
   `Intro` column) or that still carries a saved transition: Spine / Flipbook / FX toggle on the Book-VFX pickers, **Delay (ms)**, `set` badge,
   ↺ Clear, off-state copy "Off — the intro cuts in the moment the explosion ends"; the Book-VFX thumb
   snippet became the top-level `layerThumb` both use. Offline: `pnpm --filter launcher-api
-  check:symbol-transition` — parity (no key when absent, verbatim round-trip, delay-0 pruned, fixed
+check:symbol-transition` — parity (no key when absent, verbatim round-trip, delay-0 pruned, fixed
   point), rejection (half-authored, `sprite`, bad delay, unknown key), shipping (a spine bound ONLY as
   the transition lands in `refs.spineKeys`), and the client dirty signature — all over the REAL
   functions. ⏳ **Owner visual-verify** on an emerging project (auth-gated tool + a cascading/clearing
@@ -318,22 +319,22 @@ Working on `main`:
   **Sting volume** slider (`TierFx.stingVolume`) beside the existing **Loop volume**. Full chain:
   client `symbols.client.ts` (type + `pruneAnticipation` config-level allowlist for the two names;
   `stingVolume` rides the generic per-tier filter; `codedTierFx`/`anticipationFieldValue`/`docSignature`
-  + two setters) → `.strict` Zod (`anticipationSchema.activationSound/loopSound`,
-  `anticipationTierFxSchema.stingVolume`, `pruneAnticipation`) → export passes `anticipation` VERBATIM
-  (no field enumeration touched) → `editor-scenes` baked shape (`activationSound?/loopSound?` typed
-  `SoundEffectName`, `AnticipationTierFxOverride.stingVolume?`) → engine resolvers
-  `resolveActivationSound()` / `resolveLoopSound()` (authored ?? coded `sfx_anticipation_start` /
-  `sfx_anticipation`) + `resolveTierFx().stingVolume`. `Anticipations.svelte` now fires the activation
-  STING (`soundOnce`, per-play volume = tier `stingVolume`) alongside the loop, both via the resolvers
-  instead of hardcoded names. **New per-play volume on the once-player:** `soundOnce` broadcast gained
-  optional `volume` threaded `Sound.svelte` → `createPlayOnce` (multiplies with master SFX via
-  `initSoundVolume`); a `soundOnce` without `volume` is byte-identical. ⚠️ **Behaviour note:** on this
-  branch the sting (`sfx_anticipation_start`) was in the audiosprite but NEVER broadcast — only the loop
-  played — so wiring it is a deliberate feature ADD; the LOOP stays byte-identical, the STING now plays
-  the coded name/ramp for un-authored projects. Offline round-trip: 14/14 over the REAL
-  `normalizeSymbolsDoc` + client setters/`codedTierFx` (esbuild-bundled) — authored `{X,Y,stingVolume,
-  soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `launcher-api` + `lines`
-  builds green. **Book of Borut needs an `engine` submodule bump** to receive it.
+  - two setters) → `.strict` Zod (`anticipationSchema.activationSound/loopSound`,
+    `anticipationTierFxSchema.stingVolume`, `pruneAnticipation`) → export passes `anticipation` VERBATIM
+    (no field enumeration touched) → `editor-scenes` baked shape (`activationSound?/loopSound?` typed
+    `SoundEffectName`, `AnticipationTierFxOverride.stingVolume?`) → engine resolvers
+    `resolveActivationSound()` / `resolveLoopSound()` (authored ?? coded `sfx_anticipation_start` /
+    `sfx_anticipation`) + `resolveTierFx().stingVolume`. `Anticipations.svelte` now fires the activation
+    STING (`soundOnce`, per-play volume = tier `stingVolume`) alongside the loop, both via the resolvers
+    instead of hardcoded names. **New per-play volume on the once-player:** `soundOnce` broadcast gained
+    optional `volume` threaded `Sound.svelte` → `createPlayOnce` (multiplies with master SFX via
+    `initSoundVolume`); a `soundOnce` without `volume` is byte-identical. ⚠️ **Behaviour note:** on this
+    branch the sting (`sfx_anticipation_start`) was in the audiosprite but NEVER broadcast — only the loop
+    played — so wiring it is a deliberate feature ADD; the LOOP stays byte-identical, the STING now plays
+    the coded name/ramp for un-authored projects. Offline round-trip: 14/14 over the REAL
+    `normalizeSymbolsDoc` + client setters/`codedTierFx` (esbuild-bundled) — authored `{X,Y,stingVolume,
+soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `launcher-api` + `lines`
+    builds green. **Book of Borut needs an `engine` submodule bump** to receive it.
 - **Dynamic anticipation tiers = config big-win tiers** (2026-08-05, branch
   `engine/anticipation-dynamic-tiers`, default OFF ⇒ byte-parity). Replaced the HARDCODED
   big/mega/massive triple (engine `AnticipationTier` union, `tierForLevel`, `ANTICIPATION_TIER_FX`,
@@ -365,26 +366,26 @@ Working on `main`:
   COLUMN is **removed** — `visibleStatesFor(gameType)` never renders it (the `stacked` member stays
   in engine-layout as an engine fallback; only the tool stopped drawing the column). The block: a
   **multi-select** of symbol names (chips), and per selected symbol a **height** (cells tall, ≥ 1)
-  + an **art picker** (the same side-panel sprite/spine/flipbook picker the grid cells use, reused
-  via the shared `draft` machinery — Apply writes the stacked art instead of a grid override) with a
-  live preview. Schema `stackedPictures` extended to `{ enabled?, symbols?: [{ name, height, art }] }`
-  (`art` = the existing per-cell `symbolCellSchema`); sparse — a disabled/un-authored project
-  persists nothing. **Now BAKED** (unlike the old toggle): gated on the master toggle + ≥1 symbol,
-  the exporter ships each tall `art` asset via the SAME `refs` as a per-cell binding (spine →
-  `index.spines`, sprite → `index.sheets`) and emits
-  `bundle.symbols.stacked = { symbols: [{ name, height, art }] }` (art reduced to
-  `type/assetKey/animationName?/clipId?`, no `sizeRatios`); `bake-editor-doc.mjs` rebuilds it on a
-  defensive whitelist; the runtime bundle passes it verbatim. Files:
-  `symbolsStorage.ts` (`stackedSymbolSchema`/`pruneStackedPictures`), `symbols.client.ts`
-  (`StackedSymbol` type + `addStackedSymbol`/`removeStackedSymbol`/`setStackedSymbolHeight`/
-  `setStackedSymbolArt`/`docSignature`), `symbolExport.ts` (`addCellRefs` + `stacked` emit),
-  `bake-editor-doc.mjs`, `+page.svelte`. Verified offline: Node fixture over the real zod schema
-  proving the schema→normalize→export→bake round-trip + the contract shape (spine + sprite +
-  flipbook art, sizeRatios stripped, blank-art rejected/pruned, height int≥1, `.strict` reject) and
-  a Svelte-5 compile of the page (0 warnings). **Engine still owns the runtime** — this track only
-  produces the baked contract; the engine team builds `bundle.symbols.stacked` (a **Book of Borut
-  submodule bump** delivers it once both tracks land). Old sparse doc-global
-  `{ enabled?: boolean }` superseded (the toggle now also gates the bake).
+  - an **art picker** (the same side-panel sprite/spine/flipbook picker the grid cells use, reused
+    via the shared `draft` machinery — Apply writes the stacked art instead of a grid override) with a
+    live preview. Schema `stackedPictures` extended to `{ enabled?, symbols?: [{ name, height, art }] }`
+    (`art` = the existing per-cell `symbolCellSchema`); sparse — a disabled/un-authored project
+    persists nothing. **Now BAKED** (unlike the old toggle): gated on the master toggle + ≥1 symbol,
+    the exporter ships each tall `art` asset via the SAME `refs` as a per-cell binding (spine →
+    `index.spines`, sprite → `index.sheets`) and emits
+    `bundle.symbols.stacked = { symbols: [{ name, height, art }] }` (art reduced to
+    `type/assetKey/animationName?/clipId?`, no `sizeRatios`); `bake-editor-doc.mjs` rebuilds it on a
+    defensive whitelist; the runtime bundle passes it verbatim. Files:
+    `symbolsStorage.ts` (`stackedSymbolSchema`/`pruneStackedPictures`), `symbols.client.ts`
+    (`StackedSymbol` type + `addStackedSymbol`/`removeStackedSymbol`/`setStackedSymbolHeight`/
+    `setStackedSymbolArt`/`docSignature`), `symbolExport.ts` (`addCellRefs` + `stacked` emit),
+    `bake-editor-doc.mjs`, `+page.svelte`. Verified offline: Node fixture over the real zod schema
+    proving the schema→normalize→export→bake round-trip + the contract shape (spine + sprite +
+    flipbook art, sizeRatios stripped, blank-art rejected/pruned, height int≥1, `.strict` reject) and
+    a Svelte-5 compile of the page (0 warnings). **Engine still owns the runtime** — this track only
+    produces the baked contract; the engine team builds `bundle.symbols.stacked` (a **Book of Borut
+    submodule bump** delivers it once both tracks land). Old sparse doc-global
+    `{ enabled?: boolean }` superseded (the toggle now also gates the bake).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
@@ -414,6 +415,7 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
 - 2026-09-09 — **The explosion pattern did nothing on the board CLEAR — the one beat most players actually watch.** Owner report: picked a pattern on `test6`, raised the gap to 220 ms, saw no change. Everything shipped correctly — R2 doc, runtime bundle and served engine bundle all verified carrying `{"pattern":"columnsLeft","stepMs":220}` — and a live probe on the running game confirmed the CASCADE was staggering exactly as authored (waves at 220/440/660/880 ms). The clear was not.
   - **Why.** `clearOutgoingSymbols(reelIndex)` fans the swap-in-place clear out ONE COLUMN PER CALL, driven concurrently by `emergeRevealBoard` / `columnCascadeRevealBoard`. `tumbleExplosionDelays` dense-ranks the seats it is handed — the right rule for a cascade, where the whole winning set arrives at once — so one column's seats shared a column key, every column answered "wave 0", and with `columnStaggerMs` unset (it defaults to 0 under `emerge`) all six columns popped in the same frame. The pattern was inert on exactly the beat a swap-in-place player sees on EVERY spin, while working on the far rarer cascade.
   - **Only the four COLUMN patterns were affected.** Row, diagonal and radial keys vary within a column, so those already staggered the clear.
@@ -425,7 +427,8 @@ Working on `main`:
   - **A pending wave is dropped when the board is swept** (slam / skipped round / `tumbleBoardReset`) or when a refill splices its column: a symbol off its column can never report `oncomplete`, so popping it would stall the beat behind its cap.
   - **Two guards found in review and closed:** the whole SPREAD is capped at 2 s (the per-wave 500 ms cap bounds nothing for a pattern whose wave count grows with the win, and a board-clear board explodes every seat every spin), and an unknown pattern name degrades to one frame instead of throwing inside the explode step — which matters because the launcher can ship a pattern a submodule-pinned game's engine does not know.
   - **A symbol's own explosion cue now lands with its own pop** rather than with the step; the step-wide `tumble_win_*` cue still fires once, with the first wave.
-  - Full chain shipped (schema + prune → client setters + dirty signature → `symbolExport` → `/api/editor/export-symbols` → **bake whitelist** → runtime bundle → `bakedTumblePattern()`), plus a `gameProfile` row. Offline-verified: `node scripts/verify-tumble-pattern.mjs` (57 checks — every pattern's wave grid, the spread ceiling and the unknown-name degradation, and the REAL `tumbleBoardExplode` driven on a virtual clock incl. the sweep/splice guards and the transition catch-up) and `pnpm --filter launcher-api check:tumble-pattern` (34 checks — prune, rejection, both bundle paths, the client half). **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
+  - Full chain shipped (schema + prune → client setters + dirty signature → `symbolExport` → `/api/editor/export-symbols` → **bake whitelist** → runtime bundle → `bakedTumblePattern()`), plus a `gameProfile` row. Offline-verified: `node scripts/verify-tumble-pattern.mjs` (57 checks — every pattern's wave grid, the spread ceiling and the unknown-name degradation, and the REAL `tumbleBoardExplode` driven on a virtual clock incl. the sweep/splice guards and the transition's per-seat timing) and `pnpm --filter launcher-api check:tumble-pattern` (34 checks — prune, rejection, both bundle paths, the client half). **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
+- 2026-09-09 — **After a tumble win the authored Transition no longer covered the pop it was bridging.** Owner report on Waves/test6: the board CLEAR looked right, a cascade did not, off the same authored transition. The pattern work had given `scheduleTransition` a `catchUpMs` (`lastDelay − thisDelay`) so every seat's bridge waited out the remaining waves and they all landed together, `delayMs` after the LAST wave — the reasoning being that the intro they bridge (`tumbleBoardAppear`) is one board-wide beat. On the board that put a wave-0 seat's cover a whole spread (up to `TUMBLE_SPREAD_MS_MAX`, 2 s) after its symbol had finished popping. The clear was unaffected and that was the tell: it is fanned out one column per call, so under a column pattern every seat in a call shares a wave and the catch-up was always zero there. The bridge rides its OWN seat's pop again — which is also the contract the tool states ("Delay = ms after the explosion fires"), so an authored delay means what it says on both beats. `verify-tumble-pattern.mjs` now asserts the OFFSET from each seat's own pop (71 checks) and its `scheduleTransition` stub deliberately still applies a fourth argument if one is passed, because the regression lived at the call site — mutation-verified: restoring the catch-up fails 2 of 71.
 - 2026-09-08 — **The "wait for a spin press after a big win" switch could not be saved** on any project that had already authored some OTHER win-cycle setting. `docSignature()` in `symbols.client.ts` — the page's dirty tracker — hand-lists the fields it watches, and `winCycle.holdAfterBigWin` was never added: the toggle moved, the signature did not, `dirty` stayed false and Save stayed disabled. It hid itself for three weeks because on a project with NO `winCycle` at all the whole block flips from `null` to an object, so the toggle looks like it works — it only dies once a delay/replay setting is already authored. The field was correct everywhere else (schema, sparse sanitize, `symbolExport.ts`, the bake whitelist, `bakedWinCycleConfig()`), which is why the earlier chain checks passed it.
   **This is the FOURTH hand-copied-allowlist rot on `winCycle` alone** (the PUT body 2026-07-24, the export response and the bake whitelist 2026-07-27) and nothing type-checks it: `docSignature` reads `doc.winCycle.x`, and a field it simply never mentions is an error nowhere — least of all in a bare `vite build`. So the guard follows `launcher-api/CLAUDE.md`'s rule and DERIVES its field list from `symbolsDocSchema` instead of re-typing it: new `scripts/check-win-cycle.ts` (`pnpm --filter launcher-api check:win-cycle`, 80 checks) asserts the signature's `winCycle` block holds exactly the schema's fields, that each one dirties a doc that ALREADY carries a `winCycle` (in BOTH boolean states — a `|| null` for `?? null` would eat the `false` the default-ON flags persist), that each control round-trips dirty→clean sparsely, that the stored doc signs the same as the draft, and that each default matches the game's. Mutation-verified twice: removing the fix fails 5 of 80, and adding a hypothetical new schema field fails until it is both registered and named — so the next field cannot repeat this.
 - 2026-09-07 — **The Highlight (win frame) only drew on SPINE symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its spine-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolSpine.svelte`, the spine arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolSpine` was left a pure pass-through to `SymbolSpineMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, spine cells unchanged. **Engine change — needs a runtime release to reach the online games** (and a Borut submodule bump for the remake).
@@ -481,8 +484,8 @@ Working on `main`:
   its expectation was the stale side, not the resolver.** `check:symbol-state-parity` asserted that
   `intro` reads `unset` in the grid while the engine draws `land`.
   - **Both real sides already agreed.** #499 gave `intro` its `land` fallback in the engine
-    (`resolveSymbolState`) *and* in the tool (`INHERITS_FROM`), and the `Intro` column hint
-    advertises it to the author (*"Leave a cell empty to fall back to this symbol's Land binding"*) —
+    (`resolveSymbolState`) _and_ in the tool (`INHERITS_FROM`), and the `Intro` column hint
+    advertises it to the author (_"Leave a cell empty to fall back to this symbol's Land binding"_) —
     which is the tool's own stated test for which arms the grid owes a picture. The gate kept a
     THIRD, hand-maintained copy of the inheritance table (`TOOL_INHERITS`) that #499 did not touch,
     so it read a deliberate arm as the engine's `static` last resort and demanded a blank cell.
@@ -501,13 +504,13 @@ Working on `main`:
   - Also: the header's `Run:` line said `npx tsx …`, which picks up a global tsx that cannot resolve
     `engine-layout` — it is the working `pnpm --filter launcher-api …` form now.
   - The other five launcher checks in this set pass too — four of them only after a `svelte-kit
-    sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). The sixth,
+sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). The sixth,
     `check:game-config-defaults`, still fails — untouched here, already recorded in
     `docs/status/game-config.md`, and **not** a stale-file refresh: regenerating strips the authored
     `winLevels` block from `lines/ways/scatter.json`. Do not blind-regenerate.
 - 2026-08-27 — **A spine symbol state played once and froze; now every state has an authorable
-  Loop, and looping is the default.** Reported as *"the idle spine I place in the symbol state
-  machine only plays 2 times, and then it stops."*
+  Loop, and looping is the default.** Reported as _"the idle spine I place in the symbol state
+  machine only plays 2 times, and then it stops."_
   - **Why twice, exactly.** `ReelSymbol` mounted `<Symbol>` with no `loop`, so it reached
     `SpineTrack` as `undefined` and every spine state was a one-shot that froze on its last frame
     (confirmed live in the running game: `loop: false`, `trackTime` 9.35 on a 2s clip). The symbol
@@ -525,7 +528,7 @@ Working on `main`:
     decision (the Book expand/reveal riders, which loop only `bookIdle`).
   - **This CHANGES existing games** (owner's call, asked and answered): every spine symbol state that
     used to freeze will now repeat until an author ticks Loop off. Verified safe for the states the
-    game AWAITS — spine-core queues `complete` *"if completed a loop iteration or the animation"*, so
+    game AWAITS — spine-core queues `complete` _"if completed a loop iteration or the animation"_, so
     `land`/`win`/`explosion` still advance on their first cycle; they just keep animating while they
     wait. A looping `win` now fires `oncomplete` once per cycle rather than once, which the board's
     state set absorbs.
@@ -535,8 +538,8 @@ Working on `main`:
     absent stays absent, a non-boolean rejected, flipbook cells too); launcher, lines, pixi-svelte and
     engine-layout all build.
   - ⚠️ **Pre-existing and NOT from this change:** `pnpm --filter launcher-api run
-    check:symbol-state-parity` failed 4 assertions on a clean `origin/main` checkout (`intro → unset
-    in the grid (engine draws land)`). Confirmed by stashing. **Fixed 2026-08-27** — see the entry at
+check:symbol-state-parity` failed 4 assertions on a clean `origin/main` checkout (`intro → unset
+in the grid (engine draws land)`). Confirmed by stashing. **Fixed 2026-08-27** — see the entry at
     the top of this section; the gate’s own copy of the inheritance table was the stale side.
 - 2026-08-27 — **The stage was sized from the wrong box, so every rig was painted ~1.7% too far
   right and its bound FX was not — the reported "I can see the FX in the state machine but it's
@@ -545,7 +548,7 @@ Working on `main`:
   the container's `clientWidth` is short by a scrollbar — **measured live: 885 against a 900px
   canvas**. The backing store was `floor(885 × dpr)` but displayed across 900 CSS px, so the browser
   stretched everything drawn by ×1.01695, growing with x: a cell at x=885 landed at 900. The FX
-  overlay is its own correctly-sized Pixi canvas, so it put each burst where the code *thought* the
+  overlay is its own correctly-sized Pixi canvas, so it put each burst where the code _thought_ the
   bone was — **15px adrift at the right of the grid**, and worse the further right the symbol sat.
   Fixed by reading the canvas's OWN box (`canvas.clientWidth/Height`), which fixes both halves at
   once: the backing store matches what it is painted across (no stretch), the mirror axis matches
@@ -569,8 +572,9 @@ Working on `main`:
 - 2026-08-25 — **New "Symbol sounds" section — the cue ONE symbol plays entering ONE state.** The
   per-symbol half of the sound-binding work (the game-wide half is `/config` → Sounds; see
   `docs/status/engine.md` for the whole story). New `symbolSounds` on the doc: `symbol → state →
-  audiosprite key`, sparse at both levels, assetless (the name addresses a region of the game's own
+audiosprite key`, sparse at both levels, assetless (the name addresses a region of the game's own
   audiosprite), travelling export → bake → `bakedSymbolSounds()`.
+
   - **A SEPARATE section, not a `sound` field on the state cell** — and that is load-bearing. The doc
     is merged over the coded map cell-by-cell (`mergeSymbolMap` spreads per STATE), so an override
     cell carrying only a sound would replace the whole binding and take the state's ART with it. The
@@ -599,7 +603,7 @@ Working on `main`:
   asset class. The runtime signal is the covered cells' own `symbolState`: `Board.svelte` already sets
   `win` on every paying cell (and reverts it after the beat), so `StackedPicture` reads them and swaps
   — any one lit covered cell lights the whole picture, since half a picture cannot pay. A new
-  `winHoldMs` sizes that beat (the fixed wait a covered cell holds *because* it has no per-icon
+  `winHoldMs` sizes that beat (the fixed wait a covered cell holds _because_ it has no per-icon
   `oncomplete` to await), which is also how long an authored win animation plays; blank ⇒ the coded
   650 ms. Sparse throughout: no `winArt` ⇒ the run carries none, `StackedPicture` never reads the
   board, and the render path is byte-identical to before. Also fixed in passing: `bake-editor-doc.mjs`
@@ -653,6 +657,7 @@ Working on `main`:
 - 2026-08-21 — **The no-animation banner was crying wolf, and the grid disagreed with the game
   about an empty `Tumble explosion` cell.** Three fixes, one report ("why do I get all these
   warnings? I do not see anything wrong").
+
   - **The warning's claim was two months stale.** It fired on any spine cell left on
     `(first animation)` and said the cell "renders blank in-game". That stopped being true when
     `pixi-svelte`'s `SpineTrack` gained its fallback to `skeletonData.animations[0]` — so a rig
@@ -675,7 +680,7 @@ Working on `main`:
     and painting every unbound cell with resting art would destroy the grid's only signal for
     "nothing is bound here" (the `unset` chip's tooltip says it instead).
   - **The two rules are now pinned together offline.** `pnpm --filter launcher-api
-    check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a symbol's state
+check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a symbol's state
     map through BOTH `resolveSymbolState` and `effectiveCell` for every state, from an authored
     override AND from a published default, and asserts they agree — including the one divergence
     that is deliberate (`static` last resort), so it stays a decision rather than becoming drift
