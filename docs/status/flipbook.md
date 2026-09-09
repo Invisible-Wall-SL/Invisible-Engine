@@ -217,6 +217,32 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-09 — **A session delete now VERIFIES against R2 before it reports success**
+  (`video_runner.delete_session`). `storage.delete` swallows every error, so a read-only token or
+  a transport blip returned `ok` for objects still sitting in the bucket — the same false success
+  the Sheet Maker's delete grew a verify pass to stop telling (`sheet_server.api_delete_sheet`).
+  After deleting, both prefixes (`video/<session>/` and the `video/_out/iwvid_<session>_` slots)
+  are re-listed; anything left — a listing that *raises* included, because "could not check" is
+  not "nothing is there" — raises a `ValueError` naming the first leftover key. That surfaces as
+  a 200 + `{error}` the Video mode renders verbatim, and `removeSession` keeps the row instead of
+  drawing the session as gone. Staging is cleared only once R2 is confirmed clean, so a refused
+  delete leaves the renders still viewable. Two fixtures in `test_video_runner.py`
+  (`…_r2_refused_is_reported_not_drawn_as_gone`, `…_cannot_be_verified_is_not_called_clean`).
+
+  **The per-tile 🗑 is verified too, but reports the opposite way** (`_drop_variation_file` →
+  `discard_variation`). It HEADs the key after deleting — `head`, not `exists`, because `exists`
+  folds a throttled HEAD into "gone", the one answer this must not invent — and returns `''` when
+  the object is provably gone, else a sentence. A survivor there comes back as `warning` on the
+  session and NOT as an error: the author asked for the tile to go and it does, since failing the
+  call would leave a tile on screen in order to report a storage problem nobody can act on from
+  the grid. `discardVariation` shows it in the same slot `cancel`'s warning uses, and the string
+  is per-response — never persisted, or it would follow the session around after it stopped being
+  true. Unconfirmed and still-stored are worded differently on purpose. Three more fixtures
+  (`…_r2_would_not_drop_still_goes_but_says_so`, `…_whose_removal_cannot_be_confirmed_says_that_instead`,
+  plus a no-warning assertion on the clean path); `_stub_world` now doubles `storage.head`.
+
+  Deliberately left alone: `regenerate_variation` drops the same file and ignores the string —
+  the render about to be written overwrites that exact key.
 - 2026-09-08 — **A video card can be downloaded** (owner ask: *"a download option so I can
   download each video / image sequence locally"*). ⤓ on a **done** tile opens a small panel
   offering two artifacts, and the split is the design:

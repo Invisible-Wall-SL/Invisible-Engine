@@ -1476,19 +1476,47 @@ def _live_variations(session: dict) -> list[dict]:
     return [v for v in session.get("variations", []) if v.get("status") != "deleted"]
 
 
-def _drop_variation_file(session_id: str, index: int) -> None:
-    """Remove one variation's stored render from R2 and staging. Best-effort: an
-    object that is already gone IS the wanted end state, not an error."""
+def _drop_variation_file(session_id: str, index: int) -> str:
+    """Remove one variation's stored render from R2 and staging, and say whether
+    the removal was CONFIRMED: `''` when the object is provably gone, otherwise a
+    sentence describing what is still stored.
+
+    Best-effort on the ACT — an object that is already gone IS the wanted end
+    state, not an error — but not on the REPORT. `storage.delete` swallows every
+    error, so a read-only token dropped the tile from the grid while its bytes
+    stayed in the bucket, under a confirm dialog that says "removed for good".
+    The caller decides what to do with the string: `discard_variation` shows it,
+    a re-roll ignores it because the render about to be written overwrites the
+    same key anyway.
+
+    Verified with `head`, not `exists`: `exists` folds a throttled or timed-out
+    HEAD into "gone", which is the one answer this must never invent.
+    """
     fname = f"{index:03d}.webp"
+    key = f"{_video_prefix()}/{session_id}/{fname}"
     try:
-        storage.delete(f"{_video_prefix()}/{session_id}/{fname}")
+        storage.delete(key)
     except Exception as e:  # noqa: BLE001 — the local removal still stands
         print(f"[video] could not drop {session_id}/{fname}: {e}", flush=True)
+    left = ""
+    try:
+        if storage.head(key) is not None:
+            left = (f"The tile was removed here, but its render ({fname}) is STILL "
+                    "stored in R2 — the tool's R2 token may lack delete permission.")
+    except Exception as e:  # noqa: BLE001 — unconfirmed is not confirmed-gone
+        left = (f"The tile was removed here, but whether its render ({fname}) left "
+                f"R2 could not be confirmed ({type(e).__name__}) — it may still be stored.")
+    if left:
+        print(f"[video] {session_id}/{fname}: {left}", flush=True)
+    # Staging goes either way: the slot reads `deleted` from here on, so the grid
+    # never draws the tile again and nothing would serve these bytes — keeping them
+    # would only hold disk against a render nobody can reach.
     try:
         (Path(project_paths.resolve()["staging_root"]) / "video" / session_id
          / fname).unlink()
     except OSError:
         pass
+    return left
 
 
 def _reopen(session: dict) -> None:
@@ -1657,6 +1685,14 @@ def discard_variation(session_id: str, req: dict) -> dict:
     (`003.webp`), so renumbering the grid would rename results underneath a clip
     that was made from one. The mode simply stops drawing a deleted tile; the
     session's own 🗑 is still what removes everything.
+
+    A byte removal R2 refused comes back as `warning` on the session, NOT as an
+    error: the author asked for the tile to go, and it does. Failing the call
+    would leave a tile on screen that was asked to be removed in order to report
+    a storage problem the author cannot act on from the grid — so the discard
+    stands and the surviving object is named. The whole-session 🗑 is the
+    opposite case and refuses loudly (see `delete_session`), because there the
+    row IS the thing that would otherwise lie about what it removed.
     """
     session = _load_for_edit(session_id, need_blueprint=False)
     try:
@@ -1676,9 +1712,14 @@ def discard_variation(session_id: str, req: dict) -> dict:
         session["done_count"] = sum(
             1 for v in session["variations"] if v["status"] == "done")
 
-    _drop_variation_file(session_id, index)
+    warning = _drop_variation_file(session_id, index)
     _write_meta(session_id, session)
-    return _public(session)
+    out = _public(session)
+    if warning:
+        # Per-response, never persisted: it describes THIS removal, and a stored
+        # warning would follow the session around long after it stopped being true.
+        out["warning"] = warning
+    return out
 
 
 def add_variations(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
@@ -2293,9 +2334,37 @@ def list_sessions() -> list[dict]:
     return sorted(out.values(), key=lambda s: s.get("created", 0), reverse=True)
 
 
+def _survivors(prefixes: tuple[str, ...]) -> list[str]:
+    """Re-list `prefixes` and return the keys that OUTLIVED a delete.
+
+    `storage.delete` swallows every error — a read-only token, a transport blip —
+    so the delete path itself cannot tell a removal from a no-op, and answering
+    "deleted" for objects still sitting in the bucket is the exact false success
+    the Sheet Maker's delete had to grow a verify pass to stop telling.
+
+    A listing that RAISES counts as a survivor, not as clean: "I could not check"
+    and "there is nothing there" are different answers, and only one of them may
+    be reported as a successful delete.
+    """
+    left: list[str] = []
+    for prefix in prefixes:
+        try:
+            left += [o["key"] for o in storage.list_keys(prefix)]
+        except Exception as e:  # noqa: BLE001 — unconfirmed reads as not-gone
+            left.append(f"{prefix} (could not re-list: {type(e).__name__}: {e})")
+    return left
+
+
 def delete_session(session_id: str) -> dict:
     """Remove a session's objects from R2 + staging. Nothing prunes
-    `<project>/video/` on its own, so this is the only way a session goes away."""
+    `<project>/video/` on its own, so this is the only way a session goes away.
+
+    R2 is the SOURCE OF TRUTH and it is VERIFIED: after deleting we re-list the
+    prefixes and raise if anything survived, so a delete that R2 refused is
+    reported instead of being drawn as a session that went away. The rail is
+    rebuilt from the stored `meta.json`, so a refused delete puts the session
+    straight back rather than stranding its bytes behind a row nobody can see.
+    """
     if not valid_session_id(session_id):
         raise ValueError("Bad session id.")
     with _LOCK:
@@ -2309,20 +2378,37 @@ def delete_session(session_id: str) -> dict:
     # The session's own objects AND its hand-off slots. The slots live under
     # `video/_out/`, not under the session, so deleting only the session prefix
     # leaked one file per stranded render — unreferenced, unreachable, and paid for.
+    prefixes = (f"{_video_prefix()}/{session_id}/",
+                f"{_video_prefix()}/_out/{_slot_prefix(session_id, 0)[:-3]}")
     try:
         lease.release(_lease_key(session_id), _holder())
         storage.delete(_lease_key(session_id).path())
     except Exception:  # noqa: BLE001 — a stale lease expires on its own
         pass
     _META_ETAGS.pop(f"{_video_prefix()}/{session_id}/meta.json", None)
-    for prefix in (f"{_video_prefix()}/{session_id}/",
-                   f"{_video_prefix()}/_out/{_slot_prefix(session_id, 0)[:-3]}"):
+    for prefix in prefixes:
         try:
             for obj in storage.list_keys(prefix):
                 storage.delete(obj["key"])
                 removed += 1
         except Exception as e:  # noqa: BLE001
             print(f"[video] delete failed for {session_id}: {e}", flush=True)
+
+    # VERIFY before reporting success — and before clearing staging, so a refused
+    # delete leaves the renders still viewable here instead of half-gone. The
+    # leftover key is named because a PARTIAL delete (meta.json gone, one render
+    # left) drops the session from the rail, and then this message is the only
+    # thing that says where the orphan is.
+    remaining = _survivors(prefixes)
+    if remaining:
+        print(f"[video] delete left {len(remaining)} object(s) for {session_id}: "
+              f"{remaining[0]}", flush=True)
+        raise ValueError(
+            f"Could not delete this session from R2 — {len(remaining)} object(s) "
+            "still remain at the source, so it was NOT removed. The tool's R2 "
+            "token may lack delete permission. "
+            f"(First leftover: {remaining[0]})")
+
     try:
         d = Path(project_paths.resolve()["staging_root"]) / "video" / session_id
         for f in sorted(d.glob("*")):
