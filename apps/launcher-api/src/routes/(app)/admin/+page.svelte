@@ -2122,7 +2122,7 @@
 				This deletes <strong>{footprint.objects.toLocaleString()}</strong> files
 				({sizeLabel(footprint.bytes)}) from
 				{#each footprint.roots as root (root)}
-					<code>{root}</code>{' '}
+					<code>{root}</code>
 				{/each}
 				and removes the project row.
 			</p>
