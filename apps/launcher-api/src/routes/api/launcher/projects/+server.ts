@@ -15,6 +15,7 @@ import {
 	isValidProjectKey,
 	projectClientKey,
 	projectExists,
+	projectKeyTaken,
 	renameProject,
 	setLauncherProfile,
 } from '$lib/server/projects';
@@ -146,6 +147,16 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Ensure the owning client row exists before the project references it (FK).
 	if (ownerClientKey && !(await clientExists(ownerClientKey))) {
 		await createClient(ownerClientKey, ownerClientKey);
+	}
+
+	// A soft-deleted project reads as absent to `projectExists`, so the upsert below would
+	// take the CREATE branch and hit a primary-key violation. Refuse with the real reason:
+	// silently resurrecting a project someone deleted would be worse than either outcome.
+	if (!(await projectExists(key)) && (await projectKeyTaken(key))) {
+		return json(
+			{ error: `Project "${key}" is deleted. Restore or purge it in /admin first.` },
+			{ status: 409, headers: NO_STORE },
+		);
 	}
 
 	// Upsert: rename an existing project (+ re-assign its client if it changed), else create.

@@ -42,14 +42,20 @@ import {
 	deleteProject,
 	grantProjectAccess,
 	isValidProjectKey,
+	listDeletedProjects,
 	listProjects,
 	projectAccessFor,
 	projectClientKey,
 	projectExists,
+	projectIsDeleted,
+	projectKeyTaken,
 	renameProject,
+	restoreProject,
 	revokeProjectAccess,
 	setProjectGameType,
+	softDeleteProject,
 } from '$lib/server/projects';
+import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
@@ -152,6 +158,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const overrides = await getToolOverridesFor(userList.map((u) => u.id));
 	const roleOverrides = await getAllRoleOverrides();
 	const projects = await listProjects();
+	// Soft-deleted projects, shown in their own section so a delete is visibly
+	// reversible and the permanent purge lives somewhere separate from the row grid.
+	const deletedProjects = await listDeletedProjects();
 	const projectAccess = await projectAccessFor(userList.map((u) => u.id));
 	const clients = await listClients();
 	const clientAccess = await clientAccessFor(userList.map((u) => u.id));
@@ -212,6 +221,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		) as Record<string, Record<string, boolean>>,
 		roleTools: ROLE_TOOLS,
 		projects,
+		deletedProjects,
 		projectAccess,
 		clients,
 		clientAccess,
@@ -447,6 +457,14 @@ export const actions: Actions = {
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
+		// A tombstoned key is still a primary key, so inserting over it would 500. Name the
+		// real reason and the two ways out instead.
+		if (await projectKeyTaken(key)) {
+			return fail(400, {
+				action: 'createProject',
+				error: `"${key}" is a deleted project. Restore it, or purge it to free the key.`,
+			});
+		}
 		if (clientKey !== null && !(await clientExists(clientKey))) {
 			return fail(400, { action: 'createProject', error: 'Unknown client.' });
 		}
@@ -518,9 +536,82 @@ export const actions: Actions = {
 			return fail(400, { action: 'deleteProject', error: 'Unknown project.' });
 		}
 
-		// Grants cascade; sessions pointing here reset to the default via ON DELETE SET NULL.
+		// SOFT delete. The row, its read token and every R2 object survive; the project
+		// simply leaves every picker until it is restored or explicitly purged. Its games
+		// are unregistered (they cannot work without it) and any session parked on it
+		// drops back to the default.
+		const unregistered = await softDeleteProject(key, new Date());
+		const games = unregistered.length
+			? ` Unregistered ${unregistered.length} game${unregistered.length === 1 ? '' : 's'}: ${unregistered.join(', ')}.`
+			: '';
+		return {
+			action: 'deleteProject',
+			ok: `Deleted ${key}. Its files are untouched — restore it below, or purge them permanently.${games}`,
+		};
+	},
+
+	restoreProject: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+
+		// Tombstoned specifically — "restoring" a live project would report success on
+		// a no-op and read as though something had been recovered.
+		if (!(await projectIsDeleted(key))) {
+			return fail(400, { action: 'restoreProject', error: 'That project is not deleted.' });
+		}
+		await restoreProject(key);
+		return {
+			action: 'restoreProject',
+			ok: `Restored ${key}. Its games were not re-registered — re-publish if you need them.`,
+		};
+	},
+
+	/**
+	 * The ONLY destructive path: erases every R2 object the project owns, then drops
+	 * the row for good. Reachable only for an ALREADY soft-deleted project, so it can
+	 * never be the button someone hits by accident on a live one.
+	 */
+	purgeProject: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		// The typed guard is enforced server-side too — a client-side-only guard is
+		// decoration, and this action is unrecoverable.
+		const typed = String(data.get('confirmKey') ?? '');
+
+		if (key === DEFAULT_PROJECT_KEY) {
+			return fail(400, { action: 'purgeProject', error: 'The default project cannot be purged.' });
+		}
+		if (typed !== key) {
+			return fail(400, {
+				action: 'purgeProject',
+				error: `Type the project key exactly ("${key}") to purge it.`,
+			});
+		}
+		if (!(await projectIsDeleted(key))) {
+			return fail(400, {
+				action: 'purgeProject',
+				error: 'Only a deleted project can be purged. Delete it first.',
+			});
+		}
+
+		let purged: { roots: string[]; deleted: number };
+		try {
+			// Resolves the owning client itself and re-runs BOTH refusal checks against
+			// the roots it is about to delete — the dialog's preflight may be minutes old.
+			purged = await purgeProjectR2(key);
+		} catch (e) {
+			if (e instanceof PurgeUnsafeError) {
+				return fail(400, { action: 'purgeProject', error: e.message });
+			}
+			throw e;
+		}
 		await deleteProject(key);
-		return { action: 'deleteProject', ok: 'Project deleted.' };
+		return {
+			action: 'purgeProject',
+			ok: `Purged ${key}: ${purged.deleted} file${purged.deleted === 1 ? '' : 's'} deleted from ${purged.roots.join(' and ')}. This cannot be undone.`,
+		};
 	},
 
 	setProjectAccess: async ({ request, locals }) => {

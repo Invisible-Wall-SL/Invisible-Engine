@@ -3,6 +3,8 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import BootMarkPreview from '$lib/BootMarkPreview.svelte';
 	import ColorField from '$lib/ColorField.svelte';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import type { ProjectFootprint } from '$lib/projectFootprint';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { roleLabel } from '$lib/roles';
 	import {
@@ -21,6 +23,78 @@
 	let layoutProfile = $state<LayoutProfile>(
 		structuredClone(data.layoutProfile.profile) as LayoutProfile,
 	);
+
+	// --- Project delete / purge -------------------------------------------------
+	// Both destructive project actions go through a modal. `showModal()` makes the rest
+	// of the page inert, which is the actual fix for the accident this replaced: the old
+	// Delete was a bare submit sitting one button away from Rescaffold, with no confirm
+	// and no busy state, so a misclick deleted a project instantly and nothing stopped a
+	// second click landing somewhere else while the request was in flight.
+	let deleteTarget = $state<{ key: string; name: string } | null>(null);
+	let purgeTarget = $state<{ key: string; name: string } | null>(null);
+	let footprint = $state<ProjectFootprint | null>(null);
+	let footprintError = $state('');
+	let projectBusy = $state(false);
+	let purgeConfirmKey = $state('');
+	/** A rejected attempt, shown INSIDE the open dialog rather than behind it. */
+	let projectActionError = $state('');
+	let deleteFormEl = $state<HTMLFormElement | null>(null);
+	let purgeFormEl = $state<HTMLFormElement | null>(null);
+
+	/** Guards against a slow footprint response landing in a dialog opened since. */
+	let footprintRequest = 0;
+
+	async function loadFootprint(key: string) {
+		footprint = null;
+		footprintError = '';
+		const ticket = ++footprintRequest;
+		try {
+			const res = await fetch(`/api/admin/project-footprint?project=${encodeURIComponent(key)}`);
+			if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+			const body: ProjectFootprint = await res.json();
+			if (ticket === footprintRequest) footprint = body;
+		} catch (e) {
+			if (ticket === footprintRequest) {
+				footprintError = e instanceof Error ? e.message : String(e);
+			}
+		}
+	}
+
+	function openDelete(project: { key: string; name: string }) {
+		projectActionError = '';
+		deleteTarget = { key: project.key, name: project.name };
+		void loadFootprint(project.key);
+	}
+
+	function openPurge(project: { key: string; name: string }) {
+		projectActionError = '';
+		purgeConfirmKey = '';
+		purgeTarget = { key: project.key, name: project.name };
+		void loadFootprint(project.key);
+	}
+
+	// A purge is thousands of R2 deletes and is not resumable — closing the tab halfway
+	// leaves a partly-erased project. The modal blocks in-page clicks; only this covers
+	// the tab itself.
+	$effect(() => {
+		if (!projectBusy) return;
+		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+		window.addEventListener('beforeunload', warn);
+		return () => window.removeEventListener('beforeunload', warn);
+	});
+
+	/** Bytes as a human size. Deliberately blunt — this number justifies a destruction. */
+	function sizeLabel(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		const units = ['KB', 'MB', 'GB', 'TB'];
+		let value = bytes / 1024;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit++;
+		}
+		return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+	}
 
 	// --- Tabs ---
 	type TabId =
@@ -852,10 +926,14 @@
 						{#if p.key === data.defaultProjectKey}
 							<span class="pill on">default</span>
 						{:else}
-							<form method="POST" action="?/deleteProject" use:enhance>
-								<input type="hidden" name="key" value={p.key} />
-								<button type="submit" class="danger small">Delete</button>
-							</form>
+							<button
+								type="button"
+								class="danger small"
+								onclick={() => openDelete(p)}
+								disabled={projectBusy}
+							>
+								Delete
+							</button>
 						{/if}
 					</div>
 				{/each}
@@ -883,6 +961,51 @@
 				</form>
 			</div>
 		</section>
+
+		{#if data.deletedProjects.length > 0}
+			<section>
+				<h2>Deleted projects</h2>
+				<p class="muted hint">
+					Deleting a project only hides it — every file it owns is still in R2 and a restore
+					brings it back with its read token intact, so published game URLs keep working.
+					<strong>Purge files</strong> is the only destructive action here: it permanently
+					deletes the project's R2 objects and drops the row for good.
+				</p>
+				<div class="projects">
+					{#each data.deletedProjects as p (p.key)}
+						<div class="project-row deleted">
+							<span class="mono key">{p.key}</span>
+							<span class="dname">{p.name}</span>
+							<span class="pill off">
+								deleted {p.deletedAt ? new Date(p.deletedAt).toLocaleDateString() : ''}
+							</span>
+							<form
+								method="POST"
+								action="?/restoreProject"
+								use:enhance={() => {
+									projectBusy = true;
+									return async ({ update }) => {
+										await update();
+										projectBusy = false;
+									};
+								}}
+							>
+								<input type="hidden" name="key" value={p.key} />
+								<button type="submit" class="small" disabled={projectBusy}>Restore</button>
+							</form>
+							<button
+								type="button"
+								class="danger small"
+								onclick={() => openPurge(p)}
+								disabled={projectBusy}
+							>
+								Purge files
+							</button>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
 	</div>
 
 	<!-- CLIENTS -->
@@ -1853,6 +1976,161 @@
 	</div>
 </div>
 
+<!--
+	The two destructive project actions. The forms carry no visible controls — the modal
+	is the only way to submit them, so neither action can be triggered by a stray click
+	or an Enter key in the row grid.
+-->
+<form
+	method="POST"
+	action="?/deleteProject"
+	bind:this={deleteFormEl}
+	use:enhance={() => {
+		projectBusy = true;
+		projectActionError = '';
+		// The dialog stays up, un-dismissable, until the server has answered.
+		return async ({ result, update }) => {
+			if (result.type === 'failure' || result.type === 'error') {
+				projectActionError =
+					result.type === 'failure'
+						? String(result.data?.error ?? 'Delete failed.')
+						: `Delete failed: ${result.error?.message ?? 'unknown error'}`;
+				projectBusy = false;
+				return;
+			}
+			deleteTarget = null;
+			await update();
+			projectBusy = false;
+		};
+	}}
+>
+	<input type="hidden" name="key" value={deleteTarget?.key ?? ''} />
+</form>
+
+<form
+	method="POST"
+	action="?/purgeProject"
+	bind:this={purgeFormEl}
+	use:enhance={({ formData }) => {
+		// Set on the FormData, NOT via a hidden input: Svelte flushes template effects in a
+		// microtask, but `requestSubmit()` dispatches `submit` synchronously and enhance
+		// builds `new FormData(form)` before its first await — so a bound hidden input still
+		// carries the PREVIOUS value on the first click, and every purge would be rejected
+		// as a mistyped key until you clicked twice.
+		formData.set('confirmKey', purgeConfirmKey);
+		projectBusy = true;
+		projectActionError = '';
+		return async ({ result, update }) => {
+			if (result.type === 'failure' || result.type === 'error') {
+				// A refused OR crashed purge must never look like a completed one — after a
+				// partial failure the operator needs to be told, not returned to a clean page.
+				projectActionError =
+					result.type === 'failure'
+						? String(result.data?.error ?? 'Purge failed.')
+						: `Purge failed: ${result.error?.message ?? 'unknown error'}`;
+				projectBusy = false;
+				return;
+			}
+			purgeTarget = null;
+			purgeConfirmKey = '';
+			await update();
+			// Released only after the reload lands, so the row buttons can't be clicked
+			// against a stale grid.
+			projectBusy = false;
+		};
+	}}
+>
+	<input type="hidden" name="key" value={purgeTarget?.key ?? ''} />
+</form>
+
+<ConfirmDialog
+	open={deleteTarget !== null}
+	title={`Delete “${deleteTarget?.name ?? ''}”?`}
+	confirmLabel="Delete project"
+	danger
+	busy={projectBusy}
+	busyLabel="Deleting…"
+	error={projectActionError}
+	onconfirm={() => deleteFormEl?.requestSubmit()}
+	oncancel={() => (deleteTarget = null)}
+>
+	{#snippet body()}
+		<p>
+			<code>{deleteTarget?.key}</code> disappears from every picker and tool. Its files are
+			<strong>not</strong> deleted — you can restore it from the Deleted projects list below.
+		</p>
+		{#if footprintError}
+			<p class="warn">Could not read its files: {footprintError}</p>
+		{:else if footprint === null}
+			<p class="muted">Checking what it owns…</p>
+		{:else}
+			<p>
+				Keeping <strong>{footprint.objects.toLocaleString()}</strong> files
+				({sizeLabel(footprint.bytes)}) in R2.
+			</p>
+			{#if footprint.games.length > 0}
+				<p class="warn">
+					Unregisters {footprint.games.length} published game{footprint.games.length === 1
+						? ''
+						: 's'}: {footprint.games.map((g) => g.name).join(', ')}. Restoring the project does
+					not bring them back.
+				</p>
+			{/if}
+		{/if}
+	{/snippet}
+</ConfirmDialog>
+
+<ConfirmDialog
+	open={purgeTarget !== null}
+	title={`Permanently delete “${purgeTarget?.name ?? ''}” files?`}
+	confirmLabel="Purge permanently"
+	danger
+	requireText={purgeTarget?.key ?? ''}
+	requireHint={`Type ${purgeTarget?.key ?? ''} to confirm`}
+	busy={projectBusy}
+	busyLabel="Purging…"
+	blocked={footprint === null ||
+		footprintError !== '' ||
+		footprint.collidesWith.length > 0 ||
+		footprint.strayPrefixes.length > 0}
+	error={projectActionError}
+	onconfirm={(typed) => {
+		purgeConfirmKey = typed;
+		purgeFormEl?.requestSubmit();
+	}}
+	oncancel={() => (purgeTarget = null)}
+>
+	{#snippet body()}
+		{#if footprintError}
+			<p class="warn">Could not read its files: {footprintError}</p>
+		{:else if footprint === null}
+			<p class="muted">Counting files…</p>
+		{:else if footprint.collidesWith.length > 0}
+			<p class="warn">
+				Blocked: {footprint.collidesWith.join(', ')} shares this project's R2 folder, so purging
+				would destroy that project's work too. Rename one of them first.
+			</p>
+		{:else if footprint.strayPrefixes.length > 0}
+			<p class="warn">
+				Blocked: this project also has files at {footprint.strayPrefixes.join(', ')}, outside the
+				folders this purge covers — it was most likely moved to another client after those were
+				written. Purging now would strand them with no project left to delete them from. Move or
+				delete them in the FTP Browser first.
+			</p>
+		{:else}
+			<p>
+				This deletes <strong>{footprint.objects.toLocaleString()}</strong> files
+				({sizeLabel(footprint.bytes)}) from
+				{#each footprint.roots as root (root)}
+					<code>{root}</code>
+				{/each}
+				and removes the project row.
+			</p>
+			<p class="warn">There is no undo. Nothing recovers this.</p>
+		{/if}
+	{/snippet}
+</ConfirmDialog>
+
 <style>
 	.shell {
 		width: 100%;
@@ -2286,6 +2564,12 @@
 	.rm-cell select.tri.revoke {
 		border-color: #6b2f33;
 		color: #ff9d9d;
+	}
+	.project-row.deleted {
+		opacity: 0.75;
+	}
+	.project-row.deleted .dname {
+		color: #b9b9c6;
 	}
 	.pill.locked {
 		justify-self: stretch;

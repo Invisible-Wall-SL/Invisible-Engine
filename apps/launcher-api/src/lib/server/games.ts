@@ -52,6 +52,20 @@ export async function listGamesForProject(projectKey: string): Promise<Game[]> {
 		.orderBy(games.name);
 }
 
+/**
+ * Games this project actually OWNS — strictly `project_key = key`, no global rows.
+ *
+ * Distinct from {@link listGamesForProject}, which deliberately also returns global
+ * (`project_key IS NULL`) games because they are *visible* under every project. Anything
+ * that reports or acts on what a project owns must use THIS: the delete confirmation
+ * briefly used the visibility query and so named global games it was never going to
+ * touch, on a project that owned none. Same predicate as `softDeleteProject`, so what
+ * the dialog promises and what the delete does cannot drift apart.
+ */
+export async function listGamesOwnedByProject(projectKey: string): Promise<Game[]> {
+	return getDb().select().from(games).where(eq(games.projectKey, projectKey)).orderBy(games.name);
+}
+
 export async function gameExists(key: string): Promise<boolean> {
 	const [row] = await getDb().select({ key: games.key }).from(games).where(eq(games.key, key));
 	return Boolean(row);

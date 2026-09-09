@@ -12,6 +12,7 @@ import {
 	createProject,
 	isValidProjectKey,
 	projectExists,
+	projectKeyTaken,
 } from '$lib/server/projects';
 import { listAllObjects } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -167,6 +168,13 @@ export const actions: Actions = {
 		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'create', error: 'A project with that key exists.' });
+		}
+		// A soft-deleted row still holds the primary key — insert would 500. Say why.
+		if (await projectKeyTaken(key)) {
+			return fail(400, {
+				action: 'create',
+				error: `"${key}" is a deleted project. An admin can restore or purge it in /admin.`,
+			});
 		}
 		if (clientKey !== null && !(await clientExists(clientKey))) {
 			return fail(400, { action: 'create', error: 'Unknown client.' });

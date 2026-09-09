@@ -246,3 +246,32 @@ it cannot size its parent.
 inside a scaled element — a bounds box, a handle, a hit-test — has its pixel numbers and its
 pointer offsets silently multiplied, so it drifts at every zoom but 100%. Sizing the pane keeps its
 children in plain screen pixels and keeps a redrawn canvas sharp instead of upscaled.
+
+### 17. Confirmation / destructive-action dialog
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`ConfirmDialog.svelte`** — native `<dialog>` + `showModal()`. Snippet `body`, optional `requireText` typed guard, `busy` (holds it open + un-dismissable while the action runs), `blocked` (a precondition typing can't defeat), `error` (a failed attempt rendered inside), `danger` fill. `onconfirm(typed)` hands the guard text back so the SERVER can re-validate it | A | `apps/launcher-api/src/lib/ConfirmDialog.svelte` | **canonical for domain A** — consumers: admin project delete + purge |
+| `window.confirm()` — ~15 call sites (`files`, `fx`, `flipbook`, `components`, `editor`, `comfyui`) | A | various `(app)/*/+page.svelte` | **legacy** — migrate to `<ConfirmDialog>`; a `askConfirm(): Promise<boolean>` wrapper over one host in `(app)/+layout.svelte` is the natural next step |
+| Hand-rolled `.modal-backdrop` divs | A | `(app)/game-maker/+page.svelte` (×3) | **legacy** — same target |
+
+→ **`showModal()` is the reason to use the native element, and it is not cosmetic.** It makes the
+rest of the page *inert* — neighbouring buttons cannot be clicked, focused or tab-reached — so a
+misclick during an in-flight action is impossible without maintaining a list of `disabled`
+attributes. It also brings a real focus trap, Escape as a cancellable `cancel` event, and the top
+layer (above every `z-index`). This replaced a bare `<button class="danger">Delete</button>` sitting
+one button away from Rescaffold, with no confirmation at all, which is exactly how a project with
+2,488 R2 objects got deleted by accident.
+
+→ **A client-side guard is decoration.** Whatever `requireText` demands, the action re-checks it
+server-side (`purgeProject` compares the posted `confirmKey` to the project key) — and re-runs its
+own preconditions at the moment of the write, because the dialog may have sat open for minutes.
+
+→ **`open` is ONE-WAY and `oncancel` is REQUIRED** — the dialog never closes itself. It was briefly
+a `$bindable` no consumer bound, which meant Cancel wrote a local override that only re-synced
+because `oncancel` happened to change the parent expression; a consumer omitting `oncancel` would
+have got a dialog that closed once and could never reopen, silently.
+
+→ **Don't hand a value to a submit through a bound hidden `<input>`.** Svelte flushes template
+effects in a microtask, but `requestSubmit()` dispatches `submit` synchronously and SvelteKit's
+`enhance` builds `new FormData(form)` before its first `await` — so the POST carries the PREVIOUS
+value and only a second click works. Set it on the `FormData` inside the enhance callback.
