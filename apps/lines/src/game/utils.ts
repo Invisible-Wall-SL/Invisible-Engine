@@ -6,7 +6,7 @@ import { sequence } from 'utils-shared/sequence';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { boardDimensions } from './gameConfig';
-import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
+import { getActiveSymbolInfoMap, resolveSymbolSizeRatios, symbolMapGeneration } from './symbolMap';
 import { resolveSymbolState } from './symbolCell';
 import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
@@ -273,7 +273,57 @@ const warnedMissingArt = new Set<string>();
 export const hasAuthoredSymbolState = (symbolName: string, state: SymbolState): boolean =>
 	resolveSymbolState(getActiveSymbolInfoMap()[symbolName], state) === state;
 
+/**
+ * THE RESOLVED CELL IS MEMOISED, AND THE MEMO IS ABOUT IDENTITY RATHER THAN SPEED.
+ *
+ * `Symbol.svelte`/`TumbleSymbol.svelte` hold this behind a `$derived`, and every renderer
+ * downstream keys work off the OBJECT it returns: `SymbolFlipbook` re-arms the beat that decides
+ * how long a state is held (`$effect(() => { props.symbolInfo; setTimeout(oncomplete, cycleMs) })`)
+ * and re-folds the clip it plays. Returning a fresh object for an unchanged symbol therefore does
+ * not cost a comparison — it restarts the animation the player is watching.
+ *
+ * That is not hypothetical. Measured on a live cascading board: ONE spin re-armed the flipbook beat
+ * 99 times across ~20 symbols, in five board-wide bursts spaced exactly one explosion-pattern step
+ * apart — every column's explode step re-derived every symbol on the board, so each symbol's emerge
+ * restarted five times over. Nothing was remounted (zero display objects were created), and the
+ * symbol's STATE was assigned exactly once; only the identity churned.
+ *
+ * The result is a pure function of `(name, state)` — the map is memoised and immutable, the size
+ * resolver reads the same baked doc, and nothing mutates what comes back (asserted before this was
+ * added). So caching it is safe, and it makes the whole render path immune to upstream churn by
+ * construction rather than by every consumer remembering to compare.
+ *
+ * Keyed by the map GENERATION too, so the live runtime bundle's arrival (`resetSymbolMapCache`)
+ * invalidates this in the same breath — otherwise an online game would render the coded template
+ * art forever, which is the exact bug that reset exists to prevent.
+ */
+const symbolInfoMemo = new Map<string, ReturnType<typeof resolveSymbolInfo>>();
+let symbolInfoMemoGeneration = -1;
+
 export const getSymbolInfo = ({
+	rawSymbol,
+	state,
+}: {
+	rawSymbol: RawSymbol;
+	state: SymbolState;
+}) => {
+	const generation = symbolMapGeneration();
+	if (generation !== symbolInfoMemoGeneration) {
+		symbolInfoMemo.clear();
+		symbolInfoMemoGeneration = generation;
+	}
+	// `JSON.stringify` rather than a joined string: a symbol name is author-supplied, and any
+	// separator character it might legally contain would let two different (name, state) pairs
+	// collide onto one another's art.
+	const key = JSON.stringify([rawSymbol.name, state]);
+	const memoised = symbolInfoMemo.get(key);
+	if (memoised) return memoised;
+	const resolved = resolveSymbolInfo({ rawSymbol, state });
+	symbolInfoMemo.set(key, resolved);
+	return resolved;
+};
+
+const resolveSymbolInfo = ({
 	rawSymbol,
 	state,
 }: {
