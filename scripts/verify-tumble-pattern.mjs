@@ -3,7 +3,7 @@
 //
 //   node scripts/verify-tumble-pattern.mjs
 //
-// WHAT IT PROVES, in three parts.
+// WHAT IT PROVES, in five parts.
 //
 //   1. THE ORDERING, over the REAL `tumbleExplosionDelays`. Every pattern's shape is asserted as a
 //      wave grid rather than described in a comment, plus the three rules that are easy to get
@@ -29,6 +29,18 @@
 //      a skipped round, `tumbleBoardReset`) must not pop the symbols that are no longer on it: they
 //      have no renderer, so they can never report `oncomplete`, and the beat would stall on the one
 //      step every cascading spin runs.
+//
+//   4. THE EXPLOSION → INTRO TRANSITION rides its OWN seat's pop — a fixed authored delay after the
+//      wave that seat is in, so the bridges sweep with the waves instead of bunching onto the last
+//      one. That regressed once, at the CALL SITE, which is why the stub still applies a fourth
+//      argument if one is passed rather than ignoring it.
+//
+//   5. A SPENT SEAT IS UNDRAWN. Removal is board-wide and stays so (it would otherwise shift every
+//      index below it), but a pattern pushes it a spread later than the seat's own animation, and a
+//      symbol drawn through that gap goes on looping. So it stops being rendered the moment it
+//      REPORTS — which is not the same as when the beat resolves, because the beat is raced against
+//      a cap. The clock therefore keeps draining past settlement: a pop longer than the cap reports
+//      late, and taking it off the board at the right moment depends on that late report arriving.
 //
 // The parts that live in the launcher — the doc schema's prune, the client setters, the dirty
 // signature, and the two bundle-path whitelists — are asserted by
@@ -469,6 +481,33 @@ const buildExplode = (env) => {
 	return make(...names.map((name) => env[name]));
 };
 
+/**
+ * The REAL `awaitExplosion`, sliced the same way and for the same reason as the handler above.
+ *
+ * It is what decides that a symbol stops being DRAWN the moment its own pop reports — the half of
+ * the step that keeps an early column from re-playing its explosion while the later ones are still
+ * going. Restating it here instead of slicing it would leave the rule the fixture exists to protect
+ * untested, which is how it would come back.
+ */
+const awaitExplosionSource = (() => {
+	const component = read('apps/lines/src/components/TumbleBoard.svelte');
+	const script = component.slice(component.lastIndexOf('<script lang="ts">'));
+	const start = script.indexOf('\tconst awaitExplosion =');
+	if (start < 0) throw new Error('TumbleBoard.svelte no longer declares awaitExplosion');
+	// To the blank line that ends the declaration — Prettier separates top-level declarations, so
+	// this is stable, and it throws rather than silently truncating if that ever stops being true.
+	const end = script.indexOf('\n\n', start);
+	if (end < 0) throw new Error('could not find the end of awaitExplosion');
+	return script.slice(start, end);
+})();
+
+const buildAwaitExplosion = (awaitBeat) =>
+	// eslint-disable-next-line no-new-func
+	new Function(
+		'awaitBeat',
+		`${stripTypeScriptTypes(awaitExplosionSource)}\nreturn awaitExplosion;`,
+	)(awaitBeat);
+
 /** Timers resolved in armed order at each virtual instant, so a run is deterministic. */
 const createClock = () => {
 	let now = 0;
@@ -494,7 +533,23 @@ const createClock = () => {
 			await drain();
 		}
 		await finished;
-		return now;
+		const settledAt = now;
+		// KEEP GOING past the step, because the game does. A timer armed before the step ended does
+		// not evaporate when it ends: a symbol whose animation outran the beat cap still reports on
+		// its own last frame, into a promise that has already settled — `symbolBeat.ts` says so in
+		// as many words, and `awaitExplosion` depends on it to take a long pop off the board at the
+		// right moment rather than at the cap. Stopping the clock at settlement would silently drop
+		// exactly that timer and make the late report untestable.
+		//
+		// Bounded, and it does NOT move the reported settle time — that is captured above.
+		for (let guard = 0; pending.length && guard < 100; guard += 1) {
+			now = pending.reduce((min, t) => Math.min(min, t.at), Number.POSITIVE_INFINITY);
+			const due = pending.filter((t) => t.at <= now).sort((a, b) => a.seq - b.seq);
+			pending = pending.filter((t) => t.at > now);
+			for (const timer of due) timer.resolve();
+			await drain();
+		}
+		return settledAt;
 	};
 	return { wait, run, at: () => now };
 };
@@ -502,6 +557,22 @@ const createClock = () => {
 /** The animation every symbol's `tumbleExplosion` takes here. Longer than any gap under test, so a
  *  step that resolved on the last POP rather than on the last BEAT would be caught. */
 const BEAT_MS = 500;
+
+/**
+ * The cap the explosion beat is RACED against, read out of the shipped source so the fixture and the
+ * game cannot drift apart on it.
+ *
+ * It matters here — rather than being a detail of a helper this fixture does not slice — because the
+ * two ends of that race behave differently on purpose: a symbol that REPORTS is taken off the board,
+ * and one that only ever hits the cap is left alone. Without modelling the cap, both a correct
+ * implementation and one that marks the symbol after the `await` look identical.
+ */
+const TRANSIT_BEAT_CAP_MS = (() => {
+	const source = read('apps/lines/src/game/symbolBeat.ts');
+	const match = source.match(/export const TRANSIT_BEAT_CAP_MS = ([\d_]+);/);
+	if (!match) throw new Error('symbolBeat.ts no longer declares TRANSIT_BEAT_CAP_MS');
+	return Number(match[1].replaceAll('_', ''));
+})();
 
 const runExplode = async ({
 	pattern,
@@ -511,12 +582,32 @@ const runExplode = async ({
 	spliceAfter,
 	emerge,
 	patternScope,
+	// How long each seat's explosion takes to report. `null` = it never does — the symbol whose
+	// state is bound to no art, or to a spine animation that is not in the skeleton.
+	beatMs = BEAT_MS,
 }) => {
 	const clock = createClock();
 	const pops = [];
+	// When each seat stopped being DRAWN — `TumbleSymbol.exploded` going true, which in the game is
+	// the moment `TumbleSymbol.svelte` unmounts the cell. Recorded through a setter rather than read
+	// at the end, because the whole question is WHEN it happens relative to the seat's own pop.
+	const vanished = [];
 	// One symbol object per seat, keyed the way the board keys them: `base[reel][row]`.
-	const base = Array.from({ length: REELS }, () =>
-		Array.from({ length: ROWS }, () => ({ symbolState: 'static', rawSymbol: { name: 'H1' } })),
+	const base = Array.from({ length: REELS }, (_reelUnused, reel) =>
+		Array.from({ length: ROWS }, (_rowUnused, row) => {
+			let exploded = false;
+			return {
+				symbolState: 'static',
+				rawSymbol: { name: 'H1' },
+				get exploded() {
+					return exploded;
+				},
+				set exploded(next) {
+					exploded = next;
+					if (next) vanished.push({ reel, row, at: clock.at() });
+				},
+			};
+		}),
 	);
 	const stateTumble = { base, adding: [] };
 	// Every explosion → intro transition the step schedules, with the virtual time it would MOUNT at.
@@ -557,12 +648,33 @@ const runExplode = async ({
 			}),
 		// The beat: a symbol reports `oncomplete` BEAT_MS after its state is set, which is what an
 		// authored explosion animation does.
+		//
+		// It fires the callback the caller ARMED rather than resolving behind its back, because the
+		// caller does its own bookkeeping in there — `awaitExplosion` marks the symbol undrawn on
+		// report — and a stub that just resolved would leave that rule untested. Arming is an
+		// ASSIGNMENT (`symbol.oncomplete = …`), so it hands the callback straight back; the guard turns
+		// a rewrite that stops doing so into a loud failure rather than a silently skipped check.
+		//
+		// The CAP is raced here exactly as `awaitSymbolBeat` races it, and that is not decoration.
+		// The report and the cap are two different outcomes with two different consequences, so a stub
+		// where the report always wins cannot tell a correct implementation from one that marks the
+		// symbol after the `await` — which would take the cap path too, and cut a long pop off at 650 ms.
+		// `beatMs: null` is the symbol that can NEVER report (no art, a spine animation missing from
+		// the skeleton); a `beatMs` above the cap is the pop that is simply longer than the guard.
 		awaitBeat: (arm) => {
 			const started = clock.at();
 			pops.push({ cue: 'pop', at: started });
-			return clock.wait(BEAT_MS).then(() => arm(() => {}));
+			return new Promise((resolve) => {
+				const report = arm(resolve);
+				if (typeof report !== 'function') {
+					throw new Error('awaitExplosion no longer arms by assignment — this stub cannot report');
+				}
+				if (beatMs !== null) clock.wait(beatMs).then(() => report());
+				clock.wait(TRANSIT_BEAT_CAP_MS).then(() => resolve());
+			});
 		},
 	};
+	env.awaitExplosion = buildAwaitExplosion(env.awaitBeat);
 	const handler = buildExplode(env);
 	const settledAt = await clock.run(async () => {
 		const running = handler({ explodingPositions: seats, patternScope });
@@ -588,6 +700,7 @@ const runExplode = async ({
 	return {
 		settledAt,
 		bridges,
+		vanished,
 		// The pop timeline, in the order the seats actually popped.
 		popped: pops.filter((p) => p.cue === 'pop').map((p) => p.at),
 		stepCueAt: pops.find((p) => p.cue === 'step')?.at,
@@ -751,6 +864,93 @@ console.log('--- 4. the explosion → intro transition under a pattern ---');
 		[...new Set(flat.bridges.map((b) => b.mountsAt - b.poppedAt))],
 		[40],
 	);
+}
+
+console.log('--- 5. a seat stops being drawn when its OWN explosion ends ---');
+
+{
+	// The board is not REMOVED until the whole step settles, and a pattern makes that a long wait: a
+	// wave-0 seat finishes its pop and then sits through every later wave. Left on screen it kept
+	// animating — and a cell's `loop` is absent by default, absent meaning loop, so it re-played its
+	// explosion two or three times over while the columns to its right were still going.
+	// 500 ms, which is the gap the owner had authored when they reported this: a step LONGER than the
+	// animation is the shape that shows the fault, because it is what leaves a finished seat with
+	// time to fill. An 80 ms sweep hides it — the whole spread is shorter than one beat, so nothing
+	// has finished yet when the last column pops.
+	const seats = fullBoard();
+	const run = await runExplode({ seats, pattern: 'columnsLeft', stepMs: 500 });
+	check('every exploding seat stops being drawn', run.vanished.length, 15);
+	check(
+		'...one beat after its OWN pop, never after the board is done with the step',
+		[...new Set(run.vanished.map((v) => v.at))].sort((a, b) => a - b),
+		[500, 1000, 1500, 2000, 2500],
+	);
+	// The point of the whole thing: the left of the board is already gone while the right is still
+	// popping. Stated against the LAST POP rather than against `settledAt`, because that is the claim
+	// — the board comes apart in waves — and it cannot be satisfied by everything vanishing early.
+	const lastPop = Math.max(...run.popped);
+	check(
+		'...so the first column is gone before the last column has even popped',
+		run.vanished.filter((v) => v.reel === 0).every((v) => v.at < lastPop),
+		true,
+	);
+	check(
+		'...and the step still ends a full beat after the last wave',
+		run.settledAt,
+		2000 + BEAT_MS,
+	);
+
+	// PARITY: with no pattern every seat pops together and vanishes together, in the same frame the
+	// step settles — which is the frame `tumbleBoardRemoveExploded` would have taken them in anyway.
+	// So an un-patterned board looks exactly as it did before this rule existed.
+	const flat = await runExplode({ seats });
+	check(
+		'un-patterned — every seat vanishes in one frame',
+		[...new Set(flat.vanished.map((v) => v.at))],
+		[BEAT_MS],
+	);
+	check('...which is the frame the step itself settles on', flat.settledAt, BEAT_MS);
+
+	// THE CAP PATH — and the whole reason the flag is set inside the armed callback rather than after
+	// the `await`. `awaitSymbolBeat` races the report against TRANSIT_BEAT_CAP_MS, so settling after
+	// the await would fire on the CAP as well, and the cap is a runaway guard rather than a pace.
+	//
+	// A pop LONGER than the guard therefore has to play out in full and vanish on its own last frame,
+	// not be cut off at the cap. The armed callback survives losing the race and fires late, which is
+	// exactly what makes that work.
+	const long = await runExplode({ seats, beatMs: TRANSIT_BEAT_CAP_MS + 250 });
+	check(
+		'a pop longer than the beat cap still vanishes on its OWN last frame, not at the cap',
+		[...new Set(long.vanished.map((v) => v.at))],
+		[TRANSIT_BEAT_CAP_MS + 250],
+	);
+	check('...even though the step itself gave up at the cap', long.settledAt, TRANSIT_BEAT_CAP_MS);
+
+	// And the other end of that race: a symbol that can NEVER report has no finished animation to act
+	// on, so it is left alone and the board-wide removal takes it, exactly as before this existed.
+	const silent = await runExplode({ seats, beatMs: null });
+	check('a symbol that never reports is never marked spent', silent.vanished.length, 0);
+	check('...and the step still ends on the cap', silent.settledAt, TRANSIT_BEAT_CAP_MS);
+
+	// THE LAST LINK, asserted against the MARKUP because nothing here renders Svelte. Everything above
+	// proves the flag is set at the right moment; only `TumbleSymbol.svelte` turns that into a symbol
+	// the player stops seeing, and a flag nothing reads is worth exactly nothing. Deleting the gate
+	// leaves all of the checks above green, which is precisely why this one is here.
+	const tumbleSymbolMarkup = read('apps/lines/src/components/TumbleSymbol.svelte');
+	check(
+		'the renderer gates the cell on the flag — a spent symbol is not drawn',
+		/\{#if\s+!\s*props\.tumbleSymbol\.exploded\s*\}\s*<SymbolWrap/.test(tumbleSymbolMarkup),
+		true,
+	);
+
+	// A seat swept off the board before its wave never pops, so it must never be marked spent either.
+	const swept = await runExplode({ seats, pattern: 'columnsLeft', stepMs: 500, sweepAfter: 200 });
+	check(
+		'a seat swept before its wave never popped, so it never vanishes',
+		swept.vanished.length,
+		swept.popped.length,
+	);
+	check('...and that is fewer than the whole board', swept.vanished.length < 15, true);
 }
 
 console.log('');
