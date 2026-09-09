@@ -82,9 +82,13 @@ const ENGINE_PACKAGES = [
 	'utils-layout',
 	'utils-sound',
 ];
+// NO `config-ts` here: that package was deleted (#533) and its compiler options moved to
+// `tsconfig.base.json` at the repo root, reached by a relative path so it needs no
+// dependency edge — which was the point. Listing it wrote a `config-ts@workspace:*` dep
+// into every scaffolded game, and `pnpm install` refused the whole workspace with
+// ERR_PNPM_WORKSPACE_PKG_NOT_FOUND.
 const ENGINE_CONFIGS = [
 	'eslint-config-custom',
-	'config-ts',
 	'config-vite',
 	'config-svelte',
 	'config-lingui',
@@ -244,14 +248,19 @@ export default defineConfig(({ mode }) => {
 });
 `,
 
-	// Resolve config-ts by PACKAGE NAME (it's a workspace dep), the same way every
-	// shipped game does. A relative `./engine/packages/config-ts/svelte.json` path was
-	// wrong twice over: that file does not exist (the package ships `base.json`), and
-	// vite:esbuild fails the build outright on an unresolvable `extends`.
+	// Extend the engine's ROOT TS base by relative path. This used to resolve
+	// `config-ts/base.json` by package name, which stopped existing when #533 deleted that
+	// package precisely so the shared options would need no dependency edge. The base sets
+	// no `baseUrl` and declares no `paths`, so reaching it from one level above the engine
+	// resolves exactly as `apps/lines`'s `../../tsconfig.base.json` does.
+	//
+	// It must be a path that RESOLVES: vite:esbuild fails the build outright on an
+	// unresolvable `extends`, which is how the old package-name form turned a deleted
+	// package into a broken build rather than a warning.
 	'tsconfig.json':
 		JSON.stringify(
 			{
-				extends: 'config-ts/base.json',
+				extends: './engine/tsconfig.base.json',
 				include: ['.'],
 				exclude: ['dist', 'build', 'node_modules'],
 			},
