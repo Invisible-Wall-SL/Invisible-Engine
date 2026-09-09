@@ -36,6 +36,7 @@
  * `docs/status/flipbook.md` open item 3.
  */
 import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
+import { collectPlayedClipIds } from './clipReachability';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { SUB } from './projectPaths';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
@@ -61,7 +62,22 @@ export async function exportClips(
 	// (the gatekeeper — editor-only state can never reach the deploy artifact, and duplicate ids
 	// collapse last-wins). A corrupt clip is skipped there, never a hard failure.
 	const doc = await loadFlipbookDoc(clientKey, projectKey);
-	const clips = doc.clips;
+	// Ship only the clips something PLAYS, using the SAME reachability the art export uses. These
+	// two must agree: gating the art alone leaves a registered clip whose sheet was never exported,
+	// and the bake refuses that — a clip whose frames have no textures is an animation that plays
+	// short without saying so. `null` means reachability is unknown, and then every clip ships.
+	const played = await collectPlayedClipIds(clientKey, projectKey);
+	const clips = played ? doc.clips.filter((c) => played.has(c.id)) : doc.clips;
+	const dropped = doc.clips.length - clips.length;
+	if (dropped > 0) {
+		console.log(
+			`[clips] not shipping ${dropped} unplayed clip(s): ` +
+				`${doc.clips
+					.filter((c) => !clips.includes(c))
+					.map((c) => c.id)
+					.join(', ')}`,
+		);
+	}
 
 	// Write each pure clip + the index the game registers, tracking what we wrote so stale objects
 	// from a previous export get pruned (the deploy mirror then matches the source).
