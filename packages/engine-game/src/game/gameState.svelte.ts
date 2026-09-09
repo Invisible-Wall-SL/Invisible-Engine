@@ -419,6 +419,38 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * THE INVERSE of {@link perspectiveRowSum}: which row sits `sum` base pitches deep?
+	 *
+	 * It exists because the SYMBOL OVERFLOW is authored as a DISTANCE (px past the window) while the
+	 * board's edge geometry is parameterised by the ROW — x contracts with the row, not with y. A
+	 * corner widened by adding the distance straight onto y therefore keeps the x of its own row and
+	 * steps OFF the boundary curve sideways; `boardMaskColumns` asks this for the row whose depth is
+	 * the spilt-past one instead, so the widened corner stays on the curve. That is what lets two
+	 * neighbouring columns still describe the same shared edge when their windows start at different
+	 * rows — see the tiling argument there.
+	 *
+	 * Closed form, branch for branch against the forward function, so the two are inverses at the
+	 * joins as well as inside the ramp. The clamped regions are linear and invert by division. The
+	 * ramp is the quadratic `(perRow/2)·row² + (farScale − perRow/2)·row`, and the root wanted is the
+	 * one in `0..frontRow`: `perspectiveRowScale` runs `farScale` → 1 across that span with both ends
+	 * positive, so the sum strictly increases there and exactly one root can lie inside it. The
+	 * second root is returned only when the first falls outside — the `farScale > 1` authoring (a
+	 * back row drawn LARGER than the front), where `perRow` is negative and the parabola opens down.
+	 */
+	const perspectiveRowAtSum = (model: BoardPerspective, sum: number) => {
+		if (sum <= 0) return sum / model.farScale;
+		const ramp = (row: number) => model.farScale * row + (model.perRow * row * (row - 1)) / 2;
+		const atFront = ramp(model.frontRow);
+		if (sum >= atFront) return model.frontRow + (sum - atFront);
+		const quadratic = model.perRow / 2;
+		const linear = model.farScale - model.perRow / 2;
+		if (quadratic === 0) return sum / linear;
+		const root = Math.sqrt(linear * linear + 4 * quadratic * sum);
+		const first = (-linear + root) / (2 * quadratic);
+		return first >= 0 && first <= model.frontRow ? first : (-linear - root) / (2 * quadratic);
+	};
+
+	/**
 	 * The board WINDOW's height in board-local space — ONE definition of "how tall is the visible
 	 * board", shared by the mask that clips it (`BoardMask`) and the in-frame test that culls symbols
 	 * outside it (`SymbolWrap`). Those two components each computed this expression themselves; they
@@ -518,6 +550,77 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		};
 		const contract = (x: number, scale: number) =>
 			model ? model.vanishX + (x - model.vanishX) * scale : x;
+		/**
+		 * Move a row boundary OUTWARD by an authored overflow distance, and answer it as a ROW.
+		 *
+		 * The overflow is authored as px past the window, but a perspective edge is parameterised by
+		 * the row — x contracts with the row, not with y. Adding the distance straight onto y keeps
+		 * the corner's x at its own row while moving it to the depth of a different one, so the corner
+		 * steps OFF the boundary curve sideways. Asking which row actually sits that far past
+		 * ({@link perspectiveRowAtSum}) keeps it on the curve, and the spill is still exactly the
+		 * authored distance because the two functions are inverses.
+		 */
+		const spilledRow = (row: number, distance: number) =>
+			distance === 0 || !model
+				? row
+				: perspectiveRowAtSum(model, perspectiveRowSum(model, row) + distance / rowPitchLocal);
+		/**
+		 * ONE column's own edge knots, in rows, with the two OUTER ones already spilt outward. The
+		 * knots BETWEEN them are untouched: the overflow grows the ring, it does not reshape it.
+		 */
+		const ownKnots = (reel: number) => {
+			const lo = grid.rowOffsetForReel(reel);
+			const rowsThere = grid.rowsForReel(reel);
+			return Array.from({ length: rowsThere + 1 }, (_u, step) =>
+				step === 0
+					? spilledRow(lo, -overflowY)
+					: step === rowsThere
+						? spilledRow(lo + rowsThere, overflowY)
+						: lo + step,
+			);
+		};
+		/**
+		 * The rows at which ONE edge is sampled: this column's own knots, PLUS any of the
+		 * neighbour-across-that-edge's that fall strictly inside this column's span.
+		 *
+		 * The neighbour's rows are what makes the tiling exact, and exact tiling is the whole premise
+		 * of the compound mask. Under perspective a boundary is a CURVE — x contracts linearly in the
+		 * row while y is the quadratic running sum of compressed pitches — and a polyline reproduces a
+		 * curve only at the knots it is sampled at. Two columns that inscribed the SAME boundary at
+		 * DIFFERENT knots therefore described two different edges, and the union stopped covering a
+		 * lens-shaped sliver between them: a HOLE in the mask, at one column boundary, over the rows
+		 * where the two disagreed — the background painting through, on top of the symbols.
+		 *
+		 * Two independent things put neighbours out of phase, and both are ordinary authoring:
+		 * `rowOffsetForReel` returns `slack / 2`, so any column whose slack is ODD starts half a row
+		 * off its neighbour; and the overflow above spills each column from ITS OWN outer row, which
+		 * is a different row for a short column than for a tall one.
+		 *
+		 * Sampling both sides at the UNION makes the two knot sets identical wherever the columns
+		 * overlap, which is the only place the question is asked. It changes nothing when they are
+		 * already in phase — `top`/`bottom` alignment with no overflow puts the neighbour's rows
+		 * exactly on this column's own, the dedupe below drops them, and the ring is the one it has
+		 * always been.
+		 *
+		 * Deduped by scanning the SORTED list rather than through a `Set`, which keeps the whole
+		 * function a plain numeric computation: a `Set` here would be a mutable built-in inside a
+		 * runes file, which `svelte/prefer-svelte-reactivity` flags and which would otherwise need a
+		 * suppression saying it is never read reactively. Equal knots are bit-identical when they
+		 * collide (both sides reach an in-phase row as `offset + step` from equal offsets), so an
+		 * exact comparison is the right test — a tolerance would merge two genuinely distinct rows on
+		 * a densely stepped board.
+		 */
+		const rowKnots = (reel: number, neighbour: number) => {
+			const own = ownKnots(reel);
+			if (neighbour < 0 || neighbour >= reels) return own;
+			const lo = own[0];
+			const hi = own[own.length - 1];
+			const shared = ownKnots(neighbour).filter((row) => row > lo && row < hi);
+			return own
+				.concat(shared)
+				.sort((a, b) => a - b)
+				.filter((row, index, sorted) => index === 0 || row !== sorted[index - 1]);
+		};
 
 		return Array.from({ length: reels }, (_unused, reel) => {
 			const left = boundary(reel);
@@ -535,16 +638,21 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			 * the wrong column's window. One segment per row bounds that error by a single row's
 			 * contraction, which no cell can cross.
 			 *
-			 * FLAT boards take the same path with `contract` as the identity and every row at the same
-			 * pitch, so the extra vertices are collinear and the ring IS the rectangle. One shape, one
-			 * code path — there is no parity to protect here, since a uniform board never reaches this
-			 * function at all.
+			 * FLAT boards keep a SEPARATE branch below, and it is the one that has always run: their
+			 * boundary is a vertical straight line, so where its knots sit cannot move the edge, the
+			 * extra vertices are collinear and the ring IS the rectangle. That is also why the
+			 * knot-union repair is perspective-only — a flat board cannot open the hole it closes, and
+			 * this is the shared `_runtime/lines` bundle, so it must not be handed a different shape
+			 * for a bug it does not have.
 			 */
 			/**
 			 * How far this vertex's row boundary moves for the SYMBOL OVERFLOW — outward at the
 			 * column's own top and bottom edge, and nothing at the boundaries in between, so the ring
-			 * grows without changing shape. `edgeAt` is only ever called across this column's own rows,
-			 * so the two comparisons name exactly its two outer edges.
+			 * grows without changing shape.
+			 *
+			 * FLAT BOARDS ONLY. Displacing y is exactly right for a straight vertical edge. Under
+			 * perspective the spill is spent ALONG the curve instead, up in `ownKnots`, so the rows
+			 * arriving here are already the spilt ones and must not be moved a second time.
 			 */
 			const padY = (row: number) => {
 				if (overflowY === 0) return 0;
@@ -552,18 +660,21 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				if (row >= offsetRows + rowsHere) return overflowY;
 				return 0;
 			};
-			const edgeAt = (row: number, x: number) => ({
-				x: contract(x, model ? perspectiveRowScale(model, row) : 1),
-				y:
-					(model ? rowPitchLocal * perspectiveRowSum(model, row) : row * rowPitchLocal) + padY(row),
-			});
+			const edgeAt = (row: number, x: number) => {
+				if (!model) return { x, y: row * rowPitchLocal + padY(row) };
+				return {
+					x: contract(x, perspectiveRowScale(model, row)),
+					y: rowPitchLocal * perspectiveRowSum(model, row),
+				};
+			};
+			const plainRows = Array.from({ length: rowsHere + 1 }, (_u, step) => offsetRows + step);
 			// Down the left edge, then back up the right. No local annotation: this block is SLICED and
 			// type-stripped by `verify-symbol-seat.mjs`, where only parameter annotations survive.
 			return [
-				...Array.from({ length: rowsHere + 1 }, (_u, step) => edgeAt(offsetRows + step, left)),
-				...Array.from({ length: rowsHere + 1 }, (_u, step) =>
-					edgeAt(offsetRows + rowsHere - step, right),
-				),
+				...(model ? rowKnots(reel, reel - 1) : plainRows).map((row) => edgeAt(row, left)),
+				...(model ? rowKnots(reel, reel + 1) : plainRows)
+					.map((row) => edgeAt(row, right))
+					.reverse(),
 			];
 		});
 	};

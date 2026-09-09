@@ -848,6 +848,71 @@ console.log(
 					)
 						fail(`${where} :: a mask polygon is not a finite ring`);
 				}
+
+				// THE TILING ITSELF — no HOLE along a shared boundary.
+				//
+				// This is the invariant the compound mask rests on ("the columns tile, they do not
+				// overlap") and the one nothing above asserts. Every probe so far sits at a CELL
+				// CENTRE, half a cell from the place two columns actually meet, so a sliver opened
+				// between two neighbours' facing edges is invisible to all of them — and that sliver
+				// is a hole in the MASK: the background paints through it, on top of the symbols.
+				//
+				// Not hypothetical. Under perspective a boundary is a CURVE (x contracts with the row,
+				// y is the quadratic sum of compressed pitches) and a polyline only reproduces a curve
+				// at the knots it is sampled at, while `rowOffsetForReel` returns `slack / 2` — so a
+				// column whose slack is ODD inscribes that shared curve half a row out of phase with
+				// its neighbour and the two describe different edges. Measured on a live 3/4/4/4/4
+				// perspective board: a 0.86px hole down the first cell's right edge, which is exactly
+				// what a player reported seeing.
+				//
+				// Read by SCANLINE rather than by the seat-derived probes used above, and the
+				// difference is deliberate: this is a claim about two rings AGREEING WITH EACH OTHER,
+				// so comparing them directly is the measurement — a probe that followed one ring would
+				// have nothing to say about the other. An OVERLAP is not a failure (it masks more, not
+				// less); only a gap is.
+				const spanAt = (polygon, y) => {
+					const xs = [];
+					for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+						const p = polygon[i];
+						const q = polygon[j];
+						if (p.y > y !== q.y > y) xs.push(((q.x - p.x) * (y - p.y)) / (q.y - p.y) + p.x);
+					}
+					return xs.length ? { min: Math.min(...xs), max: Math.max(...xs) } : null;
+				};
+				// Both with and WITHOUT the symbol overflow: spending it moves each column's outer
+				// corner, and neighbours widen from different rows, so it is its own way to split a
+				// shared edge. 50 is the order of magnitude a real board authors (`test6` uses it).
+				for (const overflowY of [0, 50]) {
+					const rings = g.boardMaskColumns(0, overflowY);
+					for (let reel = 0; reel + 1 < rows.length; reel += 1) {
+						const yOf = (ring) => ring.map((point) => point.y);
+						const top = Math.max(Math.min(...yOf(rings[reel])), Math.min(...yOf(rings[reel + 1])));
+						const bottom = Math.min(
+							Math.max(...yOf(rings[reel])),
+							Math.max(...yOf(rings[reel + 1])),
+						);
+						if (!(bottom - top > 1e-9)) continue;
+						let worst = 0;
+						let worstY = 0;
+						for (let step = 1; step < 400; step += 1) {
+							const y = top + ((bottom - top) * step) / 400;
+							const leftColumn = spanAt(rings[reel], y);
+							const rightColumn = spanAt(rings[reel + 1], y);
+							if (!leftColumn || !rightColumn) continue;
+							const gap = rightColumn.min - leftColumn.max;
+							if (gap > worst) {
+								worst = gap;
+								worstY = y;
+							}
+						}
+						checks += 1;
+						if (worst > 1e-9)
+							fail(
+								`${where} | overflowY ${overflowY} :: HOLE between columns ${reel}/${reel + 1} — ` +
+									`${worst.toFixed(4)}px wide at y=${worstY.toFixed(1)}`,
+							);
+					}
+				}
 			}
 		}
 		// A UNIFORM board must answer `undefined` — the single `Rectangle` mask, unchanged.
