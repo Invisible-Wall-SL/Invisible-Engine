@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -3635,6 +3636,49 @@ if(!HAS_PAGE){
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
 <script>{color_field_js}</script>
+<script>
+/* Every region paints two thumbs (output + reference), so a 60-region atlas
+   asks for ~120 images. Whatever drops one of them — the proxy, a worker
+   thread, a decode — the browser keeps that broken tile for the life of the
+   page, and the art "isn't there" even though the file is. So no image load
+   is allowed to fail once: retry with backoff, and only mark a tile after it
+   has refused four times.
+
+   In <head> so it is listening before the first card <img> is parsed, and in
+   the capture phase because load/error do not bubble. The `retry` param is
+   throwaway — a failed response can be negatively cached, so the URL has to
+   change for the browser to actually re-request. */
+(function(){{
+ var BACKOFF=[400,1200,3000,7000];
+ document.addEventListener('error',function(e){{
+  var im=e.target;
+  if(!im||im.tagName!=='IMG')return;
+  var n=+(im.dataset.imgretry||0);
+  if(n>=BACKOFF.length){{
+   im.classList.add('imgfail');
+   im.title='This image failed to load '+(n+1)+' times. Reload the page to try again.';
+   return;
+  }}
+  im.dataset.imgretry=n+1;
+  var src=im.src;
+  setTimeout(function(){{
+   // The src moved on while we waited (refreshCards, a variant pick) — that
+   // newer load owns the tile now, and re-asserting a stale URL would show
+   // the previous render.
+   if(im.src!==src)return;
+   var u=new URL(src,location.href);
+   u.searchParams.set('retry',n+1);
+   im.src=u.pathname+u.search;
+  }},BACKOFF[n]);
+ }},true);
+ document.addEventListener('load',function(e){{
+  var im=e.target;
+  if(im&&im.tagName==='IMG'&&im.dataset.imgretry){{
+   delete im.dataset.imgretry; im.classList.remove('imgfail');
+  }}
+ }},true);
+}})();
+</script>
 <style>
  body{{font-family:system-ui,Arial;background:#1d1d22;color:#e8e8ea;margin:0;padding:0 20px 40px}}
 {iw_toolbar_css}
@@ -3702,6 +3746,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .imgs figure{{margin:0;flex:1;text-align:center}}
  .imgs a{{display:block}}
  .imgs img{{width:100%;height:160px;object-fit:contain;background:#1a1a1e;border-radius:4px;transition:transform .18s;cursor:zoom-in}}
+ .imgfail{{outline:2px solid #a44;outline-offset:-2px}}
  .imgs img:hover{{transform:scale(2.4);position:relative;z-index:30;box-shadow:0 0 24px #000}}
  .imgwrap{{position:relative;display:block}}
  /* reference picture: no zoom rollover — a click-to-use overlay instead */
@@ -5496,7 +5541,8 @@ async function openVariants(name){{
    cb.type='checkbox'; cb.className='mvc'; cb.value=d.id;
    cb.title='mark for deletion';
    cb.onclick=e=>e.stopPropagation();
-   let img=document.createElement('img'); img.src='/vthumb/'+name+'?id='+d.id+'&t='+Date.now();
+   let img=document.createElement('img'); img.loading='lazy'; img.decoding='async';
+   img.src='/vthumb/'+name+'?id='+d.id+'&t='+Date.now();
    let cap=document.createElement('small'); cap.textContent='seed '+(d.seed??'?');
    div.appendChild(cb); div.appendChild(img); div.appendChild(cap);
    div.onclick=()=>selectVariant(name,d.id,d.seed);
@@ -5881,7 +5927,7 @@ CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe
  <div class="imgs">
   <figure>
    <div class="imgwrap">
-    <a class="biglink" href="{biglink}" target="_blank"><img src="{bigthumb}" class="bigsel"></a>
+    <a class="biglink" href="{biglink}" target="_blank"><img src="{bigthumb}" class="bigsel" loading="lazy" decoding="async"></a>
     <span class="hz top"></span><span class="hz bot"></span>
     <button class="vbtn" type="button" onclick="openVariants('{name}')">▦ variants</button>
    </div>
@@ -5898,7 +5944,7 @@ CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe
   </figure>
   <figure class="reffig">
    <div class="refwrap">
-    <img src="/ref/{name}?t={cb}">
+    <img src="/ref/{name}?t={cb}" loading="lazy" decoding="async">
     <button class="usebtn" type="button" onclick="useRefImg('{name}')" title="Use this reference image as this slot's atlas tile (verbatim — no AI, no background removal)">USE THIS IMAGE</button>
    </div>
    <figcaption>{ref_kind}</figcaption>
@@ -5944,6 +5990,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None):
+        self._responded = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -6163,6 +6210,30 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):
+        self._dispatch(self._get)
+
+    def _dispatch(self, fn) -> None:
+        """Run one request handler, and answer even when it raises.
+
+        An exception that escapes here reaches socketserver, which closes the
+        socket having written nothing. On an image route the browser sees that
+        as a broken tile forever — the file was fine, the request just never
+        got an answer. A 500 with a body is honest and, unlike a dead socket,
+        is something the page's retry loader can act on."""
+        self._responded = False
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 — a silent drop is worse
+            traceback.print_exc()
+            if self._responded:
+                return  # headers already on the wire; a second reply is garbage
+            try:
+                self._send(500, "text/plain",
+                           f"{type(e).__name__}: {e}".encode())
+            except OSError:
+                pass  # client hung up first
+
+    def _get(self):
         ok, self._set_cookie = self._gate()
         if not ok:
             self._send(403, "text/plain", b"forbidden")
@@ -6332,6 +6403,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
+        self._dispatch(self._post)
+
+    def _post(self):
         ok, self._set_cookie = self._gate()
         if not ok:
             self._send(403, "text/plain", b"forbidden")
@@ -9087,6 +9161,14 @@ class Handler(BaseHTTPRequestHandler):
         return "Settings saved (per-atlas overrides + globals)"
 
 
+class _Server(ThreadingHTTPServer):
+    # A page with N regions asks for ~2N images in one burst. The stdlib
+    # backlog of 5 lets the OS refuse everything past the fifth pending
+    # connection, and a refused connection is exactly the broken tile the user
+    # sees for art that is really there. Queue the burst instead of dropping it.
+    request_queue_size = 128
+
+
 def main():
     from iw_banner import print_banner
     print_banner("Atlas Maker", BUILD,
@@ -9102,7 +9184,7 @@ def main():
     # has to answer while it does.
     threading.Thread(target=video_runner.boot_recovery, daemon=True,
                      name="video-resume").start()
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    _Server((HOST, PORT), Handler).serve_forever()
 
 
 if __name__ == "__main__":
