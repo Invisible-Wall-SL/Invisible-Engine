@@ -49,10 +49,8 @@ import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { applyClipBounds, clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
 import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
+import { collectPlayedClipIds } from './clipReachability';
 import { loadFlipbookDoc } from './flipbookStorage';
-import { loadFlowV2Doc } from './flowV2Storage';
-import { loadSymbolsDoc } from './symbolsStorage';
-import { exportRigFlipbooks, referencedClipIds } from './rigFlipbookExport';
 import { listEffects, loadEffect } from './fxStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
@@ -398,75 +396,6 @@ function toTexturePackerJson(
 }
 
 /**
- * Every `clipId` named anywhere in a value, however deeply nested.
- *
- * A generic walk rather than a per-schema reader, deliberately. A clip is referenced from at
- * least four unrelated shapes — a Flipbook layout node, a symbol cell, a symbol LAYER, an FX
- * layer — and each is free to move; a hand-written reader for each is the copied-list mistake
- * that has bitten this scaffold chain twice already. Over-collecting is harmless here (a clip
- * named anywhere ships), while under-collecting drops art a game plays, so the walk is
- * deliberately indiscriminate about where the field lives.
- */
-function collectClipIds(value: unknown, into: Set<string>): void {
-	if (!value) return;
-	if (Array.isArray(value)) {
-		for (const v of value) collectClipIds(v, into);
-		return;
-	}
-	if (typeof value !== 'object') return;
-	for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-		if (k === 'clipId' && typeof v === 'string' && v) into.add(v);
-		else collectClipIds(v, into);
-	}
-}
-
-/**
- * The clip ids something in this project actually plays, or `null` when that cannot be
- * determined — in which case the caller must ship everything rather than guess.
- *
- * Sources are every authoring surface that can name a clip: the layout doc and its component
- * defs, the symbols doc (a flipbook symbol cell carries `clipId`, and `symbolExport` relies on
- * THIS walk to ship its sheets), the FX effects, the flow graph, and RIG BINDINGS — a Spine rig
- * can play a clip at a beat, which is a `clipId` living in a skeleton rather than in any doc.
- *
- * The rig source was found by running this walk against a real project: it reported 6 orphans,
- * one of which (`f_lobster`) was bound by `rigFlipbooks.R_Lobster` and would have been wrongly
- * pruned. Anything added to the pipeline that can name a clip belongs in this list — the cost
- * of forgetting is deleted art, not a warning.
- *
- * A clip played only from a game's own TypeScript is invisible here. That is the known limit,
- * and why an unreferenced clip is REPORTED rather than silently dropped.
- */
-async function collectPlayedClipIds(
-	clientKey: string,
-	projectKey: string,
-	doc: LayoutDoc,
-	defs: Record<string, ComponentDef>,
-): Promise<Set<string> | null> {
-	const ids = new Set<string>();
-	try {
-		collectClipIds(doc, ids);
-		collectClipIds(defs, ids);
-		collectClipIds(await loadSymbolsDoc(clientKey, projectKey), ids);
-		for (const row of await listEffects(clientKey, projectKey)) {
-			const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-			collectClipIds(effectDoc, ids);
-		}
-		collectClipIds(await loadFlowV2Doc(clientKey, projectKey), ids);
-		// Rig bindings. `exportRigFlipbooks` only READS (it walks the skeleton index and builds a
-		// manifest), so calling it here costs a listing, not a write.
-		for (const id of referencedClipIds(await exportRigFlipbooks(clientKey, projectKey))) {
-			ids.add(id);
-		}
-	} catch (e) {
-		// Reachability is unknown — fall back to shipping every clip. Never prune on a guess.
-		console.log(`[editor-art] clip reachability undetermined (${e}) — exporting every clip.`);
-		return null;
-	}
-	return ids;
-}
-
-/**
  * Export every atlas the project's layout doc (and its component defs) reference
  * into `deploy/editor-art/`, prune leftovers from a previous export, and write
  * the `index.json` the game build registers. Idempotent — re-running converges.
@@ -614,7 +543,7 @@ export async function exportEditorArt(
 		// `null` means reachability could NOT be determined (a doc failed to load), and then
 		// every clip ships — the old behaviour. Shipping an unused clip costs bytes; dropping a
 		// used one costs an animation that renders nothing, so the uncertain case must not prune.
-		const played = await collectPlayedClipIds(clientKey, projectKey, doc, defs);
+		const played = await collectPlayedClipIds(clientKey, projectKey, { doc, defs });
 		const skipped: string[] = [];
 		for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
 			if (played && !played.has(clip.id)) {

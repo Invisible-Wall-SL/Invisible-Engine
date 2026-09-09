@@ -34,6 +34,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = readFileSync(join(ROOT, 'apps/launcher-api/src/lib/server/editorArtExport.ts'), 'utf8');
+const REACH = readFileSync(
+	join(ROOT, 'apps/launcher-api/src/lib/server/clipReachability.ts'),
+	'utf8',
+);
+const CLIPS = readFileSync(
+	join(ROOT, 'apps/launcher-api/src/lib/server/flipbookExport.ts'),
+	'utf8',
+);
 
 let checks = 0;
 const fail = (m) => {
@@ -48,10 +56,10 @@ const ok = (label, cond, detail = '') => {
 
 // The real `collectClipIds`, lifted from source and evaluated. Keeps the fixture honest: if
 // the function is renamed or its shape changes, this fails rather than testing a stale copy.
-const fnText = /function collectClipIds\([\s\S]*?\n}/.exec(SRC);
-ok('collectClipIds is present in the export module', Boolean(fnText));
+const fnText = /export function collectClipIds\([\s\S]*?\n}/.exec(REACH);
+ok('collectClipIds lives in the shared reachability module', Boolean(fnText));
 const collectClipIds = new Function(
-	`${fnText[0].replace(/: unknown|: Set<string>|: void|as Record<string, unknown>/g, '')}; return collectClipIds;`,
+	`${fnText[0].replace(/^export /, '').replace(/: unknown|: Set<string>|: void|as Record<string, unknown>/g, '')}; return collectClipIds;`,
 )();
 
 console.log('1. the walk finds a clipId wherever it is nested');
@@ -99,14 +107,19 @@ ok(
 );
 ok(
 	'undetermined reachability returns null so everything ships',
-	/return null;/.test(SRC) && /Promise<Set<string> \| null>/.test(SRC),
+	/return null;/.test(REACH) && /Promise<Set<string> \| null>/.test(REACH),
 	'the uncertain case must not prune',
 );
 ok(
 	'every authoring surface that can name a clip is walked',
-	['doc', 'defs', 'loadSymbolsDoc', 'listEffects', 'loadFlowV2Doc', 'exportRigFlipbooks'].every(
-		(s) => SRC.includes(s),
-	),
+	[
+		'loadDoc',
+		'listComponents',
+		'loadSymbolsDoc',
+		'listEffects',
+		'loadFlowV2Doc',
+		'exportRigFlipbooks',
+	].every((s) => REACH.includes(s)),
 	'missing one of: doc, defs, symbols, effects, flow, rig bindings — a rig can play a clip, ' +
 		'and omitting it wrongly pruned f_lobster when this was run against a real project',
 );
@@ -114,6 +127,31 @@ ok(
 	'skipped clips are REPORTED, never silently dropped',
 	/skipped \$\{skipped\.length\} unplayed flipbook clip/.test(SRC),
 	'a silently smaller export is indistinguishable from a broken one',
+);
+
+console.log('4. BOTH exporters gate on it — the art and the registry must agree');
+// THE claim this file exists for now. Gating the ART alone (#644) left a REGISTERED clip whose
+// sheet was never exported, and the next bake refused exactly that: "1 flipbook clip(s) reference
+// frames that NO shipped sheet packs". Gating one and not the other is worse than gating neither,
+// because it turns a merely wasteful build into one that cannot be published at all.
+ok(
+	'the ART export consults reachability',
+	/collectPlayedClipIds\(clientKey, projectKey, \{ doc, defs \}\)/.test(SRC),
+	'editorArtExport must gate its sheets',
+);
+ok(
+	'the CLIP REGISTRY export consults the same reachability',
+	/collectPlayedClipIds\(clientKey, projectKey\)/.test(CLIPS) && /played\.has\(c\.id\)/.test(CLIPS),
+	'flipbookExport must not ship a clip whose art the other exporter pruned',
+);
+ok(
+	'both import the SAME module, so the two can never drift apart',
+	SRC.includes("from './clipReachability'") && CLIPS.includes("from './clipReachability'"),
+);
+ok(
+	'the registry export reports what it dropped too',
+	/unplayed clip/.test(CLIPS),
+	'a silently smaller registry is indistinguishable from a broken one',
 );
 
 console.log(`\nPASS — ${checks} checks.`);
