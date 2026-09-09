@@ -3853,8 +3853,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <button onclick="saveCfg(this)" style="margin-bottom:14px">Save settings</button>
  <span id="cfgstat2" style="margin-left:12px;color:#999"></span>
 </details>
-<details class="settings">
- <summary>📝 Atlas style — applies to all regions in <b>{manifest_name}</b> (per-atlas, not shared)</summary>
+<details class="settings" id="gstylepanel">
+ <summary>📝 Atlas style — applies to all regions in <b>{manifest_name}</b> (per-atlas, not shared)<span id="gstyledirty" style="display:none;margin-left:8px;color:#1c1408;background:#fbbf24;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600">● unsaved — this render will NOT use it</span></summary>
  <div style="padding-top:6px">
   <div style="font-size:13px;color:#bbb;margin-bottom:6px">Stored in this manifest only (<code>style.*</code>) — each atlas keeps its own. Final positive = <b>prefix</b> + region prompt + <b>suffix</b>. Per-region negatives are appended to (or, with the per-region checkbox, replace) this atlas's negative.</div>
   <label style="display:block;font-size:12px;color:#aaa;margin:6px 0 3px">Atlas positive prefix (style.positive_prefix)</label>
@@ -3865,7 +3865,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
    <label style="display:block;font-size:12px;color:#aaa;margin:8px 0 3px">Atlas negative (style.negative) <span style="color:#888;font-size:10px">· SDXL only — FLUX ignores negatives</span></label>
    <textarea id="gneg" rows="6" style="width:100%;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px;font-size:13px;font-family:monospace;resize:vertical">{global_neg}</textarea>
   </div>
-  <button onclick="saveGlobalStyle()" style="margin-top:8px">Save atlas style</button>
+  <button id="gstylesave" onclick="saveGlobalStyle()" style="margin-top:8px">Save atlas style</button>
   <span id="gnegstat" style="margin-left:12px;color:#999"></span>
  </div>
 </details>
@@ -4394,6 +4394,13 @@ document.addEventListener('DOMContentLoaded',function(){{
  let p=document.querySelector('[data-cfg="pipeline"]');
  if(p)p.addEventListener('change',applyPipe);
  applyPipe();
+ // What the manifest holds right now: these textareas were rendered from it.
+ _styleSaved=_styleNow();
+ _STYLE_IDS.forEach(id=>{{
+  let el=document.getElementById(id);
+  if(el) el.addEventListener('input',gstyleSync);
+ }});
+ gstyleSync();
 }});
 // Flash a green "✓ Done" on an action button, then restore its label. The real
 // label is captured once (dataset.lbl) so rapid re-clicks never freeze on Done.
@@ -4410,12 +4417,45 @@ async function saveAll(){{
  flashDone(document.getElementById('saveBtn'));
  return msg;
 }}
+// The atlas style is the ONE settings panel the main "Save changes" does not
+// carry: collect() sends the region cards, and these three textareas persist
+// only through their own button below. Type a prompt here, press the big Save,
+// render — and the render uses the SAVED text while your typing sits on screen
+// looking applied. That is silent and it costs a GPU render to notice, so the
+// panel now says when it is holding something the next render will ignore.
+//
+// Compared stripped, because _saveglobalstyle strips before writing — otherwise a
+// trailing newline would leave the panel permanently, wrongly dirty.
+let _styleSaved=null;
+const _STYLE_IDS=['gpre','gsuf','gneg'];
+function _styleNow(){{
+ return _STYLE_IDS.map(id=>{{
+  let el=document.getElementById(id); return el?el.value.trim():'';
+ }});
+}}
+function gstyleDirty(){{
+ if(!_styleSaved) return false;
+ let now=_styleNow();
+ return now.some((v,i)=>v!==_styleSaved[i]);
+}}
+function gstyleSync(){{
+ let badge=document.getElementById('gstyledirty');
+ let btn=document.getElementById('gstylesave');
+ let dirty=gstyleDirty();
+ if(badge) badge.style.display=dirty?'':'none';
+ if(btn) btn.style.background=dirty?'#e0a030':'';
+}}
 async function saveGlobalStyle(){{
  let body={{positive_prefix:document.getElementById('gpre').value,
   positive_suffix:document.getElementById('gsuf').value,
   negative:document.getElementById('gneg').value}};
  let r=await fetch('/saveglobalstyle',{{method:'POST',body:JSON.stringify(body)}});
- document.getElementById('gnegstat').textContent=await r.text();
+ let msg=await r.text();
+ document.getElementById('gnegstat').textContent=msg;
+ // Re-baseline only on a save that landed, so a failed write stays flagged.
+ if(msg.indexOf('saved')>=0) _styleSaved=_styleNow();
+ gstyleSync();
+ return msg;
 }}
 // --- Blueprints: upload an API-format ComfyUI graph + bind roles ----------
 let _bpGraph=null;   // parsed API/prompt node dict from the picked file
@@ -5601,6 +5641,23 @@ async function refreshCards(){{
  }}
 }}
 async function renderSel(){{
+ // Before saveAll(), so declining writes nothing. A render is the expensive way
+ // to discover the prompt on screen was never the prompt that was sent.
+ if(gstyleDirty()){{
+  let panel=document.getElementById('gstylepanel');
+  if(!confirm('The Atlas style panel has unsaved changes.\\n\\n'
+   +'This render would use the SAVED prefix/suffix, not what is on screen — the big "Save changes" button does not save this panel.\\n\\n'
+   +'OK — save the atlas style, then render.\\nCancel — go back to it.')){{
+   if(panel){{ panel.open=true; panel.scrollIntoView({{block:'nearest'}}); }}
+   return;
+  }}
+  let msg=await saveGlobalStyle();
+  if(gstyleDirty()){{
+   if(panel){{ panel.open=true; panel.scrollIntoView({{block:'nearest'}}); }}
+   alert('The atlas style did not save, so the render was not started:\\n\\n'+msg);
+   return;
+  }}
+ }}
  await saveAll();
  let sel=collect().filter(x=>x.selected).map(x=>x.name);
  if(!sel.length){{alert('Nothing selected');return;}}

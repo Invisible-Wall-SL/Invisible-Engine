@@ -274,6 +274,28 @@ page · click a region (canvas or sidebar) to select it · the sidebar filters b
 name and lists each region's parity verdict, placement mode, rect, fill %, and
 margins.
 
+### The atlas prompt has its own Save
+
+`📝 Atlas style` holds the prompt that applies to **every** region in this atlas —
+`prefix` + the region prompt + `suffix` — and it is stored **per atlas**, in that
+manifest, not shared. It is also the one panel the big **💾 Save changes** does not
+carry: that button sends the region cards. The prefix, suffix and negative persist
+only through **Save atlas style**, inside the panel.
+
+So the way this goes wrong is quiet: type a prompt there, press the big Save, render —
+and the render composes the prompt from the **saved** style while your typing sits on
+screen looking applied. The panel therefore flags itself. Edit it and a **● unsaved**
+badge appears on its title (visible while the panel is collapsed), and starting a
+render asks first, offering to save the style before it goes. Decline and nothing is
+written at all — not even the region cards.
+
+Two related things worth knowing when a prompt seems to be ignored:
+
+- **`Replace atlas positive`** on a region card means exactly that — the region prompt
+  is used alone and the prefix/suffix are dropped for that region.
+- **⤓ Resolved workflow** builds the graph exactly as the pipeline POSTs it, from the
+  saved style. Whatever text sits on your positive node there is what ComfyUI receives.
+  It settles "is my prompt getting through?" without spending a render.
 ## Blueprints: publishing one
 
 **＋ New blueprint** takes a ComfyUI **API-format** export (Settings → “Save (API Format)” — the
