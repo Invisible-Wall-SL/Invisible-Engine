@@ -598,8 +598,17 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		 *
 		 * Sampling both sides at the UNION makes the two knot sets identical wherever the columns
 		 * overlap, which is the only place the question is asked. It changes nothing when they are
-		 * already in phase — `top`/`bottom` alignment with no overflow puts the neighbour's rows on
-		 * this column's own, the `Set` collapses them, and the ring is the one it has always been.
+		 * already in phase — `top`/`bottom` alignment with no overflow puts the neighbour's rows
+		 * exactly on this column's own, the dedupe below drops them, and the ring is the one it has
+		 * always been.
+		 *
+		 * Deduped by scanning the SORTED list rather than through a `Set`, which keeps the whole
+		 * function a plain numeric computation: a `Set` here would be a mutable built-in inside a
+		 * runes file, which `svelte/prefer-svelte-reactivity` flags and which would otherwise need a
+		 * suppression saying it is never read reactively. Equal knots are bit-identical when they
+		 * collide (both sides reach an in-phase row as `offset + step` from equal offsets), so an
+		 * exact comparison is the right test — a tolerance would merge two genuinely distinct rows on
+		 * a densely stepped board.
 		 */
 		const rowKnots = (reel: number, neighbour: number) => {
 			const own = ownKnots(reel);
@@ -607,7 +616,10 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			const lo = own[0];
 			const hi = own[own.length - 1];
 			const shared = ownKnots(neighbour).filter((row) => row > lo && row < hi);
-			return Array.from(new Set(own.concat(shared))).sort((a, b) => a - b);
+			return own
+				.concat(shared)
+				.sort((a, b) => a - b)
+				.filter((row, index, sorted) => index === 0 || row !== sorted[index - 1]);
 		};
 
 		return Array.from({ length: reels }, (_unused, reel) => {
