@@ -305,6 +305,12 @@ setting holding prose gets **prompt-sized box** ticked automatically and renders
 textarea; a `#222222` or a `ComfyUI` stays a narrow field. A node input can be driven by a role or
 by a setting, never both — an input a role holds is not offered to a setting.
 
+The modal is **header · scrolling body · pinned action bar**: everything from the file
+picker down scrolls, and **Publish blueprint** sits in the bar at the bottom with the
+status line, so a long **Exposed settings** list never pushes it out of reach. Each
+`＋ Add` scrolls the row it just made into view. The bar is hidden until it has
+something to carry — the first error, or the first successful read of your file.
+
 In **🎛 Blueprint settings** a numeric setting with a declared range is a **slider + number box**,
 and a typed number is clamped into the range (ComfyUI rejects a whole render over one
 out-of-range value). A dropdown's list is **re-read from ComfyUI each time the panel renders** —
