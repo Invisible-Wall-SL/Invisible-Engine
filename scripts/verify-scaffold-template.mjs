@@ -2,31 +2,28 @@
 //
 //   node scripts/verify-scaffold-template.mjs
 //
-// WHAT IT PROVES. `scripts/new-game.mjs` writes a `package.json` full of `workspace:*` deps
-// on engine packages, and a `tsconfig.json` that `extends` a path into the engine. Nothing
-// tied those strings to the engine they name, so the template could — and did — rot in
-// place: #533 (2026-09-01) deleted `packages/config-ts` and moved the shared compiler
-// options to `tsconfig.base.json` at the repo root, `apps/lines` was migrated, and the
-// scaffolder was not. Every game scaffolded for the next eight days was born unbuildable:
+// WHAT IT PROVES. `scripts/new-game.mjs` generates a game repo: a `package.json` full of
+// engine dependencies, a `tsconfig.json` that reaches into the engine, and the game's own
+// source seeded from a reference app. Nothing tied any of that to the engine it names, so
+// the template rotted in place — twice, silently, and both only surfaced as a build failure
+// on a user's machine:
 //
-//     ERR_PNPM_WORKSPACE_PKG_NOT_FOUND
-//     "config-ts@workspace:*" is in the dependencies but no package named "config-ts"
-//     is present in the workspace
+//   1. #533 (2026-09-01) deleted `packages/config-ts` and moved the shared compiler options
+//      to `tsconfig.base.json` at the repo root. `apps/lines` was migrated; the scaffolder
+//      was not, so every game it made asked for a package that no longer existed:
+//        ERR_PNPM_WORKSPACE_PKG_NOT_FOUND  "config-ts@workspace:*" … no package named
+//        "config-ts" is present in the workspace
+//   2. The hand-maintained arrays of engine package names never gained `engine-game` or
+//      `game-config`, so once the scaffold started seeding real game source, that source
+//      could not resolve its own imports:
+//        [vite]: Rollup failed to resolve import "engine-game" from src/components/Game.svelte
 //
-// It surfaced as a build failure on a user's machine rather than a failing check here,
-// because the only thing that ever executed the template was scaffolding a real game.
-//
-// Three claims, against the REAL repo tree:
-//
-//   1. every `workspace:*` dependency the template writes names a package that exists;
-//   2. the `tsconfig.json` it writes `extends` a path that RESOLVES — vite:esbuild fails a
-//      build outright on an unresolvable `extends`, which is exactly how a deleted package
-//      became a broken build instead of a warning;
-//   3. the template does not mention `config-ts` at all — the specific regression above.
+// Both have the same root cause: a COPY of another package's dependency list, with no way to
+// notice the original changed. The fix was to stop copying — the scaffolder now reads
+// `apps/<SEED_APP>/package.json` at run time — and these claims are what keep it that way.
 //
 // This is a SOURCE assertion, not an execution: `new-game.mjs` is a CLI with top-level side
-// effects (it exits without `--name`), so it cannot be imported. Parsing its two array
-// literals is the tradeoff that keeps the check cheap enough to always run.
+// effects (it exits without `--name`, and clones a submodule), so it cannot be imported.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -45,13 +42,6 @@ const ok = (label, cond, detail = '') => {
 	checks++;
 	console.log(`  ok ${label}`);
 };
-
-/** The string entries of a top-level `const <name> = [ ... ];` array literal. */
-function arrayLiteral(name) {
-	const m = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`).exec(src);
-	if (!m) fail(`could not find the ${name} array in new-game.mjs`);
-	return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-}
 
 /** Every workspace package name the engine actually publishes. */
 function realPackageNames() {
@@ -74,21 +64,50 @@ function realPackageNames() {
 	return names;
 }
 
-console.log('1. every workspace:* dep the scaffold writes names a package that exists');
+console.log('1. the scaffold DERIVES its dependencies instead of hand-listing them');
 const real = realPackageNames();
 ok('the engine exposes a plausible number of workspace packages', real.size > 20, `${real.size}`);
-
-const templated = [...arrayLiteral('ENGINE_PACKAGES'), ...arrayLiteral('ENGINE_CONFIGS')];
-ok('the template lists both package groups', templated.length > 10, `${templated.length}`);
-
-const missing = templated.filter((p) => !real.has(p));
 ok(
-	'no templated dependency is missing from the engine',
+	'no hand-maintained package-name array has crept back',
+	!/const ENGINE_(PACKAGES|CONFIGS) = \[/.test(src),
+	'name the seed app as the source of truth; do not re-copy its dependency list',
+);
+ok('it reads the seed app manifest at run time', src.includes('seedAppManifest'));
+
+console.log('2. the seed app — which IS the dependency list now — is coherent');
+const seedApp = (/const SEED_APP = '([^']+)'/.exec(src) || [])[1];
+ok('the scaffolder names a seed app', Boolean(seedApp), 'SEED_APP not found');
+// Must equal the bundle id `runtimeFor()` returns in publishGame.ts. A standalone build and
+// the shared runtime bundle are meant to be the SAME code; if these drift, "publish it
+// online" and "publish a fixed build" quietly stop being two views of one game.
+ok(`it is the shared runtime's app (${seedApp})`, seedApp === 'lines');
+
+const seedPkgPath = join(ROOT, 'apps', seedApp, 'package.json');
+ok(`apps/${seedApp}/package.json exists`, existsSync(seedPkgPath));
+const seedPkg = JSON.parse(readFileSync(seedPkgPath, 'utf8'));
+const seedDeps = { ...(seedPkg.dependencies ?? {}), ...(seedPkg.devDependencies ?? {}) };
+const workspaceDeps = Object.entries(seedDeps)
+	.filter(([, v]) => String(v).startsWith('workspace:'))
+	.map(([k]) => k);
+ok(
+	'it derives a plausible number of workspace deps',
+	workspaceDeps.length > 10,
+	`${workspaceDeps.length}`,
+);
+
+const missing = workspaceDeps.filter((p) => !real.has(p));
+ok(
+	'every workspace dep the seeded game declares resolves to a real package',
 	missing.length === 0,
 	`a scaffolded game would fail pnpm install on: ${missing.join(', ')}`,
 );
 
-console.log('2. the tsconfig it writes extends a path that resolves');
+// A seed that copies nothing puts back the placeholder repo this all exists to prevent.
+for (const dir of ['src', 'static']) {
+	ok(`apps/${seedApp}/${dir} exists to seed from`, existsSync(join(ROOT, 'apps', seedApp, dir)));
+}
+
+console.log('3. the tsconfig it writes extends a path that resolves');
 const ext = /extends: '([^']+)'/.exec(src);
 ok('the template declares a tsconfig extends target', Boolean(ext), 'none found');
 const target = ext[1];
@@ -107,11 +126,11 @@ ok(
 	'vite:esbuild fails the build outright on an unresolvable extends',
 );
 
-console.log('3. the specific regression: the deleted config-ts package is never referenced');
-// Matches how a REAL reference is written — a single-quoted specifier, either a bare entry
-// in ENGINE_CONFIGS (`'config-ts',`) or an extends target (`'config-ts/base.json'`). A
-// blanket `includes('config-ts')` would also forbid the comment explaining why it is gone,
-// which is the one mention worth keeping: it stops someone re-adding it from muscle memory.
+console.log('4. the specific regression: the deleted config-ts package is never referenced');
+// Matches how a REAL reference is written — a single-quoted specifier, either a dependency
+// entry or an extends target (`'config-ts/base.json'`). A blanket `includes('config-ts')`
+// would also forbid the comment explaining why it is gone, which is the one mention worth
+// keeping: it stops someone re-adding it from muscle memory.
 ok(
 	'no single-quoted config-ts specifier survives',
 	!src.includes("'config-ts"),
