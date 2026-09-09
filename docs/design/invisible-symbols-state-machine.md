@@ -41,10 +41,11 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
   but it REUSES the editor's R2 library picker, doc endpoints, deploy-token plumbing, and
   the `bake-editor-doc.mjs` / `pull-project-assets.mjs` transport.
 - **Spine included in v1.** Most states (`win`/`land`) are spine, so a sprites-only tool is
-  useless. Spine support = a *copy/mirror* of already-made spine bundles into `deploy/`
+  useless. Spine support = a _copy/mirror_ of already-made spine bundles into `deploy/`
   (see below) — NOT spine authoring.
 
 ### Out of v1
+
 - Payline geometry / which symbols pay on which lines.
 - Creating or editing spine animations (we only reference existing ones).
 - Adding/removing symbols or states (the symbol set + 6 states are fixed in v1; the tool
@@ -54,11 +55,11 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
 ## Symbol size lives on the reel (moved out 2026-06-18)
 
 Symbol render size is **NOT** a Symbols State Machine concern. A short-lived global
-`defaultSizeRatios` field on the symbols doc was added then **removed**: size is a *layout*
+`defaultSizeRatios` field on the symbols doc was added then **removed**: size is a _layout_
 concern, so it now lives on the reel's `reelGrid.symbolSizeRatios` and is edited in the
 **Scene Editor** — see
 [`docs/design/invisible-editor.md`](./invisible-editor.md) ("Symbol size on the reel"). This
-tool is once again only about *which asset maps to each symbol×state*.
+tool is once again only about _which asset maps to each symbol×state_.
 
 - **Where size lives now:** `ReelGridNode.symbolSizeRatios?: { width, height }` on the layout
   doc (`scenes.json`), edited via the reel's "Symbol size (× cell)" control in the Scene
@@ -66,7 +67,7 @@ tool is once again only about *which asset maps to each symbol×state*.
   per-symbol sizes (parity). It travels on the layout doc like every other reelGrid field —
   no symbols-doc involvement and no bake step beyond the normal scene bake.
 - **Back-compat only on the symbols side:** the per-cell `SymbolCell.sizeRatios` field stays
-  **optional** purely for back-compat *reads* — the engine's size resolver still honours a
+  **optional** purely for back-compat _reads_ — the engine's size resolver still honours a
   baked per-cell override ahead of the reel value — but the Symbols State Machine no longer
   **authors** size at any level (the size panel + per-cell size inputs were removed).
 - **Resolution order (at render):** baked per-cell `sizeRatios` (legacy override) > reel
@@ -83,9 +84,15 @@ hardcodes a local spine named `payframe`, spine key `anticipation`).
 
 ```jsonc
 {
-  "version": 1,
-  "symbols": { /* … */ },
-  "highlight": { "type": "spine", "assetKey": "<full R2 bundle prefix>", "animationName": "<loop anim>" }
+	"version": 1,
+	"symbols": {
+		/* … */
+	},
+	"highlight": {
+		"type": "spine",
+		"assetKey": "<full R2 bundle prefix>",
+		"animationName": "<loop anim>",
+	},
 }
 ```
 
@@ -114,16 +121,30 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
 
 ```jsonc
 {
-  "version": 1,
-  "symbols": { /* … */ },
-  "winLine": {
-    "enabled": false,                       // present ONLY when turned OFF
-    "line": { "color": "#ff3366", "width": 0.04, "glow": true, "glowColor": "#ff88aa",
-              "animated": true, "speed": 1.5,
-              "fullPayline": true, "fullPaylineColor": "#4a90d9" },
-    "text": { "enabled": true, "font": "silver", "size": 0.6, "color": "#ffffff",
-              "placement": "boardCenter" }   // enabled: present only when it DIFFERS from the line's
-  }
+	"version": 1,
+	"symbols": {
+		/* … */
+	},
+	"winLine": {
+		"enabled": false, // present ONLY when turned OFF
+		"line": {
+			"color": "#ff3366",
+			"width": 0.04,
+			"glow": true,
+			"glowColor": "#ff88aa",
+			"animated": true,
+			"speed": 1.5,
+			"fullPayline": true,
+			"fullPaylineColor": "#4a90d9",
+		},
+		"text": {
+			"enabled": true,
+			"font": "silver",
+			"size": 0.6,
+			"color": "#ffffff",
+			"placement": "boardCenter",
+		}, // enabled: present only when it DIFFERS from the line's
+	},
 }
 ```
 
@@ -161,7 +182,7 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
 - **Renderer (shared engine).** `apps/lines/src/components/WinLine.svelte` reads the resolved
   config via `editor-scenes.ts#bakedWinLineConfig()` (coded defaults applied) — line
   colour/thickness, an optional layered-stroke glow, an optional `svelte/motion` `Tween` draw
-  (first→last, *then* the amount), and the bitmap win-amount text (`style.fill` tint). The
+  (first→last, _then_ the amount), and the bitmap win-amount text (`style.fill` tint). The
   `winInfo` book-event handler traces the leftmost `kind` paying run (skipping scatter),
   gates on `bakedWinLineEnabled()`, and awaits the draw via `broadcastAsync` so an animated
   line completes before the symbol glow; non-animated resolves instantly, preserving the
@@ -223,13 +244,25 @@ to an older commit, so a thirteenth pattern added today can reach a game whose `
 for it. A throw would land inside `tumbleBoardExplode`, whose rejection takes `broadcastAsync` → the
 `tumbleBoard` book event → the round with it, on the one step every cascading spin runs.
 
-**The one thing downstream a pattern does move** is the explosion → intro transition, and it is
-handled at the transition rather than here. The pop is per seat and now staggered; the intro it
-bridges is one board-wide beat (`tumbleBoardAppear`) fired after the whole step resolves. Left on its
-own pop, wave 0's bridge would mount a full spread early and play to nobody. Each seat's bridge
-therefore waits out the remaining waves (`scheduleTransition`'s `catchUpMs`), landing every one of
-them at the same absolute moment — the authored `delayMs` after the LAST wave, which is where the
-seam actually is. Zero without a pattern, so the un-patterned seam is byte-identical.
+**The Transition rides its own seat's pop, and a pattern does not move it.** The bridge mounts the
+authored `delayMs` after THAT seat's explosion, whatever wave the pattern put the seat in, so under
+`columnsLeft` the bridges sweep across the board with the waves.
+
+This was got wrong once, and the mistake is worth keeping written down because the argument for it
+is a good one. Under a pattern the seam is two different shapes: the pop is per seat and staggered,
+while the intro it bridges (`tumbleBoardAppear`) is one board-wide beat fired after the whole step
+resolves. Reasoning from the intro end, every seat's bridge was made to wait out the remaining waves
+so they all landed together, `delayMs` after the LAST wave. On the board that read as broken — a
+wave-0 seat's cover arrived a whole spread after the symbol it was covering had finished popping,
+and the two came apart.
+
+One layer cannot sit on both ends. It sits on the POP, because that is the end the author authors
+against: the tool's own words are "Plays at the seat when a symbol explodes… Delay = ms after the
+explosion fires", and a delay measured from a seat's own pop is the only one an author can watch
+themselves tuning. The board CLEAR was the tell — it is fanned out one column per call, so under a
+column pattern every seat in a call shares a wave and the catch-up was always zero there. Same
+authored transition, right on the clear and wrong after a tumble win. Reported by the owner on
+Waves/test6, 2026-09-09.
 
 **Where it applies, and the two ORDERING SCOPES that needs.** Both moments reach
 `tumbleBoardExplode`: every cascade step, and the swap-in-place board CLEAR. Same gate as the
@@ -276,17 +309,17 @@ lined up.
 
 ```jsonc
 {
-  "version": 1,
-  "symbols": {
-    "H1": {
-      "static": { "type": "sprite", "assetKey": "h1.webp" },
-      "win":    { "type": "spine",  "assetKey": "H1", "animationName": "h1" },
-      // sizeRatios is OPTIONAL on a cell (back-compat reads only; size is now set on the
-      // reel — reelGrid.symbolSizeRatios in the Scene Editor). One entry per authored
-      // state; unset states fall through.
-    }
-    // … only symbols/states the user changed need appear (sparse overrides)
-  }
+	"version": 1,
+	"symbols": {
+		"H1": {
+			"static": { "type": "sprite", "assetKey": "h1.webp" },
+			"win": { "type": "spine", "assetKey": "H1", "animationName": "h1" },
+			// sizeRatios is OPTIONAL on a cell (back-compat reads only; size is now set on the
+			// reel — reelGrid.symbolSizeRatios in the Scene Editor). One entry per authored
+			// state; unset states fall through.
+		},
+		// … only symbols/states the user changed need appear (sparse overrides)
+	},
 }
 ```
 
@@ -311,8 +344,8 @@ currently reads `SYMBOL_INFO_MAP[name][state]` straight from the constant. Chang
    - standalone image → `{ type:'sprite', src }`
    - spine bundle → `{ type:'spine', src:{ atlas, skeleton, scale } }` (paths under
      `assets/editor-symbols/…`)
-   Spread into `createApp({assets})` in
-   [`stateApp.ts`](../../apps/lines/src/game/stateApp.ts) beside `bakedEditorArtAssets()`.
+     Spread into `createApp({assets})` in
+     [`stateApp.ts`](../../apps/lines/src/game/stateApp.ts) beside `bakedEditorArtAssets()`.
 4. No boot-order surprise: the map is pure data (no registration call), so reading
    `activeSymbolInfoMap` at first render is enough. Assets register at `createApp` as today.
 
@@ -371,7 +404,7 @@ done when it travels **export → `deploy/` → bake → pull → register**.
   `symbolExport.ts` → `bake-editor-doc.mjs` → `bundle.symbols.*`, and consumed by the per-game
   engine accessor (`bakedWinLineConfig()`). Book of Borut needs the same mirror as a follow-up
   (bump the engine submodule for the
-  launcher/bake changes). (Symbol *size* was briefly a doc global here too —
+  launcher/bake changes). (Symbol _size_ was briefly a doc global here too —
   `defaultSizeRatios` — but it has since moved to `reelGrid.symbolSizeRatios` on the reel,
   edited in the Scene Editor; see "Symbol size lives on the reel" above.)
 
@@ -389,7 +422,7 @@ tool reads it. No hand-maintained per-game JSON.
    endpoint writes `<client>/<project>/symbols/defaults.json`. `--optional` keeps a build
    green when un-tokened (mirrors `bake:doc`/`pull:assets`).
    - **Filtered to the in-play set (2026-06-18).** `SYMBOL_INFO_MAP` carries visual/animation
-     defaults for every symbol the engine *can* render (e.g. an unused `H5`). The script also
+     defaults for every symbol the engine _can_ render (e.g. an unused `H5`). The script also
      imports the game config module (`--config`, default `./src/game/config.ts`) and keeps
      only the symbols whose names appear in its default-export `symbols` map — the authoritative
      in-play set the game builds against — so the tool grid mirrors the game instead of showing
@@ -420,7 +453,7 @@ chips until the art is seeded. Two sibling syncs (run from the engine repo with 
   `loadRegionSet` reads the TexturePacker JSON directly + resolves the page beside it, so a
   game's own `symbolsStatic` (frames `h1.png … w.png`) becomes previewable with no re-author.
 - **Spines** — `apps/launcher-api/scripts/r2-sync-spines.mjs <spinesDir> <client> <project>`
-  uploads bundles + writes the `skeletons.json` index. (Spine *default* cells still render as
+  uploads bundles + writes the `skeletons.json` index. (Spine _default_ cells still render as
   chips — the coded map's short keys like `H1` aren't R2 bundle prefixes; only a rebind, which
   stores the full bundle prefix, gets a live preview.)
 

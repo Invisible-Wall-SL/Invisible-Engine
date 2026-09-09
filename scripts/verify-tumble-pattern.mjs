@@ -526,7 +526,7 @@ const runExplode = async ({
 		stateTumble,
 		stateGameDerived: {
 			// The transition is emerge-only, so both answers are needed: OFF is the ordering fixture's
-			// default, ON exercises the catch-up that keeps a staggered pop bridging a board-wide intro.
+			// default, ON exercises the bridge that has to cover each seat's own pop.
 			boardSwapsInPlace: () => Boolean(emerge),
 			boardSwapStyle: () => (emerge ? 'emerge' : 'slide'),
 		},
@@ -539,10 +539,22 @@ const runExplode = async ({
 		waitForTimeout: (ms) => clock.wait(ms),
 		playTumbleExplosionSound: () => pops.push({ cue: 'step', at: clock.at() }),
 		playSymbolTumbleExplosionSound: () => {},
-		// The real one mounts `layer.delayMs + catchUpMs` after the seat's pop; what matters here is the
-		// ABSOLUTE moment it lands, which is what the catch-up exists to make uniform.
-		scheduleTransition: (layer, _position, _symbol, catchUpMs) =>
-			bridges.push({ mountsAt: clock.at() + (layer.delayMs ?? 0) + catchUpMs, catchUpMs }),
+		// The real one mounts `layer.delayMs` after the seat's own pop. `poppedAt` is recorded beside
+		// the mount because the whole assertion is about the OFFSET between the two: the bridge exists
+		// to cover a pop, so it has to stay a fixed distance from the pop it covers, whatever wave the
+		// pattern put that seat in.
+		//
+		// It still ADDS a fourth argument if the handler passes one, and that is the point rather than
+		// leftover generosity. The regression this part exists to catch lived at the CALL SITE — the
+		// handler handed `scheduleTransition` a per-seat catch-up that pulled every bridge onto the
+		// last wave. A stub that ignored extra arguments would go on passing through exactly that
+		// change; modelling the real arithmetic means the checks below fail the moment a bridge is
+		// offset from its own pop again.
+		scheduleTransition: (layer, _position, _symbol, extraDelayMs = 0) =>
+			bridges.push({
+				poppedAt: clock.at(),
+				mountsAt: clock.at() + (layer.delayMs ?? 0) + extraDelayMs,
+			}),
 		// The beat: a symbol reports `oncomplete` BEAT_MS after its state is set, which is what an
 		// authored explosion animation does.
 		awaitBeat: (arm) => {
@@ -707,28 +719,36 @@ console.log('--- 3. the pending-wave guard ---');
 console.log('--- 4. the explosion → intro transition under a pattern ---');
 
 {
-	// Every seat's bridge must land at the SAME absolute moment — `delayMs` after the LAST wave —
-	// because the intro it bridges is one board-wide beat, not a per-seat one. Riding each seat's own
-	// pop would mount wave 0's bridge a full spread early, playing it into nothing.
+	// A bridge covers a POP, so it rides the pop it covers: `delayMs` after THAT seat's own wave,
+	// never after the board's last one. This regressed once — the bridges were pulled onto the last
+	// wave so they would all land on the board-wide intro together, and a wave-0 seat's cover then
+	// arrived a whole spread after the symbol it was covering had finished popping.
 	const seats = fullBoard();
 	const run = await runExplode({ seats, pattern: 'columnsLeft', stepMs: 80, emerge: true });
 	check('one bridge per exploding seat', run.bridges.length, 15);
 	check(
-		'...every one of them mounting at the same moment: the last wave plus the authored delay',
-		[...new Set(run.bridges.map((b) => b.mountsAt))],
-		[320 + 40],
+		'...each one a fixed authored delay after its OWN pop, whatever wave it is in',
+		[...new Set(run.bridges.map((b) => b.mountsAt - b.poppedAt))],
+		[40],
 	);
-	// PARITY: with no pattern there is nothing to catch up to, so the seam is byte-identical to
-	// before patterns existed.
+	// The bridges therefore SPREAD with the pattern rather than bunching. Stated as the mount times
+	// themselves, because "the offset is constant" would still hold if every seat popped together.
+	check(
+		'...so the bridges sweep across the board with the waves',
+		[...new Set(run.bridges.map((b) => b.mountsAt))].sort((a, b) => a - b),
+		[40, 120, 200, 280, 360],
+	);
+	// PARITY: with no pattern every seat pops in the same frame, so the whole seam is byte-identical
+	// to before patterns existed.
 	const flat = await runExplode({ seats, emerge: true });
 	check(
-		'un-patterned — every catch-up is zero, so the bridge still rides its own pop',
-		[...new Set(flat.bridges.map((b) => b.catchUpMs))],
-		[0],
+		'un-patterned — every seat pops together, so every bridge mounts together',
+		[...new Set(flat.bridges.map((b) => b.mountsAt))],
+		[40],
 	);
 	check(
-		'...mounting at the authored delay and nothing more',
-		[...new Set(flat.bridges.map((b) => b.mountsAt))],
+		'...and the same authored offset holds there too',
+		[...new Set(flat.bridges.map((b) => b.mountsAt - b.poppedAt))],
 		[40],
 	);
 }
