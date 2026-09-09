@@ -3939,13 +3939,15 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
      </select>
     </label>
     <div style="color:#666;font-size:11px;margin-top:-4px">Each tool lists only its own kind, so an image blueprint never shows up in the video picker and vice versa.</div>
-    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Base (ref/output conventions)
+    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Base model family (a label — it does NOT choose what runs)
      <select id="bpBase" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
       <option value="sdxl">sdxl</option><option value="flux">flux</option><option value="gpt_image">gpt_image</option>
      </select>
     </label>
+    <div style="color:#666;font-size:11px;margin-top:-4px">Recorded on the blueprint so the library reads sensibly. <b>Nothing dispatches on it</b> — it shares its wording with the built-in pipelines, which has been read as "this is what will run". What actually runs is <b>⚙ Settings → Pipeline</b>.</div>
     <div style="color:#aaa;font-weight:600;margin-top:2px">Bindings (role → node)</div>
     <div id="bpBindings" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div id="bpBindNote" style="display:none;color:#888;font-size:11px;line-height:1.5;margin-top:2px"></div>
     <div style="color:#aaa;font-weight:600;margin-top:8px;display:flex;align-items:center;gap:10px">Exposed settings (optional)
      <button type="button" onclick="addBpParam()" style="font-size:11px;padding:3px 8px">＋ Add</button></div>
     <div style="color:#888;font-size:11px">Tunable knobs (steps, cfg, sampler…) the author exposes. Each carries a default — the "general setting" — and renders as an editable control in the Settings panel. Pick a node + input that ISN'T already bound as a role.</div>
@@ -3953,6 +3955,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <div id="bpGates" style="display:none;color:#fbbf24;font-size:11px;line-height:1.5;border:1px solid #78350f;border-radius:6px;background:#1c1408;padding:8px;margin:6px 0"></div>
     <p id="bpSpecsNote" style="display:none;color:#999;font-size:11px;margin:0 0 6px"></p>
     <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
+    <label style="display:flex;align-items:center;gap:7px;color:#aaa;font-size:12px;margin-top:4px"><input type="checkbox" id="bpUseNow" checked>
+     Use it for this atlas straight away (sets ⚙ Settings → Pipeline)</label>
+    <div style="color:#666;font-size:11px;margin-top:-4px">Publishing only adds the blueprint to the shared library. Until something selects it, this atlas keeps rendering with the pipeline it already had — which is how a processing blueprint gets published and the next render still comes out of the built-in SDXL generator.</div>
    </div>
   </div>
   <div id="bpfoot" class="modalfoot" style="display:none">
@@ -4561,7 +4566,7 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  bpStat('');
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
- ['bpGates','bpRoleNote'].forEach(id=>{{
+ ['bpGates','bpRoleNote','bpBindNote'].forEach(id=>{{
   let w=document.getElementById(id);
   if(w){{ w.innerHTML=''; w.style.display='none'; }}
  }});
@@ -4690,6 +4695,16 @@ function onBpFilePicked(){{
 function buildBpBindings(){{
  let wrap=document.getElementById('bpBindings'); wrap.innerHTML='';
  const all=bpAllInputs();
+ // A (node,field) prefilled for one role is not offered to the next. Two roles on ONE
+ // input is a silent wrong render, not a conflict anyone is told about: at render time
+ // the later role overwrites the earlier one. The case that bites is a single-LoadImage
+ // processing graph, where style_ref and shape_ref both matched it and shape_ref won —
+ // so the graph received `normalize_shape_ref`'s grayscale silhouette on a black canvas
+ // instead of the artwork. A one-CLIPTextEncode graph had the same shape with
+ // positive/negative. The author can still pick the collision deliberately; it just is
+ // no longer the default.
+ let taken=new Map();
+ let skipped=[];
  BP_ROLES.forEach(([role,req])=>{{
   let cands=bpCandidates(role,_bpGraph);
   let row=document.createElement('label');
@@ -4738,13 +4753,23 @@ function buildBpBindings(){{
   // the top rank. Two equally good candidates (a graph with a first-half and a
   // second-half prompt) is a choice only the author can make.
   if(cands.length && (cands.length===1 || cands[0].rank!==cands[1].rank)){{
-   sel.value=bpBindValue(role,cands[0]);
+   let v=bpBindValue(role,cands[0]);
+   if(taken.has(v)) skipped.push([role,taken.get(v)]);
+   else {{ sel.value=v; taken.set(v,role); }}
   }}
   sel.onchange=()=>{{ document.querySelectorAll('#bpParams .bpparam').forEach(r=>{{
    if(r._bpRefresh) r._bpRefresh();
   }}); bpGateWarn(); bpRoleWarn(); }};
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
+ let note=document.getElementById('bpBindNote');
+ if(note){{
+  note.innerHTML=skipped.length ? ('Left unbound on purpose: '
+   +skipped.map(p=>'<b>'+p[0]+'</b> (the same input is already bound as <b>'+p[1]
+    +'</b>)').join(', ')
+    +'. Two roles on one input do not both apply — the later one overwrites the earlier, silently. Pick it anyway only if that is what you want.') : '';
+  note.style.display=skipped.length?'':'none';
+ }}
  bpRoleWarn();
 }}
 // An EXPECTED role left unbound on a graph that could satisfy it. Not a blocker:
@@ -5150,7 +5175,10 @@ async function saveBlueprint(overwrite){{
   kind:document.getElementById('bpKind').value,
   base:document.getElementById('bpBase').value,
   workflow_text:JSON.stringify(_bpGraph),
-  bindings:bindings, params:collectBpParams(), overwrite:!!overwrite}};
+  bindings:bindings, params:collectBpParams(), overwrite:!!overwrite,
+  // The server sets the pipeline itself — it is the side that knows the slugged
+  // id, so nothing has to parse one back out of the reply text.
+  use_for_atlas:!!(document.getElementById('bpUseNow')||{{}}).checked}};
  let msg;
  try{{ let r=await fetch('/uploadblueprint',{{method:'POST',body:JSON.stringify(body)}});
   msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
@@ -6898,8 +6926,25 @@ class Handler(BaseHTTPRequestHandler):
             return (f"⚠ Saved '{bp_id}' but it didn't reload cleanly — check the "
                     "bindings and try again.")
         verb = "Updated" if overwrite else "Published"
-        return (f"✓ {verb} blueprint '{bp_id}' — select it in the pipeline "
-                "dropdown (reload to refresh the list)."
+        # Publishing only puts a blueprint in the shared library. Nothing SELECTS
+        # it, so the next render still went through whatever pipeline the atlas
+        # already had — reported as "I published my background-removal blueprint
+        # and my image came back regenerated", because the untouched default is
+        # the built-in SDXL text-to-image path. Done here rather than in the
+        # browser because this is the only side that knows the slugged id.
+        selected = ""
+        if payload.get("use_for_atlas"):
+            try:
+                self._saveconfig({"pipeline": bp_id})
+                selected = (" and selected it as this atlas's pipeline "
+                            "(⚙ Settings → Pipeline)")
+            except Exception as e:  # noqa: BLE001 — the publish itself succeeded
+                selected = (f" — but could not select it as the pipeline ({e}); "
+                            "pick it in ⚙ Settings → Pipeline yourself")
+        else:
+            selected = (" — select it in ⚙ Settings → Pipeline, or it will not "
+                        "run (reload to refresh the list)")
+        return (f"✓ {verb} blueprint '{bp_id}'{selected}."
                 + _models_note(manifest["models"], dropped_models) + mirror_note)
 
     def _deleteblueprint(self, payload: dict) -> str:

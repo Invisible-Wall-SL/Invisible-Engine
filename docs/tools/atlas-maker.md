@@ -290,6 +290,26 @@ time — the graph keeps whatever value your export baked in. If your graph *doe
 seed or a prompt and you leave the role unbound, the modal says so and what it will cost
 (every region identical, or the card prompts ignored) — a warning, not a refusal.
 
+**Publishing does not make a blueprint run.** It adds it to the shared library; what the
+Atlas Maker actually renders with is **⚙ Settings → Pipeline**, whose untouched default is
+the built-in `sdxl` text-to-image path. Publish a background-removal blueprint, leave that
+setting alone, and the next render comes back *regenerated from the region prompt* rather
+than processed — the blueprint never ran. The modal therefore offers **“Use it for this
+atlas straight away”**, ticked by default, which sets the pipeline for you as part of the
+publish; untick it when you are publishing for someone else or for later.
+
+**`Base model family` is a label, not a switch.** It offers `sdxl / flux / gpt_image` —
+the same three words as the built-in pipelines — but nothing dispatches on it. It is
+recorded so the library reads sensibly. The pipeline is chosen in ⚙ Settings, nowhere else.
+
+**One input, one role.** If your graph has a single `LoadImage`, only `style_ref` is filled
+in for you and `shape_ref` is deliberately left `(not used)`, with a line under the rows
+saying so. Binding both to the same input does not apply both: at render time `shape_ref`
+is written second and wins, and it is not your picture — it is `normalize_shape_ref`’s
+grayscale silhouette on a black canvas, scaled to **Shape-ref fill %** (a single pixel at
+`0`). You can still pick the collision by hand if you mean it. The same rule keeps a
+one-`CLIPTextEncode` graph from filling `positive` and `negative` with the same node.
+
 - **Suggested is a ranking, not a shortlist.** Every input in the graph is listed under **All node
   inputs** beneath it, so a role is never cornered by a heuristic that did not anticipate your
   network. Wired inputs are listed too, marked `(wired)`.
