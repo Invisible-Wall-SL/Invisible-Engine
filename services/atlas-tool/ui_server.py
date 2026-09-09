@@ -3921,7 +3921,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="modalbox" style="width:min(620px,94vw)">
   <div class="modalhdr"><span id="bptitle">New blueprint</span><button onclick="closeBp()">✕ close</button></div>
   <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
-   <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. positive / seed / output are required.</div>
+   <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. Only <b>output</b> is required — a processing graph with no sampler or prompt binds nothing else and publishes fine.</div>
    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Workflow file (API format)
     <input type="file" id="bpFile" accept=".json,application/json" onchange="onBpFilePicked()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
    </label>
@@ -3949,6 +3949,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <div style="color:#aaa;font-weight:600;margin-top:8px;display:flex;align-items:center;gap:10px">Exposed settings (optional)
      <button type="button" onclick="addBpParam()" style="font-size:11px;padding:3px 8px">＋ Add</button></div>
     <div style="color:#888;font-size:11px">Tunable knobs (steps, cfg, sampler…) the author exposes. Each carries a default — the "general setting" — and renders as an editable control in the Settings panel. Pick a node + input that ISN'T already bound as a role.</div>
+    <div id="bpRoleNote" style="display:none;color:#fbbf24;font-size:11px;line-height:1.5;border:1px solid #78350f;border-radius:6px;background:#1c1408;padding:8px;margin:6px 0"></div>
     <div id="bpGates" style="display:none;color:#fbbf24;font-size:11px;line-height:1.5;border:1px solid #78350f;border-radius:6px;background:#1c1408;padding:8px;margin:6px 0"></div>
     <p id="bpSpecsNote" style="display:none;color:#999;font-size:11px;margin:0 0 6px"></p>
     <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -4424,11 +4425,18 @@ function bpSpecsNote(msg){{
  let el=document.getElementById('bpSpecsNote');
  if(el){{ el.textContent=msg; el.style.display=msg?'':'none'; }}
 }}
-// Role -> required (must be bound) + candidate filter over (id, node).
+// Role -> EXPECTED (worth warning about when a graph offers one and the author
+// left it unbound) + candidate filter over (id, node). Only `output` actually
+// blocks a publish: it is where the bytes come from. `positive` and `seed` used
+// to block too, which made a PROCESSING blueprint — an upscale, relight or
+// matting graph with no sampler and no text encoder — impossible to publish at
+// all: the modal demanded a seed the graph had nothing to bind. See bpRoleWarn.
 const BP_ROLES=[
  ['positive',true],['negative',false],['seed',true],
  ['width',false],['height',false],
  ['style_ref',false],['shape_ref',false],['output',true]];
+// The role a publish cannot do without.
+const BP_STRUCTURAL='output';
 // A ComfyUI API input is either a widget value or a link [nodeId, slot].
 function bpLinkSource(v){{
  return (Array.isArray(v) && typeof v[0]==='string') ? v[0] : null;
@@ -4553,8 +4561,10 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  bpStat('');
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
- let gw=document.getElementById('bpGates');
- if(gw){{ gw.innerHTML=''; gw.style.display='none'; }}
+ ['bpGates','bpRoleNote'].forEach(id=>{{
+  let w=document.getElementById(id);
+  if(w){{ w.innerHTML=''; w.style.display='none'; }}
+ }});
  document.getElementById('bpmodal').classList.add('open');
 }}
 // Dedicated "Manage blueprints" modal (its own toolbar button) — lists every
@@ -4685,7 +4695,12 @@ function buildBpBindings(){{
   let row=document.createElement('label');
   row.style.cssText='display:flex;align-items:center;gap:8px;color:#aaa';
   let lbl=document.createElement('span');
-  lbl.style.cssText='min-width:90px'; lbl.textContent=role+(req?' *':'');
+  lbl.style.cssText='min-width:90px';
+  // A star on a role this graph cannot offer is a demand the author cannot meet,
+  // which is exactly how the seed blocked every processing graph. Star `output`
+  // always (it is the one hard requirement) and the rest only when there is
+  // something to pick.
+ lbl.textContent=role+((req&&(role===BP_STRUCTURAL||cands.length))?' *':'');
   let sel=document.createElement('select');
   sel.dataset.bprole=role;
   sel.style.cssText='flex:1;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:6px';
@@ -4727,9 +4742,42 @@ function buildBpBindings(){{
   }}
   sel.onchange=()=>{{ document.querySelectorAll('#bpParams .bpparam').forEach(r=>{{
    if(r._bpRefresh) r._bpRefresh();
-  }}); bpGateWarn(); }};
+  }}); bpGateWarn(); bpRoleWarn(); }};
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
+ bpRoleWarn();
+}}
+// An EXPECTED role left unbound on a graph that could satisfy it. Not a blocker:
+// the author may want a fixed seed, or no prompt injected. But leaving it unbound
+// by accident is silent at render time — the graph keeps whatever value its
+// export baked, on every region — so say what will happen while the graph is
+// still on screen. A role the graph cannot offer at all is not mentioned: there
+// is nothing the author could do about it.
+function bpRoleWarn(){{
+ let box=document.getElementById('bpRoleNote'); if(!box) return;
+ if(!_bpGraph){{ box.style.display='none'; box.innerHTML=''; return; }}
+ let bound=new Set();
+ document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
+  if(sel.value) bound.add(sel.dataset.bprole);
+ }});
+ const CONSEQUENCE={{
+  positive:'every region renders the prompt your export baked in, so the prompt on each card is ignored',
+  seed:'every region and every new variant comes out identical, because the graph keeps the seed your export baked in'}};
+ let hits=Object.keys(CONSEQUENCE).filter(r=>
+  !bound.has(r) && bpCandidates(r,_bpGraph).length);
+ if(!hits.length){{ box.style.display='none'; box.innerHTML=''; return; }}
+ box.innerHTML='';
+ let head=document.createElement('div');
+ head.innerHTML='<b>⚠ '+(hits.length===1?('The '+hits[0]+' role is'):(hits.join(' and ')+' roles are'))
+  +' unbound, but this graph has '+(hits.length===1?'one':'them')+'.</b> Publishing is allowed — this is a warning, not a refusal.';
+ box.appendChild(head);
+ hits.forEach(r=>{{
+  let row=document.createElement('div');
+  row.style.cssText='margin-top:6px';
+  row.textContent='• '+r+' — '+CONSEQUENCE[r]+'.';
+  box.appendChild(row);
+ }});
+ box.style.display='';
 }}
 // Current role->{{node,field}} set (from the binding selects) so a param can't
 // offer a (node,field) already driven by a role (no double-drive). Reads the
@@ -5091,8 +5139,12 @@ async function saveBlueprint(overwrite){{
   if(i<0) return;                       // node-only value on a field role: skip
   bindings[role]={{node:v.slice(0,i), field:v.slice(i+2)}};
  }});
- let missing=BP_ROLES.filter(r=>r[1]&&!bindings[r[0]]).map(r=>r[0]);
- if(missing.length){{ bpStat('Bind '+missing.join(', ')+' first.'); return; }}
+ // `output` alone. A graph with no sampler has no seed to bind and a graph with
+ // no text encoder has no prompt; refusing those made every processing blueprint
+ // unpublishable. bpRoleWarn has already said what an unbound role will cost.
+ if(!bindings[BP_STRUCTURAL]){{
+  bpStat('Bind '+BP_STRUCTURAL+' first — it is the node the image is read from.');
+  return; }}
  let body={{name:document.getElementById('bpName').value,
   description:document.getElementById('bpDesc').value,
   kind:document.getElementById('bpKind').value,

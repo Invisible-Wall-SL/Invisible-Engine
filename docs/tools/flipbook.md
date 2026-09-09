@@ -257,6 +257,12 @@ You then point each **role** at a node input. A role is what the tool fills in a
 the `prompt` box, the `negative` box, the per-variation `seed`, the source still
 (`style_ref` / `shape_ref`), and `output` (the save node the frames come back from).
 
+**Only `output` is required.** A processing graph has no sampler and no text encoder, so it
+has nothing to bind `seed` or `positive` to; requiring them made that class of blueprint
+unpublishable. An unbound role is not written at render time, so the graph keeps its baked
+value — and if the graph HAS a seed you left unbound, the modal warns that every variation
+will come out identical rather than refusing the publish.
+
 - **Suggested is a ranking, not a shortlist.** Every input in the graph is listed under **All
   node inputs** beneath it, so a role is never cornered by a heuristic that did not anticipate
   your network. Wired inputs are listed too, marked `(wired)`.

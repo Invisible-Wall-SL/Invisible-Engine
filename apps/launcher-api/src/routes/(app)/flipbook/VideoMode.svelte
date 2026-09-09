@@ -990,14 +990,29 @@ ${endScript}</body></html>`;
 	// older exclude-only model. They cannot be shared — that is a Python-rendered
 	// page and this is Svelte, opposite sides of the A/B line in
 	// docs/ui-inventory.md — so keep the two in step by hand.
+	// `expected` means "worth warning about when this graph offers one and the author
+	// left it unbound" — NOT a publish gate. Only `output` blocks, because it is where
+	// the bytes come from. `positive` and `seed` used to block as well, which made a
+	// PROCESSING graph — no sampler, no text encoder — impossible to publish at all:
+	// the modal demanded a seed the graph had nothing to bind. The runner injects every
+	// role through `_set_node_input`, a no-op for an absent binding, so an unbound role
+	// costs nothing; the cost is that the baked value is kept, which is what
+	// `unboundExpected` below says out loud. Mirrors BP_ROLES in ui_server.py.
 	const PUBLISH_ROLES = [
-		{ role: 'positive', required: true, hint: 'the prompt' },
-		{ role: 'negative', required: false, hint: '' },
-		{ role: 'seed', required: true, hint: 'per-variation seed' },
-		{ role: 'style_ref', required: false, hint: 'the still to animate' },
-		{ role: 'shape_ref', required: false, hint: '' },
-		{ role: 'output', required: true, hint: 'the save node' },
+		{ role: 'positive', expected: true, hint: 'the prompt' },
+		{ role: 'negative', expected: false, hint: '' },
+		{ role: 'seed', expected: true, hint: 'per-variation seed' },
+		{ role: 'style_ref', expected: false, hint: 'the still to animate' },
+		{ role: 'shape_ref', expected: false, hint: '' },
+		{ role: 'output', expected: true, hint: 'the save node' },
 	] as const;
+	const STRUCTURAL_ROLE = 'output';
+	/** What an unbound role actually costs at render time, per role. */
+	const ROLE_COST: Record<string, string> = {
+		positive:
+			'every variation renders the prompt your export baked in, so the prompt box above is ignored',
+		seed: 'every variation comes out identical, because the graph keeps the one seed your export baked in',
+	};
 
 	/** Binding-role names the tool reserves. A param key may not collide with one
 	 * (`blueprints._validate_params` rejects it), and `width`/`height` are on the
@@ -1464,11 +1479,28 @@ ${endScript}</body></html>`;
 		}
 	}
 
+	/** An EXPECTED role left unbound on a graph that COULD satisfy it. Never blocks —
+	 * the author may want a fixed seed — but leaving one unbound by accident is silent
+	 * at render time, so the cost is stated while the graph is still on screen. A role
+	 * this graph cannot offer is not mentioned: there is nothing to do about it. */
+	const unboundExpected = $derived(
+		pubGraph
+			? PUBLISH_ROLES.filter(
+					(r) =>
+						r.expected &&
+						r.role !== STRUCTURAL_ROLE &&
+						!pubBindings[r.role] &&
+						(suggestionsByRole[r.role]?.length ?? 0) > 0,
+				).map((r) => r.role)
+			: [],
+	);
+
 	async function publishBlueprint(overwrite = false): Promise<void> {
 		if (!pubGraph) return;
-		const missing = PUBLISH_ROLES.filter((r) => r.required && !pubBindings[r.role]);
-		if (missing.length) {
-			pubMsg = `Bind ${missing.map((m) => m.role).join(', ')} first.`;
+		// `output` alone — see PUBLISH_ROLES. An unbound `positive`/`seed` is a warning
+		// (unboundExpected), not a refusal, so a processing graph can be published.
+		if (!pubBindings[STRUCTURAL_ROLE]) {
+			pubMsg = `Bind ${STRUCTURAL_ROLE} first — it is the node the frames are read from.`;
 			return;
 		}
 		// A half-filled setting used to be dropped without a word, so a knob the
@@ -2615,8 +2647,8 @@ Overwrite it?`)
 			</header>
 			<p class="hint">
 				Pick a ComfyUI <b>API-format</b> export (Settings → “Save (API Format)”), then point each
-				role at a node. It publishes as a <b>video</b> blueprint, so it appears here and not in the Atlas
-				Maker.
+				role at a node. Only <b>output</b> is required. It publishes as a <b>video</b> blueprint, so
+				it appears here and not in the Atlas Maker.
 			</p>
 
 			<label class="fld">
@@ -2645,7 +2677,11 @@ Overwrite it?`)
 				{#each PUBLISH_ROLES as r (r.role)}
 					{@const sugg = suggestionsByRole[r.role] ?? []}
 					<label class="brow">
-						<span>{r.role}{r.required ? ' *' : ''}{r.hint ? ` — ${r.hint}` : ''}</span>
+						<span>
+							{r.role}{r.expected && (r.role === STRUCTURAL_ROLE || sugg.length) ? ' *' : ''}{r.hint
+								? ` — ${r.hint}`
+								: ''}
+						</span>
 						<select
 							value={pubBindings[r.role] ?? ''}
 							disabled={pubBusy}
@@ -2679,6 +2715,19 @@ Overwrite it?`)
 						</select>
 					</label>
 				{/each}
+				{#if unboundExpected.length}
+					<div class="diag">
+						<b>
+							⚠ {unboundExpected.join(' and ')}
+							{unboundExpected.length === 1 ? 'is' : 'are'} unbound, but this graph has
+							{unboundExpected.length === 1 ? 'one' : 'them'}.
+						</b>
+						Publishing is allowed — this is a warning, not a refusal.
+						{#each unboundExpected as role (role)}
+							<div>• {role} — {ROLE_COST[role]}.</div>
+						{/each}
+					</div>
+				{/if}
 				<p class="hint">
 					There is deliberately no <b>width</b>/<b>height</b> role here. On a video blueprint the runner
 					would fill them from the Atlas Maker's still-image defaults (1024), and 1024² across an 80-frame
