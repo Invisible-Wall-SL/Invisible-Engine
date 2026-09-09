@@ -58,6 +58,19 @@ export const projects = pgTable('projects', {
 	 * stores and returns it as-is. Null until first published.
 	 */
 	launcherProfile: jsonb('launcher_profile'),
+	/**
+	 * Soft-delete tombstone. Non-null = deleted: the project vanishes from every
+	 * picker and grant (`listProjects` filters it out), but its row — and crucially
+	 * its `readToken` and `clientKey` — survive, so a restore is one click and the
+	 * R2 prefix stays reachable.
+	 *
+	 * Delete is NOT destructive here on purpose. An accidental delete once stranded
+	 * 2,488 R2 objects (2.3 GB) whose owning row was gone, and the only reason the
+	 * project came back was that the delete had never touched R2. Permanently
+	 * destroying the bytes is a SEPARATE, explicitly-labelled purge on an
+	 * already-deleted project — never the button sitting next to Rescaffold.
+	 */
+	deletedAt: timestamp('deleted_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

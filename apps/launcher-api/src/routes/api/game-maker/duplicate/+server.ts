@@ -15,6 +15,7 @@ import {
 	isValidProjectKey,
 	projectClientKey,
 	projectExists,
+	projectKeyTaken,
 	projectGameType,
 } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -83,6 +84,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!name) return json({ error: 'Name is required.' }, { status: 400, headers: NO_STORE });
 	if (await projectExists(key)) {
 		return json({ error: 'A project with that key exists.' }, { status: 409, headers: NO_STORE });
+	}
+	// A soft-deleted row still owns the primary key, so the insert below would 500.
+	if (await projectKeyTaken(key)) {
+		return json(
+			{ error: `"${key}" is a deleted project. An admin can restore or purge it in /admin.` },
+			{ status: 409, headers: NO_STORE },
+		);
 	}
 	if (clientKey !== null && !(await clientExists(clientKey))) {
 		return json({ error: 'Unknown client.' }, { status: 400, headers: NO_STORE });

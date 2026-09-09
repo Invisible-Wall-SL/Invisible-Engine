@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { getDb } from './db';
-import { clients, projects, userClientAccess, userProjectAccess } from './db/schema';
+import {
+	clients,
+	games,
+	projects,
+	sessions,
+	userClientAccess,
+	userProjectAccess,
+} from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from '$lib/roles';
@@ -17,11 +24,53 @@ export function isValidProjectKey(value: string): boolean {
 	return PROJECT_KEY_RE.test(value);
 }
 
+/** Every LIVE project. Soft-deleted rows are excluded — see {@link softDeleteProject}. */
 export async function listProjects(): Promise<Project[]> {
-	return getDb().select().from(projects).orderBy(projects.createdAt);
+	return getDb()
+		.select()
+		.from(projects)
+		.where(isNull(projects.deletedAt))
+		.orderBy(projects.createdAt);
 }
 
+/** Soft-deleted projects, newest deletion first — the admin panel's restore/purge list. */
+export async function listDeletedProjects(): Promise<Project[]> {
+	return getDb()
+		.select()
+		.from(projects)
+		.where(isNotNull(projects.deletedAt))
+		.orderBy(desc(projects.deletedAt));
+}
+
+/** True only for a TOMBSTONED row — the precondition for restore and purge. */
+export async function projectIsDeleted(key: string): Promise<boolean> {
+	const [row] = await getDb()
+		.select({ key: projects.key })
+		.from(projects)
+		.where(and(eq(projects.key, key), isNotNull(projects.deletedAt)));
+	return Boolean(row);
+}
+
+/**
+ * True when a LIVE project has this key. A soft-deleted row reads as absent, so a
+ * deleted project can't be renamed, re-scoped or granted without being restored first.
+ * To ask "is this key free to CREATE?" use {@link projectKeyTaken} — the key is still
+ * a primary key while the tombstone exists, so `!projectExists` does NOT imply insertable.
+ */
 export async function projectExists(key: string): Promise<boolean> {
+	const [row] = await getDb()
+		.select({ key: projects.key })
+		.from(projects)
+		.where(and(eq(projects.key, key), isNull(projects.deletedAt)));
+	return Boolean(row);
+}
+
+/**
+ * True when ANY row holds this key, deleted or not. Creation paths must use this:
+ * inserting over a tombstone is a primary-key violation, and the caller owes the user
+ * the real reason ("deleted — restore or purge it") rather than a 500.
+ */
+export async function projectKeyTaken(key: string): Promise<boolean> {
 	const [row] = await getDb()
 		.select({ key: projects.key })
 		.from(projects)
@@ -264,6 +313,44 @@ export async function renameProject(key: string, name: string): Promise<void> {
 	await getDb().update(projects).set({ name }).where(eq(projects.key, key));
 }
 
+/**
+ * Soft-delete: stamp the tombstone, unregister the project's games, and drop any
+ * session parked on it back to the default. Reversible by {@link restoreProject};
+ * NOTHING in R2 is touched. Returns the game keys that were unregistered so the
+ * caller can name them back to the user.
+ *
+ * The games rows go WITH the project deliberately. Leaving them (the old
+ * `ON DELETE SET NULL` behaviour) is what produced two rows in the live Games grid
+ * pointing at a project that no longer existed, with URLs that 401 once the read
+ * token is gone. A game without its project is not a game.
+ */
+export async function softDeleteProject(key: string, when: Date): Promise<string[]> {
+	return getDb().transaction(async (tx) => {
+		const owned = await tx
+			.select({ key: games.key })
+			.from(games)
+			.where(eq(games.projectKey, key));
+		await tx.delete(games).where(eq(games.projectKey, key));
+		await tx
+			.update(sessions)
+			.set({ activeProjectKey: null })
+			.where(eq(sessions.activeProjectKey, key));
+		await tx.update(projects).set({ deletedAt: when }).where(eq(projects.key, key));
+		return owned.map((g) => g.key);
+	});
+}
+
+/** Undo a {@link softDeleteProject}. The games it unregistered are NOT resurrected. */
+export async function restoreProject(key: string): Promise<void> {
+	await getDb().update(projects).set({ deletedAt: null }).where(eq(projects.key, key));
+}
+
+/**
+ * HARD delete of the row — no tombstone, no undo. Reached from exactly two places:
+ * the purge action (after its R2 objects are gone) and the game-maker duplicate's
+ * rollback (which is deleting a row it created seconds earlier). Never wire this to
+ * a user-facing "Delete" button; that is {@link softDeleteProject}.
+ */
 export async function deleteProject(key: string): Promise<void> {
 	await getDb().delete(projects).where(eq(projects.key, key));
 }
