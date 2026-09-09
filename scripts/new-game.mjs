@@ -335,7 +335,13 @@ console.log(`Scaffolding "${name}" → ${dest}`);
 mkdirSync(dest, { recursive: true });
 
 const run = (cmd) => execSync(cmd, { cwd: dest, stdio: 'inherit' });
-run('git init -q');
+// `-b main` explicitly: a bare `git init` takes the branch from the MACHINE's
+// `init.defaultBranch`, which is unset by default and makes git fall back to `master`.
+// The repo `gh repo create --push` then publishes is a `master` repo, and every desktop
+// launcher build of it died on `fatal: couldn't find remote ref main` — the whole toolchain
+// downstream (the launcher's presync, this file's own `git submodule add -b main`) assumes
+// `main`. The scaffolder is the one place that can make that true instead of hoping for it.
+run('git init -q -b main');
 console.log('Adding engine submodule (this clones the engine — may take a minute)…');
 run(`git submodule add -b main ${ENGINE_URL} engine`);
 
