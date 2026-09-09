@@ -48,6 +48,17 @@ export function getActiveSymbolInfoMap(): SymbolInfoMap {
  */
 export function resetSymbolMapCache(): void {
 	cached = null;
+	generation += 1;
+}
+
+/**
+ * Bumped by {@link resetSymbolMapCache}. Read by `getSymbolInfo`'s memo so the two caches can
+ * never disagree about which map is live: one counter, invalidated at one place, rather than a
+ * second clear call at every reset site that a future caller could forget.
+ */
+let generation = 0;
+export function symbolMapGeneration(): number {
+	return generation;
 }
 
 const DEFAULT_SIZE_RATIOS = { width: 1, height: 1 } as const;
