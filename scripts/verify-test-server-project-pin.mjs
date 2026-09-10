@@ -29,8 +29,14 @@
 //      bundle must not blank a pointer the online publisher wrote, and must add one when told.
 //   3. THE TWO WRITERS AGREE with the reader on the field name — a typo here is silent, because
 //      every consumer treats an absent pin as "fall back to the game key".
+//   4. THE REPAIR, over the REAL `pinTestServerGameToProject` sliced out of `testServerManifest.ts`
+//      and run against an in-memory R2. The desktop launcher writes this manifest itself with no
+//      pointer and REPLACES the entry, so `/api/launcher/register-game` re-stamps it on every
+//      publish: it must patch an existing entry without disturbing anything else, must never CREATE
+//      one, must not write at all when the pin is already right, and must survive a lost CAS.
 
 import { readFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,6 +75,7 @@ const sliceBetween = (source, label, start, end) => {
 
 const server = read('services/test-server/server.mjs');
 const publisher = read('apps/launcher-api/scripts/publish-game-bundle.mjs');
+const REGISTER = 'apps/launcher-api/src/routes/api/launcher/register-game/+server.ts';
 
 // ---------- 1. the URL the live pull actually asks for ----------
 
@@ -283,10 +290,248 @@ await check('writer, type and reader all spell the pin the same way', () => {
 		['the standalone publisher', publisher, '{ projectKey }'],
 		['the test server hydration', server, 'projectKey: typeof meta.projectKey'],
 		['the test server read', server, 'meta.projectKey ?? key'],
+		['the repair writer', type, 'pinTestServerGameToProject'],
+		['the register endpoint', read(REGISTER), 'pinTestServerGameToProject'],
 	]) {
 		if (!source.includes(needle)) throw new Error(`${label} no longer carries \`${needle}\``);
 	}
 });
 
-console.info(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);
+// ---------- 4. the repair: re-stamping a pointer the desktop launcher wiped ----------
+
+console.info('the register-game repair');
+
+const manifestModule = read('apps/launcher-api/src/lib/server/testServerManifest.ts');
+
+// The REAL function, TypeScript stripped rather than re-typed by hand, so a change to its logic is
+// a change to what runs here.
+const pinSource = stripTypeScriptTypes(
+	sliceBetween(
+		manifestModule,
+		'pinTestServerGameToProject',
+		'export async function pinTestServerGameToProject(',
+		'\n}\n',
+	).replace('export async function', 'async function'),
+);
+
+/** Drive the real function against an in-memory manifest. `conflicts` makes the first N writes lose
+ *  their CAS, which is the only way to exercise the retry loop. */
+const pinHarness = async (games, pin, { conflicts = 0, gameKey = 'waysofwavesbuild' } = {}) => {
+	const writes = [];
+	let store = JSON.stringify({ games }, null, 2);
+	let etag = 'etag-0';
+	let remaining = conflicts;
+	class ConflictError extends Error {}
+	const scope = {
+		TEST_SERVER_MANIFEST_KEY: 'test_server/games.json',
+		MANIFEST_MAX_ATTEMPTS: 6,
+		ConflictError,
+		parseManifest: (raw) => {
+			try {
+				const parsed = JSON.parse(raw ?? '');
+				return { games: parsed.games ?? {} };
+			} catch {
+				return { games: {} };
+			}
+		},
+		getObjectTextWithEtag: async () => ({ text: store, etag }),
+		precondition: (e) => ({ ifMatch: e }),
+		putObjectText: async (_key, text, _ct, cond) => {
+			writes.push({ text, cond });
+			if (remaining > 0) {
+				remaining -= 1;
+				const n = conflicts - remaining;
+				// A LOST CAS WITH A REAL WINNER BEHIND IT. The store must actually CHANGE here, or the
+				// retry proves nothing: a loop that read the manifest once and merely re-sent its stale
+				// copy would pass just as well. The winner publishes a different game, so a correct
+				// retry — which re-reads before merging — ends with BOTH that game and our pin, while a
+				// read-once loop silently drops it. That is the exact bug the CAS exists to prevent.
+				store = JSON.stringify(
+					{
+						games: {
+							...JSON.parse(store).games,
+							[`rival${n}`]: { protocol: 'lines', name: `Rival ${n}` },
+						},
+					},
+					null,
+					2,
+				);
+				etag = `etag-${n}`;
+				throw new ConflictError('precondition failed');
+			}
+			store = text;
+		},
+	};
+	const keys = Object.keys(scope);
+	const run = new Function(
+		...keys,
+		'gameKey',
+		'pin',
+		`return (async () => { ${pinSource} return pinTestServerGameToProject(gameKey, pin); })();`,
+	);
+	const outcome = await run(...keys.map((k) => scope[k]), gameKey, pin);
+	return { outcome, writes, manifest: JSON.parse(store) };
+};
+
+const PIN = {
+	projectKey: 'test6',
+	docBase: 'https://app.invisiblewall.org',
+	readToken: 'tok',
+};
+/** What the desktop launcher's own manifest write leaves behind: no pointer, and the online
+ *  publisher's `grid`/`cascade` gone with it. */
+const DESKTOP_WRITE = {
+	protocol: 'lines',
+	name: 'Ways on Waves',
+	updatedAt: '2026-09-10T00:00:00Z',
+};
+
+await check('a wiped pointer is repaired', async () => {
+	const { outcome, writes, manifest } = await pinHarness({ waysofwavesbuild: DESKTOP_WRITE }, PIN);
+	eq(outcome, 'pinned', 'outcome');
+	eq(writes.length, 1, 'one write');
+	eq(manifest.games.waysofwavesbuild.projectKey, 'test6', 'projectKey');
+	eq(manifest.games.waysofwavesbuild.docBase, PIN.docBase, 'docBase');
+	eq(manifest.games.waysofwavesbuild.readToken, 'tok', 'readToken');
+});
+
+await check('everything the endpoint knows nothing about survives the patch', async () => {
+	// The fields only the ONLINE publisher writes. A wholesale replace here would silently send the
+	// mock back to its default board — the very bug this endpoint exists to prevent.
+	const rich = {
+		...DESKTOP_WRITE,
+		runtime: 'lines',
+		grid: { reels: 5, rows: 4, rowsPerReel: [3, 4, 4, 4, 4], paylines: [] },
+		cascade: true,
+	};
+	const { manifest } = await pinHarness({ waysofwavesbuild: rich, hotfruits: DESKTOP_WRITE }, PIN);
+	const e = manifest.games.waysofwavesbuild;
+	eq(e.grid, rich.grid, 'grid');
+	eq(e.cascade, true, 'cascade');
+	eq(e.runtime, 'lines', 'runtime');
+	eq(e.updatedAt, rich.updatedAt, 'updatedAt (this endpoint did not publish anything)');
+	eq(manifest.games.hotfruits, DESKTOP_WRITE, 'the sibling game');
+});
+
+await check('a game with no manifest entry is never invented', async () => {
+	// No bundle was uploaded under this key. Creating an entry would register a game the test server
+	// would then serve zero files for.
+	const { outcome, writes, manifest } = await pinHarness({ hotfruits: DESKTOP_WRITE }, PIN);
+	eq(outcome, 'no-entry', 'outcome');
+	eq(writes.length, 0, 'no write');
+	eq(Object.keys(manifest.games), ['hotfruits'], 'games untouched');
+});
+
+await check(
+	'a prototype-shadowing key cannot smuggle an entry past the never-create guard',
+	async () => {
+		// `constructor` passes `isValidGameKey` (lowercase, no separators), and on a plain JSON object
+		// `games['constructor']` is the truthy `Object` function — so a truthiness test on the lookup
+		// would take it for an existing entry and write a project READ TOKEN into a game nobody
+		// published. `toString`/`valueOf`/`__proto__` are already refused by the key regex; this one is
+		// not, which is why the guard has to be `Object.hasOwn` rather than the regex.
+		const { outcome, writes } = await pinHarness({ hotfruits: DESKTOP_WRITE }, PIN, {
+			gameKey: 'constructor',
+		});
+		eq(outcome, 'no-entry', 'outcome');
+		eq(writes.length, 0, 'no write');
+	},
+);
+
+await check('an already-correct pin costs a read and nothing else', async () => {
+	// This runs on EVERY desktop publish, and the refresh it triggers re-hydrates every bundle —
+	// so "no change ⇒ no write" is what keeps it cheap enough to sit in that path.
+	const { outcome, writes } = await pinHarness(
+		{ waysofwavesbuild: { ...DESKTOP_WRITE, ...PIN } },
+		PIN,
+	);
+	eq(outcome, 'already-pinned', 'outcome');
+	eq(writes.length, 0, 'no write');
+});
+
+await check('a stale pin (project reassigned) is corrected, not left alone', async () => {
+	const stale = { ...DESKTOP_WRITE, ...PIN, projectKey: 'test5' };
+	const { outcome, manifest } = await pinHarness({ waysofwavesbuild: stale }, PIN);
+	eq(outcome, 'pinned', 'outcome');
+	eq(manifest.games.waysofwavesbuild.projectKey, 'test6', 'projectKey corrected');
+});
+
+await check('a lost CAS is retried against the re-read manifest', async () => {
+	const { outcome, writes, manifest } = await pinHarness({ waysofwavesbuild: DESKTOP_WRITE }, PIN, {
+		conflicts: 2,
+	});
+	eq(outcome, 'pinned', 'outcome');
+	eq(writes.length, 3, 'two losses then a win');
+	eq(manifest.games.waysofwavesbuild.projectKey, 'test6', 'projectKey');
+	// THE POINT OF THE TEST: each retry re-read, so the two rival publishers who won the races are
+	// still in the manifest we wrote. A loop that reused its first read would have erased them.
+	eq(Object.keys(manifest.games).sort(), ['rival1', 'rival2', 'waysofwavesbuild'], 'rivals kept');
+	// Every attempt must carry the etag it just read — an unconditional write is how a concurrent
+	// publisher's entry gets dropped (the whole reason this manifest is CAS-guarded).
+	for (const w of writes) {
+		if (!w.cond || typeof w.cond.ifMatch !== 'string') {
+			throw new Error(`a write went out unguarded: ${JSON.stringify(w.cond)}`);
+		}
+	}
+});
+
+await check('the endpoint keeps the pin non-fatal and reports it', async () => {
+	const src = read(REGISTER);
+	for (const [what, needle] of [
+		['the pin result rides the response', 'purge, pin }'],
+		['the failure is caught, not thrown', "return { status: 'error'"],
+		['the refresh is best-effort', "method: 'POST'"],
+		['the refresh is time-boxed', 'AbortSignal.timeout(REFRESH_TIMEOUT_MS)'],
+		[
+			'the project scope is the one already validated',
+			'pinToProject(key, projectKey, launcherUrl.origin)',
+		],
+	]) {
+		if (!src.includes(needle)) throw new Error(`${what}: missing \`${needle}\``);
+	}
+	// The pin must run AFTER the row is written — the registration is what was asked for.
+	if (src.indexOf('pinToProject(key,') < src.indexOf('await createGame(')) {
+		throw new Error('the pin runs before the game row is written');
+	}
+	// BOTH publishers must poke the SAME host. `env.ts` scopes `TEST_SERVER_URL` to the Game Config
+	// tool's RGS probe and keeps it separate so that probe can be pointed elsewhere — aiming a
+	// control call there would refresh one service while games are served from another.
+	const publish = read('apps/launcher-api/src/lib/server/publishGame.ts');
+	if (!src.includes('ENV.GAMES_BASE_URL') || !src.includes('/refresh')) {
+		throw new Error('the register-game refresh no longer goes to GAMES_BASE_URL');
+	}
+	if (src.includes('ENV.TEST_SERVER_URL')) {
+		throw new Error('the register-game refresh is aimed at the RGS-probe host');
+	}
+	if (!publish.includes('GAMES_BASE_URL')) {
+		throw new Error('publishGame no longer resolves its refresh host from GAMES_BASE_URL');
+	}
+});
+
+await check('a refresh that arrives mid-hydrate is QUEUED, not dropped', () => {
+	// The pin's whole point is that the running registry ends up holding it, and one publish makes
+	// that a race: the desktop launcher POSTs /refresh, then register-game writes the pin and POSTs
+	// again. Dropped, the second request is answered by a pass that read the manifest BEFORE the
+	// write — so the pin stays in R2, unread, and the next publish overwrites it before any hydrate
+	// ever sees it. Asserted at SOURCE level because the handler reaches R2, the mocks and the
+	// registry, and cannot be stood up in a Node fixture; the behaviour is driven end-to-end by the
+	// local-dir smoke run in the PR.
+	if (!server.includes('let refreshPending = false;')) {
+		throw new Error('the trailing-edge refresh queue is gone');
+	}
+	if (!/if \(refreshing\) \{\s*\n\s*refreshPending = true;/.test(server)) {
+		throw new Error('a mid-hydrate refresh no longer sets the pending flag');
+	}
+	if (!/refreshPending = false;[\s\S]{0,200}runHydrate\(\)/.test(server)) {
+		throw new Error('the queued refresh never re-runs the hydrate');
+	}
+	// The follow-up must run while `refreshing` is still held, or a third request would start a
+	// SECOND concurrent hydrate against the same registry.
+	const settle = server.slice(server.indexOf('const runHydrate ='));
+	if (/refreshPending = false;[\s\S]{0,120}refreshing = false;/.test(settle)) {
+		throw new Error('the follow-up hydrate releases the in-flight guard before it runs');
+	}
+});
+
+console.info(failures === 0 ? `\nAll ${ran} checks passed.` : `\n${failures} check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

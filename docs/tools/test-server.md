@@ -164,7 +164,11 @@ never drops the others:
 Three places share this shape; keep them in lockstep:
 
 - **producer** — `apps/launcher-api/scripts/publish-game-bundle.mjs` (CLI)
-- **producer** — the desktop launcher's `publish_game()` (`Invisible_Launcher.py`)
+- **producer** — the desktop launcher's `publish_game()` (`Invisible_Launcher.py`) — writes
+  `{protocol, name, updatedAt}` only, and REPLACES the entry; the pin it drops is put back by
+  `/api/launcher/register-game` (see below)
+- **repairer** — `apps/launcher-api/src/routes/api/launcher/register-game/+server.ts` — patches the
+  project pin onto an existing entry; never creates one
 - **consumer** — `services/test-server/server.mjs` (`protocol` → which mock; `name` → index page)
 
 ### The project pin — `projectKey` + `docBase` + `readToken`
@@ -185,8 +189,21 @@ never exploded, because the client's 4th visible row was really the facade's bot
 row and every "the last strip entry is off-screen buffer" guard correctly skipped it.
 
 The CLI producer takes them as flags (below) — it can't *mint* a token, but it can be handed
-one. A game with no pointer now logs a one-line warning on its first spin naming the cause.
-Guarded by `node scripts/verify-test-server-project-pin.mjs`.
+one. A game with no pointer logs a one-line warning on its first spin naming the cause.
+
+**The desktop launcher needs no flags, and no change of its own.** Its `publish_game()` writes
+this manifest with no pointer *and* replaces the whole entry, which would wipe a pin every
+publish. So `POST /api/launcher/register-game` — which that same launcher calls moments later,
+and which already requires a validated `project` — **re-stamps the pin on every publish**
+(`pinTestServerGameToProject`). It patches the existing entry only: it never creates one (a
+manifest entry with no uploaded bundle would have the server serve zero files), never touches
+`grid`/`cascade`/`runtime`/`updatedAt`, and writes nothing at all when the pin is already
+correct. The step is entirely **non-fatal** — a failure is reported as `pin` in the response,
+never as a failed registration — and it pokes `/refresh` only when something changed. Because
+`/refresh` coalesces, a pin written while a refresh is already in flight takes effect on the
+server's *next* hydrate; it is durable in R2 either way.
+
+All of it is guarded by `node scripts/verify-test-server-project-pin.mjs`.
 
 ## Local dev
 

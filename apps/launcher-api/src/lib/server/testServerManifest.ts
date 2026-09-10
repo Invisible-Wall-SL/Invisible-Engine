@@ -290,3 +290,72 @@ export async function upsertTestServerGame(
 		}
 	}
 }
+
+/** What {@link pinTestServerGameToProject} did — `pinned` is the only one that changed anything. */
+export type PinOutcome = 'pinned' | 'already-pinned' | 'no-entry';
+
+/**
+ * Stamp the PROJECT POINTER (`projectKey` + `docBase` + `readToken`) onto an EXISTING game entry,
+ * leaving every other field — and every other game — exactly as it found them.
+ *
+ * This is the repair half of the pin, and it exists because the producer that needs it most is not
+ * ours. The desktop launcher's `publish_game()` (`Invisible_Launcher.py`, a separate app) writes
+ * this manifest itself with `{protocol, name, updatedAt}` and no pointer, so every desktop-published
+ * game deals the test server's shared default board instead of its own Game Config — and, because
+ * that write REPLACES the entry, it also wipes a pointer some earlier publish had set. Re-stamping
+ * from `/api/launcher/register-game` (which that same launcher calls moments later, and which
+ * already requires the project) makes the repair IDEMPOTENT: whatever the manifest write dropped,
+ * the registration puts back, with no change to the Python side at all.
+ *
+ * PATCH, NEVER CREATE. A missing entry means no bundle was uploaded under this key, and inventing
+ * one would register a game the test server would then try to serve zero files for. `no-entry` is
+ * reported to the caller instead — it is a real signal (the registration and the upload disagree
+ * about the key), not a condition to paper over.
+ *
+ * `already-pinned` is not an optimisation, it is what keeps this cheap enough to run on EVERY
+ * publish: the caller only pokes `/refresh` when something actually changed, so the common
+ * re-registration costs one GET and nothing else.
+ *
+ * Not a new exposure: `readToken` already travels in this manifest (see the field's own doc) and
+ * appears verbatim in the public game URL the launcher builds.
+ */
+export async function pinTestServerGameToProject(
+	key: string,
+	pin: { projectKey: string; docBase: string; readToken: string },
+): Promise<PinOutcome> {
+	for (let attempt = 1; ; attempt++) {
+		const current = await getObjectTextWithEtag(TEST_SERVER_MANIFEST_KEY);
+		const manifest = parseManifest(current?.text);
+		// `Object.hasOwn`, not a truthiness test on the lookup. `manifest.games` is a plain object
+		// straight out of `JSON.parse`, so it inherits `Object.prototype` — and `constructor` passes
+		// `isValidGameKey` (lowercase letters, no separators). A bare `games['constructor']` returns
+		// the `Object` function, which is TRUTHY, so the never-create guard would wave it through and
+		// this would write a `constructor` entry carrying a project read token into the manifest.
+		// The test server already reads its own registry through an `own()` helper for exactly this
+		// reason; the writer has to match.
+		const entry = Object.hasOwn(manifest.games, key) ? manifest.games[key] : undefined;
+		if (!entry) return 'no-entry';
+		if (
+			entry.projectKey === pin.projectKey &&
+			entry.docBase === pin.docBase &&
+			entry.readToken === pin.readToken
+		) {
+			return 'already-pinned';
+		}
+		// Spread FIRST so the pin wins, and so `grid`/`cascade`/`runtime`/`updatedAt` — none of which
+		// this endpoint knows anything about — survive untouched.
+		manifest.games[key] = { ...entry, ...pin };
+		try {
+			await putObjectText(
+				TEST_SERVER_MANIFEST_KEY,
+				JSON.stringify(manifest, null, 2),
+				'application/json; charset=utf-8',
+				precondition(current ? (current.etag ?? undefined) : null),
+			);
+			return 'pinned';
+		} catch (err) {
+			if (err instanceof ConflictError && attempt < MANIFEST_MAX_ATTEMPTS) continue;
+			throw err;
+		}
+	}
+}
