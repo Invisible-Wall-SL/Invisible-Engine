@@ -218,6 +218,21 @@ def load_taxonomy(path: str = "") -> Taxonomy:
 
     data: Optional[dict[str, Any]] = None
     note = ""
+
+    # A path field holding a newline is the file's CONTENTS pasted in by mistake — an
+    # easy slip, and otherwise it silently degrades to the fallback taxonomy.
+    if "\n" in key or len(key) > 400:
+        taxonomy = _build(_FALLBACK, "<built-in fallback>")
+        setattr(
+            taxonomy,
+            "load_note",
+            "taxonomy_path looks like FILE CONTENTS, not a path — paste a filename such "
+            "as /workspace/semantic/taxonomy.yaml instead. Using the built-in fallback, "
+            "which has far fewer keywords than the bundled taxonomy.",
+        )
+        _cache[key] = taxonomy
+        return taxonomy
+
     try:
         import yaml  # PyYAML ships with ComfyUI
 
