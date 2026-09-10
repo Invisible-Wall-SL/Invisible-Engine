@@ -19,8 +19,18 @@ from . import geometry  # noqa: F401
 from . import captions  # noqa: F401
 from . import stub  # noqa: F401
 
-# Optional. Registers the dropdown entry even when weights are missing; the failure
-# then happens at run time with an actionable message.
+# Optional backends. Each registers its dropdown entry even when weights are missing;
+# the failure then happens at run time with an actionable message. A backend whose
+# IMPORT fails must cost only its own entry, never the extension.
+try:
+    from . import clip  # noqa: F401
+except Exception as _exc:  # noqa: BLE001
+    import logging
+
+    logging.getLogger(__name__).info(
+        "ComfyUI-SemanticLayers: clip analyzer unavailable (%s)", _exc
+    )
+
 try:
     from . import florence2  # noqa: F401
 except Exception as _exc:  # noqa: BLE001

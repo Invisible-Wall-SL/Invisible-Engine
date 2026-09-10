@@ -24,8 +24,9 @@ from ..analyzers import (
     available_analyzers,
     get_analyzer,
 )
+from ..analyzers.clip import MODELS as CLIP_MODELS
 from ..analyzers.florence2 import MODELS as FLORENCE_MODELS, TASKS as FLORENCE_TASKS
-from ..semantic.rules import apply_category, classify_text
+from ..semantic.rules import RuleMatch, apply_category, classify_text
 from ..semantic.schema import LAYER_METADATA, SEMANTIC_LAYERS, SemanticLayerSet
 from ..semantic.taxonomy import load_taxonomy
 from ..utils.cache import CACHE
@@ -34,14 +35,15 @@ CATEGORY = "semantic layers"
 
 _ANALYZERS = available_analyzers()
 
-#: Preference order for the default. `florence2` first because it is the only backend
-#: that makes the pipeline's central promise true on its own: it derives each layer's
-#: description FROM THE PIXELS, so reordering the layers reorders the descriptions with
-#: them. `captions` keyed by index is an assertion about a SLOT — swap two layers and it
-#: silently describes the wrong one, which is the hardcoding this extension exists to
-#: remove. It stays available (and is the right choice when you already have a captioner
-#: in the graph), just not the default.
-_PREFERRED_DEFAULTS = ("florence2", "captions", "geometry")
+#: Preference order for the default. `clip` first because it makes the pipeline's central
+#: promise true on its own: it scores each layer FROM THE PIXELS, so reordering the layers
+#: reorders the answers with them. `captions` keyed by index is an assertion about a SLOT
+#: — swap two layers and it silently describes the wrong one, which is the hardcoding this
+#: extension exists to remove. It stays available (and is right when a captioner is
+#: already in the graph), just not the default. `florence2` is deliberately NOT preferred:
+#: it needs remote code that no longer runs on current transformers, and no native-format
+#: weights exist — see docs/status/comfyui.md.
+_PREFERRED_DEFAULTS = ("clip", "captions", "geometry")
 _DEFAULT_ANALYZER = next(
     (name for name in _PREFERRED_DEFAULTS if name in _ANALYZERS), _ANALYZERS[0]
 )
@@ -57,12 +59,14 @@ class SemanticLayerAnalyze:
                     _ANALYZERS,
                     {
                         "default": _DEFAULT_ANALYZER,
-                        "tooltip": "florence2 (default) = describe every layer from its "
-                        "own pixels, so layer order never matters. FIRST RUN DOWNLOADS "
-                        "~0.5 GB of weights. captions = classify text you supply, or any "
+                        "tooltip": "clip (default) = score every layer against the "
+                        "taxonomy's own concepts. Reads pixels, so layer order never "
+                        "matters, and the confidence is a real probability. FIRST RUN "
+                        "DOWNLOADS ~600 MB. captions = classify text you supply, or any "
                         "captioner node's output; captions keyed by index describe a "
                         "SLOT, so reordering layers mislabels them. geometry = coverage "
-                        "stats only, never identifies content. stub = tests.",
+                        "stats only, never identifies content. florence2 = broken on "
+                        "current transformers, kept for older installs. stub = tests.",
                     },
                 ),
                 "captions": (
@@ -92,6 +96,7 @@ class SemanticLayerAnalyze:
                 ),
             },
             "optional": {
+                "clip_model": (CLIP_MODELS, {"default": CLIP_MODELS[0]}),
                 "florence_model": (FLORENCE_MODELS, {"default": FLORENCE_MODELS[0]}),
                 "florence_task": (FLORENCE_TASKS, {"default": FLORENCE_TASKS[1]}),
             },
@@ -114,6 +119,7 @@ class SemanticLayerAnalyze:
         caption_confidence: float,
         use_cache: bool,
         taxonomy_path: str,
+        clip_model: Optional[str] = None,
         florence_model: Optional[str] = None,
         florence_task: Optional[str] = None,
     ):
@@ -141,6 +147,10 @@ class SemanticLayerAnalyze:
             settings={
                 "captions": captions,
                 "caption_confidence": float(caption_confidence),
+                "clip_model": clip_model or CLIP_MODELS[0],
+                # The clip backend builds its candidate labels from the taxonomy, so it
+                # needs to load the same one this node did.
+                "taxonomy_path": taxonomy_path.strip(),
                 "florence_model": florence_model or FLORENCE_MODELS[0],
                 "florence_task": florence_task or FLORENCE_TASKS[1],
             },
@@ -172,6 +182,23 @@ class SemanticLayerAnalyze:
 
             described += 1
             meta.description = obs.description or obs.object_type
+
+            if obs.category:
+                # The backend classified directly (a zero-shot scorer choosing among the
+                # taxonomy's own categories). Its confidence IS the answer — passing it
+                # back through keyword matching would multiply in a second, unrelated
+                # uncertainty for a mapping that is exact by construction.
+                match = RuleMatch(
+                    category=obs.category,
+                    object_type=obs.object_type,
+                    confidence=float(obs.confidence),
+                    keyword=obs.description,
+                    exact=True,
+                )
+                apply_category(meta, match, taxonomy, confidence=float(obs.confidence))
+                classified += 1
+                continue
+
             match = classify_text(f"{obs.description} {obs.object_type}".strip(), taxonomy)
             combined = float(obs.confidence) * float(match.confidence)
             apply_category(meta, match, taxonomy, confidence=combined)

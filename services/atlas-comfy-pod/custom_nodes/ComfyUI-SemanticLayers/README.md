@@ -161,36 +161,75 @@ calling `register_analyzer` — it appears in the dropdown automatically.
 
 | Analyzer | Needs | Notes |
 |---|---|---|
-| **`florence2`** *(default)* | weights | Describes every layer **from its own pixels** via `transformers`. First run downloads ~0.5 GB from HuggingFace. |
-| **`captions`** | text | Classifies text you supply, or any captioner node's STRING output. Model-agnostic; see the ordering caveat below. |
+| **`clip`** *(default)* | weights | Zero-shot: scores each layer against the taxonomy's own concepts. Reads pixels. First run downloads ~600 MB. |
+| **`captions`** | text | Classifies text you supply, or any captioner node's STRING output. See the ordering caveat below. |
 | **`geometry`** | nothing | Coverage/edge statistics only. Flags full-frame backdrops; **will never claim a character**, because pixels alone cannot tell a person from a chair. |
+| **`florence2`** | weights | **Broken on current transformers** — kept for older installs. See below. |
 | **`stub`** | scripted dict | Tests. Returns only what it is given. |
 
-### Why `florence2` is the default
+### Why `clip` is the default
 
 Order-independence holds for everything downstream of the description — but the
 description itself has to come from the **content**, not the position.
 
 * A caption you type as `2 = raft` is an assertion about a **slot**. Swap two layers and
-  it now describes the wrong one. That is hardcoding, and it defeats the entire point.
-* A caption a model generates **from layer 2's pixels** is an assertion about content.
-  Swap the layers and the descriptions swap with them.
+  it describes the wrong one. That is hardcoding, and it defeats the entire point.
+* CLIP scores **layer 2's pixels**. Swap the layers and the answers swap with them.
 
-So the default backend is the one that reads pixels. `captions` stays for the case where
-you already have a captioner in the graph (wire its STRING output into `captions`) or
-want to override by hand — and when you do, **key by `layer_id`, not by index**, because
-a layer id is a content hash and an index is a slot:
+It also fits the job better than a captioner. We do not need prose that then has to be
+keyword-matched; we need a category and a confidence, which is exactly what a zero-shot
+scorer produces — and the confidence is a real probability rather than the flat constant
+a captioner has to invent.
+
+**The candidate labels ARE the taxonomy.** Every keyword in the YAML becomes a CLIP
+candidate, so adding `raft` teaches the scorer about rafts with no code change and no
+second vocabulary to drift.
+
+**Scores are aggregated per category by taking each category's BEST concept, then
+renormalising** — not by summing. Summing looks like a proper marginal but is not: the
+default taxonomy lists 121 asset keywords against 22 background ones, so a sum would hand
+`asset` five times the prior for no reason but how much someone typed.
+
+**Layers are cropped to their bounding box before scoring** when coverage is known. A
+subject filling 8% of a mostly-empty plate reads as "empty plate"; cropped, it reads as
+itself.
+
+### Why NOT `florence2`
+
+Florence-2 is distributed as a **remote-code** model: its repo ships its own
+`modeling_florence2.py`, frozen at 2024, which transformers downloads and executes. On
+current transformers that code fails (`forced_bos_token_id`). transformers 4.51+ added a
+first-party Florence-2, but **nobody published weights in that format** — every repo,
+including the community forks, still carries `auto_map` and no `image_token_id`, so the
+native class loads a model with every weight `UNEXPECTED`. Both paths are dead. Pinning
+transformers backwards would drag every other custom node on the image with it.
+
+CLIP has been native to transformers for years: no downloaded code, nothing to rot.
+
+### Measured behaviour
+
+On real game art (a pirate/raft/ocean illustration), scoring crops as stand-ins for
+layers:
+
+| content | category | confidence | best concept |
+|---|---|---|---|
+| open water | `environment` | 0.74 | seawater |
+| the pirate | `character` | 0.96 | pirate |
+| raft planks + rope | `asset` | 0.68 | anchor |
+| a lantern (single-subject art) | `asset` | 0.82 | lamp |
+
+Clean single-subject layers land **0.68–0.96**; mixed content sits near 0.55. The shipped
+example workflows therefore set `auto_threshold 0.65` / `uncertain_threshold 0.40`, which
+is where the evidence actually is — a captioner's flat 0.90 does not describe a real
+distribution.
+
+Caption input format, if you use that backend — key by `layer_id` (a content hash), not
+by index, because an index is a slot and slots move:
 
 ```
 b99273cf3f89 = blue sky and distant clouds
 436b36812ada = a woman wearing a red jacket
 ```
-
-Index keys still work and are convenient for a one-off, but they are position-dependent
-by construction. Run once and read the ids off the `Semantic Layer Debug` contact sheet.
-
-**Qwen note:** plane **0 is the flattened composite**, so set `composite_layer: first` on
-`Semantic Layer Normalize` — otherwise index-keyed captions are off by one.
 
 ### Confidence composition
 

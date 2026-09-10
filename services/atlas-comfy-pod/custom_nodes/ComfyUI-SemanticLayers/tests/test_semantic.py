@@ -441,6 +441,71 @@ class TestFlorenceProcessorFallback(unittest.TestCase):
         self.assertEqual(self.f.IMAGE_TOKEN, "<image>")
 
 
+class TestClipConcepts(unittest.TestCase):
+    """The CLIP backend's candidate labels come from the taxonomy, and its aggregation
+    must not depend on how many keywords each category happens to list."""
+
+    def setUp(self):
+        self.clip = mod("analyzers.clip")
+
+    def test_concepts_come_from_the_taxonomy(self):
+        concepts = self.clip.build_concepts(TAX)
+        self.assertGreater(len(concepts), 50)
+        keywords = {c.keyword for c in concepts}
+        # Anything added to the YAML becomes a CLIP candidate for free.
+        self.assertIn("raft", keywords)
+        self.assertIn("smoke", keywords)
+        by_kw = {c.keyword: c for c in concepts}
+        self.assertEqual(by_kw["raft"].category, "asset")
+        self.assertEqual(by_kw["smoke"].category, "effect")
+
+    def test_a_keyword_is_claimed_by_the_highest_priority_rule(self):
+        concepts = self.clip.build_concepts(TAX)
+        self.assertEqual(len({c.keyword for c in concepts}), len(concepts), "no duplicates")
+
+    def test_aggregation_ignores_how_many_keywords_a_category_has(self):
+        """The bug this guards: summing per category gave `asset` (121 keywords) five
+        times the prior of `background` (22) for no reason but YAML verbosity."""
+        C = self.clip.Concept
+        concepts = [C(keyword=f"a{i}", category="asset", object_type="prop") for i in range(50)]
+        concepts.append(C(keyword="sky", category="background", object_type="backdrop"))
+        # Every asset label scores weakly; the single background label scores strongly.
+        probs = [0.01] * 50 + [0.5]
+        ranked, best = self.clip.rank_categories(probs, concepts)
+        self.assertEqual(ranked[0][0], "background", "a padded category must not win by bulk")
+        self.assertEqual(best["background"][1].keyword, "sky")
+
+    def test_scores_are_renormalised_to_a_distribution(self):
+        C = self.clip.Concept
+        concepts = [
+            C(keyword="a", category="asset", object_type="prop"),
+            C(keyword="w", category="environment", object_type="terrain"),
+        ]
+        ranked, _ = self.clip.rank_categories([0.3, 0.1], concepts)
+        self.assertAlmostEqual(sum(score for _, score in ranked), 1.0, places=5)
+        self.assertAlmostEqual(ranked[0][1], 0.75, places=5)
+
+    def test_empty_scores_do_not_divide_by_zero(self):
+        C = self.clip.Concept
+        ranked, _ = self.clip.rank_categories(
+            [0.0], [C(keyword="a", category="asset", object_type="prop")]
+        )
+        self.assertEqual(ranked[0], ("asset", 0.0))
+
+    def test_crop_box_pads_and_clamps(self):
+        box = self.clip.crop_box((10, 10, 50, 50), 100, 100)
+        x0, y0, x1, y1 = box
+        self.assertLess(x0, 10)
+        self.assertGreater(x1, 50)
+        self.assertGreaterEqual(x0, 0)
+        self.assertLessEqual(x1, 100)
+
+    def test_crop_box_rejects_degenerate_boxes(self):
+        self.assertIsNone(self.clip.crop_box(None, 100, 100))
+        self.assertIsNone(self.clip.crop_box((10, 10, 10, 10), 100, 100))
+        self.assertIsNone(self.clip.crop_box((0, 0, 3, 3), 100, 100), "too small to score")
+
+
 class TestStableIds(unittest.TestCase):
     def test_duplicate_fingerprints_get_deterministic_suffixes(self):
         ids = schema.stable_layer_ids(["aaa", "bbb", "aaa", "aaa"])
