@@ -473,7 +473,7 @@
       "widgets_values": [
         "auto",
         0.04,
-        "none",
+        "first",
         false,
         "qwen_image_layered"
       ]
@@ -527,8 +527,8 @@
         "Node name for S&R": "SemanticLayerAnalyze"
       },
       "widgets_values": [
-        "captions",
-        "# one caption per layer \u2014 run once, read the ids off Semantic Layer Debug\n0 = blue sky and distant clouds\n1 = a woman wearing a red jacket\n2 = a wooden chair\n3 = smoke drifting through the air",
+        "florence2",
+        "# Only read when analyzer = captions.\n# The default (florence2) describes each layer from its own pixels, so there is\n# nothing to fill in here and reordering the layers cannot mislabel them.\n# If you DO switch to captions, key them by layer id rather than index \u2014\n# an index describes a slot, and slots move.\n# 1 = deep blue ocean water with white foam\n# 2 = a wooden raft made of broken planks\n# 3 = a pirate man in a tricorn hat holding a harpoon",
         1.0,
         true,
         "",

@@ -161,19 +161,36 @@ calling `register_analyzer` — it appears in the dropdown automatically.
 
 | Analyzer | Needs | Notes |
 |---|---|---|
-| **`captions`** *(default)* | text | Model-agnostic and recommended. Feed any captioner's STRING output — or type it. |
+| **`florence2`** *(default)* | weights | Describes every layer **from its own pixels** via `transformers`. First run downloads ~0.5 GB from HuggingFace. |
+| **`captions`** | text | Classifies text you supply, or any captioner node's STRING output. Model-agnostic; see the ordering caveat below. |
 | **`geometry`** | nothing | Coverage/edge statistics only. Flags full-frame backdrops; **will never claim a character**, because pixels alone cannot tell a person from a chair. |
-| **`florence2`** | weights | Real VLM captioning via `transformers`. **Not installed on this machine** — downloads from HuggingFace on first use. |
 | **`stub`** | scripted dict | Tests. Returns only what it is given. |
 
-Caption input format — keyed by index or layer id (recommended), or one per line
-positionally:
+### Why `florence2` is the default
+
+Order-independence holds for everything downstream of the description — but the
+description itself has to come from the **content**, not the position.
+
+* A caption you type as `2 = raft` is an assertion about a **slot**. Swap two layers and
+  it now describes the wrong one. That is hardcoding, and it defeats the entire point.
+* A caption a model generates **from layer 2's pixels** is an assertion about content.
+  Swap the layers and the descriptions swap with them.
+
+So the default backend is the one that reads pixels. `captions` stays for the case where
+you already have a captioner in the graph (wire its STRING output into `captions`) or
+want to override by hand — and when you do, **key by `layer_id`, not by index**, because
+a layer id is a content hash and an index is a slot:
 
 ```
-0 = blue sky and distant clouds
-1 = a woman wearing a red jacket
-2 = a wooden chair
+b99273cf3f89 = blue sky and distant clouds
+436b36812ada = a woman wearing a red jacket
 ```
+
+Index keys still work and are convenient for a one-off, but they are position-dependent
+by construction. Run once and read the ids off the `Semantic Layer Debug` contact sheet.
+
+**Qwen note:** plane **0 is the flattened composite**, so set `composite_layer: first` on
+`Semantic Layer Normalize` — otherwise index-keyed captions are off by one.
 
 ### Confidence composition
 
@@ -200,11 +217,19 @@ Qwen layers arrive as **opaque RGB**, so coverage has to be derived. `alpha_mode
 
 | Mode | Behaviour |
 |---|---|
-| `auto` *(default)* | real alpha channel → mask input → key against a **uniform** black/white border. If the border is neither, returns **none** rather than inventing coverage. |
+| `auto` *(default)* | real alpha channel → mask input → black/white luminance key → **`border_key`** if the border is a uniform colour. Only a genuinely varied border returns **none**, rather than inventing coverage. |
+| `border_key` | take the median colour of the 1-px frame as "empty" and key on RGB distance from it, with the threshold adapting to how noisy that flat is (`tolerance + 2·spread`) |
 | `from_image` | only a genuine 4th channel |
 | `from_mask` | only the MASK input |
-| `black_key` / `white_key` | force a key |
+| `black_key` / `white_key` | force a luminance key |
 | `none` | no coverage at all |
+
+**`border_key` exists because of what Qwen actually does:** it clears a layer's empty
+area to a flat **mid-tone**, not to black or white. Luminance keying is blind to that, so
+`auto` used to report "no coverage" for every layer — and a layer with no coverage
+measures as full-frame, which flattens `area_ratio`, `centroid` and `prominence` into
+constants. Those are precisely the three signals the Subject Resolver ranks on, so the
+scoring silently lost its inputs without anything erroring.
 
 Every layer records how its coverage was obtained in `alpha_source`, so a derived alpha
 is never mistaken for a fact from the model. A layer with **no** coverage information

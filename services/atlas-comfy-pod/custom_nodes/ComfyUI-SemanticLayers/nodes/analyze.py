@@ -33,7 +33,18 @@ from ..utils.cache import CACHE
 CATEGORY = "semantic layers"
 
 _ANALYZERS = available_analyzers()
-_DEFAULT_ANALYZER = "captions" if "captions" in _ANALYZERS else _ANALYZERS[0]
+
+#: Preference order for the default. `florence2` first because it is the only backend
+#: that makes the pipeline's central promise true on its own: it derives each layer's
+#: description FROM THE PIXELS, so reordering the layers reorders the descriptions with
+#: them. `captions` keyed by index is an assertion about a SLOT — swap two layers and it
+#: silently describes the wrong one, which is the hardcoding this extension exists to
+#: remove. It stays available (and is the right choice when you already have a captioner
+#: in the graph), just not the default.
+_PREFERRED_DEFAULTS = ("florence2", "captions", "geometry")
+_DEFAULT_ANALYZER = next(
+    (name for name in _PREFERRED_DEFAULTS if name in _ANALYZERS), _ANALYZERS[0]
+)
 
 
 class SemanticLayerAnalyze:
@@ -46,9 +57,12 @@ class SemanticLayerAnalyze:
                     _ANALYZERS,
                     {
                         "default": _DEFAULT_ANALYZER,
-                        "tooltip": "captions = classify text from any captioner node "
-                        "(no model loaded). geometry = coverage stats only. florence2 = "
-                        "load a VLM (downloads weights). stub = tests.",
+                        "tooltip": "florence2 (default) = describe every layer from its "
+                        "own pixels, so layer order never matters. FIRST RUN DOWNLOADS "
+                        "~0.5 GB of weights. captions = classify text you supply, or any "
+                        "captioner node's output; captions keyed by index describe a "
+                        "SLOT, so reordering layers mislabels them. geometry = coverage "
+                        "stats only, never identifies content. stub = tests.",
                     },
                 ),
                 "captions": (
