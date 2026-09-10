@@ -310,6 +310,19 @@ def merge_layers(
     return out_rgb, out_a
 
 
+def with_alpha(rgb: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
+    """[B,H,W,3] + [B,H,W] -> [B,H,W,4].
+
+    ComfyUI IMAGE tensors may carry four channels — that is how a decomposed layer keeps
+    its transparency through a graph, and what SplitImageWithAlpha exists to take apart.
+    """
+    base = rgb_of(ensure_bhwc(rgb))
+    a = alpha if alpha.ndim == 4 else alpha.unsqueeze(-1)
+    if a.shape[0] == 1 and base.shape[0] > 1:
+        a = a.expand(base.shape[0], -1, -1, -1)
+    return torch.cat([base, a.clamp(0.0, 1.0).to(base.dtype)], dim=-1)
+
+
 def to_pil(image: torch.Tensor):
     """[1,H,W,C] -> PIL.Image. Used by VLM backends and the contact sheet."""
     from PIL import Image

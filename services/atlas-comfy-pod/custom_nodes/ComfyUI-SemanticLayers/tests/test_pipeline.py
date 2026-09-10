@@ -67,7 +67,8 @@ def captions_for(names) -> dict[str, str]:
     return {n: c for n, _, c in LAYERS if n in names}
 
 
-def run_chain(names, overrides: str = "", merge_mode: str = "alpha_over"):
+def run_chain(names, overrides: str = "", merge_mode: str = "alpha_over",
+              output_rgba: bool = False):
     """Normalize -> Analyze -> Resolve -> Route, returning everything for assertions."""
     layer_set, _meta, _report = normalize_mod.SemanticLayerNormalize().normalize(
         images=stack(names),
@@ -113,6 +114,7 @@ def run_chain(names, overrides: str = "", merge_mode: str = "alpha_over"):
         uncertain_threshold=0.60,
         merge_mode=merge_mode,
         merge_order="area_desc",
+        output_rgba=output_rgba,
         overrides=overrides,
         taxonomy_path="",
     )
@@ -396,8 +398,44 @@ class TestFullPipeline(unittest.TestCase):
             router_mod.SemanticLayerRouter().route_layers(
                 semantic_layers=layer_set, layer_metadata=resolved, mode="AUTO",
                 auto_threshold=0.2, uncertain_threshold=0.9, merge_mode="alpha_over",
-                merge_order="area_desc", overrides="", taxonomy_path="",
+                merge_order="area_desc", overrides="", output_rgba=True, taxonomy_path="",
             )
+
+
+class TestRouterAlpha(unittest.TestCase):
+    """The router used to compute the merged coverage and then discard it, so an
+    extracted character arrived composited onto black. Measured on a real Qwen run:
+    its layers carry genuine alpha (a raft plane came back 32.6% opaque) and every
+    router output came out 3-channel."""
+
+    ALL = [n for n, _, _ in LAYERS]
+
+    def test_rgba_outputs_carry_the_merged_alpha(self):
+        _ls, _r, outputs = run_chain(self.ALL, output_rgba=True)
+        for i, name in enumerate(
+            ["BACKGROUND", "MAIN_CHARACTER", "SECONDARY", "ASSETS", "ENV", "EFFECTS", "OTHER"]
+        ):
+            self.assertEqual(outputs[i].shape[-1], 4, f"{name} lost its alpha")
+
+    def test_alpha_matches_the_layer_coverage(self):
+        _ls, _r, outputs = run_chain(self.ALL, output_rgba=True)
+        main = outputs[1]                      # the woman: a keyed blob on black
+        alpha = main[..., 3]
+        self.assertGreater(float(alpha.max().item()), 0.9, "subject must be opaque")
+        self.assertLess(float(alpha.min().item()), 0.1, "surround must be transparent")
+        covered = float((alpha > 0.5).float().mean().item())
+        self.assertGreater(covered, 0.05)
+        self.assertLess(covered, 0.9, "alpha must be a real shape, not a full frame")
+
+    def test_an_empty_role_is_transparent_not_black(self):
+        _ls, _r, outputs = run_chain(["sky", "chair"], output_rgba=True)
+        main = outputs[1]                      # no character in this set
+        self.assertEqual(main.shape[-1], 4)
+        self.assertAlmostEqual(float(main[..., 3].max().item()), 0.0, places=5)
+
+    def test_opting_out_returns_three_channels(self):
+        _ls, _r, outputs = run_chain(self.ALL, output_rgba=False)
+        self.assertEqual(outputs[1].shape[-1], 3)
 
 
 class TestOrderIndependenceEndToEnd(unittest.TestCase):

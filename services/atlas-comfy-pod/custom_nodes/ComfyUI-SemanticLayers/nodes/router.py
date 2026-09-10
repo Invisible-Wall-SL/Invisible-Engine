@@ -30,7 +30,7 @@ from ..semantic.schema import (
     SemanticLayerSet,
 )
 from ..semantic.taxonomy import ROUTER_OUTPUT_ROLES, Role, load_taxonomy
-from ..utils.image import MERGE_MODES, blank_image, merge_layers
+from ..utils.image import MERGE_MODES, blank_image, merge_layers, with_alpha
 
 CATEGORY = "semantic layers"
 
@@ -83,6 +83,18 @@ class SemanticLayerRouter:
                         "or a layer id.",
                     },
                 ),
+                "output_rgba": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Emit the seven outputs as 4-channel RGBA, carrying "
+                        "the merged coverage as alpha. A decomposer that gives real "
+                        "transparency (Qwen-Image-Layered does) would otherwise have it "
+                        "discarded here, and an extracted character would arrive "
+                        "composited onto black. Turn OFF only for a downstream node that "
+                        "cannot take 4 channels.",
+                    },
+                ),
                 "taxonomy_path": ("STRING", {"default": ""}),
             }
         }
@@ -130,6 +142,7 @@ class SemanticLayerRouter:
         merge_mode: str,
         merge_order: str,
         overrides: str,
+        output_rgba: bool,
         taxonomy_path: str,
     ):
         if not isinstance(semantic_layers, SemanticLayerSet):
@@ -168,15 +181,17 @@ class SemanticLayerRouter:
             ids = [lid for lid in plan.ids_for(role) if lid in by_id]
             if not ids:
                 empties.append(role)
-                images.append(blank_image(height, width, 3))
+                # A fully transparent frame when we are carrying alpha — an empty role
+                # should read as "nothing here", and opaque black is not that.
+                images.append(blank_image(height, width, 4 if output_rgba else 3))
                 continue
             picked = [by_id[lid] for lid in ids]
-            merged, _mask = merge_layers(
+            merged, mask = merge_layers(
                 [layer.image for layer in picked],
                 [layer.alpha for layer in picked],
                 mode=merge_mode,
             )
-            images.append(merged)
+            images.append(with_alpha(merged, mask) if output_rgba else merged)
 
         assets = self._build_assets(plan, by_id, semantic_layers)
         routed_layers = semantic_layers.with_metadata(plan.metadata)
