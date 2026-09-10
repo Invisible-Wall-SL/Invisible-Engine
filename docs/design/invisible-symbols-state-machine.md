@@ -344,18 +344,41 @@ played `win` and `Board.svelte` reverted it straight to `postWinStatic`.
 winExplode?: { enabled?: boolean }
 ```
 
-On, a winning cell plays its `explosion` state after its `win` beat and before the `postWinStatic`
-revert, awaited with the same bounded-beat treatment the win beat gets (`awaitSymbolBeat` +
-`WIN_BEAT_CAP_MS`). No floor: `WIN_BEAT_MIN_MS` was already spent on the win, and a second one would
-be added to every paying spin. The cell still ENDS at `postWinStatic` — the symbol is not removed;
-removal stays the job of the cascade and the clear step (`clearReel`).
+On, a winning cell plays its `explosion` state after its `win` beat, awaited with the same
+bounded-beat treatment the win beat gets (`awaitSymbolBeat` + `WIN_BEAT_CAP_MS`). No floor:
+`WIN_BEAT_MIN_MS` was already spent on the win, and a second one would be added to every paying
+spin.
+
+**The pop IS the removal — "explode and be gone".** The cell is taken OFF the board at the end of
+that beat — on both exits of the race, so a cell whose art can never report is just as gone — rather
+than reverted to `postWinStatic` and left standing. Reverting made the pop a rehearsal for a removal
+that arrived later and from somewhere else: on a project that clears its board before the new
+symbols fall in (`/config` → Reel behaviour), the next spin's clear pops every visible cell, the
+winners that had already exploded included, so a paying spin read Win → Explosion → Clear reel. The
+winners now leave on their own beat and the clear only pops what is still standing. Symbols that did
+NOT pay are untouched: taking those off stays the job of the cascade and the clear step
+(`clearReel`).
+
+The removal is a flag on the reel CELL (`ReelSymbol.removed`, `utils-slots`), not a `reel:row` set,
+and that is what makes it self-clearing: every board replacement builds fresh cells, so the next
+board is un-removed by construction and no seam has to remember to wipe anything. A key set could
+not manage that — the pre-spin doubles the strip under the same row indices, so a stale key would
+punch a moving hole through the roll. It is published by position as `boardRemoved()` (a sibling of
+`boardRaw()`) for the readers that address the board by seat, of which there are four: `ReelSymbol`
+stops drawing the cell; `visibleColumnPositions` drops it from the board clear's exploding set (a
+cell that draws nothing can never report `oncomplete`, so leaving it in would spend the whole beat
+cap on it); the cascade overlay seeds its survivor layer from it (`createTumbleSymbol`, so the
+winners do not come back for the length of a clear) and its explode step skips a seat that is
+already gone (a cascade explodes what the BOOK names, so it cannot filter at the source); and the
+resting replay drops those cells from its rotation. `expandBookColumns` uses the same `explosion`
+state to morph a column and deliberately does NOT remove — the removal is scoped to the win beat.
 
 **It is an explicit switch, default OFF, and that is the load-bearing decision.** Inferring it from
 "is `explosion` authored" was the obvious alternative and is wrong: every game already binds
 `explosion` for the Book-of morph (`apps/lines/src/game/constants.ts`), so the inference is TRUE
 everywhere and would re-time the one beat every paying spin in every shipped game runs.
 
-**Two edges, decided rather than left to fall out:**
+**Three edges, decided rather than left to fall out:**
 
 1. **The resting replay does not pop.** `boardWithAnimateSymbols` is driven both by the round's own
    presentation and by `winSymbolCycle`, which re-lights that spin's winners every pass until the
@@ -363,11 +386,21 @@ everywhere and would re-time the one beat every paying spin in every shipped gam
    narration — and would add a second bounded beat to a cycle nothing races against a skip token. The
    cycle therefore marks its passes (`animateSymbols({ replay: true })` → an optional `replay` field
    on the cue) and the pop is gated on its absence.
+   **And with the removal it has nothing left to replay at all**: the winners are gone by the time
+   the round ends, so every entry drops out of the rotation and `startWinCycle` finds none. Turning
+   the pop on is a choice against the resting replay rather than a modifier of it — the alternative
+   was a cycle re-lighting seats that draw nothing and awaiting a beat cap per pass for each.
 2. **A stacked-covered cell is skipped.** It mounts no `<Symbol>` at all (`ReelSymbol` skips it so the
    tall picture does not double with the icons it replaces), so there is nothing to draw the pop with
    and nothing that could ever report it finishing. Popping it would be a second dead hold that also
    ended the tall picture's win art early, for no picture. The stacked mode's win beat stays the tall
-   picture itself.
+   picture itself. Nothing is drawn there to take off the board either, so a covered cell is never
+   removed.
+3. **A cascade still removes its own winners.** The overlay's step explodes what the BOOK names, so
+   a cell the pop already took off arrives in its exploding set. It is skipped rather than popped
+   (there is no cell to animate and nothing that could report one) and swept out by the step's
+   board-wide removal exactly as if it had popped — so a cascading project keeps its refill
+   choreography and simply stops exploding the same symbol twice.
 
 **Chain (rule 8).** `.strict` Zod + sparse prune (`enabled: true` only) → client
 type/`winExplodeEnabled`/`setWinExplodeEnabled`/`docSignature` → the spread PUT → `symbolExport.ts`

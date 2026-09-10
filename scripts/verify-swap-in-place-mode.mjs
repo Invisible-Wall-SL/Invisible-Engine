@@ -673,12 +673,7 @@ const beatHelpers = [
 	// The emerge beat is capped separately (an arrival animation, not a step on the way to one), so
 	// the handler slice below would throw on an undefined name without it. Read from the shipped
 	// module rather than restated, like every other constant here.
-	sliceBetween(
-		symbolBeatSource,
-		'INTRO_BEAT_CAP_MS',
-		'export const INTRO_BEAT_CAP_MS = ',
-		';\n',
-	),
+	sliceBetween(symbolBeatSource, 'INTRO_BEAT_CAP_MS', 'export const INTRO_BEAT_CAP_MS = ', ';\n'),
 ]
 	.join('')
 	.replace(/export const /g, 'const ');
@@ -996,6 +991,9 @@ const boardOf = (prefix) =>
 const buildTumbleRuntime = ({
 	clock,
 	previousBoard,
+	// Nothing removed unless a run says so — the empty matrix answers `undefined` per cell, which is
+	// the same "not removed" every board that never turned the pop on reports.
+	previousRemoved = [],
 	tileArt,
 	onLand,
 	onSound,
@@ -1073,6 +1071,10 @@ return {
 		(reel, row) => ({ x: reel * 120, y: (row + 0.5) * 120, scale: 1 }),
 		{
 			boardRaw: () => previousBoard,
+			// WHICH seats the end-of-win pop already emptied — all-`false` for every run but the one
+			// that turns it on, which is what makes the removal's claims below a difference rather than
+			// a restatement of the default board.
+			boardRemoved: () => previousRemoved,
 			boardTileArt: () => tileArt,
 			onSymbolLand: ({ rawSymbol: landedSymbol }) => onLand?.(landedSymbol.name),
 			// Every board this fixture drives IS a swap-in-place one — that is the mode under test —
@@ -1112,6 +1114,10 @@ const runReveal = async ({
 	authoredIntro,
 	previousBoard = boardOf('old'),
 	revealedBoard = boardOf('new'),
+	/** Cells the END-OF-WIN POP took off the resting board before this reveal — `[reel, row]` pairs
+	 *  into the padded strip (Invisible Symbols → "Winning symbols explode"). Empty ⇒ the board every
+	 *  other run in this file drives. */
+	removedCells = [],
 }) => {
 	const clock = createClock();
 	/** The authored style this run IS, read off the presentation being driven — the same answer the
@@ -1127,10 +1133,17 @@ const runReveal = async ({
 	const moves = [];
 	const log = [];
 	let settled;
+	/** The removal set as the engine publishes it — `boardRemoved()`, the same shape as `boardRaw()`.
+	 *  Built from `previousBoard` so it can never be a row longer or shorter than the strip it
+	 *  describes. */
+	const previousRemoved = previousBoard.map((strip, reel) =>
+		strip.map((_cell, row) => removedCells.some(([r, w]) => r === reel && w === row)),
+	);
 
 	const runtime = buildTumbleRuntime({
 		clock,
 		previousBoard,
+		previousRemoved,
 		tileArt,
 		onLand: (symbolName) => landed.push(symbolName),
 		onSound: (cue) => sounded.push(cue),
@@ -1164,6 +1177,13 @@ const runReveal = async ({
 		// have) keeps the fixture honest about where the column came from.
 		if (event.type === 'tumbleBoardExplode') {
 			entry.explodingPositions = event.explodingPositions;
+			// WHAT THE SURVIVOR LAYER DRAWS as the step begins, seat by seat — sampled here because the
+			// layer is rebuilt by the init that follows, so this is the only moment it can be read. A
+			// seat the end-of-win pop already emptied must arrive already undrawn, or the symbols the
+			// win blew up come back for the length of the clear (the reel board is hidden throughout).
+			entry.baseUndrawnBefore = runtime.stateTumble.base.map((column) =>
+				column.map((tumbleSymbol) => tumbleSymbol.exploded),
+			);
 			const reels = new Set(event.explodingPositions.map((position) => position.reel));
 			if (reels.size === 1) entry.reelIndex = [...reels][0];
 		}
@@ -1210,6 +1230,7 @@ const runReveal = async ({
 			boardColumnStaggerMs: () => staggerMs,
 			boardClearsOutgoing: () => clearBoard,
 			boardRaw: () => previousBoard,
+			boardRemoved: () => previousRemoved,
 		},
 		(ms) => clock.wait(ms),
 		COLUMN_CASCADE_STAGGER_MS,
@@ -1217,7 +1238,7 @@ const runReveal = async ({
 
 	await clock.run(() => present({ type: 'reveal', board: revealedBoard, gameType: 'basegame' }));
 	const types = log.map((entry) => entry.type);
-	return { log, types, settled, landed, sounded, moves, revealedBoard, previousBoard, runtime, clock };
+	return { log, types, settled, landed, sounded, moves, revealedBoard, previousBoard, previousRemoved, runtime, clock }; // prettier-ignore
 };
 
 const dropIn = await runReveal({ name: 'dropInRevealBoard', source: dropInPresentation });
@@ -2511,6 +2532,133 @@ console.log('--- 10. the cascade arrives the same way the spin does ---');
 		'...and winBookEventAmount is still zeroed before the guard',
 		actor.indexOf('winBookEventAmount = 0') < guard,
 		true,
+	);
+}
+
+// ---------------------------------------------------------------------------
+// 11 — A SYMBOL THAT ALREADY EXPLODED IS NOT CLEARED A SECOND TIME.
+// ---------------------------------------------------------------------------
+
+console.log('--- 11. the board clear skips the symbols the win already blew up ---');
+
+{
+	// The reported bug, driven: a swap-in-place project with "Clear the board before the new symbols
+	// fall in" ON and Invisible Symbols → "Winning symbols explode" ON read Win → Explosion → Clear
+	// reel, because the NEXT spin's clear popped every visible cell — the winners it had already
+	// blown up included. The pop now removes them (`Board.svelte` marks the cell `removed`), and the
+	// clear must take that board as it finds it.
+	//
+	// Three cells of a middle payline, in the padded rows a win can actually land on.
+	const removedCells = [
+		[1, 2],
+		[2, 2],
+		[3, 2],
+	];
+	const cleared = await runReveal({
+		name: 'dropInRevealBoard',
+		source: dropInPresentation,
+		clearBoard: true,
+		removedCells,
+	});
+	const explodedAt = cleared.log.find((entry) => entry.type === 'tumbleBoardExplode');
+	const explodedKeys = explodedAt.explodingPositions.map(({ reel, row }) => `${reel}:${row}`);
+
+	check(
+		'the clear pops every visible seat EXCEPT the ones the win already took off',
+		explodedAt.explodingPositions.length,
+		REELS * ROWS - removedCells.length,
+	);
+	check(
+		'and it is exactly those three seats that are missing',
+		removedCells
+			.map(([reel, row]) => `${reel}:${row}`)
+			.filter((key) => explodedKeys.includes(key))
+			.join(','),
+		'',
+	);
+	check(
+		'...while every OTHER visible seat is still popped',
+		explodedKeys.join(','),
+		Array.from({ length: REELS }, (_unused, reel) =>
+			Array.from({ length: ROWS }, (_row, row) => `${reel}:${row + 1}`)
+				.filter((key) => !removedCells.some(([r, w]) => `${r}:${w}` === key))
+				.join(','),
+		)
+			.filter(Boolean)
+			.join(','),
+	);
+	// A removed cell draws NOTHING, so it can never report an `oncomplete`: left in the set it would
+	// have cost the whole beat cap on the one step a swap-in-place project runs every spin. The
+	// per-symbol pop cue is the audible proof it was never asked to explode.
+	check(
+		'a removed symbol is never given a clear-reel cue',
+		cleared.sounded.some((cue) =>
+			removedCells.some(([reel, row]) => cue === `symbol:clearReel:old${reel}-${row}`),
+		),
+		false,
+	);
+	check(
+		'while a surviving neighbour on the same row still gets one',
+		cleared.sounded.includes('symbol:clearReel:old0-2'),
+		true,
+	);
+	// THE OVERLAY MUST NOT BRING THEM BACK. Its survivor layer is built from the RESTING board, and
+	// the reel board is hidden for the whole swap — so a removed cell that arrived here drawable
+	// would re-materialise the symbol the reels are hiding, for exactly the length of the clear.
+	const undrawn = explodedAt.baseUndrawnBefore;
+	check(
+		'the survivor layer still holds one entry per seat — a removal moves no index',
+		undrawn.map((column) => column.length).join(','),
+		Array.from({ length: REELS }, () => STRIP).join(','),
+	);
+	check(
+		'and the removed seats arrive already undrawn',
+		removedCells.map(([reel, row]) => undrawn[reel][row]).join(','),
+		'true,true,true',
+	);
+	check(
+		'while every other seat is still there to be popped',
+		undrawn.flat().filter(Boolean).length,
+		removedCells.length,
+	);
+	// …and the step's removal takes them WITH the cells it popped. An emptied seat is born in the
+	// state its removal already reached (`clearReel`), so the one board-wide filter sweeps both — a
+	// seat left `static` would survive into the settle as a symbol the player watched explode. Every
+	// column here is a padded strip whose three visible rows all leave, one way or the other.
+	const removal = cleared.log.find((entry) => entry.type === 'tumbleBoardRemoveExploded');
+	check(
+		'the survivor layer arrives at the removal whole',
+		removal.baseLengthsBefore.join(','),
+		Array.from({ length: REELS }, () => STRIP).join(','),
+	);
+	check(
+		'and leaves it holding nothing but the two buffer rows, removed seats included',
+		removal.baseLengthsAfter.join(','),
+		Array.from({ length: REELS }, () => STRIP - ROWS).join(','),
+	);
+	// …and the end state is untouched: the clear rewrites the very layer the settle reads, so the
+	// drop-in's contract has to be re-asserted THROUGH a removal, not assumed to survive it.
+	check('the run still settles one column per reel', cleared.settled?.length, REELS);
+	for (let reel = 0; reel < REELS; reel += 1) {
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`settled cell (${reel}, ${row}) IS the revealed symbol`,
+				cleared.settled[reel][row],
+				cleared.revealedBoard[reel][row],
+			);
+		}
+	}
+	// PARITY: the same run with nothing removed pops the whole board, exactly as part 7 asserts. The
+	// removal is a difference this fixture can SEE, not a default it inherited.
+	const untouched = await runReveal({
+		name: 'dropInRevealBoard',
+		source: dropInPresentation,
+		clearBoard: true,
+	});
+	check(
+		'nothing removed ⇒ every visible seat still pops',
+		untouched.log.find((entry) => entry.type === 'tumbleBoardExplode').explodingPositions.length,
+		REELS * ROWS,
 	);
 }
 

@@ -53,7 +53,7 @@ import {
 	winLineTextFor,
 	winningPositionsOf,
 } from './flowEffects';
-import { setWinDim, winDimCellKey } from './stateGame.svelte';
+import { setWinDim, stateGameDerived, winDimCellKey } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
 import { bakedWinCycleConfig, bakedWinLineConfig } from '../editor-scenes';
@@ -239,11 +239,26 @@ export const clearWinPresentation = (): void => {
  * its traced cells and the win itself (the line's points, amount and message are derived from it
  * when `showLine` is on). Wins that trace no cells are dropped so a stray entry can't introduce a
  * blank beat in the rotation.
+ *
+ * A cell the END-OF-WIN POP took off the board (Invisible Symbols → "Winning symbols explode") is
+ * no longer one of them. It draws nothing, so re-lighting it would light nothing and then await an
+ * `oncomplete` it can never report — every pass of a loop that races no skip token would sit out
+ * the win-beat cap for an empty seat. With the pop on, every paying cell is gone by the time the
+ * cycle starts, so every entry drops and `startWinCycle` finds nothing to replay: a board whose
+ * winners exploded simply rests, which is what "explode and be gone" looks like once the round is
+ * over. Nothing is ever removed with the pop off ⇒ the rotation is untouched.
  */
-const cycleEntries = (): { win: CycleWin; positions: Position[] }[] =>
-	wins
-		.map((win) => ({ win, positions: winningPositionsOf(win) }))
+const cycleEntries = (): { win: CycleWin; positions: Position[] }[] => {
+	const removed = stateGameDerived.boardRemoved();
+	return wins
+		.map((win) => ({
+			win,
+			positions: winningPositionsOf(win).filter(
+				(position) => !removed[position.reel]?.[position.row],
+			),
+		}))
 		.filter((entry) => entry.positions.length > 0);
+};
 
 /**
  * Start cycling the recorded wins' symbols. NOT awaited by the caller — it only ends when

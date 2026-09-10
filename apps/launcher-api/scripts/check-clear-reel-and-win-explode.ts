@@ -16,6 +16,17 @@
  *      ON state round-trips, and that it reaches BOTH bundle paths — the export result and the
  *      bake whitelist, which are two hand-written lists nothing else forces to agree.
  *
+ *   3. THE POP IS THE REMOVAL ("explode and be gone", 2026-09-10). A winning cell that plays its
+ *      `explosion` under the pop is taken OFF the board rather than reverted to `postWinStatic`, so
+ *      the next spin's board clear cannot pop it a second time — the reported Win → Explosion →
+ *      Clear reel. That is one flag on the reel cell read by five places, and the failure mode of
+ *      each is a beat nobody can see: a clear that still lists the seat spends the whole cap waiting
+ *      for an `oncomplete` no cell can report, a survivor layer that ignores it brings the symbol
+ *      back, and a resting replay that ignores it re-lights an empty seat forever. The one claim
+ *      that can be DRIVEN here is driven (`visibleColumnPositions`, the real function); the rest are
+ *      link checks, with the behaviour proved on a virtual clock by `scripts/verify-swap-in-place-
+ *      mode.mjs` part 11 and `scripts/verify-tumble-pattern.mjs` part 6.
+ *
  * Run:  pnpm --filter launcher-api check:clear-reel
  *
  * The `--tsconfig` that script passes maps SvelteKit's `$env/dynamic/private` to a stub
@@ -24,6 +35,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
 import { SYMBOL_STATE_LABELS, SYMBOL_STATES } from 'engine-layout';
@@ -190,12 +202,15 @@ check(
 
 console.log('\n6. it reaches BOTH bundle paths');
 const here = fileURLToPath(new URL('.', import.meta.url));
-const bake = readFileSync(`${here}bake-editor-doc.mjs`, 'utf8');
-const exportEndpoint = readFileSync(
-	`${here}../src/routes/api/editor/export-symbols/+server.ts`,
-	'utf8',
-);
-const exporter = readFileSync(`${here}../src/lib/server/symbolExport.ts`, 'utf8');
+/** Repo root, so the runtime half of the contract (`apps/lines`, `packages/*`) can be read too. */
+const root = `${here}../../../`;
+/** Source with LF newlines whatever the checkout uses. Every assertion from here down is about the
+ *  CODE, and a Windows working copy (`core.autocrlf`) would otherwise fail patterns that name a line
+ *  break for reasons that have nothing to do with the claim. */
+const read = (path: string): string => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+const bake = read(`${here}bake-editor-doc.mjs`);
+const exportEndpoint = read(`${here}../src/routes/api/editor/export-symbols/+server.ts`);
+const exporter = read(`${here}../src/lib/server/symbolExport.ts`);
 check('the exporter emits it', exporter.includes('...(winExplode ? { winExplode } : {})'), true);
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
@@ -217,6 +232,143 @@ check(
 );
 check('the bake whitelist rebuilds it', bake.includes('s?.symbolSounds && typeof s.symbolSounds'), true); // prettier-ignore
 check('…and puts it on the bundle', /\n\t{4,}symbolSounds,\n/.test(bake), true);
+
+console.log('\n8. the pop IS the removal — the symbol is gone, not reverted');
+const board = read(`${root}apps/lines/src/components/Board.svelte`);
+const reelSymbol = read(`${root}apps/lines/src/components/ReelSymbol.svelte`);
+const tumbleBoard = read(`${root}apps/lines/src/components/TumbleBoard.svelte`);
+const flowEffects = read(`${root}apps/lines/src/game/flowEffects.ts`);
+const winCycle = read(`${root}apps/lines/src/game/winSymbolCycle.ts`);
+const reelFactory = read(`${root}packages/utils-slots/src/createReelForSpinning.svelte.ts`);
+const gameState = read(`${root}packages/engine-game/src/game/gameState.svelte.ts`);
+
+/** One declaration out of a source file, from its opening marker to `endMarker` — by default the
+ *  blank line that ends it (Prettier separates top-level declarations, so that boundary is stable;
+ *  a body with a blank line inside passes its own). Throws rather than silently handing back a
+ *  truncated slice, because a slice that quietly shrank would turn every claim over it into a pass. */
+const slice = (source: string, what: string, marker: string, endMarker = '\n\n'): string => {
+	const start = source.indexOf(marker);
+	if (start < 0) throw new Error(`${what}: could not find "${marker}"`);
+	const end = source.indexOf(endMarker, start + marker.length);
+	if (end < 0) throw new Error(`${what}: could not find the end of the declaration`);
+	return source.slice(start, end);
+};
+
+// THE ONE CLAIM THAT CAN BE DRIVEN: the board CLEAR's exploding set, over the REAL function. A cell
+// the pop removed draws nothing, so it can never report an `oncomplete` — left in the set the step
+// waits out the whole beat cap for an animation with no cell to play it, on the beat every
+// swap-in-place spin runs.
+const visibleColumnPositions = new Function(
+	`${stripTypeScriptTypes(slice(flowEffects, 'visibleColumnPositions', 'const visibleColumnPositions = ('))}\nreturn visibleColumnPositions;`,
+)() as (
+	reelIndex: number,
+	strip: readonly unknown[],
+	removed?: readonly boolean[],
+) => { reel: number; row: number }[];
+/** A padded strip: one buffer row, three visible rows, one buffer row. */
+const strip = [0, 1, 2, 3, 4];
+const keys = (removed?: boolean[]): string =>
+	visibleColumnPositions(2, strip, removed)
+		.map(({ reel, row }) => `${reel}:${row}`)
+		.join(',');
+check('nothing removed ⇒ every visible row of the column pops', keys(), '2:1,2:2,2:3');
+check(
+	'the third argument is optional, so a two-argument call is unchanged',
+	visibleColumnPositions(2, strip).length,
+	3,
+);
+check(
+	'a removed cell is not in the exploding set…',
+	keys([false, false, true, false, false]),
+	'2:1,2:3',
+);
+check('…and a fully exploded column clears nothing', keys([true, true, true, true, true]), '');
+check(
+	'a removed BUFFER row changes nothing — it was never in the set',
+	keys([true, false, false, false, true]),
+	'2:1,2:2,2:3',
+);
+check(
+	'the clear passes the removal set on BOTH of its arms (whole board + one column)',
+	(
+		slice(flowEffects, 'clearOutgoingSymbols', 'const clearOutgoingSymbols = async (').match(
+			/visibleColumnPositions\(/g,
+		) ?? []
+	).length,
+	2,
+);
+
+// THE FLAG ITSELF — per CELL, which is what makes it self-clearing: every board replacement builds
+// fresh cells through `createReelSymbols`, so nothing has to remember to wipe a set.
+check(
+	'a reel cell is born un-removed',
+	slice(
+		reelFactory,
+		'createReelSymbol',
+		'const createReelSymbol = (',
+		'\ttype ReelSymbol = ',
+	).includes('removed: false'),
+	true,
+);
+check(
+	'the engine publishes the removal set beside the raw board',
+	slice(gameState, 'boardRemoved', '\tconst boardRemoved = () =>').includes('reelSymbol.removed'),
+	true,
+);
+
+// THE WIN BEAT sets it — inside the gated branch, and only there. Off (or on a replay pass) nothing
+// is ever removed, which is the whole byte-parity claim.
+const popBranch = board.indexOf('if (popOnWin && !isCovered) {');
+check('the win beat still gates the pop on the doc flag and skips a replay', board.includes('const popOnWin = !replay && bakedWinExplodeEnabled();'), true); // prettier-ignore
+check('…and the removal happens inside that branch', popBranch >= 0 && board.indexOf('reelSymbol.removed = true') > popBranch, true); // prettier-ignore
+check(
+	'…before the cell is settled back to rest',
+	board.indexOf('reelSymbol.removed = true') < board.indexOf("reelSymbol.symbolState = 'postWinStatic'"), // prettier-ignore
+	true,
+);
+check('the board marks exactly one cell removed, nowhere else', (board.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
+// THE BOOK-OF COLUMN MORPH uses the same `explosion` state and must NOT start vanishing — it
+// explodes and then SWAPS to the special symbol, so a removal there would empty the expanded reels.
+const bookMorph = slice(
+	flowEffects,
+	'expandBookColumns',
+	'\texpandBookColumns: async (payload) => {',
+);
+check('the sliced morph really is the one that explodes', bookMorph.includes("symbolState = 'explosion'"), true); // prettier-ignore
+check('…and it explodes without removing', bookMorph.includes('.removed = true'), false);
+
+// THE FOUR READERS. Each one's failure is invisible in the others.
+check(
+	'the reel cell stops rendering a removed symbol',
+	/\{#if\s+!covered\s+&&\s+!removed\s*\}/.test(reelSymbol),
+	true,
+);
+check(
+	'BOTH survivor-layer initialisers seed the removal, so the pop is not undone',
+	[
+		slice(tumbleBoard, 'initTumbleBoardBaseReel', '\tconst initTumbleBoardBaseReel = ('),
+		slice(tumbleBoard, 'initTumbleBoardBase', '\tconst initTumbleBoardBase = ('),
+	].every((source) => source.includes('boardRemoved()') && /\bremoved: removed\b/.test(source)),
+	true,
+);
+check(
+	'…and a removed seat is born already gone, so the board-wide removal sweeps it',
+	tumbleBoard.includes("symbolState: (removed ? 'clearReel' : 'static') as SymbolState") &&
+		tumbleBoard.includes('exploded: removed'),
+	true,
+);
+check(
+	'the explode step skips a seat that is already gone (a cascade explodes what the BOOK names)',
+	tumbleBoard.includes('if (tumbleSymbol.exploded) return;'),
+	true,
+);
+check(
+	'the resting replay drops the cells the pop took off',
+	slice(winCycle, 'cycleEntries', 'const cycleEntries = (').includes(
+		'stateGameDerived.boardRemoved()',
+	),
+	true,
+);
 
 console.log(
 	failures === 0

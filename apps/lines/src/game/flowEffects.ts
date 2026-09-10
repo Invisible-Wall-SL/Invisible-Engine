@@ -602,11 +602,23 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
  * `tumbleBoardSlideDown` lands only the rows between the buffers. The indices are into the tumble
  * board's own `base` column, which is built from the padded strip, so the visible band is
  * `1 … length - 2`.
+ *
+ * A cell the END-OF-WIN POP already took off (Invisible Symbols → "Winning symbols explode",
+ * `removed`) is excluded for a sharper version of the same reason: it is not merely unseen, it
+ * DRAWS NOTHING — so it could never report an `oncomplete` and the step would sit out
+ * `TRANSIT_BEAT_CAP_MS` waiting for an animation with no cell to play it, on the one beat every
+ * swap-in-place spin runs. Popping it would also be the double explosion this removal exists to
+ * end. Nothing is ever removed unless the pop is on, so an un-authored project's exploding set is
+ * unchanged.
  */
-const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
+const visibleColumnPositions = (
+	reelIndex: number,
+	strip: readonly unknown[],
+	removed: readonly boolean[] = [],
+) =>
 	strip
 		.map((_cell, row) => ({ reel: reelIndex, row }))
-		.filter(({ row }) => row > 0 && row < strip.length - 1);
+		.filter(({ row }) => row > 0 && row < strip.length - 1 && !removed[row]);
 
 /**
  * CLEAR the outgoing symbols — they play their authored `clearReel` state and leave,
@@ -633,11 +645,16 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
  */
 const clearOutgoingSymbols = async (reelIndex?: number) => {
 	const board = stateGameDerived.boardRaw();
+	// Which of those seats the end-of-win pop already emptied — all-`false` unless a project turned
+	// "Winning symbols explode" on. See {@link visibleColumnPositions}.
+	const removed = stateGameDerived.boardRemoved();
 	if (reelIndex === undefined) {
 		eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
 		await eventEmitter.broadcastAsync({
 			type: 'tumbleBoardExplode',
-			explodingPositions: board.flatMap((strip, reel) => visibleColumnPositions(reel, strip)),
+			explodingPositions: board.flatMap((strip, reel) =>
+				visibleColumnPositions(reel, strip, removed[reel]),
+			),
 		});
 		eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
 		return;
@@ -654,7 +671,11 @@ const clearOutgoingSymbols = async (reelIndex?: number) => {
 	// swap-in-place player watches on EVERY spin.
 	await eventEmitter.broadcastAsync({
 		type: 'tumbleBoardExplode',
-		explodingPositions: visibleColumnPositions(reelIndex, board[reelIndex] ?? []),
+		explodingPositions: visibleColumnPositions(
+			reelIndex,
+			board[reelIndex] ?? [],
+			removed[reelIndex],
+		),
 		patternScope: 'board',
 	});
 	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded', reelIndex });

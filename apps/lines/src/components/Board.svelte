@@ -128,9 +128,24 @@
 						// floor here, unlike the win beat: the readable minimum is already spent on the
 						// win, and a second one would add it to every paying spin.
 						await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS); // prettier-ignore
+						// EXPLODE AND BE GONE — the pop IS the removal, not a flourish before one.
+						//
+						// It used to end at `postWinStatic`, which left the blown-up symbol standing on the
+						// board until the NEXT spin's board clear popped it a second time: a project that
+						// clears its board before the new symbols fall in (`/config` → Reel behaviour) read
+						// Win → Explosion → Clear reel, the third beat blowing up symbols the player had
+						// already watched blow up. The cell goes here instead, so the round ends on the beat
+						// the author meant and the next clear only pops what is still standing (see
+						// `visibleColumnPositions`).
+						//
+						// On BOTH exits of the race above, exactly like the revert below it: a cell whose art
+						// can never report `oncomplete` pays the cap and is then just as gone. It is the
+						// SYMBOL that is marked, not its seat — the next board un-removes it by being new
+						// cells (see `ReelSymbol.removed`).
+						reelSymbol.removed = true;
 					}
-					// The cell ENDS at rest either way. The pop is presentation: the symbol is not
-					// removed from the board — taking it off stays the cascade's / the clear step's job.
+					// The cell ENDS at rest either way — a removed one included: it is no longer drawn, but
+					// it must not be left parked on `explosion` for a state reader to find.
 					reelSymbol.symbolState = 'postWinStatic';
 					reelSymbol.winLineColor = undefined;
 				});

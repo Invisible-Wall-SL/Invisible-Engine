@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { Position, RawSymbol } from 'engine-game';
+	import type { Position, RawSymbol, SymbolState } from 'engine-game';
 
 	type AddingBoard = RawSymbol[][];
 	type ExplodingPositions = Position[];
@@ -289,17 +289,31 @@
 	const createTumbleSymbol = ({
 		initY,
 		rawSymbol,
+		removed = false,
 	}: {
 		initY: number;
 		rawSymbol: RawSymbol;
+		/**
+		 * This seat's REEL cell was already taken off the board by the end-of-win pop (Invisible
+		 * Symbols → "Winning symbols explode"). The overlay's survivor layer is built from the resting
+		 * board, so without this the symbols that blew up during the win would come BACK for the
+		 * length of the next spin's clear — the one moment the reel board is hidden and this layer is
+		 * the board.
+		 *
+		 * It is born in the state its removal already reached: `exploded` (draws nothing) and
+		 * `clearReel` (so the step's `tumbleBoardRemoveExploded` sweeps it out of `base` with the
+		 * cells that popped this step). It keeps its INDEX until then, because a column's seats are
+		 * its indices — see `TumbleSymbol.exploded` for the same reasoning at the other end.
+		 */
+		removed?: boolean;
 	}): TumbleSymbol => {
 		const symbolY = new Tween(initY);
 		const tumbleSymbol = $state({
 			symbolY,
 			rawSymbol,
-			symbolState: 'static' as const,
+			symbolState: (removed ? 'clearReel' : 'static') as SymbolState,
 			oncomplete: () => {},
-			exploded: false,
+			exploded: removed,
 		});
 		return tumbleSymbol;
 	};
@@ -338,25 +352,33 @@
 	 */
 	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
 
-	/** ONE column as it stands right now, seated exactly where the reels left it. */
-	const initTumbleBoardBaseReel = (reelIndex: number) =>
-		(stateGameDerived.boardRaw()[reelIndex] ?? []).map((rawSymbol, symbolIndex) =>
+	/** ONE column as it stands right now, seated exactly where the reels left it — the seats the
+	 *  end-of-win pop emptied included, born already gone (see `createTumbleSymbol`). */
+	const initTumbleBoardBaseReel = (reelIndex: number) => {
+		const removed = stateGameDerived.boardRemoved()[reelIndex] ?? [];
+		return (stateGameDerived.boardRaw()[reelIndex] ?? []).map((rawSymbol, symbolIndex) =>
 			createTumbleSymbol({
 				initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
 				rawSymbol,
+				removed: removed[symbolIndex],
 			}),
 		);
+	};
 
-	/** The board as it stands right now, seated exactly where the reels left it. */
-	const initTumbleBoardBase = () =>
-		stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
+	/** The board as it stands right now, seated exactly where the reels left it — the seats the
+	 *  end-of-win pop emptied included, born already gone (see `createTumbleSymbol`). */
+	const initTumbleBoardBase = () => {
+		const removed = stateGameDerived.boardRemoved();
+		return stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
 			rawSymbolReel.map((rawSymbol, symbolIndex) =>
 				createTumbleSymbol({
 					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
 					rawSymbol,
+					removed: removed[reelIndex]?.[symbolIndex],
 				}),
 			),
 		);
+	};
 
 	/**
 	 * The GROUND TILE art the OVERLAY should draw — or `undefined`, which is every board that has
@@ -601,6 +623,14 @@
 				explodingPositions.map(async (position, index) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
+					// ALREADY GONE — the end-of-win pop took this seat off the board before the step ever
+					// started (Invisible Symbols → "Winning symbols explode"), so it is here only to hold its
+					// index until the removal below sweeps it out. It draws nothing, which means it could
+					// never report an `oncomplete`: awaiting it would spend the whole beat cap on a cell with
+					// no animation, and popping it would be the second explosion of the same symbol. The
+					// board CLEAR filters these out at the source (`visibleColumnPositions`); a CASCADE
+					// cannot — its exploding set is the book's — so it is caught here.
+					if (tumbleSymbol.exploded) return;
 					const delayMs = delays[index] ?? 0;
 					if (delayMs > 0) {
 						await waitForTimeout(delayMs);

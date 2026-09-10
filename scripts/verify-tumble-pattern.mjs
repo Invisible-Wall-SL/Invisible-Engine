@@ -585,6 +585,11 @@ const runExplode = async ({
 	// How long each seat's explosion takes to report. `null` = it never does — the symbol whose
 	// state is bound to no art, or to a spine animation that is not in the skeleton.
 	beatMs = BEAT_MS,
+	// Seats (`"reel:row"`) the END-OF-WIN POP already took off the board before this step began
+	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer only to hold
+	// their index until the board-wide removal, born in the state that removal already reached:
+	// undrawn, and already `clearReel`. See `createTumbleSymbol`.
+	preExploded = [],
 }) => {
 	const clock = createClock();
 	const pops = [];
@@ -595,9 +600,10 @@ const runExplode = async ({
 	// One symbol object per seat, keyed the way the board keys them: `base[reel][row]`.
 	const base = Array.from({ length: REELS }, (_reelUnused, reel) =>
 		Array.from({ length: ROWS }, (_rowUnused, row) => {
-			let exploded = false;
+			const gone = preExploded.includes(`${reel}:${row}`);
+			let exploded = gone;
 			return {
-				symbolState: 'static',
+				symbolState: gone ? 'clearReel' : 'static',
 				rawSymbol: { name: 'H1' },
 				get exploded() {
 					return exploded;
@@ -949,6 +955,37 @@ console.log('--- 5. a seat stops being drawn when its OWN explosion ends ---');
 		swept.popped.length,
 	);
 	check('...and that is fewer than the whole board', swept.vanished.length < 15, true);
+}
+
+console.log('--- 6. a seat the win already blew up is not blown up again ---');
+
+{
+	// "Explode and be gone" (Invisible Symbols → "Winning symbols explode"): a winning cell's
+	// `explosion` beat IS its removal, so it is off the board before the next step ever runs. The
+	// board CLEAR filters those seats out at the source (`visibleColumnPositions`), but a CASCADE
+	// cannot — its exploding set is the BOOK's, and the book still names the cells that paid. So the
+	// step itself has to recognise a seat that is already gone.
+	//
+	// It draws nothing, which is the whole hazard: no cell, no `oncomplete`, so a step that popped it
+	// anyway would wait out the beat cap for an animation nobody can see — on a cascade, once per
+	// chain step.
+	const seats = fullBoard();
+	const gone = ['1:1', '2:1', '3:1'];
+	const run = await runExplode({ seats, preExploded: gone });
+	check('the step pops every seat but the ones already gone', run.popped.length, 15 - gone.length);
+	check('...and none of them is marked spent a second time', run.vanished.length, 15 - gone.length);
+	check(
+		'...while they stay in the clearReel state, so the board-wide removal still takes them',
+		run.exploded.length,
+		15,
+	);
+	// The COST is the point: a step that awaited the gone seats would end on the runaway guard
+	// instead of on the animation every other seat is actually playing.
+	check('...and the step still ends one ordinary beat later', run.settledAt, BEAT_MS);
+	check('...not on the runaway cap', run.settledAt < TRANSIT_BEAT_CAP_MS, true);
+	// PARITY: nothing gone ⇒ the same run pops all fifteen, exactly as part 2 asserts.
+	const untouched = await runExplode({ seats });
+	check('nothing gone ⇒ every seat still pops', untouched.popped.length, 15);
 }
 
 console.log('');

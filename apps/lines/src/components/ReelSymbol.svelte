@@ -67,9 +67,15 @@
 	// `StackedPictures` doesn't double with the icons it replaces. Empty set when the mode is off ⇒
 	// every cell renders ⇒ byte-parity (docs/design/stacked-picture-mode.md).
 	const covered = $derived(stackedCoverage().has(winDimCellKey(props.reelIndex, props.row)));
+	// The end-of-win pop took this cell OFF the board (Invisible Symbols → "Winning symbols
+	// explode"): its `explosion` beat was its removal, so the seat draws nothing until the next board
+	// arrives. Undrawn rather than spliced out of the strip — every consumer addresses a cell by its
+	// row, so shortening the column would move all of them. `false` on every cell of a project that
+	// never turned the pop on ⇒ byte-parity.
+	const removed = $derived(props.reelSymbol.removed);
 </script>
 
-{#if !covered}
+{#if !covered && !removed}
 	<SymbolWrap
 		x={seat.x}
 		{y}
