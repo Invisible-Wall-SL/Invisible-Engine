@@ -157,16 +157,23 @@ export async function publishGame(
 
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 	//
-	// `docBase` + `readToken` are what turn the entry from a FROZEN copy of the math into a pointer
-	// back at the live one: the test server re-reads `/api/game-config/mock` with them, so editing
-	// `/config` changes the board the mock deals without a republish. The grid/cascade below stay as
-	// the fallback for when that fetch can't be made (launcher down, entry published before this).
-	// Neither field is a new exposure — both appear verbatim in the public game URL built below.
+	// `projectKey` + `docBase` + `readToken` are what turn the entry from a FROZEN copy of the math
+	// into a pointer back at the live one: the test server re-reads `/api/game-config/mock` with them,
+	// so editing `/config` changes the board the mock deals without a republish. The grid/cascade
+	// below stay as the fallback for when that fetch can't be made (launcher down, entry published
+	// before this). None of the three is a new exposure — all appear verbatim in the public game URL
+	// built below.
+	//
+	// `projectKey` is written even though `key === projectKey` here (line above), because the test
+	// server cannot tell that from the entry — and the OTHER publisher
+	// (`scripts/publish-game-bundle.mjs`) names games independently of their project. Stating it is
+	// what lets that side read the same field instead of guessing from the key.
 	await upsertTestServerGame(key, {
 		protocol,
 		name,
 		runtime,
 		updatedAt: new Date().toISOString(),
+		projectKey,
 		docBase: launcherOrigin.replace(/\/+$/, ''),
 		readToken,
 		...(grid ? { grid } : {}),

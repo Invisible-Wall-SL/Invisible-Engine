@@ -99,6 +99,20 @@ node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs bookofborut <rep
   --protocol book --name "Book of Borut"
 ```
 
+**Pass `--project` for any game authored in the Studio** — with `--launcher` and
+`--read-token`, all three together (see "The project pin" below). Without them the mock
+ignores the project's Game Config entirely and deals its default 5×3 lines board:
+
+```bash
+node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs waysofwavesbuild <repo>/build \
+  --protocol ways --name "Ways on Waves" \
+  --project test6 --launcher https://app.invisiblewall.org --read-token <k>
+```
+
+`--read-token` is the project's public read token — the `k=` in the game's own URL.
+With the pin in place the mock follows the config live, so `--protocol` is only the
+fallback and a board resize needs no republish at all.
+
 Then restart the service (or `POST /refresh`) so it picks up the new bundle.
 
 ## Registering in the launcher
@@ -139,7 +153,12 @@ Canonical shape — **producers must MERGE (read-modify-write)** so publishing o
 never drops the others:
 
 ```json
-{ "games": { "<gameKey>": { "protocol": "lines" | "book", "name": "Display Name", "updatedAt": "<iso>" } } }
+{ "games": { "<gameKey>": {
+    "protocol": "lines" | "book" | "ways" | "cluster" | "scatter",
+    "name": "Display Name",
+    "updatedAt": "<iso>",
+    "projectKey": "<launcher project>", "docBase": "<launcher origin>", "readToken": "<k>"
+} } }
 ```
 
 Three places share this shape; keep them in lockstep:
@@ -148,10 +167,26 @@ Three places share this shape; keep them in lockstep:
 - **producer** — the desktop launcher's `publish_game()` (`Invisible_Launcher.py`)
 - **consumer** — `services/test-server/server.mjs` (`protocol` → which mock; `name` → index page)
 
-The online publish (`publishGame.ts`) additionally writes `docBase` + `readToken` —
-the pointer the server uses to re-read the project's live config (above). Both values
-already appear verbatim in the public game URL, so this is not a new exposure. The two
-producers listed here can't mint a read token, so their games keep the frozen snapshot.
+### The project pin — `projectKey` + `docBase` + `readToken`
+
+These three are **the pointer** the server uses to re-read the project's live Game Config
+(above) instead of the frozen `grid` snapshot. **A game without them is not playing its own
+math.** It still runs — it deals the mock's built-in **5×3 Hot Fruits default** (7 line
+symbols + scatter, 5 paylines, `lines` scoring) while the client draws whatever `/config`
+authored, and nothing in the game says so.
+
+`projectKey` is the **launcher project**, which is only *incidentally* the game key. The
+online publish (`publishGame.ts`) names a game after its project, so `project=<gameKey>`
+worked there and looked general; every desktop-launcher title names its own key. `waysofwavesbuild`
+(project `test6`) therefore asked for a project called `waysofwavesbuild`, got a 401, and fell
+back to the default board — surfacing as two bugs that looked nothing like a manifest problem:
+an out-of-dictionary symbol landing with placeholder art (`PIC7`→`L5`), and a bottom row that
+never exploded, because the client's 4th visible row was really the facade's bottom **padding**
+row and every "the last strip entry is off-screen buffer" guard correctly skipped it.
+
+The CLI producer takes them as flags (below) — it can't *mint* a token, but it can be handed
+one. A game with no pointer now logs a one-line warning on its first spin naming the cause.
+Guarded by `node scripts/verify-test-server-project-pin.mjs`.
 
 ## Local dev
 
