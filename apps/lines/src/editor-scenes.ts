@@ -70,7 +70,7 @@ export type BookVfxLayer = {
 /**
  * The explosion → intro TRANSITION (Invisible Symbols State Machine output). Structurally a
  * {@link BookVfxLayer} without the `sprite` kind (a transition has a duration; a frozen frame has
- * none) and without fit hints, plus `delayMs`: how long after a seat's `tumbleExplosion` starts before
+ * none) and without fit hints, plus `delayMs`: how long after a seat's `clearReel` starts before
  * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE.
  */
 export type SymbolTransition = {
@@ -368,6 +368,14 @@ type BakedBundle = {
 			 * with the replay off the hold still holds, on a static board. */
 			holdAfterBigWin?: boolean;
 		};
+		/** "A winning symbol POPS at the end of its win" (Invisible Symbols State Machine output,
+		 * consumed by `components/Board.svelte`): after a paying cell's `win` beat completes, it plays
+		 * its `explosion` state before settling into `postWinStatic`. The symbol is NOT removed —
+		 * taking it off the board stays the cascade's / the clear step's job. Absent ⇒ off
+		 * (byte-parity: a winner went straight from `win` to `postWinStatic` before this switch).
+		 * Deliberately a switch rather than an inference from "is `explosion` bound": every game binds
+		 * `explosion` for the Book-of column morph. */
+		winExplode?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -1054,6 +1062,24 @@ export function bakedWinCycleConfig(): {
 		dimNonWinning: c?.dimNonWinning ?? false,
 		holdAfterBigWin: c?.holdAfterBigWin ?? false,
 	};
+}
+
+/**
+ * "A winning symbol POPS at the end of its win" — whether a paying cell plays its `explosion` state
+ * between its `win` beat and the `postWinStatic` revert (`components/Board.svelte`).
+ *
+ * Default FALSE, and that default is the whole reason the switch exists rather than being inferred:
+ * every game binds `explosion` for the Book-of column morph, so "is it authored" would be true
+ * everywhere and would re-time every paying spin in every shipped game. Mirrors
+ * `bakedWinCycleConfig`'s runtime→baked→undefined resolution.
+ */
+export function bakedWinExplodeEnabled(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.winExplode
+		: hasBakedDoc()
+			? bakedBundle.symbols?.winExplode
+			: undefined;
+	return c?.enabled ?? false;
 }
 
 /**

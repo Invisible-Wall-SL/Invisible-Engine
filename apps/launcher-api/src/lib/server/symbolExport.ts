@@ -175,6 +175,10 @@ export interface SymbolExportResult {
 	/** The resting-board win-SYMBOL replay config, passed through VERBATIM (no asset work).
 	 *  Absent → the game keeps its coded defaults (replay on, 0.4s between passes). */
 	winCycle?: SymbolsDoc['winCycle'];
+	/** "A winning symbol POPS at the end of its win" — assetless config, so a verbatim pass-through
+	 *  like `winCycle`. `normalizeSymbolsDoc` drops it entirely when OFF, which is what keeps an
+	 *  untouched project's bundle byte-identical. */
+	winExplode?: SymbolsDoc['winExplode'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -607,6 +611,11 @@ export async function exportEditorSymbols(
 	// `winLine` on purpose: the replay never draws the line, so the two are independent switches.
 	const winCycle = doc.winCycle;
 
+	// The end-of-win pop. Assetless (a single switch — the art it plays is the symbol's existing
+	// Explosion cell, which already ships through the map), so a verbatim pass-through of the
+	// already-pruned field: absent for every project that left the switch off.
+	const winExplode = doc.winExplode;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -676,6 +685,7 @@ export async function exportEditorSymbols(
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
+		...(winExplode ? { winExplode } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),

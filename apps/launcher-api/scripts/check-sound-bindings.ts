@@ -70,12 +70,12 @@ check(
 		version: 1,
 		symbols: {},
 		symbolSounds: {
-			H1: { land: 'sfx_symbols_landing', tumbleExplosion: 'tumble_win_3' },
+			H1: { land: 'sfx_symbols_landing', clearReel: 'tumble_win_3' },
 			S: { land: 'sfx_scatter_stop_1' },
 		},
 	}),
 	{
-		H1: { land: 'sfx_symbols_landing', tumbleExplosion: 'tumble_win_3' },
+		H1: { land: 'sfx_symbols_landing', clearReel: 'tumble_win_3' },
 		S: { land: 'sfx_scatter_stop_1' },
 	},
 );
@@ -87,8 +87,8 @@ console.log('\n2. clearing a cue round-trips to NOTHING, not to an empty shell')
 	check('bound', bound.symbolSounds, { H1: { land: 'a_cue' } });
 	const cleared = withSymbolSound(bound, 'H1', 'land', '');
 	check('cleared drops the symbol AND the section', cleared.symbolSounds, undefined);
-	const two = withSymbolSound(withSymbolSound(bound, 'H1', 'tumbleExplosion', 'b_cue'), 'H1', 'land', ''); // prettier-ignore
-	check('clearing one of two keeps the other', two.symbolSounds, { H1: { tumbleExplosion: 'b_cue' } }); // prettier-ignore
+	const two = withSymbolSound(withSymbolSound(bound, 'H1', 'clearReel', 'b_cue'), 'H1', 'land', ''); // prettier-ignore
+	check('clearing one of two keeps the other', two.symbolSounds, { H1: { clearReel: 'b_cue' } }); // prettier-ignore
 }
 
 console.log('\n3. the export carries the map to the baked bundle');

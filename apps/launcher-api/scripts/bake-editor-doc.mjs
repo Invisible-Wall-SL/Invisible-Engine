@@ -338,10 +338,12 @@ async function main() {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
 		names: undefined,
+		symbolSounds: undefined,
 		highlight: undefined,
 		boardGlow: undefined,
 		winLine: undefined,
 		winCycle: undefined,
+		winExplode: undefined,
 		bookVfx: undefined,
 		transition: undefined,
 		tumblePattern: undefined,
@@ -445,6 +447,10 @@ async function main() {
 				if (c.holdAfterBigWin === true) out.holdAfterBigWin = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
+			// The end-of-win pop — one switch that defaults OFF, so ONLY the ON state persists. Must
+			// reach BOTH bundle paths (this + the runtime `SymbolExportResult`): omit it here and a
+			// project that turned the pop on would ship without it through the bake path.
+			const winExplode = s?.winExplode?.enabled === true ? { enabled: true } : undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -487,6 +493,19 @@ async function main() {
 			const names =
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
+					: undefined;
+			/**
+			 * The per-symbol sound cues (`symbolSounds[name][state]`). Carried for the SAME
+			 * "must reach both bundle paths" reason as the fields above, but it is a FALLBACK here,
+			 * not the primary carrier: the sound export folds these into `catalog.bindings.symbols`,
+			 * which `bakedSymbolSounds` consults first. That fold is what the runtime path already
+			 * had underneath it (`SymbolExportResult` passes `symbolSounds` verbatim) and the bake
+			 * path did not — so a bundle built by each route answered differently the moment the
+			 * bindings block was absent.
+			 */
+			const symbolSounds =
+				s?.symbolSounds && typeof s.symbolSounds === 'object' && Object.keys(s.symbolSounds).length
+					? s.symbolSounds
 					: undefined;
 			// The reel-anticipation presentation FX (per-tier escalation + optional overlay `spineKey`).
 			// Pure config apart from the spine (already in `index.spines` if swapped). Rebuilt sparse so an
@@ -576,10 +595,12 @@ async function main() {
 					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
 				},
 				names,
+				symbolSounds,
 				highlight,
 				boardGlow,
 				winLine,
 				winCycle,
+				winExplode,
 				bookVfx,
 				transition,
 				tumblePattern,

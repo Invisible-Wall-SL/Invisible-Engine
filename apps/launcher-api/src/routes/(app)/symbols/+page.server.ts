@@ -116,7 +116,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
 		// this — they show only for a book game (`gameType === 'bookOf'`).
 		gameType,
-		// Does this project tumble? Gates the `Tumble explosion` column, which only means anything to
+		// Does this project tumble? Gates the `Clear reel` column, which only means anything to
 		// a cascading game. Resolved (not the raw stored field) so the answer matches the one the game
 		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the
 		// column without authoring anything and a lines project that switched the cascade ON in
@@ -130,7 +130,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		 * and a column for an animation nothing fires is the exact failure this tool's gating exists
 		 * to avoid.
 		 *
-		 * `clears` is the fix to a gap the clear step shipped with. `Tumble explosion` was gated on
+		 * `clears` is the fix to a gap the clear step shipped with. `Clear reel` was gated on
 		 * `cascade` alone, but a swap-in-place project with "Clear the board" ticked plays that very
 		 * state on every round (`clearOutgoingSymbols`) — so a lines game authoring the sink half of
 		 * an emerge was offered no column for it and had to reach the binding through `Explosion`'s

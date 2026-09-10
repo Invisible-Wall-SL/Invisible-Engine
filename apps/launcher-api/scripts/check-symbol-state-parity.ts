@@ -5,7 +5,7 @@
  *   - the TOOL's `effectiveCell` (`/symbols`) — what the author is shown.
  *
  * They are separate implementations (one is dependency-free and runs in the game, the other merges
- * an override doc over published defaults in the browser), and they drifted: `tumbleExplosion`
+ * an override doc over published defaults in the browser), and they drifted: `clearReel`
  * inherited `explosion` in the game but read `unset` in the grid, so an empty column that silently
  * worked kept getting re-authored by hand. This pins them together.
  *
@@ -78,7 +78,7 @@ function parity(label: string, map: Record<string, SymbolCell>, where: 'doc' | '
 			continue;
 		}
 		// The engine took one of its NAMED inheritance arms. Each of those is advertised to the
-		// author (the `Tumble explosion` and `Intro` column hints, the book-state docs), so the grid
+		// author (the `Clear reel` and `Intro` column hints, the book-state docs), so the grid
 		// owes a matching picture — with the donor named, not passed off as authored here.
 		check(`${at} → inherits ${drawn}`, eff.cell, map[drawn]);
 		check(`${at} → names its donor`, eff.inheritedFrom, drawn);
@@ -93,7 +93,7 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	win: spine('x_win'),
 	postWinStatic: spine('x_post'),
 	explosion: spine('x_boom'),
-	tumbleExplosion: spine('x_tumble_boom'),
+	clearReel: spine('x_tumble_boom'),
 	bookIntro: spine('x_book_intro'),
 	bookIdle: spine('x_book_idle'),
 	stacked: spine('x_stacked'),
@@ -116,7 +116,7 @@ parity('every state bound', FULL, 'defaults');
 // Every INHERITING state left empty while its donor is bound — the arms the two rules must mirror.
 // Includes the reported case: one explosion bound, the cascade column left empty. The engine plays
 // the `explosion` binding; the grid used to say `unset`.
-const { tumbleExplosion: _t, bookIntro: _bi, bookIdle: _bd, intro: _i, ...DONORS_ONLY } = FULL;
+const { clearReel: _t, bookIntro: _bi, bookIdle: _bd, intro: _i, ...DONORS_ONLY } = FULL;
 parity('donors bound, inheritors empty', DONORS_ONLY, 'doc');
 parity('donors bound, inheritors empty', DONORS_ONLY, 'defaults');
 
