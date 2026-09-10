@@ -130,24 +130,35 @@ class TestAnalyzerDefault(unittest.TestCase):
     def spec(self):
         return analyze_mod.SemanticLayerAnalyze.INPUT_TYPES()["required"]["analyzer"]
 
-    def test_default_is_florence2(self):
+    def test_default_is_clip(self):
+        """clip, not florence2: Florence-2 needs remote code that no longer runs on
+        current transformers, and no native-format weights exist. CLIP is native."""
         options, config = self.spec()
-        self.assertIn("florence2", options)
-        self.assertEqual(config["default"], "florence2")
+        self.assertIn("clip", options)
+        self.assertEqual(config["default"], "clip")
 
-    def test_text_backends_remain_available(self):
+    def test_other_backends_remain_available(self):
         options, _ = self.spec()
         for name in ("captions", "geometry", "stub"):
             self.assertIn(name, options)
 
     def test_default_falls_back_when_a_backend_is_missing(self):
-        """florence2 is optional — if its import fails, the default must still be sane."""
+        """clip is optional — if its import fails, the default must still be sane."""
         pick = lambda have: next(  # noqa: E731 - mirrors the module's own expression
             (n for n in analyze_mod._PREFERRED_DEFAULTS if n in have), sorted(have)[0]
         )
         self.assertEqual(pick({"captions", "geometry", "stub"}), "captions")
         self.assertEqual(pick({"geometry", "stub"}), "geometry")
         self.assertEqual(pick({"stub"}), "stub")
+
+    def test_a_direct_classifier_is_not_re_classified_by_keyword(self):
+        """An observation carrying `category` is authoritative — running it back through
+        keyword matching would multiply in a second, unrelated uncertainty."""
+        obs = mod("analyzers.base").LayerObservation(
+            description="raft", object_type="vehicle", category="asset", confidence=0.62
+        )
+        self.assertEqual(obs.category, "asset")
+        self.assertFalse(obs.is_empty)
 
 
 class TestNormalize(unittest.TestCase):

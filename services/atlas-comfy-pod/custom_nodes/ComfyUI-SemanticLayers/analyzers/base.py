@@ -36,6 +36,12 @@ class LayerObservation:
     object_type: str = ""
     confidence: float = 0.0
     analyzer: str = ""
+    #: Set ONLY by a backend that classifies directly rather than describing — a
+    #: zero-shot scorer picking from the taxonomy's own categories already knows the
+    #: answer, and running its output back through keyword matching would both
+    #: double-count the uncertainty and risk disagreeing with itself. A captioner leaves
+    #: this empty and lets the rules decide.
+    category: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
