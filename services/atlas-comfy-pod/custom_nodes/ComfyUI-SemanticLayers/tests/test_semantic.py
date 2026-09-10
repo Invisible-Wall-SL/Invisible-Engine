@@ -395,6 +395,52 @@ class TestFlorenceLoaderSelection(unittest.TestCase):
             self.assertTrue(self.f.use_native_loader(v), v)
 
 
+class TestFlorenceProcessorFallback(unittest.TestCase):
+    """`microsoft/Florence-2-*` ships no processor_config.json, so its tokenizer loads
+    as a plain RobertaTokenizer and the native processor's `tokenizer.image_token`
+    raises. Verified against transformers 5.16.1; these cover the retry logic."""
+
+    def setUp(self):
+        self.f = mod("analyzers.florence2")
+
+    class FakeAuto:
+        """Stands in for transformers.AutoProcessor."""
+
+        def __init__(self, fail_first: Exception = None):
+            self.fail_first = fail_first
+            self.calls = []
+
+        def from_pretrained(self, model_id, **kwargs):
+            self.calls.append(kwargs)
+            if self.fail_first is not None and len(self.calls) == 1:
+                raise self.fail_first
+            return f"processor:{model_id}"
+
+    def test_plain_load_is_tried_first_and_left_alone(self):
+        auto = self.FakeAuto()
+        out = self.f.load_processor(auto, "some/repo")
+        self.assertEqual(out, "processor:some/repo")
+        self.assertEqual(auto.calls, [{}], "a working repo must keep its own token")
+
+    def test_missing_image_token_retries_with_the_name(self):
+        auto = self.FakeAuto(AttributeError("RobertaTokenizer has no attribute image_token"))
+        out = self.f.load_processor(auto, "microsoft/Florence-2-base")
+        self.assertEqual(out, "processor:microsoft/Florence-2-base")
+        self.assertEqual(len(auto.calls), 2)
+        self.assertEqual(
+            auto.calls[1], {"extra_special_tokens": {"image_token": self.f.IMAGE_TOKEN}}
+        )
+
+    def test_unrelated_attribute_error_is_not_swallowed(self):
+        auto = self.FakeAuto(AttributeError("something else entirely"))
+        with self.assertRaises(AttributeError):
+            self.f.load_processor(auto, "some/repo")
+        self.assertEqual(len(auto.calls), 1, "must not retry on an unrelated failure")
+
+    def test_image_token_constant(self):
+        self.assertEqual(self.f.IMAGE_TOKEN, "<image>")
+
+
 class TestStableIds(unittest.TestCase):
     def test_duplicate_fingerprints_get_deterministic_suffixes(self):
         ids = schema.stable_layer_ids(["aaa", "bbb", "aaa", "aaa"])

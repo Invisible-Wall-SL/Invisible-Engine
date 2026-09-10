@@ -56,6 +56,37 @@ def use_native_loader(version: str) -> bool:
     return parts >= NATIVE_SINCE
 
 
+#: The placeholder transformers' native `Florence2Processor` expects to find named on
+#: the tokenizer. Verified against microsoft/Florence-2-base on transformers 5.16.1: it
+#: resolves to real vocab id 50265 (not <unk>), and the processor then emits the 577
+#: image placeholders the vision tower needs.
+IMAGE_TOKEN = "<image>"
+
+
+def load_processor(auto_processor, model_id: str):
+    """Build the Florence-2 processor, naming the image token when the repo doesn't.
+
+    `microsoft/Florence-2-*` predates transformers' first-party Florence-2 and ships no
+    `processor_config.json` / `special_tokens_map.json`, so its tokenizer loads as a
+    plain RobertaTokenizer with no `image_token` — and the native processor's
+    `self.image_token = tokenizer.image_token` raises AttributeError.
+
+    Naming it via `extra_special_tokens` is enough: the token is already IN the vocab,
+    the repo simply never labelled it. Tried plainly first so a properly converted repo
+    keeps whatever token IT declares, rather than having ours forced on it.
+
+    `auto_processor` is passed in so the fallback can be tested without weights.
+    """
+    try:
+        return auto_processor.from_pretrained(model_id)
+    except AttributeError as exc:
+        if "image_token" not in str(exc):
+            raise
+        return auto_processor.from_pretrained(
+            model_id, extra_special_tokens={"image_token": IMAGE_TOKEN}
+        )
+
+
 def _transformers_version() -> str:
     try:
         import transformers
@@ -166,7 +197,7 @@ class Florence2Analyzer(BaseSemanticAnalyzer):
                 # The weights are fine; only the code path was wrong.
                 from transformers import Florence2ForConditionalGeneration
 
-                self._processor = AutoProcessor.from_pretrained(model_id)
+                self._processor = load_processor(AutoProcessor, model_id)
                 self._model = (
                     Florence2ForConditionalGeneration.from_pretrained(
                         model_id, torch_dtype=self._dtype
