@@ -119,6 +119,37 @@ def run_chain(names, overrides: str = "", merge_mode: str = "alpha_over"):
     return layer_set, resolved, outputs
 
 
+class TestAnalyzerDefault(unittest.TestCase):
+    """The default backend must be one that reads PIXELS.
+
+    A text backend keyed by index describes a slot, so reordering the layers mislabels
+    them — the exact hardcoding this extension exists to remove. Pinning the default is
+    how that stays true through future edits.
+    """
+
+    def spec(self):
+        return analyze_mod.SemanticLayerAnalyze.INPUT_TYPES()["required"]["analyzer"]
+
+    def test_default_is_florence2(self):
+        options, config = self.spec()
+        self.assertIn("florence2", options)
+        self.assertEqual(config["default"], "florence2")
+
+    def test_text_backends_remain_available(self):
+        options, _ = self.spec()
+        for name in ("captions", "geometry", "stub"):
+            self.assertIn(name, options)
+
+    def test_default_falls_back_when_a_backend_is_missing(self):
+        """florence2 is optional — if its import fails, the default must still be sane."""
+        pick = lambda have: next(  # noqa: E731 - mirrors the module's own expression
+            (n for n in analyze_mod._PREFERRED_DEFAULTS if n in have), sorted(have)[0]
+        )
+        self.assertEqual(pick({"captions", "geometry", "stub"}), "captions")
+        self.assertEqual(pick({"geometry", "stub"}), "geometry")
+        self.assertEqual(pick({"stub"}), "stub")
+
+
 class TestNormalize(unittest.TestCase):
     def test_splits_a_batch_of_any_size(self):
         node = normalize_mod.SemanticLayerNormalize()

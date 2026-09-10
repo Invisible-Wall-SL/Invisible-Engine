@@ -24,7 +24,7 @@
         "Node name for S&R": "MarkdownNote"
       },
       "widgets_values": [
-        "## Image -> Layers -> Semantic routing\n\nDrop your picture into **Load Image**, then Queue.\n\n### How many layers do I get?\n`Empty Qwen Image Layered Latent` has a **layers** widget (set to 3 here). The decode\nreturns **layers + 1** frames, so you get 4 images out of `VAE Decode` \u2014 wired to\n**Preview: raw layers** so you can see exactly what the model produced.\n\n### You cannot ask for \"water, person, raft\" by name\nQwen's own template says the prompt \"is **not** designed to control the semantic content\nof individual layers explicitly.\" It describes the whole picture; the model chooses the\ndecomposition. That is precisely why the semantic nodes exist: you don't control WHICH\nlayer is which, so you identify them afterwards and route by meaning.\n\n### Two-pass workflow\n1. **Queue once.** Analyze reports every layer unclassified \u2014 expected.\n2. Open **Preview: contact sheet**. Each cell shows `[index] layer_id` and its thumbnail.\n3. Fill the **captions** box on `Semantic Layer Analyze`, one line per layer:\n   ```\n   0 = deep blue ocean water with white foam\n   1 = a pirate man in a tricorn hat holding a harpoon\n   2 = a wooden raft made of broken planks\n   ```\n4. **Queue again.** Now: water -> ENVIRONMENT, pirate -> MAIN_CHARACTER, raft -> ASSETS.\n\n### Size\n640px is the recommended input; the latent is sized from the scaled image via\n`Get Image Size`, so it always matches. Sampling here is steps 20 / cfg 2.5; the\noriginal settings are 50 / 4.0 and roughly double the time."
+        "## Image -> Layers -> Semantic routing\n\nDrop your picture into **Load Image**, then Queue.\n\n### How many layers do I get?\n`Empty Qwen Image Layered Latent` has a **layers** widget (set to 3 here). The decode\nreturns **layers + 1** frames, so you get 4 images out of `VAE Decode` \u2014 wired to\n**Preview: raw layers** so you can see exactly what the model produced.\n\n### You cannot ask for \"water, person, raft\" by name\nQwen's own template says the prompt \"is **not** designed to control the semantic content\nof individual layers explicitly.\" It describes the whole picture; the model chooses the\ndecomposition. That is precisely why the semantic nodes exist: you don't control WHICH\nlayer is which, so you identify them afterwards and route by meaning.\n\n### Detection is automatic\n`Semantic Layer Analyze` defaults to the **florence2** analyzer, which captions every\nlayer from its own pixels. Nothing to type, and reordering the layers reorders the\ndescriptions with them \u2014 the whole point of the semantic routing.\n\n**First run downloads ~0.5 GB of Florence-2 weights.** Slow once, fast after.\n\nSet **`composite_layer` = `first`** on `Semantic Layer Normalize`: Qwen returns the\nflattened composite as plane 0, and marking it keeps it out of the routing.\n\nSwitch the analyzer to `captions` only if you already have a captioner node in the graph\n(wire its STRING output into `captions`) or you want to override by hand.\n\n### Size\n640px is the recommended input; the latent is sized from the scaled image via\n`Get Image Size`, so it always matches. Sampling here is steps 20 / cfg 2.5; the\noriginal settings are 50 / 4.0 and roughly double the time."
       ],
       "title": "Read me first"
     },
@@ -775,7 +775,7 @@
       "widgets_values": [
         "auto",
         0.04,
-        "none",
+        "first",
         false,
         "qwen_image_layered"
       ]
@@ -829,8 +829,8 @@
         "Node name for S&R": "SemanticLayerAnalyze"
       },
       "widgets_values": [
-        "captions",
-        "# PASS 1: leave this as-is and Queue. Read the ids off the contact sheet.\n# PASS 2: one line per layer, then Queue again.\n# 0 = deep blue ocean water with white foam\n# 1 = a pirate man in a tricorn hat holding a harpoon\n# 2 = a wooden raft made of broken planks",
+        "florence2",
+        "# Only read when analyzer = captions.\n# The default (florence2) describes each layer from its own pixels, so there is\n# nothing to fill in here and reordering the layers cannot mislabel them.\n# If you DO switch to captions, key them by layer id rather than index \u2014\n# an index describes a slot, and slots move.\n# 1 = deep blue ocean water with white foam\n# 2 = a wooden raft made of broken planks\n# 3 = a pirate man in a tricorn hat holding a harpoon",
         1.0,
         true,
         "",
