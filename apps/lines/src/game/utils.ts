@@ -16,7 +16,12 @@ import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { trackCascadeStep } from './soundBindings';
-import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
+import {
+	explodeRoundWinners,
+	recordWinCycleWins,
+	startWinCycle,
+	stopWinCycle,
+} from './winSymbolCycle';
 import { showAllWinLines, winsOnThisBoard } from './flowEffects';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
@@ -207,6 +212,15 @@ export const playBet = async (bet: Bet) => {
 		// would leave the button reading SPIN with no book left to resume (`freeSpinHold.ts`).
 		clearSpinHold();
 		eventEmitter.broadcast({ type: 'stopButtonEnable' });
+		// THE END-OF-ROUND POP (Invisible Symbols → "Winning symbols explode"): the round's whole
+		// winning set blows up TOGETHER, here, once every win has narrated. This is the one seam every
+		// dispatch path crosses — coded handler, v1 flow, v2 flow — and it is in the `finally`, so a
+		// slammed or aborted round reaches it too; a round that paid nothing broadcasts nothing.
+		//
+		// AWAITED, and awaited BEFORE the replay starts: the cycle skips cells the pop took off, so
+		// starting it first would light seats that are about to vanish. Off (the default) this is one
+		// boolean read.
+		await explodeRoundWinners();
 		// The round is presented; keep its winning SYMBOLS animating on the resting board until the
 		// next bet. Deliberately NOT awaited — it runs until `stopWinCycle` above ends it.
 		void startWinCycle();

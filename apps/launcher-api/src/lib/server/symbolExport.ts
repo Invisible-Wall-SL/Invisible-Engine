@@ -611,7 +611,7 @@ export async function exportEditorSymbols(
 	// `winLine` on purpose: the replay never draws the line, so the two are independent switches.
 	const winCycle = doc.winCycle;
 
-	// The end-of-win pop. Assetless (a single switch — the art it plays is the symbol's existing
+	// The end-of-round pop. Assetless (a single switch — the art it plays is the symbol's existing
 	// Explosion cell, which already ships through the map), so a verbatim pass-through of the
 	// already-pruned field: absent for every project that left the switch off.
 	const winExplode = doc.winExplode;

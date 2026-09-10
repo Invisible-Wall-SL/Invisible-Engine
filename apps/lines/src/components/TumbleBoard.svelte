@@ -294,16 +294,20 @@
 		initY: number;
 		rawSymbol: RawSymbol;
 		/**
-		 * This seat's REEL cell was already taken off the board by the end-of-win pop (Invisible
+		 * This seat's REEL cell was already taken off the board by the end-of-round pop (Invisible
 		 * Symbols → "Winning symbols explode"). The overlay's survivor layer is built from the resting
-		 * board, so without this the symbols that blew up during the win would come BACK for the
-		 * length of the next spin's clear — the one moment the reel board is hidden and this layer is
-		 * the board.
+		 * board, so without this the symbols that blew up at the end of the round would come BACK for
+		 * the length of the next spin's clear — the one moment the reel board is hidden and this layer
+		 * is the board.
 		 *
-		 * It is born in the state its removal already reached: `exploded` (draws nothing) and
-		 * `clearReel` (so the step's `tumbleBoardRemoveExploded` sweeps it out of `base` with the
-		 * cells that popped this step). It keeps its INDEX until then, because a column's seats are
-		 * its indices — see `TumbleSymbol.exploded` for the same reasoning at the other end.
+		 * It is born UNDRAWN (`exploded`, which is what `TumbleSymbol.svelte` gates its cell on) but
+		 * in the ORDINARY `static` state, and the difference between those two is load-bearing.
+		 * `tumbleBoardRemoveExploded` filters `base` by `symbolState === 'clearReel'`, i.e. by what
+		 * THIS step popped — so a seat born `clearReel` would be swept by a step that never named it,
+		 * and a cascade (whose exploding set is the BOOK's, sized against `newSymbols`) would settle a
+		 * column short and hand every later step of the chain the wrong rows. Born `static` it is
+		 * swept only when the step's own exploding set covers it, which is exactly what the board
+		 * CLEAR does (see the explode handler, which marks an already-gone seat and returns).
 		 */
 		removed?: boolean;
 	}): TumbleSymbol => {
@@ -311,7 +315,7 @@
 		const tumbleSymbol = $state({
 			symbolY,
 			rawSymbol,
-			symbolState: (removed ? 'clearReel' : 'static') as SymbolState,
+			symbolState: 'static' as SymbolState,
 			oncomplete: () => {},
 			exploded: removed,
 		});
@@ -353,7 +357,7 @@
 	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
 
 	/** ONE column as it stands right now, seated exactly where the reels left it — the seats the
-	 *  end-of-win pop emptied included, born already gone (see `createTumbleSymbol`). */
+	 *  end-of-round pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
 	const initTumbleBoardBaseReel = (reelIndex: number) => {
 		const removed = stateGameDerived.boardRemoved()[reelIndex] ?? [];
 		return (stateGameDerived.boardRaw()[reelIndex] ?? []).map((rawSymbol, symbolIndex) =>
@@ -366,7 +370,7 @@
 	};
 
 	/** The board as it stands right now, seated exactly where the reels left it — the seats the
-	 *  end-of-win pop emptied included, born already gone (see `createTumbleSymbol`). */
+	 *  end-of-round pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
 	const initTumbleBoardBase = () => {
 		const removed = stateGameDerived.boardRemoved();
 		return stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
@@ -623,14 +627,20 @@
 				explodingPositions.map(async (position, index) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
-					// ALREADY GONE — the end-of-win pop took this seat off the board before the step ever
+					// ALREADY GONE — the end-of-round pop took this seat off the board before the step ever
 					// started (Invisible Symbols → "Winning symbols explode"), so it is here only to hold its
-					// index until the removal below sweeps it out. It draws nothing, which means it could
-					// never report an `oncomplete`: awaiting it would spend the whole beat cap on a cell with
-					// no animation, and popping it would be the second explosion of the same symbol. The
-					// board CLEAR filters these out at the source (`visibleColumnPositions`); a CASCADE
-					// cannot — its exploding set is the book's — so it is caught here.
-					if (tumbleSymbol.exploded) return;
+					// index. It draws nothing, which means it could never report an `oncomplete`: awaiting it
+					// would spend the whole beat cap on a cell with no animation, and popping it would be the
+					// second explosion of the same symbol.
+					//
+					// It is still MARKED, because this step named the seat and the board-wide removal after
+					// it sweeps what this step named. That is what lets the board CLEAR — which explodes
+					// every visible seat — take the emptied ones away with the rest, while a CASCADE, whose
+					// exploding set is the BOOK's, leaves a seat it never named exactly where it is.
+					if (tumbleSymbol.exploded) {
+						tumbleSymbol.symbolState = 'clearReel';
+						return;
+					}
 					const delayMs = delays[index] ?? 0;
 					if (delayMs > 0) {
 						await waitForTimeout(delayMs);

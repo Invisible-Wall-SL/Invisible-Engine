@@ -41,7 +41,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			// default, so a game that never sets it is byte-identical.
 			winLineColor: undefined as string | undefined,
 			/**
-			 * This cell was taken OFF the board by the end-of-win pop (Invisible Symbols →
+			 * This cell was taken OFF the board by the end-of-round pop (Invisible Symbols →
 			 * "Winning symbols explode"): its `explosion` beat WAS the removal, so nothing draws it any
 			 * more and nothing may make it play a second one.
 			 *

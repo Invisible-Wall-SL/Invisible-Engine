@@ -56,7 +56,7 @@ import {
 import { setWinDim, stateGameDerived, winDimCellKey } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
-import { bakedWinCycleConfig, bakedWinLineConfig } from '../editor-scenes';
+import { bakedWinCycleConfig, bakedWinExplodeEnabled, bakedWinLineConfig } from '../editor-scenes';
 
 type CycleWin = BookEventOfType<'winInfo'>['wins'][number];
 
@@ -235,18 +235,76 @@ export const clearWinPresentation = (): void => {
 };
 
 /**
+ * THE ROUND'S WINNING CELLS — every seat any recorded win paid on, DEDUPED by seat and in book
+ * order, minus the ones already off the board.
+ *
+ * Deduped because overlapping paylines share cells: line 1 (`[0,0,0,0,0]`), line 6
+ * (`[0,0,1,2,2]`) and line 18 (`[0,0,2,0,0]`) all pay on reels 0-1 of row 0, and a quarter of the
+ * reference books' `winInfo` events have at least one cell paid by two wins. The end-of-round pop
+ * must blow each of those up ONCE, not once per win that claimed it.
+ *
+ * `winningPositionsOf`, not `win.positions`: the same PAYING slice the round and the resting cycle
+ * light, so a line win's non-paying tail is never popped.
+ */
+const roundWinningPositions = (): Position[] => {
+	const removed = stateGameDerived.boardRemoved();
+	const seen = new Set<string>();
+	const positions: Position[] = [];
+	for (const win of wins) {
+		for (const position of winningPositionsOf(win)) {
+			const key = `${position.reel}:${position.row}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			if (removed[position.reel]?.[position.row]) continue;
+			positions.push(position);
+		}
+	}
+	return positions;
+};
+
+/**
+ * THE END-OF-ROUND POP (Invisible Symbols → "Winning symbols explode"): every cell the round paid
+ * on plays its `explosion` TOGETHER and leaves the board.
+ *
+ * WHERE IT RUNS, and why it is here rather than at the end of each win. The round narrates its wins
+ * one after another over the SAME board, and overlapping paylines share cells — so a pop at the end
+ * of a win took a cell off the board that a LATER win of the same round still had to light. The
+ * later win then re-lit an unmounted cell, whose `oncomplete` can never fire, and the round sat out
+ * `WIN_BEAT_CAP_MS` for it (twice, because the pop re-armed a second one): ~8s of frozen
+ * presentation on about a quarter of paying spins. Deferring the pop to here leaves every win's own
+ * narration byte-identical to the pop being OFF and makes the explosion one extra beat at the end.
+ *
+ * "The end" is THIS seam — the point where the resting replay would otherwise have started
+ * ({@link startWinCycle}'s two call sites: `playBet`'s `finally`, which every dispatch path reaches,
+ * and the between-spins hold). It is the same set of wins, recorded at the same place, so the pop
+ * and the replay can never disagree about which cells the round paid on.
+ *
+ * Awaited BEFORE the cycle starts, which is what makes {@link cycleEntries} find nothing to replay:
+ * with the pop on, a board whose winners exploded simply rests.
+ *
+ * A round that paid nothing, or a project that never authored the pop, broadcasts NOTHING — so this
+ * is one boolean read on every losing spin and byte-parity everywhere the switch is off.
+ */
+export const explodeRoundWinners = async (): Promise<void> => {
+	if (!bakedWinExplodeEnabled()) return;
+	const symbolPositions = roundWinningPositions();
+	if (!symbolPositions.length) return;
+	await eventEmitter.broadcastAsync({ type: 'boardExplodeWinSymbols', symbolPositions });
+};
+
+/**
  * The per-win entries the cycle steps through, in book order — one per PAYING win, carrying both
  * its traced cells and the win itself (the line's points, amount and message are derived from it
  * when `showLine` is on). Wins that trace no cells are dropped so a stray entry can't introduce a
  * blank beat in the rotation.
  *
- * A cell the END-OF-WIN POP took off the board (Invisible Symbols → "Winning symbols explode") is
- * no longer one of them. It draws nothing, so re-lighting it would light nothing and then await an
- * `oncomplete` it can never report — every pass of a loop that races no skip token would sit out
- * the win-beat cap for an empty seat. With the pop on, every paying cell is gone by the time the
- * cycle starts, so every entry drops and `startWinCycle` finds nothing to replay: a board whose
- * winners exploded simply rests, which is what "explode and be gone" looks like once the round is
- * over. Nothing is ever removed with the pop off ⇒ the rotation is untouched.
+ * A cell the END-OF-ROUND POP took off the board ({@link explodeRoundWinners}) is no longer one of
+ * them. It draws nothing, so re-lighting it would light nothing and then await an `oncomplete` it
+ * can never report — every pass of a loop that races no skip token would sit out the win-beat cap
+ * for an empty seat. The pop runs immediately before the cycle starts, so with it on every paying
+ * cell is already gone: every entry drops and `startWinCycle` finds nothing to replay, and a board
+ * whose winners exploded simply rests. Nothing is ever removed with the pop off ⇒ the rotation is
+ * untouched.
  */
 const cycleEntries = (): { win: CycleWin; positions: Position[] }[] => {
 	const removed = stateGameDerived.boardRemoved();
@@ -345,13 +403,7 @@ export const startWinCycle = async (): Promise<void> => {
 					messageKind: 'win',
 				});
 			}
-			await animateSymbols({
-				positions,
-				color: winLineColorFor(win.meta?.lineIndex),
-				// Marks the pass as a REPLAY, which is what keeps the end-of-win pop (`winExplode`) on
-				// the round's own presentation instead of firing it on every loop until the next bet.
-				replay: true,
-			});
+			await animateSymbols({ positions, color: winLineColorFor(win.meta?.lineIndex) });
 			if (token !== generation) return;
 			// Never between passes in all-at-once mode — the whole set stays up until the next spin.
 			if (!allAtOnce) clearCycleLine();

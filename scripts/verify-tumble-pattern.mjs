@@ -585,10 +585,11 @@ const runExplode = async ({
 	// How long each seat's explosion takes to report. `null` = it never does — the symbol whose
 	// state is bound to no art, or to a spine animation that is not in the skeleton.
 	beatMs = BEAT_MS,
-	// Seats (`"reel:row"`) the END-OF-WIN POP already took off the board before this step began
-	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer only to hold
-	// their index until the board-wide removal, born in the state that removal already reached:
-	// undrawn, and already `clearReel`. See `createTumbleSymbol`.
+	// Seats (`"reel:row"`) the END-OF-ROUND POP already took off the board before this step began
+	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer holding their
+	// index, born UNDRAWN (`exploded`) but in the ORDINARY `static` state — the board-wide removal
+	// filters `base` by what THIS step popped, so a seat born `clearReel` would be swept by a step
+	// that never named it. See `createTumbleSymbol`, whose birth is pinned below.
 	preExploded = [],
 }) => {
 	const clock = createClock();
@@ -603,7 +604,7 @@ const runExplode = async ({
 			const gone = preExploded.includes(`${reel}:${row}`);
 			let exploded = gone;
 			return {
-				symbolState: gone ? 'clearReel' : 'static',
+				symbolState: 'static',
 				rawSymbol: { name: 'H1' },
 				get exploded() {
 					return exploded;
@@ -960,10 +961,24 @@ console.log('--- 5. a seat stops being drawn when its OWN explosion ends ---');
 console.log('--- 6. a seat the win already blew up is not blown up again ---');
 
 {
-	// "Explode and be gone" (Invisible Symbols → "Winning symbols explode"): a winning cell's
-	// `explosion` beat IS its removal, so it is off the board before the next step ever runs. The
-	// board CLEAR filters those seats out at the source (`visibleColumnPositions`), but a CASCADE
-	// cannot — its exploding set is the BOOK's, and the book still names the cells that paid. So the
+	// THE BIRTH IS THE CONTRACT, so it is read off the shipped factory rather than trusted: a seat
+	// the pop emptied is born UNDRAWN but ORDINARY. The two halves are separate on purpose — undrawn
+	// is what stops the symbol coming back on screen, ordinary is what stops a step that never named
+	// the seat from sweeping it out of `base`.
+	const tumbleBoard = read('apps/lines/src/components/TumbleBoard.svelte');
+	check('a removed seat is born undrawn', tumbleBoard.includes('exploded: removed,'), true);
+	check(
+		"...and in the ORDINARY state, not in the one the step's removal is keyed on",
+		tumbleBoard.includes("symbolState: 'static' as SymbolState,") &&
+			!tumbleBoard.includes("symbolState: (removed ? 'clearReel' : 'static')"),
+		true,
+	);
+}
+
+{
+	// "Explode and be gone" (Invisible Symbols → "Winning symbols explode"): a round's winning cells
+	// are off the board before the next step ever runs. A CASCADE cannot filter them out at the
+	// source — its exploding set is the BOOK's, and the book still names the cells that paid — so the
 	// step itself has to recognise a seat that is already gone.
 	//
 	// It draws nothing, which is the whole hazard: no cell, no `oncomplete`, so a step that popped it
@@ -975,7 +990,7 @@ console.log('--- 6. a seat the win already blew up is not blown up again ---');
 	check('the step pops every seat but the ones already gone', run.popped.length, 15 - gone.length);
 	check('...and none of them is marked spent a second time', run.vanished.length, 15 - gone.length);
 	check(
-		'...while they stay in the clearReel state, so the board-wide removal still takes them',
+		'...while the step MARKS them, so its own board-wide removal takes them with the rest',
 		run.exploded.length,
 		15,
 	);
@@ -986,6 +1001,28 @@ console.log('--- 6. a seat the win already blew up is not blown up again ---');
 	// PARITY: nothing gone ⇒ the same run pops all fifteen, exactly as part 2 asserts.
 	const untouched = await runExplode({ seats });
 	check('nothing gone ⇒ every seat still pops', untouched.popped.length, 15);
+}
+
+{
+	// A STEP OWNS ONLY WHAT IT NAMES, and this is the claim a cascade's correctness rests on.
+	//
+	// `tumbleBoardRemoveExploded` filters `base` by `symbolState === 'clearReel'`, and a cascade's
+	// `adding` layer is sized to `bookEvent.explodingSymbols`. So if a seat the ROUND popped were
+	// swept by a step that never named it, the combined column would come up SHORT: it is broadcast
+	// as `boardSettle` and written to the reels, `combineTumbleReel`'s "baseReel[0] is the top pad"
+	// assumption starts pointing at a real symbol, and every later step of the chain addresses the
+	// wrong rows. Nothing about that is visible until the next win frame is drawn over a symbol that
+	// never paid.
+	//
+	// So: one seat the pop emptied, and a step whose set is the row BELOW it — the book's own cells.
+	const named = fullBoard().filter((seat) => seat.row === 2);
+	const run = await runExplode({ seats: named, preExploded: ['0:0'] });
+	check('the step marks exactly the seats it named', run.exploded.join(','), '0:2,1:2,2:2,3:2,4:2');
+	check('...and the seat the ROUND emptied is NOT among them', run.exploded.includes('0:0'), false);
+	check('...so the board-wide removal cannot take it', run.exploded.length, named.length);
+	check('...and the step is still one ordinary beat', run.settledAt, BEAT_MS);
+	// It is still invisible — that half of the contract has not moved.
+	check('...while it stays undrawn throughout', run.vanished.length, named.length);
 }
 
 console.log('');

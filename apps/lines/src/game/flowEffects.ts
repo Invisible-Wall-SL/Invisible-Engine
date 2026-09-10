@@ -133,13 +133,9 @@ const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcas
 export const animateSymbols = async ({
 	positions,
 	color,
-	replay,
 }: {
 	positions: Position[];
 	color?: string;
-	/** This call is the RESTING replay (`winSymbolCycle`), not the round's own narration. Only the
-	 *  end-of-win pop reads it — see `Board.svelte`. */
-	replay?: boolean;
 }) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
 	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
@@ -148,7 +144,6 @@ export const animateSymbols = async ({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
 		winLineColor: color,
-		...(replay ? { replay: true } : {}),
 	});
 };
 
@@ -603,22 +598,18 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
  * board's own `base` column, which is built from the padded strip, so the visible band is
  * `1 … length - 2`.
  *
- * A cell the END-OF-WIN POP already took off (Invisible Symbols → "Winning symbols explode",
- * `removed`) is excluded for a sharper version of the same reason: it is not merely unseen, it
- * DRAWS NOTHING — so it could never report an `oncomplete` and the step would sit out
- * `TRANSIT_BEAT_CAP_MS` waiting for an animation with no cell to play it, on the one beat every
- * swap-in-place spin runs. Popping it would also be the double explosion this removal exists to
- * end. Nothing is ever removed unless the pop is on, so an un-authored project's exploding set is
- * unchanged.
+ * A cell the END-OF-ROUND POP already took off the board (Invisible Symbols → "Winning symbols
+ * explode") is deliberately still IN the set. It costs nothing — the overlay's explode step
+ * recognises a seat that is already gone and returns before it waits on anything
+ * (`TumbleBoard.svelte`) — and it keeps this step's exploding set equal to the seats the step OWNS,
+ * which is what the board-wide removal after it is keyed on. Filtering here instead would have made
+ * the clear's removal and its exploding set two different lists, and would have re-ranked the
+ * authored explosion pattern around the holes.
  */
-const visibleColumnPositions = (
-	reelIndex: number,
-	strip: readonly unknown[],
-	removed: readonly boolean[] = [],
-) =>
+const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
 	strip
 		.map((_cell, row) => ({ reel: reelIndex, row }))
-		.filter(({ row }) => row > 0 && row < strip.length - 1 && !removed[row]);
+		.filter(({ row }) => row > 0 && row < strip.length - 1);
 
 /**
  * CLEAR the outgoing symbols — they play their authored `clearReel` state and leave,
@@ -645,16 +636,11 @@ const visibleColumnPositions = (
  */
 const clearOutgoingSymbols = async (reelIndex?: number) => {
 	const board = stateGameDerived.boardRaw();
-	// Which of those seats the end-of-win pop already emptied — all-`false` unless a project turned
-	// "Winning symbols explode" on. See {@link visibleColumnPositions}.
-	const removed = stateGameDerived.boardRemoved();
 	if (reelIndex === undefined) {
 		eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
 		await eventEmitter.broadcastAsync({
 			type: 'tumbleBoardExplode',
-			explodingPositions: board.flatMap((strip, reel) =>
-				visibleColumnPositions(reel, strip, removed[reel]),
-			),
+			explodingPositions: board.flatMap((strip, reel) => visibleColumnPositions(reel, strip)),
 		});
 		eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
 		return;
@@ -671,11 +657,7 @@ const clearOutgoingSymbols = async (reelIndex?: number) => {
 	// swap-in-place player watches on EVERY spin.
 	await eventEmitter.broadcastAsync({
 		type: 'tumbleBoardExplode',
-		explodingPositions: visibleColumnPositions(
-			reelIndex,
-			board[reelIndex] ?? [],
-			removed[reelIndex],
-		),
+		explodingPositions: visibleColumnPositions(reelIndex, board[reelIndex] ?? []),
 		patternScope: 'board',
 	});
 	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded', reelIndex });
