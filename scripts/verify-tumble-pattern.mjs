@@ -554,7 +554,7 @@ const createClock = () => {
 	return { wait, run, at: () => now };
 };
 
-/** The animation every symbol's `tumbleExplosion` takes here. Longer than any gap under test, so a
+/** The animation every symbol's `clearReel` takes here. Longer than any gap under test, so a
  *  step that resolved on the last POP rather than on the last BEAT would be caught. */
 const BEAT_MS = 500;
 
@@ -629,7 +629,7 @@ const runExplode = async ({
 		tumbleExplosionDelays,
 		waitForTimeout: (ms) => clock.wait(ms),
 		playTumbleExplosionSound: () => pops.push({ cue: 'step', at: clock.at() }),
-		playSymbolTumbleExplosionSound: () => {},
+		playSymbolClearReelSound: () => {},
 		// The real one mounts `layer.delayMs` after the seat's own pop. `poppedAt` is recorded beside
 		// the mount because the whole assertion is about the OFFSET between the two: the bridge exists
 		// to cover a pop, so it has to stay a fixed distance from the pop it covers, whatever wave the
@@ -705,9 +705,7 @@ const runExplode = async ({
 		popped: pops.filter((p) => p.cue === 'pop').map((p) => p.at),
 		stepCueAt: pops.find((p) => p.cue === 'step')?.at,
 		exploded: base.flatMap((reel, r) =>
-			reel.flatMap((symbol, row) =>
-				symbol.symbolState === 'tumbleExplosion' ? [`${r}:${row}`] : [],
-			),
+			reel.flatMap((symbol, row) => (symbol.symbolState === 'clearReel' ? [`${r}:${row}`] : [])),
 		),
 	};
 };
@@ -719,7 +717,7 @@ const runExplode = async ({
 	const run = await runExplode({ seats });
 	check('un-authored — every seat pops at 0', new Set(run.popped), new Set([0]));
 	check('...and the step is exactly one beat long', run.settledAt, BEAT_MS);
-	check('...and every seat is left in the tumbleExplosion state', run.exploded.length, 15);
+	check('...and every seat is left in the clearReel state', run.exploded.length, 15);
 }
 
 {

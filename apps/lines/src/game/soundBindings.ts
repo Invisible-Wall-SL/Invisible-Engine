@@ -90,12 +90,17 @@ export const playTumbleExplosionSound = (): void => {
 };
 
 /**
- * A single exploding symbol's OWN pop, when Invisible Symbols binds one for it. Layer 1 only —
- * the game-wide ladder above is the beat, this is a symbol adding its own voice to it, so a bound
- * symbol is heard IN ADDITION to the ladder rather than instead of it.
+ * A single symbol's OWN voice as the board TAKES IT OFF — its `clearReel` state — when Invisible
+ * Symbols binds one for it. Layer 1 only: the game-wide ladder above is the beat, this is a symbol
+ * adding its own voice to it, so a bound symbol is heard IN ADDITION to the ladder rather than
+ * instead of it.
+ *
+ * The game-wide SLOT is still called `tumbleExplosion` — it is a `/config` → Sounds key in its own
+ * namespace (the sounds doc), not a symbol state, and renaming it would migrate a different doc for
+ * no gain.
  */
-export const playSymbolTumbleExplosionSound = (symbolName: string): void => {
-	broadcastCue(symbolStateCue(symbolName, 'tumbleExplosion'));
+export const playSymbolClearReelSound = (symbolName: string): void => {
+	broadcastCue(symbolStateCue(symbolName, 'clearReel'));
 };
 
 /**

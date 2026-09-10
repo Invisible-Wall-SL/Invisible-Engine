@@ -23,7 +23,7 @@ SYMBOL_INFO_MAP['H1']['static'] = { type: 'sprite', assetKey: 'h1.webp', sizeRat
 ```
 
 Symbols: `H1…H5`, `L1…L5`, `W`, `S`. States: `static`, `spin`, `land`, `win`,
-`postWinStatic`, `explosion`, `tumbleExplosion`
+`postWinStatic`, `explosion`, `clearReel`
 (`packages/engine-layout/src/lib/symbolStates.ts#SYMBOL_STATES`). Each cell is
 either a **sprite** (`assetKey` = a sheet frame key, e.g. `h1.webp`) or a **spine**
 (`assetKey` = a registered spine bundle + `animationName`).
@@ -285,7 +285,7 @@ Waves/test6, 2026-09-09.
 
 **Where it applies, and the two ORDERING SCOPES that needs.** Both moments reach
 `tumbleBoardExplode`: every cascade step, and the swap-in-place board CLEAR. Same gate as the
-`Tumble explosion` grid column, for the same reason — but they hand the cue different things, and
+`Clear reel` grid column, for the same reason — but they hand the cue different things, and
 one ranking rule cannot serve both.
 
 - The CASCADE passes the whole winning set in one call, so it is DENSE-ranked (rule 1 above).
@@ -298,6 +298,82 @@ one ranking rule cannot serve both.
 
 Row/diagonal/radial patterns always worked on the clear (their keys vary WITHIN a column); only the
 four column patterns were inert. Found on a live project, 2026-09-09.
+
+## `clearReel` — the state that was `tumbleExplosion` (renamed 2026-09-10)
+
+**Nothing about the behaviour moved.** The state is still what the cascade's win-removal and the
+swap-in-place board CLEAR (`clearOutgoingSymbols`) both play, still gated on `cascade || clears`,
+still inheriting `explosion` when unauthored. Only the key and the label changed:
+`tumbleExplosion` → `clearReel`, "Tumble explosion" → **"Clear reel"**.
+
+**Why.** The pair `explosion` / `tumbleExplosion` served three jobs under two names that described
+none of them. `explosion` is a symbol popping WHERE IT STANDS while the reel keeps it (the Book-of
+column morph); the other is a symbol being TAKEN OFF the board — and it is fired as much by the
+board clear, which a swapping lines game runs every single round, as by a cascade. "Tumble" named
+the one caller that happened to come first.
+
+**Migration: fold on read, at one boundary.** Saved docs hold the old key in two state-keyed maps —
+`symbols[name].tumbleExplosion` and `symbolSounds[name].tumbleExplosion` — and the same key can
+appear in a game's PUBLISHED `defaults.json`, because a shipped game pins the engine as a submodule
+and publishes the names its own commit knows. Both are folded before validation
+(`symbolsStorage.ts#migrateLegacySymbolStates`, reused by `symbolDefaults.ts` on read AND on write).
+
+It has to run before the Zod parse rather than being expressed as a schema union, and the reason is
+worth keeping: the state records are keyed by `z.enum(SYMBOL_STATES)`, which Zod **rejects** an
+unlisted key on, and `loadSymbolsDocWithEtag` answers a parse failure with `emptySymbolsDoc()`. An
+un-folded legacy doc would therefore have read as a project that had never authored anything — every
+binding and every per-symbol cue silently gone. Folding at the boundary also means the old name never
+reaches export, bake or the game. The new key wins if a doc somehow carries both.
+
+**What was deliberately NOT renamed**, because each is a different namespace and renaming it would
+migrate a different doc for no gain: the `tumbleBoard*` emitter cues and `stateTumble` internals (the
+tumble OVERLAY, a separate concept); `tumbleExplosionDelays` + the `TUMBLE_PATTERNS` family in
+`engine-layout/tumblePattern.ts` (a lone `clearReelDelays` inside that module would read worse than
+the churn saves); and the game-wide `tumbleExplosion` SOUND SLOT in `packages/game-config/src/sounds.ts`,
+which is a `/config` → Sounds key, not a symbol state.
+
+## Winning symbols explode — added 2026-09-10
+
+**The problem.** `explosion` only ever meant "the Book-of column morph". A board that does not
+cascade had no way to say _"the symbol goes out with a pop when its win finishes"_ — the winner
+played `win` and `Board.svelte` reverted it straight to `postWinStatic`.
+
+**The shape.** One optional doc-global, a sibling of `winCycle`:
+
+```ts
+winExplode?: { enabled?: boolean }
+```
+
+On, a winning cell plays its `explosion` state after its `win` beat and before the `postWinStatic`
+revert, awaited with the same bounded-beat treatment the win beat gets (`awaitSymbolBeat` +
+`WIN_BEAT_CAP_MS`). No floor: `WIN_BEAT_MIN_MS` was already spent on the win, and a second one would
+be added to every paying spin. The cell still ENDS at `postWinStatic` — the symbol is not removed;
+removal stays the job of the cascade and the clear step (`clearReel`).
+
+**It is an explicit switch, default OFF, and that is the load-bearing decision.** Inferring it from
+"is `explosion` authored" was the obvious alternative and is wrong: every game already binds
+`explosion` for the Book-of morph (`apps/lines/src/game/constants.ts`), so the inference is TRUE
+everywhere and would re-time the one beat every paying spin in every shipped game runs.
+
+**Two edges, decided rather than left to fall out:**
+
+1. **The resting replay does not pop.** `boardWithAnimateSymbols` is driven both by the round's own
+   presentation and by `winSymbolCycle`, which re-lights that spin's winners every pass until the
+   next bet. A pop on every pass would be a board whose symbols blow up on a loop — a glitch, not a
+   narration — and would add a second bounded beat to a cycle nothing races against a skip token. The
+   cycle therefore marks its passes (`animateSymbols({ replay: true })` → an optional `replay` field
+   on the cue) and the pop is gated on its absence.
+2. **A stacked-covered cell is skipped.** It mounts no `<Symbol>` at all (`ReelSymbol` skips it so the
+   tall picture does not double with the icons it replaces), so there is nothing to draw the pop with
+   and nothing that could ever report it finishing. Popping it would be a second dead hold that also
+   ended the tall picture's win art early, for no picture. The stacked mode's win beat stays the tall
+   picture itself.
+
+**Chain (rule 8).** `.strict` Zod + sparse prune (`enabled: true` only) → client
+type/`winExplodeEnabled`/`setWinExplodeEnabled`/`docSignature` → the spread PUT → `symbolExport.ts`
+verbatim → `/api/editor/export-symbols` response → `bake-editor-doc.mjs` whitelist AND the runtime
+bundle → `BakedBundle.symbols.winExplode` → `bakedWinExplodeEnabled()` → `Board.svelte`. A
+`gameProfile` chip reports it. Absent ⇒ byte-identical.
 
 ## "Spine export" demystified
 

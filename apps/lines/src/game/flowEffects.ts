@@ -133,9 +133,13 @@ const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcas
 export const animateSymbols = async ({
 	positions,
 	color,
+	replay,
 }: {
 	positions: Position[];
 	color?: string;
+	/** This call is the RESTING replay (`winSymbolCycle`), not the round's own narration. Only the
+	 *  end-of-win pop reads it — see `Board.svelte`. */
+	replay?: boolean;
 }) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
 	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
@@ -144,6 +148,7 @@ export const animateSymbols = async ({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
 		winLineColor: color,
+		...(replay ? { replay: true } : {}),
 	});
 };
 
@@ -604,7 +609,7 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
 		.filter(({ row }) => row > 0 && row < strip.length - 1);
 
 /**
- * CLEAR the outgoing symbols — they play their authored `tumbleExplosion` state and leave,
+ * CLEAR the outgoing symbols — they play their authored `clearReel` state and leave,
  * instead of simply being replaced (`/config` → Reel behaviour → "Clear the board before the new symbols fall
  * in").
  *
@@ -619,7 +624,7 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
  * THE REMOVAL IS SCOPED TO THE COLUMN, and that is correctness rather than symmetry: a cascade runs
  * its columns concurrently on an absolute stagger, so column `i + 1` can be mid-explosion while
  * column `i` reaches its removal. An unscoped filter takes every symbol currently in the
- * `tumbleExplosion` state — the neighbour's included, mid-animation.
+ * `clearReel` state — the neighbour's included, mid-animation.
  *
  * NO NEW CUES. It is `tumbleBoardInit` (the resting board as the survivor layer, nothing queued
  * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`: precisely the two steps a swap

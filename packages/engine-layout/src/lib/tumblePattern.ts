@@ -2,7 +2,7 @@
  * THE CASCADE EXPLOSION PATTERN — the order the winning seats pop in, and the gap between them.
  *
  * The cascade has always blown the whole board up in ONE frame: `tumbleBoardExplode` set every
- * winning cell to `tumbleExplosion` inside a single `Promise.all` and waited for the last one. That
+ * winning cell to `clearReel` inside a single `Promise.all` and waited for the last one. That
  * is one legitimate look out of many, and it was the only one available — a game that wanted the
  * board to come apart column by column had no way to say so, because the order lived in a `.map()`
  * rather than in a doc.

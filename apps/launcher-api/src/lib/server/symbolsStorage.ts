@@ -392,7 +392,7 @@ const bookVfxSchema = z
 
 /**
  * The explosion → intro TRANSITION — one project-global animation the game mounts at every seat
- * whose outgoing symbol starts `tumbleExplosion` under the `emerge` swap style, so the pop's end and
+ * whose outgoing symbol starts `clearReel` under the `emerge` swap style, so the pop's end and
  * the intro's start overlap instead of cutting (docs/design/perspective-board-mode.md §"The mode
  * switch"). Optional + sparse like `bookVfx`: absent ⇒ nothing renders, nothing ships, byte-identical.
  * Passed through VERBATIM to `bundle.symbols.transition`; the engine (`TumbleBoard.svelte`) owns
@@ -495,6 +495,21 @@ const anticipationSchema = z
 	})
 	.strict();
 
+/**
+ * "A winning symbol POPS at the end of its win" — the switch that gives `explosion` a second
+ * meaning on a board that does not cascade.
+ *
+ * It has to be EXPLICIT and default OFF rather than being inferred from "is `explosion` authored",
+ * because every game already binds `explosion` for the Book-of column morph — an implicit trigger
+ * would fire on every existing project and break byte-parity on the one beat every paying spin
+ * runs. Sparse: only the ON state is persisted, so an untouched project ships no key at all.
+ */
+const winExplodeSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -506,6 +521,7 @@ export const symbolsDocSchema = z
 		winLine: winLineSchema.optional(),
 		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
+		winExplode: winExplodeSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -565,13 +581,73 @@ function pruneStackedPictures(
 }
 
 /**
+ * The ONE legacy state key, folded before validation.
+ *
+ * `tumbleExplosion` was renamed to `clearReel` on 2026-09-10 (the behaviour is unchanged — it is
+ * still what the cascade removal and the board CLEAR both play). Saved docs in R2 hold the old key
+ * in two places: `symbols[name].tumbleExplosion` (the binding) and
+ * `symbolSounds[name].tumbleExplosion` (the cue).
+ *
+ * It has to run BEFORE `symbolsDocSchema.parse`, not as a schema union, because the state records
+ * are keyed by `z.enum(SYMBOL_STATES)` — Zod REJECTS an unlisted key rather than stripping it, and
+ * `loadSymbolsDocWithEtag` catches a parse failure by falling back to `emptySymbolsDoc()`. A doc
+ * carrying the old key would therefore have read as a project that had never authored anything,
+ * silently losing every binding it held. Folding here also means nothing downstream — export, bake,
+ * the game — ever sees the old name.
+ *
+ * The new key WINS if a doc somehow carries both: a `clearReel` entry can only have been written by
+ * the current tool, so it is the author's later answer.
+ */
+const LEGACY_STATE_KEYS: ReadonlyArray<readonly [legacy: string, current: string]> = [
+	['tumbleExplosion', 'clearReel'],
+];
+
+const foldLegacyStates = (states: unknown): unknown => {
+	if (!states || typeof states !== 'object' || Array.isArray(states)) return states;
+	const entries = { ...(states as Record<string, unknown>) };
+	let changed = false;
+	for (const [legacy, current] of LEGACY_STATE_KEYS) {
+		if (!(legacy in entries)) continue;
+		const value = entries[legacy];
+		delete entries[legacy];
+		changed = true;
+		if (entries[current] === undefined && value !== undefined) entries[current] = value;
+	}
+	return changed ? entries : states;
+};
+
+/** Fold {@link LEGACY_STATE_KEYS} through both state-keyed maps of a raw symbols doc. Returns the
+ *  input untouched when it holds no legacy key, so a current doc costs one shallow scan. */
+export function migrateLegacySymbolStates(input: unknown): unknown {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+	const doc = input as Record<string, unknown>;
+	const next = { ...doc };
+	let changed = false;
+	for (const field of ['symbols', 'symbolSounds'] as const) {
+		const map = doc[field];
+		if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
+		const folded: Record<string, unknown> = {};
+		let fieldChanged = false;
+		for (const [name, states] of Object.entries(map as Record<string, unknown>)) {
+			const foldedStates = foldLegacyStates(states);
+			if (foldedStates !== states) fieldChanged = true;
+			folded[name] = foldedStates;
+		}
+		if (!fieldChanged) continue;
+		next[field] = folded;
+		changed = true;
+	}
+	return changed ? next : input;
+}
+
+/**
  * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
  * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
  * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
  * PUT endpoint maps that to a 400.
  */
 export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
-	const doc = symbolsDocSchema.parse(input ?? {});
+	const doc = symbolsDocSchema.parse(migrateLegacySymbolStates(input) ?? {});
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
@@ -630,6 +706,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// Same inverse-of-default persistence again: `holdAfterBigWin` defaults OFF.
 	if (doc.winCycle?.holdAfterBigWin === true) winCycle.holdAfterBigWin = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
+	// Default-OFF, so ONLY the ON state persists and an untouched project round-trips to no key —
+	// the same inversion `showMessage`/`dimNonWinning`/`holdAfterBigWin` use above.
+	if (doc.winExplode?.enabled === true) next.winExplode = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

@@ -77,15 +77,15 @@ export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 /**
  * Column-header tooltips, for the states whose NAME does not carry the whole rule.
  *
- * Partial on purpose: a state gets an entry only when leaving it out would mislead. `Tumble
- * explosion` needs one because an EMPTY cell there is not a gap — it inherits `Explosion` — and a
+ * Partial on purpose: a state gets an entry only when leaving it out would mislead. `Clear
+ * reel` needs one because an EMPTY cell there is not a gap — it inherits `Explosion` — and a
  * blank column that silently works is exactly the kind of thing an author re-authors by hand.
  */
 export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 	intro:
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
-	tumbleExplosion:
-		'The explosion played when the cascade REMOVES this symbol, as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	clearReel:
+		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, or the board clearing before the next spin — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
@@ -500,6 +500,11 @@ export interface SymbolsDoc {
 		dimNonWinning?: boolean;
 		holdAfterBigWin?: boolean;
 	};
+	/** "A winning symbol POPS at the end of its win" — plays the symbol's Explosion state after its
+	 *  Win beat, before it settles back to Post-win. Sparse and default OFF: only the ON state is
+	 *  written, so an untouched project ships nothing and renders byte-identical. Deliberately NOT
+	 *  inferred from "is Explosion authored" — every game binds Explosion for the Book-of morph. */
+	winExplode?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -537,14 +542,14 @@ export interface SymbolDefaults {
  *  Deliberately stops short of that rule's LAST resort (any unauthored state falls back to `static`).
  *  That arm is a crash-guard, not an authoring rule: mirroring it here would paint every unbound cell
  *  with the symbol's resting art and destroy the grid's only signal for "nothing is bound here". The
- *  arms below are different — each is advertised in the UI (the `Tumble explosion` and `Intro` column
+ *  arms below are different — each is advertised in the UI (the `Clear reel` and `Intro` column
  *  hints, the book-state docs), so the preview owes the author a matching picture. */
 const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// Book states (`bookIntro`/`bookIdle`) mirror the live win art.
 	if (BOOK_STATE_SET.has(state)) return 'win';
 	// A project that binds ONE explosion keeps the cascade it already had — the second binding
 	// exists only so a game CAN use a different skeleton when the tumble removes a symbol.
-	if (state === 'tumbleExplosion') return 'explosion';
+	if (state === 'clearReel') return 'explosion';
 	// An emerge with no authored intro plays the symbol's ordinary LAND animation, so the grid shows
 	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
 	// owes the author the matching picture.
@@ -930,6 +935,22 @@ export function winCycleDimNonWinning(doc: SymbolsDoc): boolean {
  *  its paying lines. */
 export function winCycleHoldAfterBigWin(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.holdAfterBigWin ?? false;
+}
+
+/** The effective "a winning symbol explodes at the end of its win" flag. Defaults to `false`
+ *  (byte-parity — a winner went straight from `win` to `postWinStatic` before this switch), and
+ *  the symbol is NOT removed from the board: it still settles into its Post-win art. */
+export function winExplodeEnabled(doc: SymbolsDoc): boolean {
+	return doc.winExplode?.enabled ?? false;
+}
+
+/** Turn the end-of-win pop on/off. Sparse like `winCycle.showMessage`: OFF deletes the key so an
+ *  untouched/reset project persists nothing. */
+export function setWinExplodeEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.winExplode = { enabled: true };
+	else delete next.winExplode;
+	return next;
 }
 
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
@@ -1430,6 +1451,9 @@ export function docSignature(doc: SymbolsDoc): string {
 		winLine,
 		stackedPictures,
 		winCycle,
+		// Listed here or turning the end-of-win pop on never marks the page dirty and Save stays
+		// disabled — the same trap every sibling above carries a warning about.
+		winExplode: doc.winExplode?.enabled === true ? true : null,
 		bookVfx,
 		transition,
 		tumblePattern,

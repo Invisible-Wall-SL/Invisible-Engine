@@ -10,7 +10,7 @@ standard deploy chain.
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
-plus `Tumble explosion` on a game that cascades or clears its board, and `Intro` on one whose
+plus `Clear reel` on a game that cascades or clears its board, and `Intro` on one whose
 swap style is **Emerge**.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
@@ -61,7 +61,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
    (`Book intro`, `Book idle`); a game that **cascades or clears its board** adds
-   `Tumble explosion` (see [Two explosions](#two-explosions) below); a game whose
+   `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
    [The Intro state](#the-intro-state) below). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
@@ -74,7 +74,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
    Two states borrow another's binding when they have none of their own, and a cell showing
    borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
-   the donor. `Tumble explosion` borrows `Explosion` (see [Two explosions](#two-explosions));
+   the donor. `Clear reel` borrows `Explosion` (see [Two explosions](#two-explosions));
    `Book intro` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
    replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
@@ -271,7 +271,7 @@ it this section's override).
 
 Shown for a project that has an explosion step to order — one that **cascades**, or one whose
 swap-in-place board **clears** itself before the new symbols arrive. Both run through the same beat,
-so both are ordered by this one pick. (Same gate as the `Tumble explosion` grid column.)
+so both are ordered by this one pick. (Same gate as the `Clear reel` grid column.)
 
 On a **board clear** the sweep is measured across the whole board, so `Columns · left to right` empties
 it column by column even though the game clears each column on its own beat. Note this is separate
@@ -335,7 +335,7 @@ standalone game (Book of Borut) only with an `engine` submodule bump.
 Shown for a project whose `/config` → Reel behaviour → swap style is **Emerge** — the one
 style with an `Intro` to bridge — and for one that still has a transition saved from when it
 was, so a binding that ships is never hidden. Under it every seat does the same thing on a board clear and on
-every cascade step: the outgoing symbol plays its `Tumble explosion`, is removed, and the incoming
+every cascade step: the outgoing symbol plays its `Clear reel`, is removed, and the incoming
 one appears and plays its `Intro`. That seam is a hard cut. The **Transition** is one project-wide
 animation the game mounts **at each exploding seat**, a set number of milliseconds after the
 explosion fires, so it plays over the explosion's end and the intro's start.
@@ -528,6 +528,39 @@ by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s, line drawn, text dr
 no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every
 `runtime:lines` game has it.
 
+### Winning symbols explode
+
+Its own section, directly under the replay above, and **off by default**.
+
+Turn it on and a winning symbol plays its **Explosion** animation once its win has finished
+playing, then settles into its post-win art. It is the difference between a win that stops and a
+win that goes out with a pop. **The symbol is not removed from the board** — taking symbols off
+stays the job of the cascade, or of `/config` → Reel behaviour → **Clear the board**; those play
+`Clear reel`, not this.
+
+The art is whatever the grid's **Explosion** column holds for that symbol. Nothing new to bind: a
+symbol with no explosion of its own falls back the way it always does (`Explosion` → `Static`), and
+the engine ships `engine-explosion` for exactly this if you have not commissioned one — see
+[The shared spine library](#the-shared-spine-library).
+
+Two things it deliberately does NOT do:
+
+- **It does not fire on the resting replay.** "Winning symbols after the spin" re-lights the same
+  cells every few hundred milliseconds until the next bet; popping them on every pass would read as
+  a glitch rather than a narration, so the pop happens once, on the spin's own win presentation.
+- **It skips a symbol hidden under a stacked picture.** Such a cell draws nothing of its own (the
+  tall picture is what is on screen there), so it has no pop to play and nothing that could report
+  one finishing.
+
+The beat is capped the same way the win beat is — an explosion bound to art that can never report
+completion cannot hang the round. It carries no minimum, though: the readable pause was already
+spent on the win itself.
+
+Stored sparsely as `winExplode: { enabled: true }` — only the ON state persists, so a project that
+never opens this section ships nothing and plays exactly as it did before the switch existed. It
+travels verbatim to `bundle.symbols.winExplode` and is read by the engine's
+`bakedWinExplodeEnabled()`; the beat itself is in `apps/lines/src/components/Board.svelte`.
+
 ### Symbol sounds
 
 **Moved to [Invisible Sound](sound.md) → Per-symbol cues.** The cue one symbol plays entering one
@@ -647,14 +680,14 @@ and ships through the same export chain. The full library — chrome and symbols
 listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
 bundles that matter here are:
 
-| Bundle                                           | Animations                                                      | Bind it to                                               |
-| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- |
-| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static`                                           | that symbol's Win / Static                               |
-| `engine-symbol-m`                                | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier                                           |
-| `engine-symbol-s`                                | `scatter_static` `_spin` `_land` `_win`                         | the scatter, state for state                             |
-| `engine-symbol-w`                                | `wild_dynamite` `_static` `_land` `_exploded_static`            | the wild                                                 |
-| `engine-explosion`                               | `explosion`                                                     | **Explosion**, on any symbol                             |
-| `engine-win-meter-explosion`                     | `explosion`                                                     | **Tumble explosion** — the engine's second, larger burst |
+| Bundle                                           | Animations                                                      | Bind it to                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------- |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static`                                           | that symbol's Win / Static                         |
+| `engine-symbol-m`                                | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier                                     |
+| `engine-symbol-s`                                | `scatter_static` `_spin` `_land` `_win`                         | the scatter, state for state                       |
+| `engine-symbol-w`                                | `wild_dynamite` `_static` `_land` `_exploded_static`            | the wild                                           |
+| `engine-explosion`                               | `explosion`                                                     | **Explosion**, on any symbol                       |
+| `engine-win-meter-explosion`                     | `explosion`                                                     | **Clear reel** — the engine's second, larger burst |
 
 `engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
@@ -688,11 +721,11 @@ A symbol can blow up for two different reasons, and they are **two separate colu
 
 - **`Explosion`** — the symbol is destroyed IN PLACE on a resting reel. The Book-of column
   expand is the one that does this: the old symbol pops and the book takes its seat.
-- **`Tumble explosion`** — the **cascade** removes the symbol, on the tumble overlay,
-  with the board about to fall. Only a cascading game gets this column, so it appears when
-  `/config` → **Cascade** is on (it is on by default for a cluster / scatter win model).
+- **`Clear reel`** — the symbol is **taken off the board**: the cascade removing it on the
+  tumble overlay with the board about to fall, or the board CLEARING before the next spin
+  (`/config` → Reel behaviour → **Clear the board**). Either reason earns the column.
 
-**Leaving a `Tumble explosion` cell empty is not a gap** — it falls through to that
+**Leaving a `Clear reel` cell empty is not a gap** — it falls through to that
 symbol's `Explosion` binding, which is exactly what the engine did before the two were
 split. The grid draws that borrowed art and badges the cell **inherits Explosion**, so an
 empty column is visibly working rather than silently working. Bind it only when the

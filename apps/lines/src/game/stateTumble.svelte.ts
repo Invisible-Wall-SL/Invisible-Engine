@@ -30,7 +30,7 @@ export type TumbleSymbol = {
 	symbolState: SymbolState;
 	oncomplete: () => void;
 	/**
-	 * This symbol's `tumbleExplosion` has PLAYED OUT — nothing draws it any more, even though it is
+	 * This symbol's `clearReel` has PLAYED OUT — nothing draws it any more, even though it is
 	 * still in `base` until the step's board-wide `tumbleBoardRemoveExploded`.
 	 *
 	 * Those two moments used to be one, because the whole board popped in a single frame. An

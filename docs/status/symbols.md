@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-09)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame. Its first live outing found one defect, now fixed: the Transition was being pulled onto the last wave instead of riding its own seat's pop, so a cascade's cover came apart while the board clear looked fine. ⏳ owner visual-verify + a Borut `engine` submodule bump.
+**One-line state:** _(2026-09-10)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) and a new default-OFF global **`winExplode`** pops a winning symbol at the end of its win — both built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -16,8 +16,8 @@ Working on `main`:
 
 - **The tool page** (`/symbols`, `(app)` route, `ssr = false`, auth + role gate;
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
-  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Tumble explosion` on a cascading
-  project and the two book states on a book game. Each cell shows its effective binding
+  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Clear reel` on a project that
+  cascades or clears its board and the two book states on a book game. Each cell shows its effective binding
   (override or coded default): sprite frame thumbnail, a live spine animation on the
   shared canvas, or a flipbook clip's first frame. Cell editor toggles
   **Sprite / Spine / Flipbook**, uses the editor's `RegionPicker` / spine-bundle picker /
@@ -195,6 +195,39 @@ Working on `main`:
     `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
     exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
     special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **`clearReel` — the state that was `tumbleExplosion`** (2026-09-10, pure rename, behaviour
+  UNCHANGED). Key `tumbleExplosion` → `clearReel`, label “Tumble explosion” → **“Clear reel”**,
+  everywhere: `engine-layout/symbolStates` (`SYMBOL_STATES`, `CASCADE_SYMBOL_STATES`,
+  `SYMBOL_STATE_LABELS`), the Zod schema, the client `STATE_HINTS`/`INHERITS_FROM`, `gameProfile`,
+  the `apps/lines` engine (`symbolCell`, `TumbleBoard`, `TumbleSymbol`, `flowEffects`, `symbolBeat`,
+  `soundBindings`, `editor-scenes`), the per-symbol SOUND state list (`/sound`), and the offline
+  gates. It still plays on BOTH the cascade’s win-removal and `clearOutgoingSymbols`, still gated on
+  `cascade || reelBehaviour.clears`, still inherits `explosion`. **Migration folds the legacy key at
+  the load boundary** (`symbolsStorage#migrateLegacySymbolStates`), across `symbols[name]` AND
+  `symbolSounds[name]`, and is reused by `symbolDefaults` on read and on WRITE (a submodule-pinned
+  game publishes the names its own commit knows). It has to precede the Zod parse: the state records
+  are keyed by `z.enum(SYMBOL_STATES)`, which REJECTS an unlisted key, and `loadSymbolsDocWithEtag`
+  answers a parse failure with `emptySymbolsDoc()` — so an un-folded legacy doc would have read as a
+  never-authored project and lost every binding silently. NOT renamed, deliberately: the
+  `tumbleBoard*` cues + `stateTumble` internals (the tumble OVERLAY), `tumbleExplosionDelays` + the
+  `TUMBLE_PATTERNS` family (a lone `clearReelDelays` in `tumblePattern.ts` reads worse than the churn
+  saves), and the game-wide `tumbleExplosion` SOUND SLOT in `game-config/sounds.ts` (a `/config` key,
+  not a symbol state).
+- **Winning symbols explode** (2026-09-10, default OFF ⇒ byte-parity). Doc-global
+  `winExplode: { enabled?: boolean }` — a winning cell plays its `explosion` state after its `win`
+  beat and before the `postWinStatic` revert, so a symbol goes out with a pop on a board that does
+  NOT cascade. Bounded like the win beat (`awaitSymbolBeat` + `WIN_BEAT_CAP_MS`) but with NO floor
+  (`WIN_BEAT_MIN_MS` was already spent on the win). The cell still ends at `postWinStatic`: the
+  symbol is not removed — removal stays the cascade’s / the clear step’s job. **An explicit switch,
+  not an inference from “is `explosion` authored”** — every game binds `explosion` for the Book-of
+  morph, so the inference is true everywhere and would re-time every paying spin in every shipped
+  game. Two decided edges: the RESTING replay does not pop (`winSymbolCycle` marks its passes
+  `replay: true` on `boardWithAnimateSymbols`, so the pop stays on the round’s own presentation
+  rather than looping until the next bet), and a STACKED-COVERED cell is skipped (it mounts no
+  `<Symbol>`, so it could neither draw the pop nor report it). Full chain: `.strict` Zod + sparse
+  prune → client type/accessor/setter/`docSignature` → spread PUT → `symbolExport` verbatim →
+  `/api/editor/export-symbols` → **bake whitelist** + runtime bundle → `bakedWinExplodeEnabled()` →
+  `Board.svelte`, plus a `gameProfile` chip. ⏳ owner visual-verify.
 - **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
   `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
   waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
@@ -419,6 +452,19 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-10 — **One of the two explosions is not an explosion — it is the board taking a symbol away, so it is called `Clear reel` now.** Owner call. `explosion` and `tumbleExplosion` read as a matched pair and were not one: `explosion` is a symbol popping WHERE IT STANDS while the reel keeps it (the Book-of column morph), while the other is a symbol being TAKEN OFF — fired as much by the swap-in-place board CLEAR, which a swapping lines game runs every single round, as by a cascade. “Tumble” named the one caller that happened to come first.
+  - **A pure rename.** `tumbleExplosion` → `clearReel`, “Tumble explosion” → “Clear reel”. Same gate (`cascade || clears`), same `explosion` inheritance, same two callers, same bytes on the wire for a project that has authored the state.
+  - **The migration is the part that could have gone silently wrong.** Saved R2 docs hold the old key in TWO state-keyed maps (`symbols[name]` and `symbolSounds[name]`), and a game’s PUBLISHED `defaults.json` can hold it too — a shipped game pins the engine as a submodule and publishes the state names its own commit knows. Both are folded before validation, at one boundary, because those records are keyed by `z.enum(SYMBOL_STATES)`: Zod **rejects** an unlisted key rather than stripping it, and `loadSymbolsDocWithEtag` answers a parse failure with `emptySymbolsDoc()`. Un-folded, a fully authored project would have loaded as a never-authored one — every binding and every per-symbol cue gone, with no error anywhere. The fold also runs on the defaults WRITE, so an un-bumped game’s `publish:symbols` cannot 400 into the `--optional` swallow.
+  - **Three things were deliberately left alone**, each a different namespace: the `tumbleBoard*` emitter cues and `stateTumble` internals (the tumble OVERLAY, a separate concept); `tumbleExplosionDelays` and the `TUMBLE_PATTERNS` family in `engine-layout/tumblePattern.ts` (renaming one function inside a module of `TUMBLE_*` siblings reads worse than the churn saves); and the game-wide `tumbleExplosion` SOUND SLOT in `packages/game-config/src/sounds.ts`, which is a `/config` → Sounds key in the sounds doc, not a symbol state.
+- 2026-09-10 — **A winning symbol can now go out with a pop.** New default-OFF doc-global `winExplode: { enabled? }` and a **/symbols → “Winning symbols explode”** section beside the resting replay: on, a winning cell plays its `explosion` state after its `win` beat and before settling into `postWinStatic`. This is what gives `explosion` a meaning on a board that does NOT cascade — until now the state existed only for the Book-of column morph.
+
+  - **The symbol is NOT removed.** The cell still ends at `postWinStatic`; taking a symbol off the board stays the job of the cascade and of “Clear the board”, which play `clearReel`.
+  - **An explicit switch, and that is the whole design.** Inferring it from “is `explosion` authored” was the obvious alternative and would have fired on every existing project — every game binds `explosion` for the morph — re-timing the one beat every paying spin runs, in every shipped game, through the shared `_runtime/lines` bundle.
+  - **Two edges decided rather than left to fall out.** (1) The pop fires on the round’s own presentation ONLY. `boardWithAnimateSymbols` is also driven by `winSymbolCycle`, which re-lights that spin’s winners every pass until the next bet; popping on each pass would be a board whose symbols blow up on a loop, and would add a second bounded beat to a cycle nothing races against a skip token. The cycle now marks its passes (`animateSymbols({ replay: true })` → an optional `replay` on the cue) and the pop is gated on its absence. (2) A stacked-covered cell is skipped: it mounts no `<Symbol>`, so there is nothing to draw the pop with and nothing that could ever report it — the beat would be a second dead hold that also ended the tall picture’s win art early, for no picture.
+  - **Bounded, but with no floor.** `awaitSymbolBeat` + `WIN_BEAT_CAP_MS`, so an explosion bound to art that can never report cannot hang the round; no `WIN_BEAT_MIN_MS`, because the readable minimum is already spent on the win and a second one would be added to every paying spin.
+  - Full chain shipped (`.strict` Zod + sparse prune → client type/accessor/setter/dirty signature → spread PUT → `symbolExport` verbatim → `/api/editor/export-symbols` → **bake whitelist** + runtime bundle → `bakedWinExplodeEnabled()` → `Board.svelte`), plus a `gameProfile` chip. New gate **`pnpm --filter launcher-api check:clear-reel`** (33 checks) covers BOTH changes over the REAL functions — the legacy fold on both maps, “the newer key wins”, that the raw schema still REJECTS an unlisted state (which pins the fold’s stakes), sparse OFF-parity, the `.strict` rejections, the client/server signature agreement, and that `winExplode` reaches both bundle paths. Mutation-verified: deleting the migration call and deleting the bake line each fail it. **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
+  - **`symbolSounds` now reaches both bundle paths (fixed in the same change).** It was in `SymbolExportResult` but missing from BOTH the `/api/editor/export-symbols` response destructure and the `bake-editor-doc.mjs` whitelist. The consequence was narrower than it first reads: the per-symbol cues' PRIMARY carrier is the sound export, which folds them into `catalog.bindings.symbols` (`soundExport.ts`), and `bakedSymbolSounds()` consults that first — so no cue was actually being dropped. What was broken is the FALLBACK underneath it (`editor-scenes.ts`, `symbols.symbolSounds`), which the runtime path carried and the bake path never wrote: two bundles built by the two routes answered differently the moment a project shipped no `bindings` block. Both hand-written lists now carry it, and `check:clear-reel` asserts the whole chain (mutation-tested: dropping it from either list fails the script).
 
 - 2026-09-09 — **The explosion pattern did nothing on the board CLEAR — the one beat most players actually watch.** Owner report: picked a pattern on `test6`, raised the gap to 220 ms, saw no change. Everything shipped correctly — R2 doc, runtime bundle and served engine bundle all verified carrying `{"pattern":"columnsLeft","stepMs":220}` — and a live probe on the running game confirmed the CASCADE was staggering exactly as authored (waves at 220/440/660/880 ms). The clear was not.
   - **Why.** `clearOutgoingSymbols(reelIndex)` fans the swap-in-place clear out ONE COLUMN PER CALL, driven concurrently by `emergeRevealBoard` / `columnCascadeRevealBoard`. `tumbleExplosionDelays` dense-ranks the seats it is handed — the right rule for a cascade, where the whole winning set arrives at once — so one column's seats shared a column key, every column answered "wave 0", and with `columnStaggerMs` unset (it defaults to 0 under `emerge`) all six columns popped in the same frame. The pattern was inert on exactly the beat a swap-in-place player sees on EVERY spin, while working on the far rarer cascade.

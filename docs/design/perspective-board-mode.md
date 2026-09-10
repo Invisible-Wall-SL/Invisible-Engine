@@ -232,14 +232,14 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     The seam itself — pop out, then intro in, at the same seat — is a hard cut by construction, and
     an authored style will usually want something to cover it. That is the **Transition** (Invisible
     Symbols → Transition, added 2026-09-03): one project-global spine / flipbook / FX the cascade
-    overlay mounts at every exploding seat `delayMs` after `tumbleExplosion` fires, drawn above the
+    overlay mounts at every exploding seat `delayMs` after `clearReel` fires, drawn above the
     symbols and torn down on its own completion. It is fire-and-forget on purpose — it never joins the
     beat, so the intro starts exactly when it does without it and a slow effect can cost the round
     nothing — and it is gated on this style, since a sliding refill has no intro to bridge. It ships as
     a symbols-doc global (`bundle.symbols.transition`), so nothing new travels the layout doc.
 - **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
   `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
-  `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the
+  `clearReel` is gated on cascading), and inherits `land` when unauthored — so switching the
   style on before any art is bound gives a board that appears and plays its ordinary landing.
 - **Stood down with the roll:** reel anticipation (a spin-slowing tease by definition, and the owner
   of the only geometry-bound dim), the anticipation camera, sequential reel stop, and stacked-picture

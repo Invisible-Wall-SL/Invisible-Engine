@@ -59,6 +59,7 @@
 		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
 		setWinCycleHoldAfterBigWin,
+		setWinExplodeEnabled,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -81,6 +82,7 @@
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleHoldAfterBigWin,
+		winExplodeEnabled,
 		winCycleShowLine,
 		winCycleShowMessage,
 		winCycleShowText,
@@ -181,7 +183,7 @@
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
 	// The state columns the grid renders: the base states, plus the two book-only ones
-	// (`bookIntro`/`bookIdle`) ONLY for a book game, `tumbleExplosion` for a project that cascades OR
+	// (`bookIntro`/`bookIdle`) ONLY for a book game, `clearReel` for a project that cascades OR
 	// clears its board on a swap, and `intro` ONLY for a project whose swap style is the emerge. The
 	// `stacked` state is never a grid column — its tall art lives in the "Stacked pictures" section.
 	// Every gate comes from the server, RESOLVED (`resolveCascade` / `resolveReelBehaviour`), so
@@ -196,7 +198,7 @@
 
 	// ── Explosion pattern ──────────────────────────────────────────────────────
 	// The order the winning seats pop in. Shown on exactly the projects that have an explosion step
-	// to order — the SAME gate the `Tumble explosion` grid column uses, and for the same two reasons:
+	// to order — the SAME gate the `Clear reel` grid column uses, and for the same two reasons:
 	// a cascade removes the winning symbols, and a swap-in-place board CLEARS itself before the new
 	// symbols arrive. Both run through `tumbleBoardExplode`, so both are patterned by this one pick.
 	const explodesSeats = $derived(Boolean(data.cascade || data.reelBehaviour.clears));
@@ -1305,6 +1307,9 @@
 	const wcShowMessage = $derived(winCycleShowMessage(doc));
 	const wcDim = $derived(winCycleDimNonWinning(doc));
 	const wcHold = $derived(winCycleHoldAfterBigWin(doc));
+	// "Winning symbols explode" — its OWN section, not a `winCycle` field: the pop belongs to the
+	// round's win presentation, while `winCycle` is what happens on the resting board afterwards.
+	const weOn = $derived(winExplodeEnabled(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineLineStyle(doc);
@@ -3138,6 +3143,45 @@
 									symbols. "Replay the win message too" is independent of the line and defaults OFF:
 									turn it on to re-show that win's info toast ("You win $X with N Bananas") on every
 									pass, otherwise the message only shows once when the round first presents.
+								</p>
+							</div>
+						</div>
+					{/if}
+				</section>
+
+				<section class="winline" class:expanded={weOn}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Winning symbols explode</h2>
+							<p class="wl-sub">
+								When a win has finished playing, each winning symbol plays its <strong
+									>Explosion</strong
+								> animation before settling back into its post-win art — the symbol goes out with a pop
+								instead of simply stopping. It is not removed from the board: taking symbols off stays
+								the job of the cascade, or of "Clear the board" in Reel behaviour.
+							</p>
+						</div>
+						<label class="switch" class:on={weOn}>
+							<input
+								type="checkbox"
+								checked={weOn}
+								onchange={(e) => (doc = setWinExplodeEnabled(doc, e.currentTarget.checked))}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{weOn ? 'On' : 'Off'}</span>
+						</label>
+					</div>
+
+					{#if weOn}
+						<div class="wl-config">
+							<div class="wl-group">
+								<p class="wl-note">
+									Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
+									plays whatever is there, and a symbol with nothing bound falls back the way it always
+									does. The pop happens once, on the spin's own win presentation: the resting replay
+									above re-lights the same symbols until the next spin and deliberately does not pop
+									them again. A symbol hidden underneath a stacked picture is skipped too, since the
+									tall picture is what is drawn there.
 								</p>
 							</div>
 						</div>

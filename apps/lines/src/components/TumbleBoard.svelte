@@ -75,7 +75,7 @@
 				 * Scoping is not tidiness here, it is CORRECTNESS for the per-column clear. A column
 				 * cascade runs its columns concurrently on an absolute stagger, so column `i + 1` can be
 				 * mid-explosion while column `i` reaches its removal. An unscoped filter removes every
-				 * symbol currently in the `tumbleExplosion` state — including the neighbour's, whose
+				 * symbol currently in the `clearReel` state — including the neighbour's, whose
 				 * animation is still playing — so the column ahead would lose its symbols early and silently.
 				 */
 				reelIndex?: number;
@@ -95,7 +95,7 @@
 		 * A cue of its own rather than a field on one of the four above, because it is a motion none
 		 * of them performs: `tumbleBoardSlideDown` moves symbols INTO their seats and never removes
 		 * anything, `tumbleBoardRemoveExploded` removes without animating, and `tumbleBoardExplode`
-		 * plays an authored `tumbleExplosion` state — which is exactly what a drain is NOT (nothing
+		 * plays an authored `clearReel` state — which is exactly what a drain is NOT (nothing
 		 * has won, so nothing pops). Folding a delete into the slide would put a mutation inside the step every
 		 * cascade already runs, which is the one step that must stay byte-identical.
 		 *
@@ -169,7 +169,7 @@
 	import { PAD_ROWS_ABOVE } from '../game/tumbleBoardLayout';
 	import {
 		playSymbolIntroSound,
-		playSymbolTumbleExplosionSound,
+		playSymbolClearReelSound,
 		playTumbleExplosionSound,
 	} from '../game/soundBindings';
 
@@ -208,7 +208,7 @@
 	 *
 	 * Only the three beats where a symbol actually TRAVELS are counted — drain, slide-down, and the
 	 * appear's survivor-vacate phase. The beats the owner reported clipped are deliberately NOT
-	 * counted, because nothing travels in them: `tumbleExplosion` is set on symbols already resting on
+	 * counted, because nothing travels in them: `clearReel` is set on symbols already resting on
 	 * their seats, and `intro` is set immediately before a `symbolY.set(…, { duration: 0 })` whose own
 	 * comment is "Nothing travels; the arrival is the animation, not the movement."
 	 */
@@ -549,11 +549,11 @@
 			clearTransitions();
 		},
 		tumbleBoardExplode: async ({ explodingPositions, patternScope }) => {
-			// Every winning cell plays its authored `tumbleExplosion` state at once, and the step is not
+			// Every winning cell plays its authored `clearReel` state at once, and the step is not
 			// done until the LAST one reports back — a cascade that removed symbols before their
 			// explosion finished would eat the animation the Symbols tool exists to author.
 			//
-			// `tumbleExplosion`, NOT `explosion`: the cascade's pop and the on-reel morph's pop are
+			// `clearReel`, NOT `explosion`: the board taking a symbol OFF and the on-reel morph are
 			// separate bindings in /symbols (`engine-layout/symbolStates`), because they are separate
 			// moments and the engine's Spine set ships a separate skeleton for each. A project that
 			// binds only the one inherits it here (`resolveSymbolState`), so this reads identically to
@@ -616,8 +616,8 @@
 					// alongside the step's cue rather than instead of it. Unbound — the normal case — this
 					// broadcasts nothing at all. Fired HERE rather than with the step's cue so that under a
 					// pattern it lands with this seat's own explosion.
-					playSymbolTumbleExplosionSound(tumbleSymbol.rawSymbol.name);
-					tumbleSymbol.symbolState = 'tumbleExplosion';
+					playSymbolClearReelSound(tumbleSymbol.rawSymbol.name);
+					tumbleSymbol.symbolState = 'clearReel';
 					// Scheduled, never awaited — see `transitions`. `symbolY.current` is the seat the
 					// symbol is resting on: `base` was seated where the reels left it. Scheduled HERE, in
 					// this seat's own wave, so the bridge rides the pop it is covering rather than the
@@ -634,14 +634,14 @@
 			// (parity by early return, not by a generalised path that happens to include everything).
 			if (reelIndex === undefined) {
 				stateTumble.base = stateTumble.base.map((tumbleReel) =>
-					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'tumbleExplosion'),
+					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'clearReel'),
 				);
 				return;
 			}
 			const tumbleReel = stateTumble.base[reelIndex];
 			if (!tumbleReel) return;
 			stateTumble.base[reelIndex] = tumbleReel.filter(
-				(tumbleSymbol) => tumbleSymbol.symbolState !== 'tumbleExplosion',
+				(tumbleSymbol) => tumbleSymbol.symbolState !== 'clearReel',
 			);
 		},
 		/**

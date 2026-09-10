@@ -56,7 +56,7 @@ Only the states the engine actually asks about are offered. A dropdown for a sta
 plays would let you bind a cue that can never be heard, and never be told.
 
 - **Land** — always.
-- **Tumble explosion** — when the project **cascades _or_ clears its board** on a swap. Two
+- **Clear reel** — when the project **cascades _or_ clears its board** on a swap. Two
   different things play that state, and gating it on the cascade alone used to hide it from
   exactly the projects authoring the second: a swap-in-place board with _"clear the board"_
   ticked runs it every single round.
