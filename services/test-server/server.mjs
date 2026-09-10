@@ -105,6 +105,9 @@ let mocks = {};
 let contracts = {};
 /** in-flight guard so overlapping POST /refresh calls coalesce into one hydrate */
 let refreshing = false;
+/** A refresh asked for WHILE one was in flight. It cannot be answered by the running pass — that
+ *  pass already read the manifest — so one more is queued behind it. See the `/refresh` handler. */
+let refreshPending = false;
 
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -692,14 +695,38 @@ const handleRequest = async (req, res) => {
 		// and reported "will refresh on next deploy" — i.e. a publish never went live
 		// without a manual Railway redeploy. An instant 202 keeps the edge happy; the
 		// in-flight guard coalesces overlapping refreshes (a publish + its retry).
-		if (refreshing) return sendJson(res, 202, { status: 'already-refreshing' });
+		//
+		// COALESCING IS TRAILING-EDGE, NOT A DROP, and that distinction is load-bearing. A refresh
+		// that arrives mid-hydrate is asking about a write made AFTER the in-flight pass started
+		// reading, so answering it with that pass's result silently loses the write. One publish
+		// does exactly this: the desktop launcher POSTs /refresh, and moments later
+		// `/api/launcher/register-game` re-stamps the project pin and POSTs again — the second
+		// request was dropped, so the pin sat in R2 unread while the running registry kept the
+		// unpinned entry the first pass had loaded. Queueing ONE follow-up pass fixes the whole
+		// class (a queue of depth 1 is enough: any number of requests during a hydrate are all
+		// satisfied by a single re-read that starts after the last of them).
+		if (refreshing) {
+			refreshPending = true;
+			return sendJson(res, 202, { status: 'already-refreshing', queued: true });
+		}
 		refreshing = true;
-		hydrate()
-			.then(() => console.info('[test-server] refreshed via POST /refresh'))
-			.catch((e) => console.error('[test-server] refresh failed:', e))
-			.finally(() => {
-				refreshing = false;
-			});
+		const runHydrate = () =>
+			hydrate()
+				.then(() => console.info('[test-server] refreshed via POST /refresh'))
+				.catch((e) => console.error('[test-server] refresh failed:', e))
+				.finally(() => {
+					if (!refreshPending) {
+						refreshing = false;
+						return;
+					}
+					// Someone wrote while we were reading — go round once more, still holding
+					// `refreshing` so a third request coalesces into THIS follow-up rather than
+					// starting a parallel hydrate.
+					refreshPending = false;
+					console.info('[test-server] a refresh arrived mid-hydrate — re-reading');
+					void runHydrate();
+				});
+		void runHydrate();
 		return sendJson(res, 202, { status: 'refreshing' });
 	}
 
