@@ -332,14 +332,28 @@ const validGrid = (grid) => {
  * dealing 5×3, every cell outside the server's board stayed empty, and wins were scored on a board
  * nobody was looking at. "Remember to republish" is not a contract — so the mock now PULLS.
  *
- * `publishGame` stamps `docBase` + `readToken` into the manifest entry; with them this server
- * re-reads `GET <docBase>/api/game-config/mock?project=<key>&k=<token>` (the SAME derivation the
- * publish snapshot came from, so the two can never describe different games) and rebuilds that
- * game's mock the moment the answer changes.
+ * `publishGame` stamps `projectKey` + `docBase` + `readToken` into the manifest entry; with them
+ * this server re-reads `GET <docBase>/api/game-config/mock?project=<projectKey>&k=<token>` (the SAME
+ * derivation the publish snapshot came from, so the two can never describe different games) and
+ * rebuilds that game's mock the moment the answer changes.
+ *
+ * THE PROJECT KEY IS NOT THE GAME KEY, and reading the config under the game key is how a whole
+ * class of games silently dealt the wrong board. The online Game Maker happens to publish under
+ * `key = projectKey`, so asking for `project=<key>` worked there and looked general. It is not: a
+ * game published by `publish-game-bundle.mjs` (every desktop-launcher title) names its own key, so
+ * `waysofwavesbuild` asked the launcher for a project called `waysofwavesbuild`, got a 401, and fell
+ * all the way back to this mock's built-in 5×3 Hot Fruits default — while its client drew the
+ * stepped 5×[3,4,4,4,4] `ways` board `test6` actually authored. Two symptoms nobody could trace
+ * back here: an out-of-dictionary symbol (`PIC7`→`L5`) landing with placeholder art, and a bottom
+ * row that never exploded, because the client's 4th visible row was the facade's own bottom PAD and
+ * every "the last strip entry is off-screen buffer" guard in the engine correctly skipped it.
  *
  * Best-effort by construction: no pointer, an unreachable launcher or a malformed answer all leave
  * the current mock exactly as it is, so an entry published before this existed — and a launcher
- * outage — degrade to the old frozen-snapshot behaviour instead of breaking play.
+ * outage — degrade to the old frozen-snapshot behaviour instead of breaking play. What is NOT
+ * best-effort any more is the silence: a game with no pointer says so once, loudly, because
+ * "the mock is quietly dealing a different game than the client draws" is not a state anyone can
+ * debug from the outside.
  */
 const CONTRACT_TTL_MS = Number(process.env.CONTRACT_TTL_MS ?? 10_000);
 /** Hard cap on the launcher round-trip, so a hung launcher can't hang a spin. */
@@ -378,6 +392,35 @@ const swapMock = (key, contract) => {
 	registry[key] = { ...own(registry, key), ...contract, fingerprint: fingerprintOf(contract) };
 };
 
+/** Games already told about below, so the warning is one line per game per process — not one per
+ *  spin. */
+const unpinnedWarned = new Set();
+
+/**
+ * Say ONCE that a game has no pointer back at its project's live Game Config, and therefore is not
+ * dealing that project's board.
+ *
+ * This is the loudest thing this file does, and deliberately. A game in this state still plays —
+ * it just plays a DIFFERENT game than the one its client draws: the mock deals its built-in 5×3
+ * Hot Fruits default (7 line symbols + scatter, 5 paylines, lines scoring) while the client renders
+ * whatever `/config` authored. Every downstream symptom is then a presentation bug that isn't one —
+ * symbols with no art because they were never in the project's dictionary, rows that don't animate
+ * because they're the facade's padding made visible by the row-count mismatch, `ways` wins scored
+ * as paylines. None of those point back at the manifest, so nothing short of saying it here connects
+ * the two.
+ */
+const warnUnpinned = (key, meta) => {
+	if (!meta || unpinnedWarned.has(key)) return;
+	unpinnedWarned.add(key);
+	console.warn(
+		`[test-server] '${key}' has no project pointer in test_server/games.json (docBase/readToken), ` +
+			`so its mock CANNOT follow the project's Invisible Game Config — it is dealing ` +
+			`${meta.grid ? 'the frozen snapshot published with it' : "this server's shared default board"}, ` +
+			`which may not be the board the game draws. Re-publish it with ` +
+			`\`publish-game-bundle.mjs <key> <dir> --project <projectKey> --launcher <origin> --read-token <token>\`.`,
+	);
+};
+
 /**
  * Re-read one game's live contract (at most once per {@link CONTRACT_TTL_MS}) and rebuild its mock
  * when it changed. Awaited on the RGS path so a config edit is live on the very next spin rather
@@ -386,15 +429,22 @@ const swapMock = (key, contract) => {
  */
 async function refreshContract(key) {
 	const meta = own(registry, key);
-	if (!meta?.docBase || !meta?.readToken) return;
+	if (!meta?.docBase || !meta?.readToken) {
+		warnUnpinned(key, meta);
+		return;
+	}
 	const state = (contracts[key] ??= { checkedAt: 0, inFlight: null });
 	if (state.inFlight) return state.inFlight;
 	if (Date.now() - state.checkedAt < CONTRACT_TTL_MS) return;
 
 	state.inFlight = (async () => {
 		try {
+			// `projectKey`, NOT `key` — see the block comment above. `?? key` keeps every entry
+			// published by the online Game Maker (which names its game after its project) working
+			// unchanged, so this is additive for them and a fix only where the two names differ.
+			const project = meta.projectKey ?? key;
 			const url =
-				`${meta.docBase}/api/game-config/mock?project=${encodeURIComponent(key)}` +
+				`${meta.docBase}/api/game-config/mock?project=${encodeURIComponent(project)}` +
 				`&k=${encodeURIComponent(meta.readToken)}`;
 			const res = await fetch(url, { signal: AbortSignal.timeout(CONTRACT_TIMEOUT_MS) });
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -518,8 +568,15 @@ async function hydrate() {
 			name: meta.name ?? key,
 			runtime,
 			// The pointer back at the project's LIVE config (see `refreshContract`). Absent for a game
-			// published before this shipped, or one published by the standalone script — such a game
-			// simply keeps dealing the snapshot below, exactly as it did before.
+			// published before this shipped — such a game keeps dealing the snapshot below, and now
+			// SAYS so once (`warnUnpinned`) instead of silently playing a different board.
+			//
+			// `projectKey` is the launcher project the config lives under, which is only incidentally
+			// the game key: the online Game Maker publishes under `key = projectKey`, every
+			// desktop-launcher title names its own key (`waysofwavesbuild` → project `test6`). Absent
+			// ⇒ `refreshContract` falls back to `key`, which is exactly the old behaviour for the
+			// entries where the two agree.
+			projectKey: typeof meta.projectKey === 'string' && meta.projectKey ? meta.projectKey : null,
 			docBase: typeof meta.docBase === 'string' ? meta.docBase.replace(/\/+$/, '') : null,
 			readToken: typeof meta.readToken === 'string' ? meta.readToken : null,
 			// What the mock is currently built from, so a live re-read can tell "unchanged" from "changed".

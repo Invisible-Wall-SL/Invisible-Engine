@@ -151,9 +151,21 @@ export interface TestServerGameEntry {
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
 	/**
+	 * The launcher PROJECT this game's math comes from — the `project=` the test server asks
+	 * `/api/game-config/mock` for.
+	 *
+	 * It exists because the game key is NOT the project key in general, only in the online Game
+	 * Maker (which publishes under `key = projectKey`, below). A desktop-launcher title names its
+	 * own key, so `waysofwavesbuild` is project `test6` — and the test server, asking for a project
+	 * called `waysofwavesbuild`, got a 401 and silently fell back to its shared default board. Absent
+	 * ⇒ the test server falls back to the game key, which is the old behaviour and correct wherever
+	 * the two names agree.
+	 */
+	projectKey?: string;
+	/**
 	 * Launcher origin + this project's public read token — together, the pointer that lets the test
 	 * server re-read the project's LIVE math contract (`GET <docBase>/api/game-config/mock?project=
-	 * <key>&k=<readToken>`) instead of trusting the `grid`/`cascade` snapshot below.
+	 * <projectKey>&k=<readToken>`) instead of trusting the `grid`/`cascade` snapshot below.
 	 *
 	 * That is the whole point of them: `/config` is fetched live by the CLIENT (its `numReels`/
 	 * `numRows` resize the board on the next reload) while the mock used to deal whatever the last
