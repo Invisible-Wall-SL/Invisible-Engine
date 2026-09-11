@@ -133,13 +133,9 @@ const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcas
 export const animateSymbols = async ({
 	positions,
 	color,
-	replay,
 }: {
 	positions: Position[];
 	color?: string;
-	/** This call is the RESTING replay (`winSymbolCycle`), not the round's own narration. Only the
-	 *  end-of-win pop reads it — see `Board.svelte`. */
-	replay?: boolean;
 }) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
 	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
@@ -148,7 +144,6 @@ export const animateSymbols = async ({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
 		winLineColor: color,
-		...(replay ? { replay: true } : {}),
 	});
 };
 
@@ -602,6 +597,14 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
  * `tumbleBoardSlideDown` lands only the rows between the buffers. The indices are into the tumble
  * board's own `base` column, which is built from the padded strip, so the visible band is
  * `1 … length - 2`.
+ *
+ * A cell the WIN-EXPLOSION POP already took off the board (Invisible Symbols → "Winning symbols
+ * explode") is deliberately still IN the set. It costs nothing — the overlay's explode step
+ * recognises a seat that is already gone and returns before it waits on anything
+ * (`TumbleBoard.svelte`) — and it keeps this step's exploding set equal to the seats the step OWNS,
+ * which is what the board-wide removal after it is keyed on. Filtering here instead would have made
+ * the clear's removal and its exploding set two different lists, and would have re-ranked the
+ * authored explosion pattern around the holes.
  */
 const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
 	strip

@@ -40,6 +40,22 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			// win frame is configured to pick up the paying line's colour. Optional + undefined by
 			// default, so a game that never sets it is byte-identical.
 			winLineColor: undefined as string | undefined,
+			/**
+			 * This cell was taken OFF the board by the win-explosion pop (Invisible Symbols →
+			 * "Winning symbols explode"): its `explosion` beat WAS the removal, so nothing draws it any
+			 * more and nothing may make it play a second one.
+			 *
+			 * It lives on the SYMBOL rather than in a `reel:row` set, and that is what makes it
+			 * self-clearing: every board replacement builds fresh cells through `createReelSymbols`
+			 * (`prepareToSpin`, `preSpinPadding`, `setSymbolsWithRawSymbols`), so the next board is
+			 * un-removed by construction and no seam has to remember to wipe anything. A key set could
+			 * not manage that — the pre-spin doubles the strip under the same row indices, so a stale
+			 * key would punch a moving hole through the roll.
+			 *
+			 * `false` for every symbol nobody marks, so a game that never turns the pop on is
+			 * byte-identical.
+			 */
+			removed: false,
 		});
 
 		return reelSymbol;

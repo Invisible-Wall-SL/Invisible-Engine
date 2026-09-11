@@ -16,7 +16,14 @@ import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { trackCascadeStep } from './soundBindings';
-import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
+import {
+	explodeSpinWinners,
+	explodeWinnersBeforeBoardChange,
+	forgetWinCycleWins,
+	recordWinCycleWins,
+	startWinCycle,
+	stopWinCycle,
+} from './winSymbolCycle';
 import { showAllWinLines, winsOnThisBoard } from './flowEffects';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
@@ -168,14 +175,24 @@ export const playBookEvents = async (
 	// The BETWEEN-SPINS HOLD hangs off both branches, after the event's presentation is fully awaited:
 	// a big win mid-feature parks the book on its winning board until the player presses SPIN
 	// (`freeSpinHold.ts`). Off by default ⇒ both branches are byte-identical to before.
+	//
+	// THE PER-SPIN POP (Invisible Symbols → "Winning symbols explode") hangs off the TOP of both
+	// branches, for the mirror of the hold's reason: a spin's winners have to blow up while the board
+	// they were scored on is still the board on screen, i.e. immediately BEFORE the `reveal` /
+	// `tumbleBoard` that replaces it. Here rather than at `dispatchBookEvent` because this is the one
+	// seam BOTH dispatch branches cross. `playBet`'s `finally` still pops the book's LAST spin, which
+	// no board change follows. A no-op for every other event, and one boolean read with the switch
+	// off ⇒ both branches are byte-identical to before.
 	if (getFlowInterpreter() || getFlowV2()) {
 		await sequence(bookEvents, async (bookEvent) => {
+			await explodeWinnersBeforeBoardChange(bookEvent);
 			await playBookEvent(bookEvent, { ...context, bookEvents });
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 		return;
 	}
 	await sequence(bookEvents, async (bookEvent) => {
+		await explodeWinnersBeforeBoardChange(bookEvent);
 		await coded.playBookEvent(bookEvent, { ...context, bookEvents });
 		await holdAfterBigWin(bookEvent, bookEvents);
 	});
@@ -185,6 +202,9 @@ export const playBet = async (bet: Bet) => {
 	// The previous round's idle symbol replay is the FIRST thing a new bet ends — before the reels
 	// move, so nothing keeps re-lighting cells the spin is about to overwrite.
 	stopWinCycle();
+	// …and the wins it replayed are dropped with it, so the per-spin pop at the top of
+	// `playBookEvents` cannot open this round by exploding the PREVIOUS one's winning set.
+	forgetWinCycleWins();
 	// The slam token is scoped to the ROUND — re-armed here and nowhere else (owner direction). A
 	// bonus book is ONE round, so a single press fast-forwards every remaining free spin in it
 	// straight to the final total, rather than costing the player a press per spin.
@@ -207,6 +227,17 @@ export const playBet = async (bet: Bet) => {
 		// would leave the button reading SPIN with no book left to resume (`freeSpinHold.ts`).
 		clearSpinHold();
 		eventEmitter.broadcast({ type: 'stopButtonEnable' });
+		// THE POP (Invisible Symbols → "Winning symbols explode"), for the book's LAST spin — the one
+		// no `reveal` / `tumbleBoard` follows, so the per-spin seam at the top of `playBookEvents`
+		// never reaches it. Every EARLIER spin has already popped there, against its own board; here
+		// the winning set that is left blows up TOGETHER, once every win has narrated. In the
+		// `finally`, so a slammed or aborted round reaches it too; a spin that paid nothing, or a book
+		// whose last spin already popped, broadcasts nothing.
+		//
+		// AWAITED, and awaited BEFORE the replay starts: the cycle skips cells the pop took off, so
+		// starting it first would light seats that are about to vanish. Off (the default) this is one
+		// boolean read.
+		await explodeSpinWinners();
 		// The round is presented; keep its winning SYMBOLS animating on the resting board until the
 		// next bet. Deliberately NOT awaited — it runs until `stopWinCycle` above ends it.
 		void startWinCycle();

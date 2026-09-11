@@ -528,38 +528,77 @@ by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s, line drawn, text dr
 no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every
 `runtime:lines` game has it.
 
+> There is nothing to replay when [Winning symbols explode](#winning-symbols-explode) is on: those
+> symbols are off the board by the time the round's last spin ends. Pick one of the two.
+
 ### Winning symbols explode
 
 Its own section, directly under the replay above, and **off by default**.
 
-Turn it on and a winning symbol plays its **Explosion** animation once its win has finished
-playing, then settles into its post-win art. It is the difference between a win that stops and a
-win that goes out with a pop. **The symbol is not removed from the board** — taking symbols off
-stays the job of the cascade, or of `/config` → Reel behaviour → **Clear the board**; those play
-`Clear reel`, not this.
+Turn it on and, once a spin has finished narrating **every** one of its wins, all the symbols that
+paid blow up **together** — each playing its **Explosion** animation — **and are then gone**. The
+explosion IS the removal: those cells are taken off the board and their seats stay empty until the
+next board arrives. It is the difference between a win that stops and a win that goes out with a pop.
+
+**The order is worth being precise about.** Each paying line still narrates on its own, exactly as it
+does with this switch off: its line draws, its symbols light, its amount stamps. The explosion is not
+part of that — it is one extra beat at the very end, after the last line has had its turn, and every
+winning cell of every line plays it at the same moment. That is also why it is not per-line:
+overlapping paylines share cells, so a symbol taken off after line 1 would not be there for line 3
+to light.
+
+**Every paying spin, not just the last one of a round.** A free-spin feature is one round made of
+ten or more spins, and a cascade is one spin made of several boards; each of those that pays gets its
+own pop, fired the instant before the board carrying those winners is taken away — so what explodes
+is always what you are looking at. (Until 2026-09-11 only the last spin of a book popped, which on
+the reference books meant 2225 of 7480 paying base spins and 227 of 250 bonus ones never popped at
+all, and their winners were swept by the next board's `Clear reel` instead.)
+
+That end-of-spin timing is what keeps the pop the LAST thing you see of a winning symbol. On a
+project that also asks its board to empty first (`/config` → Reel behaviour → **Clear the board
+before the new symbols fall in**), the same symbols used to blow up twice — Win → Explosion, then a
+`Clear reel` on the next spin for a symbol the player had already watched explode. The winners now
+leave on their own beat and the board clear only pops what is still standing.
+
+**It survives a slam.** Pressing SPIN to fast-forward a paying spin shortens the win narration but
+not the pop, which still plays its explosion in full and takes the symbols off. (Until 2026-09-11 a
+slammed paying spin froze for about four seconds with the button locked, because the fast-forwarded
+win beat kept running behind the pop and reset the cell out from under it.)
+
+The rest of the board is untouched: symbols that did not pay sit there until the next spin and then
+play `Clear reel` (or drain, or are simply replaced) exactly as they always did.
 
 The art is whatever the grid's **Explosion** column holds for that symbol. Nothing new to bind: a
 symbol with no explosion of its own falls back the way it always does (`Explosion` → `Static`), and
 the engine ships `engine-explosion` for exactly this if you have not commissioned one — see
 [The shared spine library](#the-shared-spine-library).
 
-Two things it deliberately does NOT do:
+Four things it deliberately does NOT do:
 
-- **It does not fire on the resting replay.** "Winning symbols after the spin" re-lights the same
-  cells every few hundred milliseconds until the next bet; popping them on every pass would read as
-  a glitch rather than a narration, so the pop happens once, on the spin's own win presentation.
+- **It does not change how a win is narrated.** With the pop on, each line plays exactly what it
+  plays with the pop off — same beats, same length. The explosion is additive, at the end.
+- **It does not fire on the resting replay.** The pop happens once per paying spin, at the end of
+  it; popping on every pass of a loop would read as a glitch rather than a narration.
+- **It leaves nothing for "Winning symbols after the spin" to replay.** The winners are gone, so
+  there is nothing to re-light and the board simply rests until the next bet. Turning the pop on is
+  therefore a choice against the resting replay — you get one of the two, not both.
 - **It skips a symbol hidden under a stacked picture.** Such a cell draws nothing of its own (the
-  tall picture is what is on screen there), so it has no pop to play and nothing that could report
-  one finishing.
+  tall picture is what is on screen there), so it has no pop to play, nothing that could report one
+  finishing, and nothing to take off the board.
 
 The beat is capped the same way the win beat is — an explosion bound to art that can never report
-completion cannot hang the round. It carries no minimum, though: the readable pause was already
-spent on the win itself.
+completion cannot hang the round. Because every winner pops at once, the whole thing costs ONE beat
+whether two symbols paid or twelve. It carries no minimum, though: the readable pause was already
+spent on the win itself. A capped pop still removes the symbol, so a cell can never be left standing
+because its art said nothing.
 
 Stored sparsely as `winExplode: { enabled: true }` — only the ON state persists, so a project that
 never opens this section ships nothing and plays exactly as it did before the switch existed. It
 travels verbatim to `bundle.symbols.winExplode` and is read by the engine's
-`bakedWinExplodeEnabled()`; the beat itself is in `apps/lines/src/components/Board.svelte`.
+`bakedWinExplodeEnabled()`; the spin's winning set and the three seams it fires at are in
+`apps/lines/src/game/winSymbolCycle.ts` (`explodeSpinWinners` /
+`explodeWinnersBeforeBoardChange`), and the beat itself is in
+`apps/lines/src/components/Board.svelte`.
 
 ### Symbol sounds
 

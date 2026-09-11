@@ -12,11 +12,20 @@
 				 *  so a `winLine`-tinted highlight frame glows in that line's colour. Optional — absent ⇒
 				 *  the cells carry no colour and the frame renders untinted. */
 				winLineColor?: string;
-				/** This is the RESTING replay re-lighting a spin's winners, not the round's own
-				 *  narration. Set only by `winSymbolCycle`; the end-of-win pop (`winExplode`) is
-				 *  skipped on a replay pass — see the handler below. */
-				replay?: boolean;
 		  }
+		/**
+		 * THE POP (Invisible Symbols → "Winning symbols explode") — every cell ONE SPIN paid on,
+		 * once, together, AFTER that spin's whole win presentation has narrated.
+		 *
+		 * A cue of its own rather than a tail on the win beat, because the two are not the same
+		 * moment. Wins are presented one after another over the SAME board and overlapping paylines
+		 * share cells, so a pop that ran at the end of each win would take a cell off the board that
+		 * a later win of the same spin still has to light. The spin's accumulated winning set is
+		 * `winSymbolCycle`'s, and `explodeSpinWinners` — which owns the `winExplode` gate and is the
+		 * only thing that broadcasts this — is what fires it, immediately before the board change
+		 * that ends the spin (and at the round seams, for the book's last one).
+		 */
+		| { type: 'boardExplodeWinSymbols'; symbolPositions: Position[] }
 		// Flow v2 `stopReel(index)` command / `reelStop` cue — settle one reel by index. Declared so
 		// the per-reel stagger (the `StaggerStop` function) fires a real, typed signal a reel binds to.
 		| { type: 'reelStop'; index: number };
@@ -27,7 +36,6 @@
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
-	import { bakedWinExplodeEnabled } from '../editor-scenes';
 	import { awaitSymbolBeat, WIN_BEAT_CAP_MS, WIN_BEAT_MIN_MS } from '../game/symbolBeat';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
@@ -57,7 +65,7 @@
 		boardSettle: ({ board }) => context.stateGameDerived.enhancedBoard.settle(board),
 		boardShow: () => (show = true),
 		boardHide: () => (show = false),
-		boardWithAnimateSymbols: async ({ symbolPositions, winLineColor, replay }) => {
+		boardWithAnimateSymbols: async ({ symbolPositions, winLineColor }) => {
 			// The tint colour normally rides the broadcast; when a raw FlowDoc node omits it (the first
 			// presentation on a flow-driven game wires only `symbolPositions`), fall back to the recorded
 			// win that owns these cells so a `winLine`-tinted frame still resolves. See the coded resting
@@ -81,19 +89,17 @@
 			// animation, so authored art still sets the pace and only a cell that can never report pays
 			// it. The `postWinStatic` revert below runs on BOTH paths, which is what makes this the fix
 			// rather than a mitigation: the cap ends the lit state too, so nothing is left glowing.
-			//
-			// THE END-OF-WIN POP (Invisible Symbols → "Winning symbols explode"). Off by default, and
-			// off on a REPLAY pass even when on: the resting cycle re-lights the same winners every
-			// few hundred ms until the next bet, so popping on each pass would have the board's
-			// symbols blowing up on a loop — a glitch, not a narration — and would add a second
-			// bounded beat to every pass of a cycle nothing races against a skip token. The pop
-			// belongs to the round's own presentation, which is the only place the win actually
-			// resolves.
-			const popOnWin = !replay && bakedWinExplodeEnabled();
 			const covered = stackedCoverage();
 			const getPromises = () =>
 				symbolPositions.map(async (position) => {
 					const reelSymbol = context.stateGame.board[position.reel].reelState.symbols[position.row];
+					// NEVER RE-LIGHT A CELL THAT IS OFF THE BOARD. A removed cell (the pop,
+					// `boardExplodeWinSymbols` below) draws nothing, so it can never report an `oncomplete`
+					// — lighting it would buy the whole `WIN_BEAT_CAP_MS` for an empty seat and freeze the
+					// presentation for it. The pop is deliberately sequenced AFTER every win of the spin
+					// has narrated, so nothing reaches this on a live path; it is here so a future caller
+					// that animates a stale position cannot reintroduce that stall.
+					if (reelSymbol.removed) return;
 					const isCovered = covered.has(winDimCellKey(position.reel, position.row));
 					reelSymbol.winLineColor = color;
 					reelSymbol.symbolState = 'win';
@@ -117,25 +123,90 @@
 							waitForTimeout(WIN_BEAT_MIN_MS),
 						]);
 					}
-					// A STACKED-COVERED cell is deliberately excluded: it mounts no `<Symbol>` at all, so
-					// there is nothing to draw the pop with and nothing that could ever report it — the
-					// beat would be a second dead hold, and it would end the tall picture's win art early
-					// for no picture. The stacked mode's win beat stays the tall picture itself.
-					if (popOnWin && !isCovered) {
-						reelSymbol.symbolState = 'explosion';
-						// Capped like the win beat above and for the same reason — an `explosion` cell
-						// bound to art that can never report `oncomplete` must not hang the round. NO
-						// floor here, unlike the win beat: the readable minimum is already spent on the
-						// win, and a second one would add it to every paying spin.
-						await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS); // prettier-ignore
+					// The cell ENDS at rest — BUT ONLY IF THIS BEAT IS STILL THE ONE ON IT. The pop is
+					// presentation and it is NOT part of this beat: it runs once per spin, over that
+					// spin's whole winning set, after every win has narrated (`boardExplodeWinSymbols`).
+					//
+					// THE BEAT CAN OUTLIVE THE PRESENTATION THAT STARTED IT. A slam drops the subscriber
+					// promise (`awaitCue` → `slamHold`, `unskippablePresentation.ts`) and this handler
+					// keeps running DETACHED, so the round moves on while the floor below is still
+					// ticking. The pop then starts on a cell this beat still thinks it owns, and an
+					// unconditional revert tore the `explosion` down ~50ms in: its art was replaced, so
+					// its `oncomplete` never fired, the pop settled only on `WIN_BEAT_CAP_MS` and a
+					// slammed paying spin froze for ~4s with the spin button locked. Structural, not a
+					// knife-edge — the last win's floor lands at `(W-1)·H + WIN_BEAT_MIN_MS` while the pop
+					// starts at `W·H`, and the per-win slam hold `H` (200ms, 600 with a message) is always
+					// under the 650ms floor.
+					//
+					// So a beat only settles the state IT set. Anything else on the cell belongs to a
+					// LATER beat, which settles its own ending (the pop does exactly this for `explosion`
+					// below; the board clear owns `clearReel`). A cell still reading `win` is settled
+					// exactly as before — including one a second win of the same round re-lit, which is
+					// why this is a state check and not an ownership token: reverting there is what the
+					// pop being OFF does too, and the two must stay identical.
+					//
+					// `winLineColor` rides the same guard because it is read ONLY in the `win` state
+					// (`Symbol.svelte`'s `showWinFrame`): on a cell that has moved on there is no frame
+					// left to tint, and the next win beat sets it fresh.
+					if (reelSymbol.symbolState === 'win') {
+						reelSymbol.symbolState = 'postWinStatic';
+						reelSymbol.winLineColor = undefined;
 					}
-					// The cell ENDS at rest either way. The pop is presentation: the symbol is not
-					// removed from the board — taking it off stays the cascade's / the clear step's job.
-					reelSymbol.symbolState = 'postWinStatic';
-					reelSymbol.winLineColor = undefined;
 				});
 
 			await Promise.all(getPromises());
+		},
+		/**
+		 * EXPLODE AND BE GONE — the spin's winners pop together and leave the board.
+		 *
+		 * WHY IT IS NOT THE TAIL OF THE WIN BEAT, which is where it started. A spin presents its wins
+		 * ONE AFTER ANOTHER over the same board, and overlapping paylines share cells — line 1
+		 * (`[0,0,0,0,0]`), line 6 (`[0,0,1,2,2]`) and line 18 (`[0,0,2,0,0]`) all pay on reels 0-1 of
+		 * row 0, and a quarter of the reference books' `winInfo` events have at least one cell paid by
+		 * two wins. A pop at the end of each win therefore took a cell OFF the board that a later win
+		 * of the same spin still had to light: the later win re-lit an unmounted cell, whose
+		 * `oncomplete` can never fire, so the beat sat out `WIN_BEAT_CAP_MS`. Deferred to here the
+		 * narration is untouched — byte-identical to the pop being off — and the explosion is one
+		 * extra beat at the end of the spin.
+		 *
+		 * CONCURRENT, so the whole pop costs ONE bounded beat rather than one per cell. Each cell is
+		 * removed on BOTH exits of the race, exactly like the `postWinStatic` revert above it: a cell
+		 * whose art can never report `oncomplete` pays the cap and is then just as gone. It is the
+		 * SYMBOL that is marked, not its seat — the next board un-removes it by being new cells (see
+		 * `ReelSymbol.removed`).
+		 *
+		 * A STACKED-COVERED cell is deliberately excluded: it mounts no `<Symbol>` at all, so there is
+		 * nothing to draw the pop with and nothing that could ever report it — the beat would be a
+		 * dead hold, and it would end the tall picture's win art early for no picture. The stacked
+		 * mode's win beat stays the tall picture itself.
+		 */
+		boardExplodeWinSymbols: async ({ symbolPositions }) => {
+			const covered = stackedCoverage();
+			await Promise.all(
+				symbolPositions.map(async (position) => {
+					const reelSymbol = context.stateGame.board[position.reel]?.reelState.symbols[position.row]; // prettier-ignore
+					if (!reelSymbol || reelSymbol.removed) return;
+					if (covered.has(winDimCellKey(position.reel, position.row))) return;
+					reelSymbol.symbolState = 'explosion';
+					// Capped like the win beat above and for the same reason — an `explosion` cell bound to
+					// art that can never report `oncomplete` must not hang the round. NO floor here, unlike
+					// the win beat: the readable minimum is already spent on the win, and a second one
+					// would add it to every paying spin.
+					await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS);
+					// UNCONDITIONAL, unlike the state below: "explode and be gone" is the pop's whole
+					// promise, and a cell it lit must not be left standing for the next board clear to
+					// pop a second time — whichever exit of the race got here.
+					reelSymbol.removed = true;
+					// Not left parked on `explosion` for a state reader to find, exactly as the win beat
+					// settles its own cells — and behind the same guard, for the same reason: a beat
+					// settles only the state it set, so a cell some later beat has already moved on is
+					// left to whoever owns it now.
+					if (reelSymbol.symbolState === 'explosion') {
+						reelSymbol.symbolState = 'postWinStatic';
+						reelSymbol.winLineColor = undefined;
+					}
+				}),
+			);
 		},
 	});
 

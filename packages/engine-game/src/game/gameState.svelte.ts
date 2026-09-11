@@ -1308,6 +1308,19 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const boardRaw = () =>
 		stateGame.board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));
 
+	/**
+	 * WHICH cells of {@link boardRaw} are no longer on the board — taken off by the win-explosion pop
+	 * (Invisible Symbols → "Winning symbols explode"; see `ReelSymbol.removed`). Same shape, same
+	 * indices, cell for cell, so a consumer that addresses the board by position can ask whether a
+	 * seat still holds anything without reaching into the reels itself.
+	 *
+	 * All-`false` for every project that never turns the pop on, which is what keeps its three
+	 * readers — the cascade overlay's survivor layer, the round's accumulated winning set, and the
+	 * resting win replay's rotation — byte-identical there.
+	 */
+	const boardRemoved = () =>
+		stateGame.board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.removed));
+
 	const scatterLandIndex = () => {
 		if (stateGame.scatterCounter > 5) return 5;
 		if (stateGame.scatterCounter < 1) return 1;
@@ -1339,6 +1352,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardOverflow,
 		boardOverflowAuthored,
 		boardRaw,
+		boardRemoved,
 		scatterLandIndex,
 		enhancedBoard,
 		getWinLevelDataByWinLevelAlias,

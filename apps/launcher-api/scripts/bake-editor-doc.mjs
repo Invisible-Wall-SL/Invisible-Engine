@@ -447,7 +447,7 @@ async function main() {
 				if (c.holdAfterBigWin === true) out.holdAfterBigWin = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
-			// The end-of-win pop — one switch that defaults OFF, so ONLY the ON state persists. Must
+			// The win-explosion pop — one switch that defaults OFF, so ONLY the ON state persists. Must
 			// reach BOTH bundle paths (this + the runtime `SymbolExportResult`): omit it here and a
 			// project that turned the pop on would ship without it through the bake path.
 			const winExplode = s?.winExplode?.enabled === true ? { enabled: true } : undefined;

@@ -32,7 +32,7 @@ import { armSpinHold, cancelSpinHold, stateBetDerived } from 'state-shared';
 
 import { bakedWinCycleConfig } from '../editor-scenes';
 import { activeWinLevelIsBig } from './gameConfig';
-import { startWinCycle, clearWinPresentation } from './winSymbolCycle';
+import { explodeSpinWinners, startWinCycle, clearWinPresentation } from './winSymbolCycle';
 import type { BookEvent } from './typesBookEvent';
 
 /**
@@ -72,6 +72,13 @@ export const holdAfterBigWin = async (
 	if (stateBetDerived.isContinuousBet()) return;
 	if (!holdsAfter(bookEvent, bookEvents)) return;
 
+	// THE POP (Invisible Symbols → "Winning symbols explode") fires here for the same reason the
+	// replay does: this is the OTHER point at which a spin's presentation has finished and the board
+	// is handed back to the player. Awaited before the replay starts, exactly as in `playBet`'s
+	// `finally` — the seams run the same pair in the same order, so a held spin and an ordinary one
+	// cannot end differently. The per-spin seam then finds these cells already gone when the next
+	// `reveal` comes round, so the hold cannot cause a second pop. A no-op with the switch off.
+	await explodeSpinWinners();
 	// The round's own wins are already recorded (`recordWinCycleWins` ran on this spin's `winInfo`),
 	// so the replay narrates THIS spin. Not awaited — it loops until stopped. Obeys its own
 	// `winCycle.enabled` switch: with the replay off the hold still holds, on a static board.

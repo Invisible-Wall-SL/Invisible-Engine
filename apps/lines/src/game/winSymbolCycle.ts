@@ -53,10 +53,10 @@ import {
 	winLineTextFor,
 	winningPositionsOf,
 } from './flowEffects';
-import { setWinDim, winDimCellKey } from './stateGame.svelte';
+import { setWinDim, stateGameDerived, winDimCellKey } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
-import { bakedWinCycleConfig, bakedWinLineConfig } from '../editor-scenes';
+import { bakedWinCycleConfig, bakedWinExplodeEnabled, bakedWinLineConfig } from '../editor-scenes';
 
 type CycleWin = BookEventOfType<'winInfo'>['wins'][number];
 
@@ -80,6 +80,19 @@ const winKey = (win: CycleWin): string =>
 	`${win.symbol}|${win.kind}|${win.meta?.lineIndex ?? ''}|${win.positions
 		.map((position) => `${position.reel}:${position.row}`)
 		.join(',')}`;
+
+/**
+ * THE TWO BOOK EVENTS THAT REPLACE THE BOARD — a new spin (`reveal`) and a cascade step
+ * (`tumbleBoard`). After either of them the seats the recorded wins name belong to a DIFFERENT
+ * board.
+ *
+ * One set rather than two `if`s because two things key off it and they must never drift: the
+ * {@link recordWinCycleWins} clear below, and {@link explodeWinnersBeforeBoardChange} — the pop,
+ * which has to fire immediately BEFORE each clear, or the wins it was meant to blow up are simply
+ * discarded. That pairing IS "exactly once per paying spin": every clear is preceded by a pop, and
+ * the book's end pops whatever the last spin left.
+ */
+const REPLACES_THE_BOARD: ReadonlySet<BookEvent['type']> = new Set(['reveal', 'tumbleBoard']);
 
 /**
  * Record the wins the cycle will replay. Called for EVERY book event on every dispatch path:
@@ -106,7 +119,7 @@ const winKey = (win: CycleWin): string =>
  * replays nothing and the settled board simply rests. Same reasoning as `reveal`, same two clears.
  */
 export const recordWinCycleWins = (bookEvent: BookEvent): void => {
-	if (bookEvent.type === 'reveal' || bookEvent.type === 'tumbleBoard') {
+	if (REPLACES_THE_BOARD.has(bookEvent.type)) {
 		wins = [];
 		// The next board invalidates the previous round's win-dim — clear it here (the same
 		// "until the next spin" boundary that resets `wins`), so a losing spin's board is full-bright.
@@ -201,6 +214,22 @@ const clearCycleLine = (): void => {
 	eventEmitter.broadcast({ type: 'winLineHide', all: true });
 };
 
+/**
+ * Drop the recorded wins outright — the ROUND boundary, called once from `playBet` before the book
+ * starts.
+ *
+ * {@link recordWinCycleWins} clears at every board change WITHIN a book, which leaves the last
+ * spin's wins standing between rounds. Nothing used to read them there. The per-spin pop
+ * ({@link explodeWinnersBeforeBoardChange}) does: it runs immediately before the next round's FIRST
+ * `reveal`, so without this the new round would open by popping the previous round's set. In
+ * practice those cells are already gone (the previous round's `finally` popped them) and the pop
+ * filters them out, but "in practice" is not an invariant — this makes the pop structurally unable
+ * to fire for a spin that is not in the book being played.
+ */
+export const forgetWinCycleWins = (): void => {
+	wins = [];
+};
+
 /** Stop a running cycle. Idempotent — safe to call when nothing is running. */
 export const stopWinCycle = (): void => {
 	generation += 1;
@@ -235,15 +264,124 @@ export const clearWinPresentation = (): void => {
 };
 
 /**
+ * THE SPIN'S WINNING CELLS — every seat any recorded win paid on, DEDUPED by seat and in book
+ * order, minus the ones already off the board.
+ *
+ * "The spin's", not "the round's": {@link wins} is cleared at every board change
+ * ({@link REPLACES_THE_BOARD}), so the recorded set is always exactly what the board CURRENTLY on
+ * screen has paid.
+ *
+ * Deduped because overlapping paylines share cells: line 1 (`[0,0,0,0,0]`), line 6
+ * (`[0,0,1,2,2]`) and line 18 (`[0,0,2,0,0]`) all pay on reels 0-1 of row 0, and a quarter of the
+ * reference books' `winInfo` events have at least one cell paid by two wins. The pop must blow each
+ * of those up ONCE, not once per win that claimed it.
+ *
+ * `winningPositionsOf`, not `win.positions`: the same PAYING slice the round and the resting cycle
+ * light, so a line win's non-paying tail is never popped.
+ */
+const spinWinningPositions = (): Position[] => {
+	const removed = stateGameDerived.boardRemoved();
+	const seen = new Set<string>();
+	const positions: Position[] = [];
+	for (const win of wins) {
+		for (const position of winningPositionsOf(win)) {
+			const key = `${position.reel}:${position.row}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			if (removed[position.reel]?.[position.row]) continue;
+			positions.push(position);
+		}
+	}
+	return positions;
+};
+
+/**
+ * THE POP (Invisible Symbols → "Winning symbols explode"): every cell THIS SPIN paid on plays its
+ * `explosion` TOGETHER, once, and leaves the board.
+ *
+ * WHY IT IS NOT THE TAIL OF EACH WIN. A spin narrates its wins one after another over the SAME
+ * board, and overlapping paylines share cells — so a pop at the end of a win took a cell off the
+ * board that a LATER win still had to light. The later win re-lit an unmounted cell, whose
+ * `oncomplete` can never fire, and the presentation sat out `WIN_BEAT_CAP_MS` for it (twice, because
+ * the pop re-armed a second one): ~8s frozen on about a quarter of paying spins. Deferring it leaves
+ * every win's own narration byte-identical to the pop being OFF and makes the explosion one extra
+ * beat at the end of the spin.
+ *
+ * A SPIN, NOT A ROUND — and that distinction was a shipped bug. This used to run only from
+ * `playBet`'s `finally`, which is once per BOOK: a bonus book carries ~10 spins inside that one
+ * call, and {@link wins} is cleared at every board change, so the pop only ever saw the wins
+ * recorded after the LAST `reveal`. Measured on the reference books, that dropped 2225 of 7480
+ * paying events in the base game and 227 of 250 in the bonus — and a mid-book winner that is never
+ * marked `removed` is swept by the NEXT board's clear playing `clearReel`, i.e. exactly the double
+ * pop this feature exists to prevent. So it now runs at THREE seams, which between them cover every
+ * way a spin can end:
+ *
+ *  - {@link explodeWinnersBeforeBoardChange}, at the `playBookEvents` loop — immediately before the
+ *    `reveal` / `tumbleBoard` that replaces the board, i.e. while the board those wins were scored
+ *    on is still the board on screen. This is the one that makes it per-spin.
+ *  - `playBet`'s `finally` — the book's LAST spin, which no board change follows. In the `finally`
+ *    so a slammed or thrown round reaches it too.
+ *  - the between-spins hold (`freeSpinHold.holdAfterBigWin`) — the other point a spin's
+ *    presentation is handed back to the player.
+ *
+ * They cannot double-pop: the set is filtered by what is already gone, so the second call over the
+ * same cells finds nothing and broadcasts nothing.
+ *
+ * NOT RACED against the slam token, deliberately. This OWNS the board — it removes cells — and
+ * board-owning work stays fully awaited (`flowEffects`' `awaitPresentation` doc): released early it
+ * would still be removing cells while the next `reveal` clears and rebuilds them.
+ *
+ * A spin that paid nothing, or a project that never authored the pop, broadcasts NOTHING — so this
+ * is one boolean read on every losing spin and byte-parity everywhere the switch is off.
+ */
+export const explodeSpinWinners = async (): Promise<void> => {
+	if (!bakedWinExplodeEnabled()) return;
+	const symbolPositions = spinWinningPositions();
+	if (!symbolPositions.length) return;
+	await eventEmitter.broadcastAsync({ type: 'boardExplodeWinSymbols', symbolPositions });
+};
+
+/**
+ * THE PER-SPIN SEAM: pop this spin's winners if `bookEvent` is about to take their board away.
+ *
+ * Keyed to {@link REPLACES_THE_BOARD} — the same set {@link recordWinCycleWins} clears `wins` on —
+ * so the pop is, by construction, the last thing that happens to a spin's recorded wins before they
+ * are discarded. Awaited by the caller, so the board change cannot start over a pop still running.
+ *
+ * A celebration is NOT a boundary here: `freeSpinTrigger` / `freeSpinEnd` cover the board with a
+ * screen but do not replace it, and the wins are still on it when the next real boundary arrives —
+ * the free-spin feature's first `reveal`, or the round's `finally`.
+ */
+export const explodeWinnersBeforeBoardChange = async (bookEvent: BookEvent): Promise<void> => {
+	if (!REPLACES_THE_BOARD.has(bookEvent.type)) return;
+	await explodeSpinWinners();
+};
+
+/**
  * The per-win entries the cycle steps through, in book order — one per PAYING win, carrying both
  * its traced cells and the win itself (the line's points, amount and message are derived from it
  * when `showLine` is on). Wins that trace no cells are dropped so a stray entry can't introduce a
  * blank beat in the rotation.
+ *
+ * A cell the POP took off the board ({@link explodeSpinWinners}) is no longer one of
+ * them. It draws nothing, so re-lighting it would light nothing and then await an `oncomplete` it
+ * can never report — every pass of a loop that races no skip token would sit out the win-beat cap
+ * for an empty seat. The pop runs immediately before the cycle starts, so with it on every paying
+ * cell is already gone: every entry drops and `startWinCycle` finds nothing to replay, and a board
+ * whose winners exploded simply rests. Nothing is ever removed with the pop off ⇒ the rotation is
+ * untouched.
  */
-const cycleEntries = (): { win: CycleWin; positions: Position[] }[] =>
-	wins
-		.map((win) => ({ win, positions: winningPositionsOf(win) }))
+const cycleEntries = (): { win: CycleWin; positions: Position[] }[] => {
+	const removed = stateGameDerived.boardRemoved();
+	return wins
+		.map((win) => ({
+			win,
+			positions: winningPositionsOf(win).filter(
+				(position) => !removed[position.reel]?.[position.row],
+			),
+		}))
 		.filter((entry) => entry.positions.length > 0);
+};
 
 /**
  * Start cycling the recorded wins' symbols. NOT awaited by the caller — it only ends when
@@ -330,13 +468,7 @@ export const startWinCycle = async (): Promise<void> => {
 					messageKind: 'win',
 				});
 			}
-			await animateSymbols({
-				positions,
-				color: winLineColorFor(win.meta?.lineIndex),
-				// Marks the pass as a REPLAY, which is what keeps the end-of-win pop (`winExplode`) on
-				// the round's own presentation instead of firing it on every loop until the next bet.
-				replay: true,
-			});
+			await animateSymbols({ positions, color: winLineColorFor(win.meta?.lineIndex) });
 			if (token !== generation) return;
 			// Never between passes in all-at-once mode — the whole set stays up until the next spin.
 			if (!allAtOnce) clearCycleLine();

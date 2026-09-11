@@ -50,6 +50,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'boardExplodeWinSymbols',
+				group: 'Board',
+				fields: [
+					{
+						key: 'symbolPositions',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'reelStop',
 				group: 'Board',
 				fields: [
@@ -667,6 +678,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'boardExplodeWinSymbols',
+				group: 'Board',
+				fields: [
+					{
+						key: 'symbolPositions',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'reelStop',
 				group: 'Board',
 				fields: [
@@ -1274,6 +1296,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'boardWithAnimateSymbols',
+				group: 'Board',
+				fields: [
+					{
+						key: 'symbolPositions',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'boardExplodeWinSymbols',
 				group: 'Board',
 				fields: [
 					{

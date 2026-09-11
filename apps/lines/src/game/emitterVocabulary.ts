@@ -46,6 +46,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'boardExplodeWinSymbols',
+			group: 'Board',
+			fields: [
+				{
+					key: 'symbolPositions',
+					kind: 'list',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'reelStop',
 			group: 'Board',
 			fields: [
