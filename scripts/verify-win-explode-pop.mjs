@@ -1,4 +1,4 @@
-// Offline fixture for the END-OF-ROUND POP — Invisible Symbols State Machine → "Winning symbols
+// Offline fixture for the WIN-EXPLOSION POP — Invisible Symbols State Machine → "Winning symbols
 // explode" (`winExplode`).
 //
 //   node scripts/verify-win-explode-pop.mjs
@@ -13,12 +13,24 @@
 // `WIN_BEAT_CAP_MS` — then armed a second unfirable one for the pop. Roughly eight seconds of frozen
 // presentation, on a quarter of the reference books' paying events (part 1 counts them).
 //
-// THE FIX, and what this file proves: the pop is DEFERRED to the end of the round's whole win
-// presentation. Every win narrates exactly as it does with the switch OFF; then the round's
+// THE FIX, and what this file proves: the pop is DEFERRED to the end of a SPIN's whole win
+// presentation. Every win narrates exactly as it does with the switch OFF; then that spin's
 // ACCUMULATED winning cells — deduped by seat, which is the part the shared-cell case turns on —
 // play `explosion` together, once, and leave the board.
 //
-// WHAT IT PROVES, in nine parts.
+// THE TWO BUGS FOUND IN REVIEW OF THAT FIX, which parts 10 and 11 exist for:
+//
+//   - A SLAMMED paying spin froze for ~4s. The slam drops the win beat's subscriber promise
+//     (`awaitCue` → `slamHold`) and the board handler keeps running DETACHED; its `postWinStatic`
+//     revert then landed 50ms INTO the pop that had already started, tore the `explosion` down, and
+//     the pop settled only on `WIN_BEAT_CAP_MS`. Structural: the last win's floor lands at
+//     `(W-1)·H + WIN_BEAT_MIN_MS` and the pop starts at `W·H`, with the slam hold `H` always under
+//     the floor.
+//   - The pop fired once per BOOK, not once per SPIN. `playBet` runs once per book while the
+//     recorded wins are cleared at every board change, so only the wins after the LAST `reveal` were
+//     ever popped — 5255 of 7480 paying spins in `base_books`, 23 of 250 in `bonus_books`.
+//
+// WHAT IT PROVES, in eleven parts.
 //
 //   1. THE CORPUS. Shared paying cells are not hypothetical: the real `base_books.ts` is scanned
 //      through the REAL `winningPositionsOf`, and the share of `winInfo` events with at least one
@@ -32,13 +44,13 @@
 //      the pop ON and OFF. The harness's ability to SEE a cap is anchored by a run where the art
 //      never reports.
 //
-//   3. THE POP ITSELF, over the REAL `explodeRoundWinners` + the REAL `boardExplodeWinSymbols`
+//   3. THE POP ITSELF, over the REAL `explodeSpinWinners` + the REAL `boardExplodeWinSymbols`
 //      handler: one broadcast, the deduped union of the round's paying cells, one `explosion` per
 //      cell, removed on BOTH exits of the bounded race, and nothing at all when the switch is off,
 //      when the round paid nothing, or when the cells are already gone.
 //
-//   4. THE SEAM. The REAL `playBet` (and the REAL `playBookEvents` it wraps) is evaluated and
-//      driven down all four paths — the coded handler map, a v2 flow that OWNS the events, a
+//   4. THE ROUND SEAM. The REAL `playBet` (and the REAL `playBookEvents` it wraps) is evaluated
+//      and driven down all four paths — the coded handler map, a v2 flow that OWNS the events, a
 //      slammed round, and a round with no win at all — plus a round whose book throws. The pop must
 //      run on every one of them, be AWAITED, and land before the resting replay starts. The other
 //      seam, the between-spins hold (`freeSpinHold.holdAfterBigWin`), is driven the same way.
@@ -59,6 +71,19 @@
 //
 //   9. CONTAINMENT. With the switch OFF nothing anywhere is removed and no pop cue is broadcast;
 //      with it ON nothing is removed until the pop runs.
+//
+//  10. THE SLAMMED SPIN, timed. The REAL `playBet` is driven with the token tripped WHERE A PLAYER
+//      TRIPS IT — as the win narrates, because `playBet` resets it before the first book event, so a
+//      world built already-skipped is byte-identical to an un-slammed one and proves nothing. One
+//      ordinary win with `{win: 300, explosion: 200}` must pop at 600 and finish at 800 (against
+//      650/850 unslammed), not 4600; the two-win case must land the same overlap one win later.
+//
+//  11. ONCE PER PAYING SPIN. Multi-spin books — free spins and a cascade — are driven through the
+//      REAL `playBookEvents` with the board REBUILT at every `reveal`/`tumbleBoard` exactly as
+//      `createReelSymbols` does, so a pop that fired one event late would be naming the next board's
+//      seats. Then the whole reference corpus is replayed A/B through the REAL `recordWinCycleWins`
+//      + `explodeSpinWinners`, with and without the per-spin seam, and the pop count is asserted
+//      against the number of paying spins.
 //
 // WHAT IT CANNOT PROVE. Nothing here draws, so what an explosion LOOKS like is out of scope, as is
 // whether `WIN_BEAT_CAP_MS` is the right number. `awaitCue` is sliced real but
@@ -162,18 +187,16 @@ const slices = [
 	sliceBetween(gameStateSource, 'winDimCellKey', '\tconst winDimCellKey = (', ';\n'),
 	sliceBetween(gameStateSource, 'boardRaw', '\tconst boardRaw = () =>', ';\n'),
 	sliceBetween(gameStateSource, 'boardRemoved', '\tconst boardRemoved = () =>', ';\n'),
-	// The cycle module: the accumulated wins, the round's winning set, the pop, the rotation.
+	// The cycle module: the accumulated wins, the spin's winning set, the pop, the rotation.
 	sliceBetween(winCycleSource, 'wins', 'let wins: CycleWin[] = [];', ';\n'),
 	sliceBetween(winCycleSource, 'winKey', 'const winKey = (win: CycleWin): string =>', ';\n'),
 	sliceBetween(winCycleSource, 'refreshWinDim', 'const refreshWinDim = (): void => {', '\n};\n'),
+	sliceBetween(winCycleSource, 'REPLACES_THE_BOARD', 'const REPLACES_THE_BOARD', ';\n'),
 	sliceBetween(winCycleSource, 'recordWinCycleWins', 'export const recordWinCycleWins = (', '\n};\n'), // prettier-ignore
-	sliceBetween(
-		winCycleSource,
-		'roundWinningPositions',
-		'const roundWinningPositions = (',
-		'\n};\n',
-	),
-	sliceBetween(winCycleSource, 'explodeRoundWinners', 'export const explodeRoundWinners = async (', '\n};\n'), // prettier-ignore
+	sliceBetween(winCycleSource, 'spinWinningPositions', 'const spinWinningPositions = (', '\n};\n'),
+	sliceBetween(winCycleSource, 'explodeSpinWinners', 'export const explodeSpinWinners = async (', '\n};\n'), // prettier-ignore
+	sliceBetween(winCycleSource, 'explodeWinnersBeforeBoardChange', 'export const explodeWinnersBeforeBoardChange = async (', '\n};\n'), // prettier-ignore
+	sliceBetween(winCycleSource, 'forgetWinCycleWins', 'export const forgetWinCycleWins = (', '\n};\n'), // prettier-ignore
 	sliceBetween(winCycleSource, 'cycleEntries', 'const cycleEntries = (', '\n};\n'),
 	// The round seam itself.
 	sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n'),
@@ -279,7 +302,6 @@ const ROWS = 3;
 const buildRound = ({
 	winExplode = false,
 	art = { win: 300, explosion: 200 },
-	slammed = false,
 	holdAfterBigWinEnabled = false,
 	winCycleEnabled = true,
 	dimNonWinning = false,
@@ -314,6 +336,14 @@ const buildRound = ({
 				// taken off the board mounts no renderer, so it cannot report at all.
 				void clock.wait(beatMs).then(() => {
 					if (cell.removed) return;
+					// …AND THE ANIMATION MUST STILL BE THE ONE PLAYING. `ReelSymbol.svelte` forwards
+					// `oncomplete` only while the state that armed the beat is still on the cell
+					// (`if (props.reelSymbol.symbolState === 'win' | 'explosion')`), and a state write
+					// swaps the art out from under the running animation, which then never completes at
+					// all. Without this gate the fixture models a cell that reports a beat something else
+					// has already taken over — the exact race both bounded waits exist for — so it would
+					// pass on a build that freezes for `WIN_BEAT_CAP_MS`.
+					if (state !== next) return;
 					cell.oncomplete();
 				});
 			},
@@ -321,12 +351,23 @@ const buildRound = ({
 		return cell;
 	};
 
-	const stateGame = {
-		board: Array.from({ length: REELS }, (_reel, reel) => ({
+	const freshBoard = () =>
+		Array.from({ length: REELS }, (_reel, reel) => ({
 			reelState: {
 				symbols: Array.from({ length: ROWS }, (_row, row) => makeCell(reel, row, `S${reel}${row}`)),
 			},
-		})),
+		}));
+
+	const stateGame = { board: freshBoard() };
+
+	/**
+	 * What EVERY board replacement does in the game: build fresh cells (`createReelSymbols`, reached
+	 * by `prepareToSpin` / `preSpinPadding` / `setSymbolsWithRawSymbols`), so the next board is
+	 * un-removed by construction. Without it a fixture that plays a multi-spin book carries the first
+	 * spin's removals into the second and can prove nothing about the second's pop.
+	 */
+	const rebuildBoard = () => {
+		stateGame.board = freshBoard();
 	};
 
 	const config = {
@@ -335,7 +376,7 @@ const buildRound = ({
 		winLine: { line: { allAtOnce } },
 	};
 
-	let skipped = slammed;
+	let skipped = false;
 	const roundSkip = {
 		reset: () => {
 			skipped = false;
@@ -412,7 +453,9 @@ return {
 	animateSymbols,
 	winningPositionsOf,
 	recordWinCycleWins,
-	explodeRoundWinners,
+	forgetWinCycleWins,
+	explodeSpinWinners,
+	explodeWinnersBeforeBoardChange,
 	cycleEntries,
 	playBet,
 	playBookEvents,
@@ -442,7 +485,10 @@ return {
 		() => [],
 		() => undefined,
 		() => ({ amount: '', message: '' }),
-		() => false,
+		// `showWinInfoMessage` — TRUE, i.e. the ordinary project that authored a win template. It is
+		// the coded handler's slammed branch that reads it (`if (shown) await slamHold(400)`), so a
+		// stub answering `false` silently deletes the message hold and with it the slam's real timing.
+		() => true,
 		{ winBookEventAmount: 0 },
 		{ unskippablePresentationActive: false, freeSpinsAdded: 0 },
 		{ isContinuousBet: () => false },
@@ -458,7 +504,7 @@ return {
 		{ playBookEvent: async () => {} },
 	);
 
-	return { runtime, clock, stateGame, transitions, log, seam, config, roundSkip };
+	return { runtime, clock, stateGame, transitions, log, seam, config, roundSkip, rebuildBoard };
 };
 
 /** The cells a win pays on, as `"reel:row"` — the fixture's own reading of a win, used only to
@@ -582,12 +628,12 @@ const presentWinInfo = async (round, bookEvent = sharedCellEvent) => {
 // 3 — THE POP: one explosion per cell, after the round, on both exits of the race.
 // ---------------------------------------------------------------------------
 
-console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---');
+console.log('\n--- 3. the spin ends on ONE pop over the deduped winning set ---');
 
 {
 	const round = await presentWinInfo(buildRound({ winExplode: true }));
 	const beforePop = round.clock.at();
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 
 	const pops = round.log.filter((entry) => entry.type === 'boardExplodeWinSymbols');
 	check('exactly one pop cue is broadcast for the whole round', pops.length, 1);
@@ -618,7 +664,7 @@ console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---
 	// A SECOND CALL IS A NO-OP — the set is filtered by what is already gone, which is what makes
 	// the two seams (`playBet`'s finally and the between-spins hold) safe to both run it.
 	const logLength = round.log.length;
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 	check('popping a board whose winners are already gone broadcasts nothing', round.log.length, logLength); // prettier-ignore
 }
 
@@ -628,16 +674,35 @@ console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---
 	// a symbol that cannot report must not be left standing for the next spin's clear to pop again.
 	const round = await presentWinInfo(buildRound({ winExplode: true, art: { win: 300, explosion: null } })); // prettier-ignore
 	const beforePop = round.clock.at();
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 	check('an explosion that never reports is bounded by the win-beat cap', round.clock.at() - beforePop, 4000); // prettier-ignore
 	check('…and the cell is removed anyway', round.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 6); // prettier-ignore
 	check('…and settled back to rest rather than parked on `explosion`', round.stateGame.board[0].reelState.symbols[0].symbolState, 'postWinStatic'); // prettier-ignore
 }
 
 {
+	// THE POP'S OWN SETTLE RIDES THE SAME GUARD as the win beat's. A pop sitting out the cap can be
+	// overtaken too — the next board's CLEAR names every visible seat — and stamping `postWinStatic`
+	// over a `clearReel` it does not own would tear that animation down in turn. The removal is NOT
+	// guarded, deliberately: "explode and be gone" is the pop's promise on both exits of the race.
+	const round = await presentWinInfo(buildRound({ winExplode: true, art: { win: 300, explosion: null } })); // prettier-ignore
+	const cell = round.stateGame.board[0].reelState.symbols[0];
+	await round.clock.run(async () => {
+		const popping = round.runtime.explodeSpinWinners();
+		await round.clock.wait(100);
+		cell.symbolState = 'clearReel';
+		await popping;
+	});
+	check('a capped pop leaves a state something else has taken over alone', cell.symbolState, 'clearReel'); // prettier-ignore
+	check('…but the cell is gone all the same', cell.removed, true);
+	check('…while its co-winners settle as usual', round.stateGame.board[1].reelState.symbols[0].symbolState, 'postWinStatic'); // prettier-ignore
+	check('…and are gone too', round.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 6); // prettier-ignore
+}
+
+{
 	// THE SWITCH. Off is the default and must broadcast nothing at all.
 	const round = await presentWinInfo(buildRound({ winExplode: false }));
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 	check('with the pop OFF nothing is broadcast', round.log.filter((e) => e.type === 'boardExplodeWinSymbols').length, 0); // prettier-ignore
 	check('…and nothing is removed', round.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 0); // prettier-ignore
 }
@@ -647,7 +712,7 @@ console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---
 	// pop must not even reach the emitter.
 	const round = buildRound({ winExplode: true });
 	round.runtime.recordWinCycleWins({ type: 'reveal', board: [] });
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 	check('a losing spin broadcasts no pop', round.log.length, 0);
 	check('…and costs no time', round.clock.at(), 0);
 }
@@ -658,7 +723,7 @@ console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---
 	// early for no picture. It must be skipped outright, not merely un-awaited.
 	const round = await presentWinInfo(buildRound({ winExplode: true, coveredSeats: [[2, 2]] }));
 	const beforePop = round.clock.at();
-	await round.clock.run(() => round.runtime.explodeRoundWinners());
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
 	check('a covered seat is not exploded', round.transitions.filter((t) => t.state === 'explosion' && t.reel === 2 && t.row === 2).length, 0); // prettier-ignore
 	check('…and is not removed either — the tall picture still owns it', round.stateGame.board[2].reelState.symbols[2].removed, false); // prettier-ignore
 	check('…while its five uncovered co-winners pop as usual', round.transitions.filter((t) => t.state === 'explosion').length, 5); // prettier-ignore
@@ -681,7 +746,7 @@ console.log('\n--- 3. the round ends on ONE pop over the deduped winning set ---
 // 4 — THE SEAM: the REAL `playBet`, down all four paths.
 // ---------------------------------------------------------------------------
 
-console.log('\n--- 4. the pop fires at the round seam, on every dispatch path ---');
+console.log('\n--- 4. the round seam pops the book’s last spin, on every dispatch path ---');
 
 /** The shipped `playBet` body, evaluated — the `finally` is what part 4 is about. */
 const playBetBody = sliceBetween(
@@ -695,7 +760,7 @@ const playBetBody = sliceBetween(
 	// THE ORDER INSIDE `playBet`'s `finally`, read off the REAL body: the pop is awaited, and it is
 	// awaited BEFORE the replay starts (the replay skips cells the pop takes off, so the other order
 	// would light seats that are about to vanish).
-	const popAt = playBetBody.indexOf('await explodeRoundWinners();');
+	const popAt = playBetBody.indexOf('await explodeSpinWinners();');
 	const cycleAt = playBetBody.indexOf('void startWinCycle();');
 	const tryAt = playBetBody.indexOf('await playBookEvents(bet.state);');
 	const finallyAt = playBetBody.indexOf('} finally {');
@@ -707,29 +772,53 @@ const playBetBody = sliceBetween(
 }
 
 /**
- * The four paths, driven through the REAL `playBet` with the REAL pop wired to the REAL board.
+ * The dispatch paths, driven through the REAL `playBet` with the REAL pops wired to the REAL board.
  *
  * `playBookEvent` / `coded.playBookEvent` are the injection point every dispatch path funnels
  * through in the shipped module: `playBookEvents` picks the coded loop when no flow is registered
  * and the `playBookEvent` loop when one is, and BOTH end in the same `finally`. So each path here is
  * a different pair of `getFlowV2` / dispatcher answers over the same real body.
+ *
+ * THE SLAM IS A PRESS DURING THE ROUND, not a pre-tripped token. `playBet` calls `roundSkip.reset()`
+ * before the first book event (`utils.ts`), so a world built already-skipped is byte-identical to an
+ * un-slammed one and a "slammed round" run built that way asserts nothing. The press lands where a
+ * player actually slams — as the win is being narrated.
  */
-const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode = true }) => {
-	// ONE clock for the whole round: the pop the seam awaits is the real one, and it waits on the
+const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode = true, art }) => {
+	// ONE clock for the whole round: the pops the seams await are the real ones, and they wait on the
 	// same virtual time the board's beats do.
 	const clock = createClock();
-	const world = buildRound({ winExplode, slammed, clock });
+	const world = buildRound({ winExplode, clock, ...(art ? { art } : {}) });
 	const order = [];
+	const marks = [];
 	const dispatched = [];
+	const mark = (what) => {
+		order.push(what);
+		marks.push({ what, at: clock.at() });
+	};
+
+	/** Present one book event exactly as both dispatch branches do, and slam on the win. */
+	const present = async (via, bookEvent) => {
+		dispatched.push(`${via}:${bookEvent.type}`);
+		if (bookEvent.type === 'boom') throw new Error('handler blew up');
+		if (slammed && bookEvent.type === 'winInfo') world.roundSkip.trip();
+		world.runtime.recordWinCycleWins(bookEvent);
+		if (bookEvent.type === 'winInfo') await world.runtime.codedHandlers.winInfo(bookEvent);
+		// A `reveal` / `tumbleBoard` PRESENTS A NEW BOARD, i.e. fresh cells — so the spin that follows
+		// starts un-removed, and this spin's pop has to have happened before now or never.
+		if (bookEvent.type === 'reveal' || bookEvent.type === 'tumbleBoard') world.rebuildBoard();
+	};
 
 	const play = new Function(
 		'stopWinCycle',
+		'forgetWinCycleWins',
 		'roundSkip',
 		'stateBet',
 		'stateUi',
 		'clearSpinHold',
 		'eventEmitter',
-		'explodeRoundWinners',
+		'explodeSpinWinners',
+		'explodeWinnersBeforeBoardChange',
 		'startWinCycle',
 		'getFlowInterpreter',
 		'getFlowV2',
@@ -740,46 +829,43 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 		`${stripTypes('the playBet seam', `${sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n')}\n${playBetBody}`)}\nreturn playBet;`,
 	)(
 		() => order.push('stopWinCycle'),
+		world.runtime.forgetWinCycleWins,
 		world.roundSkip,
 		{ winBookEventAmount: 0 },
 		{ unskippablePresentationActive: false },
 		() => {},
 		{ broadcast: (event) => order.push(`broadcast:${event.type}`) },
 		async () => {
-			order.push('pop:start');
+			mark('pop:start');
 			// The REAL pop, over the REAL board handler and the REAL accumulated wins.
-			await world.runtime.explodeRoundWinners();
-			order.push('pop:done');
+			await world.runtime.explodeSpinWinners();
+			mark('pop:done');
+		},
+		// The REAL per-spin seam, unwrapped — what it DID is read off the board's own cue log, so the
+		// marker is pushed only when the seam actually broadcast a pop.
+		async (bookEvent) => {
+			const before = world.log.length;
+			await world.runtime.explodeWinnersBeforeBoardChange(bookEvent);
+			if (world.log.length > before) mark(`spinPop:${bookEvent.type}`);
 		},
 		() => order.push('startWinCycle'),
 		() => undefined,
 		() => flowV2,
 		sequence,
-		async (bookEvent) => {
-			dispatched.push(`flow:${bookEvent.type}`);
-			if (bookEvent.type === 'boom') throw new Error('handler blew up');
-			world.runtime.recordWinCycleWins(bookEvent);
-			if (bookEvent.type === 'winInfo') await world.runtime.codedHandlers.winInfo(bookEvent);
-		},
-		{
-			playBookEvent: async (bookEvent) => {
-				dispatched.push(`coded:${bookEvent.type}`);
-				if (bookEvent.type === 'boom') throw new Error('handler blew up');
-				world.runtime.recordWinCycleWins(bookEvent);
-				if (bookEvent.type === 'winInfo') await world.runtime.codedHandlers.winInfo(bookEvent);
-			},
-		},
+		(bookEvent) => present('flow', bookEvent),
+		{ playBookEvent: (bookEvent) => present('coded', bookEvent) },
 		async () => {},
 	);
 
+	const at = (what) => marks.find((entry) => entry.what === what)?.at;
 	try {
 		await clock.run(() => play({ state: book }));
 	} catch (error) {
 		// The seam is in a `finally`, so what it did is still worth asserting on a round that threw.
-		error.round = { label, order, dispatched, world };
+		error.round = { label, order, marks, dispatched, world, at };
 		throw error;
 	}
-	return { label, order, dispatched, world };
+	return { label, order, marks, dispatched, world, at };
 };
 
 const winningBook = [
@@ -858,7 +944,7 @@ const winningBook = [
 		'export const holdAfterBigWin = async (',
 		'\n};\n',
 	);
-	const popAt = holdBody.indexOf('await explodeRoundWinners();');
+	const popAt = holdBody.indexOf('await explodeSpinWinners();');
 	const cycleAt = holdBody.indexOf('void startWinCycle();');
 	const armAt = holdBody.indexOf('armSpinHold');
 	check('the between-spins hold awaits the pop', popAt > -1, true);
@@ -918,6 +1004,57 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 		gate({ reelSymbol: { removed: 1 } }, false),
 		false,
 	);
+}
+
+{
+	// THE FORWARD GATE, evaluated: `ReelSymbol.svelte` hands a renderer's completion to the cell ONLY
+	// while the state that armed the beat is still on it. That is the whole reason a beat something
+	// else has taken over never reports — and therefore the reason both bounded races exist.
+	const forward = sliceBetween(
+		reelSymbolSource,
+		'the oncomplete forward',
+		'oncomplete={() => {',
+		'\t\t\t}}',
+	);
+	const body = forward.slice(forward.indexOf('=> {') + 4, forward.lastIndexOf('}}'));
+	const gate = new Function(
+		'state',
+		`let forwarded = 0;
+const props = { reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
+${body}
+return { forwarded, state: props.reelSymbol.symbolState };`,
+	);
+	check('a `win` cell reports its beat', gate('win').forwarded, 1);
+	check('an `explosion` cell reports its beat', gate('explosion').forwarded, 1);
+	check('a cell that has moved on to `postWinStatic` reports nothing', gate('postWinStatic').forwarded, 0); // prettier-ignore
+	check('…nor one the board clear took over', gate('clearReel').forwarded, 0);
+	check('a `land` cell reports nothing and settles itself', gate('land').forwarded, 0);
+	check('…to `static`', gate('land').state, 'static');
+
+	// AND THE FIXTURE AGREES WITH IT. The harness's cell is what every timing above is measured
+	// through, so a cell that reported a beat something else had taken over would make the slam case
+	// in part 10 pass on a build that freezes for four seconds.
+	const reports = async (armed, takenOverBy) => {
+		const round = buildRound({ art: { [armed]: 300 } });
+		const cell = round.stateGame.board[0].reelState.symbols[0];
+		let reported = 0;
+		cell.oncomplete = () => {
+			reported += 1;
+		};
+		await round.clock.run(async () => {
+			cell.symbolState = armed;
+			if (takenOverBy) {
+				await round.clock.wait(100);
+				cell.symbolState = takenOverBy;
+			}
+			await round.clock.wait(500);
+		});
+		return reported;
+	};
+	check('the fixture’s cell reports an uninterrupted beat', await reports('win'), 1);
+	check('…and reports nothing once something else owns the cell', await reports('win', 'postWinStatic'), 0); // prettier-ignore
+	check('…which is exactly what the real gate answers', gate('postWinStatic').forwarded, 0);
+	check('…including an explosion the clear took over', await reports('explosion', 'clearReel'), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -992,12 +1129,12 @@ console.log('\n--- 7. the rotation is the wins MINUS the cells that are gone ---
 	// FULLY popped: the rotation is empty, which is what makes `startWinCycle` find nothing and the
 	// board simply rest.
 	const popped = await presentWinInfo(buildRound({ winExplode: true }));
-	await popped.clock.run(() => popped.runtime.explodeRoundWinners());
+	await popped.clock.run(() => popped.runtime.explodeSpinWinners());
 	check('after the pop the rotation is empty', popped.runtime.cycleEntries().length, 0);
 
 	// …and the pop OFF leaves it whole, which is the byte-parity claim.
 	const untouched = await presentWinInfo(buildRound({ winExplode: false }));
-	await untouched.clock.run(() => untouched.runtime.explodeRoundWinners());
+	await untouched.clock.run(() => untouched.runtime.explodeSpinWinners());
 	check('with the pop off the rotation is untouched', untouched.runtime.cycleEntries().length, 2);
 }
 
@@ -1086,11 +1223,11 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 	);
 	const gate = sliceBetween(
 		winCycleSource,
-		'explodeRoundWinners',
-		'export const explodeRoundWinners = async (',
+		'explodeSpinWinners',
+		'export const explodeSpinWinners = async (',
 		'\n};\n',
 	);
-	check('…and it reads the switch before anything else', gate.indexOf('bakedWinExplodeEnabled()') < gate.indexOf('roundWinningPositions()'), true); // prettier-ignore
+	check('…and it reads the switch before anything else', gate.indexOf('bakedWinExplodeEnabled()') < gate.indexOf('spinWinningPositions()'), true); // prettier-ignore
 	check('…returning rather than falling through', /if \(!bakedWinExplodeEnabled\(\)\) return;/.test(gate), true); // prettier-ignore
 
 	// THE BOOK-OF COLUMN MORPH uses the same `explosion` state to explode-then-SWAP and must NOT
@@ -1103,6 +1240,301 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 	);
 	check('the sliced morph really is the one that explodes', morph.includes("symbolState = 'explosion'"), true); // prettier-ignore
 	check('…and it explodes without removing', morph.includes('.removed = true'), false);
+}
+
+// ---------------------------------------------------------------------------
+// 10 — A SLAMMED PAYING SPIN: the detached win beat must not write over the pop.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- 10. a slammed paying spin pops on time, not four seconds late ---');
+
+/** One ordinary win — the commonest paying spin there is, and the shape the freeze was reported on. */
+const oneWinEvent = { type: 'winInfo', wins: [lineWin([0, 0, 0, 0, 0], 5)] };
+const oneWinBook = [
+	{ type: 'reveal', board: [] },
+	oneWinEvent,
+	{ type: 'setTotalWin', amount: 100 },
+];
+
+{
+	const plain = await drivePlayBet({ label: 'ordinary', book: oneWinBook, flowV2: undefined });
+	const slam = await drivePlayBet({
+		label: 'slammed',
+		book: oneWinBook,
+		flowV2: undefined,
+		slammed: true,
+	});
+	console.log(`      unslammed  pop:start@${plain.at('pop:start')}  pop:done@${plain.at('pop:done')}`); // prettier-ignore
+	console.log(`      slammed    pop:start@${slam.at('pop:start')}  pop:done@${slam.at('pop:done')}`); // prettier-ignore
+
+	// THE SLAM IS REAL — the anchor for everything below. `playBet` calls `roundSkip.reset()` before
+	// the first book event, so a world built already-skipped reports the unslammed numbers exactly and
+	// a "slammed round" run built that way asserts nothing at all.
+	check('the press really shortens the narration', slam.at('pop:start') < plain.at('pop:start'), true); // prettier-ignore
+	check('…to exactly the two slam holds: 200ms on the symbols + 400ms on the message', slam.at('pop:start'), 600); // prettier-ignore
+	check('…where the unslammed round spends the win beat’s 650ms floor', plain.at('pop:start'), 650);
+
+	// THE FREEZE. The slam DROPS the win beat's subscriber promise (`awaitCue` → `slamHold`), so
+	// `boardWithAnimateSymbols` keeps running detached: its floor lands at 650, fifty milliseconds
+	// AFTER the pop started at 600. An unguarded revert there tore the `explosion` down mid-flight,
+	// its art never reported, and the pop settled only on `WIN_BEAT_CAP_MS`.
+	check('the pop costs its authored explosion, not the runaway cap', slam.at('pop:done') - slam.at('pop:start'), 200); // prettier-ignore
+	check('…so the slammed round ends at 800, not 4600', slam.at('pop:done'), 800);
+	check('…and the unslammed one is untouched', plain.at('pop:done'), 850);
+	check('the spin button is released within a beat of the press, not four seconds later', slam.at('pop:done') < 1000, true); // prettier-ignore
+
+	// The narration as data: the detached beat's revert simply does not happen while the pop owns the
+	// cell. `win` at 0, `explosion` at 600, and ONE settle at 800 — no `postWinStatic` at 650.
+	const lit = slam.world.transitions.filter((t) => t.reel === 0 && t.row === 0);
+	check('the popped cell transitions exactly once per beat', lit.map((t) => `${t.state}@${t.at}`).join(','), 'win@0,explosion@600,postWinStatic@800'); // prettier-ignore
+	check('…and it is off the board', slam.world.stateGame.board[0].reelState.symbols[0].removed, true); // prettier-ignore
+	check('…as are all five of the winning cells', slam.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 5); // prettier-ignore
+}
+
+{
+	// STRUCTURAL, NOT A KNIFE-EDGE. The last win's beat settles at `(W-1)·H + WIN_BEAT_MIN_MS` while
+	// the pop starts at `W·H`, and the per-win slam hold `H` is 600ms (200 symbols + 400 message) —
+	// always under the 650ms floor. So a TWO-win slammed spin lands the same 50ms overlap one win
+	// later, and its shared cells make it the worse case.
+	const slam = await drivePlayBet({
+		label: 'slammed, two wins',
+		book: [{ type: 'reveal', board: [] }, sharedCellEvent, { type: 'setTotalWin', amount: 100 }],
+		flowV2: undefined,
+		slammed: true,
+	});
+	check('two wins ⇒ the pop starts one slam-hold later', slam.at('pop:start'), 1200);
+	check('…and the second win’s floor lands INSIDE it, at 1250', 600 + 650 > 1200, true);
+	check('…yet the pop still costs one explosion', slam.at('pop:done') - slam.at('pop:start'), 200);
+	check('…ending at 1400, not 5200', slam.at('pop:done'), 1400);
+	check('…with every winning cell gone', slam.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 6); // prettier-ignore
+	check('…and each exploding exactly once', slam.world.transitions.filter((t) => t.state === 'explosion').length, 6); // prettier-ignore
+}
+
+{
+	// WITH THE POP OFF a slammed round is untouched — no cue, no removal, and the detached beat still
+	// settles its own cell exactly when it always did.
+	const off = await drivePlayBet({
+		label: 'slammed, switch off',
+		book: oneWinBook,
+		flowV2: undefined,
+		slammed: true,
+		winExplode: false,
+	});
+	check('switch off: nothing is broadcast', off.world.log.filter((e) => e.type === 'boardExplodeWinSymbols').length, 0); // prettier-ignore
+	check('…nothing is removed', off.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 0); // prettier-ignore
+	// The round itself ends at 600 with the switch off (there is no pop to await), so the clock has
+	// to be run past the detached beat's own floor before its settle can be read at all.
+	await off.world.clock.run(() => off.world.clock.wait(1000));
+	check('…and the detached win beat settles at its floor, as always', off.world.transitions.filter((t) => t.reel === 0 && t.row === 0).map((t) => `${t.state}@${t.at}`).join(','), 'win@0,postWinStatic@650'); // prettier-ignore
+}
+
+{
+	// THE GUARD IS "the state I SET", not "not the pop's state". The pop is only the FIRST beat that
+	// can overtake a detached win beat; the next board's CLEAR is another, and it must be left alone
+	// just as firmly — a `postWinStatic` stamped over a `clearReel` tears that animation down and buys
+	// the clear its own cap.
+	const round = buildRound({ winExplode: true, art: { win: null } });
+	const cell = round.stateGame.board[0].reelState.symbols[0];
+	await round.clock.run(async () => {
+		const beat = round.runtime.boardHandlers.boardWithAnimateSymbols({
+			symbolPositions: [{ reel: 0, row: 0 }],
+		});
+		await round.clock.wait(100);
+		cell.symbolState = 'clearReel';
+		await beat;
+	});
+	check('a detached win beat leaves a cell the board clear now owns alone', cell.symbolState, 'clearReel'); // prettier-ignore
+	check('…and the beat still ended on its own cap', round.clock.at(), 4000);
+}
+
+// ---------------------------------------------------------------------------
+// 11 — ONCE PER PAYING SPIN, not once per BOOK.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- 11. every paying spin of a book pops, on its own board ---');
+
+/** Two spins, both paying, in ONE book — i.e. ONE `playBet`. The second `reveal` is what the first
+ *  spin's pop has to beat: after it, the cells its wins name belong to a different board. */
+const twoSpinBook = [
+	{ type: 'reveal', board: [] },
+	{ type: 'winInfo', wins: [lineWin([0, 0, 0, 0, 0], 5)] },
+	{ type: 'setTotalWin', amount: 50 },
+	{ type: 'updateFreeSpin', current: 2, total: 10 },
+	{ type: 'reveal', board: [] },
+	{ type: 'winInfo', wins: [lineWin([2, 2, 2, 2, 2], 5)] },
+	{ type: 'setTotalWin', amount: 100 },
+];
+
+{
+	const round = await drivePlayBet({ label: 'two spins', book: twoSpinBook, flowV2: undefined });
+
+	const pops = round.world.log.filter((entry) => entry.type === 'boardExplodeWinSymbols');
+	check('a two-spin book pops TWICE, once per paying spin', pops.length, 2);
+	check('…the first naming the first spin’s row', keysOf(pops[0].event.symbolPositions).join(','), '0:0,1:0,2:0,3:0,4:0'); // prettier-ignore
+	check('…the second naming the second spin’s row', keysOf(pops[1].event.symbolPositions).join(','), '0:2,1:2,2:2,3:2,4:2'); // prettier-ignore
+
+	// WHERE each one fired: the first at the per-spin seam, BEFORE the `reveal` that replaced its
+	// board; the second at `playBet`'s `finally`, because no board change follows it.
+	check('the first pop is the per-spin seam', round.order.includes('spinPop:reveal'), true);
+	check('…and it lands before the reveal it precedes', round.order.indexOf('spinPop:reveal') < round.order.lastIndexOf('broadcast:stopButtonEnable'), true); // prettier-ignore
+	check(
+		'the whole round reads: spin 1 pops, spin 2 reveals, round ends, spin 2 pops',
+		round.order
+			.filter((entry) => entry.startsWith('spinPop') || entry.startsWith('pop:'))
+			.join(','),
+		'spinPop:reveal,pop:start,pop:done',
+	);
+	check('…and the dispatch order is untouched', round.dispatched.join(','), 'coded:reveal,coded:winInfo,coded:setTotalWin,coded:updateFreeSpin,coded:reveal,coded:winInfo,coded:setTotalWin'); // prettier-ignore
+
+	// ON THE LIVE BOARD. The first spin's cells were still the board's own cells when they exploded —
+	// the fixture rebuilds the board on every `reveal`, exactly as `createReelSymbols` does, so a pop
+	// that fired one event later would have named seats belonging to the NEXT board.
+	const firstSpin = round.world.transitions.filter((t) => t.at < round.at('pop:start'));
+	check('the first spin’s winners played `explosion` while their board was still up', firstSpin.filter((t) => t.state === 'explosion' && t.row === 0).length, 5); // prettier-ignore
+	check('…and nothing on the second spin’s row was touched before its own win', firstSpin.filter((t) => t.row === 2 && t.state === 'explosion').length, 0); // prettier-ignore
+	check('the second spin’s winners are the ones left removed on the final board', round.world.stateGame.board.flatMap((r, reel) => r.reelState.symbols.map((c, row) => (c.removed ? `${reel}:${row}` : null))).filter(Boolean).join(','), '0:2,1:2,2:2,3:2,4:2'); // prettier-ignore
+}
+
+{
+	// THE CASCADE is the same question with a different event: a `tumbleBoard` replaces the seats the
+	// step just paid on, so the step's winners must pop before it and not at the end of the chain.
+	const round = await drivePlayBet({
+		label: 'cascade',
+		book: [
+			{ type: 'reveal', board: [] },
+			{ type: 'winInfo', wins: [lineWin([0, 0, 0, 0, 0], 5)] },
+			{ type: 'tumbleBoard', explodingSymbols: [], newSymbols: [] },
+			{ type: 'winInfo', wins: [lineWin([2, 2, 2, 2, 2], 5)] },
+			{ type: 'setTotalWin', amount: 100 },
+		],
+		flowV2: undefined,
+	});
+	const pops = round.world.log.filter((entry) => entry.type === 'boardExplodeWinSymbols');
+	check('a two-step cascade pops twice', pops.length, 2);
+	check('…the first before the tumble that replaced its seats', round.order.includes('spinPop:tumbleBoard'), true); // prettier-ignore
+	check('…naming only the step that paid', keysOf(pops[0].event.symbolPositions).join(','), '0:0,1:0,2:0,3:0,4:0'); // prettier-ignore
+	check('…and the chain’s last step pops at the round seam', keysOf(pops[1].event.symbolPositions).join(','), '0:2,1:2,2:2,3:2,4:2'); // prettier-ignore
+}
+
+{
+	// THE ROUND BOUNDARY. `recordWinCycleWins` clears at a board CHANGE, so the last spin's wins
+	// outlive the book — and the per-spin seam runs immediately before the NEXT round's first
+	// `reveal`, which is where they would be popped a second time. A stacked-COVERED seat is the case
+	// that proves the leak is real rather than argued: the pop cannot remove one, so the leftover
+	// really is still poppable when the next round opens.
+	const round = await presentWinInfo(buildRound({ winExplode: true, coveredSeats: [[2, 2]] }));
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
+	round.log.length = 0;
+
+	// The next round opens HERE, at its first `reveal`.
+	await round.clock.run(() => round.runtime.explodeWinnersBeforeBoardChange({ type: 'reveal' }));
+	check(
+		'left recorded, the previous round’s leftovers really would pop again',
+		round.log.length,
+		1,
+	);
+
+	round.log.length = 0;
+	round.runtime.forgetWinCycleWins();
+	await round.clock.run(() => round.runtime.explodeWinnersBeforeBoardChange({ type: 'reveal' }));
+	check('…and dropping them at the round boundary is what stops it', round.log.length, 0);
+	check('playBet drops them before the book starts', playBetBody.indexOf('forgetWinCycleWins();') > -1 && playBetBody.indexOf('forgetWinCycleWins();') < playBetBody.indexOf('await playBookEvents(bet.state);'), true); // prettier-ignore
+}
+
+{
+	// NEVER TWICE. A spin whose winners are already gone must not pop again at the round seam, and a
+	// non-paying spin in the middle of a book must not pop at all.
+	const round = await drivePlayBet({
+		label: 'one paying spin of three',
+		book: [
+			{ type: 'reveal', board: [] },
+			{ type: 'setTotalWin', amount: 0 },
+			{ type: 'reveal', board: [] },
+			{ type: 'winInfo', wins: [lineWin([0, 0, 0, 0, 0], 5)] },
+			{ type: 'setTotalWin', amount: 50 },
+			{ type: 'reveal', board: [] },
+			{ type: 'setTotalWin', amount: 50 },
+		],
+		flowV2: undefined,
+	});
+	const pops = round.world.log.filter((entry) => entry.type === 'boardExplodeWinSymbols');
+	check('three spins, one of them paying ⇒ exactly ONE pop', pops.length, 1);
+	check('…fired by the per-spin seam, not the round seam', round.order.filter((e) => e.startsWith('spinPop')).length, 1); // prettier-ignore
+	check('…and the round seam finds nothing left to pop', round.order.filter((e) => e === 'pop:done').length, 1); // prettier-ignore
+	check('…the board the round ends on is untouched', round.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 0); // prettier-ignore
+
+	// …AND ON THE FLOW PATH TOO. The seam is on BOTH branches of `playBookEvents`, so a v2 flow that
+	// owns every event pops on exactly the same spins.
+	const flow = await drivePlayBet({
+		label: 'two spins, flow',
+		book: twoSpinBook,
+		flowV2: { ownsEvent: () => true },
+	});
+	check('the flow branch pops once per paying spin as well', flow.world.log.filter((e) => e.type === 'boardExplodeWinSymbols').length, 2); // prettier-ignore
+	check('…driven by the flow, not the coded map', flow.dispatched.every((entry) => entry.startsWith('flow:')), true); // prettier-ignore
+
+	// THE SWITCH still buys byte-parity across a whole multi-spin book.
+	const off = await drivePlayBet({ label: 'two spins, off', book: twoSpinBook, flowV2: undefined, winExplode: false }); // prettier-ignore
+	check('with the pop OFF a multi-spin book broadcasts nothing', off.world.log.filter((e) => e.type === 'boardExplodeWinSymbols').length, 0); // prettier-ignore
+	check('…and removes nothing', off.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 0); // prettier-ignore
+}
+
+{
+	// THE CORPUS, A/B. The same REAL `recordWinCycleWins` + REAL `explodeSpinWinners` are driven over
+	// every reference book twice: once with the per-spin seam (`explodeWinnersBeforeBoardChange`) and
+	// once with the round seam alone, which is what shipped. The difference is the feature's coverage.
+	const world = buildRound({ winExplode: true, art: { explosion: 10 } });
+	const popsOverCorpus = async (books, perSpinSeam) => {
+		let pops = 0;
+		let payingSpins = 0;
+		let booksMissingAPop = 0;
+		for (const book of books) {
+			world.log.length = 0;
+			world.rebuildBoard();
+			// One book is one `playBet`, which drops the previous round's recorded wins before the
+			// first event (`forgetWinCycleWins`).
+			world.runtime.forgetWinCycleWins();
+			let spinPaid = false;
+			let paid = 0;
+			await world.clock.run(async () => {
+				for (const event of book.events) {
+					if (perSpinSeam) await world.runtime.explodeWinnersBeforeBoardChange(event);
+					if (event.type === 'reveal' || event.type === 'tumbleBoard') {
+						if (spinPaid) paid += 1;
+						spinPaid = false;
+						world.rebuildBoard();
+					}
+					if (event.type === 'winInfo') spinPaid = true;
+					world.runtime.recordWinCycleWins(event);
+				}
+				await world.runtime.explodeSpinWinners();
+			});
+			if (spinPaid) paid += 1;
+			const broadcast = world.log.filter((entry) => entry.type === 'boardExplodeWinSymbols').length;
+			pops += broadcast;
+			payingSpins += paid;
+			if (broadcast < paid) booksMissingAPop += 1;
+		}
+		return { pops, payingSpins, booksMissingAPop };
+	};
+
+	for (const [label, path, expected] of [
+		['base_books', '../apps/lines/src/stories/data/base_books.ts', { payingSpins: 7480, shipped: 5255 }], // prettier-ignore
+		['bonus_books', '../apps/lines/src/stories/data/bonus_books.ts', { payingSpins: 250, shipped: 23 }], // prettier-ignore
+	]) {
+		const books = (await import(path)).default;
+		const now = await popsOverCorpus(books, true);
+		const shipped = await popsOverCorpus(books, false);
+		console.log(
+			`      ${label}: ${now.pops}/${now.payingSpins} paying spins pop (was ${shipped.pops}; ` +
+				`${now.payingSpins - shipped.pops} were dropped, in ${shipped.booksMissingAPop} books)`,
+		);
+		check(`${label}: the round seam alone covered only the last spin`, shipped.pops, expected.shipped); // prettier-ignore
+		check(`${label}: …and dropped the rest`, expected.payingSpins - expected.shipped > 0, true);
+		check(`${label}: the per-spin seam covers every paying spin`, now.pops, expected.payingSpins);
+		check(`${label}: …and no book is left short`, now.booksMissingAPop, 0);
+		check(`${label}: …never popping more than it paid`, now.pops, now.payingSpins);
+	}
 }
 
 console.log('');

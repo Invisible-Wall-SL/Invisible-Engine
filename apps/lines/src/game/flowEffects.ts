@@ -598,7 +598,7 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
  * board's own `base` column, which is built from the padded strip, so the visible band is
  * `1 … length - 2`.
  *
- * A cell the END-OF-ROUND POP already took off the board (Invisible Symbols → "Winning symbols
+ * A cell the WIN-EXPLOSION POP already took off the board (Invisible Symbols → "Winning symbols
  * explode") is deliberately still IN the set. It costs nothing — the overlay's explode step
  * recognises a seat that is already gone and returns before it waits on anything
  * (`TumbleBoard.svelte`) — and it keeps this step's exploding set equal to the seats the step OWNS,

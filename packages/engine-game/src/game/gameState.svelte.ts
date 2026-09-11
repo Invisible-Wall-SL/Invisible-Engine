@@ -1309,7 +1309,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		stateGame.board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));
 
 	/**
-	 * WHICH cells of {@link boardRaw} are no longer on the board — taken off by the end-of-round pop
+	 * WHICH cells of {@link boardRaw} are no longer on the board — taken off by the win-explosion pop
 	 * (Invisible Symbols → "Winning symbols explode"; see `ReelSymbol.removed`). Same shape, same
 	 * indices, cell for cell, so a consumer that addresses the board by position can ask whether a
 	 * seat still holds anything without reaching into the reels itself.

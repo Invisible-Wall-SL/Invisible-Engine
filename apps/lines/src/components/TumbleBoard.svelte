@@ -294,7 +294,7 @@
 		initY: number;
 		rawSymbol: RawSymbol;
 		/**
-		 * This seat's REEL cell was already taken off the board by the end-of-round pop (Invisible
+		 * This seat's REEL cell was already taken off the board by the win-explosion pop (Invisible
 		 * Symbols → "Winning symbols explode"). The overlay's survivor layer is built from the resting
 		 * board, so without this the symbols that blew up at the end of the round would come BACK for
 		 * the length of the next spin's clear — the one moment the reel board is hidden and this layer
@@ -357,7 +357,7 @@
 	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
 
 	/** ONE column as it stands right now, seated exactly where the reels left it — the seats the
-	 *  end-of-round pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
+	 *  win-explosion pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
 	const initTumbleBoardBaseReel = (reelIndex: number) => {
 		const removed = stateGameDerived.boardRemoved()[reelIndex] ?? [];
 		return (stateGameDerived.boardRaw()[reelIndex] ?? []).map((rawSymbol, symbolIndex) =>
@@ -370,7 +370,7 @@
 	};
 
 	/** The board as it stands right now, seated exactly where the reels left it — the seats the
-	 *  end-of-round pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
+	 *  win-explosion pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
 	const initTumbleBoardBase = () => {
 		const removed = stateGameDerived.boardRemoved();
 		return stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
@@ -627,7 +627,7 @@
 				explodingPositions.map(async (position, index) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
-					// ALREADY GONE — the end-of-round pop took this seat off the board before the step ever
+					// ALREADY GONE — the win-explosion pop took this seat off the board before the step ever
 					// started (Invisible Symbols → "Winning symbols explode"), so it is here only to hold its
 					// index. It draws nothing, which means it could never report an `oncomplete`: awaiting it
 					// would spend the whole beat cap on a cell with no animation, and popping it would be the

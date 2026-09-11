@@ -2542,7 +2542,7 @@ console.log('--- 11. the board clear takes the seats the win blew up as it finds
 
 /**
  * The claims that must hold for ONE ARM of the clear, driven over a board whose `removedCells` the
- * end-of-round pop already emptied.
+ * win-explosion pop already emptied.
  *
  * Both arms — the whole board at once, and one column at a time — reach the same helper, and they
  * are asserted SEPARATELY because that is the only way a difference between them becomes visible: a
@@ -2605,7 +2605,7 @@ const assertClearOverRemoved = ({ label, run, removedCells }) => {
 	// The reported bug, driven: a swap-in-place project with "Clear the board before the new symbols
 	// fall in" ON and Invisible Symbols → "Winning symbols explode" ON read Win → Explosion → Clear
 	// reel, because the NEXT spin's clear popped every visible cell — the winners it had already
-	// blown up included. The end-of-round pop now takes them off (`Board.svelte` marks the cell
+	// blown up included. The win-explosion pop now takes them off (`Board.svelte` marks the cell
 	// `removed`), and the clear must take that board as it finds it.
 	//
 	// Three cells of a middle payline, in the padded rows a win can actually land on.
@@ -2714,7 +2714,7 @@ const assertClearOverRemoved = ({ label, run, removedCells }) => {
 // the removal and the refill are two readings of ONE list, and they only stay in step while the
 // removal takes exactly what the step popped.
 //
-// The end-of-round pop puts a second kind of gone cell on that board. If one of those were swept by
+// The win-explosion pop puts a second kind of gone cell on that board. If one of those were swept by
 // a step that never named it, `tumbleBoardCombined()` would come up SHORT — broadcast as
 // `boardSettle`, written to the reels, and from there `combineTumbleReel`'s "baseReel[0] is the top
 // pad" assumption starts pointing at a real symbol and every later step of the chain addresses the
@@ -2806,7 +2806,7 @@ const runCascadeStep = async ({
 	// scored the next step against a board that has it, so this is what "the book is the authority"
 	// means in code.
 	check(
-		'the seat the end-of-round pop emptied survives the step, by identity',
+		'the seat the win-explosion pop emptied survives the step, by identity',
 		run.settled[2].includes(previousBoard[2][3]),
 		true,
 	);

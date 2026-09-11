@@ -585,7 +585,7 @@ const runExplode = async ({
 	// How long each seat's explosion takes to report. `null` = it never does — the symbol whose
 	// state is bound to no art, or to a spine animation that is not in the skeleton.
 	beatMs = BEAT_MS,
-	// Seats (`"reel:row"`) the END-OF-ROUND POP already took off the board before this step began
+	// Seats (`"reel:row"`) the WIN-EXPLOSION POP already took off the board before this step began
 	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer holding their
 	// index, born UNDRAWN (`exploded`) but in the ORDINARY `static` state — the board-wide removal
 	// filters `base` by what THIS step popped, so a seat born `clearReel` would be swept by a step

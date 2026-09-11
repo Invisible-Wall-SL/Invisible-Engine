@@ -944,7 +944,7 @@ export function winExplodeEnabled(doc: SymbolsDoc): boolean {
 	return doc.winExplode?.enabled ?? false;
 }
 
-/** Turn the end-of-round pop on/off. Sparse like `winCycle.showMessage`: OFF deletes the key so an
+/** Turn the win-explosion pop on/off. Sparse like `winCycle.showMessage`: OFF deletes the key so an
  *  untouched/reset project persists nothing. */
 export function setWinExplodeEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
 	const next = { ...doc };
@@ -1451,7 +1451,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		winLine,
 		stackedPictures,
 		winCycle,
-		// Listed here or turning the end-of-round pop on never marks the page dirty and Save stays
+		// Listed here or turning the win-explosion pop on never marks the page dirty and Save stays
 		// disabled — the same trap every sibling above carries a warning about.
 		winExplode: doc.winExplode?.enabled === true ? true : null,
 		bookVfx,

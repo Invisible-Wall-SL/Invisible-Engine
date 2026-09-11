@@ -11,7 +11,7 @@
  *      accepted, lands under the new name, on BOTH state-keyed maps (`symbols` + `symbolSounds`);
  *      the new key wins when a doc somehow holds both; and the old name never survives downstream.
  *
- *   2. THE END-OF-ROUND POP — `winExplode`. Sparse and default OFF, so the whole contract is that an
+ *   2. THE WIN-EXPLOSION POP — `winExplode`. Sparse and default OFF, so the whole contract is that an
  *      untouched project persists NOTHING (byte-parity on the beat every paying spin runs), that the
  *      ON state round-trips, and that it reaches BOTH bundle paths — the export result and the
  *      bake whitelist, which are two hand-written lists nothing else forces to agree.
@@ -165,7 +165,7 @@ rejects('a state name nothing renders is still rejected', {
 	symbols: { H1: { madeUpState: BOOM } },
 });
 
-console.log('\n5. the end-of-round pop is sparse and OFF by default');
+console.log('\n5. the win-explosion pop is sparse and OFF by default');
 const untouched = normalizeSymbolsDoc({ version: 1, symbols: { H1: { win: MORPH } } });
 check('an untouched doc persists no `winExplode`', 'winExplode' in untouched, false);
 check('…and reads as OFF', winExplodeEnabled(untouched as SymbolsDoc), false);
@@ -237,7 +237,7 @@ check(
 check('the bake whitelist rebuilds it', bake.includes('s?.symbolSounds && typeof s.symbolSounds'), true); // prettier-ignore
 check('…and puts it on the bundle', /\n\t{4,}symbolSounds,\n/.test(bake), true);
 
-console.log('\n8. the pop IS the removal — once, at the end of the round');
+console.log('\n8. the pop IS the removal — once per spin, at the end of it');
 const board = read(`${root}apps/lines/src/components/Board.svelte`);
 const reelSymbol = read(`${root}apps/lines/src/components/ReelSymbol.svelte`);
 const tumbleBoard = read(`${root}apps/lines/src/components/TumbleBoard.svelte`);
@@ -262,7 +262,7 @@ const slice = (source: string, what: string, marker: string, endMarker = '\n\n')
 
 // THE BOARD CLEAR'S VISIBLE BAND, over the REAL function. It is a padded strip — one buffer row
 // above, one below — and popping a row nobody can see buys a beat-race per hidden cell for no
-// picture. A seat the end-of-round pop emptied is deliberately still in the set: the overlay's
+// picture. A seat the pop emptied is deliberately still in the set: the overlay's
 // explode step recognises it and returns before it waits, and the board-wide removal after the step
 // is keyed on what the step NAMED, so filtering here would strand the emptied seat in the survivor
 // layer while everything around it left (driven in verify-swap-in-place-mode part 11, both arms).
@@ -338,11 +338,27 @@ check(
 	true,
 );
 check('…bounded by the win-beat cap', popBeat.includes('WIN_BEAT_CAP_MS'), true);
-const popGate = slice(
-	winCycle,
-	'explodeRoundWinners',
-	'export const explodeRoundWinners = async (',
+// A DETACHED BEAT MUST NOT WRITE OVER A LATER ONE. A slam drops the win beat's subscriber promise
+// (`awaitCue` → `slamHold`) and the handler keeps running, so its settle can land after the pop has
+// taken the cell over — which tore the explosion down and bought the pop the whole cap. Both beats
+// therefore settle only the state THEY set. The removal is deliberately not guarded: "explode and be
+// gone" holds on both exits of the race.
+check(
+	'the win beat settles only a cell still reading `win`',
+	winBeat.includes("if (reelSymbol.symbolState === 'win') {"),
+	true,
 );
+check(
+	'…and the pop settles only a cell still reading `explosion`',
+	popBeat.includes("if (reelSymbol.symbolState === 'explosion') {"),
+	true,
+);
+check(
+	'…while the removal itself stays unconditional',
+	popBeat.includes('\n\t\t\t\t\treelSymbol.removed = true;'),
+	true,
+);
+const popGate = slice(winCycle, 'explodeSpinWinners', 'export const explodeSpinWinners = async (');
 check('the switch is read before anything else happens', /if \(!bakedWinExplodeEnabled\(\)\) return;/.test(popGate), true); // prettier-ignore
 check('…and an empty winning set broadcasts nothing', popGate.includes('if (!symbolPositions.length) return;'), true); // prettier-ignore
 check(
@@ -356,9 +372,48 @@ check(
 	1,
 );
 
-// THE TWO SEAMS. The pop runs where the resting replay would have started — `playBet`'s `finally`
-// (every dispatch path) and the between-spins hold — awaited, and before the replay, or the replay
-// would light seats that are about to vanish.
+// THE THREE SEAMS. The pop is per SPIN, not per book: `playBookEvents` runs it immediately before the
+// `reveal` / `tumbleBoard` that replaces the board — on BOTH dispatch branches — while `playBet`'s
+// `finally` and the between-spins hold cover the book's last spin, which no board change follows.
+// Those two run it awaited and BEFORE the replay, or the replay would light seats about to vanish.
+const playBookEventsBody = slice(
+	playUtils,
+	'playBookEvents',
+	'export const playBookEvents = async (',
+	'\n};\n',
+);
+check(
+	'the per-spin seam runs on BOTH dispatch branches',
+	(playBookEventsBody.match(/await explodeWinnersBeforeBoardChange\(bookEvent\);/g) ?? []).length,
+	2,
+);
+for (const dispatch of [
+	'await playBookEvent(bookEvent, { ...context, bookEvents });',
+	'await coded.playBookEvent(bookEvent, { ...context, bookEvents });',
+]) {
+	check(
+		'…before that branch presents the event',
+		playBookEventsBody.indexOf('await explodeWinnersBeforeBoardChange(bookEvent);') <
+			playBookEventsBody.indexOf(dispatch),
+		true,
+	);
+}
+check(
+	'…keyed to the same board-change set the recorded wins are cleared on',
+	slice(winCycle, 'explodeWinnersBeforeBoardChange', 'export const explodeWinnersBeforeBoardChange = async (').includes('if (!REPLACES_THE_BOARD.has(bookEvent.type)) return;'), // prettier-ignore
+	true,
+);
+check(
+	'…which is the only thing inside the module that clears them, besides the round boundary',
+	(winCycle.match(/wins = \[\];/g) ?? []).length,
+	2,
+);
+check(
+	'…and playBet drops the previous round’s wins before the book starts',
+	slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('forgetWinCycleWins();') < // prettier-ignore
+		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('await playBookEvents(bet.state);'), // prettier-ignore
+	true,
+);
 for (const [what, source] of [
 	[
 		'playBet',
@@ -366,17 +421,17 @@ for (const [what, source] of [
 	],
 	['the between-spins hold', slice(freeSpinHold, 'holdAfterBigWin', 'export const holdAfterBigWin = async (', '\n};\n')], // prettier-ignore
 ] as const) {
-	check(`${what} awaits the pop`, source.includes('await explodeRoundWinners();'), true);
+	check(`${what} awaits the pop`, source.includes('await explodeSpinWinners();'), true);
 	check(
 		`…and starts the replay only after it`,
-		source.indexOf('await explodeRoundWinners();') < source.indexOf('void startWinCycle();'),
+		source.indexOf('await explodeSpinWinners();') < source.indexOf('void startWinCycle();'),
 		true,
 	);
 }
 check(
 	'…and playBet runs it in the finally, so a slammed or aborted round reaches it',
 	slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('} finally {') < // prettier-ignore
-		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('await explodeRoundWinners();'), // prettier-ignore
+		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('await explodeSpinWinners();'), // prettier-ignore
 	true,
 );
 

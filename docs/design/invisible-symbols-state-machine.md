@@ -332,10 +332,10 @@ tumble OVERLAY, a separate concept); `tumbleExplosionDelays` + the `TUMBLE_PATTE
 the churn saves); and the game-wide `tumbleExplosion` SOUND SLOT in `packages/game-config/src/sounds.ts`,
 which is a `/config` → Sounds key, not a symbol state.
 
-## Winning symbols explode — added 2026-09-10
+## Winning symbols explode — added 2026-09-10, re-scoped to the SPIN 2026-09-11
 
 **The problem.** `explosion` only ever meant "the Book-of column morph". A board that does not
-cascade had no way to say _"the symbol goes out with a pop when the round is over"_ — the winner
+cascade had no way to say _"the symbol goes out with a pop when the spin is over"_ — the winner
 played `win` and `Board.svelte` reverted it straight to `postWinStatic`.
 
 **The shape.** One optional doc-global, a sibling of `winCycle`:
@@ -344,9 +344,9 @@ played `win` and `Board.svelte` reverted it straight to `postWinStatic`.
 winExplode?: { enabled?: boolean }
 ```
 
-On, the round's winning cells play their `explosion` state — all of them together, ONCE, after the
-whole win presentation has narrated — awaited with the same bounded-beat treatment the win beat gets
-(`awaitSymbolBeat` + `WIN_BEAT_CAP_MS`). No floor: `WIN_BEAT_MIN_MS` was already spent on the win,
+On, a spin's winning cells play their `explosion` state — all of them together, ONCE, after that
+spin's whole win presentation has narrated — awaited with the same bounded-beat treatment the win
+beat gets (`awaitSymbolBeat` + `WIN_BEAT_CAP_MS`). No floor: `WIN_BEAT_MIN_MS` was already spent on the win,
 and a second one would be added to every paying spin. Concurrent, so the whole pop costs one bounded
 beat rather than one per cell.
 
@@ -360,27 +360,62 @@ winners now leave on their own beat and the clear only pops what is still standi
 NOT pay are untouched: taking those off stays the job of the cascade and the clear step
 (`clearReel`).
 
-**It happens at the END of the round, not at the end of each win, and that is the load-bearing
-sequencing decision.** A round presents its wins ONE AFTER ANOTHER over the same board
+**It happens at the END of a SPIN, not at the end of each win, and that is the load-bearing
+sequencing decision.** A spin presents its wins ONE AFTER ANOTHER over the same board
 (`bookEventHandlerMap.winInfo` → `sequence(bookEvent.wins, …)`) and overlapping paylines share
 cells — line 1 `[0,0,0,0,0]`, line 6 `[0,0,1,2,2]` and line 18 `[0,0,2,0,0]` all pay on reels 0-1 of
 row 0, and 1970 of the 7480 `winInfo` events in the reference books (26%) have at least one cell paid
 by two wins. Popped at the end of its own win, a cell was therefore taken off the board that a LATER
-win of the same round still had to light: the later win set `symbolState = 'win'` on an unmounted
+win of the same spin still had to light: the later win set `symbolState = 'win'` on an unmounted
 cell whose `oncomplete` can never fire, the beat settled only on `WIN_BEAT_CAP_MS`, and the pop then
 armed a second unfirable one — about eight seconds of frozen presentation, on a quarter of paying
 spins, with nothing below the cap to bound it. Deferred, every win's narration is byte-identical to
 the switch being OFF and the explosion is one extra beat at the end.
 
-**Where "the end" is.** The seam is the point where the resting replay would otherwise start —
-`playBet`'s `finally` (the one place every dispatch path crosses: coded handler map, v1 flow, v2
-flow, a slammed round, a round whose book threw) and the between-spins hold
-(`freeSpinHold.holdAfterBigWin`). `winSymbolCycle` already ACCUMULATES the round's wins across
-`winInfo` events and dedupes them — it had to, because the Play4Fun facade the shipped games run on
-flushes one event per win — so the set the pop needs is the set the replay was already building, and
-the two cannot disagree about which cells the round paid on. `explodeRoundWinners` dedupes it once
-more BY SEAT (the shared-cell case) and drops anything already gone, so the two seams are safe to
-both run and a losing round broadcasts nothing at all.
+**A SPIN, not a ROUND, and that distinction was a shipped bug.** `playBet` runs once per BOOK — a
+bonus book carries ~10 free spins inside that one call — while the recorded wins are cleared at every
+board change (`reveal`, `tumbleBoard`). A pop that only ran from `playBet`'s `finally` therefore saw
+nothing but the wins recorded after the LAST board change: measured on this repo's own reference
+books, 5255 of 7480 paying spins in `base_books.ts` and 23 of 250 in `bonus_books.ts`, i.e. **2225
+and 227 paying spins never popped at all**. A mid-book winner that is never marked `removed` is then
+swept by the NEXT board's clear playing `clearReel` — exactly the double pop the feature exists to
+prevent, on the majority of paying spins.
+
+**Where "the end" is: three seams, keyed to one set.** The pop fires immediately BEFORE the event
+that takes the board away, i.e. at the `playBookEvents` loop, ahead of the dispatch, on BOTH
+dispatch branches (`explodeWinnersBeforeBoardChange`). "Takes the board away" is the same
+`REPLACES_THE_BOARD` set — `reveal` and `tumbleBoard` — that `recordWinCycleWins` clears `wins` on,
+declared once and read by both, so **every clear is preceded by a pop**. The book's LAST spin has no
+board change after it, so `playBet`'s `finally` still covers it (in the `finally`, so a slammed or
+thrown round reaches it), as does the between-spins hold (`freeSpinHold.holdAfterBigWin`). Popping
+before the clear is what keeps it on the LIVE board: the wins are blown up on the board they were
+scored on, never on one that has been replaced. The three cannot double-pop — the set drops anything
+already gone — and `playBet` drops the previous round's recorded wins up front
+(`forgetWinCycleWins`), so a new round can never open by popping the last one's set. A celebration is
+deliberately not a boundary: `freeSpinTrigger` / `freeSpinEnd` cover the board with a screen but do
+not replace it, and the wins are still on it when the next real boundary arrives.
+
+`winSymbolCycle` already ACCUMULATES a spin's wins across `winInfo` events and dedupes them — it had
+to, because the Play4Fun facade the shipped games run on flushes one event per win — so the set the
+pop needs is the set the replay was already building, and the two cannot disagree about which cells
+the spin paid on. `explodeSpinWinners` dedupes it once more BY SEAT (the shared-cell case) and drops
+anything already gone; a losing spin broadcasts nothing at all. It is NOT raced against the slam
+token: it owns the board (it removes cells), and board-owning work stays fully awaited, or it would
+still be removing cells while the next `reveal` rebuilds them.
+
+**A BEAT ONLY SETTLES THE STATE IT SET.** A slam drops the win beat's subscriber promise (`awaitCue`
+→ `slamHold`) and `Board.svelte`'s `boardWithAnimateSymbols` keeps running DETACHED, so the round
+finishes while the beat is still ticking. Its `postWinStatic` revert then landed ~50ms INSIDE the pop
+that had already started, replaced the `explosion` art mid-flight — and `ReelSymbol` forwards
+`oncomplete` only while the state that armed the beat is still on the cell, so the pop's completion
+was discarded and it settled on `WIN_BEAT_CAP_MS`: **a slammed paying spin froze for ~4s with the
+spin button locked** (`playGame` is a promise actor). Structural, not a knife-edge — the last win's
+beat settles at `(W-1)·H + WIN_BEAT_MIN_MS` while the pop starts at `W·H`, and the per-win slam hold
+`H` is 200ms (600 with a message), always under the 650ms floor. Both beats therefore guard their
+terminal state write on the state still being theirs (`win` / `explosion`); the pop's REMOVAL stays
+unconditional, because "explode and be gone" holds on both exits of the race. A state check rather
+than an ownership token, deliberately: a cell a second win of the same spin re-lit still reads `win`
+and is still reverted, which is exactly what the pop being OFF does.
 
 The removal is a flag on the reel CELL (`ReelSymbol.removed`, `utils-slots`), not a `reel:row` set,
 and that is what makes it self-clearing: every board replacement builds fresh cells, so the next
