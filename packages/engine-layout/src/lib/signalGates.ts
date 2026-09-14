@@ -56,7 +56,9 @@ export function wantsCompleteListener(loop: boolean | undefined, hasCallback: bo
 
 /** The active cue's playback, as `LayoutNodeView` resolves it. */
 export type ActiveCuePlayback = {
-	animation: string;
+	/** The animation a SPINE cue plays. Absent on a FLIPBOOK cue, which names a clip instead —
+	 *  such a cue has no spine track to hand off, so the predicate below returns false for it. */
+	animation?: string;
 	loop?: boolean;
 	/** Set ⇒ the cue declares a completion hand-off, which makes it a ONE-SHOT by construction
 	 *  (see {@link handsOffToIdle}). */
@@ -93,7 +95,7 @@ export function handsOffToIdle(
 	defaultAnimation: string | undefined,
 	hasStateAnimation: boolean,
 ): boolean {
-	if (hasStateAnimation || !cue) return false;
+	if (hasStateAnimation || !cue || !cue.animation) return false;
 	if (cue.loop && !cue.completeSignal) return false;
 	return !!defaultAnimation && defaultAnimation !== cue.animation;
 }

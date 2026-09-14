@@ -217,6 +217,8 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-14 — **A PLACED clip can now be swapped by a signal.** A `flipbook` layout node gained `cues` — fire a signal (from the game, or a Flow `fireCue`) and it plays a different clip, which is how a frame-animated character holds a "while the reels spin" loop. Nothing in THIS tool changed: clips are authored, exported, baked and registered exactly as before, and a cue’s target clip rides the existing reachability walk so it ships like any other played clip. Mechanism + parity: [engine status](engine.md); authoring: [editor status](editor.md).
+
 - 2026-09-09 — **A session delete now VERIFIES against R2 before it reports success**
   (`video_runner.delete_session`). `storage.delete` swallows every error, so a read-only token or
   a transport blip returned `ok` for objects still sitting in the bucket — the same false success

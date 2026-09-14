@@ -773,6 +773,27 @@ export interface EffectNode extends BaseNode {
 }
 
 /**
+ * Signal-driven clip SWAP — the flipbook twin of {@link SpineCue}. When the named signal fires,
+ * this node plays `clipId` instead of its own. Same authoring model as a spine cue and driven by
+ * the same bus (a game-registered signal, or an author-named one a Flow `fireCue` broadcasts), so
+ * "the resting clip, then a different clip while the reels spin" reads identically for a rig and
+ * for a frame animation.
+ *
+ * There is no `completeSignal` twin: a spine one-shot reports completion through `SpineTrack`,
+ * while `<Flipbook>` exposes no completion hook — a non-looping clip simply stops on its last
+ * frame. And like a spine cue, a fired cue is never CLEARED: returning to the resting clip is a
+ * second cue that names it, not a stop.
+ */
+export interface FlipbookCue {
+	/** The signal that swaps the clip (a ComponentSignal key, or an author-named cue). */
+	signal: string;
+	/** The clip to play while this cue is the active one. */
+	clipId: string;
+	/** Override the target clip's own `loop` while this cue drives it. Absent ⇒ the clip decides. */
+	loop?: boolean;
+}
+
+/**
  * A placed Invisible Flipbook clip (design `invisible-flipbook.md` §"Build plan" step 6) — the
  * third consumer of an authored `FlipbookClip`, beside an FX emitter's art and a symbol state.
  * References the clip by `clipId` (its file stem in `<client>/<project>/clips/<id>.clip.json`, the
@@ -792,6 +813,18 @@ export interface FlipbookNode extends BaseNode {
 	kind: 'flipbook';
 	/** The authored clip's id (file stem of its `.clip.json`), resolved via `registerFlipbooks`. */
 	clipId: string;
+	/**
+	 * Signal-driven clip swaps — the flipbook sibling of {@link SpineNode.cues}. Works BOTH on a
+	 * node placed directly in a scene and on one inside a `componentInstance`. A signal nothing
+	 * ever fires ⇒ `clipId` plays (parity).
+	 *
+	 * Re-firing the cue that is ALREADY active depends on what it is, and `LayoutNodeView` decides
+	 * it by holding the folded clip's identity: a LOOPING cue is NOT restarted (free spins fire a
+	 * spin cue once per spin while the idle cue fires once per round, so rewinding to frame 0 each
+	 * time would read as a stutter), while a ONE-SHOT IS replayed — re-firing a burst is asking for
+	 * it again, exactly as a spine cue replays off its own fire token.
+	 */
+	cues?: FlipbookCue[];
 	width?: number;
 	height?: number;
 	tint?: number;

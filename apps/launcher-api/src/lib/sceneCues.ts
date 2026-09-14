@@ -33,16 +33,19 @@ const GAME_DRIVEN_SIGNALS = new Set(ENGINE_SIGNAL_CATALOG.map((s) => s.key));
  */
 
 /**
- * Every author-named cue signal on a scene's spines, sorted + de-duplicated.
+ * Every author-named cue signal on a scene's CUED nodes — spines (which swap animation) and
+ * flipbooks (which swap clip) — sorted + de-duplicated. Both kinds ride the same bus, so the
+ * palette must offer both; harvesting only spines would silently leave a flipbook character
+ * un-fireable while the editor happily saved its cue.
  *
- * Walks RECURSIVELY: a spine is very often nested inside a `container` (the only layout node kind
- * with `children`), and a top-level-only scan would miss most of a real scene's rig.
+ * Walks RECURSIVELY: a cued node is very often nested inside a `container` (the only layout node
+ * kind with `children`), and a top-level-only scan would miss most of a real scene.
  *
- * A `componentInstance`'s own spines are NOT harvested — its def lives in R2 component storage,
+ * A `componentInstance`'s own nodes are NOT harvested — its def lives in R2 component storage,
  * which this pure helper does not read (the same limit the loader's container-event projection
  * already carries for custom components' signals).
  *
- * Names the game drives ({@link GAME_DRIVEN_SIGNALS}) are excluded: they work on the spine but are
+ * Names the game drives ({@link GAME_DRIVEN_SIGNALS}) are excluded: they work on the node but are
  * not flow-fireable, so offering them in the palette would author a dead node.
  */
 export function collectSceneCueNames(scenes: readonly Scene[]): string[] {
@@ -53,7 +56,7 @@ export function collectSceneCueNames(scenes: readonly Scene[]): string[] {
 				walk(node.children ?? []);
 				continue;
 			}
-			if (node.kind !== 'spine') continue;
+			if (node.kind !== 'spine' && node.kind !== 'flipbook') continue;
 			for (const cue of node.cues ?? []) {
 				const name = cue.signal?.trim();
 				if (name && !GAME_DRIVEN_SIGNALS.has(name)) names.add(name);

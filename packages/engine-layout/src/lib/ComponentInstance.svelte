@@ -2,6 +2,7 @@
 	import type {
 		ButtonStateAnimations,
 		ComponentInstanceNode,
+		FlipbookCue,
 		LayoutNode,
 		Scene,
 		SpineCue,
@@ -405,15 +406,48 @@
 	// nothing is ever written and the spine uses `defaultAnimation` (parity).
 	const signalToTargets = ((): Map<
 		string,
-		{ nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[]
+		{
+			nodeId: string;
+			animation?: string;
+			clipId?: string;
+			loop?: boolean;
+			completeSignal?: string;
+		}[]
 	> => {
 		const map = new Map<
 			string,
-			{ nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[]
+			{
+				nodeId: string;
+				animation?: string;
+				clipId?: string;
+				loop?: boolean;
+				completeSignal?: string;
+			}[]
 		>();
 		if (!allowed || !def) return map;
 		const walk = (n: LayoutNode): void => {
-			if (n.kind === 'spine' && n.cues?.length) {
+			// A FLIPBOOK cue is the clip-swapping twin of a spine cue: same signal, same half-authored
+			// guard — it just names a `clipId` instead of an animation, and has no `completeSignal`
+			// (a clip reports no completion). Indexed into the SAME map (keyed by node id, so the two
+			// payload shapes never meet on one entry).
+			//
+			// `cueSignalOverrides` is read here for symmetry with the spine branch, and is currently
+			// unreachable for a flipbook: the editor's per-instance rebind panel enumerates spine
+			// nodes only (it shares that list with the button-state panel, which is spine-only by
+			// nature). Kept rather than dropped because the field is keyed by NODE id, not by kind —
+			// so the remap is already correct for whichever kind the editor later offers — and the
+			// alternative is an asymmetry to re-discover. Widening the panel is the registered
+			// follow-up; see docs/status/editor.md.
+			if (n.kind === 'flipbook' && n.cues?.length) {
+				const rebinds = node.cueSignalOverrides?.[n.id];
+				for (const cue of n.cues as FlipbookCue[]) {
+					const signal = rebinds?.[cue.signal] || cue.signal;
+					if (!signal || !cue.clipId) continue;
+					const targets = map.get(signal) ?? [];
+					targets.push({ nodeId: n.id, clipId: cue.clipId, loop: cue.loop });
+					map.set(signal, targets);
+				}
+			} else if (n.kind === 'spine' && n.cues?.length) {
 				const rebinds = node.cueSignalOverrides?.[n.id];
 				for (const cue of n.cues as SpineCue[]) {
 					// Per-instance signal rebinding (flow-driven-game §6 slice 3): this
@@ -506,12 +540,21 @@
 	// re-apply. Per instance, so two placements of one def can't interfere.
 	let signalFire = 0;
 	const fireCue = (
-		targets: { nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[],
+		targets: {
+			nodeId: string;
+			animation?: string;
+			clipId?: string;
+			loop?: boolean;
+			completeSignal?: string;
+		}[],
 	): void => {
 		signalFire += 1;
 		for (const t of targets) {
+			// Exactly one of `animation` / `clipId` is set, decided by the cued node's kind when the
+			// target was indexed — a spine reads the first, a flipbook the second.
 			signalAnims[t.nodeId] = {
 				animation: t.animation,
+				clipId: t.clipId,
 				loop: t.loop,
 				fire: signalFire,
 				completeSignal: t.completeSignal,
