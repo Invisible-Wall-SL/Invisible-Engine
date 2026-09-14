@@ -104,10 +104,12 @@ export const preloadFont = () =>
  *
  * `fit` (additive, default unset = prior behaviour): when set AND both `width` and
  * `height` are given, return a UNIFORM scale that covers (`max`) or contains (`min`) the
- * given box against the authored dims — true cover/contain with NO axis stretch. This is
- * how a doc-driven background spine sizes against the canvas (see
- * docs/design/invisible-editor.md §10). `fit` is ignored when only one dimension is given
- * (already uniform) or when neither is — so non-background spines are unaffected.
+ * given box against the authored dims — true cover/contain with NO axis stretch — or, for
+ * `'width'`/`'height'`, one pinned to THAT axis whatever the box ratio (the per-axis fits
+ * an author picks per screen layout). This is how a doc-driven background spine sizes
+ * against the canvas (see docs/design/invisible-editor.md §10). `fit` is ignored when only
+ * one dimension is given (already uniform) or when neither is — so non-background spines
+ * are unaffected.
  */
 export function spineSizeScale({
 	spine,
@@ -118,7 +120,9 @@ export function spineSizeScale({
 	spine: SPINE_PIXI.Spine;
 	width?: number;
 	height?: number;
-	fit?: 'cover' | 'contain';
+	/** Mirrors engine-layout's `CoverFit` (kept a literal here: pixi-svelte is a dependency of
+	 *  engine-layout, not the other way round). */
+	fit?: 'cover' | 'contain' | 'width' | 'height';
 }): { x: number; y: number } {
 	if (width === undefined && height === undefined) return { x: 1, y: 1 };
 
@@ -156,7 +160,14 @@ export function spineSizeScale({
 		if (fit) {
 			const sx = width / naturalWidth;
 			const sy = height / naturalHeight;
-			const s = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+			const s =
+				fit === 'width'
+					? sx
+					: fit === 'height'
+						? sy
+						: fit === 'contain'
+							? Math.min(sx, sy)
+							: Math.max(sx, sy);
 			return { x: s, y: s };
 		}
 		return { x: width / naturalWidth, y: height / naturalHeight };

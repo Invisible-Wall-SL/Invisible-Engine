@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -14,6 +15,7 @@
 		resolveTransform,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
+		type CoverFit,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -390,7 +392,10 @@
 		 * canonical readers the game runtime + 2D canvas use. */
 		coverScale?: number;
 		stretch?: { x: number; y: number };
-		fit?: 'cover' | 'contain';
+		fit?: CoverFit;
+		/** The cover's ALIGNMENT in the window (the node's anchor, default centred) — where the
+		 *  fitted art sits inside the frame, the one meaning an anchor has on a cover node. */
+		coverAnchor?: { x: number; y: number };
 		/** A `canvas`-space spine node with `node.coverFit`: cover-fit the window with the
 		 * SAME true-cover branch a `background`-space spine uses (target = the frame/window),
 		 * but the scene stays flow-gated (not a persistent background) — mirrors the runtime
@@ -465,15 +470,16 @@
 						placement: undefined,
 						transform: t,
 						space: sc.space,
-						coverScale: backgroundCoverScale(n),
-						stretch: backgroundCoverStretch(n),
-						fit: backgroundFit(n),
+						coverScale: backgroundCoverScale(n, layoutType),
+						stretch: backgroundCoverStretch(n, layoutType),
+						fit: backgroundFit(n, layoutType),
+						coverAnchor: backgroundCoverAnchor(n, layoutType),
 						coverFit: sc.space === 'canvas' && n.coverFit === true,
 					});
 				} else {
 					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
 					// (explicit override → shared catalog default), so both layers agree.
-					const art = resolveAnchorPreviewArt(n, assets);
+					const art = resolveAnchorPreviewArt(n, assets, undefined, undefined, layoutType);
 					if (art?.kind === 'spine' && art.assetKey) {
 						out.push({
 							nodeId: n.id,
@@ -486,9 +492,10 @@
 							// doc-driven cover scale + stretch + fit from `preview.art.fit` /
 							// `coverScale` / `scale` — the SAME canonical readers the game runtime +
 							// 2D canvas use.
-							coverScale: backgroundCoverScale(n),
-							stretch: backgroundCoverStretch(n),
-							fit: backgroundFit(n),
+							coverScale: backgroundCoverScale(n, layoutType),
+							stretch: backgroundCoverStretch(n, layoutType),
+							fit: backgroundFit(n, layoutType),
+							coverAnchor: backgroundCoverAnchor(n, layoutType),
 						});
 					}
 				}
@@ -577,7 +584,7 @@
 			// else the catalog bundle) so it shows on the canvas + publishes live meta. Gated on the
 			// enclosing spine param so every other nested bind stays a spine-less container (parity).
 			if (n.bind && instanceSpineBundle !== undefined) {
-				const art = resolveAnchorPreviewArt(n, assets, undefined, instanceSpineBundle);
+				const art = resolveAnchorPreviewArt(n, assets, undefined, instanceSpineBundle, layoutType);
 				if (art?.kind === 'spine' && art.assetKey) {
 					out.push(bindSpineTarget(n, sc, nextChain, art.assetKey, previewAnimation));
 					continue;
@@ -1045,6 +1052,7 @@
 					target.coverScale ?? 1,
 					target.stretch ?? { x: 1, y: 1 },
 					target.fit ?? 'cover',
+					target.coverAnchor ?? { x: 0.5, y: 0.5 },
 				);
 			} else if (target.space === 'background' || target.coverFit) {
 				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
@@ -1053,6 +1061,7 @@
 				// checked BEFORE the plain canvas/standard branch below so it cover-fits.
 				const nat = naturalSizeOf(inst);
 				const bgStretch = target.stretch ?? { x: 1, y: 1 };
+				const bgAnchor = target.coverAnchor ?? { x: 0.5, y: 0.5 };
 				const cover = coverTransform({
 					artWidth: nat?.w ?? frameWidth,
 					artHeight: nat?.h ?? frameHeight,
@@ -1062,6 +1071,8 @@
 					stretchX: bgStretch.x,
 					stretchY: bgStretch.y,
 					fit: target.fit ?? 'cover',
+					anchorX: bgAnchor.x,
+					anchorY: bgAnchor.y,
 				});
 				inst.skeleton.x = cover.x;
 				inst.skeleton.y = cover.y;
@@ -1253,7 +1264,8 @@
 		posOffset: { x: number; y: number },
 		coverScale: number,
 		stretch: { x: number; y: number },
-		fit: 'cover' | 'contain',
+		fit: CoverFit,
+		coverAnchor: { x: number; y: number },
 	): void {
 		const nat = naturalSizeOf(inst);
 		// `getBounds` writes via `.set()`, so these MUST implement it (a plain `{x,y}`
@@ -1352,7 +1364,12 @@
 		// `coverScale 1` + `fit cover` is exact full-bleed. A `contain` placement (centred
 		// overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
-		const { scaleX: sx, scaleY: sy } = coverTransform({
+		const {
+			scaleX: sx,
+			scaleY: sy,
+			x: coverX,
+			y: coverY,
+		} = coverTransform({
 			artWidth: bw,
 			artHeight: bh,
 			targetWidth: frameWidth,
@@ -1361,11 +1378,14 @@
 			stretchX: isCover ? stretch.x : 1,
 			stretchY: isCover ? stretch.y : 1,
 			fit: isCover ? fit : 'contain',
+			anchorX: isCover ? coverAnchor.x : 0.5,
+			anchorY: isCover ? coverAnchor.y : 0.5,
 		});
-		// cover ignores the offset (caller passes 0); contain adds it in world px. The
-		// bounds centre is scaled per-axis so a stretched cover stays centred.
-		inst.skeleton.x = frameWidth / 2 - sx * cx + posOffset.x;
-		inst.skeleton.y = frameHeight / 2 + sy * cy + posOffset.y;
+		// cover ignores the offset (caller passes 0) and sits where its anchor ALIGNS it
+		// (the frame centre for the default centred anchor); contain adds the offset in world
+		// px. The bounds centre is scaled per-axis so a stretched cover stays put.
+		inst.skeleton.x = coverX - sx * cx + posOffset.x;
+		inst.skeleton.y = coverY + sy * cy + posOffset.y;
 		inst.skeleton.scaleX = sx;
 		inst.skeleton.scaleY = -sy;
 	}

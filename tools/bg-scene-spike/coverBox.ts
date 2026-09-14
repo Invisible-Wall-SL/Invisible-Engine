@@ -124,11 +124,19 @@ const toCoverBox = (b: { w: number; h: number; ax: number; ay: number }) => ({
 });
 
 /** The placement formula — ONE copy, because the editor's `backgroundTransform` and the runtime's
- * `coverBoxTransform` are the same arithmetic and the point of the test is that they stay so. */
+ * `coverBoxTransform` are the same arithmetic and the point of the test is that they stay so.
+ * `cover` carries the doc-driven inputs BOTH surfaces now read (per-axis `fit`, and the anchor that
+ * ALIGNS the fitted art in the window) — a parameter the formula takes has to be exercised here, or
+ * the guard goes on proving parity for inputs neither surface is called with any more. */
 function place(
 	box: { minX: number; minY: number; width: number; height: number },
 	targetWidth: number,
 	targetHeight: number,
+	cover: {
+		fit?: 'cover' | 'contain' | 'width' | 'height';
+		anchorX?: number;
+		anchorY?: number;
+	} = {},
 ) {
 	const c = coverTransform({
 		artWidth: box.width,
@@ -138,7 +146,9 @@ function place(
 		coverScale: 1,
 		stretchX: 1,
 		stretchY: 1,
-		fit: 'cover',
+		fit: cover.fit ?? 'cover',
+		anchorX: cover.anchorX,
+		anchorY: cover.anchorY,
 	});
 	return {
 		x: c.x - (box.minX + box.width / 2) * c.scaleX,
@@ -160,6 +170,25 @@ ok(
 		near(editorPlacement.sx, gamePlacement.sx) &&
 		near(editorPlacement.sy, gamePlacement.sy),
 	`x=${gamePlacement.x.toFixed(2)} y=${gamePlacement.y.toFixed(2)} scale=${gamePlacement.sx.toFixed(4)}`,
+);
+
+// 3b. The cover ANCHOR and the per-axis FIT ride the same one formula, so they cannot align one
+// surface and not the other. A left/top anchor slides the fitted art by exactly half the overflow
+// it crops; a `width` fit pins the box to the window width whatever the ratio.
+const centred = place(coverBox, 1920, 1080);
+const topLeft = place(coverBox, 1920, 1080, { anchorX: 0, anchorY: 0 });
+const overflowX = coverBox.width * centred.sx - 1920;
+const overflowY = coverBox.height * centred.sy - 1080;
+ok(
+	'3b. a non-centred anchor slides both surfaces by the same half-overflow',
+	near(topLeft.x - centred.x, overflowX / 2) && near(topLeft.y - centred.y, overflowY / 2),
+	`dx=${(topLeft.x - centred.x).toFixed(2)} dy=${(topLeft.y - centred.y).toFixed(2)}`,
+);
+const fitWidth = place(coverBox, 1920, 1080, { fit: 'width' });
+ok(
+	'3c. fit:width makes the box exactly window-wide, whatever the aspect',
+	near(coverBox.width * fitWidth.sx, 1920),
+	`drawnW=${(coverBox.width * fitWidth.sx).toFixed(2)}`,
 );
 
 // 4. The unmeasurable-instance guard — `nodeBox`'s generic fallback must never be baked.

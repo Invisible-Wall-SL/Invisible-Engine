@@ -535,17 +535,29 @@ export function resolveAnchorPreviewArt(
 	 * `winSpine`) renders in place of the fixed stand-in; an unset / not-in-project name
 	 * falls back to the catalog default (parity). Ignored for sprite previews. */
 	previewSpineBundle?: string,
+	/** The layoutType being previewed. The `fit` that decides this anchor's placement is
+	 *  per-layoutType like every other cover input ({@link NodeOverride.fit}), so without it a
+	 *  ratio that overrides a `contain` anchor to a window-filling fit previews CENTRED while the
+	 *  game covers — the editor/game split the cover readers exist to prevent. Omitted ⇒ the base
+	 *  `preview.art.fit` alone (parity). */
+	layoutType?: LayoutType,
 ): ResolvedPreviewArt | undefined {
-	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement
-	//    (cover → cover, anything else → centred); a node needing a board-relative
-	//    spot just leaves `art` off and lets the catalog default apply.
+	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement (any
+	//    WINDOW-filling fit — `cover` and the per-axis `width`/`height` — → the cover
+	//    placement, which then honours the node's own fit/scale/stretch; anything else →
+	//    centred); a node needing a board-relative spot just leaves `art` off and lets the
+	//    catalog default apply. An UNSET fit stays centred, so this reads the layout's own `fit`
+	//    override (not `backgroundFit`, whose `'cover'` default would make every fit-less preview
+	//    anchor full-bleed).
 	const override = node.preview?.art;
 	if (override) {
+		const fit = (layoutType ? node.overrides?.[layoutType]?.fit : undefined) ?? override.fit;
+		const fillsWindow = fit === 'cover' || fit === 'width' || fit === 'height';
 		return {
 			kind: override.kind,
 			assetKey: override.assetKey,
 			region: override.region,
-			placement: override.fit === 'cover' ? 'cover' : 'centre',
+			placement: fillsWindow ? 'cover' : 'centre',
 		};
 	}
 	const component = node.bind?.component;

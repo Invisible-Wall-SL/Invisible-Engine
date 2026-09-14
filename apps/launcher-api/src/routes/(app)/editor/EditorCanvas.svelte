@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -504,9 +505,15 @@
 	 * tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
-		const stretch = backgroundCoverStretch(node);
-		const coverScale = backgroundCoverScale(node);
-		const fit = backgroundFit(node);
+		// Every cover input is read for the ACTIVE layoutType (this bucket's override first, then
+		// the base) through the shared readers, so the ratio tabs preview the per-layout fit / zoom
+		// / stretch / alignment the game will run. The node's ANCHOR is the alignment of the fitted
+		// art in the window; the drawn pivot below stays fixed (0.5 for art, 0 for a composed
+		// instance) and the alignment rides in `cover.x`/`cover.y`.
+		const stretch = backgroundCoverStretch(node, layoutType);
+		const coverScale = backgroundCoverScale(node, layoutType);
+		const fit = backgroundFit(node, layoutType);
+		const anchor = backgroundCoverAnchor(node, layoutType);
 		// A background componentInstance covers as ONE composed unit, matching the runtime
 		// (`LayoutNodeView` `bgComponent`). Unlike a sprite (drawn anchored 0.5 at the frame
 		// centre), `drawComponentInstance` expands the def's children from the transform
@@ -530,6 +537,8 @@
 				stretchX: stretch.x,
 				stretchY: stretch.y,
 				fit,
+				anchorX: anchor.x,
+				anchorY: anchor.y,
 			});
 			return {
 				...t,
@@ -552,6 +561,8 @@
 			stretchX: stretch.x,
 			stretchY: stretch.y,
 			fit,
+			anchorX: anchor.x,
+			anchorY: anchor.y,
 		});
 		return {
 			...t,
@@ -672,9 +683,10 @@
 		// so this 2D path stays unified with `backgroundTransform` + the spine layer;
 		// the contain placement (centred overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
-		const fit = isCover ? backgroundFit(node) : 'contain';
-		const coverScale = isCover ? backgroundCoverScale(node) : 1;
-		const stretch = isCover ? backgroundCoverStretch(node) : { x: 1, y: 1 };
+		const fit = isCover ? backgroundFit(node, layoutType) : 'contain';
+		const coverScale = isCover ? backgroundCoverScale(node, layoutType) : 1;
+		const stretch = isCover ? backgroundCoverStretch(node, layoutType) : { x: 1, y: 1 };
+		const anchor = isCover ? backgroundCoverAnchor(node, layoutType) : { x: 0.5, y: 0.5 };
 		const nat = artNaturalSize(node);
 		// `coverTransform` returns per-axis scales for art of natural size; this 2D
 		// path draws via explicit width/height, so multiply the natural dims by them.
@@ -689,16 +701,19 @@
 			stretchX: stretch.x,
 			stretchY: stretch.y,
 			fit,
+			anchorX: anchor.x,
+			anchorY: anchor.y,
 		});
 		const width = artW * cover.scaleX;
 		const height = artH * cover.scaleY;
 		// cover (full-bleed Background) ignores the offset — it stays non-draggable and
-		// pinned to the frame. contain (centred overlays) honours the draggable offset.
+		// pinned to the frame, positioned by the cover's own anchor alignment. contain
+		// (centred overlays) stays frame-centred and honours the draggable offset.
 		const applyOffset = fit === 'contain';
 		return {
 			...t,
-			x: frameWidth / 2 + (applyOffset ? offX : 0),
-			y: frameHeight / 2 + (applyOffset ? offY : 0),
+			x: cover.x + (applyOffset ? offX : 0),
+			y: cover.y + (applyOffset ? offY : 0),
 			anchor: { x: 0.5, y: 0.5 },
 			scale: { x: 1, y: 1 },
 			rotation: 0,
@@ -1525,7 +1540,13 @@
 		node: LayoutNode,
 		previewSpineBundle?: string,
 	): ResolvedPreviewArt | undefined {
-		const art = resolveAnchorPreviewArt(node, assets, spriteRegionIndex, previewSpineBundle);
+		const art = resolveAnchorPreviewArt(
+			node,
+			assets,
+			spriteRegionIndex,
+			previewSpineBundle,
+			layoutType,
+		);
 		if (art?.kind === 'sprite' && !art.assetKey) ensureRegionIndex();
 		return art;
 	}
