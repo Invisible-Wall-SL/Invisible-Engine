@@ -431,13 +431,9 @@
 			// (a clip reports no completion). Indexed into the SAME map (keyed by node id, so the two
 			// payload shapes never meet on one entry).
 			//
-			// `cueSignalOverrides` is read here for symmetry with the spine branch, and is currently
-			// unreachable for a flipbook: the editor's per-instance rebind panel enumerates spine
-			// nodes only (it shares that list with the button-state panel, which is spine-only by
-			// nature). Kept rather than dropped because the field is keyed by NODE id, not by kind —
-			// so the remap is already correct for whichever kind the editor later offers — and the
-			// alternative is an asymmetry to re-discover. Widening the panel is the registered
-			// follow-up; see docs/status/editor.md.
+			// `cueSignalOverrides` remaps a flipbook cue exactly as it does a spine one — the field is
+			// keyed by NODE id, not by kind — and the editor's "Flipbook (this placement)" panel
+			// authors it, so two placements of one component can react to different moments.
 			if (n.kind === 'flipbook' && n.cues?.length) {
 				const rebinds = node.cueSignalOverrides?.[n.id];
 				for (const cue of n.cues as FlipbookCue[]) {
