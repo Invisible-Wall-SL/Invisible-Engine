@@ -14,7 +14,7 @@
     "preview": "turbo run preview",
     "real-build-storybook": "turbo run real-build-storybook",
     "storybook": "turbo run storybook",
-    "publish-packages": "turbo run build lint test && changeset version && changeset publish",
+    "publish-packages": "turbo run build test && pnpm lint && changeset version && changeset publish",
     "e2e": "turbo run e2e",
     "e2e-smoke": "turbo run e2e-smoke",
     "e2e-mobile": "turbo run e2e-mobile",
