@@ -2032,6 +2032,45 @@ def variant_path(name: str, vid: str) -> Path | None:
     return None
 
 
+def newest_variant_id(name: str) -> str:
+    files = variant_files(name)
+    return variant_id(files[-1]) if files else ""
+
+
+def output_view(name: str, region: dict) -> tuple[str, str, str, int | None]:
+    """The output figure for a region: (thumb url, full url, caption, seed).
+
+    Shared by the page build and /cardsdata so a post-render refresh shows
+    exactly what a reload would — the card used to keep a stale `?id=` after a
+    render superseded the pick, and to caption a picked variant with the
+    LATEST file's seed instead of the picked file's.
+
+    Priority matches batch_atlas._pick_variant_png: a committed user image
+    wins, then the picked variant, then the newest generated file.
+
+    Each url's cache-bust `?t=` is the SOURCE file's mtime+size — not a
+    per-page-load timestamp. So a plain reload stays fully cacheable (no
+    thumbnail re-decode storm), yet the url changes the moment a slot's image
+    actually changes (re-render / new pick / re-upload)."""
+    override_p = batch_atlas.override_image_path(region)
+    if override_p is not None:
+        t = imgcache.thumb_token(override_p)
+        return (f"/outthumb/{name}?t={t}", f"/outfull/{name}?t={t}",
+                "★ your image · NOT processed", None)
+    picked = str(region.get("variant", "")).strip()
+    p = variant_path(name, picked) if picked else None
+    if p is not None:
+        t = imgcache.thumb_token(p)
+        thumb = f"/vthumb/{name}?id={picked}&t={t}"
+        full = f"/vfull/{name}?id={picked}&t={t}"
+    else:
+        p = latest_output(name)
+        t = imgcache.thumb_token(p) if p else "0"
+        thumb, full = f"/thumb/{name}?t={t}", f"/full/{name}?t={t}"
+    us = seed_of(p) if p else None
+    return thumb, full, f"output · seed {us if us is not None else '—'}", us
+
+
 def seed_of(path: Path) -> int | None:
     """Read the KSampler seed from a ComfyUI PNG's embedded prompt metadata."""
     try:
@@ -2405,8 +2444,10 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
                     with _render_lock:
                         _render_state["log"] += f"\n{note}\n"
             except Exception as e:  # noqa: BLE001
+                # The hook does the FX rebuild AND the superseded-pick cleanup;
+                # neither is worth failing a finished render over.
                 with _render_lock:
-                    _render_state["log"] += f"\n[FX auto-rebuild skipped] {e}\n"
+                    _render_state["log"] += f"\n[post-render step skipped] {e}\n"
     except Exception as e:  # noqa: BLE001
         with _render_lock:
             _render_state["log"] += f"\n[ERROR] {e}\n"
@@ -2522,6 +2563,81 @@ def _comfy_answers(url: str, comfy_env: dict) -> bool:
         return False
 
 
+def _read_manifest_at(mp: Path) -> dict | None:
+    """Parse a manifest by EXACT path, or None if it can't be read.
+
+    Unlike load_manifest() this never re-resolves the ACTIVE manifest from
+    config: a background render has to write back the manifest it rendered,
+    not whichever one is active when it finishes. Region names (H1, L1, …)
+    collide across atlases, so switching manifests mid-render would otherwise
+    apply one atlas's cleanup to another's regions."""
+    try:
+        return json.loads(mp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_manifest_at(mp: Path, data: dict) -> None:
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    _mirror(mp)
+
+
+def _drop_dangling_pick(name: str) -> bool:
+    """Clear a region's pick when the file it names no longer exists."""
+    with _manifest_lock:
+        m = load_manifest()
+        dropped = False
+        for bucket in ("regions", "rotated_regions"):
+            for r in m.get(bucket, []):
+                vid = str(r.get("variant", "")).strip()
+                if r.get("name") != name or not vid:
+                    continue
+                if variant_path(name, vid) is None:
+                    r.pop("variant", None)
+                    dropped = True
+        if dropped:
+            save_manifest(m)
+        return dropped
+
+
+_manifest_lock = threading.RLock()
+"""Serialises the FAST load->mutate->save cycles on the active manifest.
+
+ThreadingHTTPServer gives every request its own thread, so two of them could
+read the same manifest and write back two divergent copies — the last one
+wins and the other user's edit is gone. Now that a variant pick commits on
+click, these writes are frequent and small, so a plain mutex is enough and
+costs nothing. It deliberately does NOT cover the FX rebuild in run_render's
+_post (seconds of PIL + R2 work): holding it there would stall every save in
+the UI. That window pre-dates this lock — see docs/status/atlas-maker.md."""
+
+
+def _drop_superseded_picks(m: dict, before: dict[str, str]) -> list[str]:
+    """A fresh render supersedes an UNLOCKED variant pick. Mutates `m`.
+
+    The pick decides which generated file the card shows and Create Atlas
+    composes. Once the user renders that same slot again, the newest file is
+    what the card shows — so leaving the pin in place would compose art the
+    page no longer displays. A LOCKED slot keeps its pick (that is what the
+    lock is for, and the render skipped it anyway), and only slots that
+    actually produced a new file are touched, so a stopped or failed render
+    costs nobody their pick."""
+    dropped: list[str] = []
+    for bucket in ("regions", "rotated_regions"):
+        for r in m.get(bucket, []):
+            name = r.get("name")
+            if name not in before or not str(r.get("variant", "")).strip():
+                continue
+            if batch_atlas.region_locked(r):
+                continue
+            newest = newest_variant_id(name)
+            if newest and newest != before[name]:
+                r.pop("variant", None)
+                dropped.append(name)
+    return dropped
+
+
 def run_render(names: list[str], variants: int = 1,
                ctx: tuple[str, str] | None = None, user: str = "") -> None:
     # These run on a NEW worker thread, so the request thread's thread-local
@@ -2584,19 +2700,46 @@ def run_render(names: list[str], variants: int = 1,
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
     project_paths.ensure_lazy("batch/")
+    # Newest variant per slot BEFORE the subprocess runs. _post compares against
+    # it to tell "this slot produced new art" from "nothing happened", so a
+    # stopped or failed render never drops anyone's pick.
+    picks_before = {n: newest_variant_id(n) for n in names}
+    # The manifest THIS render is for. _post must write back to it by path: the
+    # active manifest can be switched from another tab while a render runs, and
+    # region names collide across atlases.
+    mp = manifest_path()
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
-           "--manifest", str(manifest_path()),
+           "--manifest", str(mp),
            "--only", ",".join(names), "--include-rotated",
            "--variants", str(max(1, variants))]
 
     def _post():
-        m = load_manifest()
+        notes = []
+        m = _read_manifest_at(mp)
+        if m is None:
+            return None
         rebuilt = rebuild_fx_layers(m, base_names=set(names))
         if rebuilt:
-            save_manifest(m)
-            return ("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
-                    % (len(rebuilt), ", ".join(rebuilt)))
-        return None
+            _write_manifest_at(mp, m)
+            notes.append("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
+                         % (len(rebuilt), ", ".join(rebuilt)))
+        # Re-read: the rebuild above is seconds of PIL + R2 work, and a variant
+        # pick now commits the moment it is clicked — so the copy above may be
+        # stale by now, and writing the pick cleanup from it would undo one.
+        with _manifest_lock:
+            m = _read_manifest_at(mp)
+            if m is None:
+                return "\n".join(notes) or None
+            dropped = _drop_superseded_picks(m, picks_before)
+            if dropped:
+                _write_manifest_at(mp, m)
+        if dropped:
+            notes.append("Dropped %d superseded variant pick(s) — %s now show "
+                         "the fresh render: %s"
+                         % (len(dropped),
+                            "they" if len(dropped) > 1 else "it",
+                            ", ".join(dropped)))
+        return "\n".join(notes) or None
 
     _run_cmd(cmd, total, post_hook=_post, comfy_env=comfy_env,
              pre_note=("\n".join(_warm) if _warm else None))
@@ -4459,6 +4602,10 @@ function flashDone(btn){{
 async function saveAll(){{
  let r=await fetch('/save',{{method:'POST',body:JSON.stringify(collect())}});
  let msg=await r.text();
+ // A refused save must not read as a successful one. fetch only rejects on a
+ // transport failure, so a 500 (or an expired gate) used to be shown in #stat
+ // as if it were the "Saved (…)" note and flash the button green.
+ if(!r.ok) throw new Error('HTTP '+r.status+(msg?' — '+msg.slice(0,200):''));
  flashDone(document.getElementById('saveBtn'));
  return msg;
 }}
@@ -4489,6 +4636,25 @@ function gstyleSync(){{
  let dirty=gstyleDirty();
  if(badge) badge.style.display=dirty?'':'none';
  if(btn) btn.style.background=dirty?'#e0a030':'';
+}}
+// For the fire-and-forget callers: never leave a failed save as an unhandled
+// rejection with the page still showing the edit as though it stuck.
+function saveAllLoud(){{
+ return saveAll().then(m=>{{document.getElementById('stat').textContent=m; return m;}})
+  .catch(e=>{{document.getElementById('stat').textContent=
+   '⚠ Save failed: '+e.message+' — press 💾 Save changes to retry';}});
+}}
+// Save, and say whether it is safe to go on. A Render / Create Atlas / mode
+// switch that runs past a REFUSED save works from stale server-side data --
+// which is how a discarded edit turns into a wrong atlas with nothing to see.
+async function savedOk(what){{
+ try{{ document.getElementById('stat').textContent=await saveAll(); return true; }}
+ catch(e){{
+  let m='⚠ '+what+' cancelled — your changes did not save ('+e.message+').';
+  document.getElementById('stat').textContent=m;
+  alert(m+'\\n\\nPress 💾 Save changes to retry, then try again.');
+  return false;
+ }}
 }}
 async function saveGlobalStyle(){{
  let body={{positive_prefix:document.getElementById('gpre').value,
@@ -5361,7 +5527,7 @@ function onLockToggle(cb){{
   c.dataset.lockedseed='';           // untick truly unlocks
  }}
  updateLock(c);
- saveAll();
+ saveAllLoud();
 }}
 function updateAllLocks(){{document.querySelectorAll('.card').forEach(updateLock);}}
 function useSeed(name){{
@@ -5374,7 +5540,7 @@ function useSeed(name){{
  c.dataset.lockedseed=hasSeed?s:'';   // GPT: no seed — locked by variant id
  c.dataset.dirty='0';        // committing the lock clears the browsing state
  updateLock(c);
- saveAll();
+ saveAllLoud();
 }}
 function uploadRef(name){{
  let c=document.querySelector('.card[data-name="'+name+'"]');
@@ -5484,7 +5650,8 @@ async function shineFrom(name){{
  if(!flashDiag(msg)) setTimeout(()=>location.reload(),800);
 }}
 async function setMode(name,mode){{
- await saveAll();   // don't lose card edits across the reload
+ // Don't lose card edits across the reload this triggers.
+ if(!await savedOk('Mode switch')) return;
  document.getElementById('stat').textContent='switching '+name+' → '+mode+'…';
  let r=await fetch('/setmode',{{method:'POST',body:JSON.stringify({{name:name,mode:mode}})}});
  document.getElementById('stat').textContent=await r.text();
@@ -5504,7 +5671,7 @@ async function fxBuild(name){{
  if(!flashDiag(msg)) setTimeout(()=>location.reload(),800);
 }}
 let _modalName=null;
-function selectVariant(name,id,seed){{
+async function selectVariant(name,id,seed){{
  let c=document.querySelector('.card[data-name="'+name+'"]');
  let valid=(seed!=null&&seed!=='None'&&String(seed).trim()!=='');
  c.dataset.usedseed=valid?seed:'None';
@@ -5524,6 +5691,12 @@ function selectVariant(name,id,seed){{
  c.dataset.dirty='1';        // browsing/selecting: always offer the lock button
  updateLock(c);
  closeModal();
+ // Commit the pick NOW. It used to ride along on the next saveAll(), which
+ // dropped it unless the slot was also locked — so the card showed your pick
+ // while Create Atlas quietly composed the newest file instead. And say so if
+ // the save is REFUSED: the card is already showing the pick, so a silent
+ // rejection here is the very symptom this whole change exists to end.
+ await savedOk('The variant pick');
 }}
 async function openVariants(name){{
  _modalName=name;
@@ -5665,6 +5838,11 @@ async function delVariants(){{
  if(!confirm('Delete '+ids.length+' variant file(s)? This cannot be undone.'))return;
  let r=await fetch('/delvariants',{{method:'POST',body:JSON.stringify({{name:_modalName,ids:ids}})}});
  document.getElementById('stat').textContent=await r.text();
+ // The server clears a pin whose file just went, so the CARD has to follow it.
+ // Left on the deleted id, the next saveAll() (a lock toggle, the next pick,
+ // Render, Create Atlas) wrote that dangling pin straight back — and ids get
+ // reused, so it would land on the next render's unrelated art.
+ await refreshCards();
  openVariants(_modalName);
 }}
 async function refreshCards(){{
@@ -5679,9 +5857,20 @@ async function refreshCards(){{
    u.searchParams.set('t', cb);
    im.src=u.pathname+u.search;
   }});
-  c.dataset.usedseed=d.seed_used;
+  // The output figure comes from the SERVER, which owns the pick: a render
+  // supersedes an unlocked one, so the card must follow it off a stale ?id=
+  // instead of showing a file Create Atlas will no longer compose.
+  c.dataset.variant=d.variant||'';
+  let im=c.querySelector('.bigsel'), lk=c.querySelector('.biglink');
+  // Its ?t= is the source file's own mtime+size token, so an unchanged slot
+  // stays cached and a re-rendered one refreshes — no blanket cache-bust.
+  if(im&&d.thumb)im.src=d.thumb;
+  if(lk&&d.full)lk.href=d.full;
+  // JSON null must land as the same 'None' the page build writes, or
+  // useSeed() puts the string 'null' in the seed box.
+  c.dataset.usedseed=(d.seed_used??'None');
   let cap=c.querySelector('.selcap');
-  if(cap)cap.textContent='output · seed '+(d.seed_used??'—');
+  if(cap)cap.textContent=d.cap||('output · seed '+(d.seed_used??'—'));
   c.dataset.dirty='0';        // post-render: back to committed resting state
   updateLock(c);
  }}
@@ -5704,7 +5893,7 @@ async function renderSel(){{
    return;
   }}
  }}
- await saveAll();
+ if(!await savedOk('Render')) return;
  let sel=collect().filter(x=>x.selected).map(x=>x.name);
  if(!sel.length){{alert('Nothing selected');return;}}
  let v=parseInt(document.getElementById('variants').value)||1;
@@ -5726,7 +5915,7 @@ async function renderSel(){{
 // Button to flash "✓ Done" on when the create/compose poll loop finishes.
 let _atlasDoneBtn=null;
 async function createAtlas(){{
- await saveAll();
+ if(!await savedOk('Create Atlas')) return;
  _atlasDoneBtn=document.getElementById('abtn');
  document.getElementById('rbtn').disabled=true;
  document.getElementById('toast').style.display='none';
@@ -5983,6 +6172,130 @@ CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe
   <button class="mini" onclick="openAdv('{name}')">⚙ advanced</button>
  </div>
 </div>"""
+
+
+def apply_region_edits(edits: list[dict]) -> str:
+    """Merge one page's worth of card edits into the active manifest.
+
+    Module level and self-less by nature — it only ever touched the
+    manifest. Handler._save is the thin locked wrapper over it."""
+    m = load_manifest()
+    by_name = {e["name"]: e for e in edits}
+    changed = 0
+    picks = 0
+    # Atlas-bound: the JSON holds only creative data and may have no entry
+    # yet for a given `.atlas` region. Create a name-only stub (never any
+    # geometry) so the loop below can persist the user's prompt/seed/etc.
+    # Skip empty edits so saveAll() doesn't bloat the file with 200 stubs.
+    ap = batch_atlas.atlas_file_path(m, manifest_path())
+    if ap and ap.exists():
+        try:
+            atlas_names = {ar["name"] for ar in
+                           atlas_format.parse_atlas(ap)["regions"]}
+        except (OSError, ValueError):
+            atlas_names = set()
+        m.setdefault("regions", [])
+        existing = {r.get("name") for r in m["regions"]}
+        for e in edits:
+            nm = e.get("name")
+            if not nm or nm in existing or nm not in atlas_names:
+                continue
+            meaningful = (
+                str(e.get("prompt", "")).strip()
+                or str(e.get("gpt_prompt", "")).strip()
+                or (e.get("lock") and e.get("seed"))
+                # A variant pick is the WHOLE of what a promptless region
+                # can say. `.atlas`-bound regions get a card from the
+                # geometry file whether or not the manifest holds an entry,
+                # so leaving the pick out of this gate meant no stub, no
+                # entry, and the pick dropped — the same silent loss, for
+                # every atlas driven by the global prefix/suffix alone.
+                or str(e.get("variant", "")).strip()
+                or str(e.get("negative", "")).strip()
+                or e.get("negative_replace") or e.get("positive_replace")
+                or not e.get("selected")
+            )
+            if meaningful:
+                m["regions"].append({"name": nm})
+                existing.add(nm)
+    for bucket in ("regions", "rotated_regions"):
+        for r in m.get(bucket, []):
+            e = by_name.get(r["name"])
+            if not e:
+                continue
+            # SAFETY: never wipe an existing non-empty prompt with an
+            # empty textarea. saveAll() submits every card on each Save/
+            # Render; a blank/unloaded textarea must not destroy a region
+            # the user isn't actively editing.
+            new_p = e.get("prompt", "")
+            cur_p = r.get("prompt", "")
+            if new_p.strip() and new_p != cur_p:
+                r["prompt"] = new_p
+                changed += 1
+            if e["selected"]:
+                r.pop("skip_unless_explicit", None)
+            else:
+                r["skip_unless_explicit"] = True
+            # The picked variant is WHICH generated file this region shows
+            # and composes; the lock is whether the slot may be re-rendered.
+            # They used to share one branch, so a pick made without also
+            # ticking lock was thrown away on the very next save — the card
+            # kept showing it while Create Atlas silently composed the
+            # newest file instead. Persist the pick on its own.
+            vid = str(e.get("variant", "")).strip()
+            if vid != str(r.get("variant", "")):
+                picks += 1
+            if vid:
+                r["variant"] = vid
+            else:
+                r.pop("variant", None)
+            # Store the lock EXPLICITLY (both ways). It used to be inferred
+            # from a stored seed, or — for GPT, which has no embedded seed —
+            # from a stored pick; with the pick now saved unlocked too, that
+            # inference would read every pick as a lock.
+            # A tick with NOTHING to pin (no seed, no pick) is not a lock,
+            # it's an intent — same rule the card has always drawn (updateLock
+            # shows "lock this pick", not LOCKED). Storing it would tick the
+            # box on reload beside that very button, and claim a slot is
+            # pinned that re-renders every time.
+            r["lock"] = bool(e["lock"]) and bool(e["seed"] or vid)
+            if e["lock"] and e["seed"]:
+                try:
+                    r["seed"] = int(e["seed"])
+                except ValueError:
+                    r.pop("seed", None)
+            else:
+                r.pop("seed", None)
+            # Per-region negative (card, under the prompt). Blank => use
+            # global only. The card always round-trips the stored value,
+            # so an empty box is a deliberate clear, not data loss.
+            rneg = str(e.get("negative", "")).strip()
+            if rneg:
+                r["negative"] = rneg
+            else:
+                r.pop("negative", None)
+            if e.get("negative_replace"):
+                r["negative_replace"] = True
+            else:
+                r.pop("negative_replace", None)
+            if e.get("positive_replace"):
+                r["positive_replace"] = True
+            else:
+                r.pop("positive_replace", None)
+            # GPT instruction (card, used when the slot's pipeline is
+            # gpt_image). Card always round-trips the stored value, so a
+            # blank box is a deliberate clear, not data loss.
+            rgpt = str(e.get("gpt_prompt", "")).strip()
+            if rgpt:
+                r["gpt_prompt"] = rgpt
+            else:
+                r.pop("gpt_prompt", None)
+    save_manifest(m)
+    # Name the pick explicitly. "Saved (0 prompt change(s))" after clicking
+    # a variant read as "nothing happened" — which is exactly what USED to
+    # happen to an unlocked pick.
+    note = f"Saved ({changed} prompt change(s)"
+    return note + (f", {picks} variant pick(s))" if picks else ")")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -7966,6 +8279,14 @@ class Handler(BaseHTTPRequestHandler):
                     deleted += 1
                 except OSError:
                     pass
+        # Drop a pick whose file just went. Variant ids are a counter, not a
+        # uuid — the serverless transport hands out "highest existing + 1" and
+        # the http one keeps whatever ComfyUI named the file — so a deleted id
+        # can come back around, and a dangling pin would silently snap onto
+        # that unrelated art. Falls back to the newest, like a region never
+        # picked.
+        if deleted and _drop_dangling_pick(name):
+            return f"Deleted {deleted} variant(s) — {name} is back to its latest"
         return f"Deleted {deleted} variant(s)"
 
     def _serve_variant(self, path: str, thumb: bool):
@@ -8135,10 +8456,18 @@ class Handler(BaseHTTPRequestHandler):
         return json.dumps(payload).encode()
 
     def _cardsdata(self) -> bytes:
+        """What each card's output figure should show RIGHT NOW.
+
+        Carries the pick (and the image built from it), not just a seed: a
+        render supersedes an unlocked pick server-side, so the card has to be
+        told which file it is on now instead of keeping its stale `?id=`."""
         out = []
         for r in all_regions(load_manifest()):
-            p = latest_output(r["name"])
-            out.append({"name": r["name"], "seed_used": seed_of(p) if p else None})
+            name = r["name"]
+            thumb, full, cap, us = output_view(name, r)
+            out.append({"name": name, "seed_used": us,
+                        "variant": str(r.get("variant", "")),
+                        "thumb": thumb, "full": full, "cap": cap})
         return json.dumps(out).encode()
 
     def _index(self) -> str:
@@ -8165,38 +8494,16 @@ class Handler(BaseHTTPRequestHandler):
             if region_mode not in ("ai", "colour", "shadow", "shine", "glow",
                                    "blur", "zoom"):
                 region_mode = "ai"
-            has_seed = "seed" in r
-            # Committed lock = a seed OR an explicit variant pick (GPT has no
-            # seed, so a picked file id is its only lock key).
-            committed_lock = has_seed or bool(str(r.get("variant", "")).strip())
-            p = latest_output(name)
-            us = seed_of(p) if p else None
-            # If a specific variant was picked & committed, show THAT file
-            # (its embedded seed may be shared with other variants, so the
-            # file id — not the seed — is the source of truth for the pick).
+            # The lock is the region's own flag — NOT "a variant was picked".
+            # Picking which generated file to compose and refusing to re-render
+            # the slot are separate choices; conflating them meant a pick could
+            # only be saved by also locking, so an unlocked pick was dropped.
+            committed_lock = batch_atlas.region_locked(r)
+            # If a specific variant was picked, show THAT file (its embedded
+            # seed may be shared with other variants, so the file id — not the
+            # seed — is the source of truth for the pick).
             picked = str(r.get("variant", ""))
-            override_p = batch_atlas.override_image_path(r)
-            has_override = override_p is not None
-            # Per-image cache-bust tokens derived from the SOURCE file's
-            # mtime+size — NOT a per-page-load timestamp. So a plain reload stays
-            # fully cacheable (no thumbnail re-decode storm), yet the URL changes
-            # the moment a slot's image actually changes (re-render / new pick /
-            # re-upload), refreshing it in place.
-            if has_override:
-                ot = imgcache.thumb_token(override_p)
-                bigthumb = f"/outthumb/{name}?t={ot}"
-                biglink = f"/outfull/{name}?t={ot}"
-                out_cap = "★ your image · NOT processed"
-            elif picked and variant_path(name, picked):
-                ot = imgcache.thumb_token(variant_path(name, picked))
-                bigthumb = f"/vthumb/{name}?id={picked}&t={ot}"
-                biglink = f"/vfull/{name}?id={picked}&t={ot}"
-                out_cap = f"output · seed {us if us is not None else '—'}"
-            else:
-                ot = imgcache.thumb_token(p) if p else "0"
-                bigthumb = f"/thumb/{name}?t={ot}"
-                biglink = f"/full/{name}?t={ot}"
-                out_cap = f"output · seed {us if us is not None else '—'}"
+            bigthumb, biglink, out_cap, us = output_view(name, r)
             ref_token = imgcache.thumb_token(self._refpath(f"/ref/{name}"))
             rneg = str(r.get("negative", ""))
             rneg_replace = bool(r.get("negative_replace", False))
@@ -8510,101 +8817,12 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _save(self, edits: list[dict]) -> str:
-        m = load_manifest()
-        by_name = {e["name"]: e for e in edits}
-        changed = 0
-        # Atlas-bound: the JSON holds only creative data and may have no entry
-        # yet for a given `.atlas` region. Create a name-only stub (never any
-        # geometry) so the loop below can persist the user's prompt/seed/etc.
-        # Skip empty edits so saveAll() doesn't bloat the file with 200 stubs.
-        ap = batch_atlas.atlas_file_path(m, manifest_path())
-        if ap and ap.exists():
-            try:
-                atlas_names = {ar["name"] for ar in
-                               atlas_format.parse_atlas(ap)["regions"]}
-            except (OSError, ValueError):
-                atlas_names = set()
-            m.setdefault("regions", [])
-            existing = {r.get("name") for r in m["regions"]}
-            for e in edits:
-                nm = e.get("name")
-                if not nm or nm in existing or nm not in atlas_names:
-                    continue
-                meaningful = (
-                    str(e.get("prompt", "")).strip()
-                    or str(e.get("gpt_prompt", "")).strip()
-                    or (e.get("lock") and e.get("seed"))
-                    or str(e.get("negative", "")).strip()
-                    or e.get("negative_replace") or e.get("positive_replace")
-                    or not e.get("selected")
-                )
-                if meaningful:
-                    m["regions"].append({"name": nm})
-                    existing.add(nm)
-        for bucket in ("regions", "rotated_regions"):
-            for r in m.get(bucket, []):
-                e = by_name.get(r["name"])
-                if not e:
-                    continue
-                # SAFETY: never wipe an existing non-empty prompt with an
-                # empty textarea. saveAll() submits every card on each Save/
-                # Render; a blank/unloaded textarea must not destroy a region
-                # the user isn't actively editing.
-                new_p = e.get("prompt", "")
-                cur_p = r.get("prompt", "")
-                if new_p.strip() and new_p != cur_p:
-                    r["prompt"] = new_p
-                    changed += 1
-                if e["selected"]:
-                    r.pop("skip_unless_explicit", None)
-                else:
-                    r["skip_unless_explicit"] = True
-                vid = str(e.get("variant", "")).strip()
-                if e["lock"] and (e["seed"] or vid):
-                    # Lock key: a seed (sdxl/flux) AND/OR an explicit variant
-                    # id. GPT images have NO embedded seed, so the picked file
-                    # id is the only identity — persist it so compose pins
-                    # exactly that file instead of falling back to the latest.
-                    if e["seed"]:
-                        try:
-                            r["seed"] = int(e["seed"])
-                        except ValueError:
-                            r.pop("seed", None)
-                    else:
-                        r.pop("seed", None)
-                    if vid:
-                        r["variant"] = vid
-                    else:
-                        r.pop("variant", None)
-                else:
-                    r.pop("seed", None)
-                    r.pop("variant", None)
-                # Per-region negative (card, under the prompt). Blank => use
-                # global only. The card always round-trips the stored value,
-                # so an empty box is a deliberate clear, not data loss.
-                rneg = str(e.get("negative", "")).strip()
-                if rneg:
-                    r["negative"] = rneg
-                else:
-                    r.pop("negative", None)
-                if e.get("negative_replace"):
-                    r["negative_replace"] = True
-                else:
-                    r.pop("negative_replace", None)
-                if e.get("positive_replace"):
-                    r["positive_replace"] = True
-                else:
-                    r.pop("positive_replace", None)
-                # GPT instruction (card, used when the slot's pipeline is
-                # gpt_image). Card always round-trips the stored value, so a
-                # blank box is a deliberate clear, not data loss.
-                rgpt = str(e.get("gpt_prompt", "")).strip()
-                if rgpt:
-                    r["gpt_prompt"] = rgpt
-                else:
-                    r.pop("gpt_prompt", None)
-        save_manifest(m)
-        return f"Saved ({changed} prompt change(s))"
+        # Serialised: two tabs saving at once would each read the manifest,
+        # mutate their own copy and write it back — the second silently erasing
+        # the first. Now that a variant pick commits the moment it is clicked,
+        # this path is hot enough for that to be a real collision.
+        with _manifest_lock:
+            return apply_region_edits(edits)
 
     def _setref(self, payload: dict) -> str:
         name = payload.get("name", "")
@@ -8863,7 +9081,7 @@ class Handler(BaseHTTPRequestHandler):
     # reference image) and seed (the locked seed / lock state is per-result).
     _COPY_BLOCK = {"name", "x", "y", "w", "h", "rotated", "bounds", "offsets",
                    "rotate", "output_override", "variant", "fruit", "role",
-                   "style_ref", "seed"}
+                   "style_ref", "seed", "lock"}
 
     def _copyfrom(self, payload: dict) -> str:
         """Copy tuning settings (prompt, negatives, replace flags, every

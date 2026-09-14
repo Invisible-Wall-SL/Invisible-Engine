@@ -87,11 +87,17 @@ def main() -> int:
     # goes on passing over a render that no longer asks.
     check("...and it is the first branch, so nothing runs ahead of it",
           render.index("if(") == render.index(GATE), True)
-    check("renderSel still calls saveAll()", "saveAll()" in render, True)
-    check("the gate runs BEFORE saveAll() — declining must write nothing",
-          render.index(GATE) < render.index("saveAll()"), True)
+    # renderSel writes through savedOk(), which saves and then ABORTS the render
+    # if the save was refused. Name the call renderSel actually makes, so the
+    # ordering assertions keep measuring the real write rather than a spelling.
+    SAVE = "savedOk("
+    check("renderSel still saves the cards first", SAVE in render, True)
+    check("the gate runs BEFORE the save — declining must write nothing",
+          render.index(GATE) < render.index(SAVE), True)
     check("declining returns instead of falling through",
-          "return;" in render.split("saveAll()")[0], True)
+          "return;" in render.split(SAVE)[0], True)
+    # ...and the indirection is a real save, not a renamed no-op.
+    check("savedOk() actually saves", "saveAll()" in body_of("savedOk", text), True)
 
     print("\n-- the dirty flag tracks the SAVED value, not the page load")
     save = body_of("saveGlobalStyle", text)

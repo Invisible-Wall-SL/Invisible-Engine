@@ -3507,27 +3507,33 @@ def fx_registration_crop(img: Image.Image, region: dict,
             int(round(cx + half_w)), int(round(cy + half_h)))
 
 
-def already_generated(batch_dir: Path, region: dict) -> Path | None:
-    """When a region's seed is LOCKED and a matching variant already exists,
-    return that file (so generation can skip it — no point re-rendering a
-    pinned result). 'Matching' = the committed picked-variant id, else a file
-    whose embedded seed equals the locked seed. Unlocked regions always
-    return None (they're meant to produce fresh variants).
+def region_locked(region: dict) -> bool:
+    """Is this region pinned against re-rendering?
 
-    GPT-Image-1 has no embedded seed, so a gpt_image region pins its result
-    by a committed variant pick instead. Re-running it would mean another
-    paid OpenAI call for an image the user already chose, so a committed
-    pick is treated as 'already generated' for GPT slots."""
+    `lock` is explicit since the variant pick was untangled from it — a pick
+    says WHICH generated file to compose, not that the slot must stop
+    rendering, so the old "a stored seed (or, for seedless GPT, a stored
+    pick) means locked" inference would now read every pick as a lock. That
+    inference survives only as the fallback for manifests written before the
+    flag existed, where a stored seed/pick really could only mean locked."""
+    if "lock" in region:
+        return bool(region["lock"])
+    return "seed" in region or bool(str(region.get("variant", "")).strip())
+
+
+def already_generated(batch_dir: Path, region: dict) -> Path | None:
+    """When a region is LOCKED and a matching variant already exists, return
+    that file (so generation can skip it — no point re-rendering a pinned
+    result). 'Matching' = the picked-variant id, else a file whose embedded
+    seed equals the locked seed. Unlocked regions always return None (they're
+    meant to produce fresh variants).
+
+    GPT-Image-1 has no embedded seed, so a locked gpt_image region pins its
+    result by the variant pick alone. Re-running it would mean another paid
+    OpenAI call for an image the user already chose."""
+    if not region_locked(region):
+        return None
     files = variant_files(batch_dir, region["name"])
-    if region_pipeline(region) == "gpt_image":
-        picked = str(region.get("variant", "")).strip()
-        if picked and files:
-            for p in files:
-                if _variant_id(p) == picked:
-                    return p
-        return None
-    if "seed" not in region:
-        return None
     if not files:
         return None
     picked = str(region.get("variant", "")).strip()
@@ -3535,7 +3541,11 @@ def already_generated(batch_dir: Path, region: dict) -> Path | None:
         for p in files:
             if _variant_id(p) == picked:
                 return p
+    if region_pipeline(region) == "gpt_image":
+        return None
     locked = region.get("seed")
+    if locked is None:
+        return None
     for p in files:
         if _seed_in_png(p) == locked:
             return p
