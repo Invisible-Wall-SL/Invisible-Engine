@@ -7,6 +7,8 @@
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
 
+import type { CoverFit } from './coverTransform';
+
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
  * `portrait`); now a `string` because the bucket set is author-defined via
@@ -61,6 +63,22 @@ export interface NodeOverride {
 	 * non-componentInstance nodes. Absent ⇒ the base params (parity).
 	 */
 	params?: Record<string, unknown>;
+	/**
+	 * Per-layoutType BACKGROUND-COVER FIT — how a cover node ({@link BaseNode.fit}) is fitted
+	 * to the window for THIS layoutType. The whole point of the per-axis fits: a backdrop that
+	 * should span the WIDTH on desktop (`'width'`) often has to span the HEIGHT in portrait
+	 * (`'height'`), and `cover`/`contain` can't express that — they pick the axis by aspect.
+	 * Resolved by `backgroundFit`, so the game runtime and every editor cover path agree.
+	 * Absent ⇒ the base `fit` (parity).
+	 */
+	fit?: CoverFit;
+	/**
+	 * Per-layoutType BACKGROUND-COVER ZOOM — this layoutType's {@link BaseNode.coverScale}.
+	 * Sibling of {@link NodeOverride.fit}: a fit pinned to one axis usually wants its own zoom
+	 * per ratio (the stretch and the alignment already ride the per-layout `scale`/`anchor`).
+	 * Absent ⇒ the base `coverScale` (parity).
+	 */
+	coverScale?: number;
 }
 
 /**
@@ -72,12 +90,20 @@ interface BaseNode {
 	label?: string;
 	x: number;
 	y: number;
+	/**
+	 * Draw pivot, 0..1 per axis. On a COVER node (`background` space / {@link BaseNode.coverFit})
+	 * the art is always drawn from its own centre, so this means the ALIGNMENT of the fitted art
+	 * inside the window instead — 0 = left/top edge, 0.5 = centred (the default every spawn
+	 * carries), 1 = right/bottom — i.e. which part of a cropped cover you keep. See
+	 * `backgroundCoverAnchor`.
+	 */
 	anchor?: Point2D;
 	scale?: Point2D;
 	/**
 	 * Background cover-scale multiplier — a dedicated UNIFORM zoom on the fitted
 	 * cover (`1` = exact edge-to-edge cover). Independent of {@link BaseNode.scale},
 	 * which authors the free non-uniform STRETCH ratio on top. Absent = `1`.
+	 * Per-layoutType overridable via {@link NodeOverride.coverScale}.
 	 */
 	coverScale?: number;
 	rotation?: number;
@@ -99,15 +125,18 @@ interface BaseNode {
 	/**
 	 * Background cover fit (§10.4). Canonical fit for a plain `background`-SPACE
 	 * sprite/spine node — `'cover'` (default) fills the window edge-to-edge (may
-	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect.
+	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect, and
+	 * `'width'`/`'height'` pin the fit to that ONE axis whatever the window ratio
+	 * (see {@link CoverFit}). Per-layoutType overridable via {@link NodeOverride.fit}.
 	 * The cover *scale* multiplier lives in {@link BaseNode.coverScale} (1 = exact
-	 * cover); `scale.x`/`scale.y` author the free non-uniform stretch on top. For a
+	 * cover); `scale.x`/`scale.y` author the free non-uniform stretch on top, and
+	 * `anchor` aligns the fitted art in the window (0.5 = centred). For a
 	 * `bind` cover anchor (e.g. the animated Background) the canonical fit is read
 	 * from {@link BaseNode.preview}.art.fit instead — see `backgroundFit`. Both the
 	 * game runtime and the editor preview read fit + scale through one helper so the
 	 * two agree. Additive — absent = `'cover'`.
 	 */
-	fit?: 'cover' | 'contain';
+	fit?: CoverFit;
 	/**
 	 * Per-node opt-in to true cover-fit (aspect-preserving fill to the canvas/window)
 	 * for a cover-capable node (`isCoverFitKind` — sprite / spine / flipbook) in a normal
@@ -204,7 +233,7 @@ interface BaseNode {
 			kind: 'spine' | 'sprite';
 			assetKey: string;
 			region?: string;
-			fit?: 'cover' | 'contain';
+			fit?: CoverFit;
 		};
 	};
 	/**

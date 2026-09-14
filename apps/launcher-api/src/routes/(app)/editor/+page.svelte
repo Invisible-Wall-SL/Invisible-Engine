@@ -915,7 +915,7 @@
 		// Background). Also keep the section open once the author has switched its fit to
 		// `contain` — that flips the resolved placement away from `cover`, so detect the
 		// stored `preview.art.fit` too (else the control would vanish + trap the choice).
-		const art = resolveAnchorPreviewArt(node, data.assets);
+		const art = resolveAnchorPreviewArt(node, data.assets, undefined, undefined, currentLayoutType);
 		if (art && art.placement === 'cover') return true;
 		if (node.preview?.art?.fit) return true;
 		// A `canvas`-space `coverFit` node covers the window with the SAME cover math — so it

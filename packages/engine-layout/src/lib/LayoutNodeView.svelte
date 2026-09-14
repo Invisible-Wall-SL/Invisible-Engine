@@ -35,9 +35,11 @@
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
 	import { getBoundComponent } from './registerBoundComponents';
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
+		coverAnchorOffset,
 		coverTransform,
 		isCoverArtKind,
 		isCoverFitKind,
@@ -233,9 +235,17 @@
 	// the identical `bgTexture` → `coverTransform` → `bg` path below. A spine covers through
 	// `bgSpineBox` and a componentInstance through `bgComponent` instead.
 	const isCoverArtNode = $derived(isCoverArtKind(node));
-	const bgCoverScale = $derived(backgroundCoverScale(node));
-	const bgStretch = $derived(backgroundCoverStretch(node));
-	const bgFit = $derived(backgroundFit(node));
+	// The cover inputs are read per LAYOUT: each honours this bucket's `overrides[layoutType]`
+	// (fit / coverScale / scale / anchor) before the base, so one background can fit on X for
+	// desktop and on Y for portrait. Base-only docs resolve exactly as before (parity).
+	const coverLayoutType = $derived(layoutContext.stateLayoutDerived.layoutType());
+	const bgCoverScale = $derived(backgroundCoverScale(node, coverLayoutType));
+	const bgStretch = $derived(backgroundCoverStretch(node, coverLayoutType));
+	const bgFit = $derived(backgroundFit(node, coverLayoutType));
+	// A cover node's anchor ALIGNS the fitted art in the window (0.5 = centred = every spawn's
+	// default ⇒ parity); it is not a draw pivot, which is why every cover path still pins the
+	// art's own pivot to 0.5 and lets `coverTransform` place the centre.
+	const bgAnchor = $derived(backgroundCoverAnchor(node, coverLayoutType));
 	// A background SPRITE / FLIPBOOK covers the canvas via a true `coverTransform` from the
 	// loaded texture's NATURAL size (both axes) — never the old ratio-based
 	// `normalBackgroundLayout`, which set only one axis and left a sprite's other axis
@@ -274,6 +284,8 @@
 			stretchX: bgStretch.x,
 			stretchY: bgStretch.y,
 			fit: bgFit,
+			anchorX: bgAnchor.x,
+			anchorY: bgAnchor.y,
 		});
 		return { x: cover.x, y: cover.y, scale: { x: cover.scaleX, y: cover.scaleY } };
 	});
@@ -311,6 +323,45 @@
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
 	const bgSpineScale = $derived(bgSpineBox ? bgStretch : undefined);
+	// The authored dims of a cover SPINE's skeleton, resolved exactly as `<SpineProvider>` does
+	// (direct key, else the `…/spines/<bundle>/` prefix a doc stores). `spineSizeScale` fits the
+	// rig from these same numbers, so measuring them here is what lets the anchor ALIGNMENT below
+	// be computed outside the provider without the two disagreeing about the art's size.
+	const bgSpineData = $derived.by(() => {
+		if (!isCover || node.kind !== 'spine') return undefined;
+		const assets = appContext.stateApp.loadedAssets;
+		const key = spineAssetKey ?? node.assetKey;
+		const read = (k?: string) =>
+			(k ? assets?.[k] : undefined) as { width?: number; height?: number } | undefined;
+		const direct = read(key);
+		if (direct) return direct;
+		return read(key?.match(/(?:^|\/)spines\/(.+?)\/?$/)?.[1]);
+	});
+	// A cover spine is SIZED by `<SpineProvider>`'s `fit` and drawn from its own origin, so the
+	// anchor alignment can't ride in a position the provider computes — it is added to the spine's
+	// own placement here, from the SAME `coverTransform` the sprite/component covers use. Undefined
+	// (no shift) for a centred anchor or an unmeasured skeleton, so every existing doc is
+	// byte-identical and a not-yet-loaded rig never jumps.
+	const bgSpineOffset = $derived.by(() => {
+		if (!bgSpineBox) return undefined;
+		if (bgAnchor.x === 0.5 && bgAnchor.y === 0.5) return undefined;
+		const artWidth = bgSpineData?.width ?? 0;
+		const artHeight = bgSpineData?.height ?? 0;
+		if (!(artWidth > 0) || !(artHeight > 0)) return undefined;
+		const c = layoutContext.stateLayoutDerived.canvasSizes();
+		return coverAnchorOffset({
+			artWidth,
+			artHeight,
+			targetWidth: c.width,
+			targetHeight: c.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+			anchorX: bgAnchor.x,
+			anchorY: bgAnchor.y,
+		});
+	});
 	// A `coverFit` (canvas) spine CENTERS on the canvas — `SpineProvider` places the art
 	// centre at (x, y), so the cover must sit at the canvas centre (the same point the
 	// sprite cover's `coverTransform` returns), NOT the node's authored x/y. Without this a
@@ -325,9 +376,13 @@
 	});
 
 	// Place a component-instance union box as a cover on the canvas. Shared by the BAKED box and
-	// the measured-walk fallback so the two can never frame the same overlay differently.
-	// `cover.x/y` is the canvas CENTRE; the container's children draw at their local coords, so
-	// the container is offset until the union's local centre lands on it:
+	// the measured-walk fallback so the two can never frame the same overlay differently — which is
+	// also why the cover ANCHOR is threaded here and not at either call site: the baked box is the
+	// path any re-saved doc takes, so an anchor applied to only one of them would align the same
+	// backdrop differently depending on whether the editor had baked it.
+	// `cover.x/y` is where the fitted art's CENTRE goes (the canvas centre, slid by the anchor
+	// alignment); the container's children draw at their local coords, so the container is offset
+	// until the union's local centre lands on it:
 	// worldCentre = containerPos + unionLocalCentre * coverScale.
 	const coverBoxTransform = (box: {
 		minX: number;
@@ -345,6 +400,8 @@
 			stretchX: bgStretch.x,
 			stretchY: bgStretch.y,
 			fit: bgFit,
+			anchorX: bgAnchor.x,
+			anchorY: bgAnchor.y,
 		});
 		return {
 			x: cover.x - (box.minX + box.width / 2) * cover.scaleX,
@@ -767,7 +824,7 @@
 			{#if isBackground}
 				<Bound
 					{transform}
-					cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch }}
+					cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
 					{...node.bind?.props ?? {}}
 				/>
 			{:else}
@@ -946,8 +1003,8 @@
 		-->
 		<SpineProvider
 			key={spineAssetKey ?? node.assetKey}
-			x={bg ? bg.x : spineCoverCenter ? spineCoverCenter.x : posX}
-			y={bg ? bg.y : spineCoverCenter ? spineCoverCenter.y : posY}
+			x={bg ? bg.x : (spineCoverCenter?.x ?? posX) + (bgSpineOffset?.dx ?? 0)}
+			y={bg ? bg.y : (spineCoverCenter?.y ?? posY) + (bgSpineOffset?.dy ?? 0)}
 			anchor={isCover ? transform.anchor : undefined}
 			scale={bgSpineBox ? bgSpineScale : sizedScale}
 			rotation={transform.rotation}

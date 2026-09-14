@@ -162,8 +162,8 @@ Open the **Library** tab. It is grouped into:
   On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
   `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
   placed size, exactly like a background image does. It then stops being draggable
-  and resizable: tune it with **cover scale** / **fit** in the Background section and
-  **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **bounds
+  and resizable: tune it with **fit** / **cover scale** / **align x** / **align y** in the
+  Background section and **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **bounds
   box** when it declares one, else from its **first frame**, so frames of different sizes
   don't make the backdrop breathe.
 
@@ -255,8 +255,8 @@ Other editing affordances:
 The right-hand **Properties** panel edits the selected node — its transform
 (`x/y`, anchor, scale, rotation, alpha, zIndex, tint), text content/style for
 text nodes, spine animation/skin for spine nodes (driven by dropdowns when the
-canvas can read the bundle's animations), background cover/fit for cover
-sprites, and the slot the node fills (when a template is loaded). It also offers
+canvas can read the bundle's animations), background cover (fit / zoom /
+alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
 
@@ -334,6 +334,44 @@ free-spin screen, without forking the component.
 > them to the spin and to the end of the round, and the two traps that bite — is in the
 > Invisible Flow guide under
 > [Scene cues](flow.md#scene-cues--animate-a-placed-character).
+
+#### Background — how a full-bleed cover is fitted, zoomed and aligned
+
+Select a node that covers the window — anything on a `background` screen, or a
+sprite / spine / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
+screen — and the Properties panel shows a **Background** section. The node stops being
+draggable (its transform is computed, not authored); these controls are how you shape it:
+
+- **fit** — how the art is matched to the window:
+  - **cover (fill, may crop)** — the default: fill both axes, cropping the overflow.
+  - **contain (fit inside)** — fit fully inside, letterboxing the short axis.
+  - **fit width — X** — the art is exactly as wide as the window, whatever that does
+    vertically (crop or gap).
+  - **fit height — Y** — the art is exactly as tall as the window.
+
+  `cover` / `contain` *choose* the axis from the aspect ratio, so which axis they pin
+  flips as the window ratio crosses the art's. The two per-axis fits **pin** it, which is
+  what you want when a backdrop must always span the window horizontally (say) and you
+  have decided what happens on the other axis.
+
+- **cover scale** — a uniform zoom on the fit. `1` = exactly the fit; `1.1` over-covers
+  by 10%.
+
+- **align x / align y** — where the fitted art sits in the window: `0.5` (default) is
+  centred, `0` hugs the left / top edge, `1` the right / bottom. On a cropping cover this
+  chooses **which part of the image you keep**; on a `contain` fit (or an under-zoomed
+  cover) it chooses which edge the art hugs. This is the same field as the Transform
+  **anchor** — a cover is always drawn from its own centre, so its anchor aligns instead
+  of pivoting.
+
+- **scale.x / scale.y** (in Transform) — free non-uniform stretch on top of the fit
+  (e.g. `1.0 × 1.2` = 20% taller). Independent of cover scale, which stays uniform.
+
+All four — fit, cover scale, alignment and stretch — are **per device layout**: switch
+the layoutType pill to `portrait` (or any non-base bucket) and set them there to override
+just that ratio, leaving desktop alone. A dot + × next to the control marks an override
+and clears it. That is the usual reason to reach for the per-axis fits: a backdrop that
+should span the WIDTH on desktop often has to span the HEIGHT in portrait.
 
 #### Art bounds — the box a sprite is sized by
 
