@@ -446,6 +446,20 @@
 						message: `flipbook "${n.label ?? n.id}" → missing clip "${n.clipId}"`,
 					});
 				}
+				// A CUE's target clip is quieter still. The node keeps drawing its resting clip, so the
+				// only symptom is a character that never reacts — no blank, no console error — and
+				// nothing else in the doc references that clip, so a rename in Invisible Flipbook
+				// breaks it invisibly. Same clip-list gate as above.
+				if (n.kind === 'flipbook' && clipIds !== null) {
+					for (const cue of n.cues ?? []) {
+						if (!cue.clipId || clipIds.has(cue.clipId)) continue;
+						out.push({
+							sceneId,
+							nodeId: n.id,
+							message: `flipbook "${n.label ?? n.id}" → cue "${cue.signal}" missing clip "${cue.clipId}"`,
+						});
+					}
+				}
 				if (n.kind === 'container') walk(n.children, sceneId);
 			}
 		};

@@ -32,6 +32,8 @@
 		type ButtonStateAnimations,
 		type EditableParam,
 		type EngineParamEntry,
+		type FlipbookCue,
+		type FlipbookNode,
 		type LayoutNode,
 		type LayoutType,
 		type NodeOverride,
@@ -1550,6 +1552,32 @@
 		markDirty();
 	}
 	function removeCue(n: SpineNode, i: number): void {
+		const cues = (n.cues ?? []).filter((_, idx) => idx !== i);
+		n.cues = cues.length ? cues : undefined;
+		markDirty();
+	}
+
+	// ---------- flipbook signal cues (the flipbook twin of the spine cues above) ----------
+	// Same authoring model and the same `cueSceneMode` rule for the signal name; the payload
+	// differs — a flipbook cue names the CLIP to swap to, not an animation, so it seeds
+	// `clipId: ''` (blank = skipped by the runtime until an author picks one).
+
+	/** There is deliberately no `completeSignal` twin in EITHER editor mode: a spine one-shot
+	 * reports completion through `SpineTrack`, but `<Flipbook>` exposes no completion hook (a
+	 * play-once clip just stops on its last frame), so a flipbook cue has nothing to report. */
+	function addFlipbookCue(n: FlipbookNode): void {
+		const first = componentSignals[0]?.key ?? '';
+		n.cues = [...(n.cues ?? []), { signal: first, clipId: '', loop: undefined }];
+		markDirty();
+	}
+	function updateFlipbookCue(n: FlipbookNode, i: number, patch: Partial<FlipbookCue>): void {
+		const cues = [...(n.cues ?? [])];
+		if (!cues[i]) return;
+		cues[i] = { ...cues[i], ...patch };
+		n.cues = cues;
+		markDirty();
+	}
+	function removeFlipbookCue(n: FlipbookNode, i: number): void {
 		const cues = (n.cues ?? []).filter((_, idx) => idx !== i);
 		n.cues = cues.length ? cues : undefined;
 		markDirty();
@@ -4565,6 +4593,100 @@
 				The canvas plays every clip on a loop so you can see it — a <em>play once</em> clip still stops
 				on its last frame in the game.
 			</p>
+			{#if componentSignals.length > 0 || cueSceneMode}
+				<h4 class="sub-h">Plays on signal</h4>
+				{#if cueSceneMode}
+					<p class="muted small">
+						When the named signal fires, this flipbook swaps to the chosen clip. The name is
+						whatever a Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be
+						declared anywhere. A cue is never <em>cleared</em>: going back to the resting clip above
+						means firing a second cue that names it.
+					</p>
+				{:else}
+					<p class="muted small">
+						When the component's signal fires (the game wires it to a book event), this flipbook
+						swaps to the chosen clip. A cue is never <em>cleared</em>: going back to the resting
+						clip above means firing a second cue that names it.
+					</p>
+				{/if}
+				{#each node.cues ?? [] as cue, i (i)}
+					<div class="bind-grid cue-row">
+						<label class="field">
+							<span>signal</span>
+							{#if cueSceneMode}
+								<input
+									type="text"
+									placeholder="e.g. reelsSpinning"
+									value={cue.signal}
+									oninput={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value })}
+								/>
+							{:else}
+								<select
+									value={cue.signal}
+									onchange={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value })}
+								>
+									{#each componentSignals as s (s.key)}
+										<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
+									{/each}
+								</select>
+							{/if}
+						</label>
+						<label class="field">
+							<span>clip</span>
+							<select
+								value={cue.clipId}
+								onchange={(e) => updateFlipbookCue(node, i, { clipId: e.currentTarget.value })}
+							>
+								<option value="">(choose clip)</option>
+								{#if cue.clipId && !clipOf(cue.clipId)}
+									<option value={cue.clipId}>{cue.clipId} (missing)</option>
+								{/if}
+								{#each clipList as c (c.id)}
+									<option value={c.id}>{c.name} · {c.frames.length}f</option>
+								{/each}
+							</select>
+						</label>
+						<label class="field">
+							<!--
+								A tri-state select, NOT a checkbox — mirroring this node's own `loop` control
+								above. An unset cue `loop` means "inherit the target clip's own answer", which
+								an unchecked box would draw as the phantom default "off": ticking then
+								un-ticking could never get back to inherit, and "play once" over a clip
+								authored looping would be unauthorable.
+							-->
+							<span>loop</span>
+							<select
+								value={cue.loop === undefined ? '' : cue.loop ? 'yes' : 'no'}
+								onchange={(e) => {
+									const v = e.currentTarget.value;
+									updateFlipbookCue(node, i, {
+										loop: v === 'yes' ? true : v === 'no' ? false : undefined,
+									});
+								}}
+							>
+								<option value=""
+									>clip default ({clipOf(cue.clipId)?.loop === false ? 'once' : 'loop'})</option
+								>
+								<option value="yes">loop</option>
+								<option value="no">play once</option>
+							</select>
+						</label>
+						<label class="field check">
+							<button
+								type="button"
+								class="param-remove"
+								title="Remove cue"
+								onclick={() => removeFlipbookCue(node, i)}>×</button
+							>
+						</label>
+					</div>
+				{/each}
+				<button type="button" class="ghost-sm" onclick={() => addFlipbookCue(node)}>
+					+ add cue
+				</button>
+			{:else if componentMode}
+				<p class="muted small">Declare a signal on this component to add playback cues.</p>
+			{/if}
 		</section>
 	{:else if node.kind === 'repeater'}
 		<section>

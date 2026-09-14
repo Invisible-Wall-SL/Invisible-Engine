@@ -77,7 +77,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// AUTHOR-NAMED CUES — every `SpineCue.signal` on every scene's spines (nested containers walked).
 	// WHY: a `fireCue` node can only name something in `TemplateVocabulary.cues`, and the engine's cue
 	// list is CLOSED (board / win / free-spin / sound / UI). An author-named cue is therefore the ONLY
-	// way a flow can address an asset the author PLACED — put `characterSpin` on a spine in the Scene
+	// way a flow can address an asset the author PLACED — put `characterSpin` on a spine OR a flipbook
 	// Editor and a `fireCue characterSpin` reaches it through the open component-signal bus
 	// (`emitComponentSignal`). Harvesting the names here is what makes them AUTHORABLE: `withSceneCues`
 	// turns each into a payload-less CueDecl, so the palette, the inspector's ref dropdown,
@@ -174,8 +174,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		library,
 		libraryEtag,
 		sceneNames,
-		/** Author-named spine cues, so a `fireCue` node can address a placed asset (see the harvest
-		 *  above). Composed onto the vocabulary client-side by `withSceneCues`. */
+		/** Author-named cues off the project’s spine AND flipbook nodes, so a `fireCue` node can
+		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		containerEvents,
 	};

@@ -156,6 +156,8 @@ Open the **Library** tab. It is grouped into:
   mirrored and reversed on the second, beats two near-identical clips to keep in sync.
   The canvas previews the placement's own direction and mirroring, not just the clip's.
   The clip's sheet ships automatically — no need to place the atlas separately.
+  A placed clip can also **swap to another clip when the game or a flow cues it** — see
+  [Plays on signal](#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).
 
   On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
   `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
@@ -258,45 +260,67 @@ sprites, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
 
-#### Plays on signal — a spine that changes animation during play
+#### Plays on signal — a spine or flipbook that changes what it plays
 
-Select a **spine** node and its **Spine** section ends with a **Plays on signal** block.
-This is how a character you placed on a screen changes animation while the game runs: each
-row pairs a **signal** name with an animation, and when Invisible Flow broadcasts a cue of
-that name, this spine plays it.
+Select a **spine** node and its **Spine** section ends with a **Plays on signal** block;
+select a **flipbook** node and its **Flipbook** section ends with the same block. This is how
+something you placed on a screen changes what it plays while the game runs: each row pairs a
+**signal** name with what to play, and when Invisible Flow broadcasts a cue of that name, this
+node plays it. A spine swaps **animation**; a flipbook swaps **clip** — which is how a
+character drawn as frame animation, rather than rigged in Spine, reacts to the game at all.
 
-The fields above the block — **default animation**, **skin**, **loop** — stay the rig's
-*resting* state: what it plays when no signal has fired.
+The fields above the block stay the node's *resting* state — what it plays when no signal has
+fired: a spine's **default animation**, **skin** and **loop**; a flipbook's **clip** and the
+playback overrides beside it.
 
 Each row is:
 
-- **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). A spine dropped
+- **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). A node dropped
   straight onto a screen belongs to no component, so there is no list to pick from: you
   invent the name here, and Invisible Flow offers it back to you in its **Cues** palette.
   The match is exact — a name spelled differently on the two sides simply never fires.
-- **animation** — the clip to play. A dropdown of the rig's animations when the editor can
-  read the bundle, a text field when it can't.
-- **loop** — hold the clip, or play it once (below).
-- **×** removes the row; **+ add cue** adds another. A spine can carry as many rows as you
+- **animation** (spine) — the clip to play. A dropdown of the rig's animations when the editor
+  can read the bundle, a text field when it can't.
+- **clip** (flipbook) — the clip to swap to, picked from the project's clips (each listed with
+  its frame count). A clip since deleted or renamed in Invisible Flipbook is listed as
+  _(missing)_, and the node simply keeps playing its resting clip.
+- **loop** — hold what the cue started, or let it finish (below).
+- **×** removes the row; **+ add cue** adds another. A node can carry as many rows as you
   need.
 
-**Ticking loop holds the animation.** Left unticked, the clip plays **once** and the rig
-settles back into its **default animation** — the intro-then-idle shape. Ticked, the clip
-**loops until another cue on the same spine replaces it**, which is what a "for as long as
-the reels spin" mode needs.
+**Looping holds what the cue started** — it runs until another cue on the same node replaces
+it, which is what a "for as long as the reels spin" mode needs. The control itself differs
+between the two kinds, because they have different things to fall back on.
+
+On a **spine** it is a tick box. Ticked, the animation holds. Left unticked, it plays **once**
+and the rig settles back into its **default animation** — the intro-then-idle shape.
+
+On a **flipbook** it is a three-way choice, matching the node's own loop control above it:
+**clip default** keeps whatever the clip was authored to do (the menu names which, so you are
+never guessing), **loop** holds it, and **play once** runs it a single time. There is no
+settling back to the resting clip — a flipbook has no equivalent of a rig's default animation
+— so a one-shot clip stays on its last frame until another cue replaces it.
 
 **A cue is never cleared.** There is no stop signal: going back to idle means firing a
-*second* cue whose animation is the idle clip. A character that idles, spins, then idles
-again is two rows, not one.
+*second* cue that names the idle animation, or the resting clip. A character that idles,
+spins, then idles again is two rows, not one.
 
-**A cue only reaches a spine that is on screen.** Nothing is queued and nothing is
+**A cue only reaches a node that is on screen.** Nothing is queued and nothing is
 replayed: if the cue fires while the screen holding the character is hidden, that
 character misses it and stays as it was.
 
+**Firing the cue that is already running does the sensible thing for what it is.** A looping
+cue keeps going rather than snapping back to its first frame — which matters, because in free
+spins a "spinning" cue fires once per spin while the "idle" one fires only at the end of the
+round, and a rewind on every spin would read as a stutter. A one-shot cue, on the other hand,
+plays again — firing a burst twice is asking to see it twice.
+
 > The same block appears in the **Invisible Component Editor** with two differences: there
 > the **signal** is a **dropdown** of the signals that component declares (a component has a
-> declared list; a loose spine does not), and a one-shot cue can additionally **fire a signal
-> on complete** to sequence a sibling.
+> declared list; a node dropped loose on a screen does not), and a one-shot **spine** cue can
+> additionally **fire a signal on complete** to sequence a sibling. A flipbook cue has no
+> complete signal in either editor — a clip reports no finish, it just stops on its last
+> frame.
 
 > **Firing the cues is the Flow's job.** The end-to-end recipe — name them here, then wire
 > them to the spin and to the end of the round, and the two traps that bite — is in the

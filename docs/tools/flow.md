@@ -79,8 +79,9 @@ function library:
   `stopReel`, `startSpin`, …), each tagged with its category.
 - **Cues** — presentation signals to broadcast (`boardShow`, `specialBookReveal`,
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
-  own cues **plus every signal name authored on a spine in this project's screens**, so a
-  cue you invented in the Scene Editor is waiting here to be dragged out (see below).
+  own cues **plus every signal name authored on a spine or a flipbook in this project's
+  screens**, so a cue you invented in the Scene Editor is waiting here to be dragged out
+  (see below).
 - **Functions** — reusable sub-graphs from the shared library (see *Collapse to Function*).
   Each row also has **✎** (edit its body) and **✕** (delete it, blocked while it is in use).
 - **Containers** — a **show** and a **hide** button per container the flow declares
@@ -92,8 +93,10 @@ function library:
 
 #### Scene cues — animate a placed character
 
-A spine placed in the **Invisible Scene Editor** carries its own **Plays on signal** rows —
-each pairing a signal name with an animation. Every name used on this project's screens is
+A character placed in the **Invisible Scene Editor** carries its own **Plays on signal** rows —
+each pairing a signal name with what that node plays. It does **not** have to be a Spine rig: a
+spine cue names an animation, and a placed **Invisible Flipbook** clip takes the same rows,
+naming another clip to swap to. Every name used on this project's screens, on either kind, is
 collected into the **Cues** section here, so a name an author invented becomes a node you can
 drag onto the canvas — and one validation accepts as a real reference. Nothing else connects
 the two tools: the names match, or nothing fires.
@@ -101,12 +104,14 @@ the two tools: the names match, or nothing fires.
 The whole recipe, for a character that idles, plays a spin loop while the reels turn, then
 returns to idle:
 
-1. **In the Scene Editor**, select the character's spine. Set **default animation** to its
-   idle clip and tick **loop** — that is its resting state.
+1. **In the Scene Editor**, select the character — its spine, or its placed flipbook clip — and
+   give it a resting state: a spine's **default animation** set to the idle animation with
+   **loop** ticked; a flipbook's **clip** set to the idle clip.
 2. In the same panel's **Plays on signal** block, **+ add cue** twice: one row
-   `characterSpin` / the spin clip / **loop** ticked, one row `characterIdle` / the idle clip
-   / **loop** ticked. (A looping cue holds until another cue replaces it, and a fired cue is
-   never cleared — which is why returning to idle is a second cue, not an "off".)
+   `characterSpin` naming the spin animation (or spin clip), one row `characterIdle` naming
+   the idle one. Set both to loop — a tick box on a spine, the **loop** option on a flipbook.
+   (A looping cue holds until another cue replaces it, and a fired cue is never cleared —
+   which is why returning to idle is a second cue, not an "off".)
 3. **Here in the Flow**, open the palette's **Cues** section: `characterSpin` and
    `characterIdle` are now in it. Drag both onto the canvas.
 4. Splice `characterSpin` into the exec chain that already runs when the spin starts, and
@@ -127,8 +132,8 @@ about the second wire.
 mounted is **lost**, not queued: there is no replay when the screen later appears. If the
 character lives on a screen the flow shows, fire its cue *after* the **show**, never before.
 
-The Scene-Editor half — the block's fields, and exactly what **loop** does — is in
-[the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-that-changes-animation-during-play).
+The Scene-Editor half — the block's fields, and exactly what **loop** does on each kind — is in
+[the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).
 
 #### Text Message — in-game prompts
 
@@ -286,11 +291,11 @@ so authoring here is what the shipped game actually runs.
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. Only the `book-of`
   template vocabulary exists today; an unknown template id falls back to it.
-- **Cues on a spine inside a component instance aren't offered.** The **Cues** section
-  collects signal names from spines placed **directly on a screen**; a spine that lives
+- **Cues inside a component instance aren't offered.** The **Cues** section collects signal
+  names from spines and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own
   definition, so they never reach this palette. Such a name is only firable from here if it
-  is also one of the engine's cues or is used by a spine placed directly on a screen —
+  is also one of the engine's cues or is used by a node placed directly on a screen —
   otherwise place the character on the screen itself.
 - **Function inputs/outputs are fixed once created.** A function body's **Entry** / **Result**
   signature (its inputs/outputs) can't be edited yet; adding or removing a function's

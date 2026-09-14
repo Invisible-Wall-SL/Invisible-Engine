@@ -234,6 +234,25 @@ assert(
 	'…but only when there is a distinct resting clip to hand back to',
 );
 
+// A FLIPBOOK cue rides the same bus and lands in the same per-node map, but names a `clipId`
+// instead of an `animation`. It must never drive the spine hand-off: that branch decides whether
+// to force `loop=false` and hand a spine track back to its resting animation, which is meaningless
+// for a clip swap — and, since the entry carries no `animation`, "cue animation ≠ default" would
+// otherwise read TRUE (undefined ≠ 'idle') and un-loop a held clip.
+console.info('\n7. A flipbook cue payload never drives the spine hand-off');
+assert(
+	handsOffToIdle({ clipId: 'spin' }, 'idle', false) === false,
+	'a clip-swap cue with no animation hands off nothing',
+);
+assert(
+	handsOffToIdle({ clipId: 'spin', loop: true }, 'idle', false) === false,
+	'…including a looping one, which is the character-while-spinning case',
+);
+assert(
+	handsOffToIdle({ animation: '', loop: true }, 'idle', false) === false,
+	'an empty animation is treated the same (a half-authored spine cue drives nothing)',
+);
+
 console.info('');
 if (failures > 0) {
 	console.error(`${failures} assertion(s) failed`);

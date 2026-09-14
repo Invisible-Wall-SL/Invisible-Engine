@@ -49,7 +49,11 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
-	import { getComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
+	import {
+		getComponentSignalAnims,
+		type ComponentCuePayload,
+		type ComponentSignalAnim,
+	} from './componentSignalContext';
 	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentSpineRest } from './componentSpineRestContext';
@@ -83,21 +87,22 @@
 	// (byte-identical parity).
 	let instanceTap = $state<Snippet | undefined>(undefined);
 
-	// Signal-driven spine-anim overrides (§8.5, spine-only). `undefined` when this
-	// node has no `componentInstance` ancestor providing the context — a scene-level
-	// spine then falls back to `sceneSigAnim` below.
+	// Signal-driven cue overrides (§8.5) — a spine's animation or a flipbook's clip. `undefined`
+	// when this node has no `componentInstance` ancestor providing the context; the node then
+	// falls back to `sceneSigAnim` below.
 	const signalAnims = getComponentSignalAnims();
-	// SCENE-LEVEL cue receiver — the fallback for a spine placed DIRECTLY in a screen, with no
+	// SCENE-LEVEL cue receiver — the fallback for a cued node placed DIRECTLY in a screen, with no
 	// `componentInstance` ancestor to own a signal bus. Until this existed, `cues[]` on such a
 	// node was inert (the context was `undefined`, so nothing ever subscribed), which meant a
 	// character dropped on a scene could not react to anything: authoring a cue for it required
 	// first turning it into a component. This subscribes the node's OWN cues and holds the latest
-	// fire, so the same `cues[]` field works in both places.
+	// fire, so the same `cues[]` field works in both places, for BOTH cued kinds — a spine swaps
+	// animation, a flipbook swaps clip.
 	//
 	// Deliberately narrower than the instance bus: no `completeSignal` is carried (there is no
 	// per-instance fired-signal bus out here to fire it ON, so `hiddenUntilSignal` /
 	// `tapArmAfterSignal` have no provider either — see `firedSignals` below), and cues are the
-	// only consumer. An instance-provided map always WINS, so a spine inside a component keeps
+	// only consumer. An instance-provided map always WINS, so a cued node inside a component keeps
 	// exactly today's path and this effect returns immediately.
 	let sceneSigAnim = $state<ComponentSignalAnim | undefined>(undefined);
 	let sceneFire = 0;
@@ -105,18 +110,31 @@
 		untrack(() => {
 			// An owning instance already drives this node — leave it alone (parity).
 			if (signalAnims) return;
-			if (node.kind !== 'spine' || !node.cues?.length) return;
+			// Only the two CUED kinds have a `cues` field at all; everything else exits untouched.
+			if (node.kind !== 'spine' && node.kind !== 'flipbook') return;
+			// Flatten both cue shapes to one subscription list HERE, where `node.kind` still narrows
+			// the cue element type. A half-authored cue drives nothing, and the field that must be
+			// present differs by kind: a spine cue names an `animation`, a flipbook cue a `clipId`.
+			const subs: { signal: string; payload: ComponentCuePayload; loop?: boolean }[] =
+				node.kind === 'spine'
+					? (node.cues ?? [])
+							.filter((c) => c.signal && c.animation)
+							.map((c) => ({ signal: c.signal, payload: { animation: c.animation }, loop: c.loop }))
+					: (node.cues ?? [])
+							.filter((c) => c.signal && c.clipId)
+							.map((c) => ({ signal: c.signal, payload: { clipId: c.clipId }, loop: c.loop }));
+			if (!subs.length) return;
 			const unsubs: (() => void)[] = [];
-			for (const cue of node.cues) {
-				if (!cue.signal || !cue.animation) continue;
-				const { signal, animation, loop } = cue;
+			for (const { signal, payload, loop } of subs) {
 				unsubs.push(
 					getComponentSignal(signal).subscribe(() => {
 						// The monotonic token is what makes a REPEAT fire replay: re-firing the same cue
 						// writes the same animation name, and `SpineTrack`'s value comparison would
-						// otherwise read "already playing" and leave a finished one-shot frozen.
+						// otherwise read "already playing" and leave a finished one-shot frozen. A
+						// flipbook ignores the token — its textures come off the clip object — which is
+						// why re-firing the clip already playing does not restart it (see `FlipbookCue`).
 						sceneFire += 1;
-						sceneSigAnim = { animation, loop, fire: sceneFire };
+						sceneSigAnim = { ...payload, loop, fire: sceneFire };
 					}),
 				);
 			}
@@ -639,21 +657,57 @@
 	 * but there is no reason to rebuild the clip when nothing about it changed. Returns the
 	 * REGISTERED object untouched when the placement overrides nothing — the common case.
 	 */
+	/** Last folded clip + the inputs that produced it — see the identity note in the derived below. */
+	let foldCache: { key: string; clip: ReturnType<typeof resolveFlipbook> } | undefined;
 	const flipbookClip = $derived.by(() => {
 		if (node.kind !== 'flipbook') return undefined;
-		const clip = resolveFlipbook(node.clipId);
+		// An active CUE swaps which clip plays (the flipbook twin of a spine cue overriding
+		// `defaultAnimation`) — from the owning instance's map, else this node's own scene-level
+		// subscription. No cue has fired ⇒ the node's authored `clipId`, byte-identical to before.
+		// A dangling cue `clipId` resolves to nothing, so it falls back to the resting clip rather
+		// than blanking the node.
+		const cued = signalAnims?.[node.id] ?? sceneSigAnim;
+		const cuedClip = cued?.clipId ? resolveFlipbook(cued.clipId) : undefined;
+		const clip = cuedClip ?? resolveFlipbook(node.clipId);
 		if (!clip) return undefined;
 		// The precedence lives in `registerFlipbooks` — a symbol cell folds the same block, and
 		// two copies of "override ?? clip" are two chances to disagree about whether an explicit
 		// `false` means "off" or "inherit". A placement folds `loop` too: it passes no `loop`
 		// prop, so the clip's own value IS the answer for it.
-		return foldFlipbookPlayback(clip, {
+		//
+		// While a CUE drives the clip, `loop` is the cue's alone — it does NOT fall through to the
+		// placement's. The placement's `loop` is a statement about the RESTING clip, and the editor
+		// draws an unset cue loop as "clip default (loop|once)" reading the TARGET clip's own value.
+		// Falling through would make that label lie in the one configuration it matters: a node set
+		// to "play once" for its resting clip, cueing a clip authored to loop, left on clip-default
+		// would freeze on the spin clip's last frame while the menu promised a loop.
+		const loop = cuedClip ? cued?.loop : node.loop;
+		// Identity is the contract with `<Flipbook>`: it derives its texture array from this object,
+		// and for a clip with `bounds` that array is fresh `Texture` instances — which `AnimatedSprite`
+		// detects as changed frames and answers with `gotoAndPlay(0)`. A cue re-fire bumps only the
+		// `fire` token, so a naive fold would hand over a new object every time.
+		//
+		// Whether that restart is wanted depends on what the cue IS, so the fire token is part of the
+		// key for a ONE-SHOT and not for a held LOOP:
+		//  - a held loop re-cued mid-feature (free spins fire the spin cue once per SPIN while the
+		//    idle cue fires once per ROUND) must not visibly rewind to frame 0 on every spin;
+		//  - a one-shot burst re-fired is asking to play AGAIN, exactly as a spine cue replays off
+		//    its own token — without the token it would sit dead on its last frame forever.
+		// `foldFlipbookPlayback` resolves `override.loop ?? clip.loop`, and an unset answer plays as
+		// a loop, so that is the effective test.
+		const loops = (loop ?? clip.loop ?? true) !== false;
+		const replay = loops ? '' : `|${cued?.fire ?? 0}`;
+		const key = `${clip.id}|${loop}|${node.fps}|${node.direction}|${node.flipX}|${node.flipY}${replay}`;
+		if (foldCache?.key === key) return foldCache.clip;
+		const folded = foldFlipbookPlayback(clip, {
 			fps: node.fps,
-			loop: node.loop,
+			loop,
 			direction: node.direction,
 			flipX: node.flipX,
 			flipY: node.flipY,
 		});
+		foldCache = { key, clip: folded };
+		return folded;
 	});
 
 	/**
