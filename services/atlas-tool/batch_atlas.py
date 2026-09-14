@@ -3663,7 +3663,9 @@ def main() -> None:
     else:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     atlas = dict(manifest.get("atlas") or {})
-    style = manifest["style"]
+    # A DERIVED manifest (e.g. the Flipbook video mode's packed frame sheet)
+    # carries no AI authoring block at all — it must still compose.
+    style = manifest.get("style") or {}
 
     atlas_path = atlas_file_path(manifest, manifest_path)
     atlas_bound = atlas_path is not None
