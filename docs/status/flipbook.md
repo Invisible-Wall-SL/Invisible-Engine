@@ -696,9 +696,10 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
     PUT-only, single-key, expiring URLs at submit and passes them as `input.upload_urls`; nothing
     large crosses RunPod's API at all. Verified end-to-end against the REAL bucket, not a double: a
     3 MB body presigned, PUT with no credentials, read back byte-identical, deleted.
-  - **No credentials on the worker.** Its image is public on GHCR, so a presigned URL — one key, no
-    read, no listing, expiring — is the difference between "nothing worth stealing" and a leaked
-    bucket key. It also needs no new dependency: the image already has `requests`.
+  - **No credentials on the worker.** A presigned URL — one key, no read, no listing, expiring —
+    is the difference between "nothing worth stealing" and a leaked bucket key. (This entry
+    originally justified that by the image being public on GHCR; it is not, and never was — see
+    the 2026-09-14 entry in [status/comfyui](comfyui.md). The reasoning stands without it.) It also needs no new dependency: the image already has `requests`.
   - **The PICKING rule stays on the tool side**, and only the bytes move. The worker uploads output
     i to slot i in ComfyUI's own order; teaching it which file is "the render" would put one
     decision on both sides of the wire and let them disagree.

@@ -1,8 +1,10 @@
 name: Build Atlas ComfyUI R&D pod
 
 # Builds the INTERACTIVE ComfyUI R&D pod image and pushes it to GHCR.
-# RunPod pods deploy FROM ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest (public image,
-# no pull creds). Distinct from atlas-comfy-worker.yml (the headless serverless worker).
+# RunPod pods deploy FROM ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest. The GHCR package
+# is PRIVATE, so a pod needs a Container Registry Auth credential selected — it does not pull
+# anonymously. Distinct from atlas-comfy-worker.yml (the headless serverless worker), and NOT
+# interchangeable with it: this image has no runpod handler and can never answer a job.
 on:
   push:
     # main only. Rebuilding this image on every push to a dev branch cost real minutes for

@@ -68,7 +68,9 @@ needs the node present on anyone's local machine.
   polls history, returns output image(s).
 - Models are NOT baked. ComfyUI reads them from the attached volume via
   `extra_model_paths.yaml` (or the volume mounted at the models dir).
-- Built + pushed by **GitHub Actions → GHCR** (public image, no pull creds needed).
+- Built + pushed by **GitHub Actions → GHCR**. The package is **private**: the endpoint
+  needs a Container Registry Auth credential (a GitHub PAT with `read:packages`), and
+  GHCR grants that access PER PACKAGE — see `docs/INFRA.md`.
 
 ## Pipeline changes (`services/atlas-tool/batch_atlas.py`)
 
