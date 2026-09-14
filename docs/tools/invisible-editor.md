@@ -322,6 +322,14 @@ plays again — firing a burst twice is asking to see it twice.
 > complete signal in either editor — a clip reports no finish, it just stops on its last
 > frame.
 
+**One component, two placements, different signals.** When you select a placed **component
+instance** — the instance itself, not a node inside it — its properties carry a
+**(this placement)** panel for each cued spine and flipbook the component contains, listing
+that node's cues under **Driven by signal**. Point a row at a different signal and only
+_this_ copy follows it; leave it on _(inherit)_ and it keeps the component's own. That is how
+one character component can idle on the base game and react to something else entirely on the
+free-spin screen, without forking the component.
+
 > **Firing the cues is the Flow's job.** The end-to-end recipe — name them here, then wire
 > them to the spin and to the end of the round, and the two traps that bite — is in the
 > Invisible Flow guide under

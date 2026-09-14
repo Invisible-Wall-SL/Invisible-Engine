@@ -273,6 +273,23 @@
 		walk(instanceComponent.root);
 		return out;
 	});
+	/** Flipbook nodes inside the selected instance's def root that carry cues — the rebind panel's
+	 * flipbook half. Deliberately NOT folded into `instanceSpineNodes`: that list also drives the
+	 * spine MANIFEST prefetch (`neededSpineKeys`) and the button-state panel, and a clip has
+	 * neither a spine bundle nor interaction states. Filtered to cued nodes because a rebind row
+	 * is the only thing this panel offers a flipbook — an un-cued one would render an empty
+	 * heading. */
+	const instanceFlipbookCueNodes = $derived.by<FlipbookNode[]>(() => {
+		if (!instanceComponent) return [];
+		const out: FlipbookNode[] = [];
+		const walk = (n: LayoutNode): void => {
+			if (n.kind === 'flipbook') {
+				if (n.cues?.length) out.push(n);
+			} else if (n.kind === 'container') for (const child of n.children) walk(child);
+		};
+		walk(instanceComponent.root);
+		return out;
+	});
 	/** This instance's override animation for (spine node, state), or undefined. */
 	function instanceStateAnimOf(nodeId: string, state: ButtonAnimState) {
 		if (node?.kind !== 'componentInstance') return undefined;
@@ -2495,6 +2512,46 @@
 										</div>
 									{/each}
 								{/if}
+							</div>
+						{/each}
+					</details>
+				{/if}
+				{#if instanceFlipbookCueNodes.length > 0}
+					<details class="param-group" open>
+						<summary>Flipbook (this placement)</summary>
+						<p class="muted small">
+							Drive THIS placement's flipbook cues from different signals than the component named —
+							so two copies of one component can react to different moments. Leave a row on <em
+								>(inherit)</em
+							> to keep the component's own signal.
+						</p>
+						{#each instanceFlipbookCueNodes as fb (fb.id)}
+							<div class="state-anim-node">
+								<h5 class="sub-h">{fb.label ?? fb.id}</h5>
+								<h6 class="sub-h state-sub">Driven by signal</h6>
+								{#each fb.cues ?? [] as cue (cue.signal)}
+									{@const ov = instanceCueSignalOf(fb.id, cue.signal)}
+									<div class="bind-grid cue-row">
+										<label class="field">
+											<!-- The clip the cue swaps to names the row, exactly as the animation
+											     names a spine's; the signal itself is the fallback when it is blank. -->
+											<span>{cue.clipId || cue.signal}</span>
+											<select
+												value={ov ?? ''}
+												onchange={(e) =>
+													onSetInstanceCueSignal?.(fb.id, cue.signal, e.currentTarget.value)}
+											>
+												<option value="">(inherit: {cue.signal})</option>
+												{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
+													<option value={s.key}>{s.label}</option>
+												{/each}
+												{#if ov && !ENGINE_SIGNAL_CATALOG.some((s) => s.key === ov)}
+													<option value={ov}>{ov} (custom)</option>
+												{/if}
+											</select>
+										</label>
+									</div>
+								{/each}
 							</div>
 						{/each}
 					</details>
