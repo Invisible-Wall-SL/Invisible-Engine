@@ -383,15 +383,36 @@
 		}
 	}
 
-	async function removeSession(id: string): Promise<void> {
+	/** Delete a whole session — every render in its grid, from R2 as well as staging.
+	 *
+	 * Takes the SESSION, not its id, so the prompt can say what is actually being destroyed.
+	 * Dropping ONE variation already confirmed; dropping the whole grid it belongs to did not,
+	 * which had it backwards — this is the irreversible one, and the only way a session goes
+	 * away at all (nothing prunes `<project>/video/`). Sheets already packed out of it live
+	 * under `sheets/`, untouched by the delete, so the prompt says so rather than leaving an
+	 * author afraid of losing a clip they already made. */
+	async function removeSession(s: Session): Promise<void> {
+		const live = (s.variations ?? []).filter((v) => v.status !== 'deleted').length;
+		if (
+			!confirm(
+				`Delete the session “${runTitle(s)}”?\n\n` +
+					`Its ${live} ${live === 1 ? 'render' : 'renders'} ${live === 1 ? 'is' : 'are'} ` +
+					`removed from cloud storage for good. Sheets already packed from it are kept.`,
+			)
+		) {
+			return;
+		}
 		try {
-			const res = await postJson<{ error?: string }>('delete', { session: id });
+			const res = await postJson<{ error?: string }>('delete', { session: s.id });
+			// A refused delete is reported, never drawn as a session that went away:
+			// `delete_session` VERIFIES against R2 and errors if anything survived, so
+			// dropping the row here would hide an orphan nobody can reach.
 			if (res.error) {
 				err = res.error;
 				return;
 			}
-			recent = recent.filter((s) => s.id !== id);
-			if (session?.id === id) session = recent[0] ?? null;
+			recent = recent.filter((r) => r.id !== s.id);
+			if (session?.id === s.id) session = recent[0] ?? null;
 		} catch (e) {
 			err = (e as Error).message;
 		}
@@ -2208,7 +2229,7 @@ Overwrite it?`)
 					class="danger sm"
 					disabled={running}
 					title={running ? 'Cancel the session before deleting it' : 'Delete this session'}
-					onclick={() => removeSession(session!.id)}>🗑</button
+					onclick={() => removeSession(session!)}>🗑</button
 				>
 			{/if}
 		</div>

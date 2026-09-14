@@ -217,6 +217,16 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-14 — **Deleting a whole video session now asks first.** Dropping ONE variation confirmed
+  (`discardVariation`); dropping the whole grid it belongs to did not, which had it backwards — the
+  session 🗑 is the irreversible one, and the only way a session goes away at all (nothing prunes
+  `<project>/video/`). `removeSession` now takes the `Session` rather than its id, so the prompt can
+  name it (`runTitle`) and count the renders that go with it. **Nothing about the R2 deletion
+  changed** — it was re-read and is correct: `delete_session` removes the session prefix, the
+  hand-off slots under `video/_out/iwvid_<id>_*` (a separate prefix), the lease and staging, then
+  VERIFIES against R2 and errors instead of reporting a success (the 2026-09-09 entry below).
+  Sheets already packed out of the session live under `<project>/sheets/<name>/` and are
+  deliberately untouched, which is what the confirm text now says.
 - 2026-09-14 — **A PLACED clip can now be swapped by a signal.** A `flipbook` layout node gained `cues` — fire a signal (from the game, or a Flow `fireCue`) and it plays a different clip, which is how a frame-animated character holds a "while the reels spin" loop. Nothing in THIS tool changed: clips are authored, exported, baked and registered exactly as before, and a cue’s target clip rides the existing reachability walk so it ships like any other played clip. Mechanism + parity: [engine status](engine.md); authoring: [editor status](editor.md).
 
 - 2026-09-09 — **A session delete now VERIFIES against R2 before it reports success**
