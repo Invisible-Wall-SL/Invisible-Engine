@@ -86,3 +86,4 @@ __pycache__/
 # Copied into the serverless build context by CI from services/atlas-comfy-pod/nodes.json.
 # One source of truth: a committed copy here would be the stale one.
 services/atlas-serverless/nodes.json
+services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers/

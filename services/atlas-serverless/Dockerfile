@@ -72,6 +72,14 @@ RUN set -eu; \
 # copied in as-is, NOT cloned. Cloning balazik/ComfyUI-PuLID-Flux would silently drop
 # the artist's edits and break the Characterdesignertest3 blueprint. See ./custom_nodes/README.md.
 COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
+# SemanticLayers is OURS and vendored, so the clone loop above can never reach it (no
+# `url` in nodes.json). It lives with the R&D pod image and CI copies it into this
+# context, same arrangement as nodes.json. Nodes-only: every transformers/torch import
+# inside it is function-local and its __init__ swallows a broken one, so it adds no
+# build-time dependency here. Promoted because a pack that exists ONLY on the R&D pod
+# is one a published blueprint can use and prod cannot run — which is how this endpoint
+# came to be pointed at the pod image, an image with no handler that answers no job.
+COPY custom_nodes/ComfyUI-SemanticLayers /ComfyUI/custom_nodes/ComfyUI-SemanticLayers
 # Install every node's Python deps (incl. the vendored PuLID folder now present here).
 RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
 # PuLID-Flux face stack — install explicitly so it can't be missed by a thin requirements.txt.

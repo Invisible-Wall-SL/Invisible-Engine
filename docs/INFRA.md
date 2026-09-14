@@ -344,12 +344,35 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 >
 > So `video_runner` presigns a few **PUT-only, single-key, expiring** R2 URLs at submit time and
 > passes them as `input.upload_urls`; the worker PUTs each output straight to R2 and returns only a
-> slot number. **No storage credentials go anywhere near the worker** — its image is public on
-> GHCR. Both directions degrade safely: a worker that predates this ignores the field and base64s
+> slot number. **No storage credentials go anywhere near the worker** — a presigned URL is
+> PUT-only, single-key and expiring, so even a leaked one can write one object and nothing
+> else. Both directions degrade safely: a worker that predates this ignores the field and base64s
 > as before, and a runner that cannot reach R2 to sign simply runs the old way at the old ceiling.
 > The scratch objects live at `<client>/<project>/video/_out/` and are deleted as soon as the real
 > render is written (`meta.json` is what makes a session, so they can never look like one).
 
+> ### ⚠️ The endpoint's image is `atlas-comfy-worker` — NEVER `atlas-comfy-pod`
+> Two images in one registry and only one of them answers a job. `services/atlas-serverless`
+> bakes `handler.py` and ends in `exec python -u /handler.py`; the R&D pod image
+> (`services/atlas-comfy-pod`) has no handler at all and ends in `exec sleep infinity`. An
+> endpoint pointed at the pod image pulls, boots, idles, and answers nothing.
+>
+> It is an easy paste to get wrong, because the advice just below — *set the endpoint's image
+> to the immutable `:<sha>`* — reads identically for both, while `/comfyui`'s **Update to
+> `<sha>`** button displays a full `ghcr.io/…/atlas-comfy-pod:<40-char sha>` that is correct
+> for a POD and wrong for the endpoint. Found live 2026-09-14 on endpoint `zygcn869ff2uyx`,
+> pinned to `atlas-comfy-pod:964daead…` — the SemanticLayers commit, i.e. someone reaching
+> for a node pack that at the time existed only in the pod image.
+>
+> **Both GHCR packages are PRIVATE** — neither pulls anonymously — so the endpoint needs a
+> credential under *Container Registry Credentials* (a GitHub PAT with `read:packages`).
+> GHCR grants access **per package**, so a credential that has pulled `atlas-comfy-worker`
+> for months can still be denied on `atlas-comfy-pod`. That surfaces as `error pulling image:
+> … denied: denied` and reads exactly like an expired token — **check the image NAME before
+> hunting for a dead PAT.** A quick discriminator, anonymously: a public package answers
+> `https://ghcr.io/token?scope=repository:<owner>/<pkg>:pull&service=ghcr.io` with a token,
+> a private one with `UNAUTHORIZED`.
+>
 > **Which image is a worker actually running?** The boot log answers it —
 > `[handler] atlas-comfy-worker build <sha> (JOB_TIMEOUT=…s, cancel-aware=True/False)` — and every
 > error result ENDS with `[worker <sha>]` — RunPod keeps only a failing result's `error` STRING (the `worker_build` and `detail` keys beside it never leave the worker), so the build and, since 2026-09-04, ComfyUI's failing node + exception travel inside the string. **A serverless endpoint pinned to `:latest` caches by
