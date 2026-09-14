@@ -451,6 +451,14 @@ the count and the age are the same on nearly all of them. A green dot marks a se
 working, a red one a session that was stopped. **Nothing prunes them**, so use 🗑 on sessions
 you are done with.
 
+The session **🗑 asks first** — it names the session and how many renders go with it, because
+this is the whole grid and not one tile. Saying yes removes every render in it from cloud
+storage as well as the service's own disk, for good; **sheets you already packed out of it are
+kept** (they live with the project's other sheets, not with the session). If the delete is
+refused — a token without delete permission, say — the session stays in the list and tells you
+what is left over, rather than disappearing while its files remain. A session that is still
+running cannot be deleted: cancel it first.
+
 The name is derived from the prompt, not stored, so it costs nothing and every session you
 already have has one. If two runs read alike, it is because their prompts start alike — the
 thumbnail is the tie-breaker.
