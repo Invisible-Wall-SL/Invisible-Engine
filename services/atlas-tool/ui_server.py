@@ -14,6 +14,7 @@ Zero external deps (stdlib http.server + Pillow).
 from __future__ import annotations
 
 import base64
+import contextlib
 import html
 import io
 import json
@@ -1328,8 +1329,36 @@ def creative_manifest_path() -> Path:
     return MANIFEST_DIR / sel
 
 
+_pinned_manifest = threading.local()
+
+
+@contextlib.contextmanager
+def pinned_manifest(mp: Path):
+    """Pin the ACTIVE manifest to `mp` for this thread only.
+
+    A long job (compose, a render's post-hook, a manifest-activation seed) has
+    to keep working on the manifest it STARTED on. Its own reads and writes can
+    name the path explicitly, but the helpers underneath cannot: all_regions()
+    resolves the bound `.atlas` through manifest_path(), so a dropdown change
+    from another tab mid-job would merge a different atlas's geometry onto
+    these regions — and region names (H1, L1, …) collide across atlases, so
+    nothing would look wrong until the wrong art shipped.
+
+    Thread-local, exactly like cloud_paths' (client, project) context and for
+    exactly the same reason: ThreadingHTTPServer gives every request its own
+    thread, so pinning here cannot leak into anyone else's. NEVER make this a
+    module global — that is the race cloud_paths.py exists to have removed."""
+    prev = getattr(_pinned_manifest, "path", None)
+    _pinned_manifest.path = Path(mp)
+    try:
+        yield _pinned_manifest.path
+    finally:
+        _pinned_manifest.path = prev
+
+
 def manifest_path() -> Path:
-    return creative_manifest_path()
+    pinned = getattr(_pinned_manifest, "path", None)
+    return pinned if pinned is not None else creative_manifest_path()
 
 
 def list_manifests() -> list[str]:
@@ -2602,15 +2631,153 @@ def _drop_dangling_pick(name: str) -> bool:
 
 
 _manifest_lock = threading.RLock()
-"""Serialises the FAST load->mutate->save cycles on the active manifest.
+"""Serialises load->mutate->save on the active manifest.
 
 ThreadingHTTPServer gives every request its own thread, so two of them could
 read the same manifest and write back two divergent copies — the last one
 wins and the other user's edit is gone. Now that a variant pick commits on
-click, these writes are frequent and small, so a plain mutex is enough and
-costs nothing. It deliberately does NOT cover the FX rebuild in run_render's
-_post (seconds of PIL + R2 work): holding it there would stall every save in
-the UI. That window pre-dates this lock — see docs/status/atlas-maker.md."""
+click, these writes are frequent and small, so a plain mutex costs nothing.
+
+A SLOW producer must not hold it: the FX rebuild is seconds of PIL work plus
+an R2 upload per layer, and freezing every save in the UI for that long is its
+own bug. Those paths run their work on a detached copy and then re-apply only
+the fields they own onto a manifest re-read INSIDE the lock — see
+persist_region_fields / rebuild_fx_layers_at."""
+
+
+# What an FX build WRITES onto a region (build_fx_region). Re-applying exactly
+# these onto a freshly read manifest is what lets the slow build run unlocked.
+_FX_RESULT_KEYS = ("output_override", "mode", "fx", "shine")
+# The one field the ref seed binds (_bind_ref_as_output). Same discipline: it
+# decodes and mirrors an image per region, so its snapshot goes stale too.
+_SEED_RESULT_KEYS = ("output_override",)
+
+
+def _bucket_region(m: dict, name: str) -> dict | None:
+    """The region's entry in the manifest's OWN buckets.
+
+    Not all_regions(): for an `.atlas`-bound manifest that merges geometry into
+    fresh dicts, so mutating what it returns persists nothing."""
+    for bucket in ("regions", "rotated_regions"):
+        for r in m.get(bucket, []):
+            if r.get("name") == name:
+                return r
+    return None
+
+
+def _region_fingerprint(m: dict, name: str, keys: tuple[str, ...]) -> str:
+    """A comparable snapshot of the fields a slow job WRITES on one region.
+
+    Its one job: tell "nobody touched this while we worked" from "somebody
+    rewrote it". A region with no creative entry fingerprints as all-null, so
+    a not-yet-existing region compares equal to itself — which is what makes
+    the stub branch in persist_region_fields reachable for `.atlas`-bound
+    manifests.
+
+    It does NOT cover what the job READ. An FX layer is derived from its BASE
+    region's image (fx_source), and the base is a different region whose pick
+    can change mid-build; the result is then bound from art the base no longer
+    shows. That self-heals on the next Create Atlas (which rebuilds every
+    layer first), so it is left uncovered deliberately rather than widened
+    into a cross-region dependency."""
+    r = _bucket_region(m, name) or {}
+    return json.dumps({k: r.get(k) for k in keys}, sort_keys=True, default=str)
+
+
+def _fingerprints(m: dict, keys: tuple[str, ...]) -> dict[str, str]:
+    """Fingerprint every region the manifest KNOWS, not just the ones with a
+    creative entry: an `.atlas`-bound region the user has never edited has no
+    entry yet, and leaving it out made `before.get(name)` None — which can
+    never equal a real fingerprint, so its result was always dropped."""
+    names = {r["name"] for bucket in ("regions", "rotated_regions")
+             for r in m.get(bucket, []) if r.get("name")}
+    names |= {r["name"] for r in all_regions(m) if r.get("name")}
+    return {n: _region_fingerprint(m, n, keys) for n in names}
+
+
+def _lift_region_fields(m: dict, names: list[str] | set[str],
+                        keys: tuple[str, ...]) -> dict[str, dict]:
+    """Pull just `keys` off each named region, detached from `m`."""
+    out: dict[str, dict] = {}
+    for name in names:
+        r = _bucket_region(m, name)
+        if r is not None:
+            out[name] = json.loads(json.dumps({k: r[k] for k in keys if k in r},
+                                              default=str))
+    return out
+
+
+def persist_region_fields(mp: Path, results: dict[str, dict],
+                          before: dict[str, str], keys: tuple[str, ...]
+                          ) -> tuple[list[str], list[str]]:
+    """Write a slow job's per-region result onto the manifest as it stands NOW.
+
+    Returns (written, skipped). This is the whole fix for the lost-save window:
+    the job's own copy of the manifest is seconds stale by the time it finishes,
+    and writing that copy back carried every OTHER field with it — so a prompt,
+    seed or variant pick saved meanwhile was silently overwritten. Only `keys`
+    travel, and only onto regions whose fingerprint still matches what the job
+    started from.
+
+    A `skipped` region keeps the MANIFEST the concurrent writer left. It does
+    not undo the image file that writer's build and this one both wrote to
+    `refs/useroutput_<name>.png` (and mirrored to R2) — whichever finished last
+    is on disk. Callers say so, and name the layer, so a wrong-looking tile has
+    an obvious remedy instead of being a mystery."""
+    written: list[str] = []
+    skipped: list[str] = []
+    with _manifest_lock:
+        fresh = _read_manifest_at(mp)
+        if fresh is None:
+            return [], sorted(results)
+        for name, fields in results.items():
+            if _region_fingerprint(fresh, name, keys) != before.get(
+                    name, _region_fingerprint({}, name, keys)):
+                skipped.append(name)
+                continue
+            r = _bucket_region(fresh, name)
+            if r is None:
+                # Same name-only stub build_fx_region would create for an
+                # `.atlas`-bound manifest, and the same refusal if the geometry
+                # no longer knows this region at all.
+                if not any(x.get("name") == name for x in all_regions(fresh)):
+                    skipped.append(name)
+                    continue
+                r = {"name": name}
+                fresh.setdefault("regions", []).append(r)
+            r.update(fields)
+            written.append(name)
+        if written:
+            _write_manifest_at(mp, fresh)
+    return written, skipped
+
+
+def rebuild_fx_layers_at(mp: Path, base_names: set | None = None
+                         ) -> tuple[list[str], list[str]]:
+    """rebuild_fx_layers, persisted without clobbering a concurrent save.
+
+    Builds on a detached copy with NO lock held (each layer is PIL work plus an
+    R2 upload), then re-applies only the FX fields under the lock. Returns
+    (rebuilt, skipped) — `skipped` names layers somebody re-tuned mid-build,
+    whose own params were kept instead."""
+    m = _read_manifest_at(mp)
+    if m is None:
+        return [], []
+    before = _fingerprints(m, _FX_RESULT_KEYS)
+    rebuilt = rebuild_fx_layers(m, base_names=base_names)
+    if not rebuilt:
+        return [], []
+    return persist_region_fields(
+        mp, _lift_region_fields(m, rebuilt, _FX_RESULT_KEYS),
+        before, _FX_RESULT_KEYS)
+
+
+def _fx_skip_note(skipped: list[str]) -> str:
+    """What a skipped layer actually means, and what to do about it."""
+    return ("Kept the settings you saved during the rebuild for %d FX layer(s): "
+            "%s. Their image file is whichever build finished last — press "
+            "⚙ build on those cells if the tile looks wrong."
+            % (len(skipped), ", ".join(skipped)))
 
 
 def _drop_superseded_picks(m: dict, before: dict[str, str]) -> list[str]:
@@ -2714,18 +2881,17 @@ def run_render(names: list[str], variants: int = 1,
            "--variants", str(max(1, variants))]
 
     def _post():
+        with pinned_manifest(mp):
+            return _post_locked()
+
+    def _post_locked():
         notes = []
-        m = _read_manifest_at(mp)
-        if m is None:
-            return None
-        rebuilt = rebuild_fx_layers(m, base_names=set(names))
+        rebuilt, fx_skipped = rebuild_fx_layers_at(mp, base_names=set(names))
         if rebuilt:
-            _write_manifest_at(mp, m)
             notes.append("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
                          % (len(rebuilt), ", ".join(rebuilt)))
-        # Re-read: the rebuild above is seconds of PIL + R2 work, and a variant
-        # pick now commits the moment it is clicked — so the copy above may be
-        # stale by now, and writing the pick cleanup from it would undo one.
+        if fx_skipped:
+            notes.append(_fx_skip_note(fx_skipped))
         with _manifest_lock:
             m = _read_manifest_at(mp)
             if m is None:
@@ -2774,9 +2940,12 @@ def auto_pack_layout(m: dict) -> str | None:
     so the page morphs to fit.
 
     Regions with no committed image yet are left UNPLACED (compose already skips
-    a region with no variant). Mutates + saves the manifest. Never raises — any
-    failure returns a readable note and leaves the prior geometry untouched.
-    Returns None when `m` is not a pack atlas (so callers can no-op silently)."""
+    a region with no variant). Mutates `m`; the CALLER saves it — same contract
+    as rebuild_fx_layers, and the reason is the same: this opens every region's
+    art to measure it, so the read->mutate->save cycle has to be closed by whoever
+    holds the manifest lock, not from in here. Never raises — any failure returns
+    a readable note and leaves the prior geometry untouched. Returns None when
+    `m` is not a pack atlas (so callers can no-op silently)."""
     if str((m.get("atlas") or {}).get("layout", "")).strip().lower() != "pack":
         return None
     regions = [r for bucket in ("regions", "rotated_regions")
@@ -2827,7 +2996,6 @@ def auto_pack_layout(m: dict) -> str | None:
     atlas["layout"] = "pack"
     atlas["width"] = int(result["width"])
     atlas["height"] = int(result["height"])
-    save_manifest(m)
     note = (f"Auto-packed {len(items)} region(s) → page "
             f"{result['width']}×{result['height']}")
     if skipped:
@@ -2844,16 +3012,27 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # Compose picks each region's variant PNG from batch/ in the subprocess, so
     # the variant pile must be on local disk first (it hydrates lazily).
     project_paths.ensure_lazy("batch/")
+    with pinned_manifest(manifest_path()) as mp:
+        _run_compose_pinned(mp)
+
+
+def _run_compose_pinned(mp: Path) -> None:
+    """The compose pre-passes + the subprocess, all against ONE manifest.
+
+    `mp` is pinned for this thread (pinned_manifest), so the helpers underneath
+    — all_regions' `.atlas` resolution above all — see it too, not whatever the
+    dropdown points at by the time they run."""
     # Refresh ALL FX layers from their current bases before composing, so the
     # atlas reflects the latest art. Best-effort: never block compose.
     pre_note = None
     try:
-        m = load_manifest()
-        rebuilt = rebuild_fx_layers(m, base_names=None)
+        rebuilt, fx_skipped = rebuild_fx_layers_at(mp, base_names=None)
         if rebuilt:
-            save_manifest(m)
             pre_note = ("Auto-rebuilt %d FX layer(s) before compose: %s"
                         % (len(rebuilt), ", ".join(rebuilt)))
+        if fx_skipped:
+            _fs = _fx_skip_note(fx_skipped)
+            pre_note = f"{pre_note}\n{_fs}" if pre_note else _fs
     except Exception as e:  # noqa: BLE001
         pre_note = f"[FX auto-rebuild skipped] {e}"
     # Restore any `fit_mode` a pre-fix handoff stripped, BEFORE the subprocess
@@ -2862,10 +3041,15 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # every frame is silently rewritten. Says what it repaired — a placement
     # change the user did not ask for should never be silent.
     try:
-        m = load_manifest()
-        repaired = repair_sheet_fit_mode(m)
+        # Under the lock end to end: this one only inspects manifest fields, so
+        # the whole cycle is microseconds and nothing can slip between the read
+        # and the write.
+        with _manifest_lock:
+            m = _read_manifest_at(mp) or {}
+            repaired = repair_sheet_fit_mode(m)
+            if repaired:
+                _write_manifest_at(mp, m)
         if repaired:
-            save_manifest(m)
             _rn = ("Restored the sheet's placement on %d region(s) whose "
                    "fit_mode an earlier handoff dropped (they would otherwise "
                    "have been stretched to their rect): %s"
@@ -2879,17 +3063,36 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # page and write geometry onto the manifest BEFORE the compose subprocess
     # reads it. No-op (returns None) for `.atlas`-bound / cell-grid manifests.
     try:
-        pack_note = auto_pack_layout(load_manifest())
+        # Under the lock end to end. It measures every region's art, so it is
+        # not instant — but it reads the same local files compose is about to
+        # read anyway, and the geometry it stamps has to match the manifest the
+        # subprocess is handed one line later.
+        #
+        # The write at the end does reach the network: _write_manifest_at
+        # mirrors to R2 inside the lock, so a stalled PUT stalls saves. That is
+        # true of every manifest write here (save_manifest always did it) and is
+        # exactly why the SLOW producers above re-apply their fields instead of
+        # being wrapped — this lock is for short writes, not for work.
+        with _manifest_lock:
+            m = _read_manifest_at(mp) or {}
+            pack_note = auto_pack_layout(m)
+            # Its two failure notes ("nothing generated yet", "Auto-pack
+            # failed") lead with ⚠ and stamp nothing — writing on those would
+            # push an unmutated manifest to R2 for no reason. The old inline
+            # save_manifest sat past both early returns; this is that same gate.
+            if pack_note and not pack_note.startswith("⚠"):
+                _write_manifest_at(mp, m)
         if pack_note:
             pre_note = f"{pre_note}\n{pack_note}" if pre_note else pack_note
     except Exception as e:  # noqa: BLE001 — never block compose on a pack hiccup
         _pn = f"[auto-pack skipped] {e}"
         pre_note = f"{pre_note}\n{_pn}" if pre_note else _pn
-    # Pass the active manifest explicitly (full staging path) so compose reads
-    # the same creative manifest the UI shows — not whatever the subprocess's
-    # config default would resolve against the script dir.
+    # Pass the manifest explicitly (full staging path) so compose reads the same
+    # creative manifest the steps above just prepared — not whatever the
+    # subprocess's config default would resolve against the script dir, and not
+    # a different atlas if the dropdown moved while those steps ran.
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
-           "--manifest", str(manifest_path()),
+           "--manifest", str(mp),
            "--include-rotated", "--include-hidden", "--compose-only"]
     _run_cmd(cmd, 1, pre_note=pre_note)
 
@@ -6486,20 +6689,34 @@ class Handler(BaseHTTPRequestHandler):
                     # never push a stale staged copy over a Sheet Maker export.
                     if resolved != _was:
                         _refresh_manifest_from_r2(resolved)
-                        nm = load_manifest()
-                        # Heal a pre-fix handoff on ACTIVATION too, not only in
-                        # the compose pre-pass, so the inspector's placement
-                        # readout tells the truth straight away instead of
-                        # reporting `fill` until someone risks a Create Atlas.
-                        # Deliberately NOT gated on `export_prefix` like the
-                        # seed below: an imported manifest lost that field as
-                        # well, and the repair is evidence-gated on its own.
-                        if repair_sheet_fit_mode(nm):
-                            save_manifest(nm)
-                        if bool(nm.get("export_prefix")):
-                            res = self._seed_refs_into_outputs(nm, only_empty=True)
-                            if res["seeded"]:
-                                save_manifest(nm)
+                        # By path + under the lock, same as the dropdown twin
+                        # in _saveconfig: the seed decodes and mirrors an image
+                        # per region, so writing its whole starting snapshot
+                        # back would undo anything saved meanwhile.
+                        with pinned_manifest(manifest_path()) as mp:
+                            with _manifest_lock:
+                                nm = _read_manifest_at(mp) or {}
+                                # Heal a pre-fix handoff on ACTIVATION too, not
+                                # only in the compose pre-pass, so the
+                                # inspector's placement readout tells the truth
+                                # straight away instead of reporting `fill`
+                                # until someone risks a Create Atlas.
+                                # Deliberately NOT gated on `export_prefix`
+                                # like the seed below: an imported manifest
+                                # lost that field as well, and the repair is
+                                # evidence-gated on its own.
+                                if repair_sheet_fit_mode(nm):
+                                    _write_manifest_at(mp, nm)
+                            if bool(nm.get("export_prefix")):
+                                before = _fingerprints(nm, _SEED_RESULT_KEYS)
+                                res = self._seed_refs_into_outputs(
+                                    nm, only_empty=True)
+                                if res["names"]:
+                                    persist_region_fields(
+                                        mp,
+                                        _lift_region_fields(nm, res["names"],
+                                                            _SEED_RESULT_KEYS),
+                                        before, _SEED_RESULT_KEYS)
                 except OSError:
                     pass
                 except Exception:  # noqa: BLE001 — never 500 a deep-link
@@ -9248,10 +9465,30 @@ class Handler(BaseHTTPRequestHandler):
         if mode not in shine.FX_PRESETS:
             return _diag("FX_BUILD_FAILED", mode=mode or "?",
                          err=f"unknown FX mode '{mode}'")
-        m = load_manifest()
+        # Same discipline as the automated rebuild: the build is PIL work plus
+        # an R2 upload, so it runs on a detached copy and only the FX fields are
+        # re-applied onto the manifest as it stands afterwards. Writing the
+        # whole copy back used to undo whatever else was saved meanwhile.
+        mp = manifest_path()
+        m = _read_manifest_at(mp)
+        if m is None:
+            return _diag("FX_BUILD_FAILED", mode=mode,
+                         err="the manifest could not be read")
+        before = _fingerprints(m, _FX_RESULT_KEYS)
         ok, msg = build_fx_region(m, name, mode, payload)
         if ok:
-            save_manifest(m)
+            _, skipped = persist_region_fields(
+                mp, _lift_region_fields(m, [name], _FX_RESULT_KEYS),
+                before, _FX_RESULT_KEYS)
+            if skipped:
+                # Lead with the glyph: flashDiag only promotes a message whose
+                # FIRST character is a severity marker, and fxBuild reloads the
+                # page 800ms later when it isn't — which would wipe this exact
+                # warning and leave the card showing the build as applied.
+                return (f"⚠ {name} was re-tuned from another tab while this "
+                        "build ran, so the newer settings were kept and THIS "
+                        "build was not saved. Re-apply yours if you still "
+                        f"want it.\n{msg}")
         return msg
 
     def _saveconfig(self, edits: dict) -> str:
@@ -9359,21 +9596,35 @@ class Handler(BaseHTTPRequestHandler):
         # when something was actually seeded.
         if _switched_manifest:
             try:
-                nm = load_manifest()
-                # Same repair as the deep-link path — the Session dropdown is
-                # the other way a damaged manifest becomes active.
-                if repair_sheet_fit_mode(nm):
-                    save_manifest(nm)
-                if bool(nm.get("export_prefix")):
-                    res = self._seed_refs_into_outputs(nm, only_empty=True)
-                    # Derive any FX layers (`<base>_<mode>` cells) from their
-                    # now-seeded bases so a sheet-derived manifest arrives with
-                    # its FX tiles already built — the user's "load and it picks
-                    # up the FX" expectation. The seed above deliberately leaves
-                    # FX cells un-bound; rebuild_fx_layers fills them here.
-                    fx = rebuild_fx_layers(nm, base_names=None)
-                    if res["seeded"] or fx:
-                        save_manifest(nm)
+                # Same read-modify-write discipline as run_compose: pin the
+                # manifest by path (another tab can switch the active one while
+                # this seeds, and save_manifest would then write THIS content to
+                # THAT atlas), and never write back a whole snapshot taken
+                # before slow work — the seed decodes and mirrors an image per
+                # region, the FX rebuild another.
+                with pinned_manifest(manifest_path()) as mp:
+                    with _manifest_lock:
+                        nm = _read_manifest_at(mp) or {}
+                        # Same repair as the deep-link path — the Session
+                        # dropdown is the other way a damaged manifest becomes
+                        # active.
+                        if repair_sheet_fit_mode(nm):
+                            _write_manifest_at(mp, nm)
+                    if bool(nm.get("export_prefix")):
+                        before = _fingerprints(nm, _SEED_RESULT_KEYS)
+                        res = self._seed_refs_into_outputs(nm, only_empty=True)
+                        if res["names"]:
+                            persist_region_fields(
+                                mp, _lift_region_fields(nm, res["names"],
+                                                        _SEED_RESULT_KEYS),
+                                before, _SEED_RESULT_KEYS)
+                        # Derive any FX layers (`<base>_<mode>` cells) from
+                        # their now-seeded bases so a sheet-derived manifest
+                        # arrives with its FX tiles already built — the user's
+                        # "load and it picks up the FX" expectation. The seed
+                        # above deliberately leaves FX cells un-bound; the
+                        # rebuild fills them here.
+                        rebuild_fx_layers_at(mp, base_names=None)
             except Exception:  # noqa: BLE001 — a seed hiccup must not 500 a save
                 pass
         return "Settings saved (per-atlas overrides + globals)"
