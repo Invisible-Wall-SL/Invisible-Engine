@@ -448,6 +448,29 @@ you can stamp the amount with no line under it, or draw the line and say nothing
   screen at a time — the win just announced — so with **Show all win lines at once** on you
   read the wins being narrated rather than every amount piled on the same spot.
 
+Under the style fields sits a **Count up** group — how the amount ARRIVES, rather than what it
+looks like. All five controls default **off/unset**, so a project that never opens the group is
+byte-identical to before it existed.
+
+- **Count the amount up** (default **Off**) and **Count-up length** (0.1–3s, default 0.6s,
+  disabled unless the toggle is on). Off, the amount appears at its full value the moment the
+  line lands. On, it runs up from zero over that length — and the win narration **waits for it**:
+  the symbols only start celebrating once the number has landed, so the count is read rather than
+  talked over. Every counting frame is rendered through the same Invisible Win Text
+  `amountFormat` and the same currency as the final value. A slammed spin skips the count
+  entirely and stamps the final amount.
+- **Count up to cue the big win** (default **Off**, disabled unless Count the amount up is on).
+  Turns that count into the big win's run-up, and **only on a round that actually reaches a
+  big-win tier** — every other spin keeps the ordinary per-line amounts. On such a round the stamp
+  shows the **round total** (not one payline's payout), centred on the reels whatever **Position**
+  says, counting from zero up to the smallest big-win threshold from the Invisible Game Config; at
+  that number it hides and the big-win overlay comes up and carries the count the rest of the way
+  to the total. A project with no big-win tiers configured has no such moment, so nothing changes.
+- **Fade the amount in** (default **Off**) and **Fade length** (0.05–1.5s, default 0.3s, disabled
+  unless the toggle is on). Brings the stamp up from transparent, **while the count is already
+  running** — the number is moving as it arrives, not after. Independent of the count: a stamp
+  that appears whole can fade in too.
+
 A **Reset text style** button clears the font/size/colour/position back to the coded
 defaults, leaving this section's on/off alone.
 
@@ -455,7 +478,10 @@ Every field of both sections is optional and **sparse**: only an on/off that dif
 its default and the fields you actually change are written, under
 `winLine: { enabled?, line?, text? }` on the doc — `enabled` is the LINE's switch,
 `text.enabled` the amount's (absent ⇒ it follows the line's), and `text.placement` the
-position (absent ⇒ at the line).
+position (absent ⇒ at the line). The Count-up group writes `text.countUp` /
+`text.countUpDuration` / `text.cueBigWin` / `text.fadeIn` / `text.fadeInDuration`, each
+default-OFF: turning a switch back off drops it AND the field that only makes sense with it
+(the count's length and the big-win cue go with `countUp`, the fade length with `fadeIn`).
 
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration; `line.fullPayline`/`line.fullPaylineColor` carry the full

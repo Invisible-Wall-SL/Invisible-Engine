@@ -403,6 +403,11 @@ type BakedBundle = {
 				size?: number;
 				color?: string;
 				placement?: 'line' | 'boardCenter';
+				countUp?: boolean;
+				countUpDuration?: number;
+				cueBigWin?: boolean;
+				fadeIn?: boolean;
+				fadeInDuration?: number;
 			};
 		};
 	};
@@ -995,6 +1000,22 @@ export type ResolvedWinLine = {
 		 * `'boardCenter'` in the middle of the reel window — where only the most recently announced
 		 * win stamps, so an all-at-once round doesn't pile every amount on one spot. */
 		placement: 'line' | 'boardCenter';
+		/** COUNT the stamped amount up from zero instead of stamping it whole. The win narration
+		 * awaits the count, so the symbols celebrate after the number lands. Default OFF
+		 * (byte-identical to before this switch); a slammed round skips the count. */
+		countUp: boolean;
+		/** How long that count takes, in SECONDS. */
+		countUpDuration: number;
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 * counts the ROUND TOTAL from zero to the big-win threshold, then hides as the overlay takes
+		 * over and carries the number the rest of the way. Default OFF; read only with `countUp` on
+		 * (`flowEffects.ts#cueBigWinCountUp`). */
+		cueBigWin: boolean;
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Default OFF, and
+		 * independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: boolean;
+		/** How long that fade takes, in SECONDS. */
+		fadeInDuration: number;
 	};
 };
 
@@ -1029,6 +1050,11 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			size: w?.text?.size ?? 0.5,
 			color: w?.text?.color ?? '#ffffff',
 			placement: w?.text?.placement ?? 'line',
+			countUp: w?.text?.countUp ?? false,
+			countUpDuration: w?.text?.countUpDuration ?? 0.6,
+			cueBigWin: w?.text?.cueBigWin ?? false,
+			fadeIn: w?.text?.fadeIn ?? false,
+			fadeInDuration: w?.text?.fadeInDuration ?? 0.3,
 		},
 	};
 }

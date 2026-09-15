@@ -28,6 +28,7 @@ import {
 	winLineTextFor,
 	winLineColorFor,
 	showWinInfoMessage,
+	cueBigWinCountUp,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
@@ -306,6 +307,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setWin: async (bookEvent: BookEventOfType<'setWin'>) => {
 		const winLevelData = activeWinLevelData(bookEvent.winLevel);
 
+		// The optional big-win RUN-UP: the round total counted up to the tier threshold, as the cue
+		// that the overlay is coming. Awaited BEFORE the overlay shows, so the count stops exactly
+		// where the overlay's own count-up picks the number up. A no-op unless the project authored
+		// it AND this round reached a big tier (see `cueBigWinCountUp`).
+		await cueBigWinCountUp({ amount: bookEvent.amount, winLevelData });
 		eventEmitter.broadcast({ type: 'winShow' });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';

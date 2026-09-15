@@ -234,6 +234,21 @@ const winLineTextSchema = z
 		 *  at the winning line's end; `'boardCenter'` puts it in the middle of the reel window
 		 *  instead, where only the most recently announced win stamps so the amounts never pile up. */
 		placement: z.enum(['line', 'boardCenter']).optional(),
+		/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the
+		 *  amount appears at its final value, byte-identical to before this switch. */
+		countUp: z.boolean().optional(),
+		/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+		countUpDuration: z.number().optional(),
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 *  counts the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win
+		 *  overlay takes over and carries the number the rest of the way. Absent ⇒ OFF. Only
+		 *  meaningful with `countUp` on, which is why it drops with it. */
+		cueBigWin: z.boolean().optional(),
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF.
+		 *  Independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: z.boolean().optional(),
+		/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+		fadeInDuration: z.number().optional(),
 	})
 	.strict();
 
@@ -576,6 +591,19 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 		const text = { ...winLine.text };
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;

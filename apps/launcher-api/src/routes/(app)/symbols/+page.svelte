@@ -1165,6 +1165,11 @@
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
+		countUp: false,
+		countUpDuration: 0.6,
+		cueBigWin: false,
+		fadeIn: false,
+		fadeInDuration: 0.3,
 	} as const;
 
 	// Engine builtin bitmap fonts (declared in each game's Game.svelte, not in the R2
@@ -3007,6 +3012,110 @@
 									<em>Centre of the reels</em> ignores where the win landed and puts it in the middle
 									of the reel window instead — one amount at a time, so with "show all win lines at once"
 									on you read the win being announced rather than every amount piled on the same spot.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Count up</h3>
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Count the amount up</span>
+										<label class="switch sm" class:on={wlText.countUp ?? WL_DEFAULTS.countUp}>
+											<input
+												type="checkbox"
+												checked={wlText.countUp ?? WL_DEFAULTS.countUp}
+												onchange={(e) => patchWinLineText({ countUp: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.countUp ?? WL_DEFAULTS.countUp) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label"
+											>Count-up length {(
+												wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration
+											).toFixed(2)}s</span
+										>
+										<input
+											type="range"
+											min="0.1"
+											max="3"
+											step="0.05"
+											disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+											value={wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration}
+											oninput={(e) =>
+												patchWinLineText({ countUpDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<div class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label">Count up to cue the big win</span>
+										<label class="switch sm" class:on={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}>
+											<input
+												type="checkbox"
+												disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+												checked={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}
+												onchange={(e) => patchWinLineText({ cueBigWin: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<div class="field">
+										<span class="label">Fade the amount in</span>
+										<label class="switch sm" class:on={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}>
+											<input
+												type="checkbox"
+												checked={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}
+												onchange={(e) => patchWinLineText({ fadeIn: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.fadeIn ?? WL_DEFAULTS.fadeIn) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}>
+										<span class="label"
+											>Fade length {(wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration).toFixed(
+												2,
+											)}s</span
+										>
+										<input
+											type="range"
+											min="0.05"
+											max="1.5"
+											step="0.05"
+											disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}
+											value={wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration}
+											oninput={(e) =>
+												patchWinLineText({ fadeInDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Off (the default), the amount appears at its full value the moment the line lands.
+									On, it runs up from zero over the length above — and the win narration WAITS for
+									it: the symbols only start celebrating once the number has landed, so the count is
+									read rather than talked over. A slammed spin skips the count entirely and stamps
+									the final amount.
+								</p>
+								<p class="wl-note">
+									<strong>Count up to cue the big win</strong> turns that count into the big win's run-up,
+									and only on a round that actually reaches a big-win tier — every other spin keeps the
+									ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not one
+									payline's payout), centred on the reels, counting from zero up to the big-win threshold;
+									at that number it hides and the big-win overlay comes up and carries the count the
+									rest of the way to the total. A project with no big-win tiers in the Game Config has
+									nothing to cue, so nothing changes.
+								</p>
+								<p class="wl-note">
+									<strong>Fade the amount in</strong> brings the stamp up from transparent over the fade
+									length, WHILE the count is already running — the number is moving as it arrives, not
+									after. Independent of the count: a stamp that appears whole can fade in too.
 								</p>
 							</div>
 
