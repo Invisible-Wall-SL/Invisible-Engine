@@ -31,16 +31,16 @@
 //     asserted is literally what Pixi is handed, whatever that turns out to be.
 // Every slice throws if its anchor moves, which is exactly when someone needs to be told.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 
 import { editorArtTextureKey } from '../packages/engine-layout/src/lib/editorArtKey.ts';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Normalized to LF: the repo checks out CRLF on Windows and every anchor below is written with \n.
-const read = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+const read = lfReaderFrom(ROOT);
 
 let checks = 0;
 let failures = 0;

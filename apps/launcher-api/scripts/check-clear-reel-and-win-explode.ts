@@ -49,9 +49,9 @@
  * module, which only exists inside a SvelteKit build.
  */
 
-import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { ZodError } from 'zod';
 import { SYMBOL_STATE_LABELS, SYMBOL_STATES } from 'engine-layout';
 import {
@@ -226,7 +226,7 @@ const root = `${here}../../../`;
 /** Source with LF newlines whatever the checkout uses. Every assertion from here down is about the
  *  CODE, and a Windows working copy (`core.autocrlf`) would otherwise fail patterns that name a line
  *  break for reasons that have nothing to do with the claim. */
-const read = (path: string): string => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+const read = readLF;
 const bake = read(`${here}bake-editor-doc.mjs`);
 const exportEndpoint = read(`${here}../src/routes/api/editor/export-symbols/+server.ts`);
 const exporter = read(`${here}../src/lib/server/symbolExport.ts`);

@@ -31,14 +31,14 @@
 // prop EXPRESSIONS are lifted out of the markup by name and evaluated on their own — which is why
 // this fixture pins the arithmetic that actually ships rather than a transcription of it.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows and the slice markers below are written with `\n`.
-const readLF = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+const readLF = lfReaderFrom(ROOT);
 
 const ENGINE_SRC = readLF('packages/engine-game/src/game/gameState.svelte.ts');
 const EDITOR_SRC = readLF('apps/launcher-api/src/routes/(app)/editor/editorCanvas.helpers.ts');

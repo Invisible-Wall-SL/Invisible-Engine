@@ -94,16 +94,16 @@
 // strippers made "the component grew an annotation" a failure mode of its own, and one of those
 // failures is what kept parts 3-10 from running at all for the length of a feature.
 
-import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 import { tumbleExplosionDelays } from '../packages/engine-layout/src/lib/tumblePattern.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
-const read = (path) => readFileSync(join(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
+const read = lfReaderFrom(ROOT);
 
 let failures = 0;
 let checks = 0;

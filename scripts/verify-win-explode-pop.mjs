@@ -96,15 +96,15 @@
 // cannot be imported from Node), and the type removal is Node's own `stripTypeScriptTypes`, so a
 // rename fails loudly here rather than leaving the fixture quietly asserting nothing.
 
-import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 import { sequence } from '../packages/utils-shared/sequence.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
-const read = (path) => readFileSync(join(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
+const read = lfReaderFrom(ROOT);
 
 let failures = 0;
 let checks = 0;
