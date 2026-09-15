@@ -94,5 +94,22 @@ assert(
 assert("the win beat asks whether 'win' is authored", board.includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'win')"), true); // prettier-ignore
 assert("the pop asks whether 'explosion' is authored", board.includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
 
+// 6. THE POP SKIPS A CELL IT CANNOT POP — the field bug, pinned.
+//
+// An unbound `explosion` resolves to the art already on screen, so no renderer re-mounts and no
+// `oncomplete` can fire; the pop is ONE concurrent `Promise.all`, so one such winner made every
+// paying spin containing it sit out the whole budget showing nothing. On the live `test6` that was
+// `L4`, `L5` and the scatter `S` — 4 s of dead hold against 0.5 s for the symbols that do bind it.
+// So the branch must RETURN BEFORE the await, and must still mark the cell gone, or the next
+// board's clear pops it a second time.
+const popBody = board.slice(board.indexOf('boardExplodeWinSymbols:'));
+const skipAt = popBody.indexOf("!hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')");
+const awaitAt = popBody.indexOf('awaitSymbolBeat(');
+assert('the pop tests the unauthored case', skipAt >= 0, true);
+assert('…and does so BEFORE it would await', skipAt >= 0 && skipAt < awaitAt, true);
+const skipBranch = skipAt >= 0 ? popBody.slice(skipAt, awaitAt) : '';
+assert('…skipping without a beat', skipBranch.includes('return;'), true);
+assert('…but still marking the cell gone', skipBranch.includes('reelSymbol.removed = true;'), true);
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

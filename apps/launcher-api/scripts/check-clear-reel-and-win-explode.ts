@@ -345,11 +345,30 @@ check(
 
 // THE POP IS ONE CUE, HANDLED IN ONE PLACE, BROADCAST FROM ONE PLACE, BEHIND ONE SWITCH.
 const popBeat = slice(board, 'the pop', '\t\tboardExplodeWinSymbols: async (', '\n\t\t},\n');
-check('the pop handler is the one that removes', (popBeat.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
-check('…and it is the only place in the component that does', (board.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
+// Counted RELATIVELY rather than pinned at 1: the pop grew a second, legitimate way to reach "gone"
+// (below), and a hard count would have to be edited every time — which is how a count stops being a
+// claim. What must stay true is that every removal in the whole component lives in THIS handler.
+const popRemovals = (popBeat.match(/\.removed = true/g) ?? []).length;
+check('the pop handler is the one that removes', popRemovals > 0, true);
+check('…and it is the only place in the component that does', (board.match(/\.removed = true/g) ?? []).length, popRemovals); // prettier-ignore
+// TWO PATHS REACH "gone", each with its own rule.
+//
+//   - the RACED path — removal AFTER the await, so BOTH exits remove: a cell whose art can never
+//     report pays the cap and is then just as gone as one that reported.
+//   - the SKIPPED path — a cell with no `explosion` bound resolves to the art already on screen, so
+//     nothing re-mounts and no `oncomplete` can ever fire. It is removed with NO beat at all, because
+//     the pop is one concurrent `Promise.all` and one such winner otherwise made every paying spin
+//     containing it sit out the whole budget showing nothing (live `test6`: `L4`, `L5`, `S`). It must
+//     still remove, or the next board's clear plays `clearReel` over it — the double pop this feature
+//     exists to prevent.
 check(
 	'…on BOTH exits of the bounded race, i.e. after the await rather than inside the armed callback',
-	popBeat.indexOf('.removed = true') > popBeat.indexOf('awaitSymbolBeat('),
+	popBeat.lastIndexOf('.removed = true') > popBeat.indexOf('awaitSymbolBeat('),
+	true,
+);
+check(
+	'…while a cell it cannot pop is removed WITHOUT a beat',
+	popBeat.indexOf('.removed = true') < popBeat.indexOf('awaitSymbolBeat('),
 	true,
 );
 // BOUNDED, BY THE SAME BUDGET THE WIN BEAT IS. It used to name `WIN_BEAT_CAP_MS` outright; the cap

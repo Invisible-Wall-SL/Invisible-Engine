@@ -207,6 +207,30 @@
 					const reelSymbol = context.stateGame.board[position.reel]?.reelState.symbols[position.row]; // prettier-ignore
 					if (!reelSymbol || reelSymbol.removed) return;
 					if (covered.has(winDimCellKey(position.reel, position.row))) return;
+					// A SYMBOL WITH NO `explosion` BOUND IS SKIPPED, for exactly the reason the stacked
+					// cell above it is — and this is the one that actually bites in the field.
+					//
+					// `explosion` resolves through `resolveSymbolState`, which falls back to `static` when
+					// the state is unbound. On a cell that has just finished its win the resolved art is
+					// then IDENTICAL to what is already on screen, so nothing re-mounts: `SymbolSprite`
+					// fires `oncomplete` from an `$effect` on `symbolInfo` and `SymbolFlipbook` re-arms its
+					// beat the same way, and neither effect re-runs when the value it watches has not
+					// changed. The cell can therefore never report, and because this whole pop is ONE
+					// concurrent `Promise.all`, a single such winner makes EVERY paying spin containing it
+					// sit out the full budget with nothing on screen to show for it.
+					//
+					// Measured on the live `test6`: `L4`, `L5` and the scatter `S` bind no `explosion`, so
+					// any win including one of them cost 4s of dead hold — while the symbols that DO bind it
+					// pop in 0.5s. The owner read that as "the delay is much longer than the animation",
+					// which is exactly what it was.
+					//
+					// It still LEAVES, though: "and be gone" is the pop's other half, and a winner left
+					// standing is swept by the next board's clear playing `clearReel` — the double pop this
+					// feature exists to prevent. So the cell is removed, just not waited on.
+					if (!hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')) {
+						reelSymbol.removed = true;
+						return;
+					}
 					reelSymbol.symbolState = 'explosion';
 					// Capped like the win beat above and for the same reason — an `explosion` cell bound to
 					// art that can never report `oncomplete` must not hang the round. NO floor here, unlike
@@ -214,16 +238,8 @@
 					// would add it to every paying spin.
 					//
 					// The authored budget covers this beat too, so "cap each win at N" bounds what a paying
-					// cell costs in total rather than only its first half. The unauthored fallback will
-					// rarely fire here — `winExplode` is a switch precisely because nearly every game binds
-					// `explosion` for the Book-of column morph — but a project that turned the pop on
-					// without binding it must not buy the guard for the privilege.
-					await awaitSymbolBeat(
-						(resolve) => (reelSymbol.oncomplete = resolve),
-						hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')
-							? budget.capMs
-							: budget.unauthoredMs,
-					);
+					// cell costs in total rather than only its first half.
+					await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), budget.capMs);
 					// UNCONDITIONAL, unlike the state below: "explode and be gone" is the pop's whole
 					// promise, and a cell it lit must not be left standing for the next board clear to
 					// pop a second time — whichever exit of the race got here.

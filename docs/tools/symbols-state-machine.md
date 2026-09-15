@@ -547,6 +547,16 @@ winning cell of every line plays it at the same moment. That is also why it is n
 overlapping paylines share cells, so a symbol taken off after line 1 would not be there for line 3
 to light.
 
+**A symbol with no Explosion bound simply leaves, with no pause.** There is nothing to play for it —
+an unbound Explosion falls back to the symbol's resting art, which is already on screen — so the cell
+is taken off the board without waiting on an animation that would never arrive. Binding an Explosion
+for every symbol is therefore a purely VISUAL choice: one that has none costs the round nothing
+either way. (Before 2026-09-15 it cost the opposite: such a cell waited out the engine's full
+four-second runaway guard, and because the whole pop plays as one beat, ONE unbound winner held up
+every paying spin it appeared in. On the live `test6` that was `L4`, `L5` and the scatter `S` — four
+seconds of nothing against half a second for the symbols that did bind it, which is why the delay
+looked unrelated to the animation.)
+
 **Every paying spin, not just the last one of a round.** A free-spin feature is one round made of
 ten or more spins, and a cascade is one spin made of several boards; each of those that pays gets its
 own pop, fired the instant before the board carrying those winners is taken away — so what explodes
