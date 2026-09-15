@@ -344,6 +344,7 @@ async function main() {
 		winLine: undefined,
 		winCycle: undefined,
 		winExplode: undefined,
+		winBeat: undefined,
 		bookVfx: undefined,
 		transition: undefined,
 		tumblePattern: undefined,
@@ -451,6 +452,17 @@ async function main() {
 			// reach BOTH bundle paths (this + the runtime `SymbolExportResult`): omit it here and a
 			// project that turned the pop on would ship without it through the bake path.
 			const winExplode = s?.winExplode?.enabled === true ? { enabled: true } : undefined;
+			// The win-beat CEILING — one number in milliseconds, assetless. Must reach BOTH bundle paths
+			// for the same reason as the pop above: omit it here and a project that shortened its win
+			// beats would keep shipping the long ones through the bake path. Rebuilt rather than
+			// forwarded so a hand-edited doc cannot smuggle a non-number into a `setTimeout`; the RANGE
+			// is deliberately not re-stated here (this script imports nothing from the workspace, so a
+			// bound copied into it is a bound that drifts) — Zod owns it at save, and the engine's own
+			// runaway guard still ends any beat this fails to shorten.
+			const winBeat =
+				Number.isFinite(s?.winBeat?.maxMs) && s.winBeat.maxMs > 0
+					? { maxMs: Math.round(s.winBeat.maxMs) }
+					: undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -601,6 +613,7 @@ async function main() {
 				winLine,
 				winCycle,
 				winExplode,
+				winBeat,
 				bookVfx,
 				transition,
 				tumblePattern,

@@ -60,6 +60,7 @@
 		setWinCycleEnabled,
 		setWinCycleHoldAfterBigWin,
 		setWinExplodeEnabled,
+		setWinBeatMaxMs,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -83,6 +84,9 @@
 		winCycleEnabled,
 		winCycleHoldAfterBigWin,
 		winExplodeEnabled,
+		winBeatMaxMs,
+		WIN_BEAT_MAX_MS_MIN,
+		WIN_BEAT_MAX_MS_MAX,
 		winCycleShowLine,
 		winCycleShowMessage,
 		winCycleShowText,
@@ -1310,6 +1314,17 @@
 	// "Winning symbols explode" — its OWN section, not a `winCycle` field: the pop belongs to the
 	// round's win presentation, while `winCycle` is what happens on the resting board afterwards.
 	const weOn = $derived(winExplodeEnabled(doc));
+	// The authored ceiling on ONE win/explosion beat. `null` — a blank box — is a real state, not a
+	// default standing in for one: unset means the authored animation keeps setting the pace.
+	const wbMaxMs = $derived(winBeatMaxMs(doc));
+
+	/** The win-beat ceiling (ms). A blank box clears it. Committed on CHANGE rather than on every
+	 *  keystroke, because the setter clamps into the range the server accepts and a mid-typing clamp
+	 *  would rewrite "5" to "50" under the cursor on the way to 500. */
+	function setWinBeatMax(value: string): void {
+		const trimmed = value.trim();
+		doc = setWinBeatMaxMs(doc, trimmed === '' ? null : Number(trimmed));
+	}
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineLineStyle(doc);
@@ -3170,6 +3185,36 @@
 							<span class="track"><span class="knob"></span></span>
 							<span class="switch-label">{weOn ? 'On' : 'Off'}</span>
 						</label>
+					</div>
+
+					<div class="wl-config">
+						<div class="wl-group">
+							<div class="wl-fields">
+								<label class="field">
+									<span class="label">Longest win beat (ms)</span>
+									<input
+										type="number"
+										min={WIN_BEAT_MAX_MS_MIN}
+										max={WIN_BEAT_MAX_MS_MAX}
+										step="50"
+										placeholder="Unset"
+										value={wbMaxMs ?? ''}
+										onchange={(e) => setWinBeatMax(e.currentTarget.value)}
+									/>
+								</label>
+							</div>
+							<p class="wl-note">
+								The longest ONE winning symbol may hold the round — its <strong>Win</strong>
+								animation, and the <strong>Explosion</strong> the switch above adds after it. Leave
+								the box empty and there is no limit: every beat runs for exactly as long as its art
+								does, which is the pace the animation was authored at. Fill it in and anything
+								longer is cut short there, in milliseconds ({WIN_BEAT_MAX_MS_MIN}–{WIN_BEAT_MAX_MS_MAX}).
+								It only ever shortens — a symbol whose animation is already quicker is untouched.
+								Worth reaching for on a cascading game, where a two-second win is paid once per
+								tumble and a three-step cascade spends six seconds celebrating before the next spin
+								is released. This is independent of the pop above and applies with it off.
+							</p>
+						</div>
 					</div>
 
 					{#if weOn}

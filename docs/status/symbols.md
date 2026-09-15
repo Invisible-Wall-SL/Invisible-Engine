@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-11)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-15)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -245,6 +245,32 @@ Working on `main`:
   `/api/editor/export-symbols` → **bake whitelist** + runtime bundle → `bakedWinExplodeEnabled()` →
   `winSymbolCycle.explodeSpinWinners()` → `boardExplodeWinSymbols` → `Board.svelte`, plus a
   `gameProfile` chip. ⏳ owner visual-verify.
+- **Longest win beat** (2026-09-15, absent by default ⇒ byte-parity). Doc-level global
+  `winBeat: { maxMs? }` — the authored CEILING, in milliseconds, on how long ONE winning symbol holds
+  the round: its `win` animation, and the `explosion` the pop adds after it. Absent ⇒ each beat runs
+  for exactly as long as its art does; set ⇒ anything longer is cut short. It only ever SHORTENS, so
+  a symbol already quicker than the ceiling is untouched. **A SHAPER, explicitly not the runaway
+  guard** — `WIN_BEAT_CAP_MS` (4 s, `apps/lines/src/game/symbolBeat.ts`) exists for art that can never
+  report `oncomplete` and is sized above anything a project plausibly authors, because (that file's
+  own words) a cap a real animation can hit stops being a guard and starts being the timing; exposing
+  it would have made every project's guard its pace. The case that asked for it: on the live `test6`
+  every symbol's `win` is a 2.00 s `Pull` and its `explosion` a 0.50 s `Take`, and that project
+  cascades — a three-tumble winning round pays ~7.5 s of symbol beats on top of the spin and the
+  cascade steps. Range **50–10000 ms, integers only**, enforced by Zod at SAVE (a value the engine
+  could not honour is a typo, and a typo must fail loudly rather than be ignored at play); the tool's
+  setter rounds + clamps into the same range so a mistyped number cannot come back as a 400 that
+  loses the whole doc. Sparse exactly like `winExplode`: an untouched doc persists no key and clearing
+  the box deletes it. Authored in the **Winning symbols explode** section (a "Longest win beat (ms)"
+  number input directly under the switch, empty = unset), because the ceiling covers the pop's beat
+  too — but it applies with the pop off. Full chain: `.strict` Zod + sparse rebuild in
+  `symbolsStorage.ts` → client type/`winBeatMaxMs`/`setWinBeatMaxMs`/`docSignature` → spread PUT →
+  `symbolExport.ts` verbatim → `/api/editor/export-symbols` → **bake whitelist** + runtime bundle →
+  `bundle.symbols.winBeat`, plus a `gameProfile` chip. Engine half on the same branch
+  (`resolveWinBeatBudget(bakedWinBeatMaxMs())` in `symbolBeat.ts`, read by BOTH the win beat and the
+  pop in `Board.svelte`, so a ceiling bounds what a paying cell costs in total). Offline gate:
+  `pnpm --filter launcher-api check:clear-reel` (74 → **95** checks — new part 9: sparsity, the
+  round-trip, both ends of the range, the five rejections, the client setter's clamp + dirty
+  signature, and both bundle paths). ⏳ owner visual-verify.
 - **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
   `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
   waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
@@ -469,6 +495,13 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-15 — **An authored ceiling on the win beat, because the only bound on it was a guard that was never meant to be the timing.** Owner report: on `test6` the wait before the next spin is released is long. Measured there — every symbol's `win` is the spine animation `Pull` at **2.00 s** and its `explosion` is `Take` at **0.50 s**, and the project cascades, so a three-tumble winning round narrates three wins and pays ~2.5 s of symbol beats per win on top of the reel spin and the cascade steps. The only thing bounding those beats was `WIN_BEAT_CAP_MS` (4 s), which is explicitly a **runaway guard** for art that can never report `oncomplete` — so the fix is a separate, explicit **shaper**, not an exposed guard: `winBeat.maxMs`, absent by default (today's behaviour byte-for-byte) and, when set, the longest any single win/explosion beat may run.
+
+  - **Launcher side (this task).** `.strict` Zod (`z.number().int().min(50).max(10000)`) + the sparse rebuild in `normalizeSymbolsDoc`; the `SymbolExportResult` field + verbatim pass-through in `symbolExport.ts`; the `/api/editor/export-symbols` destructure **and** response (the bake reads that response, so omitting either half is the recurring "reach BOTH bundle paths" bug); the client type, `winBeatMaxMs`, `setWinBeatMaxMs` and the **dirty signature** (the link `holdAfterBigWin` once missed, which made a saved switch unsaveable); the bake whitelist's rebuild + its line in the baked `symbols` block; a **Longest win beat (ms)** number input in the "Winning symbols explode" section; and a `gameProfile` chip.
+  - **Two decisions worth keeping.** The range is enforced at SAVE rather than clamped at play — a value the engine could not honour is a typo, and a typo that is silently ignored looks exactly like one that was applied to art nobody is watching at build time. And the CLIENT setter rounds + clamps into that same range, because the input hands back whatever was typed and a doc the schema refuses fails the WHOLE save, not just this field (the publish/cell-schema 400 trap). It is committed on `change`, not `input`, so the clamp cannot rewrite "5" to "50" under the cursor on the way to 500.
+  - **Gate.** `check-clear-reel-and-win-explode.ts` grew a part 9 (74 → **95 checks**) over the REAL `normalizeSymbolsDoc` + the REAL client setters: an untouched doc persists nothing and reads as `null`; a value round-trips; both ends of the range survive; under/over/fractional/string/unknown-key are all rejected as `ZodError`; the setter clamps, and the clamped draft then survives the server; clearing signs identical to never having typed one; and the exporter, the endpoint and the bake whitelist all carry it. In the same pass, part 8's `…bounded by the win-beat cap` was re-aimed: it grepped the literal `WIN_BEAT_CAP_MS` in the pop, which now reads its cap from `resolveWinBeatBudget(bakedWinBeatMaxMs())`, so it asserts instead that BOTH beats resolve the same budget — which is what makes "cap each win at N" bound a paying cell's total cost rather than half of it. (The file keeps its name; renaming it means chasing whatever invokes it, and its header now lists what it covers.)
+  - **Engine change — needs a runtime release to reach the online games and a Borut `engine` submodule bump for the remake.** ⏳ owner visual-verify: type a ceiling on a cascading project, save, rebuild, and watch a three-tumble round.
 
 - 2026-09-11 — **The pop is once per paying SPIN, on the board that paid — and a slammed spin no longer freezes for four seconds.** Adversarial review of `860ba8d3` + `e614dddf` confirmed two blockers, each reproduced empirically. Both fixed on `symbols/win-explode-removes`.
 

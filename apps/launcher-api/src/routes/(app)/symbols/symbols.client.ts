@@ -505,6 +505,11 @@ export interface SymbolsDoc {
 	 *  written, so an untouched project ships nothing and renders byte-identical. Deliberately NOT
 	 *  inferred from "is Explosion authored" — every game binds Explosion for the Book-of morph. */
 	winExplode?: { enabled?: boolean };
+	/** The longest ONE win (or explosion) beat may hold the round, in milliseconds. Sparse: absent ⇒
+	 *  each beat runs for as long as its authored animation does, exactly as before this existed.
+	 *  Set ⇒ a longer animation is cut short. This is the AUTHOR's pace, not the engine's runaway
+	 *  guard — that one stays where it is, sized above anything a project plausibly authors. */
+	winBeat?: { maxMs?: number };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -950,6 +955,34 @@ export function setWinExplodeEnabled(doc: SymbolsDoc, enabled: boolean): Symbols
 	const next = { ...doc };
 	if (enabled) next.winExplode = { enabled: true };
 	else delete next.winExplode;
+	return next;
+}
+
+/** The range the server's schema accepts for {@link winBeatMaxMs}. Under the floor nothing reads as
+ *  an animation; over the ceiling the engine's runaway guard has already ended the beat. The page
+ *  clamps to it so a mistyped number is corrected here instead of coming back as a save 400. */
+export const WIN_BEAT_MAX_MS_MIN = 50;
+export const WIN_BEAT_MAX_MS_MAX = 10000;
+
+/** The authored ceiling (ms) on ONE win/explosion beat, or `null` when the project has not set one.
+ *  `null` is the real state, not a default standing in for one: unset means "the art sets the pace",
+ *  and there is no millisecond value that says the same thing. */
+export function winBeatMaxMs(doc: SymbolsDoc): number | null {
+	return doc.winBeat?.maxMs ?? null;
+}
+
+/** Set (or clear, with `null`) the win-beat ceiling. Sparse like `setWinExplodeEnabled`: clearing
+ *  deletes the key so an untouched/reset project persists nothing. The value is rounded and clamped
+ *  into {@link WIN_BEAT_MAX_MS_MIN}…{@link WIN_BEAT_MAX_MS_MAX} — the same bounds the server's
+ *  `.strict` schema enforces — because a number input hands back whatever was typed, and a doc the
+ *  schema refuses fails the WHOLE save, not just this field. New doc. */
+export function setWinBeatMaxMs(doc: SymbolsDoc, ms: number | null): SymbolsDoc {
+	const next = { ...doc };
+	if (ms === null || !Number.isFinite(ms)) delete next.winBeat;
+	else
+		next.winBeat = {
+			maxMs: Math.min(WIN_BEAT_MAX_MS_MAX, Math.max(WIN_BEAT_MAX_MS_MIN, Math.round(ms))),
+		};
 	return next;
 }
 
@@ -1454,6 +1487,9 @@ export function docSignature(doc: SymbolsDoc): string {
 		// Listed here or turning the win-explosion pop on never marks the page dirty and Save stays
 		// disabled — the same trap every sibling above carries a warning about.
 		winExplode: doc.winExplode?.enabled === true ? true : null,
+		// Same trap, same reason: typing a win-beat ceiling has to move this signature, and clearing
+		// it has to move it back to the `null` an untouched doc signs.
+		winBeat: doc.winBeat?.maxMs ?? null,
 		bookVfx,
 		transition,
 		tumblePattern,

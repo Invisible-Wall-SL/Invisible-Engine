@@ -376,6 +376,12 @@ type BakedBundle = {
 		 * Deliberately a switch rather than an inference from "is `explosion` bound": every game binds
 		 * `explosion` for the Book-of column morph. */
 		winExplode?: { enabled?: boolean };
+		/** "Cap each win at N ms" (Invisible Symbols State Machine output, consumed by
+		 * `components/Board.svelte` via `resolveWinBeatBudget`): the longest a single paying cell may
+		 * hold the round on its `win` — or, with the pop on, its `explosion` — animation. Absent ⇒ the
+		 * coded constants, i.e. authored art sets the pace unbounded up to the runaway guard
+		 * (byte-parity). A SHAPER, deliberately distinct from that guard: see `symbolBeat.ts`. */
+		winBeat?: { maxMs?: number };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -1080,6 +1086,23 @@ export function bakedWinExplodeEnabled(): boolean {
 			? bakedBundle.symbols?.winExplode
 			: undefined;
 	return c?.enabled ?? false;
+}
+
+/**
+ * "Cap each win at N ms" — the authored ceiling on one paying cell's win/explosion beat, or
+ * undefined when the project never set one (⇒ the coded constants; see `resolveWinBeatBudget`).
+ *
+ * Returned RAW rather than pre-resolved because the three numbers it produces are the caller's
+ * concern and the clamping rules live beside the constants they clamp. Mirrors
+ * `bakedWinExplodeEnabled`'s runtime→baked→undefined resolution.
+ */
+export function bakedWinBeatMaxMs(): number | undefined {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.winBeat
+		: hasBakedDoc()
+			? bakedBundle.symbols?.winBeat
+			: undefined;
+	return c?.maxMs;
 }
 
 /**
