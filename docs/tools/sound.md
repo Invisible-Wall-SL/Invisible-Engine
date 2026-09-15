@@ -91,7 +91,10 @@ this page can still show _every_ sound the game makes.
 ## Adding a sound
 
 Drop files onto the box at the top, or click **choose files**. You can add several at
-once. Accepted: `mp3`, `ogg`, `m4a`, `wav`, `webm`, up to 25 MB each.
+once. Accepted: `mp3`, `ogg`, `m4a`, `wav`, `webm`, up to 25 MB each. There is no
+separate upload button — picking or dropping a file **is** the upload, and it starts
+straight away. Anything that fails is listed in the box with its reason, one line per
+file.
 
 Each file gets a starting **name** taken from its filename, cleaned up to letters,
 numbers, `_` and `-` (so `Tumble Pop 01.mp3` becomes `tumble_pop_01`). If that name is
