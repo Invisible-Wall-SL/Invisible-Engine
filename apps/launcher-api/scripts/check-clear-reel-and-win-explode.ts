@@ -358,7 +358,7 @@ check('…and it is the only place in the component that does', (board.match(/\.
 //   - the SKIPPED path — a cell with no `explosion` bound resolves to the art already on screen, so
 //     nothing re-mounts and no `oncomplete` can ever fire. It is removed with NO beat at all, because
 //     the pop is one concurrent `Promise.all` and one such winner otherwise made every paying spin
-//     containing it sit out the whole budget showing nothing (live `test6`: `L4`, `L5`, `S`). It must
+//     containing it sit out the whole budget showing nothing (live `test6`: the scatter `S`). It must
 //     still remove, or the next board's clear plays `clearReel` over it — the double pop this feature
 //     exists to prevent.
 check(

@@ -553,9 +553,17 @@ is taken off the board without waiting on an animation that would never arrive. 
 for every symbol is therefore a purely VISUAL choice: one that has none costs the round nothing
 either way. (Before 2026-09-15 it cost the opposite: such a cell waited out the engine's full
 four-second runaway guard, and because the whole pop plays as one beat, ONE unbound winner held up
-every paying spin it appeared in. On the live `test6` that was `L4`, `L5` and the scatter `S` — four
-seconds of nothing against half a second for the symbols that did bind it, which is why the delay
-looked unrelated to the animation.)
+every paying spin it appeared in. On the live `test6` that was the **scatter** — eight of its nine
+in-play symbols bound an Explosion and the scatter did not, so a scatter win cost four seconds of
+nothing against half a second for an ordinary line win, which is why the delay looked unrelated to
+the animation. The scatter is the likely shape of this in general: it pays "anywhere" rather than on
+a line, so it is the symbol most easily left unbound.)
+
+> **Only symbols that are IN PLAY matter here.** "In play" is what the game's reel strips actually
+> deal (Game Config → `paddingReels`), not everything listed in this tool. A leftover row for a
+> symbol the game no longer deals — `test6` carries two, `L4` and `L5`, the latter still pointing at
+> a placeholder mock-up — can never land, never win, and so can never affect a spin either way. Worth
+> deleting for tidiness, but it is not costing you anything.
 
 **Every paying spin, not just the last one of a round.** A free-spin feature is one round made of
 ten or more spins, and a cascade is one spin made of several boards; each of those that pays gets its

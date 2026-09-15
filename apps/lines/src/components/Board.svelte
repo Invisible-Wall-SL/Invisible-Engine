@@ -219,10 +219,12 @@
 					// concurrent `Promise.all`, a single such winner makes EVERY paying spin containing it
 					// sit out the full budget with nothing on screen to show for it.
 					//
-					// Measured on the live `test6`: `L4`, `L5` and the scatter `S` bind no `explosion`, so
-					// any win including one of them cost 4s of dead hold — while the symbols that DO bind it
-					// pop in 0.5s. The owner read that as "the delay is much longer than the animation",
-					// which is exactly what it was.
+					// Measured on the live `test6`: of the nine symbols actually IN PLAY (the in-play set is
+					// `paddingReels`, not the dictionary — `game-config`'s `symbolsInPlay`), eight bind an
+					// `explosion` and the SCATTER does not. So a scatter win cost 4s of dead hold while an
+					// ordinary line win popped in 0.5s. The scatter is the likely shape of this bug in
+					// general: it is the symbol a project is most apt to leave unbound, because it pays
+					// "anywhere" rather than on a line and reads as not really a board symbol.
 					//
 					// It still LEAVES, though: "and be gone" is the pop's other half, and a winner left
 					// standing is swept by the next board's clear playing `clearReel` — the double pop this
