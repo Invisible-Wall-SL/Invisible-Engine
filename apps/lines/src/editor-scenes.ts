@@ -382,6 +382,13 @@ type BakedBundle = {
 		 * coded constants, i.e. authored art sets the pace unbounded up to the runaway guard
 		 * (byte-parity). A SHAPER, deliberately distinct from that guard: see `symbolBeat.ts`. */
 		winBeat?: { maxMs?: number };
+		/** "Let the next spin start as soon as the symbols are back" (Invisible Symbols State Machine
+		 * output, consumed by `components/TumbleBoard.svelte`): the emerge arrival stops GATING the
+		 * round. The intro still plays in full — it is simply no longer awaited, so the board is
+		 * released the moment every cell has been seated with its new art. Absent ⇒ the arrival is
+		 * awaited exactly as before (byte-parity). Only meaningful under the `emerge` swap style,
+		 * which is the only one that has an arrival to wait on. */
+		arrivalRelease?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -1129,6 +1136,31 @@ export function bakedWinBeatMaxMs(): number | undefined {
 			? bakedBundle.symbols?.winBeat
 			: undefined;
 	return c?.maxMs;
+}
+
+/**
+ * "Let the next spin start as soon as the symbols are back" — whether the `emerge` arrival stops
+ * GATING the round (`components/TumbleBoard.svelte`'s `tumbleBoardAppear`).
+ *
+ * Default FALSE, i.e. the arrival is awaited exactly as it always has been. Measured on the live
+ * `test6`, which authors an `intro` and therefore takes the long guard: of a 3.4s `reveal`, the
+ * board's own clips were finished by t+2.1s and the round released at t+3.4s — the arrival beat
+ * running out its {@link INTRO_BEAT_CAP_MS}. The same shape repeats per cascade step, which is why
+ * the pause between two wins of one spin feels the same length as the one after it.
+ *
+ * Turning it on does NOT shorten a single animation: the intro still plays, and still settles the
+ * cell to `static` on both exits of its own bounded race. It only stops the round WAITING for it.
+ * That is a presentation trade the project owns — the next spin may begin over an intro still
+ * playing — so it is a switch rather than a new default. Mirrors `bakedWinExplodeEnabled`'s
+ * runtime→baked→undefined resolution.
+ */
+export function bakedArrivalReleaseEnabled(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.arrivalRelease
+		: hasBakedDoc()
+			? bakedBundle.symbols?.arrivalRelease
+			: undefined;
+	return c?.enabled ?? false;
 }
 
 /**

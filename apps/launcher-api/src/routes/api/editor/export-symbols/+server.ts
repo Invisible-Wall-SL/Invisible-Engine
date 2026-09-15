@@ -33,7 +33,9 @@ export const POST: RequestHandler = async ({ url }) => {
 		// bake reads them off this response. `tumblePattern` (the cascade explosion order) likewise, and so is
 		// `winExplode` (the win-explosion pop) and `winBeat` (the ceiling on one win/explosion beat) —
 		// omit that last one and a project's baked game would keep the pacing its art sets while the
-		// live one cut it short. `symbolSounds` (the per-symbol cues) is here as the
+		// live one cut it short. `arrivalRelease` (the round is released when the symbols arrive) joins
+		// them for the same reason again — omit it and the baked game would still sit out the emerge
+		// intro the live one no longer waits on. `symbolSounds` (the per-symbol cues) is here as the
 		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
 		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
 		const {
@@ -47,6 +49,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winCycle,
 			winExplode,
 			winBeat,
+			arrivalRelease,
 			bookVfx,
 			transition,
 			tumblePattern,
@@ -66,6 +69,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winCycle,
 			winExplode,
 			winBeat,
+			arrivalRelease,
 			bookVfx,
 			transition,
 			tumblePattern,

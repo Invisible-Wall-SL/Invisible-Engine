@@ -349,6 +349,12 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 				: null,
 	},
 	{
+		id: 'arrivalRelease',
+		title:
+			'The round is released as soon as the new symbols are on screen — their emerge intros still play, they are just no longer waited for.',
+		text: (ctx) => (ctx.symbols.arrivalRelease?.enabled === true ? 'Released on arrival' : null),
+	},
+	{
 		id: 'highlight',
 		title: 'A custom win-frame spine looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
