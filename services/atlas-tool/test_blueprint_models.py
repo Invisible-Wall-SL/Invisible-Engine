@@ -43,6 +43,8 @@ class FakeManager:
         reboot_status: int = 200,
         reboot_raises: bool = True,  # os.execv drops the connection
         system_stats_up_after: int = 0,  # /system_stats succeeds from this call on
+        catalog: list | None = None,     # rows /externalmodel/getlist returns
+        catalog_raises: Exception | None = None,
     ):
         self.manager_absent = manager_absent
         self.unreachable = unreachable
@@ -56,8 +58,11 @@ class FakeManager:
         self.reboot_status = reboot_status
         self.reboot_raises = reboot_raises
         self.system_stats_up_after = system_stats_up_after
+        self.catalog = catalog or []
+        self.catalog_raises = catalog_raises
 
         self.posts: list[tuple[str, dict]] = []
+        self.gets: list[str] = []
         self._status_i = 0
         self._sysstat_calls = 0
 
@@ -81,8 +86,13 @@ class FakeManager:
 
     # -- GET ----------------------------------------------------------------
     def get(self, path: str) -> dict:
+        self.gets.append(path)
         if self.manager_absent:
             raise bm.ManagerAbsent(path)
+        if path == bm.CATALOG_PATH:
+            if self.catalog_raises:
+                raise self.catalog_raises
+            return {"models": self.catalog}
         if path == "/manager/queue/status":
             i = min(self._status_i, len(self.status_seq) - 1)
             self._status_i += 1
@@ -100,6 +110,9 @@ class FakeManager:
 
     def rebooted(self) -> bool:
         return any(p[0] == "/manager/reboot" for p in self.posts)
+
+    def read_catalog(self) -> bool:
+        return bm.CATALOG_PATH in self.gets
 
     def started(self) -> bool:
         return any(p[0] == "/manager/queue/start" for p in self.posts)
@@ -556,6 +569,150 @@ def test_q_a_delivery_failure_is_not_a_presence_verdict():
     check(len(slow.advisories) == 1, "(q) download timeout: an advisory instead")
 
 
+# --------------------------------------------------------------------------
+# Catalog enrichment (2026-09-09). Auto-install had never once fired for an
+# uploaded blueprint: a graph-derived model carries no url and no base, so it
+# failed `_is_installable` at the first gate and Manager was never contacted.
+# --------------------------------------------------------------------------
+def derived_model(fname="a.safetensors", field="ckpt_name",
+                  save_path="checkpoints"):
+    """Exactly what `blueprints.derive_models_from_graph` emits — a field, a
+    filename and a folder. No url, no base; that is the whole problem."""
+    return {"field": field, "filename": fname, "save_path": save_path}
+
+
+def catalog_row(fname="a.safetensors", save_path="checkpoints", base="SDXL",
+                url="https://cat/a.safetensors", type_="checkpoint",
+                name="A Model"):
+    return {"filename": fname, "save_path": save_path, "base": base,
+            "url": url, "type": type_, "name": name}
+
+
+def test_r_derived_model_is_enriched_and_queued():
+    """(r) A derived model the catalog knows becomes installable and is queued."""
+    m = derived_model()
+    fm = FakeManager(catalog=[catalog_row()])
+    res = run([m], fm, is_installed=lambda f, n: fm.rebooted())
+    posts = fm.install_posts()
+    check(fm.read_catalog(), "(r) the catalog was read")
+    check(len(posts) == 1, "(r) the enriched model was queued")
+    body = posts[0][1] if posts else {}
+    check(body.get("url") == "https://cat/a.safetensors", "(r) catalog url in body")
+    check(body.get("base") == "SDXL", "(r) catalog base in body")
+    check(body.get("save_path") == "checkpoints", "(r) save_path in body")
+    check(m.get("save_path") == "checkpoints",
+          "(r) the DERIVED save_path is left intact for model_mirror")
+    check(res.ready, "(r) nothing refused")
+    check("a.safetensors" in res.installed,
+          "(r) a model that could never install before now installs")
+
+
+def test_s_subfolder_catalog_row_is_refused():
+    """(s) A catalog row installing into a SUBFOLDER is never adopted."""
+    m = derived_model(fname="cn.safetensors", field="control_net_name",
+                      save_path="controlnet")
+    fm = FakeManager(catalog=[catalog_row(fname="cn.safetensors",
+                                          save_path="controlnet/SDXL",
+                                          type_="controlnet")])
+    res = run([m], fm, is_installed=lambda f, n: False)
+    check(len(fm.install_posts()) == 0, "(s) no install POST for a subfolder row")
+    check(not res.ready, "(s) it stays on the checklist")
+    check("url" not in m or not m["url"], "(s) nothing was written onto the model")
+
+
+def test_t_ambiguous_catalog_rows_adopt_nothing():
+    """(t) Two catalog rows with one filename adopt NOTHING — no coin flip."""
+    m = derived_model(fname="diffusion_pytorch_model.safetensors",
+                      field="lora_name", save_path="loras")
+    rows = [
+        catalog_row(fname="diffusion_pytorch_model.safetensors",
+                    save_path="loras", base="SD1.5",
+                    url="https://cat/one.safetensors", type_="lora"),
+        catalog_row(fname="diffusion_pytorch_model.safetensors",
+                    save_path="loras", base="SDXL",
+                    url="https://cat/two.safetensors", type_="lora"),
+    ]
+    fm = FakeManager(catalog=rows)
+    res = run([m], fm, is_installed=lambda f, n: False)
+    check(len(fm.install_posts()) == 0, "(t) ambiguity queues nothing")
+    check(not res.ready, "(t) it stays on the checklist")
+
+
+def test_u_alias_folder_is_adopted():
+    """(u) `unet` and `diffusion_models` are one folder to ComfyUI, so adopt."""
+    m = derived_model(fname="flux.safetensors", field="unet_name",
+                      save_path="unet")
+    fm = FakeManager(catalog=[catalog_row(fname="flux.safetensors",
+                                          save_path="diffusion_models",
+                                          base="FLUX.1",
+                                          url="https://cat/flux.safetensors",
+                                          type_="diffusion_model")])
+    run([m], fm, is_installed=lambda f, n: False)
+    posts = fm.install_posts()
+    check(len(posts) == 1, "(u) the alias folder was adopted")
+    body = posts[0][1] if posts else {}
+    check(body.get("save_path") == "diffusion_models",
+          "(u) the body carries MANAGER's spelling, which the whitelist compares")
+    check(m.get("save_path") == "unet",
+          "(u) the model keeps OURS, which model_mirror builds its key from")
+
+
+def test_v_unmappable_field_is_never_enriched():
+    """(v) A model with no save_path is not enriched — nothing to check against."""
+    m = {"field": "weird_name", "filename": "a.safetensors", "save_path": ""}
+    fm = FakeManager(catalog=[catalog_row()])
+    res = run([m], fm, is_installed=lambda f, n: False)
+    check(len(fm.install_posts()) == 0, "(v) an unmappable field queues nothing")
+    check(not res.ready, "(v) it stays on the checklist")
+
+
+def test_w_default_save_path_row_carries_type():
+    """(w) A `default` row is passed through verbatim, with its type."""
+    m = derived_model(fname="up.safetensors", field="vae_name", save_path="vae")
+    fm = FakeManager(catalog=[catalog_row(fname="up.safetensors",
+                                          save_path="default", base="SD1.5",
+                                          url="https://cat/up.safetensors",
+                                          type_="VAE")])
+    run([m], fm, is_installed=lambda f, n: False)
+    posts = fm.install_posts()
+    check(len(posts) == 1, "(w) a 'default' row is adoptable")
+    body = posts[0][1] if posts else {}
+    check(body.get("save_path") == "default",
+          "(w) 'default' reaches Manager verbatim (the whitelist compares it)")
+    check(body.get("type") == "VAE",
+          "(w) type rides along — get_model_dir resolves 'default' through it")
+
+
+def test_x_unreadable_catalog_changes_nothing():
+    """(x) An unreadable catalog degrades to the old behaviour, never a crash."""
+    m = derived_model()
+    fm = FakeManager(catalog_raises=bm.ComfyUnreachable("catalog down"))
+    res = run([m], fm, is_installed=lambda f, n: False)
+    check(len(fm.install_posts()) == 0, "(x) nothing queued")
+    check(not res.ready, "(x) still on the checklist, as before enrichment")
+    check(any("a.safetensors" == e["filename"] for e in res.still_missing),
+          "(x) reported by filename")
+
+
+def test_y_install_body_always_names_the_model():
+    """(y) `name` is always sent — do_install_model logs it before downloading."""
+    fm = FakeManager()
+    run([catalog_model("n.safetensors")], fm, is_installed=lambda f, n: False)
+    body = fm.install_posts()[0][1]
+    check(body.get("name") == "n.safetensors",
+          "(y) a model with no name falls back to its filename, never omitted")
+
+
+def test_z_no_catalog_read_when_nothing_needs_it():
+    """(z) A fully-declared (or fully-installed) list makes no catalog call."""
+    fm = FakeManager()
+    run([catalog_model("d.safetensors")], fm, is_installed=lambda f, n: False)
+    check(not fm.read_catalog(), "(z) an already-installable model reads nothing")
+    fm2 = FakeManager()
+    run([derived_model()], fm2, is_installed=lambda f, n: True)
+    check(not fm2.read_catalog(), "(z) an already-installed model reads nothing")
+
+
 def main() -> int:
     tests = [
         test_a_installable_post_body,
@@ -577,6 +734,15 @@ def main() -> int:
         test_o_provenance_reaches_the_checklist,
         test_p_a_model_with_no_field_is_asked_about_anyway,
         test_q_a_delivery_failure_is_not_a_presence_verdict,
+        test_r_derived_model_is_enriched_and_queued,
+        test_s_subfolder_catalog_row_is_refused,
+        test_t_ambiguous_catalog_rows_adopt_nothing,
+        test_u_alias_folder_is_adopted,
+        test_v_unmappable_field_is_never_enriched,
+        test_w_default_save_path_row_carries_type,
+        test_x_unreadable_catalog_changes_nothing,
+        test_y_install_body_always_names_the_model,
+        test_z_no_catalog_read_when_nothing_needs_it,
     ]
     for t in tests:
         print(f"\n{t.__name__}: {t.__doc__.splitlines()[0]}")
