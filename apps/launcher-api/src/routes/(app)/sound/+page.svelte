@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { onNavigate } from '$app/navigation';
+	import { beforeNavigate } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -539,7 +539,11 @@
 		 * aborted) but the component is gone, so the entry it would have appended is lost — and a
 		 * file still decoding never becomes a PUT in the first place.
 		 *
-		 * `onNavigate` is therefore the one that matters here, and it is the first in the launcher.
+		 * `beforeNavigate` is therefore the one that matters here, and it is the first in the launcher.
+		 * It must be `beforeNavigate`, not `onNavigate`: the latter runs AFTER the navigation is
+		 * committed and its argument carries no `cancel`, so a guard written on it asks the question
+		 * and then leaves anyway — which is worse than not asking. Caught only by clicking it on
+		 * production; `vite build` does not typecheck, so nothing else would have.
 		 */
 		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
 			if (!leaveCost) return;
@@ -556,10 +560,10 @@
 		};
 	});
 
-	// Registered at component init (`onNavigate` is a lifecycle hook, like `onMount`), and torn down
-	// with the page. `willUnload` navigations are left to `beforeunload` above: cancelling one of
-	// those only re-triggers the browser's own dialog, so confirming twice is the alternative.
-	onNavigate((navigation) => {
+	// Registered at component init (`beforeNavigate` is a lifecycle hook, like `onMount`), and torn
+	// down with the page. `willUnload` navigations are left to `beforeunload` above: cancelling one
+	// of those only re-triggers the browser's own dialog, so confirming twice is the alternative.
+	beforeNavigate((navigation) => {
 		if (!leaveCost || navigation.willUnload) return;
 		if (!window.confirm(`${leaveCost}\n\nLeave anyway?`)) navigation.cancel();
 	});
