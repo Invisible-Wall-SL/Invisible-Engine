@@ -1283,8 +1283,9 @@ def _manager_post(path: str, body: dict) -> tuple[int, str]:
 
 
 def _manager_get(path: str) -> dict:
-    """GET a /manager/* (or /system_stats) route → parsed JSON. 404 →
-    ManagerAbsent; transport failure → ComfyUnreachable."""
+    """GET a /manager/* (or /system_stats, or /externalmodel/getlist) route →
+    parsed JSON. `path` may carry a query string. 404 → ManagerAbsent; transport
+    failure → ComfyUnreachable."""
     req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
     try:
         with urlopen(req, timeout=30) as r:

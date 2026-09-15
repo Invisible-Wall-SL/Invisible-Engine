@@ -26,6 +26,20 @@ Confirmed Manager contract (spike against the installed source — handlers in
     connection DROPS / times out; treat a dropped/empty response as expected
     success, then poll ``/system_stats`` until ComfyUI is back. Rejects
     simple-form content-types; requires security level "middle".
+  * ``GET /externalmodel/getlist?mode=cache`` — the curated catalog itself, which
+    is what makes ``enrich_from_catalog`` possible: the whitelist grants
+    permission for a *(save_path, base, filename)* NAME, and ``do_install_model``
+    then downloads the ``url`` off the REQUEST body, so a catalog row is a
+    permission slip rather than the source of the bytes.
+
+A second spike (2026-09-09, Manager ``3.39.3-178``) settled the question that
+keeps coming back: **no security level opens the whitelist.** The level gate and
+``check_whitelist_for_model`` are independent checks and the latter has no
+security branch at all, so ``weak`` clears the 403 and still eats the 400. Nor is
+Manager a way to pull our own R2 mirror: ``download_url_with_agent`` reads the
+whole response into memory and only ``github.com`` / ``huggingface.co`` /
+``heibox`` URLs take the streaming path, so a multi-GB presigned URL is an OOM.
+See ``docs/design/invisible-blueprints.md`` §4.
 
 Fail-safe everywhere: a missing Manager (404 on ``/manager/*``), an unreachable
 ComfyUI, a per-model 400/403, or any transport error degrades to a readable
@@ -48,7 +62,40 @@ from typing import Callable, Optional
 
 # Catalog match keys (the whitelist tuple) + the download URL. A model missing
 # ANY of these can't satisfy `check_whitelist_for_model` → not auto-installable.
+# `save_path` is read through `_install_save_path`, not off the model directly.
 CATALOG_KEYS = ("url", "save_path", "base", "filename")
+
+# Manager's route for its curated catalog — the same JSON `check_whitelist_for_model`
+# consults, so a row matched here is a row that gate accepts. `mode=cache` is the
+# channel copy (refreshed daily, and the FIRST thing the whitelist reads); the
+# on-disk `local` copy is its fallback and a strict subset in practice.
+CATALOG_PATH = "/externalmodel/getlist?mode=cache"
+
+# ComfyUI scans MORE THAN ONE physical `models/` dir for some loader keys, so a
+# file installed into either name of a pair is reachable from a graph naming the
+# other. Straight off ComfyUI's `folder_paths.folder_names_and_paths` + its
+# `map_legacy`. A pair NOT listed here is a genuinely different folder, and
+# adopting a catalog row across one would send gigabytes at a loader that never
+# reads them — the same "a wrong folder is worse than no folder" rule
+# `blueprints.MODEL_FIELD_DIRS` is written to.
+_FOLDER_EQUIVALENTS = (
+    frozenset({"unet", "diffusion_models"}),
+    frozenset({"clip", "text_encoders"}),
+    frozenset({"controlnet", "t2i_adapter"}),
+)
+
+# Manager's own `model_dir_name_map` (manager_server.py): how a catalog row with
+# `save_path: "default"` resolves — through its `type` — to a folder.
+_CATALOG_TYPE_DIRS = {
+    "checkpoints": "checkpoints", "checkpoint": "checkpoints",
+    "unclip": "checkpoints", "text_encoders": "text_encoders",
+    "clip": "text_encoders", "vae": "vae", "lora": "loras",
+    "t2i-adapter": "controlnet", "t2i-style": "controlnet",
+    "controlnet": "controlnet", "clip_vision": "clip_vision",
+    "gligen": "gligen", "upscale": "upscale_models",
+    "embedding": "embeddings", "embeddings": "embeddings",
+    "unet": "diffusion_models", "diffusion_model": "diffusion_models",
+}
 
 
 @dataclass
@@ -100,10 +147,157 @@ def _log(result: PrepareResult, msg: str) -> None:
     result.notes.append(msg)
 
 
+def _install_save_path(model: dict) -> str:
+    """The ``save_path`` an install POST must carry.
+
+    Manager's OWN spelling for the catalog row we adopted (``catalog_save_path``)
+    when there is one, else our derived folder. The two differ whenever the row
+    says ``default`` or uses one of ComfyUI's alias dirs, and they must stay
+    apart: ``check_whitelist_for_model`` compares Manager's spelling, while
+    ``model_mirror.resolve`` builds ``comfyui-models/<save_path>/<filename>`` out
+    of OURS and documents that it "deliberately carries the legacy
+    ``unet``/``clip`` aliases". Collapsing them would break the mirror lookup for
+    exactly the models enrichment just made installable."""
+    return (str(model.get("catalog_save_path", "")).strip()
+            or str(model.get("save_path", "")).strip())
+
+
 def _is_installable(model: dict) -> bool:
     """A model can be auto-installed only if it carries every catalog match key
-    (``save_path``/``base``/``filename``) plus a download ``url``."""
-    return all(str(model.get(k, "")).strip() for k in CATALOG_KEYS)
+    (``save_path``/``base``/``filename``) plus a download ``url`` — with
+    ``save_path`` read through ``_install_save_path``, so a catalog row adopted
+    by ``enrich_from_catalog`` counts."""
+    if not _install_save_path(model):
+        return False
+    return all(str(model.get(k, "")).strip()
+               for k in ("url", "base", "filename"))
+
+
+def _same_folder(a: str, b: str) -> bool:
+    """Do these two ``models/`` dir names denote the same folder to ComfyUI?"""
+    a, b = a.strip().lower(), b.strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return any(a in klass and b in klass for klass in _FOLDER_EQUIVALENTS)
+
+
+def _catalog_dir(row: dict) -> str:
+    """The folder a catalog row installs into, or "" when it can't be known.
+
+    Mirrors Manager's ``get_model_dir``: an explicit ``save_path`` wins, and the
+    literal ``default`` is resolved through the row's ``type``."""
+    save_path = str(row.get("save_path") or "").strip()
+    if save_path and save_path != "default":
+        return save_path
+    return _CATALOG_TYPE_DIRS.get(str(row.get("type") or "").strip().lower(), "")
+
+
+def _adoptable_row(model: dict, rows: list) -> Optional[dict]:
+    """The ONE catalog row it is safe to adopt for ``model``, or None.
+
+    Three refusals, all of them about where the bytes land:
+
+    * a row whose install dir carries a SUBFOLDER is rejected even on the right
+      branch — ``controlnet/SDXL`` writes ``models/controlnet/SDXL/x.safetensors``,
+      which ComfyUI enumerates as ``SDXL/x.safetensors``, so the graph's bare
+      ``x.safetensors`` still would not resolve and we would have paid for the
+      download to move the failure later;
+    * a row on a folder that is not ours (nor an alias of it) is rejected;
+    * candidates that disagree on ``(save_path, base, url)`` adopt NOTHING — 20
+      catalog rows are named ``diffusion_pytorch_model.safetensors``, and
+      choosing between them is the coin flip ``model_mirror.resolve`` also
+      refuses to make.
+
+    A model whose own ``save_path`` is empty is never enriched: the field was
+    unmappable, so there is nothing to check a candidate against, and guessing
+    the folder is the one outcome worse than leaving it on the checklist."""
+    want = str(model.get("save_path") or "").strip()
+    if not want:
+        return None
+    keep = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not all(str(row.get(k, "")).strip() for k in ("url", "base", "filename")):
+            continue
+        where = _catalog_dir(row)
+        if not where or "/" in where or "\\" in where:
+            continue
+        if not _same_folder(where, want):
+            continue
+        keep.append(row)
+    if not keep:
+        return None
+    identity = {(str(r.get("save_path") or "").strip(),
+                 str(r["base"]).strip(), str(r["url"]).strip()) for r in keep}
+    return keep[0] if len(identity) == 1 else None
+
+
+def enrich_from_catalog(
+    models: list,
+    *,
+    http_get: HttpGet,
+    result: Optional[PrepareResult] = None,
+) -> int:
+    """Fill in ``url``/``base`` from the TARGET's ComfyUI-Manager catalog.
+
+    The reason auto-install existed without ever running: a blueprint's
+    ``models[]`` is derived from its own graph, and
+    ``blueprints.derive_models_from_graph`` returns ``{field, filename,
+    save_path}`` — a graph names a model, it does not carry a download URL or a
+    catalog ``base``. So ``_is_installable`` was false at the first gate for every
+    derived model and Manager was never contacted at all.
+
+    Reading the catalog HERE rather than at import time is deliberate: the
+    catalog belongs to the target, a blueprint is shared across targets, and a
+    URL frozen into a manifest goes stale where a live read cannot.
+
+    Returns how many models were enriched. Never raises: an absent Manager, an
+    unreachable ComfyUI or a malformed payload leaves every model exactly as it
+    was, which is the pre-existing behaviour."""
+    result = result if result is not None else PrepareResult()
+    targets = [m for m in models
+               if isinstance(m, dict) and str(m.get("filename", "")).strip()
+               and not _is_installable(m)]
+    if not targets:
+        return 0
+    try:
+        payload = http_get(CATALOG_PATH)
+    except ManagerAbsent:
+        _log(result, "[prepare] no ComfyUI-Manager catalog to enrich from "
+                     "(/externalmodel/getlist -> 404).")
+        return 0
+    except Exception as e:  # noqa: BLE001 — enrichment is a bonus, never a gate
+        _log(result, f"[prepare] could not read the model catalog: {e} — "
+                     "declared models keep whatever they already carry.")
+        return 0
+    by_name: dict[str, list] = {}
+    for row in (payload or {}).get("models") or []:
+        if isinstance(row, dict):
+            # Exact, case-sensitive — the whitelist compares filenames that way.
+            name = str(row.get("filename") or "").strip()
+            if name:
+                by_name.setdefault(name, []).append(row)
+    if not by_name:
+        return 0
+    filled = 0
+    for m in targets:
+        row = _adoptable_row(m, by_name.get(str(m["filename"]).strip(), []))
+        if row is None:
+            continue
+        m["url"] = str(row["url"]).strip()
+        m["base"] = str(row["base"]).strip()
+        m["catalog_save_path"] = str(row.get("save_path") or "").strip()
+        for key in ("name", "type"):
+            if not str(m.get(key, "")).strip() and str(row.get(key, "")).strip():
+                m[key] = str(row[key]).strip()
+        filled += 1
+        _log(result, f"[prepare] '{m['filename']}' is in ComfyUI-Manager's "
+                     f"catalog ({m['base']} -> models/{_catalog_dir(row)}/) — "
+                     "auto-install is possible after all.")
+    return filled
 
 
 def _checklist_entry(model: dict, reason: str) -> dict:
@@ -148,12 +342,15 @@ def _install_body(model: dict) -> dict:
     body = {
         "url": str(model["url"]).strip(),
         "filename": str(model["filename"]).strip(),
-        "save_path": str(model["save_path"]).strip(),
+        "save_path": _install_save_path(model),
         "base": str(model["base"]).strip(),
     }
-    # Optional metadata Manager tolerates; keep it minimal + correct.
-    if model.get("name"):
-        body["name"] = str(model["name"])
+    # `name` is NOT optional in practice: `do_install_model` logs `json_data
+    # ['name']` before downloading, and the KeyError from a body without one is
+    # caught by its own `except Exception` and reported as a generic "Model
+    # installation error" — a failure that looks like a dead URL. Fall back to
+    # the filename rather than omitting it.
+    body["name"] = str(model.get("name") or "").strip() or body["filename"]
     if model.get("type"):
         body["type"] = str(model["type"])
     body["ui_id"] = body["filename"]
@@ -205,7 +402,7 @@ def prepare_blueprint_models(
     #    Each entry carries its PRESENCE VERDICT alongside the model, because
     #    every later branch reports a DELIVERY failure and only the verdict says
     #    whether the target ever claimed the file was absent.
-    to_queue: list[tuple[dict, "bool | None"]] = []
+    pending: list[tuple[dict, "bool | None"]] = []
     for m in models:
         # An empty `field` is legal (`_validate_models` normalises it to "" and
         # the legacy {source, dir} shape predates the key), and it is exactly
@@ -230,7 +427,29 @@ def prepare_blueprint_models(
         if present is True:
             _log(result, f"[prepare] already installed: {fname}")
             continue
-        if present is None and not _is_installable(m):
+        pending.append((m, present))
+
+    # 1b. A DERIVED declaration carries no url/base, so every model on an
+    #     uploaded blueprint reaches here un-installable and auto-install could
+    #     never fire. Ask the target's own Manager catalog whether it knows any
+    #     of them — ONE read, and only when something actually needs it, so a run
+    #     whose models are all installed or all hand-declared makes no extra call.
+    if any(not _is_installable(m) for m, _ in pending):
+        enrich_from_catalog([m for m, _ in pending], http_get=http_get,
+                            result=result)
+
+    # 1c. Partition what is left. Installable wins over an absent verdict: the
+    #     whitelist is the real gate, so declining to try would remove the only
+    #     delivery path a model has.
+    to_queue: list[tuple[dict, "bool | None"]] = []
+    for m, present in pending:
+        fname = str(m.get("filename", "")).strip()
+        if _is_installable(m):
+            if present is None:
+                _log(result, f"[prepare] cannot verify '{fname}' on this target; "
+                             "queueing the install anyway.")
+            to_queue.append((m, present))
+        elif present is None:
             # No verdict and no way to install it either: the only honest report
             # is "could not check". Calling it missing would refuse the render
             # over a file that may well be sitting on the target.
@@ -239,12 +458,6 @@ def prepare_blueprint_models(
             result.advisories.append(
                 _checklist_entry(m, "could not be verified on this target "
                                     "(no readable inventory for this field)"))
-            continue
-        if _is_installable(m):
-            if present is None:
-                _log(result, f"[prepare] cannot verify '{fname}' on this target; "
-                             "queueing the install anyway.")
-            to_queue.append((m, present))
         else:
             _log(result, f"[prepare] '{fname or '(unnamed)'}' is missing and not "
                          "in a catalog-installable shape (needs url+save_path+base+"
