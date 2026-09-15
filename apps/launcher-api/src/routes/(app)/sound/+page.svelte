@@ -280,6 +280,10 @@
 	 *  entirely off-screen. This says it where the author is looking. */
 	let uploadAdded = $state<string[]>([]);
 	let dragging = $state(false);
+	/** Aborts whatever is in flight when the page goes away. The author has already been asked (see
+	 *  `leaveCost`) and chose to leave, so the remaining work is doomed either way — this just stops
+	 *  a doomed PUT from finishing into an orphan nobody will ever see. */
+	let uploadAbort: AbortController | null = null;
 
 	const ACCEPT = SOUND_FILE_EXTENSIONS.map((e) => `.${e}`).join(',');
 
@@ -351,7 +355,7 @@
 	 * than a short blip failed, and because the body was cut mid-stream the server answered with a
 	 * 400 about multipart parsing that said nothing about size.
 	 */
-	async function uploadOne(file: File): Promise<string> {
+	async function uploadOne(file: File, signal: AbortSignal): Promise<string> {
 		if (file.size > MAX_SOUND_BYTES) {
 			throw new Error(
 				`${Math.round(file.size / 1024 / 1024)} MB — the limit is ${MAX_SOUND_BYTES / 1024 / 1024} MB.`,
@@ -366,6 +370,7 @@
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ name: file.name, bytes: file.size }),
+			signal,
 		});
 		if (!res.ok) throw new Error(await errorText(res));
 		const stored = (await res.json()) as {
@@ -381,6 +386,7 @@
 			method: 'PUT',
 			headers: { 'content-type': stored.contentType },
 			body: file,
+			signal,
 		});
 		if (!put.ok) throw new Error(`the upload was refused (${put.status}).`);
 
@@ -406,19 +412,31 @@
 	 * co-author's library — but it means a file uploaded and never saved is an orphan, so the page
 	 * says as much rather than letting it look filed away.
 	 */
-	async function addFiles(files: FileList | null) {
+	async function addFiles(files: FileList | readonly File[] | null) {
 		if (!files?.length) return;
+		// ONE RUN AT A TIME, and that is load-bearing rather than tidiness: a second run in parallel
+		// would race this one's `finally`, and whichever finished first would clear `uploadingName` —
+		// emptying `leaveCost` and DISARMING the leave guard while the other run's bytes were still in
+		// flight. It would also wipe the other run's reports on the way in. The controls are disabled
+		// while busy; this is the guard for a drop that slips through the gap.
+		if (uploading) return;
 		uploadErrors = [];
 		uploadAdded = [];
+		uploadAbort = new AbortController();
 		const list = Array.from(files);
-		// One at a time, so the progress line can name the file actually in flight; the queue count
-		// says how many are behind it, which a single spinner cannot.
+		const signal = uploadAbort.signal;
+		// Sequential, so the progress line can name the file actually in flight and count the ones
+		// behind it — which a single spinner cannot.
 		for (const [i, file] of list.entries()) {
+			if (signal.aborted) break;
 			uploadingName = file.name;
 			uploadQueued = list.length - i - 1;
 			try {
-				uploadAdded = [...uploadAdded, await uploadOne(file)];
+				uploadAdded = [...uploadAdded, await uploadOne(file, signal)];
 			} catch (e) {
+				// An abort is the page being torn down, not a failure to report to a reader who is
+				// already gone — and writing to `$state` from a destroyed component is pointless.
+				if (signal.aborted) break;
 				uploadErrors = [
 					...uploadErrors,
 					`${file.name} — ${e instanceof Error ? e.message : String(e)}`,
@@ -428,6 +446,7 @@
 				uploadQueued = 0;
 			}
 		}
+		uploadAbort = null;
 	}
 
 	function remove(entry: SoundEntry) {
@@ -555,6 +574,7 @@
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			window.removeEventListener('beforeunload', onBeforeUnload);
+			uploadAbort?.abort();
 			lease.release();
 			player?.pause();
 		};
@@ -889,16 +909,16 @@
 				class:over={dragging}
 				ondragover={(e) => {
 					e.preventDefault();
-					dragging = !lease.readOnly;
+					dragging = !lease.readOnly && !uploading;
 				}}
 				ondragleave={() => (dragging = false)}
 				ondrop={(e) => {
 					e.preventDefault();
 					dragging = false;
-					// Read-only means another author holds the lease, so Save is refused. Accepting a drop
+					// Read-only means another author holds the lease, so Save is refused: accepting a drop
 					// would upload bytes this page could never file — a guaranteed orphan, after a minute
-					// of waiting to be told no.
-					if (!lease.readOnly) void addFiles(e.dataTransfer?.files ?? null);
+					// of waiting to be told no. `uploading` is the re-entrancy half, see `addFiles`.
+					if (!lease.readOnly && !uploading) void addFiles(e.dataTransfer?.files ?? null);
 				}}
 			>
 				<p>Drop audio here, or</p>
@@ -907,10 +927,17 @@
 						type="file"
 						accept={ACCEPT}
 						multiple
-						disabled={lease.readOnly}
+						disabled={lease.readOnly || uploading}
 						onchange={(e) => {
+							// Clear the input SYNCHRONOUSLY, before awaiting: chained on the upload promise it
+							// stays set for the whole run, and re-picking the same file in that window fires no
+							// `change` event at all — the retry after a failure looks like a dead control.
+							// COPY first: `input.files` is live, and clearing `value` empties the very list
+							// that was just handed over.
 							const input = e.currentTarget;
-							void addFiles(input.files).then(() => (input.value = ''));
+							const picked = Array.from(input.files ?? []);
+							input.value = '';
+							void addFiles(picked);
 						}}
 					/>
 					choose files

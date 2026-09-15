@@ -250,7 +250,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   which is what happened here. `/sound` had no guard of any kind: the five sibling tools (editor, fx,
   flipbook, components, admin) at least register `beforeunload`, and this page did not.
 
-  **The fixes.** `onNavigate` now confirms before a client-side exit and `beforeunload` covers the
+  **The fixes.** `beforeNavigate` now confirms before a client-side exit and `beforeunload` covers the
   real unload, both keyed on one `leaveCost` derived that distinguishes the two losses — an upload in
   flight (unrecoverable: no entry, maybe no object) from an unsaved library (recoverable by Save).
   The progress line names the file and counts the queue behind it; a bordered line then confirms what
@@ -264,10 +264,31 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   built-ins still present. The flow editor could not show the owner's sounds because the library was
   genuinely empty, not because it cannot see a library.
 
-  **`onNavigate` is the first in the launcher**, and the gap it closes is not specific to this tool:
-  no page guards a tool-bar switch, which is the most common way to leave one. Worth generalizing
-  into the shared save infrastructure rather than copying — deliberately not done here, to keep a
-  bug fix out of five other tools' files.
+  **It has to be `beforeNavigate`, not `onNavigate`** — the first version shipped on the latter,
+  which runs AFTER a client-side navigation is committed and whose argument carries no `cancel`, so
+  the prompt appeared and the page left anyway. Caught only by clicking it on production: `vite
+  build` does not typecheck and the launcher has no `svelte-check` script, so a wrong-but-valid hook
+  is invisible until a human (or an automated click) tries the behaviour.
+
+  **Two more holes closed while the guard was fresh.** `addFiles` was re-entrant: a second pick
+  during a run would race the first's `finally`, clear `uploadingName`, and DISARM the leave guard
+  while bytes were still in flight — so the controls are now disabled while busy and `addFiles`
+  refuses a second run. And `input.value` was cleared only when the upload promise settled, so
+  re-picking the same file mid-run fired no `change` event at all (a dead-looking control on the
+  retry after a failure); it is cleared synchronously now, copying the live `FileList` first, since
+  clearing `value` empties the very list just handed over. The run also carries an `AbortController`,
+  aborted on teardown, so a doomed PUT stops rather than completing into an invisible orphan.
+
+  **What this did NOT do, and should.** The exit gap is not specific to this tool: `beforeNavigate`
+  is the launcher's first, five tools (editor, fx, flipbook, components, admin) have only the
+  `beforeunload` half that never fires on a tool-bar switch, and four manual-save tools (config,
+  win-text, localization, symbols) have no guard at all. The registered next step is an opt-in
+  `guardExit(() => cost)` on the shared `saveState.svelte.ts` — which already owns `dirty` for eight
+  tools — adopted by `/sound` first and then replacing the five copies. Kept out of a bug fix so it
+  does not land in five other tools' files mid-flight. Two more from the same audit:
+  `svelte.config.js` has no `kit.version` block, so no tab ever learns its JS is a build behind (the
+  structural answer to any request-contract change like #669's multipart→JSON); and real PUT
+  progress (XHR `upload.onprogress`) would replace a frozen filename on a 25 MB file.
 
 - 2026-09-15 — **A sound can be uploaded at all now, and a hard load of `/sound` stops being a 500.**
   Two unrelated defects, both reached from one owner report: _"I added some sounds, I can't find them

@@ -126,10 +126,12 @@ Three answers, in increasing order of certainty:
    **first**, above the engine's built-in names. If it is not in that dropdown, it is
    not in the library. (Draft sounds are offered too; approval gates publishing, not
    picking.)
-3. **The files themselves.** The [FTP Browser](./ftp-browser.md) (`/files`) shows what
-   is actually in storage: look under `<client>/<project>/sounds/`. `sounds.json` is the library;
-   `files/` holds the audio. A file in `files/` with no row on this page is an orphan
-   from an upload that was never saved — harmless, and safe to delete there.
+3. **The files themselves**, if your role has the [FTP Browser](./ftp-browser.md)
+   (`/files` — admins, developers, pipeline testers and audio; **not** artists). It
+   shows what is actually in storage: look under `<client>/<project>/sounds/`.
+   `sounds.json` is the library, `files/` holds the audio. A file in `files/` with no
+   row on this page is an orphan from an upload that was never saved — harmless, and
+   safe to delete there.
 
 ## Names
 
