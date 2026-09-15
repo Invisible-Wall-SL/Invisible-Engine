@@ -79,9 +79,13 @@ this replaces (`loadedAudio.sprite[name]`) had the same hole.
   that matters — it is the same decoder that will play the sound. The doc's normalize rejecting a
   non-positive duration is the guard that stops a wrong one becoming a silent sprite.
 
-✅ **Verified over HTTP on 2026-09-15** (signed-in, against production) — which is how the 512 KB
-ceiling was found at all: it lived in the one step every offline fixture had to skip. The 206 branch
-still rides on the audition element rather than a direct test.
+✅ **Verified over HTTP on 2026-09-15**, signed in against production — which is how the 512 KB
+ceiling was found at all: it lived in the one step every offline fixture had to skip. After the fix,
+the engine's own 4,872,925-byte `sounds.mp3` went through the REAL page: mint → presigned PUT →
+entry appended (`snd_<16 hex>.mp3`, measured 406.00 s, matching the S3 harness) → **Save enabled**,
+no errors. It streamed back byte-exact as `audio/mpeg`, and the Range branch answered
+`206 bytes 0-99/4872925`. The probe object was deleted afterwards and nothing was saved into the
+project's library.
 
 **S4 — the chain (done; every link verified, the bake's HTTP call by inspection).**
 
@@ -205,11 +209,13 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Open items / next
 
-1. **Click through `/sound` once.** Everything below the UI is verified — offline fixtures, real-R2
-   harnesses, mutation tests, the engine side in a browser. The page itself has only been compiled
-   and type-checked, because the launcher pages need a signed-in session. Open a project that has
-   sound choices in `/config`/`/symbols`, confirm the page opens on what the game already plays and
-   says so, change one moment, save, reload, and hear it in a game.
+1. **Finish the click-through.** The LIBRARY half is now done live (2026-09-15, `test6`): the page
+   opens on a hard load, a 4.9 MB upload lands, the entry appears, Save lights up, and the sound
+   auditions back byte-exact. The CHOICES half is still only compiled and type-checked — open a
+   project that has sound choices in `/config`/`/symbols`, confirm the page opens on what the game
+   already plays and says so, change one moment, save, reload, and hear it in a game. 61 offline
+   claims and a real-R2 round trip did not catch a defect that made every upload impossible; the
+   click-through is the only thing that finds this class.
 2. **Retire the old fields.** `GameConfigDoc.sounds`, `SymbolsDoc.symbolSounds`, the symbols doc's
    anticipation cues and the `win` component's `<alias>Sfx`/`<alias>Bgm` params are dead weight
    once every live project has saved once in `/sound`. Until then they are the only thing keeping a
