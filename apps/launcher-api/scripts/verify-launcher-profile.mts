@@ -29,7 +29,7 @@
 //      a local publish block in preference to it.
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { derivePublishBlock, launcherProfileFor } from '../src/lib/server/launcherProfile';
 import { protocolFor } from '../src/lib/server/mockProtocol';
 
@@ -156,10 +156,7 @@ ok('the endpoint excludes the shared default `cloud` scope from derivation', () 
 	// Asserted against the source: the carve-out lives in the route (deciding which projects
 	// are real titles is its job), and this module stays a leaf so it can be verified offline.
 	// A regression here would put a ☁ Publish button that cannot work on every launcher.
-	const route = readFileSync(
-		new URL('../src/routes/api/launcher/projects/+server.ts', import.meta.url),
-		'utf8',
-	);
+	const route = readLF(new URL('../src/routes/api/launcher/projects/+server.ts', import.meta.url));
 	assert.match(
 		route.replace(/\s+/g, ' '),
 		/p\.key === DEFAULT_PROJECT_KEY \? p\.launcherProfile : launcherProfileFor\(/,

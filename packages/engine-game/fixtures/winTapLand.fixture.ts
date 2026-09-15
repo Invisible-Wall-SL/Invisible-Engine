@@ -16,9 +16,9 @@
  * Run: node --experimental-strip-types packages/engine-game/fixtures/winTapLand.fixture.ts
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 
 import { resolveWinTap } from '../src/game/winEscalation.ts';
 
@@ -343,7 +343,7 @@ assert.equal(seek(9_000, boundaries[4], 9_500), 9_500, 'expected the seek to cla
 // assertion above still passes while the live game goes quietly back to `[0, 0, …]`.
 {
 	const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-	const read = (rel: string) => readFileSync(join(root, rel), 'utf8').replace(/\r\n/g, '\n');
+	const read = lfReaderFrom(root);
 	assert.match(
 		read('packages/engine-game/src/game/gameConfig.ts'),
 		/function tierToWinLevelData[\s\S]{0,900}?threshold: tier\.threshold/,

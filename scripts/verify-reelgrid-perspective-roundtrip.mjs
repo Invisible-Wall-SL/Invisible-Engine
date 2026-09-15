@@ -26,15 +26,15 @@
 // fails loudly if the function is renamed or its policy changes — which is exactly when someone
 // needs to be told.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLF, lfReaderFrom } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'apps/launcher-api/src/lib/server/editorStorage.ts');
-const read = (path) => readFileSync(join(ROOT, path), 'utf8');
+const read = lfReaderFrom(ROOT);
 
-const source = readFileSync(SOURCE, 'utf8').replace(/\r\n/g, '\n');
+const source = readLF(SOURCE);
 
 /** Slice one top-level `function name(...) { ... }` out of the source, by brace balance. */
 const sliceFunction = (name) => {

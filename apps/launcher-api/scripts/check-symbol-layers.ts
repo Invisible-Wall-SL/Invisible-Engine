@@ -38,8 +38,8 @@
  * module, which only exists inside a SvelteKit build. Nothing the app builds uses that mapping.
  */
 
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { ZodError } from 'zod';
 import { canBlendLayerKind, isBlendMode, pixiBlendMode } from 'engine-layout';
 import { pruneUnreachableEffects } from '../src/lib/server/effectReachability.ts';
@@ -414,7 +414,7 @@ check(
 const here = fileURLToPath(new URL('.', import.meta.url));
 /** Source with LF newlines whatever the checkout uses — every assertion below is about the CODE,
  *  and a Windows working copy (`core.autocrlf`) would otherwise fail on a line break. */
-const read = (path: string): string => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+const read = (path: string): string => readLF(path);
 const bake = read(`${here}bake-editor-doc.mjs`);
 const runtime = read(`${here}../src/lib/server/runtimeBundle.ts`);
 check(

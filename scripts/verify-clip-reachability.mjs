@@ -28,20 +28,14 @@
 // SvelteKit `$lib` alias, so it cannot be imported from plain Node. The walk itself is pure,
 // so it is re-created here from the source text and exercised for real.
 
-import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLF } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = readFileSync(join(ROOT, 'apps/launcher-api/src/lib/server/editorArtExport.ts'), 'utf8');
-const REACH = readFileSync(
-	join(ROOT, 'apps/launcher-api/src/lib/server/clipReachability.ts'),
-	'utf8',
-);
-const CLIPS = readFileSync(
-	join(ROOT, 'apps/launcher-api/src/lib/server/flipbookExport.ts'),
-	'utf8',
-);
+const SRC = readLF(join(ROOT, 'apps/launcher-api/src/lib/server/editorArtExport.ts'));
+const REACH = readLF(join(ROOT, 'apps/launcher-api/src/lib/server/clipReachability.ts'));
+const CLIPS = readLF(join(ROOT, 'apps/launcher-api/src/lib/server/flipbookExport.ts'));
 
 let checks = 0;
 const fail = (m) => {
