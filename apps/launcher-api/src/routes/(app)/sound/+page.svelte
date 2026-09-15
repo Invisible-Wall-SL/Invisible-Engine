@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { onNavigate } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -265,10 +266,19 @@
 	}
 
 	// ── upload ──────────────────────────────────────────────────────────────────────────────────
-	let uploading = $state(0);
+	/** The file being uploaded right now, and how many are still queued behind it. NAMED, because
+	 *  "Uploading 1…" over a five-second wait reads like a spinner that might mean nothing, and an
+	 *  author who cannot tell which file is in flight has no reason to believe waiting will help. */
+	let uploadingName = $state('');
+	let uploadQueued = $state(0);
+	const uploading = $derived(uploadingName !== '');
 	/** One line per FAILED file, and they accumulate: a single field would leave a five-file drop
 	 *  reporting only whichever failed last, which is how "it just did nothing" happens. */
 	let uploadErrors = $state<string[]>([]);
+	/** What the last drop actually ADDED. The rows appear further down the page — below the moments,
+	 *  the per-symbol cues and the flow list — so on a laptop the drop zone can report success
+	 *  entirely off-screen. This says it where the author is looking. */
+	let uploadAdded = $state<string[]>([]);
 	let dragging = $state(false);
 
 	const ACCEPT = SOUND_FILE_EXTENSIONS.map((e) => `.${e}`).join(',');
@@ -341,12 +351,15 @@
 	 * than a short blip failed, and because the body was cut mid-stream the server answered with a
 	 * 400 about multipart parsing that said nothing about size.
 	 */
-	async function uploadOne(file: File): Promise<void> {
+	async function uploadOne(file: File): Promise<string> {
 		if (file.size > MAX_SOUND_BYTES) {
 			throw new Error(
 				`${Math.round(file.size / 1024 / 1024)} MB — the limit is ${MAX_SOUND_BYTES / 1024 / 1024} MB.`,
 			);
 		}
+		// Decoding comes FIRST and is not instant — a few megabytes is a second or two before a single
+		// byte is sent. It is the window this whole guard exists for: leave during it and there is no
+		// file, no entry and nothing in R2 to recover, which is exactly what happened on 2026-09-15.
 		const durationMs = await measureDurationMs(file);
 
 		const res = await fetch(`/api/sounds/file?project=${encodeURIComponent(data.projectKey)}`, {
@@ -371,11 +384,12 @@
 		});
 		if (!put.ok) throw new Error(`the upload was refused (${put.status}).`);
 
+		const name = nameFor(file.name);
 		doc.entries = [
 			...entries,
 			{
 				id: stored.id,
-				name: nameFor(file.name),
+				name,
 				kind: 'sfx',
 				file: stored.file,
 				durationMs,
@@ -383,6 +397,7 @@
 				origin: 'library',
 			},
 		];
+		return name;
 	}
 
 	/**
@@ -394,17 +409,23 @@
 	async function addFiles(files: FileList | null) {
 		if (!files?.length) return;
 		uploadErrors = [];
-		for (const file of Array.from(files)) {
-			uploading += 1;
+		uploadAdded = [];
+		const list = Array.from(files);
+		// One at a time, so the progress line can name the file actually in flight; the queue count
+		// says how many are behind it, which a single spinner cannot.
+		for (const [i, file] of list.entries()) {
+			uploadingName = file.name;
+			uploadQueued = list.length - i - 1;
 			try {
-				await uploadOne(file);
+				uploadAdded = [...uploadAdded, await uploadOne(file)];
 			} catch (e) {
 				uploadErrors = [
 					...uploadErrors,
 					`${file.name} — ${e instanceof Error ? e.message : String(e)}`,
 				];
 			} finally {
-				uploading -= 1;
+				uploadingName = '';
+				uploadQueued = 0;
 			}
 		}
 	}
@@ -469,6 +490,10 @@
 			const saved = (await res.json()) as { doc: SoundsDoc; etag: string | null };
 			doc = structuredClone(saved.doc);
 			baseline = JSON.stringify(saved.doc);
+			// The drop zone's "Save to keep them" line has just come true, so it stops being advice
+			// and starts being a lie. Clearing it here is the only signal that the save covered the
+			// upload as well as the choices.
+			uploadAdded = [];
 			return { ok: true, etag: saved.etag };
 		},
 	});
@@ -482,15 +507,61 @@
 		saveState.setDirty(dirty);
 	});
 
+	/**
+	 * What leaving this page right now would throw away, in the author's words — or `''` when
+	 * leaving is free.
+	 *
+	 * Two different losses, and the in-flight one is the worse of the two because it is not even
+	 * recoverable by pressing Save: an upload decodes the file, mints a URL and PUTs the bytes, and
+	 * a page that goes away mid-sequence leaves NOTHING behind — no entry, and (if it had not
+	 * reached the PUT) no object in R2 either.
+	 */
+	const leaveCost = $derived(
+		uploading
+			? `${uploadQueued + 1} sound${uploadQueued ? 's are' : ' is'} still uploading. Leaving now loses ${uploadQueued ? 'them' : 'it'} — there is nothing to resume.`
+			: dirty
+				? 'This library has unsaved changes. Leaving now discards them.'
+				: '',
+	);
+
 	onMount(() => {
 		void lease.start();
 		const onUnload = () => lease.release();
+		/**
+		 * The exits, and why there are two handlers.
+		 *
+		 * `beforeunload` covers a REAL unload — refresh, closing the tab, the top bar's project
+		 * switch — which is the only one the five sibling tools (fx, flipbook, editor, components,
+		 * admin) guard. It is not the exit that cost an author two uploads on 2026-09-15: they
+		 * clicked **Flow** in the tool bar, and every tool-bar link is an `<a href>` that SvelteKit
+		 * intercepts as a client-side navigation, where `beforeunload` never fires at all. Verified
+		 * on production: a PUT started here still completes after that navigation (the fetch is not
+		 * aborted) but the component is gone, so the entry it would have appended is lost — and a
+		 * file still decoding never becomes a PUT in the first place.
+		 *
+		 * `onNavigate` is therefore the one that matters here, and it is the first in the launcher.
+		 */
+		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+			if (!leaveCost) return;
+			e.preventDefault();
+			e.returnValue = '';
+		};
 		window.addEventListener('pagehide', onUnload);
+		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
+			window.removeEventListener('beforeunload', onBeforeUnload);
 			lease.release();
 			player?.pause();
 		};
+	});
+
+	// Registered at component init (`onNavigate` is a lifecycle hook, like `onMount`), and torn down
+	// with the page. `willUnload` navigations are left to `beforeunload` above: cancelling one of
+	// those only re-triggers the browser's own dialog, so confirming twice is the alternative.
+	onNavigate((navigation) => {
+		if (!leaveCost || navigation.willUnload) return;
+		if (!window.confirm(`${leaveCost}\n\nLeave anyway?`)) navigation.cancel();
 	});
 </script>
 
@@ -814,13 +885,16 @@
 				class:over={dragging}
 				ondragover={(e) => {
 					e.preventDefault();
-					dragging = true;
+					dragging = !lease.readOnly;
 				}}
 				ondragleave={() => (dragging = false)}
 				ondrop={(e) => {
 					e.preventDefault();
 					dragging = false;
-					void addFiles(e.dataTransfer?.files ?? null);
+					// Read-only means another author holds the lease, so Save is refused. Accepting a drop
+					// would upload bytes this page could never file — a guaranteed orphan, after a minute
+					// of waiting to be told no.
+					if (!lease.readOnly) void addFiles(e.dataTransfer?.files ?? null);
 				}}
 			>
 				<p>Drop audio here, or</p>
@@ -829,6 +903,7 @@
 						type="file"
 						accept={ACCEPT}
 						multiple
+						disabled={lease.readOnly}
 						onchange={(e) => {
 							const input = e.currentTarget;
 							void addFiles(input.files).then(() => (input.value = ''));
@@ -839,12 +914,28 @@
 				<p class="hint">
 					{SOUND_FILE_EXTENSIONS.join(', ')} — up to {MAX_SOUND_BYTES / 1024 / 1024} MB each
 				</p>
-				{#if uploading > 0}<p class="hint busy">Uploading {uploading}…</p>{/if}
+				{#if uploading}
+					<p class="hint busy">
+						Uploading <strong>{uploadingName}</strong>…{uploadQueued
+							? ` (${uploadQueued} more to go)`
+							: ''}
+						<br />Stay on this page — leaving now loses it.
+					</p>
+				{/if}
 				{#each uploadErrors as line (line)}<p class="err">{line}</p>{/each}
+				{#if uploadAdded.length && !uploading}
+					<p class="ok">
+						Added <strong>{uploadAdded.join(', ')}</strong> to the list below.
+						<strong>Save</strong> to keep {uploadAdded.length === 1 ? 'it' : 'them'} — until then
+						{uploadAdded.length === 1 ? 'it is' : 'they are'} only on this page.
+					</p>
+				{/if}
 			</div>
 			<p class="hint">
 				A file is stored the moment it uploads, but it only becomes part of the library when you
-				<strong>save</strong>. Leave without saving and the bytes stay behind unreferenced.
+				<strong>save</strong>. Leave without saving and the bytes stay behind unreferenced — and
+				nothing else can see the sound: every picker in the launcher, the flow graph's cues
+				included, offers a library sound only once it is saved.
 			</p>
 		</section>
 
@@ -1380,6 +1471,18 @@
 		color: #ff9d9d;
 		font-size: 12px;
 		margin: 6px 0 0;
+	}
+	/* The one line that says an upload WORKED. Bordered rather than another grey hint: the rows it
+	   refers to are far enough down the page to be off-screen, so this is the whole confirmation. */
+	.ok {
+		margin: 10px 0 0;
+		padding: 8px 10px;
+		border: 1px solid #2c5a45;
+		border-radius: 8px;
+		background: #12201a;
+		color: #7ee0c0;
+		font-size: 12px;
+		line-height: 1.6;
 	}
 	code {
 		font-family: ui-monospace, monospace;

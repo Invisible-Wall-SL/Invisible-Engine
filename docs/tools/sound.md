@@ -96,6 +96,13 @@ separate upload button — picking or dropping a file **is** the upload, and it 
 straight away. Anything that fails is listed in the box with its reason, one line per
 file.
 
+**It takes a few seconds per file, and the box tells you where it is up to** — it names
+the file in flight and counts the ones behind it, then confirms what was added. A few
+megabytes is a real wait: the browser measures the sound's length before a single byte
+is sent. **Stay on the page until it says "Added …".** Leaving mid-upload loses that
+file entirely — there is nothing to resume, and nothing is stored. The page now asks
+before letting you go, but the fastest way past that prompt is to wait the five seconds.
+
 Each file gets a starting **name** taken from its filename, cleaned up to letters,
 numbers, `_` and `-` (so `Tumble Pop 01.mp3` becomes `tumble_pop_01`). If that name is
 already taken, a number is added rather than reusing it — see _Names_ below for why
@@ -104,6 +111,25 @@ that matters.
 > **A file is stored the moment it uploads, but it only joins the library when you
 > press Save.** If you close the tab without saving, the audio stays in storage with
 > nothing pointing at it. Re-upload it; nothing is broken, it just isn't listed.
+>
+> Until you press Save, **nothing else can see the sound** — not Invisible Flow's cue
+> nodes, not the moments above, not the game. Every sound picker in the launcher reads
+> the saved library, so an unsaved upload is invisible everywhere except this page.
+
+### Checking a sound really is there
+
+Three answers, in increasing order of certainty:
+
+1. **This page's list.** If a sound has a row here after a reload, it is saved.
+2. **Any sound picker.** Open the moments above, or a cue node in
+   [Invisible Flow](./flow.md) (`/flow-v2`) — your project's sounds are listed
+   **first**, above the engine's built-in names. If it is not in that dropdown, it is
+   not in the library. (Draft sounds are offered too; approval gates publishing, not
+   picking.)
+3. **The files themselves.** The [FTP Browser](./ftp-browser.md) (`/files`) shows what
+   is actually in storage: look under `<client>/<project>/sounds/`. `sounds.json` is the library;
+   `files/` holds the audio. A file in `files/` with no row on this page is an orphan
+   from an upload that was never saved — harmless, and safe to delete there.
 
 ## Names
 

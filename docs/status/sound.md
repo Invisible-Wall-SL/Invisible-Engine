@@ -230,6 +230,45 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-09-15 — **Leaving the page mid-upload no longer eats the file silently.** Same day, same
+  owner, the report one layer in: _"I have add 2 sounds, I have seen them writing 'uploading' … but
+  when I go in the flow editor … this new sounds are not appearing, and I am not even sure how to
+  check if they are there."_
+
+  **Measured first, on production.** Their project's `sounds.json` had **zero** entries, and a walk
+  of EVERY client/project prefix in the bucket found **no `sounds/files/` object anywhere at all** —
+  so the bytes never landed, which rules out "uploaded but not saved" (that leaves an orphan). Then
+  the same two files were put through the real page: an upload takes **~5 s per file** — the decode
+  runs before a single byte is sent — and for those five seconds the box said only `Uploading 1…`
+  with no name, no progress and no completion line. That is the window the author walked out of.
+
+  **What the exit actually does, verified rather than assumed.** Every tool-bar link is an `<a href>`
+  that SvelteKit intercepts as a CLIENT-SIDE navigation, so `beforeunload` never fires — and a PUT
+  already in flight is **not** aborted by it (probed live: mint → PUT → `link.click()` to `/flow-v2`
+  one second in → the PUT still answered 200). So an author who leaves mid-PUT gets an orphan they
+  cannot see, and one who leaves during the DECODE — before the PUT starts — gets nothing at all,
+  which is what happened here. `/sound` had no guard of any kind: the five sibling tools (editor, fx,
+  flipbook, components, admin) at least register `beforeunload`, and this page did not.
+
+  **The fixes.** `onNavigate` now confirms before a client-side exit and `beforeunload` covers the
+  real unload, both keyed on one `leaveCost` derived that distinguishes the two losses — an upload in
+  flight (unrecoverable: no entry, maybe no object) from an unsaved library (recoverable by Save).
+  The progress line names the file and counts the queue behind it; a bordered line then confirms what
+  was added and that Save is what keeps it, because the rows themselves render far enough down the
+  page to be off-screen from the drop zone. Saving clears that line. The drop zone is also disabled
+  under a read-only lease, which until now accepted uploads it could never file.
+
+  **Nothing downstream was broken.** Verified by fixture against the real `soundOptionsFor` +
+  `withProjectSounds`: a SAVED entry — draft included, there is no approval filter — is offered by
+  all three flow enums (`MusicName`, `SoundEffectName`, `SoundName`), project names FIRST, with the
+  built-ins still present. The flow editor could not show the owner's sounds because the library was
+  genuinely empty, not because it cannot see a library.
+
+  **`onNavigate` is the first in the launcher**, and the gap it closes is not specific to this tool:
+  no page guards a tool-bar switch, which is the most common way to leave one. Worth generalizing
+  into the shared save infrastructure rather than copying — deliberately not done here, to keep a
+  bug fix out of five other tools' files.
+
 - 2026-09-15 — **A sound can be uploaded at all now, and a hard load of `/sound` stops being a 500.**
   Two unrelated defects, both reached from one owner report: _"I added some sounds, I can't find them
   anywhere, there was no upload button, and Save never activated."_
