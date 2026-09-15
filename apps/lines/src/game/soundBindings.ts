@@ -1,10 +1,10 @@
-import { landSlotForSymbol, type SoundCue, type SoundSlotId } from 'game-config';
+import { landSlotForSymbol, type MusicSlotId, type SoundCue, type SoundSlotId } from 'game-config';
 
 import { bakedSymbolSounds } from '../editor-scenes';
 import { cascadeSoundRung, trackCascadeStep as trackCascadeEvent } from './cascadeSoundStep';
 import { eventEmitter } from './eventEmitter';
 import { activeSounds, getActiveGameConfig } from './gameConfig';
-import type { SoundEffectName } from './sound';
+import type { MusicName, SoundEffectName } from './sound';
 import type { BookEvent } from './typesBookEvent';
 
 /**
@@ -57,6 +57,43 @@ const symbolStateCue = (symbolName: string, state: string): SoundCue | undefined
 /** Layer 2 — the game-wide slot, catalogue defaults already applied. */
 const slotCue = (slot: SoundSlotId, index?: number): SoundCue | undefined =>
 	activeSounds().pick(slot, index);
+
+/**
+ * THE MUSIC BEDS — the base-game track and the free-spin track, resolved through the same slot
+ * layer as every one-shot above but played on the MUSIC channel.
+ *
+ * Why they are here at all: the engine used to name its own music in code — `'bgm_main'` and
+ * `'bgm_freespin'` as literals in `winLevelSoundsStop`, the free-spin switch, the bet-mode switch
+ * and the boot autoplay. A project whose theme is its OWN upload could point the start of the game
+ * at that track (a flow cue) and every win tier at it (`winTiers`), and the first big win would
+ * still hand the game back to a name the author had never chosen — or, if the bundle no longer
+ * carries it, to silence. Going through a slot makes "what the game comes back to" one authored
+ * answer, in the tool that already owns every other one.
+ *
+ * {@link musicCue} returns the RESOLVED cue rather than broadcasting, because two of the four call
+ * sites live inside `Sound.svelte` and reach the player directly: broadcasting from there would
+ * mean a component raising an event it is itself the only subscriber to. It narrows the name here
+ * rather than handing back a `string`, so the cast stays in the one file that argues above why it
+ * is safe instead of being sprinkled over the call sites.
+ */
+export const musicCue = (
+	slot: MusicSlotId,
+): { name: MusicName; volume: number | undefined } | undefined => {
+	const cue = slotCue(slot);
+	return cue ? { name: cue.name as MusicName, volume: cue.volume } : undefined;
+};
+
+/**
+ * Play a music bed. A silenced slot (`enabled: false`) broadcasts NOTHING rather than a blank name
+ * — the same rule as {@link broadcastCue}, for the same reason: howler declines an unknown sprite
+ * key silently, so an empty cue would make "the author muted this" and "the author mistyped this"
+ * identical in game.
+ */
+export const broadcastMusicCue = (slot: MusicSlotId): void => {
+	const cue = musicCue(slot);
+	if (!cue) return;
+	eventEmitter.broadcast({ type: 'soundMusic', name: cue.name, volume: cue.volume });
+};
 
 /**
  * Track the round's cascade position. Called from `dispatchBookEvent` — the ONE seam all three

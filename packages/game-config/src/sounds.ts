@@ -20,8 +20,15 @@
  * with no authoring — which is the half that was missing.
  */
 
-/** Every authorable slot id. The engine fires these; the config binds them. */
+/** Every authorable slot id. The engine fires these; the config binds them.
+ *
+ *  ORDER IS THE TOOL'S ORDER — Invisible Sound renders `SOUND_SLOTS` top to bottom, so the two
+ *  music beds lead: they are the first thing a project with its own soundtrack needs to set, and
+ *  the last thing anyone would find under seven one-shots and their ladders. Keep this array and
+ *  `SOUND_SLOTS` in the SAME order; `sounds.fixture.ts` zips them. */
 export const SOUND_SLOT_IDS = [
+	'baseMusic',
+	'freeSpinMusic',
 	'tumbleExplosion',
 	'reelStop',
 	'symbolLand',
@@ -30,6 +37,14 @@ export const SOUND_SLOT_IDS = [
 	'wildLand',
 	'wildExplode',
 ] as const;
+
+/** The slots that are MUSIC BEDS rather than one-shots — played on the music channel, where a track
+ *  pauses whatever was playing instead of layering over it. See the catalogue entries below.
+ *
+ *  A type rather than an array: nothing needs to iterate them, and `musicCue` resolves through the
+ *  same `SoundSlotId` lookup as every other slot, so a name that drifted out of the catalogue fails
+ *  to compile anyway. A second runtime list would be one more thing to keep in step. */
+export type MusicSlotId = 'baseMusic' | 'freeSpinMusic';
 
 export type SoundSlotId = (typeof SOUND_SLOT_IDS)[number];
 
@@ -66,6 +81,40 @@ export type SoundSlot = {
  * doc where they would freeze.
  */
 export const SOUND_SLOTS: readonly SoundSlot[] = [
+	// ── the MUSIC BEDS ────────────────────────────────────────────────────────────────────────
+	//
+	// FIRST, because the tool renders this array in order and these are what a project with its own
+	// soundtrack sets before anything else. They are also not one-shots, which is the point: every
+	// other slot answers "what noise does this beat make", these answer "what is playing UNDER
+	// everything, and what does the game come back to".
+	//
+	// They exist because the engine returned to its music by NAME, in code — `winLevelSoundsStop`
+	// after a win-level count-up, the free-spin switch, the bet-mode switch, the boot autoplay —
+	// and every one of those names was the literal `bgm_main` / `bgm_freespin`. Fine for a game
+	// playing the shipped audiosprite; impossible for one whose theme is its own upload. An author
+	// could pick their track for the START of the game (a flow cue) and for every win tier
+	// (`winTiers`), and the first big win would still hand the game back to a track they never
+	// chose — or, if their bundle does not carry it, to silence. Reported in exactly that shape on
+	// 2026-09-15.
+	//
+	// Played on the MUSIC channel, not the one-shot player, so they pause each other rather than
+	// layering — see `broadcastMusicCue` in `apps/lines/src/game/soundBindings.ts`.
+	{
+		id: 'baseMusic',
+		label: 'Base game music',
+		kind: 'single',
+		description:
+			'The track the game RETURNS TO: after a win-level count-up, when the free-spin feature ends, and when the bet mode goes back to normal. Point this at your own track and every one of those returns follows it. It does NOT decide what STARTS the game — under a flow that drives the screens, the opening music is the `soundMusic` cue on the Game Signals `tapToStart` pin, and that node has to name the same track. Tick `loop` on its library row too, or it plays once and the game falls silent under itself.',
+		defaults: ['bgm_main'],
+	},
+	{
+		id: 'freeSpinMusic',
+		label: 'Free-spin music',
+		kind: 'single',
+		description:
+			'The bed that plays THROUGH the free-spin feature, from the intro until the outro hands the game back to the base music. Also what a SUPERSPIN bet mode switches to.',
+		defaults: ['bgm_freespin'],
+	},
 	{
 		id: 'tumbleExplosion',
 		label: 'Tumble explosion',

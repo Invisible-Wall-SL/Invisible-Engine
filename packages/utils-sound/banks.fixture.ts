@@ -7,7 +7,8 @@
  * than re-implementing the routing — a second copy of the rule is how the two come to disagree. Those
  * modules import only types, so nothing here pulls in howler, pixi-svelte, Svelte or state-shared.
  *
- * SEVEN claims, each of which is a way sound was broken or unauthorable before banks existed:
+ * NINE sections, each a way sound was broken or unauthorable before banks existed — the last of
+ * them the per-firing volume a flow cue can now carry (claim 9, added 2026-09-15):
  *
  *  1. A NAME RESOLVES TO THE LAST BANK DECLARING IT. That is what makes an uploaded sound an
  *     OVERRIDE rather than a collision — the same last-wins rule `mergeBakedFontCatalog` uses.
@@ -26,6 +27,10 @@
  *  7. AN UNPLAYABLE NAME LEAVES NO TRACE. It used to be written into the sound map as `playing` with
  *     a null id (howler's return for an unknown sprite), which never receives an `end` event — so the
  *     name was pinned for the session and could not play even once a bank carrying it loaded.
+ *  8. MUSIC SWITCHES ACROSS BANKS, and a track no bank declares does not silence the game.
+ *  9. A PER-FIRING VOLUME DOES NOT OUTLIVE ITS FIRING. The music map entry lives forever so a track
+ *     can be paused and resumed, so a level carried forward would mean one quiet cue re-mixing every
+ *     later restore of that track — inaudibly, for the rest of the session.
  *
  * NOT covered here: `createSound.load()`'s per-bank `Howl` construction and `destroy()`'s per-bank
  * `unload()`. That module is `$state`/`$effect`-bearing and imports howler directly, so it is not
@@ -99,11 +104,19 @@ const BUILTIN: Audio = {
 
 const PROJECT: Audio = {
 	src: 'project.mp3',
-	sprite: { sfx_reel_stop_1: [0, 120], sfx_uploaded: [120, 60], bgm_freespin: [180, 800, true] },
+	sprite: {
+		sfx_reel_stop_1: [0, 120],
+		sfx_uploaded: [120, 60],
+		bgm_freespin: [180, 800, true],
+		// A bed mixed DOWN on its library row, so claim 9 can tell a per-play level that REPLACES
+		// the entry's own from one that multiplies with it.
+		bgm_quiet: [980, 700, true],
+	},
 	config: {
 		sfx_reel_stop_1: { volume: 0.9 },
 		sfx_uploaded: { volume: 0.5 },
 		bgm_freespin: { volume: 1 },
+		bgm_quiet: { volume: 0.5 },
 	},
 };
 
@@ -255,6 +268,95 @@ console.log('\n8. music switches across banks, and an unknown track does not sil
 
 	rig.music.play({ name: 'bgm_freespin' });
 	check('re-asking for the playing track is a no-op', rig.howls[1].of('play').length, 1);
+}
+
+console.log('\n9. a music bed takes a PER-FIRING volume that does not outlive the firing');
+{
+	const rig = createRig([BUILTIN, PROJECT]);
+
+	// No volume asked for ⇒ the entry's own level, unchanged. This is every existing `soundMusic`.
+	rig.music.play({ name: 'bgm_quiet' });
+	check('unasked, the level is the entry’s own', rig.howls[1].of('volume'), [[0.5, 100]]);
+
+	// Asked for ⇒ MULTIPLIED by the entry's level, not substituted for it: 0.4 × 0.5. A per-play
+	// volume that replaced the row's would make a track mixed down on its row come back to full
+	// the moment a flow node set a level.
+	const rig2 = createRig([BUILTIN, PROJECT]);
+	rig2.music.play({ name: 'bgm_quiet', volume: 0.4 });
+	check('asked for, it multiplies with the entry’s', rig2.howls[1].of('volume'), [[0.2, 100]]);
+
+	// The case that matters after a big win: the bed was PAUSED (not stopped), so re-firing it takes
+	// the `paused` branch — which used to skip the volume entirely.
+	const rig3 = createRig([BUILTIN, PROJECT]);
+	rig3.music.play({ name: 'bgm_quiet' });
+	rig3.music.play({ name: 'bgm_main' }); // pauses the bed
+	rig3.music.play({ name: 'bgm_quiet', volume: 0.2 }); // …and back, quieter
+	check('a resume replays the track by its id', rig3.howls[1].of('play'), [['bgm_quiet'], [100]]);
+	check('…and the new level lands on the resume', rig3.howls[1].of('volume'), [
+		[0.5, 100],
+		[0.1, 100],
+	]);
+
+	// Already playing: the level changes without restarting the track.
+	const rig4 = createRig([BUILTIN, PROJECT]);
+	rig4.music.play({ name: 'bgm_quiet' });
+	rig4.music.play({ name: 'bgm_quiet', volume: 0.6 });
+	check('a level change does not restart the bed', rig4.howls[1].of('play').length, 1);
+	check('…but it does re-mix it', rig4.howls[1].of('volume'), [
+		[0.5, 100],
+		[0.3, 100],
+	]);
+
+	// And the no-op stays a no-op — re-asking with nothing new must not re-mix.
+	const rig5 = createRig([BUILTIN, PROJECT]);
+	rig5.music.play({ name: 'bgm_quiet' });
+	rig5.music.play({ name: 'bgm_quiet' });
+	check('re-asking with no volume changes nothing', rig5.howls[1].of('volume'), [[0.5, 100]]);
+
+	// A resume with no volume RE-APPLIES the row's level rather than trusting the howl to have kept
+	// whatever it had. Same number here, so it is inaudible — but it is what makes the next claim
+	// true, and a "redundant call" cleanup has to read this first.
+	const rig6 = createRig([BUILTIN, PROJECT]);
+	rig6.music.play({ name: 'bgm_quiet' });
+	rig6.music.play({ name: 'bgm_main' });
+	rig6.music.play({ name: 'bgm_quiet' });
+	check('a plain resume re-applies the row’s level', rig6.howls[1].of('volume'), [
+		[0.5, 100],
+		[0.5, 100],
+	]);
+
+	// THE ONE THAT MATTERS: a per-firing level does NOT stick. The music map entry lives forever
+	// (that is how a track can be paused and resumed), so carrying the last asked-for level forward
+	// would mean one quiet cue anywhere in a flow re-mixed every later restore of that track — every
+	// `winLevelSoundsStop`, for the rest of the session, inaudibly.
+	const rig7 = createRig([BUILTIN, PROJECT]);
+	rig7.music.play({ name: 'bgm_quiet', volume: 0.2 }); // 0.2 × 0.5 = 0.1
+	rig7.music.play({ name: 'bgm_main' }); // the big win takes over
+	rig7.music.play({ name: 'bgm_quiet' }); // …and the restore asks for nothing
+	check('a per-firing level does not outlive its firing', rig7.howls[1].of('volume'), [
+		[0.1, 100],
+		[0.5, 100],
+	]);
+
+	// And the same for a track that never stopped playing: asking again with no level restores the
+	// row's, rather than leaving the last cue's in place.
+	const rig8 = createRig([BUILTIN, PROJECT]);
+	rig8.music.play({ name: 'bgm_quiet', volume: 0.2 });
+	rig8.music.play({ name: 'bgm_quiet' });
+	check('…nor while it is still playing', rig8.howls[1].of('volume'), [
+		[0.1, 100],
+		[0.5, 100],
+	]);
+
+	// Out of range is DISCARDED, not clamped — the rule every authored volume path already applies,
+	// and the flow's number input has no range on it. Howler IGNORES a volume outside 0..1, so
+	// passing it through would be a silent no-op that also poisons the map for every later mix.
+	const rig9 = createRig([BUILTIN, PROJECT]);
+	rig9.music.play({ name: 'bgm_quiet', volume: 2 });
+	check('an out-of-range level falls back to the row’s', rig9.howls[1].of('volume'), [[0.5, 100]]);
+	const rig10 = createRig([BUILTIN, PROJECT]);
+	rig10.once.play({ name: 'sfx_uploaded', volume: -1 });
+	check('…on the one-shot player too', rig10.howls[1].of('volume'), [[0.5, 100]]);
 }
 
 console.log(failures === 0 ? '\nAll bank claims hold.\n' : `\n${failures} FAILED bank claim(s).\n`);

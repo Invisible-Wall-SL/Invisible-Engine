@@ -49,7 +49,7 @@ import {
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
-import { playWildExplodeSound } from './soundBindings';
+import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
@@ -100,12 +100,13 @@ export const winLevelSoundsPlay = ({
 
 export const winLevelSoundsStop = () => {
 	eventEmitter.broadcast({ type: 'soundStop', name: 'sfx_bigwin_coinloop' });
-	if (stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame') {
-		// check if SUPERSPIN, when finishing a bet.
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
-	} else {
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_main' });
-	}
+	// The track the game COMES BACK TO, resolved from the project's own choice (Invisible Sound →
+	// Game moments → Base game / Free-spin music) rather than named here. It was the literal
+	// `bgm_main` / `bgm_freespin` until 2026-09-15, which meant a game whose theme is an uploaded
+	// track was handed back to a name its author had never picked — the one beat they could not
+	// author, sitting at the end of the loudest moment in the game.
+	const inFeature = stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame';
+	broadcastMusicCue(inFeature ? 'freeSpinMusic' : 'baseMusic');
 	eventEmitter.broadcastAsync({ type: 'uiShow' });
 };
 

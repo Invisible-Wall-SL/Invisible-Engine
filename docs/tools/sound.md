@@ -47,6 +47,30 @@ cue), so that "I meant nothing here" stays distinguishable from "I emptied it by
 accident" — a distinction the game itself cannot make, because a missing sound and a
 silenced one both just… don't play.
 
+### The two music beds
+
+Two of those moments are not one-shots, and they are the ones to set first if your
+game has its own music:
+
+- **Base game music** — the track the game **comes back to**: after a win-level
+  count-up, when free spins end, and when the bet mode goes back to normal.
+- **Free-spin music** — the bed that plays through the free-spin feature, and what a
+  SUPERSPIN bet mode switches to.
+
+Until you point these at your own track they stay on the engine's `bgm_main` /
+`bgm_freespin`. That is what made a big win end in the engine's music — or in silence,
+if your build no longer carries it — however carefully you had authored the start of
+the game. Set **Base game music** and every one of those returns follows it.
+
+> **These two decide what the game comes BACK to, not what starts it.** If your game
+> is driven by a flow, the opening music is the `soundMusic` cue wired to Game Signals'
+> **tapToStart** pin — point that node at the same track, or the game opens on the
+> engine's music and only switches to yours after the first win.
+
+> **Tick `loop` on a bed's library row.** A music bed that does not loop plays once and
+> the game goes quiet underneath itself. The engine's own beds are looping; an uploaded
+> one is not until you say so. See _The row_ below.
+
 ### Per-symbol cues
 
 A noise **one** symbol makes at a moment, instead of the game-wide cue above. Optional
@@ -156,15 +180,21 @@ picker turns red and says the sound no longer exists. Repoint it, or rename back
 
 | Control              | What it does                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **▶**               | Play/stop. Plays at the volume set on this row, so you hear what the game will.                                    |
+| **▶**               | Play/stop. Plays at the volume **and loop** set on this row, so you hear what the game will. A looping sound keeps going until you press ■. |
 | **name**             | The name bindings use (above).                                                                                     |
 | **SFX / Music**      | Which player this is meant for — grouping and a sanity check; the game still decides.                              |
 | **section**          | A free-text group ("Reels", "Wins", "UI"). Purely for browsing this page.                                          |
 | duration             | Measured from the file. Read-only.                                                                                 |
-| **vol**              | Base volume, `0`–`1`. Blank means full. This scales with the player's own volume setting — it doesn't override it. |
-| **loop**             | Whether the sound repeats while it plays. Right for music beds, wrong for one-shots.                               |
+| **vol**              | Base volume, `0`–`1`. Blank means full. This scales with the player's own volume setting — it doesn't override it. Anything outside `0`–`1` is discarded, so `50` (meaning percent) stores nothing; there is no way to make a sound *louder* than its file. |
+| **loop**             | Whether the sound repeats while it plays. **Required for a music bed** — without it the track plays once and the game falls silent underneath itself. Wrong for one-shots. It is the small checkbox just right of **vol**. |
 | **Draft / Approved** | See below.                                                                                                         |
 | **×**                | Remove from the library. The file itself stays in storage.                                                         |
+
+> **One sound, one level — with one exception.** `vol` is the track's mix everywhere it
+> is ever played, which is where a mix belongs. If you need the *same* bed quieter under
+> one particular screen, a `soundMusic` / `soundOnce` cue node in
+> [Invisible Flow](./flow.md) has an optional **volume** input for that one firing. It
+> multiplies with the row's level rather than replacing it.
 
 **Where it came from** (the fold-out) records provenance: whether it's AI-generated,
 commissioned, or from a library; the model or the musician; the licence and where its

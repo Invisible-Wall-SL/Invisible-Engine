@@ -267,6 +267,11 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 					kind: 'string',
 					required: true,
 				},
+				{
+					key: 'volume',
+					kind: 'number',
+					required: false,
+				},
 			],
 		},
 		{

@@ -271,6 +271,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'string',
 						required: true,
 					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
+					},
 				],
 			},
 			{
@@ -919,6 +924,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'string',
 						required: true,
 					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
+					},
 				],
 			},
 			{
@@ -1566,6 +1576,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'name',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
 					},
 				],
 			},

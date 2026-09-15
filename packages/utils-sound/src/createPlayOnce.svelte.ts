@@ -1,6 +1,7 @@
 import type { Howl } from 'howler';
 
 import type { PlayOptions, GetSound, GetSoundMap } from './types';
+import { usablePlayVolume } from './volume';
 
 export function createPlayOnce<TSoundName extends string>(options: {
 	howlFor: (soundName: TSoundName) => Howl | undefined;
@@ -57,7 +58,9 @@ export function createPlayOnce<TSoundName extends string>(options: {
 		const sound = existingSound ?? options.newSound(playOptions.name);
 		soundPlayMap[sound.soundState](sound, {
 			forcePlay: playOptions.forcePlay,
-			volume: playOptions.volume,
+			// Out of range is DISCARDED rather than passed through — see `usablePlayVolume`. It
+			// matters here now that a flow node can author this number with no range on the input.
+			volume: usablePlayVolume(playOptions.volume),
 		});
 	};
 

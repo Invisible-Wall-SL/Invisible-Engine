@@ -2,7 +2,10 @@
 	import { sound, type MusicName, type SoundEffectName, type SoundName } from '../game/sound';
 
 	export type EmitterEventSound =
-		| { type: 'soundMusic'; name: MusicName }
+		// `volume` is the PER-PLAY level, 0..1, folded into `playerVolume × volume × the library
+		// entry's own volume` — so it scales with the player's music slider rather than fighting it.
+		// Absent ⇒ the entry's authored level, which is the common case.
+		| { type: 'soundMusic'; name: MusicName; volume?: number }
 		| { type: 'soundOnce'; name: SoundEffectName; forcePlay?: boolean; volume?: number }
 		| { type: 'soundLoop'; name: SoundEffectName }
 		| { type: 'soundStop'; name: SoundName }
@@ -17,11 +20,25 @@
 	import { waitForTimeout } from 'utils-shared/wait';
 	import { SECOND } from 'constants-shared/time';
 	import { stateBet } from 'state-shared';
+	import type { MusicSlotId } from 'game-config';
 
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
+	import { musicCue } from '../game/soundBindings';
 
 	const context = getContext();
+
+	/**
+	 * Play one of the project's MUSIC BEDS. The two sites below used to name `bgm_main` /
+	 * `bgm_freespin` outright; they ask the slot now, so a game whose theme is its own upload is
+	 * heard here too. Resolved rather than broadcast — this component is the only subscriber to
+	 * `soundMusic`, so raising the event to catch it here would be a round trip through itself.
+	 * A silenced slot resolves to `undefined` and plays nothing, which is the authored answer.
+	 */
+	const playMusicSlot = (slot: MusicSlotId): void => {
+		const cue = musicCue(slot);
+		if (cue) sound.players.music.play({ name: cue.name, volume: cue.volume });
+	};
 
 	context.eventEmitter.subscribeOnMount({
 		// ui
@@ -30,9 +47,9 @@
 				// check if SUPERSPIN, when changing the bet mode.
 				sound.players.once.play({ name: 'sfx_winlevel_end' });
 				await waitForTimeout(SECOND);
-				sound.players.music.play({ name: 'bgm_freespin' });
+				playMusicSlot('freeSpinMusic');
 			} else {
-				sound.players.music.play({ name: 'bgm_main' });
+				playMusicSlot('baseMusic');
 			}
 		},
 		soundPressGeneral: () => sound.players.once.play({ name: 'sfx_btn_general' }),
@@ -50,7 +67,7 @@
 		soundScatterCounterIncrease: () => (context.stateGame.scatterCounter = context.stateGame.scatterCounter + 1), // prettier-ignore
 		soundScatterCounterClear: () => (context.stateGame.scatterCounter = 0),
 		// game
-		soundMusic: ({ name }) => sound.players.music.play({ name }),
+		soundMusic: ({ name, volume }) => sound.players.music.play({ name, volume }),
 		soundLoop: ({ name }) => sound.players.loop.play({ name }),
 		soundOnce: ({ name, forcePlay, volume }) =>
 			sound.players.once.play({ name, forcePlay, volume }),
@@ -61,14 +78,14 @@
 	onMount(() => {
 		if (stateBet.activeBetModeKey === 'SUPERSPIN') {
 			// check if SUPERSPIN, when resume bet and the bet is a super spin.
-			sound.players.music.play({ name: 'bgm_freespin' });
+			playMusicSlot('freeSpinMusic');
 		} else if (!flowV2DrivesScreens()) {
 			// Under a v2 flow that DRIVES the loading→game screens, the music start is FLOW-AUTHORED
 			// (the Game Signals `onTapToStart` pin → `soundMusic(bgm_main)`), so it must NOT auto-play at
 			// boot — auto-playing here is what let `bgm_main` sound before the tap-to-start. When no v2
 			// flow drives screens (coded/v1 games, or a book-events-only v2 flow) this is byte-identical
 			// to the previous unconditional boot autoplay (parity).
-			sound.players.music.play({ name: 'bgm_main' });
+			playMusicSlot('baseMusic');
 
 			//How to control volume per soundfile(use fade)
 			// sound.players.music.fade({ name: 'bgm_main', from: 0, to: 1, duration: 2000 });
