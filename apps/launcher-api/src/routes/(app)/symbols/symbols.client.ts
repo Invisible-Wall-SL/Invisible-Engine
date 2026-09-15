@@ -300,6 +300,21 @@ export interface WinLineTextStyle {
 	/** WHERE the amount is stamped: at the winning line's end (`'line'`, absent ⇒ the default) or in
 	 *  the middle of the reel window (`'boardCenter'`). Only the non-default value persists. */
 	placement?: 'line' | 'boardCenter';
+	/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the amount
+	 *  appears at its final value, byte-identical to before this switch. */
+	countUp?: boolean;
+	/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+	countUpDuration?: number;
+	/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it counts
+	 *  the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win overlay takes over
+	 *  and carries the number the rest of the way. Absent ⇒ OFF. Only meaningful with `countUp` on,
+	 *  which is why it drops with it. */
+	cueBigWin?: boolean;
+	/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF. Independent of
+	 *  {@link countUp} — a static stamp can fade in too. */
+	fadeIn?: boolean;
+	/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+	fadeInDuration?: number;
 }
 
 /** Global win-line overlay config. Sparse: `enabled` is the LINE's switch — absent = ON, only
@@ -896,6 +911,24 @@ export function winLineTextPlacement(doc: SymbolsDoc): 'line' | 'boardCenter' {
 	return doc.winLine?.text?.placement ?? 'line';
 }
 
+/** The effective "count the stamped amount up from zero" flag. Defaults to `false` (byte-parity —
+ *  the amount was stamped whole before this switch). */
+export function winLineTextCountUp(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.countUp ?? false;
+}
+
+/** The effective "count up to cue the big win" flag. Defaults to `false`; only read while
+ *  {@link winLineTextCountUp} is on, which is also the only state it persists in. */
+export function winLineTextCueBigWin(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.cueBigWin ?? false;
+}
+
+/** The effective "fade the stamp in" flag. Defaults to `false`, and is independent of the count —
+ *  a static stamp can fade in too. */
+export function winLineTextFadeIn(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.fadeIn ?? false;
+}
+
 /** The effective "keep the winning SYMBOLS animating until the next spin" flag — the game's
  *  `winSymbolCycle`. Defaults to `true`, matching the engine's resolved default. Independent of
  *  {@link winLineEnabled}: the replay never draws the line. */
@@ -1019,6 +1052,19 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 		// so a value equal to its default drops, keeping an untouched project shipping no `winLine`.
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;

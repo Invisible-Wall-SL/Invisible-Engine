@@ -3,6 +3,15 @@
 
 	export type WinLineShape = 'path' | 'cells' | 'reels';
 
+	/** Re-formats a stamped amount for a given RAW book value, through the same authored
+	 *  `amountFormat` + currency formatter the final string was built with (`winLineTextFor`), so a
+	 *  counting stamp reads like the one that lands on every frame.
+	 *
+	 *  A NAMED alias rather than an inline `(value: number) => string`: the emitter union is parsed
+	 *  by `scripts/gen-flow-vocabulary.mjs`, whose brace/angle depth walk counts the `>` of a `=>`
+	 *  as a closing bracket and silently drops the whole union from the `/flow` palette. */
+	export type WinAmountFormatter = (value: number) => string;
+
 	export type EmitterEventWinLine =
 		| {
 				type: 'winLineShow';
@@ -24,6 +33,13 @@
 				 *  those into ONE bar per winning reel (a ways win, which pays by whole-reel
 				 *  participation). Both bar shapes stamp the amount ONCE, centred. Absent ⇒ `'path'`. */
 				shape?: WinLineShape;
+				/** The win's RAW book amount — the target a counted stamp runs up to. Absent ⇒ the
+				 *  stamp is drawn whole (the `stamp: false` replay dispatches carry no amount). */
+				amountValue?: number;
+				/** Re-formats the stamp for a given value through the SAME authored `amountFormat` +
+				 *  currency formatter `amount` was built with, so every counting frame reads like the
+				 *  one that lands. Absent ⇒ no count is possible and `amount` is used as-is. */
+				amountAt?: WinAmountFormatter;
 		  }
 		| {
 				type: 'winLineHide';
@@ -31,7 +47,23 @@
 				 *  lines at once" on, where a per-win hide is deliberately ignored so the round's lines
 				 *  stay on screen together; the round-level clears (next spin, cycle stop) set this. */
 				all?: boolean;
-		  };
+		  }
+		/** The BIG-WIN RUN-UP stamp (Invisible Symbols State Machine → "Count up to cue the big win").
+		 *  ONE amount centred on the reel window — the round TOTAL, not a payline's payout — counted
+		 *  from zero up to `target`, the big-win threshold, as the cue that the overlay is coming.
+		 *  Awaited: `flowEffects.ts#cueBigWinCountUp` holds the round until the count lands, then
+		 *  hides it and lets the overlay carry the number the rest of the way. Broadcast ONLY on a
+		 *  round that reaches a big-win tier with the switch on.
+		 *
+		 *  The comment sits OUTSIDE the member because `gen-flow-vocabulary.mjs` reads the
+		 *  discriminant from the member's FIRST field, so a doc comment in front of `type:` drops the
+		 *  event from the `/flow` palette. */
+		| {
+				type: 'winAmountCue';
+				target: number;
+				amountAt: WinAmountFormatter;
+		  }
+		| { type: 'winAmountCueHide' };
 </script>
 
 <script lang="ts">
@@ -82,6 +114,17 @@
 		/** Draw progress 0→1 along the polyline. Instant (duration 0) unless animated. The amount is
 		 *  stamped only once this reaches 1, so an animated line reveals first → last → amount. */
 		progress: Tween<number>;
+		/** The win's RAW book amount — what a counted stamp runs up to. 0 when the dispatch carried
+		 *  no amount (the replay's `stamp: false`), where nothing is stamped anyway. */
+		amountValue: number;
+		/** Re-formats the stamp per count tick through the authored template. Absent ⇒ the stamp is
+		 *  drawn from the pre-formatted `amount` string, whatever `count` says. */
+		amountAt?: WinAmountFormatter;
+		/** The counted value, 0 → `amountValue`. Seeded AT the amount (duration 0) when counting is
+		 *  off, so the rendered string is the final one from the first frame. */
+		count: Tween<number>;
+		/** The stamp's alpha, 0 → 1 when fading in. Seeded at 1 when it is not. */
+		fade: Tween<number>;
 		/** The stamp's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the
 		 *  cap, not the drawn width). Until it has measured, a font-size estimate keeps the FIRST
 		 *  frame close so the amount doesn't visibly jump once the real size arrives. */
@@ -90,6 +133,19 @@
 
 	let lines = $state<DrawnLine[]>([]);
 	let nextId = 0;
+
+	/** The BIG-WIN RUN-UP stamp — ONE centred amount counting up to the big-win threshold as the cue
+	 *  that the overlay is coming. Held apart from `lines` on purpose: it belongs to the ROUND, not
+	 *  to a payline, so it has no points to trace, no key to merge on, and it is centred whatever the
+	 *  authored `placement` says (a total did not land anywhere). */
+	type CueStamp = {
+		amountAt: WinAmountFormatter;
+		count: Tween<number>;
+		fade: Tween<number>;
+		labelSize: { width: number; height: number };
+	};
+
+	let cue = $state<CueStamp | null>(null);
 
 	/** Whether every paying line of the round stays on screen TOGETHER (Invisible Symbols State
 	 *  Machine → "Show all win lines at once"). Off (the default) ⇒ each `winLineShow` REPLACES the
@@ -106,6 +162,20 @@
 	 *  only the most recently shown line stamps — with "show all win lines at once" every amount
 	 *  would otherwise land on the same spot and render as one unreadable pile. */
 	const centreText = text.placement === 'boardCenter';
+
+	/** The stamp's count-up + fade-in (Invisible Symbols State Machine → "Count up"). All default
+	 *  OFF, so an un-authored project stamps the final amount at full alpha exactly as before.
+	 *  `cueBigWin` is the ONE the renderer only guards with: the run-up is orchestrated by
+	 *  `flowEffects.ts#cueBigWinCountUp`, so an un-authored project can never be sent one. */
+	const countUp = text.countUp;
+	const countUpMs = Math.max(0, text.countUpDuration) * 1000;
+	const cueBigWin = text.cueBigWin;
+	const fadeIn = text.fadeIn;
+	const fadeInMs = Math.max(0, text.fadeInDuration) * 1000;
+
+	/** A tween length in ms, re-read from the skip token at the moment it is used: a press landing
+	 *  mid-narration means "show me the result now", so whatever is still to run collapses. */
+	const tweenMs = (ms: number) => (roundSkip.isSkipped() ? 0 : ms);
 
 	/** Names a drawn line by the cells it traces, so the same line shown twice stays ONE entry. */
 	const lineKey = (points: WinLinePoint[], shape: WinLineShape): string =>
@@ -133,6 +203,12 @@
 				!roundSkip.isSkipped() &&
 				shape === 'path' &&
 				emitterEvent.points.length >= 2;
+			// The count needs BOTH a raw target and the formatter that renders the frames in between;
+			// the `stamp: false` replay dispatches carry neither, and with no stamp drawn there is
+			// nothing to count anyway.
+			const amountValue = emitterEvent.amountValue ?? 0;
+			const counts = countUp && showText && emitterEvent.amountAt !== undefined;
+			const fades = fadeIn && showText;
 			const entry: DrawnLine = {
 				id: (nextId += 1),
 				key: lineKey(emitterEvent.points, shape),
@@ -143,6 +219,10 @@
 				amount: emitterEvent.amount,
 				message: emitterEvent.message,
 				progress: new Tween(animated ? 0 : 1, { duration: 0 }),
+				amountValue,
+				amountAt: emitterEvent.amountAt,
+				count: new Tween(counts ? 0 : amountValue, { duration: 0 }),
+				fade: new Tween(fades ? 0 : 1, { duration: 0 }),
 				labelSize: { width: 0, height: 0 },
 			};
 			// Publish the reusable win colour so any asset shown on this win can tint itself to the
@@ -155,14 +235,21 @@
 				if (at >= 0) lines[at] = entry;
 				else lines.push(entry);
 			}
-			if (!animated) return;
-			// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
-			const len = pathLength(emitterEvent.points);
-			const duration = Math.min(
-				2000,
-				Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / line.speed),
-			);
-			await entry.progress.set(1, { duration });
+			if (animated) {
+				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
+				const len = pathLength(emitterEvent.points);
+				const duration = Math.min(
+					2000,
+					Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / line.speed),
+				);
+				await entry.progress.set(1, { duration });
+			}
+			// The fade is deliberately NOT awaited: it runs WHILE the count does, so the number is
+			// already moving as the stamp arrives rather than starting once it is fully opaque.
+			if (fades) void entry.fade.set(1, { duration: tweenMs(fadeInMs) });
+			// The count IS awaited, so the win narration (the symbol celebration that follows this
+			// broadcast) waits for the number to land instead of talking over it.
+			if (counts) await entry.count.set(amountValue, { duration: tweenMs(countUpMs) });
 		},
 		winLineHide: (emitterEvent) => {
 			// In all-at-once mode a PER-WIN hide is ignored — the lines staying up together IS the
@@ -171,6 +258,23 @@
 			if (allAtOnce && !emitterEvent.all) return;
 			lines = [];
 			context.stateGame.winLineColor = null;
+		},
+		winAmountCue: async (emitterEvent) => {
+			// The sender already gated on the switch; this is the renderer's own guard, so an
+			// un-authored project can never draw a run-up whatever reaches it.
+			if (!cueBigWin || !showText) return;
+			const entry: CueStamp = {
+				amountAt: emitterEvent.amountAt,
+				count: new Tween(0, { duration: 0 }),
+				fade: new Tween(fadeIn ? 0 : 1, { duration: 0 }),
+				labelSize: { width: 0, height: 0 },
+			};
+			cue = entry;
+			if (fadeIn) void entry.fade.set(1, { duration: tweenMs(fadeInMs) });
+			await entry.count.set(emitterEvent.target, { duration: tweenMs(countUpMs) });
+		},
+		winAmountCueHide: () => {
+			cue = null;
 		},
 	});
 
@@ -199,8 +303,13 @@
 	 * (flip + clamp) keeps governing the whole stamp. Unauthored ⇒ `message` is empty ⇒ this is
 	 * exactly the amount, byte-identical to before.
 	 */
-	const labelTextOf = (drawn: DrawnLine): string =>
-		drawn.message ? `${drawn.message}\n${drawn.amount}` : drawn.amount;
+	const labelTextOf = (drawn: DrawnLine): string => {
+		// Counting ⇒ the amount is re-rendered from the live tween through the authored template;
+		// otherwise it is the string the dispatch already formatted. The message line above it never
+		// counts — it names the win, it does not report it.
+		const amount = countUp && drawn.amountAt ? drawn.amountAt(drawn.count.current) : drawn.amount;
+		return drawn.message ? `${drawn.message}\n${amount}` : amount;
+	};
 
 	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -248,6 +357,16 @@
 			y: clamp(y, 0, Math.max(0, windowHeight - height)),
 		};
 	}
+
+	/** Where the run-up stamp sits: the reel window's own middle, the SAME geometry `boardCenter`
+	 *  placement uses (the text anchors top-centre, so the box is lifted by half its height to sit ON
+	 *  the centre rather than hang below it). It is centred regardless of the authored placement —
+	 *  the round total did not land on any line. */
+	const cueLabel = $derived.by(() => {
+		if (!cue) return undefined;
+		const height = cue.labelSize.height || SYMBOL_SIZE * text.size;
+		return { x: windowWidth / 2, y: Math.max(0, (windowHeight - height) / 2) };
+	});
 
 	/** Trace the polyline into the graphics path, but only up to `p` (0→1) of its total
 	 *  length — interpolating the final partial segment so the head advances smoothly. */
@@ -381,7 +500,7 @@
 	}
 </script>
 
-{#if lines.length}
+{#if lines.length || cue}
 	<BoardContainer>
 		<!-- Every line strokes BEFORE any stamp, so with the whole round on screen at once a later
 		     line's graphics can never be drawn over an earlier line's amount. -->
@@ -396,7 +515,7 @@
 			{@const labelText = labelTextOf(entry)}
 			{@const stamps = showText && (!centreText || index === lines.length - 1)}
 			{#if stamps && label && entry.progress.current >= 1 && labelText}
-				<Container x={label.x} y={label.y}>
+				<Container x={label.x} y={label.y} alpha={entry.fade.current}>
 					<ResponsiveBitmapText
 						anchor={{ x: 0.5, y: 0 }}
 						maxWidth={SYMBOL_SIZE * 3}
@@ -414,5 +533,29 @@
 				</Container>
 			{/if}
 		{/each}
+
+		<!-- The big-win run-up: the round total, centred, counting to the threshold the overlay
+		     takes over at. Drawn in the same font/size/colour as a line's stamp, so the number the
+		     player is reading does not change typeface as the cue hands over. -->
+		{#if cue && cueLabel}
+			<Container x={cueLabel.x} y={cueLabel.y} alpha={cue.fade.current}>
+				<ResponsiveBitmapText
+					anchor={{ x: 0.5, y: 0 }}
+					maxWidth={SYMBOL_SIZE * 3}
+					onresize={(sizes) => {
+						if (cue) cue.labelSize = sizes;
+					}}
+					text={cue.amountAt(cue.count.current)}
+					style={{
+						fontFamily: text.font,
+						fontSize: SYMBOL_SIZE * text.size,
+						fill: text.color,
+						align: 'center',
+						fontWeight: 'bold',
+						letterSpacing: 0,
+					}}
+				/>
+			</Container>
+		{/if}
 	</BoardContainer>
 {/if}
