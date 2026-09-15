@@ -160,9 +160,11 @@ one with no licence at all.
   people learn to override is worse than a note they read.
 
 **S9 — one list, one source (done).** `apps/launcher-api/src/lib/soundOptions.ts` answers "what may
-a sound picker offer" — the engine's own sounds plus this project's, project first. Wired into
-`/config` (slot ladders), `/editor` (win tiers), `/symbols` (per-symbol + anticipation cues) and
-`/flow-v2` (the inspector, via `withProjectSounds` widening the vocabulary's three sound enums).
+a sound picker offer" — the engine's own sounds plus this project's, project first. It was wired
+into `/config` (slot ladders), `/editor` (win tiers), `/symbols` (per-symbol + anticipation cues)
+and `/flow-v2` (the inspector, via `withProjectSounds` widening the vocabulary's three sound enums).
+**S10 then took the first three pickers away, so only `/flow-v2` still reads it** — see the
+2026-09-15 cleanup in Recent changes.
 
 - **A library sound's `kind` finally does something load-bearing**: it decides whether the sound
   appears in the music list or the SFX list. Until now it was only a sectioning hint.
@@ -229,6 +231,24 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 - _None._
 
 ## Recent changes
+
+- 2026-09-15 — **S10's leftover: three pages paid an R2 read for a value nothing read.** S9 gave
+  `/config`, `/editor`, `/symbols` and `/flow-v2` a `soundOptions` payload; S10 moved sound
+  authoring into `/sound` and deleted the pickers from the first three — but left their loaders
+  still computing it. Each therefore did an extra `loadSoundsDoc` (an R2 `sounds.json` GET) on
+  **every** page load, awaited inline in the returned object, and threw the result away.
+
+  Removed from those three loaders, along with the now-unused `soundOptionsFor` / `loadSoundsDoc`
+  imports. **`/flow-v2` is untouched** — it is the one real consumer
+  (`withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions)`), and `/sound` reads
+  the doc by its own separate `loadSoundsDocWithEtag` path.
+
+  Checked before cutting, because a loader could have wanted the doc for a second reason:
+  `loadSoundsDoc` and `soundOptionsFor` each appeared exactly once per file, on that one line. No
+  component, child route or `$page.data` reference to `soundOptions` exists outside `/flow-v2`, and
+  none of the three pages spreads or bracket-indexes its page `data`. 15 lines deleted, nothing
+  added. Build green; `check:sounds-doc` and `check:sound-bindings` hold; lint unchanged (its 158
+  pre-existing errors are byte-identical before and after, none in these files).
 
 - 2026-09-15 — **Leaving the page mid-upload no longer eats the file silently.** Same day, same
   owner, the report one layer in: _"I have add 2 sounds, I have seen them writing 'uploading' … but
