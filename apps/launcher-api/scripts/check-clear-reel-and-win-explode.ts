@@ -1,6 +1,6 @@
 /**
- * Contract check for the two 2026-09-10 symbol-state changes, both over the REAL implementations
- * rather than a re-typed copy of them:
+ * Contract check for the symbol-state changes that share the win beat, all over the REAL
+ * implementations rather than a re-typed copy of them:
  *
  *   1. THE RENAME — `tumbleExplosion` → `clearReel`. The behaviour did not move; only the key and
  *      the label did. What is asserted here is the MIGRATION, because getting it wrong is silent and
@@ -31,6 +31,17 @@
  *      the render gate, the rotation), `scripts/verify-swap-in-place-mode.mjs` part 11 (the board
  *      clear, both arms) and `scripts/verify-tumble-pattern.mjs` part 6 (the cascade).
  *
+ *   4. THE WIN-BEAT CEILING — `winBeat.maxMs`. The author's cap on how long ONE win (or explosion)
+ *      beat may hold the round, and the reason it is a separate field rather than an exposed
+ *      `WIN_BEAT_CAP_MS`: that constant is a runaway GUARD, sized above anything a project
+ *      plausibly authors, and a guard a real animation can hit stops being a guard. So the contract
+ *      is the same shape as the pop's — absent by default (the art keeps setting the pace,
+ *      byte-for-byte), a set value round-trips, a value the engine could not honour is refused at
+ *      SAVE rather than ignored at play, and it reaches BOTH bundle paths.
+ *
+ * (The file is named for the first two; renaming it would mean chasing whatever invokes it, so the
+ * name stayed and this list is what says what it covers.)
+ *
  * Run:  pnpm --filter launcher-api check:clear-reel
  *
  * The `--tsconfig` that script passes maps SvelteKit's `$env/dynamic/private` to a stub
@@ -50,8 +61,12 @@ import {
 } from '../src/lib/server/symbolsStorage.ts';
 import {
 	docSignature,
+	setWinBeatMaxMs,
 	setWinExplodeEnabled,
+	winBeatMaxMs,
 	winExplodeEnabled,
+	WIN_BEAT_MAX_MS_MAX,
+	WIN_BEAT_MAX_MS_MIN,
 	type SymbolsDoc,
 } from '../src/routes/(app)/symbols/symbols.client.ts';
 
@@ -330,14 +345,46 @@ check(
 
 // THE POP IS ONE CUE, HANDLED IN ONE PLACE, BROADCAST FROM ONE PLACE, BEHIND ONE SWITCH.
 const popBeat = slice(board, 'the pop', '\t\tboardExplodeWinSymbols: async (', '\n\t\t},\n');
-check('the pop handler is the one that removes', (popBeat.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
-check('…and it is the only place in the component that does', (board.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
+// Counted RELATIVELY rather than pinned at 1: the pop grew a second, legitimate way to reach "gone"
+// (below), and a hard count would have to be edited every time — which is how a count stops being a
+// claim. What must stay true is that every removal in the whole component lives in THIS handler.
+const popRemovals = (popBeat.match(/\.removed = true/g) ?? []).length;
+check('the pop handler is the one that removes', popRemovals > 0, true);
+check('…and it is the only place in the component that does', (board.match(/\.removed = true/g) ?? []).length, popRemovals); // prettier-ignore
+// TWO PATHS REACH "gone", each with its own rule.
+//
+//   - the RACED path — removal AFTER the await, so BOTH exits remove: a cell whose art can never
+//     report pays the cap and is then just as gone as one that reported.
+//   - the SKIPPED path — a cell with no `explosion` bound resolves to the art already on screen, so
+//     nothing re-mounts and no `oncomplete` can ever fire. It is removed with NO beat at all, because
+//     the pop is one concurrent `Promise.all` and one such winner otherwise made every paying spin
+//     containing it sit out the whole budget showing nothing (live `test6`: `L4`, `L5`, `S`). It must
+//     still remove, or the next board's clear plays `clearReel` over it — the double pop this feature
+//     exists to prevent.
 check(
 	'…on BOTH exits of the bounded race, i.e. after the await rather than inside the armed callback',
-	popBeat.indexOf('.removed = true') > popBeat.indexOf('awaitSymbolBeat('),
+	popBeat.lastIndexOf('.removed = true') > popBeat.indexOf('awaitSymbolBeat('),
 	true,
 );
-check('…bounded by the win-beat cap', popBeat.includes('WIN_BEAT_CAP_MS'), true);
+check(
+	'…while a cell it cannot pop is removed WITHOUT a beat',
+	popBeat.indexOf('.removed = true') < popBeat.indexOf('awaitSymbolBeat('),
+	true,
+);
+// BOUNDED, BY THE SAME BUDGET THE WIN BEAT IS. It used to name `WIN_BEAT_CAP_MS` outright; the cap
+// now comes out of `resolveWinBeatBudget(bakedWinBeatMaxMs())`, which answers the coded runaway
+// guard by default and the project's authored ceiling when it set one. Asserting BOTH beats read
+// the same budget is what makes "cap each win at N ms" bound what a paying cell costs in total
+// rather than only the half of it before the pop.
+check(
+	'…bounded, by the same budget the win beat uses',
+	[winBeat, popBeat].every(
+		(body) =>
+			body.includes('resolveWinBeatBudget(bakedWinBeatMaxMs())') &&
+			body.includes('awaitSymbolBeat('),
+	),
+	true,
+);
 // A DETACHED BEAT MUST NOT WRITE OVER A LATER ONE. A slam drops the win beat's subscriber promise
 // (`awaitCue` → `slamHold`) and the handler keeps running, so its settle can land after the pop has
 // taken the cell over — which tore the explosion down and bought the pop the whole cap. Both beats
@@ -496,9 +543,87 @@ check(
 	true,
 );
 
+console.log('\n9. the win-beat ceiling is sparse, bounded, and reaches both bundle paths');
+const noCeiling = normalizeSymbolsDoc({ version: 1, symbols: { H1: { win: MORPH } } });
+check('an untouched doc persists no `winBeat`', 'winBeat' in noCeiling, false);
+check('…and reads as "no ceiling", not as some default', winBeatMaxMs(noCeiling as SymbolsDoc), null); // prettier-ignore
+check('an authored ceiling round-trips', normalizeSymbolsDoc({ winBeat: { maxMs: 900 } }).winBeat, {
+	maxMs: 900,
+});
+check(
+	'…and both ends of the accepted range survive it',
+	[
+		normalizeSymbolsDoc({ winBeat: { maxMs: WIN_BEAT_MAX_MS_MIN } }).winBeat?.maxMs,
+		normalizeSymbolsDoc({ winBeat: { maxMs: WIN_BEAT_MAX_MS_MAX } }).winBeat?.maxMs,
+	],
+	[WIN_BEAT_MAX_MS_MIN, WIN_BEAT_MAX_MS_MAX],
+);
+check(
+	'an empty object persists nothing, so a cleared box round-trips to no key',
+	'winBeat' in normalizeSymbolsDoc({ winBeat: {} }),
+	false,
+);
+// A value the engine could not honour is a TYPO, and a typo has to fail the save: a ceiling that is
+// silently ignored looks exactly like one that is applied to art nobody is watching at build time.
+rejects('under the floor is refused', { winBeat: { maxMs: WIN_BEAT_MAX_MS_MIN - 1 } });
+rejects('over the ceiling is refused', { winBeat: { maxMs: WIN_BEAT_MAX_MS_MAX + 1 } });
+rejects('a fractional millisecond is refused', { winBeat: { maxMs: 250.5 } });
+rejects('a numeric STRING is refused', { winBeat: { maxMs: '900' } });
+rejects('an unknown key inside it is refused (`.strict`)', { winBeat: { maxMs: 900, minMs: 100 } });
+
+console.log('\n   …and the client half agrees with the server');
+check('the setter writes the ceiling', winBeatMaxMs(setWinBeatMaxMs(base, 900)), 900);
+check(
+	'…rounding and clamping into the range the server accepts',
+	[
+		winBeatMaxMs(setWinBeatMaxMs(base, WIN_BEAT_MAX_MS_MAX + 2000)),
+		winBeatMaxMs(setWinBeatMaxMs(base, 1)),
+		winBeatMaxMs(setWinBeatMaxMs(base, 250.4)),
+	],
+	[WIN_BEAT_MAX_MS_MAX, WIN_BEAT_MAX_MS_MIN, 250],
+);
+check(
+	'…so a mistyped number cannot come back as a save 400 that loses the whole doc',
+	normalizeSymbolsDoc(setWinBeatMaxMs(base, WIN_BEAT_MAX_MS_MAX + 2000)).winBeat,
+	{ maxMs: WIN_BEAT_MAX_MS_MAX },
+);
+check(
+	'clearing it deletes the key',
+	'winBeat' in setWinBeatMaxMs(setWinBeatMaxMs(base, 900), null),
+	false,
+);
+check(
+	'typing a ceiling marks the page DIRTY',
+	docSignature(setWinBeatMaxMs(base, 900)) !== docSignature(base),
+	true,
+);
+check(
+	'…and clearing it signs the same as never having typed one',
+	docSignature(setWinBeatMaxMs(setWinBeatMaxMs(base, 900), null)),
+	docSignature(base),
+);
+check(
+	'…and the saved doc the server hands back signs the same as the draft',
+	docSignature(setWinBeatMaxMs(base, 900)),
+	docSignature({
+		...base,
+		winBeat: normalizeSymbolsDoc({ winBeat: { maxMs: 900 } }).winBeat,
+	}),
+);
+
+console.log('\n   …and it reaches BOTH bundle paths');
+check('the exporter emits it', exporter.includes('...(winBeat ? { winBeat } : {})'), true);
+check(
+	'the export ENDPOINT forwards it (the bake reads this response)',
+	(exportEndpoint.match(/\bwinBeat\b/g) ?? []).length >= 2,
+	true,
+);
+check('the bake whitelist rebuilds it', bake.includes('Number.isFinite(s?.winBeat?.maxMs)'), true);
+check('…and puts it on the bundle', /\n\t{4,}winBeat,\n/.test(bake), true);
+
 console.log(
 	failures === 0
-		? `\nclear-reel + win-explode: OK (${checks} checks)`
-		: `\nclear-reel + win-explode: ${failures} of ${checks} FAILED`,
+		? `\nclear-reel + win-explode + win-beat: OK (${checks} checks)`
+		: `\nclear-reel + win-explode + win-beat: ${failures} of ${checks} FAILED`,
 );
 process.exit(failures === 0 ? 0 : 1);

@@ -179,6 +179,10 @@ export interface SymbolExportResult {
 	 *  like `winCycle`. `normalizeSymbolsDoc` drops it entirely when OFF, which is what keeps an
 	 *  untouched project's bundle byte-identical. */
 	winExplode?: SymbolsDoc['winExplode'];
+	/** The authored CEILING (ms) on one win/explosion beat — assetless config, another verbatim
+	 *  pass-through. Absent → each beat still runs as long as its art does, bounded only by the
+	 *  engine's runaway guard, so an un-authored project's bundle stays byte-identical. */
+	winBeat?: SymbolsDoc['winBeat'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -616,6 +620,11 @@ export async function exportEditorSymbols(
 	// already-pruned field: absent for every project that left the switch off.
 	const winExplode = doc.winExplode;
 
+	// The win-beat ceiling. Assetless too (one number in milliseconds — it cuts an animation the map
+	// already ships short), so another verbatim pass-through of the already-pruned field: absent for
+	// every project that never authored one, which is what keeps that project's pacing untouched.
+	const winBeat = doc.winBeat;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -686,6 +695,7 @@ export async function exportEditorSymbols(
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
 		...(winExplode ? { winExplode } : {}),
+		...(winBeat ? { winBeat } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),

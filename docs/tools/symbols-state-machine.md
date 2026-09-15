@@ -547,6 +547,16 @@ winning cell of every line plays it at the same moment. That is also why it is n
 overlapping paylines share cells, so a symbol taken off after line 1 would not be there for line 3
 to light.
 
+**A symbol with no Explosion bound simply leaves, with no pause.** There is nothing to play for it —
+an unbound Explosion falls back to the symbol's resting art, which is already on screen — so the cell
+is taken off the board without waiting on an animation that would never arrive. Binding an Explosion
+for every symbol is therefore a purely VISUAL choice: one that has none costs the round nothing
+either way. (Before 2026-09-15 it cost the opposite: such a cell waited out the engine's full
+four-second runaway guard, and because the whole pop plays as one beat, ONE unbound winner held up
+every paying spin it appeared in. On the live `test6` that was `L4`, `L5` and the scatter `S` — four
+seconds of nothing against half a second for the symbols that did bind it, which is why the delay
+looked unrelated to the animation.)
+
 **Every paying spin, not just the last one of a round.** A free-spin feature is one round made of
 ten or more spins, and a cascade is one spin made of several boards; each of those that pays gets its
 own pop, fired the instant before the board carrying those winners is taken away — so what explodes
@@ -599,6 +609,41 @@ travels verbatim to `bundle.symbols.winExplode` and is read by the engine's
 `apps/lines/src/game/winSymbolCycle.ts` (`explodeSpinWinners` /
 `explodeWinnersBeforeBoardChange`), and the beat itself is in
 `apps/lines/src/components/Board.svelte`.
+
+#### Longest win beat (ms)
+
+The one control in this section that is **not** about the pop, and the only place the tool asks you
+how LONG a symbol may celebrate. It sits directly under the section's On/Off switch and applies
+whether the pop is on or off.
+
+Leave the box **empty** — the default, and what every project shipped before this existed — and
+there is no ceiling: each winning symbol holds the round for exactly as long as its **Win**
+animation runs, and then, if the pop is on, for as long as its **Explosion** runs. The authored art
+is the pace.
+
+Type a number and no single beat may run longer than that many milliseconds; anything longer is cut
+short there. It only ever **shortens**. A symbol whose win animation is already quicker is untouched,
+so this is a ceiling on the slow ones rather than a timing applied to all of them. The accepted
+range is **50–10000 ms**, and a number outside it is refused rather than quietly ignored — the tool
+pulls what you type back into range as you leave the box.
+
+**When you want it.** A cascading game pays this per tumble. Measured on `test6`: every symbol's win
+is a 2.00 s spine and its explosion a further 0.50 s, so a three-step winning round spends about
+7.5 s on symbol beats alone — on top of the reel spin and the cascade steps — before the next spin is
+released. Setting the ceiling to, say, 700 ms takes that to about 2 s without re-exporting a single
+animation.
+
+**It is not the engine's runaway guard, and does not move it.** The game already refuses to wait
+forever on a beat (`WIN_BEAT_CAP_MS`, 4 s, in `apps/lines/src/game/symbolBeat.ts`) — but that is a
+_guard_: it exists for art that can never report finishing (a state with nothing bound, an
+animation name the skeleton doesn't have — a LOOPING animation does report, at the end of each
+cycle), and it is deliberately sized above anything a project plausibly authors, because a cap a
+real animation can hit stops being a guard and becomes the timing. This box is the timing, asked for
+explicitly, and it leaves the guard exactly where it is as the backstop underneath.
+
+Stored sparsely as `winBeat: { maxMs }` — clearing the box deletes the key, so a project that never
+opens this control ships nothing and keeps its authored pacing byte-for-byte. It travels verbatim to
+`bundle.symbols.winBeat`.
 
 ### Symbol sounds
 

@@ -36,7 +36,9 @@
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
-	import { awaitSymbolBeat, WIN_BEAT_CAP_MS, WIN_BEAT_MIN_MS } from '../game/symbolBeat';
+	import { awaitSymbolBeat, resolveWinBeatBudget } from '../game/symbolBeat';
+	import { bakedWinBeatMaxMs } from '../editor-scenes';
+	import { hasAuthoredSymbolState } from '../game/utils';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
@@ -82,13 +84,20 @@
 			// Stacked coverage is only the case we can name UP FRONT, though. Every OTHER cell awaits an
 			// `oncomplete` that a symbol only reports when its `win` state actually plays something, and
 			// several ordinary authorings never do (no art bound for `win`, a seat out of frame, a spine
-			// whose bound animation isn't in the skeleton or loops) — see `awaitSymbolBeat`. Unbounded, one
+			// whose bound animation isn't in the skeleton) — see `awaitSymbolBeat`, which also says why a
+			// LOOPING spine is not on that list despite reading like it should be. Unbounded, one
 			// such cell hangs `Promise.all`, and with it `winInfo` and the whole round: the spin button
 			// stays disabled and the game reads as frozen until the player slams. So the wait is RACED
-			// against `WIN_BEAT_CAP_MS` — a runaway guard sized well above any authored win
-			// animation, so authored art still sets the pace and only a cell that can never report pays
-			// it. The `postWinStatic` revert below runs on BOTH paths, which is what makes this the fix
-			// rather than a mitigation: the cap ends the lit state too, so nothing is left glowing.
+			// against a cap — a runaway guard sized well above any authored win animation, so authored
+			// art still sets the pace and only a cell that can never report pays it. The
+			// `postWinStatic` revert below runs on BOTH paths, which is what makes this the fix rather
+			// than a mitigation: the cap ends the lit state too, so nothing is left glowing.
+			//
+			// WHICH cap is the budget's job (`resolveWinBeatBudget`): the coded guard by default, the
+			// project's authored ceiling when it set one, and the short unauthored beat for a cell that
+			// bound nothing. Read at DISPATCH time, not module init — the live runtime bundle arrives
+			// asynchronously after boot, so a budget captured earlier would be the coded default forever.
+			const budget = resolveWinBeatBudget(bakedWinBeatMaxMs());
 			const covered = stackedCoverage();
 			const getPromises = () =>
 				symbolPositions.map(async (position) => {
@@ -118,9 +127,19 @@
 						// CONCURRENT, not sequential: authored art longer than the floor still sets the pace
 						// and is completely untouched (`Promise.all` settles on the slower of the two). Only a
 						// beat that would have been shorter than a readable moment is stretched to one.
+						//
+						// A cell with NOTHING bound for `win` gets the short unauthored beat rather than the
+						// runaway guard: `Symbol.svelte` mounts no renderer for it, so its `oncomplete` can
+						// never fire and the guard would be its whole pace. Same question, same answer as
+						// `TumbleBoard`'s emerge arrival. The budget's own ceiling applies either way.
 						await Promise.all([
-							awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS),
-							waitForTimeout(WIN_BEAT_MIN_MS),
+							awaitSymbolBeat(
+								(resolve) => (reelSymbol.oncomplete = resolve),
+								hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'win')
+									? budget.capMs
+									: budget.unauthoredMs,
+							),
+							waitForTimeout(budget.minMs),
 						]);
 					}
 					// The cell ENDS at rest — BUT ONLY IF THIS BEAT IS STILL THE ONE ON IT. The pop is
@@ -181,18 +200,46 @@
 		 * mode's win beat stays the tall picture itself.
 		 */
 		boardExplodeWinSymbols: async ({ symbolPositions }) => {
+			const budget = resolveWinBeatBudget(bakedWinBeatMaxMs());
 			const covered = stackedCoverage();
 			await Promise.all(
 				symbolPositions.map(async (position) => {
 					const reelSymbol = context.stateGame.board[position.reel]?.reelState.symbols[position.row]; // prettier-ignore
 					if (!reelSymbol || reelSymbol.removed) return;
 					if (covered.has(winDimCellKey(position.reel, position.row))) return;
+					// A SYMBOL WITH NO `explosion` BOUND IS SKIPPED, for exactly the reason the stacked
+					// cell above it is — and this is the one that actually bites in the field.
+					//
+					// `explosion` resolves through `resolveSymbolState`, which falls back to `static` when
+					// the state is unbound. On a cell that has just finished its win the resolved art is
+					// then IDENTICAL to what is already on screen, so nothing re-mounts: `SymbolSprite`
+					// fires `oncomplete` from an `$effect` on `symbolInfo` and `SymbolFlipbook` re-arms its
+					// beat the same way, and neither effect re-runs when the value it watches has not
+					// changed. The cell can therefore never report, and because this whole pop is ONE
+					// concurrent `Promise.all`, a single such winner makes EVERY paying spin containing it
+					// sit out the full budget with nothing on screen to show for it.
+					//
+					// Measured on the live `test6`: `L4`, `L5` and the scatter `S` bind no `explosion`, so
+					// any win including one of them cost 4s of dead hold — while the symbols that DO bind it
+					// pop in 0.5s. The owner read that as "the delay is much longer than the animation",
+					// which is exactly what it was.
+					//
+					// It still LEAVES, though: "and be gone" is the pop's other half, and a winner left
+					// standing is swept by the next board's clear playing `clearReel` — the double pop this
+					// feature exists to prevent. So the cell is removed, just not waited on.
+					if (!hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')) {
+						reelSymbol.removed = true;
+						return;
+					}
 					reelSymbol.symbolState = 'explosion';
 					// Capped like the win beat above and for the same reason — an `explosion` cell bound to
 					// art that can never report `oncomplete` must not hang the round. NO floor here, unlike
 					// the win beat: the readable minimum is already spent on the win, and a second one
 					// would add it to every paying spin.
-					await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS);
+					//
+					// The authored budget covers this beat too, so "cap each win at N" bounds what a paying
+					// cell costs in total rather than only its first half.
+					await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), budget.capMs);
 					// UNCONDITIONAL, unlike the state below: "explode and be gone" is the pop's whole
 					// promise, and a cell it lit must not be left standing for the next board clear to
 					// pop a second time — whichever exit of the race got here.

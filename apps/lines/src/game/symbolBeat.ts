@@ -12,8 +12,17 @@
  *    renderer is mounted to report in the first place.
  *  - `SymbolWrap` only mounts the cell on the layer that matches its `animating` flag and only while
  *    the seat is in frame, so an out-of-frame cell has no `<Symbol>` either.
- *  - a spine whose bound `animationName` is not in the skeleton — or is a loop — never fires
- *    `complete`.
+ *  - a spine whose bound `animationName` is not in the skeleton: `setAnimation` throws, the catch
+ *    logs the available names, and no track exists to report.
+ *
+ * A LOOPING spine is NOT one of them, though this list said it was. `SymbolSpineMain` passes
+ * `listener` — not `SpineTrack`'s `oncomplete` prop, which is deliberately attached only to a
+ * one-shot — and `propsSyncEffect` assigns it straight onto the TrackEntry, where Spine fires
+ * `complete` at the end of EVERY loop iteration (`SpineTrack` says so where it explains why its own
+ * prop is one-shot-only). So a looping win beat costs ONE cycle of its animation, not the cap. The
+ * distinction matters now that a project can set its own budget: "loops ⇒ hangs" would make the
+ * common authoring look like the broken one, and `Symbol.svelte` defaults an unauthored cell's
+ * `loop` to TRUE, so it is most of them.
  *
  * Any one of those turns `await` into `await forever`. The beat's `Promise.all` never settles, the
  * book event that owns it never finishes, and the round stops dead: the spin button stays disabled
@@ -138,3 +147,42 @@ export const WIN_BEAT_CAP_MS = 4_000;
  * than a readable moment is stretched to one.
  */
 export const WIN_BEAT_MIN_MS = 650;
+
+/**
+ * THE AUTHORED WIN-BEAT BUDGET (Invisible Symbols → "Cap each win at") — the one place a project
+ * gets to say how long a paying cell may hold the round, resolved into the three numbers
+ * `Board.svelte` actually races against.
+ *
+ * WHY THIS IS A SHAPER AND {@link WIN_BEAT_CAP_MS} IS NOT. The header above is explicit that a cap
+ * a real animation can hit "stops being a guard and starts being the timing", so the guard stays
+ * sized off the art and un-authorable. But the pace it protects is not free either: measured on the
+ * live `test6`, every symbol's `win` is a 2.00s spine (`Pull`) and its `explosion` a 0.50s one
+ * (`Take`), and that project cascades — a three-tumble round narrates three wins, so ~7.5s of the
+ * round is symbol beats before the reels may turn again. Nothing was broken there; the art is
+ * simply longer than the game wants to spend. Shortening the animation is the other fix, but it is
+ * an art round-trip per symbol, and the same art may be right for a non-cascading title.
+ *
+ * So `maxMs` TRUNCATES: set it and no single win or explosion beat outlives it, cutting a longer
+ * animation short at the `postWinStatic` revert that already ends the beat on both exits of the
+ * race. Absent ⇒ every number below is the constant it always was, so an unauthored project is
+ * byte-identical.
+ *
+ * The floor and the unauthored fallback are CLAMPED to the budget rather than left standing:
+ *  - `minMs` — {@link WIN_BEAT_MIN_MS} is the readable minimum, but it is a `Promise.all` partner,
+ *    so an unclamped 650 would quietly ignore a budget set below it. An author who types 300 means
+ *    300, and gets it.
+ *  - `unauthoredMs` — a cell with nothing bound for the state can never report `oncomplete` at all
+ *    (see the header), so it must never buy the runaway guard. It costs the short transit beat
+ *    instead, exactly as `TumbleBoard`'s emerge arrival does via `hasAuthoredSymbolState`. Clamped
+ *    too, so it can never be the LONGEST thing a budgeted spin waits for.
+ */
+export const resolveWinBeatBudget = (
+	maxMs: number | undefined,
+): { capMs: number; minMs: number; unauthoredMs: number } => {
+	const capMs = maxMs ?? WIN_BEAT_CAP_MS;
+	return {
+		capMs,
+		minMs: Math.min(WIN_BEAT_MIN_MS, capMs),
+		unauthoredMs: Math.min(TRANSIT_BEAT_CAP_MS, capMs),
+	};
+};

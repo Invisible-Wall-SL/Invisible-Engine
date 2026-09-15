@@ -465,6 +465,39 @@ verbatim → `/api/editor/export-symbols` response → `bake-editor-doc.mjs` whi
 bundle → `BakedBundle.symbols.winExplode` → `bakedWinExplodeEnabled()` → `Board.svelte`. A
 `gameProfile` chip reports it. Absent ⇒ byte-identical.
 
+## Longest win beat — added 2026-09-15
+
+**The problem.** How long a paying spin takes is decided entirely by the art: `Board.svelte` holds
+each winning cell for its authored `win` animation and then, under the switch above, for its
+`explosion`. A project whose symbols win on a two-second spine pays that per win, and a cascading one
+pays it per tumble — the round reads as a wait before the next spin is released, with nothing in the
+tool to say otherwise short of re-exporting every animation.
+
+**The shape.** One optional doc-global, a sibling of `winExplode`:
+
+```ts
+winBeat?: { maxMs?: number } // integer, 50…10000
+```
+
+Set, no single win or explosion beat runs longer than `maxMs`; a longer animation is cut short.
+Absent, every beat runs as long as its art does — byte-identical to before the field existed. It only
+ever shortens: a symbol already quicker than the ceiling is untouched.
+
+**Why a new field rather than exposing the cap the beats already have.** `WIN_BEAT_CAP_MS`
+(`apps/lines/src/game/symbolBeat.ts`) is a **runaway guard** — it exists so art that can never report
+`oncomplete` (a state with nothing bound, an unmounted cell, a spine animation missing from the
+skeleton — but NOT a looping one, which reports at the end of every cycle) cannot hang the round, and it is
+deliberately sized above anything a surface plausibly authors, because as that file says, a cap a
+real animation can hit stops being a guard and starts being the timing. Surfacing it would have made
+every project's freeze-protection into its pacing control, and the two want opposite values. So the
+guard stays exactly where it is, as the backstop, and the ceiling is a separate, explicit shaper.
+
+**Why the range is enforced at save.** A ceiling the engine could not honour (0, a fraction, 30 s) is
+a typo. Refusing it in Zod fails loudly, in front of the author, while ignoring it at play would look
+exactly like a ceiling that had been applied to art nobody is watching at build time. The tool's
+setter rounds and clamps into the same range, so a mistyped number can never come back as a save 400
+that loses the whole doc.
+
 ## "Spine export" demystified
 
 A spine asset is a **bundle of sibling files that travel together**, e.g. for `H1`

@@ -510,6 +510,29 @@ const winExplodeSchema = z
 	})
 	.strict();
 
+/**
+ * "No single win beat holds the round longer than this" — the authored CEILING, in milliseconds, on
+ * one winning symbol's `win` animation and on the `explosion` that may follow it.
+ *
+ * It is a SHAPER, and deliberately NOT the runaway guard that already bounds those beats
+ * (`WIN_BEAT_CAP_MS` in `apps/lines/src/game/symbolBeat.ts`). That guard is sized ABOVE anything a
+ * project plausibly authors, because — as that file says — a cap a real animation can hit stops
+ * being a guard and starts being the timing. This field IS an author asking for the timing: a
+ * cascading project whose every symbol wins on a 2 s spine pays that twice per tumble, and the
+ * round reads as a long wait before the next spin is released. Absent ⇒ the art sets the pace,
+ * byte-for-byte as before this existed; set ⇒ a longer animation is cut short.
+ *
+ * Bounded at BOTH ends here rather than clamped in the engine: under 50 ms nothing reads as an
+ * animation at all, and over 10 s the runaway guard has ended the beat long before the ceiling
+ * would — so a value outside the range is a typo, and a typo should fail the save loudly instead of
+ * being silently ignored on a board nobody is watching at build time.
+ */
+const winBeatSchema = z
+	.object({
+		maxMs: z.number().int().min(50).max(10000).optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -522,6 +545,7 @@ export const symbolsDocSchema = z
 		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
 		winExplode: winExplodeSchema.optional(),
+		winBeat: winBeatSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -709,6 +733,10 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// Default-OFF, so ONLY the ON state persists and an untouched project round-trips to no key —
 	// the same inversion `showMessage`/`dimNonWinning`/`holdAfterBigWin` use above.
 	if (doc.winExplode?.enabled === true) next.winExplode = { enabled: true };
+	// Sparse on a VALUE rather than on a flag: the key exists only while a ceiling is authored, so
+	// clearing the box round-trips to no key at all and the beats go back to running as long as their
+	// art does. Rebuilt (not forwarded) like every field above — this block is the whitelist.
+	if (doc.winBeat?.maxMs !== undefined) next.winBeat = { maxMs: doc.winBeat.maxMs };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

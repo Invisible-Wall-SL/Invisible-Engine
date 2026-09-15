@@ -340,6 +340,15 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.winExplode?.enabled === true ? 'Winning symbols explode' : null),
 	},
 	{
+		id: 'winBeat',
+		title:
+			'No win or explosion beat holds the round longer than the authored ceiling — a long symbol animation is cut short.',
+		text: (ctx) =>
+			ctx.symbols.winBeat?.maxMs !== undefined
+				? `Win beats cut at ${ctx.symbols.winBeat.maxMs}ms`
+				: null,
+	},
+	{
 		id: 'highlight',
 		title: 'A custom win-frame spine looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
