@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { SOUND_FILE_EXTENSIONS, isValidSoundFile } from 'engine-layout';
 import { soundFileKey } from './projectPaths';
-import { getObjectBytes, putObjectBytes } from './r2';
+import { getObjectBytes, presignPut } from './r2';
 
 /**
  * The audio FILES behind a project's sound library — the bytes `sounds.json` entries point at.
@@ -13,10 +13,6 @@ import { getObjectBytes, putObjectBytes } from './r2';
  *
  * See `docs/design/invisible-sound.md` §4, §5.
  */
-
-/** Per-upload cap. Generous for a BGM track, small enough that the whole body can be held in RAM —
- *  which it must be, since R2 writes go through `putObjectBytes`. */
-export const MAX_SOUND_BYTES = 25 * 1024 * 1024;
 
 /**
  * Extension → the type we SERVE it as. Derived from the stored filename, never from the browser's
@@ -63,26 +59,28 @@ export function soundFileName(id: string, ext: string): string {
 }
 
 /**
- * Write one uploaded sound. Returns the stored filename for the doc entry's `file`.
+ * Mint a presigned PUT URL so the BROWSER uploads one sound straight to R2.
  *
- * Does NOT touch `sounds.json` — the caller records the entry through the doc's own conditional
- * save, so an upload can never be the thing that clobbers a co-author's library.
+ * The bytes deliberately do not pass through the launcher. adapter-node caps a request body at
+ * `BODY_SIZE_LIMIT` (512 KB by default), which is a tenth of one music track — a proxied multipart
+ * upload therefore died on every real sound, and because the body was cut mid-stream the failure
+ * surfaced as `request.formData()` rejecting, i.e. a 400 "Expected a multipart upload" rather than
+ * anything about size. Same reason the font, spine and flipbook imports sign a URL
+ * (`fonts/upload-urls`, `editor/spines/upload`, `flipbook/source-url`).
+ *
+ * The key holds a freshly minted id, so the URL can only ever create an object — never overwrite
+ * one an entry already names. Does NOT touch `sounds.json`: the caller records the entry through
+ * the doc's own conditional save, so an upload can never be the thing that clobbers a co-author's
+ * library.
  */
-export async function putSoundFile(
+export async function presignSoundUpload(
 	clientKey: string,
 	projectKey: string,
 	file: string,
-	bytes: Uint8Array,
+	ttlSeconds: number,
 ): Promise<string> {
 	if (!isValidSoundFile(file)) throw new Error(`Invalid sound filename: ${file}`);
-	await putObjectBytes(
-		soundFileKey(clientKey, projectKey, file),
-		bytes,
-		soundContentType(file),
-		// No precondition, and that is safe HERE though it would not be on the doc: the key contains a
-		// freshly minted id, so there is nothing at it to lose.
-	);
-	return file;
+	return presignPut(soundFileKey(clientKey, projectKey, file), soundContentType(file), ttlSeconds);
 }
 
 /** Read one sound's bytes back, or `null` when the project has no such file. */

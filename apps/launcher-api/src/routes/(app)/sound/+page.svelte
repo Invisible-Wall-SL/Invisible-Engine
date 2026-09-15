@@ -6,6 +6,7 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import {
+		MAX_SOUND_BYTES,
 		SOUND_FILE_EXTENSIONS,
 		SOUND_ORIGINS,
 		isValidSoundName,
@@ -174,6 +175,29 @@
 	// chip and warning on this page answers for what is on screen now — the moment authoring moved
 	// here, a server-side index would have been one save behind every edit. Flow is the exception:
 	// its cues live in the graph, so they arrive from the server and are listed, not edited.
+
+	// These two tables are declared BEFORE the `$derived` that reads them, and must stay there. On
+	// the client a `$derived` is lazy — first read during render, long after the whole script has
+	// run — but the SERVER compiles `$derived.by(fn)` to a plain `fn()` AT ITS DECLARATION, so
+	// `bindings` runs while a `const` below it is still in its temporal dead zone. Declared after,
+	// `SOURCE_HREF` threw `Cannot access before initialization` on every server render of this page:
+	// a hard load of /sound was a 500 for weeks while reaching it from another tool page worked,
+	// because only the hard load renders on the server.
+	const SOURCE_LABEL: Record<SoundBinding['source'], string> = {
+		slot: 'Moment',
+		winTier: 'Win tier',
+		symbol: 'Symbol',
+		anticipation: 'Anticipation',
+		flow: 'Flow',
+	};
+	const SOURCE_HREF: Record<SoundBinding['source'], string> = {
+		slot: '',
+		winTier: '',
+		symbol: '',
+		anticipation: '',
+		flow: '/flow-v2',
+	};
+
 	const bindings = $derived.by(() => {
 		const index: Record<string, SoundBinding[]> = {};
 		const add = (name: string | undefined, source: SoundBinding['source'], where: string) => {
@@ -212,21 +236,6 @@
 	/** What plays a given sound — an empty list means nothing does. */
 	const usesOf = (name: string): SoundBinding[] => bindings[name] ?? [];
 
-	const SOURCE_LABEL: Record<SoundBinding['source'], string> = {
-		slot: 'Moment',
-		winTier: 'Win tier',
-		symbol: 'Symbol',
-		anticipation: 'Anticipation',
-		flow: 'Flow',
-	};
-	const SOURCE_HREF: Record<SoundBinding['source'], string> = {
-		slot: '',
-		winTier: '',
-		symbol: '',
-		anticipation: '',
-		flow: '/flow-v2',
-	};
-
 	let showNotRebindable = $state(false);
 
 	// ── audition ────────────────────────────────────────────────────────────────────────────────
@@ -257,10 +266,25 @@
 
 	// ── upload ──────────────────────────────────────────────────────────────────────────────────
 	let uploading = $state(0);
-	let uploadError = $state('');
+	/** One line per FAILED file, and they accumulate: a single field would leave a five-file drop
+	 *  reporting only whichever failed last, which is how "it just did nothing" happens. */
+	let uploadErrors = $state<string[]>([]);
 	let dragging = $state(false);
 
 	const ACCEPT = SOUND_FILE_EXTENSIONS.map((e) => `.${e}`).join(',');
+
+	/** What an endpoint actually said. `error()` answers `{"message":"…"}`, and printing the raw body
+	 *  showed the author a line of JSON instead of a sentence. */
+	async function errorText(res: Response): Promise<string> {
+		const body = await res.text();
+		try {
+			const parsed = JSON.parse(body) as { message?: unknown };
+			if (typeof parsed.message === 'string' && parsed.message) return parsed.message;
+		} catch {
+			// Not JSON — a proxy or the platform answered, so the body is the best thing we have.
+		}
+		return body || `HTTP ${res.status}`;
+	}
 
 	/**
 	 * A playable NAME derived from the upload's own filename, sanitized to what a binding may hold
@@ -308,17 +332,44 @@
 		}
 	}
 
+	/**
+	 * Upload one file and add its entry.
+	 *
+	 * The bytes go STRAIGHT TO R2 through a presigned URL minted by `/api/sounds/file`, the same way
+	 * the font, spine and flipbook imports upload. Posting the file to the launcher instead — which
+	 * this did — cannot work: adapter-node truncates a request body at 512 KB, so every sound bigger
+	 * than a short blip failed, and because the body was cut mid-stream the server answered with a
+	 * 400 about multipart parsing that said nothing about size.
+	 */
 	async function uploadOne(file: File): Promise<void> {
+		if (file.size > MAX_SOUND_BYTES) {
+			throw new Error(
+				`${Math.round(file.size / 1024 / 1024)} MB — the limit is ${MAX_SOUND_BYTES / 1024 / 1024} MB.`,
+			);
+		}
 		const durationMs = await measureDurationMs(file);
 
-		const form = new FormData();
-		form.append('file', file);
 		const res = await fetch(`/api/sounds/file?project=${encodeURIComponent(data.projectKey)}`, {
 			method: 'POST',
-			body: form,
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ name: file.name, bytes: file.size }),
 		});
-		if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-		const stored = (await res.json()) as { id: string; file: string };
+		if (!res.ok) throw new Error(await errorText(res));
+		const stored = (await res.json()) as {
+			id: string;
+			file: string;
+			url: string;
+			contentType: string;
+		};
+
+		// The content-type is signed INTO the URL, so it has to be sent back exactly — R2 answers 403
+		// for any other value, including the browser's own guess for the same file.
+		const put = await fetch(stored.url, {
+			method: 'PUT',
+			headers: { 'content-type': stored.contentType },
+			body: file,
+		});
+		if (!put.ok) throw new Error(`the upload was refused (${put.status}).`);
 
 		doc.entries = [
 			...entries,
@@ -342,13 +393,16 @@
 	 */
 	async function addFiles(files: FileList | null) {
 		if (!files?.length) return;
-		uploadError = '';
+		uploadErrors = [];
 		for (const file of Array.from(files)) {
 			uploading += 1;
 			try {
 				await uploadOne(file);
 			} catch (e) {
-				uploadError = `${file.name}: ${e instanceof Error ? e.message : String(e)}`;
+				uploadErrors = [
+					...uploadErrors,
+					`${file.name} — ${e instanceof Error ? e.message : String(e)}`,
+				];
 			} finally {
 				uploading -= 1;
 			}
@@ -782,9 +836,11 @@
 					/>
 					choose files
 				</label>
-				<p class="hint">{SOUND_FILE_EXTENSIONS.join(', ')} — up to 25 MB each</p>
+				<p class="hint">
+					{SOUND_FILE_EXTENSIONS.join(', ')} — up to {MAX_SOUND_BYTES / 1024 / 1024} MB each
+				</p>
 				{#if uploading > 0}<p class="hint busy">Uploading {uploading}…</p>{/if}
-				{#if uploadError}<p class="err">{uploadError}</p>{/if}
+				{#each uploadErrors as line (line)}<p class="err">{line}</p>{/each}
 			</div>
 			<p class="hint">
 				A file is stored the moment it uploads, but it only becomes part of the library when you

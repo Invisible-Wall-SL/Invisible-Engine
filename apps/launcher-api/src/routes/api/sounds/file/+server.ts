@@ -1,31 +1,46 @@
 import { error, json } from '@sveltejs/kit';
+import { MAX_SOUND_BYTES } from 'engine-layout';
 import { requireSoundAccess, resolveSoundScope } from '$lib/server/soundAccess';
 import {
-	MAX_SOUND_BYTES,
 	getSoundFile,
 	mintSoundId,
 	parseRange,
-	putSoundFile,
+	presignSoundUpload,
+	soundContentType,
 	soundExtension,
 	soundFileName,
 } from '$lib/server/soundFiles';
 import type { RequestHandler } from './$types';
 
 /**
- * The AUDIO FILES behind a project's sound library — upload one, and stream one back to audition.
+ * The AUDIO FILES behind a project's sound library — mint the URL that uploads one, and stream one
+ * back to audition.
  *
  * Same session + `sound` entitlement gate as `/api/sounds` (see `soundAccess.ts`).
  *
  * See `docs/design/invisible-sound.md`.
  */
 
+/** How long the browser has to PUT the bytes. Long enough for a 25 MB track on a poor line. */
+const PUT_TTL_SECONDS = 600;
+
 /**
- * Upload one audio file. Multipart, field `file`.
+ * Mint the URL that uploads one audio file. Body: `{ name, bytes }` — the picked filename (its
+ * extension chooses the format) and its size.
  *
- * Returns `{ id, file, bytes, contentType }` — the caller then adds an entry naming that `file` and
- * saves it through `PUT /api/sounds`, which is ETag-guarded. **This endpoint deliberately does not
- * touch `sounds.json`**: an upload that also wrote the doc would have to write it unconditionally,
- * which is exactly how one author's library silently replaces another's.
+ * Returns `{ id, file, url, contentType }`. The browser then PUTs the bytes STRAIGHT TO R2 with
+ * that exact `contentType`, adds an entry naming that `file`, and saves it through
+ * `PUT /api/sounds`, which is ETag-guarded.
+ *
+ * The bytes never come through here. A multipart POST did until this endpoint was rewritten, and it
+ * could not carry a real sound: adapter-node truncates a request body at `BODY_SIZE_LIMIT`
+ * (512 KB), so every upload over that died — reported as a 400 about multipart parsing, because the
+ * truncation surfaced as `request.formData()` rejecting rather than as anything about size. See
+ * `presignSoundUpload`.
+ *
+ * **This endpoint deliberately does not touch `sounds.json`**: an upload that also wrote the doc
+ * would have to write it unconditionally, which is exactly how one author's library silently
+ * replaces another's.
  *
  * The consequence is an ORPHAN WINDOW — bytes land, and if the doc save then loses a conflict (or
  * the author closes the tab) the file is in `sounds/files/` with nothing naming it. That is the
@@ -40,31 +55,37 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 	await requireSoundAccess(locals);
 	const { clientKey, projectKey } = await resolveSoundScope(url.searchParams.get('project'));
 
-	let form: FormData;
+	let body: { name?: unknown; bytes?: unknown };
 	try {
-		form = await request.formData();
+		body = await request.json();
 	} catch {
-		throw error(400, 'Expected a multipart upload.');
+		throw error(400, 'Invalid JSON body.');
 	}
-	const file = form.get('file');
-	if (!(file instanceof File)) throw error(400, 'No file was uploaded.');
-	if (file.size === 0) throw error(400, 'That file is empty.');
-	if (file.size > MAX_SOUND_BYTES) {
+	const name = typeof body.name === 'string' ? body.name : '';
+	if (!name) throw error(400, 'Expected a `name`.');
+
+	// The SIZE is the one the caller declares — with the bytes going straight to R2 nothing here
+	// ever weighs them. It stops an honest mistake (a 300 MB wav dropped in), not a liar, and a
+	// liar here is a logged-in author entitled to the tool. The page checks the same number first,
+	// so this is the floor rather than the message anyone normally reads.
+	const bytes = typeof body.bytes === 'number' && Number.isFinite(body.bytes) ? body.bytes : -1;
+	if (bytes <= 0) throw error(400, 'That file is empty.');
+	if (bytes > MAX_SOUND_BYTES) {
 		throw error(413, `That file is larger than ${Math.round(MAX_SOUND_BYTES / 1024 / 1024)} MB.`);
 	}
 
 	// The EXTENSION decides the format, not the browser's `File.type`, which is client-supplied and
 	// varies by OS for the same file (`audio/mp3` vs `audio/mpeg` vs empty).
-	const ext = soundExtension(file.name);
-	if (!ext) throw error(415, `Unsupported audio format: ${file.name}`);
+	const ext = soundExtension(name);
+	if (!ext) throw error(415, `Unsupported audio format: ${name}`);
 
 	const id = mintSoundId();
 	const stored = soundFileName(id, ext);
-	const bytes = new Uint8Array(await file.arrayBuffer());
+	let uploadUrl: string;
 	try {
-		await putSoundFile(clientKey, projectKey, stored, bytes);
+		uploadUrl = await presignSoundUpload(clientKey, projectKey, stored, PUT_TTL_SECONDS);
 	} catch {
-		throw error(502, 'Failed to store the uploaded sound.');
+		throw error(502, 'Failed to prepare the upload.');
 	}
 
 	return json({
@@ -72,8 +93,10 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		projectKey,
 		id,
 		file: stored,
-		bytes: bytes.byteLength,
-		originalName: file.name,
+		url: uploadUrl,
+		// Signed INTO the URL, so the browser must send exactly this back or R2 refuses the PUT.
+		contentType: soundContentType(stored),
+		originalName: name,
 	});
 };
 

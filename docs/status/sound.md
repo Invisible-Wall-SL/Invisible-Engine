@@ -62,12 +62,15 @@ this replaces (`loadedAudio.sprite[name]`) had the same hole.
 - **`soundFiles.ts`** — the file half, deliberately split from the doc half: a doc is a conditional,
   ETag-guarded read-modify-write shared by every author, a file is write-once immutable content.
   Holds the extension whitelist → content-type map, `soundExtension`, `mintSoundId`,
-  `putSoundFile` / `getSoundFile`, and `parseRange`.
+  `presignSoundUpload` / `getSoundFile`, and `parseRange`.
 - **`soundAccess.ts`** — `requireSoundAccess` + `resolveSoundScope`, now shared by both routes
   (mirroring `spine.ts`), so a second route cannot ship a slightly different gate.
-- **`POST /api/sounds/file`** — multipart upload → `sounds/files/<id>.<ext>`, id minted SERVER-side.
-  It deliberately does **not** touch `sounds.json`: an upload that also wrote the doc would have to
-  write it unconditionally, which is how one author's library silently replaces another's.
+- **`POST /api/sounds/file`** — mints a presigned PUT for `sounds/files/<id>.<ext>`, id minted
+  SERVER-side; the browser uploads the bytes STRAIGHT TO R2. It went through the launcher as a
+  multipart body until 2026-09-15, which capped every sound at adapter-node's 512 KB
+  `BODY_SIZE_LIMIT` — see the dated entry. It deliberately does **not** touch `sounds.json`: an
+  upload that also wrote the doc would have to write it unconditionally, which is how one author's
+  library silently replaces another's.
 - **`GET /api/sounds/file?file=…`** — streams for audition, `inline` (not `attachment` like the FTP
   sibling), `no-store`, and honours Range so an `<audio>` element scrubbing a BGM track does not
   re-download the file on every seek.
@@ -76,10 +79,9 @@ this replaces (`loadedAudio.sprite[name]`) had the same hole.
   that matters — it is the same decoder that will play the sound. The doc's normalize rejecting a
   non-positive duration is the guard that stops a wrong one becoming a silent sprite.
 
-⏳ **Not yet verified over HTTP.** The gate is live (every route answers 401 unauthenticated,
-checked on the local launcher) and the handler logic is covered offline, but the request paths
-themselves — multipart parsing, the 206 branch — need a signed-in session. Disabling the gate to
-fake one was refused by the sandbox, correctly.
+✅ **Verified over HTTP on 2026-09-15** (signed-in, against production) — which is how the 512 KB
+ceiling was found at all: it lived in the one step every offline fixture had to skip. The 206 branch
+still rides on the audition element rather than a direct test.
 
 **S4 — the chain (done; every link verified, the bake's HTTP call by inspection).**
 
@@ -222,7 +224,39 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
-- 2026-09-10 — **The per-symbol cue row “Tumble explosion” is now “Clear reel”.** Symbol-state rename only, decided in Invisible Symbols (see [symbols.md](symbols.md)): the state `tumbleExplosion` became `clearReel`, because the beat is a symbol being TAKEN OFF the board — the cascade’s removal _and_ the swap-in-place board CLEAR — not only a tumble. Nothing about the sound moved: same gate (the project cascades OR clears), same additive relationship to the game-wide ladder, same audiosprite keys.
+- 2026-09-15 — **A sound can be uploaded at all now, and a hard load of `/sound` stops being a 500.**
+  Two unrelated defects, both reached from one owner report: _"I added some sounds, I can't find them
+  anywhere, there was no upload button, and Save never activated."_
+
+  **The upload could never have carried a real sound.** `POST /api/sounds/file` took a MULTIPART
+  body, so the bytes travelled through the launcher — where adapter-node truncates any request body
+  at `BODY_SIZE_LIMIT`, **512 KB** by default and unset on Railway. Probed live: a 400 KB body
+  reached the handler (415, its own format check), a 600 KB one did not (400 "Expected a multipart
+  upload") — because the truncated stream makes `request.formData()` reject, so the handler reported
+  a parse failure and never saw a size. Every sound past a short blip therefore failed under a
+  message pointing at the wrong thing, and the handler's own 25 MB cap was unreachable. This is the
+  exact wall the font, spine and flipbook imports already route around, and the fix is theirs: the
+  endpoint MINTS a presigned PUT (`presignSoundUpload`, 10 min TTL) and the browser uploads straight
+  to R2. `putSoundFile` went with it — nothing else called it. `MAX_SOUND_BYTES` moved to
+  `engine-layout`, so the page, the message and the mint endpoint share one number instead of the
+  page hardcoding "25 MB" in prose; the cap is now checked against the DECLARED size, which catches
+  an honest 300 MB drop rather than a liar, and a liar here is a logged-in author entitled to the
+  tool. **The rest of the report follows from it**: no bytes ever landed, so nothing was there to
+  find; the entry is only appended after a successful upload, so the doc never went dirty; and Save
+  is enabled only by a dirty doc, so it stayed grey. There is no upload button by design — picking
+  or dropping files IS the upload. Failures now list one line per file and print the endpoint's
+  `message` rather than the raw JSON body.
+
+  **And `/sound` answered 500 to every hard load** (typed URL, refresh) while reaching it from
+  another tool page worked — the shape that hid it, since only a hard load renders on the server.
+  `+page.server.ts` was fine (`/sound/__data.json` returned the full payload); the SSR RENDER threw.
+  Cause: on the client a `$derived` is lazy, first read during render, but the server compiles
+  `$derived.by(fn)` to a plain **`fn()` at its declaration site** — so the `bindings` index ran while
+  `SOURCE_HREF`, a `const` 40 lines below it, was still in its temporal dead zone. `Cannot access
+  before initialization`, every project, every load. The two lookup tables now sit above the derived
+  that reads them, with the reason on them. Worth carrying: **`/sound` is one of the few tool pages
+  that does NOT set `ssr = false`** (editor, symbols, flow-v2, fx, fonts, flipbook, components all
+  do), so it is the page where declaration ORDER inside the instance script is load-bearing. Symbol-state rename only, decided in Invisible Symbols (see [symbols.md](symbols.md)): the state `tumbleExplosion` became `clearReel`, because the beat is a symbol being TAKEN OFF the board — the cascade’s removal _and_ the swap-in-place board CLEAR — not only a tumble. Nothing about the sound moved: same gate (the project cascades OR clears), same additive relationship to the game-wide ladder, same audiosprite keys.
 
   - **A saved binding is not re-authored.** `symbolSounds[symbol].tumbleExplosion` is folded into `clearReel` at the symbols-doc load boundary (`symbolsStorage#migrateLegacySymbolStates`), before validation — the per-symbol map is keyed by `z.enum(SYMBOL_STATES)` and Zod rejects an unlisted key, so an un-folded doc would have loaded as an empty one and lost every cue on it.
   - **The game-wide SLOT is still `tumbleExplosion`** (`packages/game-config/src/sounds.ts`, `/config` → Sounds → “Tumble explosion”). It lives in the sounds doc, a different namespace from the symbol states, and renaming it would migrate a second doc for no gain.

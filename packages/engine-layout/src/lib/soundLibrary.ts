@@ -51,6 +51,17 @@ export type SoundOrigin = (typeof SOUND_ORIGINS)[number];
 export const SOUND_FILE_EXTENSIONS = ['mp3', 'ogg', 'm4a', 'wav', 'webm'] as const;
 
 /**
+ * Per-upload cap. Generous for a BGM track, and the number the tool says out loud.
+ *
+ * It lives in the SHARED package, not in the launcher's file helper, because the bytes never pass
+ * through the launcher: the browser PUTs a sound straight to R2 (adapter-node's `BODY_SIZE_LIMIT`
+ * is 512 KB — a tenth of one music track — so a proxied upload could not carry a real sound). The
+ * page checks the size when the file is picked and the mint endpoint checks the DECLARED size
+ * before it signs a URL; there is no third place that sees a body to measure.
+ */
+export const MAX_SOUND_BYTES = 25 * 1024 * 1024;
+
+/**
  * One sound in the project's library.
  *
  * `id` is the stable handle (the file is stored under it); `name` is what a BINDING stores and what
