@@ -45,7 +45,11 @@ import {
 } from '../src/routes/(app)/symbols/symbols.client.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8');
+/** Source with LF newlines whatever the checkout uses. Every assertion from here down is about the
+ *  CODE, and a Windows working copy (`core.autocrlf`) would otherwise fail patterns that name a line
+ *  break for reasons that have nothing to do with the claim. */
+const read = (path: string): string =>
+	readFileSync(join(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
 
 let failures = 0;
 let checks = 0;
