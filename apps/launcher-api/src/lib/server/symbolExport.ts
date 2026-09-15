@@ -183,6 +183,10 @@ export interface SymbolExportResult {
 	 *  pass-through. Absent → each beat still runs as long as its art does, bounded only by the
 	 *  engine's runaway guard, so an un-authored project's bundle stays byte-identical. */
 	winBeat?: SymbolsDoc['winBeat'];
+	/** "The round is released when the symbols arrive, not when their intros finish" — assetless
+	 *  config, a third verbatim pass-through. Absent → the emerge arrival is awaited exactly as it
+	 *  always was, so an un-switched project's bundle stays byte-identical. */
+	arrivalRelease?: SymbolsDoc['arrivalRelease'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -625,6 +629,11 @@ export async function exportEditorSymbols(
 	// every project that never authored one, which is what keeps that project's pacing untouched.
 	const winBeat = doc.winBeat;
 
+	// The arrival release. Assetless as well (one switch over an animation the map already ships —
+	// it does not shorten that animation, it stops the round waiting on it), so the same verbatim
+	// pass-through of the already-pruned field: absent for every project that left it off.
+	const arrivalRelease = doc.arrivalRelease;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -696,6 +705,7 @@ export async function exportEditorSymbols(
 		...(winCycle ? { winCycle } : {}),
 		...(winExplode ? { winExplode } : {}),
 		...(winBeat ? { winBeat } : {}),
+		...(arrivalRelease ? { arrivalRelease } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),

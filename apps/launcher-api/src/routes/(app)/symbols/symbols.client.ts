@@ -525,6 +525,11 @@ export interface SymbolsDoc {
 	 *  Set ⇒ a longer animation is cut short. This is the AUTHOR's pace, not the engine's runaway
 	 *  guard — that one stays where it is, sized above anything a project plausibly authors. */
 	winBeat?: { maxMs?: number };
+	/** "Let the next spin start as soon as the symbols are back" — the emerge arrival stops gating the
+	 *  round. Sparse and default OFF: absent ⇒ the round waits for the last intro to finish, exactly
+	 *  as before this existed. It shortens no animation — the intro still plays and still settles its
+	 *  cell — it only stops being awaited. Only meaningful under the `emerge` swap style. */
+	arrivalRelease?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -1016,6 +1021,22 @@ export function setWinBeatMaxMs(doc: SymbolsDoc, ms: number | null): SymbolsDoc 
 		next.winBeat = {
 			maxMs: Math.min(WIN_BEAT_MAX_MS_MAX, Math.max(WIN_BEAT_MAX_MS_MIN, Math.round(ms))),
 		};
+	return next;
+}
+
+/** The effective "release the round when the symbols arrive, not when their intros finish" flag.
+ *  Defaults to `false` (byte-parity — the emerge arrival has always been awaited). Unlike
+ *  {@link winBeatMaxMs} this shortens nothing: the intro plays in full either way. */
+export function arrivalReleaseEnabled(doc: SymbolsDoc): boolean {
+	return doc.arrivalRelease?.enabled ?? false;
+}
+
+/** Turn the arrival release on/off. Sparse like `setWinExplodeEnabled`: OFF deletes the key so an
+ *  untouched/reset project persists nothing. */
+export function setArrivalReleaseEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.arrivalRelease = { enabled: true };
+	else delete next.arrivalRelease;
 	return next;
 }
 
@@ -1536,6 +1557,9 @@ export function docSignature(doc: SymbolsDoc): string {
 		// Same trap, same reason: typing a win-beat ceiling has to move this signature, and clearing
 		// it has to move it back to the `null` an untouched doc signs.
 		winBeat: doc.winBeat?.maxMs ?? null,
+		// Same trap a third time: without this line the arrival-release switch flips on screen, the
+		// page never goes dirty, and Save stays disabled on a change that looks made.
+		arrivalRelease: doc.arrivalRelease?.enabled === true ? true : null,
 		bookVfx,
 		transition,
 		tumblePattern,

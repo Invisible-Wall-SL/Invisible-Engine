@@ -345,6 +345,7 @@ async function main() {
 		winCycle: undefined,
 		winExplode: undefined,
 		winBeat: undefined,
+		arrivalRelease: undefined,
 		bookVfx: undefined,
 		transition: undefined,
 		tumblePattern: undefined,
@@ -463,6 +464,11 @@ async function main() {
 				Number.isFinite(s?.winBeat?.maxMs) && s.winBeat.maxMs > 0
 					? { maxMs: Math.round(s.winBeat.maxMs) }
 					: undefined;
+			// The arrival release — the emerge intro stops GATING the round (it still plays). One
+			// switch that defaults OFF, so ONLY the ON state persists, and it has to reach BOTH bundle
+			// paths for the third time in a row: omit it here and a project that asked for the shorter
+			// wait would keep sitting out the intro through the bake path while the live one did not.
+			const arrivalRelease = s?.arrivalRelease?.enabled === true ? { enabled: true } : undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -614,6 +620,7 @@ async function main() {
 				winCycle,
 				winExplode,
 				winBeat,
+				arrivalRelease,
 				bookVfx,
 				transition,
 				tumblePattern,
