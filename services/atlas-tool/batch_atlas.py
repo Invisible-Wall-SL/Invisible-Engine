@@ -247,6 +247,8 @@ import storage  # noqa: E402
 import shine  # noqa: E402
 import blueprints  # noqa: E402
 import blueprint_models  # noqa: E402
+import comfy_specs  # noqa: E402
+import shared_taxonomy  # noqa: E402
 import model_mirror  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
@@ -2125,6 +2127,71 @@ def build_workflow_gpt(region: dict, style: dict) -> dict:
     return wf
 
 
+# The stored taxonomy, read once per batch rather than once per region. A batch renders
+# many regions through this function and the file does not change mid-run; the TTL is
+# only so a long-lived ui_server process picks up an edit without a restart.
+_TAXONOMY_TTL_S = 60.0
+_taxonomy_cache: dict = {"text": None, "at": 0.0}
+
+
+def _shared_taxonomy_text() -> str:
+    """The stored taxonomy, or "" when there is none / it cannot be read.
+
+    Never raises. A taxonomy is an IMPROVEMENT on the bundled default, so an R2 hiccup
+    must degrade to "render with the bundled vocabulary", never to "fail the render".
+    """
+    now = time.time()
+    if _taxonomy_cache["text"] is not None and now - _taxonomy_cache["at"] < _TAXONOMY_TTL_S:
+        return _taxonomy_cache["text"]
+    text = ""
+    try:
+        stored, _etag = shared_taxonomy.load()
+        text = stored or ""
+    except Exception as exc:  # noqa: BLE001 — storage hiccup must not fail a render
+        print(f"[taxonomy] could not read {shared_taxonomy.SHARED_TAXONOMY_KEY}: {exc}")
+    _taxonomy_cache.update(text=text, at=now)
+    return text
+
+
+def _inject_shared_taxonomy(wf: dict) -> None:
+    """Put the shared taxonomy on every node in `wf` that can take one."""
+    text = _shared_taxonomy_text()
+    if not text:
+        return
+
+    # Ask the target which classes actually declare the input. On the serverless
+    # transport there is no live ComfyUI to ask, so this comes back unreadable and
+    # `inject` falls to its graph-driven rule: fill the field only where the graph
+    # ITSELF names it. That is the right fallback rather than a weakness — an API
+    # export carries every widget the node had when it was exported, so the field's
+    # presence in the graph IS the record of whether that pack knew about it.
+    declares = None
+    try:
+        classes = {str(n.get("class_type") or "") for n in wf.values()
+                   if isinstance(n, dict)}
+        target = "serverless" if COMFY_TRANSPORT == "serverless" else "local"
+        specs = comfy_specs.specs_for_classes(sorted(c for c in classes if c), target=target)
+        if specs.get("ok"):
+            known = specs.get("classes") or {}
+
+            def declares(cls: str):  # noqa: F811 — deliberate: only when readable
+                spec = known.get(cls)
+                if spec is None:
+                    return False  # the target answered, and does not have this class
+                return shared_taxonomy.TAXONOMY_INPUT in spec
+    except Exception as exc:  # noqa: BLE001 — a contract read must not fail a render
+        print(f"[taxonomy] could not read node contracts ({exc}); "
+              "falling back to the graph's own fields")
+
+    try:
+        touched = shared_taxonomy.inject(wf, text, declares_input=declares)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[taxonomy] injection skipped: {exc}")
+        return
+    if touched:
+        print(f"[taxonomy] applied the shared taxonomy to node(s) {', '.join(touched)}")
+
+
 def _set_node_input(graph: dict, binding: dict | None, value) -> None:
     """Set graph[<node>].inputs[<field>] = value for one role binding. No-op if
     the binding is absent (optional role) or its node/field isn't in the graph
@@ -2239,6 +2306,12 @@ def build_workflow_blueprint(
             continue
         _set_node_input(
             wf, {"node": p.get("node"), "field": p.get("field")}, value)
+
+    # The shared semantic taxonomy, injected into any node that declares the input.
+    # AFTER the params on purpose: a blueprint that states its own taxonomy (as a param
+    # or a baked value) keeps it, and a param the artist CLEARED falls back to the stored
+    # one rather than to an empty vocabulary.
+    _inject_shared_taxonomy(wf)
 
     # Output: set the SaveImage filename_prefix to this project's prefix (same
     # as the builders) and resolve the node id run_region reads from.

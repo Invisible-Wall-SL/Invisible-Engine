@@ -4,3 +4,9 @@ Pillow>=10.4.0
 # resolver that picked a lower floor would ParamValidationError at RUNTIME, and
 # every catch site turns that into a silently wrong answer, not a crash.
 boto3>=1.35.69
+# The shared semantic taxonomy is YAML, and `shared_taxonomy.validate` is the only place a
+# typo in it is ever visible: the ComfyUI node's own behaviour is to fall back to a much
+# smaller built-in vocabulary and carry on, so an unchecked save fails silently at render
+# time instead. Without this the validator answers "PyYAML is unavailable" and refuses
+# every save — verified against a local boot before it was added.
+PyYAML>=6.0
