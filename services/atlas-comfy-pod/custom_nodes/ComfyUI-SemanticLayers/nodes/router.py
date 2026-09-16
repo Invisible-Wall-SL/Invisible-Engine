@@ -96,7 +96,18 @@ class SemanticLayerRouter:
                     },
                 ),
                 "taxonomy_path": ("STRING", {"default": ""}),
-            }
+            },
+            "optional": {
+                "taxonomy_yaml": (
+                    "STRING",
+                    {"default": "", "multiline": True, "tooltip": "The taxonomy ITSELF, "
+                     "as YAML, instead of a path. Wins over taxonomy_path. Leave BOTH "
+                     "empty and this node inherits whatever Semantic Layer Analyze used, "
+                     "which is the setting you want: one blueprint param then drives the "
+                     "whole chain and the two nodes cannot end up on different "
+                     "vocabularies."},
+                ),
+            },
         }
 
     RETURN_TYPES = (
@@ -144,13 +155,26 @@ class SemanticLayerRouter:
         overrides: str,
         output_rgba: bool,
         taxonomy_path: str,
+        taxonomy_yaml: Optional[str] = None,
     ):
         if not isinstance(semantic_layers, SemanticLayerSet):
             raise TypeError("Semantic Layer Router: 'semantic_layers' must be SEMANTIC_LAYERS")
         if not isinstance(layer_metadata, LayerMetadataSet):
             raise TypeError("Semantic Layer Router: 'layer_metadata' must be LAYER_METADATA")
 
-        taxonomy = load_taxonomy(taxonomy_path.strip())
+        # Say nothing here and you get whatever Analyze used. That is deliberate: the
+        # router resolving against a different vocabulary than the analyzer scored with
+        # produces confident, wrong roles and looks identical to a correct run.
+        own_path = (taxonomy_path or "").strip()
+        own_text = (taxonomy_yaml or "").strip()
+        if own_path or own_text:
+            taxonomy = load_taxonomy(own_path, own_text)
+        else:
+            inherited = layer_metadata.metadata if isinstance(layer_metadata.metadata, dict) else {}
+            taxonomy = load_taxonomy(
+                str(inherited.get("taxonomy_path", "") or "").strip(),
+                str(inherited.get("taxonomy_yaml", "") or "").strip(),
+            )
         thresholds = Thresholds(auto=float(auto_threshold), uncertain=float(uncertain_threshold))
         if thresholds.auto < thresholds.uncertain:
             raise ValueError(
