@@ -1078,6 +1078,27 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   `resolveBundlePrefix` applies to the files). ⏳ owner verify: bind `engine-explosion` on a cascade
   game's Explosion column, rebuild, confirm it plays in the shipped build.
 
+- 2026-08-10 — **Two rendering fixes for the stacked tall picture** (PRs #283 + #286; ships to online
+  games via a `_runtime/lines` runtime release).
+  - **An over-height run stretched the picture** (#283). A landed run LONGER than the symbol's authored
+    height was scanned uncapped, so `naturalCells` grew past the height and the art stretched — a 3-tall
+    run of a height-2 symbol drew a 3-cell picture, and two runs of the same symbol rendered at
+    different sizes. The run scan (then `apps/lines/src/game/stateGame.svelte.ts`, now
+    `computeStackedRuns` in `packages/engine-game/src/game/gameState.svelte.ts`) caps EVERY run at the
+    authored height: an over-height column tiles consecutive M-tall pictures and any remainder shorter
+    than M falls through the ordinary partial path (cropped to top k/M, or suppressed by
+    `fullHeightOnly`). Capping never touches a genuine partial, which is already shorter than M.
+  - **A spine tall art rendered vertically offset** (#286) — clipped at the top, gapped at the bottom
+    instead of filling the run. `StackedPicture.svelte` mounted the spine with the sprite branch's
+    `anchor={0.5}`, and a spine pivots in its LOCAL skeleton frame, not the requested box frame: anchor
+    0.5 pivots by `box/2` and lifts the art by `boxH²/(2·skeleton.height)` (≈107px for a 3-cell Wild).
+    The spine branch uses `anchor={0}`; the sprite/flipbook branches keep `anchor={0.5}` (texture
+    centre). **The rule survives, its reasoning has moved on:** this fix leaned on symbol rigs being
+    authored origin-centred, which 2026-09-02's `<SpineProvider centreBox>` replaced with reading the
+    rig's AUTHORED box — so a Rigger rig whose origin is not its bounds centre is placed right too, and
+    `StackedPicture` is one of that change's three opt-ins ([rigger status](rigger.md)). The shared
+    `SpineProvider` pivot was deliberately NOT rewritten: that would shift every symbol in every game.
+  Design: [docs/design/stacked-picture-mode.md](../design/stacked-picture-mode.md).
 - 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
   (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was
   gating it behind `!['S', 'M']` — so the scatter (`S`), which reaches `'win'` via
