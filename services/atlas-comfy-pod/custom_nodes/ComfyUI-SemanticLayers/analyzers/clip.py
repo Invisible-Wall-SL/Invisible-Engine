@@ -162,7 +162,10 @@ class ClipZeroShotAnalyzer(BaseSemanticAnalyzer):
 
     def prepare(self, layer_set: SemanticLayerSet, context: AnalysisContext) -> None:
         model_id = str(context.settings.get("clip_model", MODELS[0]))
-        taxonomy = load_taxonomy(str(context.settings.get("taxonomy_path", "") or "").strip())
+        taxonomy = load_taxonomy(
+            str(context.settings.get("taxonomy_path", "") or "").strip(),
+            str(context.settings.get("taxonomy_yaml", "") or "").strip(),
+        )
 
         self._load_model(model_id, context)
 

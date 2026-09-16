@@ -92,13 +92,28 @@ class SemanticLayerAnalyze:
                 "taxonomy_path": (
                     "STRING",
                     {"default": "", "tooltip": "Path to a taxonomy YAML. Empty = the "
-                     "bundled configs/default_taxonomy.yaml."},
+                     "bundled configs/default_taxonomy.yaml. Ignored when taxonomy_yaml "
+                     "is filled in."},
                 ),
             },
             "optional": {
                 "clip_model": (CLIP_MODELS, {"default": CLIP_MODELS[0]}),
                 "florence_model": (FLORENCE_MODELS, {"default": FLORENCE_MODELS[0]}),
                 "florence_task": (FLORENCE_TASKS, {"default": FLORENCE_TASKS[1]}),
+                # LAST on purpose. ComfyUI stores widgets_values POSITIONALLY, so a new
+                # widget inserted above these would shift every saved graph's values by
+                # one — a graph would come back with its clip_model in taxonomy_yaml and
+                # no error anywhere. Append; never insert.
+                "taxonomy_yaml": (
+                    "STRING",
+                    {"default": "", "multiline": True, "tooltip": "The taxonomy ITSELF, "
+                     "as YAML, instead of a path to it. Wins over taxonomy_path. Use this "
+                     "when the render has no durable filesystem to read a file from — the "
+                     "Atlas Maker's production target is a serverless worker whose "
+                     "container is thrown away, so a path there can never resolve. The "
+                     "Router reads this one when its own taxonomy inputs are empty, so a "
+                     "single blueprint param drives both nodes and they cannot diverge."},
+                ),
             },
         }
 
@@ -119,11 +134,13 @@ class SemanticLayerAnalyze:
         caption_confidence: float,
         use_cache: bool,
         taxonomy_path: str,
+        taxonomy_yaml: Optional[str] = None,
         clip_model: Optional[str] = None,
         florence_model: Optional[str] = None,
         florence_task: Optional[str] = None,
     ):
-        taxonomy = load_taxonomy(taxonomy_path.strip())
+        taxonomy_text = (taxonomy_yaml or "").strip()
+        taxonomy = load_taxonomy(taxonomy_path.strip(), taxonomy_text)
         report: list[str] = []
         note = getattr(taxonomy, "load_note", "")
         if note:
@@ -136,6 +153,12 @@ class SemanticLayerAnalyze:
             )
 
         meta_set = semantic_layers.metadata_set()
+        # Carry the taxonomy SOURCE forward on the metadata so the Router can inherit it
+        # rather than being told twice. Two nodes each holding their own copy is two
+        # vocabularies that silently drift apart — and the analyzer scoring against one
+        # while the router resolves against another is invisible in the output.
+        meta_set.metadata["taxonomy_path"] = taxonomy_path.strip()
+        meta_set.metadata["taxonomy_yaml"] = taxonomy_text
         if len(semantic_layers) == 0:
             report.append("no layers to analyze")
             return (meta_set, semantic_layers, "\n".join(report))
@@ -149,8 +172,10 @@ class SemanticLayerAnalyze:
                 "caption_confidence": float(caption_confidence),
                 "clip_model": clip_model or CLIP_MODELS[0],
                 # The clip backend builds its candidate labels from the taxonomy, so it
-                # needs to load the same one this node did.
+                # needs to load the same one this node did — both halves, or an inline
+                # taxonomy would score against the bundled vocabulary instead of its own.
                 "taxonomy_path": taxonomy_path.strip(),
+                "taxonomy_yaml": taxonomy_text,
                 "florence_model": florence_model or FLORENCE_MODELS[0],
                 "florence_task": florence_task or FLORENCE_TASKS[1],
             },

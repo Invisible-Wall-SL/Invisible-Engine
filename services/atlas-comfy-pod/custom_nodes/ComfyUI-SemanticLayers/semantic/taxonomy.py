@@ -7,6 +7,7 @@ so the taxonomy can be extended without editing Python.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -205,18 +206,59 @@ def _build(data: dict[str, Any], source_path: str) -> Taxonomy:
 _cache: dict[str, Taxonomy] = {}
 
 
-def load_taxonomy(path: str = "") -> Taxonomy:
+def _finish(data: Optional[dict[str, Any]], source: str, note: str, key: str) -> Taxonomy:
+    """Build, annotate and cache one taxonomy. Shared by the inline and file paths so a
+    parse failure degrades identically however the YAML arrived."""
+    taxonomy = _build(data if data is not None else _FALLBACK, "" if data is None else source)
+    if note:
+        taxonomy.source_path = taxonomy.source_path or "<built-in fallback>"
+        taxonomy.categories.setdefault(Category.UNKNOWN, CategorySpec(name=Category.UNKNOWN))
+        setattr(taxonomy, "load_note", note)
+    _cache[key] = taxonomy
+    return taxonomy
+
+
+def load_taxonomy(path: str = "", text: str = "") -> Taxonomy:
     """Load (and cache) a taxonomy. Falls back to the built-in one on any problem.
 
-    Never raises: a broken taxonomy file degrades to the fallback with a note on the
-    returned object, because failing a whole render over a YAML typo is worse than
-    routing with a smaller keyword set and saying so.
+    Two sources, `text` winning when both are given: inline YAML (what a blueprint param
+    carries, since the Atlas Maker's production target is a serverless worker with no
+    durable filesystem to hold a file) and a path on disk.
+
+    Never raises: a broken taxonomy degrades to the fallback with a note on the returned
+    object, because failing a whole render over a YAML typo is worse than routing with a
+    smaller keyword set and saying so. Read `load_note` — a silent success and a silent
+    degradation look identical from the graph.
     """
+    inline = (text or "").strip()
+    if inline:
+        # Keyed by content, so editing the YAML re-reads it but re-running the same graph
+        # does not re-parse. A path key would collide across two nodes holding different
+        # inline taxonomies.
+        key = "<inline:%s>" % hashlib.sha256(inline.encode("utf-8")).hexdigest()[:16]
+        if key in _cache:
+            return _cache[key]
+        data: Optional[dict[str, Any]] = None
+        note = ""
+        try:
+            import yaml  # PyYAML ships with ComfyUI
+
+            loaded = yaml.safe_load(inline)
+            if isinstance(loaded, dict):
+                data = loaded
+            else:
+                note = "inline taxonomy is not a YAML mapping; using built-in fallback"
+        except ImportError:
+            note = "PyYAML unavailable; using built-in fallback taxonomy"
+        except Exception as exc:  # noqa: BLE001 - report, never crash the graph
+            note = f"inline taxonomy failed to parse ({exc}); using built-in fallback"
+        return _finish(data, "<inline>", note, key)
+
     key = path or DEFAULT_TAXONOMY_PATH
     if key in _cache:
         return _cache[key]
 
-    data: Optional[dict[str, Any]] = None
+    data = None
     note = ""
 
     # A path field holding a newline is the file's CONTENTS pasted in by mistake — an
@@ -226,9 +268,11 @@ def load_taxonomy(path: str = "") -> Taxonomy:
         setattr(
             taxonomy,
             "load_note",
-            "taxonomy_path looks like FILE CONTENTS, not a path — paste a filename such "
-            "as /workspace/semantic/taxonomy.yaml instead. Using the built-in fallback, "
-            "which has far fewer keywords than the bundled taxonomy.",
+            "taxonomy_path looks like FILE CONTENTS, not a path. Paste YAML into the "
+            "`taxonomy_yaml` input instead (it takes the file's text and needs no "
+            "filesystem), or give this field a filename such as "
+            "/workspace/semantic/taxonomy.yaml. Using the built-in fallback, which has "
+            "far fewer keywords than the bundled taxonomy.",
         )
         _cache[key] = taxonomy
         return taxonomy
@@ -249,13 +293,7 @@ def load_taxonomy(path: str = "") -> Taxonomy:
     except Exception as exc:  # noqa: BLE001 - report, never crash the graph
         note = f"failed to read taxonomy at {key} ({exc}); using built-in fallback"
 
-    taxonomy = _build(data if data is not None else _FALLBACK, "" if data is None else key)
-    if note:
-        taxonomy.source_path = taxonomy.source_path or "<built-in fallback>"
-        taxonomy.categories.setdefault(Category.UNKNOWN, CategorySpec(name=Category.UNKNOWN))
-        setattr(taxonomy, "load_note", note)
-    _cache[key] = taxonomy
-    return taxonomy
+    return _finish(data, key, note, key)
 
 
 def clear_cache() -> None:

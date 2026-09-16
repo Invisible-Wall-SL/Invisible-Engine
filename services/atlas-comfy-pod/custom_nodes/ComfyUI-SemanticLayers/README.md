@@ -288,6 +288,26 @@ supply masks.
 Roles, category properties and every keyword rule live in YAML — no keyword is
 hard-coded in Python. Copy the file, edit it, and point `taxonomy_path` at your copy.
 
+**Two ways in, and the second is the one that works in production.** `taxonomy_path`
+takes a filename; `taxonomy_yaml` takes the file's *text* and wins when both are set.
+Use `taxonomy_yaml` whenever the render has no durable filesystem — the Atlas Maker's
+production target is a serverless worker whose container is discarded after the job, so
+a path there can never resolve, and pasting YAML into the *path* field is refused (it
+falls back to the built-in fallback taxonomy, which has far fewer keywords). In the
+Atlas Maker, expose it as a **multiline blueprint param** on Semantic Layer Analyze and
+the artist edits the taxonomy in Blueprint settings, with nothing on disk anywhere.
+
+**Set it on Analyze only.** The Router inherits whatever Analyze used when its own two
+taxonomy inputs are empty, so one param drives the chain. Giving each node its own copy
+is how they end up on different vocabularies — the analyzer scoring against one while
+the router resolves against another produces confident, wrong roles and looks exactly
+like a correct run. Set the Router's inputs only when you deliberately want them to
+differ.
+
+**A broken taxonomy never fails the render — it degrades and says so.** Read the
+`report` output after editing: a silent success and a silent fall back to the built-in
+vocabulary are indistinguishable from the images alone.
+
 ```yaml
 categories:
   character:

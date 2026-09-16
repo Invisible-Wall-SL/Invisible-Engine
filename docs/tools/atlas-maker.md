@@ -486,6 +486,32 @@ order are therefore irrelevant; content is all that counts. `library_status`
 carries `graph_sha`, `map_sha` and `updated_at` (the R2 publish time, not the
 staging pull time) for scripted checks.
 
+### Editing the semantic taxonomy from here
+
+A graph that uses **Semantic Layer Analyze / Router** classifies each layer against a
+taxonomy — a YAML list of roles, categories and keywords. With the `clip` analyzer those
+keywords **are** the candidate labels, so the taxonomy is the whole quality knob: a layer
+whose subject the vocabulary does not name scores near zero and falls to `UNRESOLVED`.
+(That is not hypothetical — "raft" matched no rule once and the raft, most of the
+picture, was dropped.)
+
+Do **not** use `taxonomy_path` for an Atlas Maker render. It takes a filename, and the
+production target is a serverless worker whose container is discarded after the job, so
+no path you can type there survives. Instead:
+
+1. On **Semantic Layer Analyze**, expose `taxonomy_yaml` as a param — type `text`, and
+   tick **multiline** so you get a box big enough to read a taxonomy in.
+2. Paste the YAML as the param's default. Start from `configs/default_taxonomy.yaml` in
+   the pack and add your project's vocabulary; keep `UNRESOLVED` last in `roles`.
+3. Leave **Semantic Layer Router**'s two taxonomy inputs empty. It inherits whatever
+   Analyze used. Giving it its own copy is how the two end up on different vocabularies,
+   and an analyzer scoring against one while the router resolves against another looks
+   exactly like a correct run — every role still arrives, just wrong.
+
+A broken taxonomy never fails the render; it falls back to a much smaller built-in
+vocabulary and notes it on the node's `report` output. So after editing, read `report` —
+from the images alone, a silent success and a silent fallback are identical.
+
 ### Troubleshooting
 
 | Symptom | What it means | Fix |
@@ -495,6 +521,8 @@ staging pull time) for scripted checks.
 | the fix you just published has no effect | the library still holds the old bytes | ⤓ Resolved workflow and confirm; re-upload the right file |
 | a knob in ⚙ Settings does nothing | it is not injected for blueprint pipelines | expose it as a param instead |
 | the render ignores your reference photo | `shape_ref` bound alongside `style_ref` | set `shape_ref` to **(not used)** |
+| the pipeline output is greyscale, but the same graph is full colour in ComfyUI | the `LoadImage` is bound to `shape_ref`, which grayscales, thresholds and rescales the image onto a 1024×1024 canvas before ComfyUI sees it | bind it to `style_ref` and set `shape_ref` to **(not used)**. Tell: the pipeline output is exactly 1024×1024 |
+| the semantic roles come out wrong, or everything lands in `UNRESOLVED` | the taxonomy has no vocabulary for your subject, or the node fell back to the built-in one | read the node's `report`; see "Editing the semantic taxonomy" above |
 | `some models could not be verified` | no loader class maps that field, so the question cannot be asked (`pulid_file`, `ipadapter_file`, `clip_name3`, `gligen_name`, `hypernetwork_name`) | nothing — it is a permanent advisory and never blocks a render |
 
 ## Blueprints: resolved-workflow export (debugging)
