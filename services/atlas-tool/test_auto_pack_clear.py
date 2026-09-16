@@ -31,6 +31,12 @@ And a survivor would be live input, not a dead field: the readers on this side
 either spelling, and an `orig_*` that merely EXISTS is what `fit_to_region` reads
 as `spine_slot`, flipping placement from `contain` to `fill`.
 
+The clear has TWO halves, and they are the interesting part of this file:
+`_REPACK_CLEARED_KEYS` for a region the packer PLACED, and `_PACK_GEOM_KEYS`
+(#684) for one it did not. #686 rebuilt the second from the first precisely so
+they cannot drift apart again -- they had, for two commits. Both are asserted
+here, in both spellings.
+
 Sibling guard, do not break it: `test_pack_page_pointer.py` asserts the opposite
 end of the same contract -- a Flipbook sheet's camelCase trim SURVIVES, precisely
 because it no longer declares `pack` and so never reaches the clear at all.
@@ -102,18 +108,20 @@ def test_the_repack_measures_the_alpha_bbox() -> None:
     the old trim stale."""
     with tempfile.TemporaryDirectory() as td:
         m = _manifest(Path(td))
-        note = u.auto_pack_layout(m)
+        note, changed = u.auto_pack_layout(m)
         r = m["regions"][0]
         check("the region is re-rected to its alpha bbox", (r["w"], r["h"]),
               (ART_W, ART_H))
         check("...and the run reports it packed something",
               bool(note and "Auto-packed 1 region" in note), True)
+        check("...and reports that it mutated the manifest, so the caller saves",
+              changed, True)
 
 
 def test_both_spellings_of_the_stale_trim_are_cleared() -> None:
     with tempfile.TemporaryDirectory() as td:
         m = _manifest(Path(td))
-        u.auto_pack_layout(m)
+        u.auto_pack_layout(m)  # note/changed unused here
         r = m["regions"][0]
         check("snake_case trim is gone",
               [k for k in ("off_x", "off_y", "orig_w", "orig_h") if k in r], [])
@@ -131,7 +139,7 @@ def test_the_clear_reaches_a_reader_that_takes_either_spelling() -> None:
     `spine_slot` and stretches the art to the rect."""
     with tempfile.TemporaryDirectory() as td:
         m = _manifest(Path(td))
-        u.auto_pack_layout(m)
+        u.auto_pack_layout(m)  # note/changed unused here
         normed = u._normalize_converted_region(m["regions"][0])
         check("the reader synthesizes no trim",
               ("orig_w" in normed, "orig_h" in normed), (False, False))
@@ -139,26 +147,49 @@ def test_the_clear_reaches_a_reader_that_takes_either_spelling() -> None:
               (normed["off_x"], normed["off_y"]), (0, 0))
 
 
-def test_a_region_with_no_art_yet_is_left_alone() -> None:
-    """Unplaced regions are skipped before the clear, so a not-yet-generated
-    region keeps whatever it was imported with."""
+def test_an_unplaced_region_is_stripped_in_BOTH_spellings_too() -> None:
+    """The other half of the same clear, and the reason this file must be read
+    alongside #684/#686.
+
+    #684 inverted this case. A region with no art used to keep the rect an
+    earlier packing gave it while every other region moved onto a newly-sized
+    page -- and `_deployatlas` shipped a well-formed frame for it, addressing
+    arbitrary pixels. It is now stripped of the packer-owned geometry outright.
+
+    That created a SECOND key list (`_PACK_GEOM_KEYS`), and for two commits it
+    restated the snake_case-only spelling this file exists to correct -- so an
+    unplaced region kept `offX/origW` after a placed one had learned to drop
+    them. #686 rebuilt it as `("x","y","w","h","rotated","rotate") +
+    _REPACK_CLEARED_KEYS`. This asserts the composition, which is the thing no
+    single-commit test covered: both halves of one clear, both spellings."""
     with tempfile.TemporaryDirectory() as td:
         m = _manifest(Path(td))
         m["regions"].append({"name": "Bell", "x": 0, "y": 0, "w": 8, "h": 8,
-                             "origW": 64, "origH": 64})
-        note = u.auto_pack_layout(m)
+                             "off_x": 3, "orig_w": 64, "orig_h": 64,
+                             "offX": 3, "origW": 64, "origH": 64,
+                             "prompt": "a brass bell"})
+        note, changed = u.auto_pack_layout(m)
+        bell = m["regions"][1]
         check("it is reported as skipped, not packed",
               bool(note and "Bell" in note and "not generated yet" in note),
               True)
-        check("...and its trim is not touched",
-              m["regions"][1].get("origW"), 64)
+        check("its stale rect is stripped",
+              [k for k in ("x", "y", "w", "h", "rotated") if k in bell], [])
+        check("its snake_case trim is stripped",
+              [k for k in ("off_x", "orig_w", "orig_h") if k in bell], [])
+        check("its camelCase trim is stripped too (the #683/#684 seam)",
+              [k for k in ("offX", "origW", "origH") if k in bell], [])
+        check("losing a rect is reported, because a symbol left the sheet",
+              bool(note and "rect" in note.lower()), True)
+        check("...but its creative data is untouched -- only the packer's "
+              "output is derived", bell.get("prompt"), "a brass bell")
 
 
 if __name__ == "__main__":
     for fn in (test_the_repack_measures_the_alpha_bbox,
                test_both_spellings_of_the_stale_trim_are_cleared,
                test_the_clear_reaches_a_reader_that_takes_either_spelling,
-               test_a_region_with_no_art_yet_is_left_alone):
+               test_an_unplaced_region_is_stripped_in_BOTH_spellings_too):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
