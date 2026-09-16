@@ -80,8 +80,29 @@ COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
 # is one a published blueprint can use and prod cannot run — which is how this endpoint
 # came to be pointed at the pod image, an image with no handler that answers no job.
 COPY custom_nodes/ComfyUI-SemanticLayers /ComfyUI/custom_nodes/ComfyUI-SemanticLayers
-# Install every node's Python deps (incl. the vendored PuLID folder now present here).
-RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
+# Install every node's Python deps (incl. the vendored PuLID folder now present here),
+# MINUS the folders nodes.json lists in `skipRequirements` — the same filter the R&D pod
+# applies. It used to be a blanket loop, which was harmless only because no `prod` node was
+# ever on that list: the one entry on it (PuLID-Flux2) never reaches this image. The first
+# promotion of a skipped node (ComfyUI_essentials) would have silently installed the five
+# unpinned packages the flag exists to keep out — including a CPU `rembg`/onnxruntime beside
+# the onnxruntime-gpu the face stack installs two lines down. A flag honoured on one of two
+# images is worse than no flag, because the file says it is set.
+RUN set -eu; \
+    SKIP="$(python -c "import json;print(' '.join(json.load(open('/nodes.json')).get('skipRequirements', [])))")"; \
+    failed=''; \
+    for r in */requirements.txt; do \
+        node="${r%/requirements.txt}"; \
+        case " $SKIP " in \
+            *" $node "*) echo "== skip: $r  (deliberate — nodes.json skipRequirements)"; continue;; \
+        esac; \
+        echo "== deps: $r =="; \
+        pip install -r "$r" || failed="$failed $r"; \
+    done; \
+    if [ -n "$failed" ]; then \
+        echo "!! node requirements FAILED:$failed"; \
+        echo "!! Those nodes may be short a dependency; the rest of the image is unaffected."; \
+    fi
 # PuLID-Flux face stack — install explicitly so it can't be missed by a thin requirements.txt.
 RUN pip install insightface onnxruntime-gpu facexlib timm ftfy
 
