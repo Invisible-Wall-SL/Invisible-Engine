@@ -521,6 +521,32 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-16 — **A win screen can PARK on the player.** Owner report: the big win "disappears without
+  a tap". Not a regression — their flow owns `setWin` (so the engine mounts the headless driver and
+  the coded press-anywhere is suppressed by design), authors no win container with a tap-to-continue,
+  and leaves the `winUpdate` node's two interaction toggles unticked. Result: no tap surface anywhere,
+  and the celebration plays to nobody and closes itself.
+  - New optional **`waitForPress`** on the `winUpdate` action node, beside `holdToSpeedUp` /
+    `tapToSkip` — it is the same KIND of thing (a per-instance count-up interaction authored on that
+    node), not a global. Unset ⇒ OFF ⇒ byte-identical.
+  - The hold it arms ALREADY existed (`winState.awaitingDismiss` + the gate's dismiss
+    `PressToContinue`); it could only be armed BY a tap, so a game with no tap surface could never
+    reach it. This arms it from the AUTHOR's intent instead. Two guards: a slam skips the park (the
+    player asked to move on) and `flowHoldsPresentation` skips it (an authored container already owns
+    the beat — arming would put a second tap surface under its own).
+  - Held in `concludePresentation` AFTER the escalation outro, so an escalating win still walks its
+    chain and plays its outro first: the park is the beat after the celebration, not instead of it.
+  - The press is LATCHED (`winState.dismissPressed`) like `countUpComplete`, because an instant
+    count-up can finish in the tick it mounts and a promise that missed the press would hold the round
+    for the whole cap.
+  - Bounded by a new `PARK_HOLD_CAP_MS` (5 min) — NOT the 10s `DISMISS_HOLD_CAP_MS`, which bounds an
+    accident (tapped to land, then put the phone down) where this bounds an intention. Still capped
+    because the spin button is locked during the celebration, so a slam is not always reachable and an
+    abandoned autoplay run would otherwise block the round forever.
+  - Verified live: parked at t=0, still on screen 45s later, `released … pressed = true` on the press,
+    round settled. Guard: `pnpm check:big-win-cue` now 17 assertions (8 new, mutation-tested) pinning
+    every link of the /flow → payload → effect → event → gate chain, since a break anywhere is silent.
+
 - 2026-09-16 — **The big-win run-up was dead on the only path that matters, and the overlay restarted
   the count.** Owner report: "I get the Big win overlay right away starting to count from 0." Two
   distinct bugs in yesterday's cue.

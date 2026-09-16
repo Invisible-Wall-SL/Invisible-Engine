@@ -1296,6 +1296,7 @@ const effects: Record<string, FlowEffect> = {
 			// PER-INSTANCE count-up interaction — authored on THIS node. Unset ⇒ off.
 			holdToSpeedUp: payload.holdToSpeedUp === true,
 			tapToSkip: payload.tapToSkip === true,
+			waitForPress: payload.waitForPress === true,
 		});
 	},
 

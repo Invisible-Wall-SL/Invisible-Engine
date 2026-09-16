@@ -79,6 +79,11 @@ export const winState = $state<{
 	 *  ONE number. Set by `cueBigWinCountUp` just before the overlay shows, read by `WinGate` as
 	 *  the count-up's `startFrom`, cleared on `winHide`. 0 ⇒ no cue ran ⇒ count from zero. */
 	cueHandoffAmount: number;
+	/** The player's DISMISS press landed. The order-independent latch a PARKED win waits on
+	 *  (`waitForPress`), mirroring `countUpComplete`: the press can arrive before the wait is
+	 *  wired, and a promise that missed it would hold the round for the whole cap. Reset by
+	 *  `WinGate` on `winShow` and `winHide`. */
+	dismissPressed: boolean;
 	escalationActive: boolean;
 	escalationOutroComplete: boolean;
 	escalationSpeedScale: number;
@@ -94,6 +99,7 @@ export const winState = $state<{
 	coinsEmit: false,
 	countUpComplete: false,
 	cueHandoffAmount: 0,
+	dismissPressed: false,
 	escalationActive: false,
 	escalationOutroComplete: false,
 	escalationSpeedScale: 1,
