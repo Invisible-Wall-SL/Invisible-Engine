@@ -217,6 +217,54 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-16 — **The owner's report ("re-packed + redeployed atlas, tool still draws the old art")
+  was a SERVER-side page-resolution fault — fixed in `editorRegions.ts`. A separate client-cache
+  gap found while chasing it gave `/flipbook` a ↻ Refresh from R2.** Two distinct problems; only
+  the first one caused the report.
+  - **The report: the stale-deploy guard rejected the CORRECT deployed page.** `findDeployedPage`
+    demoted any deployed page older than the manifest, so `resolvePageKey` fell back to
+    `atlas.source_image_path` — on `invisible_wall/test6` a 1934x1612 page from 08:37 in place of
+    the 2047x1173 deploy from 09:50 that the 09:55 manifest actually declares. Different page size,
+    so every frame was sliced at meaningless coordinates, in `/editor` and `/symbols` too. **A hard
+    reload did NOT help**, which is the tell: the wrong page was chosen on every request. Full
+    story, R2 numbers and the new `isDeployedPageStale` rule: [editor status](editor.md)
+    (2026-09-16) — that resolver is shared, so it is not filed here.
+  - **The earlier "the server was never the stale part" reading in this file was wrong.** It came
+    from checking the resolution CHAIN (fresh R2 read per call, ETag-derived `pageVersion`,
+    `must-revalidate` on `/api/editor/asset` — all genuinely clean) without checking whether the
+    page it resolved TO was the right one.
+  - **The client caches below are real, and worth the button they got** — they make a tab left open
+    keep showing old art after a re-deploy even once the server answers correctly. They are an
+    in-session staleness gap, not the cause of this report.
+  - **They are purely CLIENT-side, and live for the whole SPA session.** The launcher navigates
+    with plain `<a href>`, so a tab left open never re-evaluates a module: `fetchRegions`'
+    `Map<string, Promise<RegionSet>>` returns the old rects **and the old `pageVersion`**, which is
+    the very token that would have busted the image URL — so `RegionThumb`'s shared `pageImages`
+    decode is reused too. The Atlas Maker is a separate origin in another tab, so nothing in this
+    tab ever learns the art moved.
+  - **A THIRD cache was found on the way**, unnoticed until now and worse than the other two:
+    `editor/regionCrop.ts`'s own `pages` map, which neither the Scene Editor's ↻ Reload art nor
+    anything else ever dropped. Its only caller is 🎬 Video mode's `cropRegionToPng`, whose output
+    is UPLOADED as the generation source — so a stale decode there does not merely mislead the
+    eye, it spends GPU time animating art the project no longer has. It now exports
+    `clearCropPages()` and both refresh paths call it.
+  - **The cache fix is the affordance the Scene Editor already had and this tool did not** —
+    `EditorCanvas.refreshAssets()`'s `clearRegionCache()` + `clearPageImages()`, plus a reset of
+    the page's own `regionSets` and an `invalidateAll()` so the server-loaded sheet LIST and
+    region names (and the saved-clip rail) re-read as well. In the clips mode it sits beside the
+    *Source sheet* heading; 🎬 Video mode gets the compact twin in its region source picker.
+  - **Safe for unsaved work, and that is not an accident.** `clip`, `pickerId`, `clips` and
+    `sheetKey` are `$state` seeded from `data` exactly ONCE and no `$effect` syncs
+    `data.openedClip` back into them, so `invalidateAll()` cannot clobber an edit in progress.
+    Re-check that before adding any `data`→state sync to this page.
+  - Verified: `svelte-check --threshold error` COMPLETED (exit 1 on 66 pre-existing errors in 45
+    other files, none in the three touched); prettier clean. **Not browser-verified** — the
+    button's effect on a genuinely re-packed atlas has not been watched live.
+  - **Manifest-shape change, same day:** a video-mode sheet no longer declares
+    `atlas.layout:"pack"`, so the Atlas Maker can never re-pack it out from under its own
+    `sheets/` page — see [atlas-maker status](atlas-maker.md) (2026-09-16) for why that half gave
+    and what it costs.
+
 - 2026-09-14 — **Deleting a whole video session now asks first.** Dropping ONE variation confirmed
   (`discardVariation`); dropping the whole grid it belongs to did not, which had it backwards — the
   session 🗑 is the irreversible one, and the only way a session goes away at all (nothing prunes

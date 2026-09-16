@@ -388,6 +388,26 @@ def _build_manifest(name: str, packed: dict, regions: list[dict],
         be silently dropped, and the animation would pulse (docstring #1).
       * `fit_mode: "contain"` — an `.atlas`-bound region is otherwise treated as
         a Spine slot and `fill`ed (stretched) by the Atlas Maker's composer.
+
+    What it must NOT carry is `atlas.layout: "pack"`. It used to, and the two
+    halves contradicted each other: `pack` means "the Atlas Maker owns this
+    layout and re-derives it from the generated art on every Create Atlas",
+    while `source_image_path` names a FIXED page under `sheets/` that only this
+    module ever writes. Opening such a sheet in the Atlas Maker seeds every
+    region from the page (the `export_prefix` auto-seed), so the next Create
+    Atlas really did re-pack it — to a different page size — leaving the
+    manifest naming a page its own rects no longer fit. Every consumer that
+    crops the declared page by those rects then sliced the wrong pixels.
+
+    Of the two halves, `pack` is the wrong one. The layout here is OWNED by this
+    packer, not by the Atlas Maker: the rects carry a real logical trim
+    (`offX/offY/origW/origH`) that a re-pack discards, and `texturepacker_json`
+    is the packer's authoritative description of exactly this page. Dropping the
+    declaration makes `auto_pack_layout` return None for these sheets, so the
+    page, the rects and the descriptor stay one consistent set — which matches
+    the `_comment` above: re-running the video session is how you replace them.
+    The only thing lost is the Atlas Maker's per-region delete affordance (it is
+    gated on `layout == "pack"`), which was never meaningful for packed frames.
     """
     return {
         "_comment": (
@@ -401,7 +421,6 @@ def _build_manifest(name: str, packed: dict, regions: list[dict],
             "width": int(packed["width"]),
             "height": int(packed["height"]),
             "format": "RGBA",
-            "layout": "pack",
         },
         "export_prefix": export_prefix,
         "deploy_basename": name,
