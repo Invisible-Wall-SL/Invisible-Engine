@@ -120,13 +120,19 @@ export const winState = $state<{
  * gate's press. Calling this from the authored tap makes the hold releasable by EITHER, so the two
  * surfaces can no longer deadlock each other whichever way the registration order falls.
  *
- * Sets the SAME latch the gate's `dismissNow` does (`escalationOutroComplete`), so the conclusion the
- * gate already has in flight resolves at once and the outro stays skipped on a deliberate dismiss
- * (#295's intent). `awaitingDismiss` is deliberately left set — clearing it would drop
+ * Sets the SAME latches the gate's `dismissNow` does — `escalationOutroComplete`, so the conclusion
+ * the gate already has in flight resolves at once and the outro stays skipped on a deliberate
+ * dismiss (#295's intent), AND `dismissPressed`, the latch a PARKED win waits on
+ * (`waitForPress`). Both, or the release is only half a release: a parked win whose authored tap
+ * won the top press released the escalation hold and then kept waiting for a press that had
+ * already happened — the pointer appeared dead while the Space key still worked, because every
+ * `PressToContinue` fires its OWN hotkey directly and only the POINTER is routed to the top
+ * surface alone. `awaitingDismiss` is deliberately left set — clearing it would drop
  * `WinAnimation`'s `holdOutro` and start an exit clip in the same beat the overlay is leaving. A no-op
  * when no hold is armed, which is every non-escalating win and every untapped one.
  */
 export const releaseWinDismissHold = (): void => {
 	if (!winState.awaitingDismiss) return;
 	winState.escalationOutroComplete = true;
+	winState.dismissPressed = true;
 };

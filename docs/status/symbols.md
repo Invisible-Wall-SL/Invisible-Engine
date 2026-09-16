@@ -521,6 +521,25 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-16 — **A parked win now releases on the MOUSE, not just Space.** Owner report: with
+  `waitForPress` on, the space bar skipped the win but the left mouse button did nothing — "these 2
+  should always be paired". A defect in the park, one line deep.
+  - **Why the two inputs disagreed.** Every `PressToContinue` owns its OWN Space hotkey and fires it
+    directly, so Space runs EVERY live press surface. The POINTER does not: `<ContinuePressMask>`
+    routes a click to the TOP registered press alone. A project whose scene carries an authored
+    `tapToContinue` armed on `winCountUpComplete` therefore has two surfaces up at once, and a click
+    reaches only theirs.
+  - `releaseWinDismissHold()` already exists precisely for that collision — the authored tap calls it
+    so the gate's hold is releasable by EITHER surface. The park added a SECOND latch
+    (`dismissPressed`) and never wired it in, so that release was only half a release: it cleared
+    `escalationOutroComplete` and left the park waiting for a press that had already happened.
+  - Fix: `releaseWinDismissHold()` sets both latches. Pinned by a new assertion in
+    `pnpm check:big-win-cue` (18 now, mutation-tested).
+  - Verified live: `parked, holding…` → `releaseWinDismissHold called, armed = true` → `park
+    released; pressed = true`, overlay closed, round settled.
+  - Still asymmetric by design elsewhere: Space fires every live surface, the pointer only the top.
+    That predates the park and is untouched here.
+
 - 2026-09-16 — **A win screen can PARK on the player.** Owner report: the big win "disappears without
   a tap". Not a regression — their flow owns `setWin` (so the engine mounts the headless driver and
   the coded press-anywhere is suppressed by design), authors no win container with a tap-to-continue,
