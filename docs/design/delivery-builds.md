@@ -12,7 +12,7 @@ A **delivery build** is the same `build/` folder handed to a partner, a client, 
 aggregator, who serves it from **their** domain and launches it from **their** page. None of our
 params are there. Before this work the result was not a visible failure:
 
-- `rgsUrl()` fell back to `''`, so the game POSTed `/rgs/engine` at the *host's* own origin;
+- `rgsUrl()` fell back to `''`, so the game POSTed `/rgs/engine` at the _host's_ own origin;
 - `sessionID()` minted a throwaway `demo-<uuid>`.
 
 The build booted, looked healthy, and played against nothing. Making that impossible is the point
@@ -79,8 +79,8 @@ field warns and keeps the baked value rather than throwing, and `baseUrl` is whi
 (it becomes the prefix of every wallet call).
 
 **Consumers:** `stateUrlDerived.rgsUrl()`/`sessionID()` (`state-shared`), the transport's endpoint +
-credentials (`rgs-translator-eagaming`), and `+layout.ts`, which awaits the load alongside the
-runtime bundle so `Authenticate` sees the resolved profile on its first call.
+credentials (`rgs-translator-eagaming`), and `Authenticate.svelte`, which awaits the load at the top
+of its `onMount` — the one place EVERY app reaches, since only `apps/lines` has a layout `load`.
 
 **The hard-fail.** With `session.required`, a missing token makes `sessionID()` return `''` and
 `Authenticate.svelte` throws before calling any transport — the shape it already catches and
@@ -93,6 +93,33 @@ available outcome.
 keys, wrong types, and the two fields a delivery cannot work without) and throws. That is the
 opposite posture from the runtime merge, deliberately: nothing is running yet, and a profile that
 merged down to internal defaults would ship a delivery pointing at no RGS at all.
+
+## Phase 1b — one bundle, several RGSs (`?rgs_profile=`) ✅ BUILT
+
+A DELIVERED build is pinned to one RGS on purpose. The shared `_runtime/*` bundle is the opposite
+case: **one artifact that has to reach several** — our own test server while developing, a partner's
+for real play — without a rebuild per target, because every online game runs that same bundle.
+
+So a build can compile a **registry** of profiles and the launch URL picks one:
+
+- `PUBLIC_DELIVERY_PROFILES` (comma-separated names, or `*` for every profile in
+  `packages/delivery-profile/profiles/`) injects `__IE_DELIVERY_PROFILES__`. The runtime release
+  sets `*`.
+- `?rgs_profile=<id>` selects. **It is a whitelist** — the URL picks among hosts we shipped, it can
+  never name one, which is what separates this from re-opening `?rgs_url=`.
+- **`internal` is reserved** and always available: the built-in default, our RGS through
+  `?rgs_url=`. It is the third option, named rather than implied, so a launch URL can ask for
+  development mode explicitly on a bundle that also carries partner profiles.
+- An id the build does not carry **refuses loudly** and falls back to ours. A silent fallback would
+  be a game that looks fine while playing somewhere the launch never intended.
+- A **baked** profile still wins outright: a `?rgs_profile=` on a delivery is refused and reported,
+  because that build fixed its RGS deliberately and the host page does not get to move it.
+- A selected profile does **not** read `config.json`: one file beside a shared bundle would silently
+  repoint every game running it. Repointing a selected profile means shipping a profile and doing a
+  runtime release — the reviewable path.
+
+Precedence, highest first: baked → `?rgs_profile=` → default. Nothing selected is byte-identical to
+before.
 
 ## Phase 2 — the protocol deltas (NEXT)
 
