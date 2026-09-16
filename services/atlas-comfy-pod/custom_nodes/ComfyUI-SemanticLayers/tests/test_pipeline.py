@@ -402,6 +402,99 @@ class TestFullPipeline(unittest.TestCase):
             )
 
 
+class TestWidgetOrderIsAppendOnly(unittest.TestCase):
+    """ComfyUI serialises a node's widget values POSITIONALLY into widgets_values. A new
+    widget inserted above the existing ones shifts every saved graph by one — a workflow
+    reloads with its clip_model sitting in taxonomy_yaml, and nothing anywhere errors.
+    These pin the two orders that existing exported graphs depend on."""
+
+    def test_taxonomy_yaml_is_the_LAST_optional_on_analyze(self):
+        optional = list(analyze_mod.SemanticLayerAnalyze.INPUT_TYPES()["optional"])
+        self.assertEqual(optional[-1], "taxonomy_yaml")
+        self.assertEqual(
+            optional[:3], ["clip_model", "florence_model", "florence_task"],
+            "the widgets that existing graphs already store values for must keep their order",
+        )
+
+    def test_taxonomy_yaml_is_optional_not_required_on_the_router(self):
+        types = router_mod.SemanticLayerRouter.INPUT_TYPES()
+        self.assertEqual(list(types["required"])[-1], "taxonomy_path")
+        self.assertIn("taxonomy_yaml", types.get("optional", {}))
+        self.assertNotIn("taxonomy_yaml", types["required"])
+
+
+class TestRouterInheritsTheTaxonomy(unittest.TestCase):
+    """One blueprint param has to drive the whole chain. A param targets ONE node.field,
+    so if the router insisted on its own copy an author would need two params — and two
+    copies of a vocabulary is two vocabularies the moment one is edited. The analyzer
+    scoring against one while the router resolves against another is invisible in the
+    output: every role still arrives, just wrong."""
+
+    ALL = [n for n, _, _ in LAYERS]
+
+    # Identical to the bundled taxonomy in every way that matters here EXCEPT one: the
+    # `asset` category's default_role. Whichever taxonomy the router actually used is
+    # then readable off the outputs — the chair and table land on ENVIRONMENT instead of
+    # ASSETS — rather than off a report string that might have said "environment" anyway.
+    @staticmethod
+    def _yaml(asset_role: str) -> str:
+        return (
+            "version: 1\n"
+            "roles: [BACKGROUND, MAIN_CHARACTER, SECONDARY_CHARACTER, ASSET,"
+            " ENVIRONMENT, EFFECT, OTHER, UNRESOLVED]\n"
+            "categories:\n"
+            "  background: {default_role: BACKGROUND, is_background: true, importance: 0.1}\n"
+            "  character: {default_role: SECONDARY_CHARACTER, is_character: true, importance: 1.0}\n"
+            "  asset: {default_role: %s, importance: 0.5}\n"
+            "  effect: {default_role: EFFECT, importance: 0.5}\n"
+            "rules: []\n" % asset_role
+        )
+
+    ASSETS_OUT, ENVIRONMENT_OUT = 3, 4
+
+    def setUp(self):
+        taxonomy_mod.clear_cache()
+
+    def tearDown(self):
+        taxonomy_mod.clear_cache()
+
+    @staticmethod
+    def _occupied(image) -> bool:
+        """An empty role is `blank_image` — all zeros. Anything routed here is not."""
+        return bool(image.abs().sum() > 0)
+
+    def _route(self, metadata_stamp, **kwargs):
+        layer_set, resolved, _o = run_chain(self.ALL)
+        resolved.metadata.update(metadata_stamp)
+        return router_mod.SemanticLayerRouter().route_layers(
+            semantic_layers=layer_set, layer_metadata=resolved, mode="AUTO",
+            auto_threshold=0.65, uncertain_threshold=0.4, merge_mode="alpha_over",
+            merge_order="area_desc", overrides="", output_rgba=True,
+            taxonomy_path=kwargs.pop("taxonomy_path", ""), **kwargs,
+        )
+
+    def test_no_stamp_and_no_inputs_is_the_bundled_default(self):
+        """The control, and every graph that predates this change: assets go to ASSETS."""
+        out = self._route({})
+        self.assertTrue(self._occupied(out[self.ASSETS_OUT]))
+        self.assertFalse(self._occupied(out[self.ENVIRONMENT_OUT]))
+
+    def test_empty_inputs_inherit_the_analyzers_taxonomy(self):
+        """The whole point: one param on Analyze reaches the router untouched."""
+        out = self._route({"taxonomy_yaml": self._yaml("ENVIRONMENT"), "taxonomy_path": ""})
+        self.assertTrue(self._occupied(out[self.ENVIRONMENT_OUT]))
+        self.assertFalse(self._occupied(out[self.ASSETS_OUT]))
+
+    def test_its_own_taxonomy_still_wins_over_the_inherited_one(self):
+        """Inheritance is a default, not a lock — an author can still override per node."""
+        out = self._route(
+            {"taxonomy_yaml": self._yaml("ENVIRONMENT"), "taxonomy_path": ""},
+            taxonomy_yaml=self._yaml("ASSET"),
+        )
+        self.assertTrue(self._occupied(out[self.ASSETS_OUT]))
+        self.assertFalse(self._occupied(out[self.ENVIRONMENT_OUT]))
+
+
 class TestRouterAlpha(unittest.TestCase):
     """The router used to compute the merged coverage and then discard it, so an
     extracted character arrived composited onto black. Measured on a real Qwen run:

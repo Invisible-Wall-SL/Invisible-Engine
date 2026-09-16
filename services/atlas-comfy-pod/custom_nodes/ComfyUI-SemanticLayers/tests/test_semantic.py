@@ -96,6 +96,67 @@ class TestTaxonomyAndRules(unittest.TestCase):
         self.assertEqual(match.confidence, 0.0)
 
 
+# The Atlas Maker's production target is a serverless worker with no durable filesystem,
+# so a taxonomy_path can never resolve there. Inline YAML is the only way a project's own
+# vocabulary reaches a production render.
+INLINE_YAML = """
+version: 1
+roles: [BACKGROUND, MAIN_CHARACTER, SECONDARY_CHARACTER, ASSET, ENVIRONMENT, EFFECT, OTHER, UNRESOLVED]
+categories:
+  asset:
+    default_role: ASSET
+    importance: 1.0
+rules:
+  - category: asset
+    keywords: [zzzblorptech]
+    priority: 10
+"""
+
+
+class TestInlineTaxonomy(unittest.TestCase):
+    def setUp(self):
+        taxonomy_mod.clear_cache()
+
+    def tearDown(self):
+        taxonomy_mod.clear_cache()
+
+    def test_inline_yaml_is_parsed_and_used(self):
+        tax = taxonomy_mod.load_taxonomy("", INLINE_YAML)
+        self.assertEqual(tax.source_path, "<inline>")
+        self.assertEqual(getattr(tax, "load_note", ""), "")
+        # A word the bundled taxonomy does not know, that this one does.
+        self.assertEqual(rules.classify_text("zzzblorptech", tax).category, "asset")
+
+    def test_inline_yaml_beats_a_path(self):
+        """Both supplied: the text wins, so a param can override a baked-in path."""
+        tax = taxonomy_mod.load_taxonomy("/nonexistent/taxonomy.yaml", INLINE_YAML)
+        self.assertEqual(tax.source_path, "<inline>")
+        self.assertEqual(getattr(tax, "load_note", ""), "")
+
+    def test_broken_inline_yaml_degrades_and_SAYS_so(self):
+        """Never raise — but never fail silently either. A render that quietly routes
+        against the fallback vocabulary is the failure mode this note exists to stop."""
+        tax = taxonomy_mod.load_taxonomy("", "roles: [UNCLOSED\n  bad: : :")
+        self.assertIn("inline taxonomy", getattr(tax, "load_note", ""))
+        self.assertTrue(tax.roles)
+
+    def test_non_mapping_inline_yaml_degrades_and_says_so(self):
+        tax = taxonomy_mod.load_taxonomy("", "- just\n- a\n- list")
+        self.assertIn("not a YAML mapping", getattr(tax, "load_note", ""))
+
+    def test_two_inline_taxonomies_do_not_share_a_cache_entry(self):
+        """Keyed by content. A path-shaped key would collide across two nodes holding
+        different inline taxonomies, and the second would silently get the first."""
+        a = taxonomy_mod.load_taxonomy("", INLINE_YAML)
+        b = taxonomy_mod.load_taxonomy("", INLINE_YAML.replace("zzzblorptech", "othertech"))
+        self.assertEqual(rules.classify_text("zzzblorptech", a).category, "asset")
+        self.assertFalse(rules.classify_text("zzzblorptech", b).matched)
+
+    def test_yaml_pasted_into_the_PATH_field_still_refuses_and_points_at_the_new_input(self):
+        tax = taxonomy_mod.load_taxonomy(INLINE_YAML, "")
+        self.assertIn("taxonomy_yaml", getattr(tax, "load_note", ""))
+
+
 class TestRoutingCases(unittest.TestCase):
     def test_1_single_background_layer(self):
         plan = full_pipeline(make_set(make_meta("bg", "blue sky with clouds", area=1.0)))
