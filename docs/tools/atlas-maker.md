@@ -497,20 +497,35 @@ picture, was dropped.)
 
 Do **not** use `taxonomy_path` for an Atlas Maker render. It takes a filename, and the
 production target is a serverless worker whose container is discarded after the job, so
-no path you can type there survives. Instead:
+no path you can type there survives.
 
-1. On **Semantic Layer Analyze**, expose `taxonomy_yaml` as a param — type `text`, and
-   tick **multiline** so you get a box big enough to read a taxonomy in.
-2. Paste the YAML as the param's default. Start from `configs/default_taxonomy.yaml` in
-   the pack and add your project's vocabulary; keep `UNRESOLVED` last in `roles`.
-3. Leave **Semantic Layer Router**'s two taxonomy inputs empty. It inherits whatever
-   Analyze used. Giving it its own copy is how the two end up on different vocabularies,
-   and an analyzer scoring against one while the router resolves against another looks
-   exactly like a correct run — every role still arrives, just wrong.
+**Edit it in 🏷 Taxonomy** (next to *Manage blueprints*, same permission). That is one
+shared taxonomy for everyone: it is stored once, and every render injects it into any
+node in the graph that takes one. No file on any disk, no per-blueprint param, and no
+re-publishing a blueprint when you change a keyword — edit it on any machine and the
+next render anywhere picks it up.
 
-A broken taxonomy never fails the render; it falls back to a much smaller built-in
-vocabulary and notes it on the node's `report` output. So after editing, read `report` —
-from the images alone, a silent success and a silent fallback are identical.
+Start from `configs/default_taxonomy.yaml` in the pack and add your vocabulary. Keep
+`UNRESOLVED` last in `roles`. **Save checks it before storing** — a taxonomy that would
+not load is refused with the reason, because the node's own behaviour is to fall back to
+a much smaller built-in vocabulary and carry on, so this is the last point where a typo
+is visible to the person who made it. Save also tells you what it stored ("5 roles, 6
+categories, 143 keywords"), which is the quickest way to confirm the edit you meant.
+
+Two things worth knowing:
+
+- **A blueprint that sets its own `taxonomy_yaml` keeps it.** The shared one is a
+  default, not an override, so a graph with a deliberate taxonomy is never overwritten.
+- **Leave Semantic Layer Router's taxonomy inputs empty.** It inherits whatever Analyze
+  used. Giving it its own copy is how the two end up on different vocabularies, and an
+  analyzer scoring against one while the router resolves against another looks exactly
+  like a correct run — every role still arrives, just wrong.
+
+If two of you edit it at once the second save is **refused**, not silently applied over
+the first — copy your version out, reload, and reapply.
+
+After a render, read the node's `report` output. A broken taxonomy never fails a render;
+from the images alone a silent fallback and a silent success are identical.
 
 ### Troubleshooting
 

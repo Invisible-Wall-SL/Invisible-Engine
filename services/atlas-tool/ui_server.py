@@ -51,6 +51,7 @@ import model_mirror  # noqa: E402  (R2 model mirror — where a declared model f
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
 import storage  # noqa: E402  (R2 object storage + staging mirror)
+import shared_taxonomy  # noqa: E402  (the one semantic taxonomy every render injects)
 from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
@@ -4367,6 +4368,26 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   </div>
  </div>
 </div>
+<div id="taxModal" class="modal" onclick="if(event.target===this)closeTaxonomy()">
+ <div class="modalbox" style="width:min(860px,96vw)">
+  <div class="modalhdr"><span>Semantic taxonomy (shared)</span><button onclick="closeTaxonomy()">✕ close</button></div>
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px">
+   <div style="color:#888;font-size:12px">
+    One taxonomy for everyone, stored once and injected into every render that has a node
+    which takes one — no filesystem, no re-publish, the same on every machine. A blueprint
+    that sets its own taxonomy keeps it. With the <b>clip</b> analyzer these keywords
+    <b>are</b> the labels layers are scored against, so a subject the vocabulary does not
+    name lands in UNRESOLVED.
+   </div>
+   <textarea id="taxText" spellcheck="false" style="width:100%;height:46vh;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.45;background:#111;color:#ddd;border:1px solid #333;border-radius:4px;padding:8px"></textarea>
+   <div style="display:flex;align-items:center;gap:10px">
+    <button onclick="saveTaxonomy()" title="Checked before it is stored — a taxonomy that would not load is refused here rather than falling back silently at render time">💾 Save</button>
+    <button onclick="loadTaxonomy()" class="alt" title="Discard edits and re-read what is stored">↻ Reload</button>
+    <span id="taxStat" style="color:#999"></span>
+   </div>
+  </div>
+ </div>
+</div>
 <div id="diags"></div>
 <pre id="log"></pre>
 <script>
@@ -5034,6 +5055,50 @@ function openManageBlueprints(){{
  document.getElementById('bpManageModal').classList.add('open');
 }}
 function closeManageBp(){{document.getElementById('bpManageModal').classList.remove('open');}}
+
+// --- Shared semantic taxonomy -------------------------------------------
+// The etag from the last read. Sent back on save so two people editing cannot
+// silently overwrite each other — the server refuses a stale write rather than
+// taking the last one to click Save.
+var _taxEtag=null;
+function taxStat(s){{document.getElementById('taxStat').textContent=s||'';}}
+function openTaxonomy(){{
+ document.getElementById('taxModal').classList.add('open');
+ loadTaxonomy();
+}}
+function closeTaxonomy(){{document.getElementById('taxModal').classList.remove('open');}}
+function loadTaxonomy(){{
+ taxStat('reading…');
+ fetch('/taxonomy/get',{{method:'POST',body:'{{}}'}})
+  .then(r=>r.json())
+  .then(r=>{{
+   if(r.error){{ taxStat('✖ '+r.error); return; }}
+   _taxEtag=r.etag||null;
+   document.getElementById('taxText').value=r.text||'';
+   taxStat(r.text ? (r.summary||'') :
+    'Nothing stored yet — paste a taxonomy and save. Start from configs/default_taxonomy.yaml in the pack.');
+  }})
+  .catch(e=>taxStat('✖ '+e));
+}}
+function saveTaxonomy(){{
+ taxStat('saving…');
+ fetch('/taxonomy/save',{{method:'POST',body:JSON.stringify(
+   {{text:document.getElementById('taxText').value,etag:_taxEtag}})}})
+  .then(r=>r.json())
+  .then(r=>{{
+   if(r.conflict){{
+    // Deliberately does NOT reload over the top: their edits are in the box.
+    taxStat('✖ Somebody else saved since you opened this. ↻ Reload to see theirs '
+            +'(your edits in the box will be lost), or copy yours out first.');
+    return;
+   }}
+   if(!r.ok){{ taxStat('✖ '+(r.error||'refused')); return; }}
+   _taxEtag=r.etag;
+   taxStat('✔ saved — '+(r.summary||'')
+           +((r.warnings&&r.warnings.length)?('  ⚠ '+r.warnings.join('; ')):''));
+  }})
+  .catch(e=>taxStat('✖ '+e));
+}}
 function renderBpManage(){{
  let box=document.getElementById('bpManageList'); if(!box) return;
  box.innerHTML='';
@@ -6958,7 +7023,13 @@ class Handler(BaseHTTPRequestHandler):
                        b"Blueprint upload too large (max ~4 MB).")
             return
         raw = self.rfile.read(length).decode("utf-8")
-        if post_path == "/save":
+        if post_path == "/taxonomy/get":
+            self._send(200, "application/json",
+                       json.dumps(self._taxonomy_get()).encode())
+        elif post_path == "/taxonomy/save":
+            self._send(200, "application/json",
+                       json.dumps(self._taxonomy_save(json.loads(raw or "{}"))).encode())
+        elif post_path == "/save":
             self._send(200, "text/plain", self._save(json.loads(raw)).encode())
         elif post_path == "/saveconfig":
             self._send(200, "text/plain", self._saveconfig(json.loads(raw)).encode())
@@ -8964,7 +9035,10 @@ class Handler(BaseHTTPRequestHandler):
             'ComfyUI API-format workflow and bind its roles as a new shared '
             'blueprint">⬆ Upload blueprint</button>'
             '<button onclick="openManageBlueprints()" class="alt" title="View '
-            'and delete shared blueprints">🗑 Manage blueprints</button></div>'
+            'and delete shared blueprints">🗑 Manage blueprints</button>'
+            '<button onclick="openTaxonomy()" class="alt" title="Edit the shared '
+            'semantic taxonomy every render injects — the vocabulary the layer '
+            'analyzer scores against">🏷 Taxonomy</button></div>'
             if getattr(self, "can_publish", False) else "")
         # role-binding map for every non-built-in blueprint, for the client's
         # ref-field show/hide logic (a blueprint hides a ref field it doesn't
@@ -9032,6 +9106,53 @@ class Handler(BaseHTTPRequestHandler):
             flash_region=json.dumps(dl_region),
             notice="".join(notices),
         )
+
+    def _taxonomy_get(self) -> dict:
+        """Read the shared taxonomy for the editor. Returns its text plus the ETag the
+        save must send back, so a concurrent edit is refused rather than silently lost.
+
+        Never raises: the modal shows `error` and the artist can still retry."""
+        try:
+            text, etag = shared_taxonomy.load()
+        except Exception as exc:  # noqa: BLE001 — R2 hiccup is a message, not a 500
+            return {"error": f"could not read the taxonomy: {exc}"}
+        rep = shared_taxonomy.validate(text) if text else None
+        return {
+            "text": text or "",
+            "etag": etag or "",
+            # Summarise what is STORED, which may already be invalid if it was written
+            # by something other than this editor.
+            "summary": (rep.summary() if rep else ""),
+            "ok": bool(rep.ok) if rep else True,
+        }
+
+    def _taxonomy_save(self, payload: dict) -> dict:
+        """Validate and store the shared taxonomy.
+
+        Gated on `can_publish` like blueprint upload — this one file changes what EVERY
+        render classifies against, so it is at least as consequential as publishing one
+        blueprint. Refuses a taxonomy that would not load: the node's own behaviour is to
+        fall back to a much smaller vocabulary and carry on, so this is the last point at
+        which a typo is visible to the person who made it."""
+        if not getattr(self, "can_publish", False):
+            return {"ok": False, "error": "You're not allowed to edit the shared "
+                                          "taxonomy. Ask an admin for the 'Publish "
+                                          "blueprints' permission."}
+        text = str(payload.get("text", ""))
+        etag = str(payload.get("etag", "") or "") or None
+        rep = shared_taxonomy.validate(text)
+        if not rep.ok:
+            return {"ok": False, "error": "; ".join(rep.errors), "errors": rep.errors}
+        try:
+            new_etag = shared_taxonomy.save(text, if_match=etag)
+        except storage.Conflict:
+            return {"ok": False, "conflict": True}
+        except ValueError as exc:  # validate() disagreed inside save() — belt and braces
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"could not save: {exc}"}
+        return {"ok": True, "etag": new_etag, "summary": rep.summary(),
+                "warnings": rep.warnings}
 
     def _save(self, edits: list[dict]) -> str:
         # Serialised: two tabs saving at once would each read the manifest,
