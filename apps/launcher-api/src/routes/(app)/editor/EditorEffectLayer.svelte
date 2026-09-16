@@ -60,6 +60,14 @@
 		/** Editor-only: when set, render ONLY these scene ids (the per-scene composite passes a
 		 * single-id Set so an effect z-orders with its own scene group). Unset = every non-hidden. */
 		sceneFilter?: Set<string> | null;
+		/** Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested effects
+		 * follow their top-level ancestor) — see `EditorSpineLayer.nodeFilter`. `null` ⇒ every node
+		 * (parity). */
+		nodeFilter?: Set<string> | null;
+		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorSpineLayer.blend`. An additive
+		 * emitter blended INSIDE this transparent overlay is a no-op, so the blend rides the element
+		 * and composites against the art beneath, exactly as the game's `<Container blendMode>` does. */
+		blend?: string;
 		/** Loaded project component defs, so the overlay can EXPAND a `componentInstance`'s tree and
 		 * render effects nested inside it — the same `componentMap` the 2D canvas + overlays use. */
 		componentMap?: Map<string, ComponentDef>;
@@ -89,6 +97,8 @@
 		playing,
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
+		nodeFilter = null,
+		blend = 'normal',
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
 		onReadyKeysChange,
@@ -198,6 +208,7 @@
 			if (hiddenSceneIds.has(sc.id)) continue;
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
+				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				const t = resolveTransform(n, layoutType);
 				if (!t.visible) continue;
 				if (n.kind === 'effect') {
@@ -650,7 +661,7 @@
 	});
 </script>
 
-<div bind:this={host} class="effect-layer"></div>
+<div bind:this={host} class="effect-layer" style:mix-blend-mode={blend}></div>
 
 <style>
 	.effect-layer {

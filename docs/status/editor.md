@@ -16,8 +16,8 @@ Shipped capabilities on `main`:
 - **Canvas** — real-texture rendering (spine previews as a live skeleton; FX render **live particles** as an overlay following pan/zoom), zoom/pan/Fit, multi-select, transform handles (move/scale/rotate), snap-to-node guides, undo/redo, copy/cut/paste/duplicate.
 - **Library placement** — Text / Rect / Reel elements, atlas pages + manifest regions, spines (+ `_shared/`, upload), sheet regions, **Invisible FX** effects (place free or attach-to-rig; particle atlas ships automatically), and **Invisible Flipbook** clips (2026-08-25 — a `flipbook` node carrying a `clipId` + placement, with per-placement `fps`/`loop` overrides; the canvas **plays** it in place rather than chipping it, because a clip is atlas frames in order and not a WebGL emitter. The clip's sheet ships automatically. See [flipbook status](flipbook.md)).
 - **Per-region drag/thumbnail/overlay** (§B18) — each sheet/atlas-manifest row expands to individually-draggable region thumbnails (`RegionThumb.svelte`); selected node gets a floating item toolbar (`EditorItemOverlay.svelte`) with delete/lock/anchor/z-order.
-- **Properties** — transform/tint/text/spine anim + slot fill; **background cover** (fit — cover / contain / fit-width / fit-height — plus cover scale and align x/y, all per layoutType, 2026-09-14); node actions (Convert to reel grid / parametric button / Edit as component). Reel-grid **symbol size (× cell)** (`reelGrid.symbolSizeRatios`) is authored here and bakes on the normal scene bake.
-- **Device layouts** — per-layoutType overrides — transform (position/scale/size/anchor/rotation/alpha/tint/visibility), **background cover fit + cover scale** (2026-09-14), **plus per-ratio TEXT STYLE and COMPONENT PARAMS** (2026-08-10): editing a text-style field or an instance param (e.g. a Text Box's `fontSize`) while a non-base bucket is active writes a sparse `overrides[layoutType].style` / `.params`, so e.g. a headline can shrink its real font size in portrait without a stretchy scale. Per-layoutType **Canvas Size** (the MAIN box), seeded from the game type's reference with a "Match game box" warning/fix. The runtime ADOPTS this box (`setAuthoredMainSizesMap`, 2026-07-24 — see `docs/status/engine.md`), so it is WYSIWYG; a drifted box now only moves the coded parts laid out relative to it (the reel board), not the authored nodes.
+- **Properties** — transform/tint/**blend**/text/spine anim + slot fill; **background cover** (fit — cover / contain / fit-width / fit-height — plus cover scale and align x/y, all per layoutType, 2026-09-14); node actions (Convert to reel grid / parametric button / Edit as component). Reel-grid **symbol size (× cell)** (`reelGrid.symbolSizeRatios`) is authored here and bakes on the normal scene bake.
+- **Device layouts** — per-layoutType overrides — transform (position/scale/size/anchor/rotation/alpha/tint/**blendMode**/visibility), **background cover fit + cover scale** (2026-09-14), **plus per-ratio TEXT STYLE and COMPONENT PARAMS** (2026-08-10): editing a text-style field or an instance param (e.g. a Text Box's `fontSize`) while a non-base bucket is active writes a sparse `overrides[layoutType].style` / `.params`, so e.g. a headline can shrink its real font size in portrait without a stretchy scale. Per-layoutType **Canvas Size** (the MAIN box), seeded from the game type's reference with a "Match game box" warning/fix. The runtime ADOPTS this box (`setAuthoredMainSizesMap`, 2026-07-24 — see `docs/status/engine.md`), so it is WYSIWYG; a drifted box now only moves the coded parts laid out relative to it (the reel board), not the authored nodes.
 - **Authorable layout profiles** (2026-08-11) — the bucket set itself is now author-defined, not the hardcoded `desktop/tablet/landscape/portrait`. Game Settings → **Layout** opens a modal (shared `LayoutProfileEditor`) to set each bucket's resolution/aspect, its window-selection rule (ratio + shorter-side bounds), reorder, add/remove, rename, and pick the fallback — e.g. give Desktop and Landscape one box, or add an ultrawide bucket. A **pipeline-wide default** is authored in Admin → Settings (`app_settings.layoutProfileDefault`); a project inherits it unless it overrides (stored sparse on `LayoutDoc.layoutProfile`, source badge shows which). The device bar, preview frame, and every per-bucket enumeration derive from the active profile (`constants-shared/layoutProfile.ts` — `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly, so existing docs are byte-identical). Runtime selection + the STANDARD frame box are profile-driven (`utils-layout` `selectBucket`/`setAuthoredLayoutProfile`); the publish bundle bakes the effective profile onto the doc. Base bucket generalised from `'desktop'` to the profile fallback (`baseLayoutType`). Design: `docs/design/layout-profiles.md` (to write). ⏳ **not browser-verified** (needs the live launcher + a project); offline parity + custom-profile logic proven in `packages/engine-layout/scripts/test-layout-profile-parity.mjs`.
 - **Flow owns visibility** (standing rule, 2026-07-03) — the per-screen and per-instance "Shows during" gates were removed; a screen/instance's visibility now comes from Invisible Flow, not a Scene-Editor field.
 - **Generic doc-driven scene mounting** (§20.1, PR #67) — an author's new Scene Editor screen ships without hardcoding it in `Game.svelte` (`engine-layout/genericMountScenes.ts` + Flow Phase 4 `activeScreenTakeover`), parity-gated.
@@ -39,6 +39,53 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-16 — **Photoshop-style blend modes on placed art (sprite / spine / flipbook / FX),
+  previewed exactly.** `BaseNode.blendMode` + `NodeOverride.blendMode` (so it is per-layoutType like
+  `tint`), resolved by `resolveTransform` into `ResolvedTransform.blendMode` and passed by
+  `<LayoutNodeView>` to `<Sprite>` / `<SpineProvider>` / `<Flipbook>` and to the effect's wrapper
+  `<Container>` — the wrapper, so an emitter blends as ONE glow (pixi inherits `groupBlendMode`)
+  rather than per particle sprite. Four modes (`normal` / `add` / `multiply` / `screen`), defined
+  once in `engine-layout/blendMode.ts` with a reader per surface (`pixiBlendMode`,
+  `canvasCompositeOp`, `cssBlendMode`).
+
+  - **Four modes, not PixiJS's thirty**, by decision: these are the ones that exist natively on all
+    three surfaces (PixiJS, Canvas2D, CSS `mix-blend-mode`), so every mode the dropdown offers
+    renders IDENTICALLY in the editor and the game. Pixi's advanced modes are filter-backed backdrop
+    reads with no `mix-blend-mode` twin for the WebGL-overlay path, so offering them would have
+    shipped a preview that lies.
+  - **The preview had to change shape to be honest.** The editor is not one canvas: per scene it
+    stacks a 2D canvas (sprites/flipbooks) + a `spine-webgl` overlay + a Pixi text overlay + a Pixi
+    FX overlay, and each scene group had its own `z-index`. Both facts break blending —
+    `ctx.globalCompositeOperation` on a scene's transparent canvas can only see that scene's art,
+    an `add` applied INSIDE a transparent WebGL overlay is a no-op, and a positioned `z-index`
+    forms a stacking context that isolates blending to the group. So the canonical case (an
+    additive glow on the base-game screen lifting the BACKGROUND screen's art) showed nothing in the
+    editor while the game showed the glow.
+  - **Fix: blend on the ELEMENT, not inside the surface.** `EditorCanvas` now draws each scene as
+    one canvas per **blend RUN** (consecutive top-level nodes sharing a mode), each carrying the
+    mode as CSS `mix-blend-mode`; runs rather than one layer per mode so draw order is untouched,
+    and a scene that blends nothing yields exactly ONE run — today's single canvas, parity. The
+    spine/FX overlays gained `nodeFilter` + `blend` props and mount one EXTRA layer per non-normal
+    mode a scene uses (none when nothing blends, so the WebGL context count is unchanged for the
+    common scene). `.scene-group` lost its `z-index` (DOM order already orders the groups, and
+    positioned `z-index:auto` still paints above the non-positioned base canvas and below the
+    rider/HUD layers), and `.wrap` gained `isolation: isolate` to bound blending to the editor
+    surface — it already had `overflow:hidden`, so nothing that used to escape now can't.
+  - **Nested** nodes (inside a container / component instance) and the shared HUD canvas cannot have
+    an element of their own, so they blend inline via `globalCompositeOperation`; `elementCarriesBlend`
+    keeps the two paths from applying the mode twice.
+  - **Ship chain: nothing to wire.** `bake-editor-doc.mjs` embeds `doc` verbatim, so `blendMode`
+    travels with the node (rule 8 does not bite — this adds no asset class).
+  - **Verified:** in-game with a temporary probe node on `apps/lines` (mock RGS, port 7788) — the
+    live Pixi sprite reported `blendMode: 'add'` / `localBlendMode: 'add'` while every sibling read
+    `inherit`, and `add` vs `multiply` rendered visibly differently over the cave backdrop. The
+    editor's compositing model was proven in a standalone harness reproducing the exact DOM/CSS
+    stack, A/B against the old `z-index` stack: blended layers composite against the scene beneath
+    in the new stack and render flat/opaque in the old one. `svelte-check` clean for the changed
+    files (the repo's pre-existing errors are untouched); `apps/launcher-api` and `apps/lines` both
+    build. ⏳ **the `/editor` page itself is not browser-verified** (auth-gated; needs an owner
+    sign-in) — the dropdown, the run splitting on a real doc, and the per-layoutType override are
+    code-only so far.
 - 2026-09-16 — **A correctly deployed atlas was served as the OLD art in `/editor`, `/symbols` AND
   `/flipbook` — the stale-deploy guard rejected the right page.** Owner flow: generate an atlas in
   Flipbook 🎬 video mode → re-pack it in the Atlas Maker → deploy. The deployed atlas is correct;

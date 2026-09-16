@@ -31,6 +31,7 @@
 	import TextBox from './TextBox.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
+	import { pixiBlendMode } from './blendMode';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -700,6 +701,15 @@
 	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
 
 	/**
+	 * The node's PixiJS blend mode (`undefined` for `normal`, so `propsSyncEffect` skips the prop
+	 * entirely and an un-blended node takes the byte-identical parity path). Passed alongside
+	 * `alpha` on every renderable branch — sprite, spine, flipbook, and the effect's wrapper
+	 * container, which is what makes a whole particle effect blend as ONE (pixi inherits
+	 * `groupBlendMode` down the subtree) rather than per particle sprite.
+	 */
+	const blendMode = $derived(pixiBlendMode(transform.blendMode));
+
+	/**
 	 * The registered clip for a `flipbook` node, with this PLACEMENT's playback overrides folded in
 	 * (`fps` / `loop` / `direction` / `flipX` / `flipY`).
 	 *
@@ -924,6 +934,7 @@
 			width={bg ? undefined : sizedWidth}
 			height={bg ? undefined : sizedHeight}
 			tint={spriteTint}
+			{blendMode}
 		/>
 	{:else if node.kind === 'rect'}
 		<!--
@@ -1015,6 +1026,7 @@
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={effSkin}
 			visible={spineVisible}
+			{blendMode}
 			rebroadcastEvents
 		>
 			<!--
@@ -1230,6 +1242,7 @@
 				rotation={transform.rotation}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
+				{blendMode}
 			>
 				<EffectPlayer doc={effectDoc} />
 			</Container>
@@ -1265,6 +1278,7 @@
 				width={bg ? undefined : sizedWidth}
 				height={bg ? undefined : sizedHeight}
 				tint={transform.tint}
+				{blendMode}
 			/>
 		{/if}
 	{/if}
