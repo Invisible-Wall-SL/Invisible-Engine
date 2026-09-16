@@ -23,6 +23,9 @@
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint *.ts*"
 	},
+	"dependencies": {
+		"delivery-profile": "workspace:*"
+	},
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",

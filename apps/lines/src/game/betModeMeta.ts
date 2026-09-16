@@ -94,10 +94,78 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 	};
 }
 
-/** The menu keyed by UPPERCASED mode id, in resolved order. */
+/** One bet option as the RGS facade published it (`__IE_SERVER_BET_OPTIONS__`). */
+type ServerBetOption = { key: string; index: number; costMultiplier: number };
+
+/** The options the SERVER declared, or null when it declared none (both mocks, every server before
+ *  the 2-complex node) — in which case the authored config stands, exactly as before. */
+function serverBetOptions(): ServerBetOption[] | null {
+	const list = (globalThis as { __IE_SERVER_BET_OPTIONS__?: ServerBetOption[] })
+		.__IE_SERVER_BET_OPTIONS__;
+	return Array.isArray(list) && list.length ? list : null;
+}
+
+const normalise = (key: string) => key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+
+/** `BUYBONUS` → `Buybonus`. Only reached for an option the authored config knows nothing about, so
+ *  the card says something rather than nothing. */
+const prettify = (key: string) =>
+	key.charAt(0).toUpperCase() + key.slice(1).toLowerCase().replace(/_/g, ' ');
+
+/**
+ * Fold the SERVER's option table together with the game's authored presentation.
+ *
+ * The server owns the LIST and the PRICES: one menu entry per declared option, and nothing the math
+ * did not declare. Book of Borut authors three buy cards (25× / 50× / 100×) while game 2 declares
+ * one buy option — so it must show one, because the other two are prices the wallet would refuse.
+ *
+ * The config owns the LOOK: title, copy and art come from the authored mode that corresponds to the
+ * option. Correspondence is by NAME first, then by equal cost — the cost fallback is what lets a
+ * server that sends no `betOptionsName` still light up the right card (Borut's 100× BONUS art
+ * against the server's 100× buy option), and it is presentation-only, so a wrong guess costs a
+ * label, never a charge.
+ */
+function mergeServerOptions(
+	options: ServerBetOption[],
+	authored: ResolvedBetMode[],
+): ResolvedBetMode[] {
+	const byName = new Map(authored.map((mode) => [normalise(mode.mode), mode]));
+	const base = authored.find((mode) => mode.kind === 'base') ?? authored[0];
+
+	return options.map((option) => {
+		const match =
+			byName.get(normalise(option.key)) ??
+			authored.find(
+				(mode) =>
+					mode.kind !== 'base' && Math.abs(mode.costMultiplier - option.costMultiplier) < 0.001,
+			);
+		const kind: BetModeKind =
+			option.index === 0 ? 'base' : /ante/.test(normalise(option.key)) ? 'ante' : 'buy';
+		const presentation = match ?? (kind === 'base' ? base : undefined);
+
+		return {
+			...(presentation ?? base),
+			// An option the config never authored gets a readable label instead of the base game's.
+			...(presentation
+				? {}
+				: { title: prettify(option.key), description: '', dialog: '', card: '', cardParams: {} }),
+			mode: option.key,
+			kind,
+			costMultiplier: option.costMultiplier,
+			order: option.index,
+		};
+	});
+}
+
+/** The menu keyed by UPPERCASED mode id, in resolved order — the SERVER's options when it declared
+ *  any, else the authored config's. */
 export function buildBetModeMeta(): BetModeMeta {
+	const authored = resolveBetModes(getActiveGameConfig());
+	const options = serverBetOptions();
+	const modes = options && authored.length ? mergeServerOptions(options, authored) : authored;
+
 	const meta: BetModeMeta = {};
-	for (const mode of resolveBetModes(getActiveGameConfig())) {
+	for (const mode of modes) {
 		meta[mode.mode.toUpperCase()] = toBetModeData(mode);
 	}
 	return meta;

@@ -162,8 +162,17 @@ export interface Play4FunTransportConfig {
 	/** Origin for the RGS, e.g. 'https://www.best00qpin.com'. Empty string for
 	 *  same-origin (recommended when running inside the game iframe). */
 	baseUrl: string;
-	/** Path of the engine endpoint. Default: '/rgs/engine'. */
+	/** Path of the engine endpoint. Default: '/rgs/engine'. The 2-complex node serves the same
+	 *  protocol at '/webnode/engine.js'. */
 	endpoint?: string;
+	/** Send cookies with the request. Default true (the captured same-origin behaviour); a delivery
+	 *  profile sets false so the partner can answer CORS with a wildcard origin. */
+	withCredentials?: boolean;
+	/** Content type for the action array. Default `application/json`. `text/plain;charset=UTF-8`
+	 *  makes it a CORS SIMPLE request — never preflighted — which is what a server answering
+	 *  `Access-Control-Allow-Origin: *` with no `Access-Control-Allow-Headers` requires. The body is
+	 *  the same JSON either way. */
+	contentType?: string;
 	sid: string;
 	fetchImpl?: typeof fetch;
 }

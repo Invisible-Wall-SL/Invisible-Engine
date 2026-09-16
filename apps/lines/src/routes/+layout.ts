@@ -23,6 +23,9 @@ import { prepareRuntimeBundle } from '../editor-scenes';
  * therefore the pixi `AssetsLoader`) mounts, so the game registers live assets from
  * the launcher instead of the empty baked placeholder. A no-op (instant resolve)
  * when the param is absent, so byte-identical to today for baked + live-doc dev.
+ *
+ * The delivery profile is NOT loaded here — it is awaited in `<Authenticate>`, which every app
+ * mounts, so a shipped game repo (which has no layout `load` at all) gets it too.
  */
 export const load = async () => {
 	await prepareRuntimeBundle();

@@ -2,6 +2,7 @@
 	import { onMount, type Snippet } from 'svelte';
 
 	import { requestAuthenticate, requestReplay } from 'rgs-requests';
+	import { getDeliveryProfile, loadDeliveryProfile } from 'delivery-profile';
 	import { stateUrlDerived, stateBet, stateConfig, stateModal, stateUi } from 'state-shared';
 	import { API_AMOUNT_MULTIPLIER, MOST_USED_BET_INDEXES } from 'constants-shared/bet';
 
@@ -20,6 +21,21 @@
 
 	const authenticate = async () => {
 		try {
+			// A delivery build whose host page passed no session token gets '' from `sessionID()`
+			// instead of the minted demo session an internal build falls back to. Refuse HERE, where
+			// EVERY transport is gated (the RGS facade is only one of them) and where the throw is
+			// already rendered by `ModalError`. A mis-wired embed has to look broken — the alternative
+			// is a game playing convincingly against a session the operator never issued.
+			const profile = getDeliveryProfile();
+			if (profile.session.required && !stateUrlDerived.sessionID()) {
+				throw {
+					error: 'Missing session token',
+					message:
+						`This game must be launched with a session token in the ` +
+						`"${profile.session.param}" query parameter (profile "${profile.id}").`,
+				};
+			}
+
 			const authenticateData = await requestAuthenticate({
 				rgsUrl: stateUrlDerived.rgsUrl(),
 				sessionID: stateUrlDerived.sessionID(),
@@ -77,7 +93,7 @@
 
 			// round
 			if (authenticateData?.round) {
-				// Example of authenticateData.round 
+				// Example of authenticateData.round
 				// {
 				// 	"betID": 62277967,
 				// 	"amount": 1000000,
@@ -89,12 +105,12 @@
 				// 	"event": null
 				// }
 
-				if(authenticateData.round?.state) {
+				if (authenticateData.round?.state) {
 					// @ts-ignore
-					stateBet.betToResume =  authenticateData.round;
+					stateBet.betToResume = authenticateData.round;
 				}
 
-				if(authenticateData.round?.amount) {
+				if (authenticateData.round?.amount) {
 					const betAmountValue =
 						authenticateData.round.amount > 0
 							? authenticateData.round.amount / API_AMOUNT_MULTIPLIER
@@ -105,7 +121,7 @@
 
 				if (authenticateData.round?.mode) {
 					stateBet.activeBetModeKey = authenticateData.round.mode;
-				};
+				}
 			}
 		} catch (error) {
 			console.error(error);
@@ -114,8 +130,8 @@
 	};
 
 	const handleReplay = async () => {
-		stateBet.betAmount = (stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER) || 0;
-		stateBet.wageredBetAmount = (stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER) || 0;
+		stateBet.betAmount = stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER || 0;
+		stateBet.wageredBetAmount = stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER || 0;
 		stateBet.activeBetModeKey = stateUrlDerived.mode();
 
 		const data = await requestReplay({
@@ -126,7 +142,7 @@
 			event: stateUrlDerived.event(),
 		});
 
-		if(data) {
+		if (data) {
 			// @ts-ignore
 			stateBet.betToResume = {
 				...data,
@@ -138,17 +154,24 @@
 	};
 
 	onMount(async () => {
+		// Resolve the delivery profile before ANYTHING reads `rgsUrl()`/`sessionID()`. It is awaited
+		// here rather than in an app's `+layout.ts` because every app mounts <Authenticate> while only
+		// `apps/lines` has a layout `load` — a game repo scaffolded by `new-game.mjs` has none, and a
+		// delivery cut from one would bake a profile whose `config.json` was then never applied.
+		// A build with no baked profile resolves instantly and changes nothing.
+		await loadDeliveryProfile();
+
 		// Seeded before either branch: replay never calls `authenticate`, so this is the
 		// only place a replay link's currency can land.
 		if (launchCurrency) stateBet.currency = launchCurrency;
 
-		if(stateUrlDerived.replay()) {
+		if (stateUrlDerived.replay()) {
 			stateUi.config.mode = 'replay';
 			await handleReplay();
 		} else {
 			stateUi.config.mode = 'default';
 			await authenticate();
-		};
+		}
 
 		authenticated = true;
 	});

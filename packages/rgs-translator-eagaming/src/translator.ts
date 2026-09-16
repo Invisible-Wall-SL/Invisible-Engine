@@ -83,12 +83,13 @@ export const buildHeartbeat = (): Play4FunRequestBody => [];
 export const buildCollectAction = (): Play4FunRequestBody => [{ action: 'collect' }];
 
 /** Build a single arbitrary action — used by the probe story. */
-export const buildSingleAction = <T>(
-	action: string,
-	context?: T,
-): Play4FunRequestBody => [{ action, context } as Play4FunActionEnvelope];
+export const buildSingleAction = <T>(action: string, context?: T): Play4FunRequestBody => [
+	{ action, context } as Play4FunActionEnvelope,
+];
 
-const computeRoundFinancials = (events: Play4FunBookEvent[]): { amount?: number; payout?: number; payoutMultiplier?: number; active: boolean } => {
+const computeRoundFinancials = (
+	events: Play4FunBookEvent[],
+): { amount?: number; payout?: number; payoutMultiplier?: number; active: boolean } => {
 	let amount: number | undefined;
 	let payout: number | undefined;
 	let active = true;
@@ -103,7 +104,8 @@ const computeRoundFinancials = (events: Play4FunBookEvent[]): { amount?: number;
 			active = false;
 		}
 	}
-	const payoutMultiplier = amount && amount > 0 && payout !== undefined ? payout / amount : undefined;
+	const payoutMultiplier =
+		amount && amount > 0 && payout !== undefined ? payout / amount : undefined;
 	return { amount, payout, payoutMultiplier, active };
 };
 

@@ -1,5 +1,6 @@
 import { locales } from 'config-lingui';
 import { page } from '$app/state';
+import { getDeliveryProfile } from 'delivery-profile';
 
 export type Language = (typeof locales)[number];
 
@@ -22,6 +23,10 @@ export type Key =
 	| 'event';
 
 const getUrlSearchParam = (key: Key) => page.url.searchParams.get(key) as string;
+
+/** Read a param whose NAME is data rather than a compile-time key — the delivery profile's
+ *  `session.param`, which is whatever the operator's embed page happens to use. */
+const getRawSearchParam = (key: string) => page.url.searchParams.get(key) ?? '';
 
 /** The placeholder session the Invisible Test Server bakes into every launch URL
  *  (`?sessionID=demo`). The mock RGS keys ALL state — balance + open round — by this
@@ -52,12 +57,40 @@ const getDemoSessionId = () => {
 // params for play
 const lang = () =>
 	getUrlSearchParam('lang') === 'br' ? 'pt' : (getUrlSearchParam('lang') as Language) || 'en';
+/**
+ * The session token this launch is playing on.
+ *
+ * A delivery profile changes TWO things here: which param carries the token (an operator's embed
+ * is likelier to say `sid` than `sessionID`), and what happens when it is absent. With
+ * `session.required` the answer is the empty string — which the RGS facade turns into a visible
+ * boot error — instead of a minted demo session. On a client's site a phantom wallet is the worst
+ * available outcome: it looks exactly like a working game.
+ *
+ * `sessionID` stays readable as a fallback under every profile, so our own QA links keep working
+ * against a delivery build.
+ */
 const sessionID = () => {
-	const raw = getUrlSearchParam('sessionID') || '';
+	const profile = getDeliveryProfile();
+	const raw = getRawSearchParam(profile.session.param) || getRawSearchParam('sessionID');
+	if (raw && raw !== DEMO_SESSION) return raw;
+	if (profile.session.required) return '';
 	// Give each browser its own mock wallet; never touch a real per-player session.
-	return raw && raw !== DEMO_SESSION ? raw : getDemoSessionId();
+	return getDemoSessionId();
 };
-const rgsUrl = () => getUrlSearchParam('rgs_url') || '';
+
+/**
+ * The RGS this build talks to. `?rgs_url=` is how every launch URL we generate points a game at the
+ * Invisible Test Server, so it still wins — but only while the profile allows it. A delivered build
+ * pins its own RGS: the host page has no business repointing the wallet.
+ */
+const rgsUrl = () => {
+	const profile = getDeliveryProfile();
+	// A delivery PINS its RGS — the profile's answer stands even when it is empty (the same-origin
+	// case). Falling through to `?rgs_url=` on an empty base would hand a same-origin delivery's
+	// wallet straight back to the host page, which is exactly what `allowUrlOverride` denies.
+	if (!profile.rgs.allowUrlOverride) return profile.rgs.baseUrl;
+	return getUrlSearchParam('rgs_url') || profile.rgs.baseUrl;
+};
 const social = () => getUrlSearchParam('social') === 'true';
 /** Texture-quality tier. `high` = load the uncompressed full-res art (arcade / kiosk /
  *  high-memory targets); anything else (default) = prefer the GPU-compressed KTX2
