@@ -404,7 +404,9 @@ standalone game (Book of Borut) only with an `engine` submodule bump.
 
 Shown for a project whose `/config` → Reel behaviour → swap style is **Emerge** — the one
 style with an `Intro` to bridge — and for one that still has a transition saved from when it
-was, so a binding that ships is never hidden. Under it every seat does the same thing on a board clear and on
+was, or still has [Let the next spin start as soon as the symbols are
+back](#let-the-next-spin-start-as-soon-as-the-symbols-are-back) below switched on, so nothing
+that ships is ever hidden. Under it every seat does the same thing on a board clear and on
 every cascade step: the outgoing symbol plays its `Clear reel`, is removed, and the incoming
 one appears and plays its `Intro`. That seam is a hard cut. The **Transition** is one project-wide
 animation the game mounts **at each exploding seat**, a set number of milliseconds after the
@@ -432,6 +434,50 @@ The binding is one optional top-level field, `transition: { kind, …, delayMs? 
 unless you set it, so an untouched project is byte-identical. A spine or clip bound here travels the
 same export/bake chain as a per-symbol cell; an FX effect is kept reachable at bake like a Book-VFX
 effect. Reaches a standalone game (Book of Borut) only with an `engine` submodule bump.
+
+#### Let the next spin start as soon as the symbols are back
+
+A switch at the foot of the Transition section, **off by default**. It sits here because this is
+where you come when the seam between two boards feels slow — but it is **not part of the
+transition**, and it is deliberately **not** gated on one being bound. The transition is
+fire-and-forget and never holds the round; the thing that holds the round is the **arrival**, and
+that is awaited whether or not a transition exists. So the switch is offered to any Emerge project,
+with or without a transition.
+
+Under **Emerge** ([Invisible Game Config](game-config.md) → Reel behaviour) the round is held until
+the **last** symbol has finished its [Intro](#the-intro-state). Turn this on and the round is
+released the moment every symbol is back on screen instead. On any other swap style the new symbols
+drop, slide or are simply replaced, there is no arrival beat to release the round from, and the
+switch changes nothing — the tool says so under it, and keeps it reachable so an authored switch can
+be turned back off after a style change.
+
+**It shortens nothing.** Every intro still plays in full, at its authored length, and every symbol
+still settles into its resting art at the end — including one whose art can never report finishing,
+which is still put right by the engine's own cap. The only thing that changes is what the round
+_waits for_: the presentation stops being a gate and becomes something that finishes while the game
+carries on. This is what makes it different from [Longest win beat
+(ms)](#longest-win-beat-ms), which does the opposite — it cuts an animation short and keeps waiting
+for it.
+
+**The trade is yours to accept:** the next spin can begin over an intro still rising. Watch a fast
+round once before shipping it. Where it is worth it is the measurement that produced the switch, on
+the live `test6`: the board's own clips were finished 2.1 s into a spin and the round released at
+3.4 s. The 1.3 s tail was the arrival beat running out its two-second cap, paid on **every** spin,
+win or not — and paid again per cascade step, which is why the pause between two wins of one spin
+felt the same length as the one after it.
+
+Three things it does NOT touch, all of which look like this at a glance:
+
+- **The transition above it** — that animation is already fire-and-forget; it never gated the round,
+  so this switch neither speeds it up nor cuts it short.
+- **The cascade's own pacing** — the gap between explosion waves ([Explosion
+  pattern](#explosion-pattern)) and the step timing are authored elsewhere and are unchanged.
+- **The win celebration** — a paying spin still narrates every win in full. If that is the wait you
+  are trying to shorten, the control is [Longest win beat (ms)](#longest-win-beat-ms).
+
+Stored sparsely as `arrivalRelease: { enabled: true }` — only the ON state persists, so a project
+that never touches this switch ships nothing and is released exactly as it always was. It travels
+verbatim to `bundle.symbols.arrivalRelease`, and is independent of the `transition` field beside it.
 
 ### Stacked pictures
 
@@ -756,42 +802,6 @@ explicitly, and it leaves the guard exactly where it is as the backstop undernea
 Stored sparsely as `winBeat: { maxMs }` — clearing the box deletes the key, so a project that never
 opens this control ships nothing and keeps its authored pacing byte-for-byte. It travels verbatim to
 `bundle.symbols.winBeat`.
-
-### Let the next spin start as soon as the symbols are back
-
-Its own section under the pop, **off by default**, and shown only on a project whose swap style is
-**Emerge** ([Invisible Game Config](game-config.md) → Reel behaviour) — the only board that has an
-arrival to wait on. On any other board the new symbols drop, slide or are simply replaced, and there
-is no arrival beat to release the round from. (An authored switch stays visible after the style
-changes, so it can be turned off.)
-
-Under Emerge the round is held until the **last** symbol has finished its [Intro](#the-intro-state).
-Turn this on and the round is released the moment every symbol is back on screen instead.
-
-**It shortens nothing.** Every intro still plays in full, at its authored length, and every symbol
-still settles into its resting art at the end — including one whose art can never report finishing,
-which is still put right by the engine's own cap. The only thing that changes is what the round
-_waits for_: the presentation stops being a gate and becomes something that finishes while the game
-carries on. This is what makes it different from [Longest win beat (ms)](#longest-win-beat-ms) above,
-which does the opposite — it cuts an animation short and keeps waiting for it.
-
-**The trade is yours to accept:** the next spin can begin over an intro still rising. Watch a fast
-round once before shipping it. Where it is worth it is the measurement that produced the switch, on
-the live `test6`: the board's own clips were finished 2.1 s into a spin and the round released at
-3.4 s. The 1.3 s tail was the arrival beat running out its two-second cap, paid on **every** spin,
-win or not — and paid again per cascade step, which is why the pause between two wins of one spin
-felt the same length as the one after it.
-
-Two things it does NOT touch, both of which look like this at a glance:
-
-- **The cascade's own pacing** — the gap between explosion waves ([Explosion
-  pattern](#explosion-pattern)) and the step timing are authored elsewhere and are unchanged.
-- **The win celebration** — a paying spin still narrates every win in full. If that is the wait you
-  are trying to shorten, the control is [Longest win beat (ms)](#longest-win-beat-ms).
-
-Stored sparsely as `arrivalRelease: { enabled: true }` — only the ON state persists, so a project
-that never opens this section ships nothing and is released exactly as it always was. It travels
-verbatim to `bundle.symbols.arrivalRelease`.
 
 ### Symbol sounds
 
