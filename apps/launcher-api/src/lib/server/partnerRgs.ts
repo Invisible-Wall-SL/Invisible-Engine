@@ -241,11 +241,44 @@ export function partnerLaunchUrl(options: {
 	token: string;
 	/** The query param the delivery profile says the token rides in. */
 	sessionParam: string;
+	/** The query the launcher put on ITS link — see {@link forwardLaunchParams}. */
+	from?: URLSearchParams;
 }): string {
 	const url = new URL(options.cardUrl);
 	url.searchParams.delete('rgs_url');
 	url.searchParams.delete('sessionID');
 	url.searchParams.set('rgs_profile', options.profileId);
 	url.searchParams.set(options.sessionParam, options.token);
+	if (options.from) forwardLaunchParams(url, options.from);
 	return url.toString();
+}
+
+/**
+ * Carry the launcher's own click-time params across the redirect, so a partner card behaves like
+ * every other card.
+ *
+ * The launcher home appends `project`, `k` and `ie_authoring=1` and SETS `lang`/`currency` when you
+ * click a game (`(app)/+page.svelte` → `gameUrl`). On a partner card those land on THIS endpoint
+ * instead of on the game, and without forwarding they would simply be lost.
+ *
+ * `ie_authoring=1` is the one that matters: it is what makes the game show a red banner when it
+ * falls back to its last baked snapshot instead of rendering stale data silently. Losing it on the
+ * card used to exercise real money-shaped flows is exactly backwards.
+ *
+ * The two halves are forwarded differently, to match what a normal card already does:
+ *  - `lang`/`currency` are SET, because the launcher sets them too.
+ *  - `project`/`k` are added ONLY IF ABSENT. The stored card URL carries the values `publishGame`
+ *    wrote for that published game, and a normal card lets those win (the game reads the first
+ *    occurrence of a repeated param). Overriding them here would make a partner card resolve its
+ *    authoring data differently from the card it is a copy of.
+ */
+function forwardLaunchParams(target: URL, from: URLSearchParams): void {
+	for (const key of ['lang', 'currency', 'ie_authoring'] as const) {
+		const value = from.get(key);
+		if (value) target.searchParams.set(key, value);
+	}
+	for (const key of ['project', 'k'] as const) {
+		const value = from.get(key);
+		if (value && !target.searchParams.has(key)) target.searchParams.set(key, value);
+	}
 }

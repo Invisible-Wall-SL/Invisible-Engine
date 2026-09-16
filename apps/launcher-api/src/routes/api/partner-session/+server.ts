@@ -69,6 +69,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 				profileId,
 				token,
 				sessionParam: config.sessionParam ?? 'sid',
+				// The launcher's click-time params (`ie_authoring`, locale, …) arrive on THIS request
+				// rather than on the game, so carry them across or a partner card silently loses them.
+				from: url.searchParams,
 			}),
 			token,
 			gameName,

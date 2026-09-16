@@ -19,6 +19,11 @@
  *  5. THE LAUNCH URL SWAPS ONLY THE RGS HALF. `runtime=1`, `project` and the read token `k` are what
  *     make an online game work at all, so they carry over untouched; `rgs_url`/`sessionID` are ours
  *     and must go, or the game would still be pointed at our server.
+ *  6. THE LAUNCHER OWN CLICK-TIME PARAMS SURVIVE THE REDIRECT. They land on the minting
+ *     endpoint rather than on the game, so without forwarding they are lost — and `ie_authoring=1`
+ *     is the one that matters: it turns a silent fall back to stale baked data into a red banner.
+ *     `lang`/`currency` are SET (the launcher sets them); `project`/`k` are added only if absent,
+ *     because the stored card URL carries the values publish wrote and a normal card lets those win.
  */
 
 import {
@@ -253,6 +258,43 @@ const main = async () => {
 			).searchParams.get('token'),
 			'T1',
 		);
+	}
+	console.log('\n6. the launcher click-time params survive the redirect');
+	{
+		const from = new URLSearchParams(
+			'project=other&k=CLICKTOKEN&ie_authoring=1&lang=it&currency=USD',
+		);
+		const target = new URL(
+			partnerLaunchUrl({
+				cardUrl: CARD_URL,
+				profileId: '2complex',
+				token: 'S1',
+				sessionParam: 'sid',
+				from,
+			}),
+		);
+		check('the stale-data banner is carried over', target.searchParams.get('ie_authoring'), '1');
+		check('locale is SET from the click', target.searchParams.get('lang'), 'it');
+		check('currency is SET from the click', target.searchParams.get('currency'), 'USD');
+		check('the published project is NOT overridden', target.searchParams.get('project'), 'bookofborutremake'); // prettier-ignore
+		check('nor the published read token', target.searchParams.get('k'), 'READTOKEN');
+		check('...and the RGS swap still stands', [target.searchParams.get('rgs_profile'), target.searchParams.get('sid'), target.searchParams.get('rgs_url')], ['2complex', 'S1', null]); // prettier-ignore
+
+		// A card URL that never carried them (an admin-made one) takes the click-time values.
+		const bare = new URL(
+			partnerLaunchUrl({
+				cardUrl: 'https://games.invisiblewall.org/x/?runtime=1',
+				profileId: 'p',
+				token: 'T',
+				sessionParam: 'sid',
+				from,
+			}),
+		);
+		check('a bare card gets the click project', bare.searchParams.get('project'), 'other');
+		check('...and the click token', bare.searchParams.get('k'), 'CLICKTOKEN');
+
+		const none = new URL(partnerLaunchUrl({ cardUrl: CARD_URL, profileId: 'p', token: 'T', sessionParam: 'sid' })); // prettier-ignore
+		check('no click query ⇒ nothing invented', none.searchParams.get('ie_authoring'), null);
 	}
 
 	console.log(failures === 0 ? '\nAll partner-minting claims hold.\n' : `\n${failures} FAILED.\n`);
