@@ -679,6 +679,42 @@ Stored sparsely as `winBeat: { maxMs }` — clearing the box deletes the key, so
 opens this control ships nothing and keeps its authored pacing byte-for-byte. It travels verbatim to
 `bundle.symbols.winBeat`.
 
+### Let the next spin start as soon as the symbols are back
+
+Its own section under the pop, **off by default**, and shown only on a project whose swap style is
+**Emerge** ([Invisible Game Config](game-config.md) → Reel behaviour) — the only board that has an
+arrival to wait on. On any other board the new symbols drop, slide or are simply replaced, and there
+is no arrival beat to release the round from. (An authored switch stays visible after the style
+changes, so it can be turned off.)
+
+Under Emerge the round is held until the **last** symbol has finished its [Intro](#the-intro-state).
+Turn this on and the round is released the moment every symbol is back on screen instead.
+
+**It shortens nothing.** Every intro still plays in full, at its authored length, and every symbol
+still settles into its resting art at the end — including one whose art can never report finishing,
+which is still put right by the engine's own cap. The only thing that changes is what the round
+_waits for_: the presentation stops being a gate and becomes something that finishes while the game
+carries on. This is what makes it different from [Longest win beat (ms)](#longest-win-beat-ms) above,
+which does the opposite — it cuts an animation short and keeps waiting for it.
+
+**The trade is yours to accept:** the next spin can begin over an intro still rising. Watch a fast
+round once before shipping it. Where it is worth it is the measurement that produced the switch, on
+the live `test6`: the board's own clips were finished 2.1 s into a spin and the round released at
+3.4 s. The 1.3 s tail was the arrival beat running out its two-second cap, paid on **every** spin,
+win or not — and paid again per cascade step, which is why the pause between two wins of one spin
+felt the same length as the one after it.
+
+Two things it does NOT touch, both of which look like this at a glance:
+
+- **The cascade's own pacing** — the gap between explosion waves ([Explosion
+  pattern](#explosion-pattern)) and the step timing are authored elsewhere and are unchanged.
+- **The win celebration** — a paying spin still narrates every win in full. If that is the wait you
+  are trying to shorten, the control is [Longest win beat (ms)](#longest-win-beat-ms).
+
+Stored sparsely as `arrivalRelease: { enabled: true }` — only the ON state persists, so a project
+that never opens this section ships nothing and is released exactly as it always was. It travels
+verbatim to `bundle.symbols.arrivalRelease`.
+
 ### Symbol sounds
 
 **Moved to [Invisible Sound](sound.md) → Per-symbol cues.** The cue one symbol plays entering one
@@ -832,6 +868,9 @@ appears and plays its ordinary landing. The grid draws the borrowed art and badg
 The column only appears for a project whose swap style is **Emerge**, but a binding you make is
 stored for every game and survives switching the style away and back. A per-symbol _sound_ for
 the same moment is picked in [Invisible Sound](./sound.md) → Per-symbol cues.
+
+Whether the round **waits** for this animation is a separate, project-wide switch —
+[Let the next spin start as soon as the symbols are back](#let-the-next-spin-start-as-soon-as-the-symbols-are-back).
 
 ### Two explosions
 

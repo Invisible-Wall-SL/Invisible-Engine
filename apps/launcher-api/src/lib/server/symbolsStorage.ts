@@ -548,6 +548,32 @@ const winBeatSchema = z
 	})
 	.strict();
 
+/**
+ * "Let the next spin start as soon as the symbols are back" — the switch that stops the emerge
+ * ARRIVAL from gating the round.
+ *
+ * Nothing about the arrival changes: the intro still plays in full and still settles its cell to the
+ * resting art on both exits of its own bounded race. It simply stops being AWAITED, so the board is
+ * released the moment every cell has been seated with its new art rather than when the last intro
+ * has played out. Measured on the live `test6` (136–204 fps, not a throttled tab): a 3401 ms
+ * `reveal` whose board clips were finished at t+2088 — the 1.3 s tail is the round waiting on an
+ * arrival beat that is capped at 2 s because the project authors an `intro`.
+ *
+ * A switch and not a new default, because the trade is a PRESENTATION one the project has to own:
+ * the next spin may begin over an intro still playing. Sparse and default OFF like `winExplode`, so
+ * an untouched project persists no key and is released exactly as it always was.
+ *
+ * Only meaningful under the `emerge` swap style (`/config` → Reel behaviour) — the only board that
+ * has an arrival to wait on — but deliberately NOT gated on it here: the doc and the reel behaviour
+ * are two independently edited documents, and a save that silently dropped the flag because the
+ * config said so would come back as a switch that will not stay on.
+ */
+const arrivalReleaseSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -561,6 +587,7 @@ export const symbolsDocSchema = z
 		winCycle: winCycleSchema.optional(),
 		winExplode: winExplodeSchema.optional(),
 		winBeat: winBeatSchema.optional(),
+		arrivalRelease: arrivalReleaseSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -765,6 +792,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// clearing the box round-trips to no key at all and the beats go back to running as long as their
 	// art does. Rebuilt (not forwarded) like every field above — this block is the whitelist.
 	if (doc.winBeat?.maxMs !== undefined) next.winBeat = { maxMs: doc.winBeat.maxMs };
+	// Default-OFF again, so ONLY the ON state persists: an untouched project — and one that turned
+	// the release back off — round-trips to no key and keeps awaiting its arrival byte-for-byte.
+	if (doc.arrivalRelease?.enabled === true) next.arrivalRelease = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

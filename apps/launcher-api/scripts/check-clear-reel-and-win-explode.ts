@@ -39,6 +39,14 @@
  *      byte-for-byte), a set value round-trips, a value the engine could not honour is refused at
  *      SAVE rather than ignored at play, and it reaches BOTH bundle paths.
  *
+ *   5. THE ARRIVAL RELEASE — `arrivalRelease.enabled`. "Let the next spin start as soon as the
+ *      symbols are back": the emerge intro stops GATING the round, without being shortened. Same
+ *      sparse default-OFF contract as the pop — an untouched project persists NOTHING, the ON state
+ *      round-trips, a non-boolean is refused at save, and it reaches BOTH bundle paths. That last
+ *      one is why it is checked here at all: the exporter, the export endpoint and the bake
+ *      whitelist are three hand-written lists, and a switch that saves but does not bake is the
+ *      failure this file exists to catch.
+ *
  * (The file is named for the first two; renaming it would mean chasing whatever invokes it, so the
  * name stayed and this list is what says what it covers.)
  *
@@ -60,7 +68,9 @@ import {
 	symbolsDocSchema,
 } from '../src/lib/server/symbolsStorage.ts';
 import {
+	arrivalReleaseEnabled,
 	docSignature,
+	setArrivalReleaseEnabled,
 	setWinBeatMaxMs,
 	setWinExplodeEnabled,
 	winBeatMaxMs,
@@ -621,9 +631,66 @@ check(
 check('the bake whitelist rebuilds it', bake.includes('Number.isFinite(s?.winBeat?.maxMs)'), true);
 check('…and puts it on the bundle', /\n\t{4,}winBeat,\n/.test(bake), true);
 
+console.log('\n10. the arrival release is sparse, OFF by default, and reaches both bundle paths');
+const awaited = normalizeSymbolsDoc({ version: 1, symbols: { H1: { win: MORPH } } });
+check('an untouched doc persists no `arrivalRelease`', 'arrivalRelease' in awaited, false);
+check('…and reads as OFF, i.e. the arrival is still awaited', arrivalReleaseEnabled(awaited as SymbolsDoc), false); // prettier-ignore
+check(
+	'OFF written explicitly still persists nothing (byte-parity)',
+	'arrivalRelease' in normalizeSymbolsDoc({ arrivalRelease: { enabled: false } }),
+	false,
+);
+check('ON round-trips', normalizeSymbolsDoc({ arrivalRelease: { enabled: true } }).arrivalRelease, {
+	enabled: true,
+});
+rejects('an unknown key inside it is refused (`.strict`)', {
+	arrivalRelease: { enabled: true, mode: 'instant' },
+});
+rejects('a non-boolean is refused', { arrivalRelease: { enabled: 'yes' } });
+// The doc and the project's reel behaviour are two independently edited documents, so the save must
+// NOT second-guess the swap style: a flag dropped because `/config` said `emerge` was off would come
+// back as a switch that will not stay on, and the config is the half more likely to change later.
+check(
+	'a project that does not cascade or emerge still keeps the flag it saved',
+	normalizeSymbolsDoc({ version: 1, symbols: {}, arrivalRelease: { enabled: true } })
+		.arrivalRelease,
+	{ enabled: true },
+);
+
+console.log('\n   …and the client half agrees with the server');
+check('the setter turns it on', arrivalReleaseEnabled(setArrivalReleaseEnabled(base, true)), true);
+check(
+	'…and off again, deleting the key',
+	'arrivalRelease' in setArrivalReleaseEnabled(setArrivalReleaseEnabled(base, true), false),
+	false,
+);
+check(
+	'turning it on marks the page DIRTY',
+	docSignature(setArrivalReleaseEnabled(base, true)) !== docSignature(base),
+	true,
+);
+check(
+	'…and the saved doc the server hands back signs the same as the draft',
+	docSignature(setArrivalReleaseEnabled(base, true)),
+	docSignature({
+		...base,
+		arrivalRelease: normalizeSymbolsDoc({ arrivalRelease: { enabled: true } }).arrivalRelease,
+	}),
+);
+
+console.log('\n   …and it reaches BOTH bundle paths');
+check('the exporter emits it', exporter.includes('...(arrivalRelease ? { arrivalRelease } : {})'), true); // prettier-ignore
+check(
+	'the export ENDPOINT forwards it (the bake reads this response)',
+	(exportEndpoint.match(/\barrivalRelease\b/g) ?? []).length >= 2,
+	true,
+);
+check('the bake whitelist rebuilds it', bake.includes('s?.arrivalRelease?.enabled === true'), true);
+check('…and puts it on the bundle', /\n\t{4,}arrivalRelease,\n/.test(bake), true);
+
 console.log(
 	failures === 0
-		? `\nclear-reel + win-explode + win-beat: OK (${checks} checks)`
-		: `\nclear-reel + win-explode + win-beat: ${failures} of ${checks} FAILED`,
+		? `\nclear-reel + win-explode + win-beat + arrival-release: OK (${checks} checks)`
+		: `\nclear-reel + win-explode + win-beat + arrival-release: ${failures} of ${checks} FAILED`,
 );
 process.exit(failures === 0 ? 0 : 1);
