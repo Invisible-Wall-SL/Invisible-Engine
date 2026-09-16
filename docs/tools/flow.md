@@ -142,7 +142,7 @@ report back (nothing is subscribed to an invented name but the artwork itself), 
 **measured**: the longest clip any cued spine or flipbook plays for that signal, on a screen
 that is currently showing.
 
-Three things follow from *measured*, and each is deliberate:
+Things that follow from *measured*, each deliberate:
 
 - A **looping** cue waits **one cycle**. A loop has no end, but you ticked the box on that
   node, so one pass is the only finite answer — and it is the one the idle → spin → idle recipe
@@ -151,9 +151,22 @@ Three things follow from *measured*, and each is deliberate:
   to be showing" rule as Trap 2, so a cue that reached nobody cannot stall the round.
 - The wait scales with **turbo** and a **slam** collapses it, exactly like a **Delay**. An
   authored wait never outlives a round the player chose to skip.
+- A clip that has **not loaded yet** measures nothing, and so does not wait. Fire the cue after
+  the screen is up and its assets are in.
+- A node **hidden in the current orientation** (its *Visible for* gate) is not measured — it
+  would never draw, so its animation never plays.
 
-A clip that has not loaded yet measures nothing and so does not wait; fire the cue after the
-screen is up and its assets are in.
+**Two limits worth knowing before you rely on it.**
+
+**It needs a flow that drives screens** — one that owns `load` and mounts its screens with
+**Show**. A book-events-only flow leaves the screens to the game, so it cannot tell which are
+up, and the wait is zero. The cue still fires and the character still animates; only the
+*waiting* is unavailable. Pair the cue with a **Delay** there.
+
+**An engine cue is not affected by any of this.** A cue the engine already owns
+(`specialBookReveal`, `winShow`, the sounds) waits for its real listeners, exactly as it always
+has, even if one of your screens happens to name the same signal on a spine. The two never
+stack.
 
 The Scene-Editor half — the block's fields, and exactly what **loop** does on each kind — is in
 [the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).

@@ -22,9 +22,24 @@
  * drive (`characterSpin` looping until `characterIdle` replaces it) is precisely a looping cue. A
  * loop still has no end, so "one cycle" is the only finite answer available — and an explicit
  * per-node opt-in is the one context where inventing it is what the author asked for.
+ *
+ * WHAT THIS MODELS. The walk has to agree with the two seams that actually SUBSCRIBE a cue
+ * (`<ComponentInstance>` for a prefab's content, `<LayoutNodeView>` for a node placed straight in a
+ * screen) and with the renderer that decides whether the cued node draws at all — measuring a clip
+ * that never plays buys a wait for nothing. So it mirrors, deliberately and case for case: the
+ * half-authored-cue guard, `cueSignalOverrides` remapping, the component-version pin, the
+ * {@link MAX_COMPONENT_DEPTH} nesting cap, and per-layout visibility. What it does NOT model is
+ * `hiddenUntilSignal` (`BaseNode.hiddenUntilSignal`), whose gate is per-instance runtime state with
+ * no static answer — a cue on a node still hidden by one is measured, and over-waits.
+ *
+ * It also knows nothing about WHICH BUS a name resolves to: a name the game registered
+ * (`registerComponentSignals`) is driven by its own source and its emitter subscriber reports real
+ * completion, so measuring it would stack a second wait on top. That is the CALLER's call to make,
+ * because the registry is game state — see `flowV2Runtime`'s `cueAnimationMs`.
  */
 
-import type { LayoutNode, Scene } from './types';
+import { MAX_COMPONENT_DEPTH } from './registerComponents';
+import type { LayoutNode, LayoutType, Scene } from './types';
 
 /**
  * The per-asset duration lookups the calculator needs. Each returns wall-clock ms, or `undefined`
@@ -46,9 +61,16 @@ export interface CueDurationResolvers {
 		clipId: string,
 		directionOverride?: 'forward' | 'reverse' | 'pingpong',
 	): number | undefined;
-	/** Resolve a `componentInstance`'s def id → its root subtree, so the walk descends into prefab
-	 *  content. `undefined` for an unknown def (skipped). */
-	resolveComponent(defId: string): { root: LayoutNode } | undefined;
+	/** Resolve a `componentInstance`'s def id (+ its pinned `version`, threaded so the walk measures
+	 *  the same def the renderer draws) → its root subtree. `undefined` for an unknown def (skipped). */
+	resolveComponent(defId: string, version?: number): { root: LayoutNode } | undefined;
+	/**
+	 * The layout the game is currently drawing. Supplied ⇒ a node hidden for it is skipped, because
+	 * `<LayoutNodeView>` will not render it and its clip therefore never plays: a cued spine authored
+	 * desktop-only would otherwise buy its full length as a wait while off-screen. Omitted ⇒ no
+	 * visibility gating (a headless caller with no layout).
+	 */
+	layoutType?: LayoutType;
 }
 
 /**
@@ -74,16 +96,36 @@ export const cueAnimationDurationMs = (
 
 	// Component defs on the CURRENT expansion stack — a def that (transitively) contains an instance
 	// of itself would otherwise recurse forever. Popped on the way back up, so sibling instances of
-	// the same def are still measured.
+	// the same def are still measured. The renderer's cycle guard, in tree-walk form.
 	const expanding = new Set<string>();
+
+	// Per-layout visibility, resolved exactly as `resolveTransform` does it (an explicit
+	// `overrides[layoutType].visible` wins over the `visibleFor` gate) — but inlined, because the
+	// full transform resolve computes a position this walk has no use for.
+	const hiddenHere = (node: LayoutNode): boolean => {
+		const layoutType = resolvers.layoutType;
+		if (!layoutType) return false;
+		const override = node.overrides?.[layoutType];
+		if (override?.visible !== undefined) return !override.visible;
+		return !!node.visibleFor && !node.visibleFor.includes(layoutType);
+	};
 
 	/**
 	 * `rebinds` is the enclosing `componentInstance`'s `cueSignalOverrides` — nodeId → (authored
-	 * signal → the signal THIS placement drives it from. Applied before matching, exactly as
+	 * signal → the signal THIS placement drives it from). Applied before matching, exactly as
 	 * `<ComponentInstance>` applies it before subscribing: without it a rebound cue is measured
 	 * under the def's name and the placement's real cue measures 0.
+	 *
+	 * `depth` counts enclosing instances, so the walk stops expanding where the renderer does.
 	 */
-	const walk = (node: LayoutNode, rebinds?: Record<string, Record<string, string>>): void => {
+	const walk = (
+		node: LayoutNode,
+		rebinds?: Record<string, Record<string, string>>,
+		depth = 0,
+	): void => {
+		// A hidden node draws nothing — and hides its whole subtree, which is why this precedes the
+		// kind switch rather than living in the two cued branches.
+		if (hiddenHere(node)) return;
 		switch (node.kind) {
 			case 'spine': {
 				const nodeRebinds = rebinds?.[node.id];
@@ -111,16 +153,20 @@ export const cueAnimationDurationMs = (
 				break;
 			}
 			case 'container':
-				for (const child of node.children) walk(child, rebinds);
+				for (const child of node.children ?? []) walk(child, rebinds, depth);
 				break;
 			case 'componentInstance': {
-				if (expanding.has(node.componentId)) break; // cycle guard.
-				const def = resolvers.resolveComponent(node.componentId);
+				// Both of the renderer's refusals: a def already on the stack (a cycle), and one nested
+				// deeper than it will expand — `<ComponentInstance>` renders nothing past
+				// `MAX_COMPONENT_DEPTH`, so a cue named down there is never subscribed and must not be
+				// measured.
+				if (expanding.has(node.componentId) || depth >= MAX_COMPONENT_DEPTH) break;
+				const def = resolvers.resolveComponent(node.componentId, node.componentVersion);
 				if (!def) break;
 				expanding.add(node.componentId);
 				// The instance's OWN overrides take over inside its expansion — a nested instance's
 				// rebinds are keyed by ITS def's node ids, so they never leak outward or inward.
-				walk(def.root, node.cueSignalOverrides);
+				walk(def.root, node.cueSignalOverrides, depth + 1);
 				expanding.delete(node.componentId);
 				break;
 			}

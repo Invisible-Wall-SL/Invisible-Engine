@@ -72,7 +72,7 @@
 	import { getFlowPress } from './registerFlowPress';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
-	import { getComponentSignal } from './registerComponentSignals';
+	import { ENTER_SIGNAL, getComponentSignal } from './registerComponentSignals';
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -526,7 +526,6 @@
 
 	/** The one component-LIFECYCLE signal: fired by this instance on its visible edge, never by a
 	 *  source. Named once so the two subscribe loops and the visible-edge effect below agree. */
-	const ENTER_SIGNAL = 'enter';
 
 	let signalAnims = $state<Record<string, ComponentSignalAnim>>({});
 	// A cue is an EVENT delivered as STATE, so every fire must be distinguishable from the last:

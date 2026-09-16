@@ -286,8 +286,122 @@ assert(
 	'a self-containing def terminates via the cycle guard (and still measures its own cue)',
 );
 
-// --- 6. Node kinds with no cues ---
-console.info('\n6. Everything else contributes nothing');
+// The renderer refuses to expand past MAX_COMPONENT_DEPTH (2), so a cue named deeper than that is
+// never subscribed — measuring it would buy a wait for an animation that cannot play.
+const nested = (childInstanceId, cueSignal) => ({
+	root: {
+		id: 'root',
+		kind: 'container',
+		children: [
+			spine({ id: 'inner', cues: [{ signal: cueSignal, animation: 'spin' }] }),
+			...(childInstanceId
+				? [{ id: 'child', kind: 'componentInstance', componentId: childInstanceId }]
+				: []),
+		],
+	},
+});
+const depthDefs = {
+	// L0 holds an instance of L1, which holds an instance of L2. Only L2's cue is out of reach.
+	L0: nested('L1', 'atDepth0'),
+	L1: nested('L2', 'atDepth1'),
+	L2: nested(undefined, 'atDepth2'),
+};
+const withDepth = {
+	spineClipMs,
+	flipbookCycleMs,
+	resolveComponent: (id) => depthDefs[id],
+};
+const depthScene = scene({ id: 'i', kind: 'componentInstance', componentId: 'L0' });
+assert(
+	cueAnimationDurationMs(depthScene, 'atDepth0', withDepth) === 2500,
+	'a cue on the outermost instance measures',
+);
+assert(
+	cueAnimationDurationMs(depthScene, 'atDepth1', withDepth) === 2500,
+	'…and one nested a level deeper still measures (the renderer expands it)',
+);
+assert(
+	cueAnimationDurationMs(depthScene, 'atDepth2', withDepth) === 0,
+	'…but one past MAX_COMPONENT_DEPTH measures 0 — <ComponentInstance> refuses to render it, so it is never subscribed',
+);
+
+// The component-VERSION pin: the walk must measure the same def the renderer draws.
+let askedVersion;
+assert(
+	cueAnimationDurationMs(
+		scene({
+			id: 'i',
+			kind: 'componentInstance',
+			componentId: 'character',
+			componentVersion: 3,
+		}),
+		'defSignal',
+		{
+			spineClipMs,
+			flipbookCycleMs,
+			resolveComponent: (id, version) => {
+				askedVersion = version;
+				return id === 'character' ? def : undefined;
+			},
+		},
+	) === 2500 && askedVersion === 3,
+	'a pinned `componentVersion` is passed to the resolver, so a version-pinned instance is measured against the def it draws',
+);
+
+// --- 6. Per-layout visibility ---
+console.info('\n6. A node this layout hides never draws, so it never waits');
+const cuedSpine = spine({ cues: [{ signal: 'go', animation: 'spin' }] });
+assert(
+	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', {
+		...noComponents,
+		layoutType: 'portrait',
+	}) === 0,
+	'`visibleFor` excluding the current layout ⇒ not measured',
+);
+assert(
+	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', {
+		...noComponents,
+		layoutType: 'desktop',
+	}) === 2500,
+	'…and measured in a layout it IS visible for',
+);
+assert(
+	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', noComponents) ===
+		2500,
+	'no layoutType supplied ⇒ no gating at all (a headless caller with no layout)',
+);
+assert(
+	cueAnimationDurationMs(
+		scene({ ...cuedSpine, visibleFor: ['desktop'], overrides: { portrait: { visible: true } } }),
+		'go',
+		{ ...noComponents, layoutType: 'portrait' },
+	) === 2500,
+	'an explicit per-layout `visible: true` override beats the `visibleFor` gate (matching resolveTransform)',
+);
+assert(
+	cueAnimationDurationMs(
+		scene({ ...cuedSpine, overrides: { portrait: { visible: false } } }),
+		'go',
+		{ ...noComponents, layoutType: 'portrait' },
+	) === 0,
+	'…and an explicit `visible: false` hides an otherwise-visible node',
+);
+assert(
+	cueAnimationDurationMs(
+		scene({
+			id: 'box',
+			kind: 'container',
+			visibleFor: ['desktop'],
+			children: [cuedSpine],
+		}),
+		'go',
+		{ ...noComponents, layoutType: 'portrait' },
+	) === 0,
+	'a hidden CONTAINER hides its subtree — the gate precedes the kind switch',
+);
+
+// --- 7. Node kinds with no cues ---
+console.info('\n7. Everything else contributes nothing');
 assert(
 	cueAnimationDurationMs(
 		scene(

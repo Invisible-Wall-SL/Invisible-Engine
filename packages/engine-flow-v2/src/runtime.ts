@@ -300,7 +300,7 @@ class FlowInterpreter {
 				// coded handlers' `broadcast` (fire-and-forget) vs `broadcastAsync` (awaited) split. A
 				// fire-and-forget cue still triggers its subscribers; the flow just doesn't block.
 				const done = this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope), {
-					await: node.await === true,
+					await: !!node.await,
 				});
 				if (node.await) await done;
 				return this.nextExec(graph, node.id, 'exec');
@@ -873,4 +873,3 @@ export const hideContainerIds = (doc: FlowDoc): Set<ContainerId> => {
 	scan(doc.graph);
 	return ids;
 };
-

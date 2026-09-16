@@ -27,8 +27,10 @@ const bundled = await esbuild.build({
 		contents: `export {
 			clearComponentSignals,
 			emitComponentSignal,
+			ENTER_SIGNAL,
 			getComponentSignal,
 			handsOffToIdle,
+			isRegisteredComponentSignal,
 			registerComponentSignals,
 		} from '../src/lib/index.ts';`,
 		resolveDir: HERE,
@@ -64,8 +66,10 @@ const assert = (cond, msg) => {
 const {
 	clearComponentSignals,
 	emitComponentSignal,
+	ENTER_SIGNAL,
 	getComponentSignal,
 	handsOffToIdle,
+	isRegisteredComponentSignal,
 	registerComponentSignals,
 } = mod;
 
@@ -251,6 +255,44 @@ assert(
 assert(
 	handsOffToIdle({ animation: '', loop: true }, 'idle', false) === false,
 	'an empty animation is treated the same (a half-authored spine cue drives nothing)',
+);
+
+// --- 8. Which bus owns a name — the check a caller needs to avoid double-waiting ---
+console.info('\n8. isRegisteredComponentSignal — telling the two buses apart');
+clearComponentSignals();
+
+assert(
+	isRegisteredComponentSignal('characterSpin') === false,
+	'an author-named signal is NOT registered (it lives on the open bus)',
+);
+assert(
+	isRegisteredComponentSignal(ENTER_SIGNAL) === false,
+	'`enter` is NOT registered either — it is fired by the instance itself, by no source',
+);
+
+registerComponentSignals({ specialBookReveal: { subscribe: () => () => {} } });
+assert(
+	isRegisteredComponentSignal('specialBookReveal') === true,
+	'a game-registered name reports registered — this is what stops a caller measuring a cue whose emitter subscriber already reports real completion',
+);
+assert(
+	isRegisteredComponentSignal('characterSpin') === false,
+	'…and registering one name does not claim any other',
+);
+
+// The tie to the precedence rule the rest of this file pins: registered ⇒ the open bus never drives it.
+let openFires = 0;
+getComponentSignal('specialBookReveal').subscribe(() => (openFires += 1));
+emitComponentSignal('specialBookReveal');
+assert(
+	openFires === 0,
+	'a registered name subscribes the REGISTRY source, so emitComponentSignal cannot drive it (the reason the measurement must be skipped, not merely reduced)',
+);
+
+clearComponentSignals();
+assert(
+	isRegisteredComponentSignal('specialBookReveal') === false,
+	'clearComponentSignals tears the registry down (no leakage between games/tests)',
 );
 
 console.info('');

@@ -25,12 +25,14 @@
  * `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
-import type { LayoutDoc, Scene } from 'engine-layout';
+import type { LayoutDoc, LayoutType, Scene } from 'engine-layout';
 import {
 	cueAnimationDurationMs,
 	emitComponentSignal,
+	ENTER_SIGNAL,
 	flipbookCycleMs,
 	getComponent,
+	isRegisteredComponentSignal,
 	resolveEffect,
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
@@ -295,6 +297,11 @@ export const createLinesFlowV2 = (
 	/** Invoke a game INTENT (spin/buyBonus/…) — the SAME `invokeHostIntent` bridge the v1 flow uses.
 	 *  The env routes an intent-command action (startSpin/…) here. Absent ⇒ those actions no-op. */
 	invokeIntent?: (intent: string) => void,
+	/** The layout the game is drawing right now (`stateLayoutDerived.layoutType`, which lives in the
+	 *  layout CONTEXT, not a module). Read live on each call so an orientation change mid-round is
+	 *  picked up. Only `fireCue{await}`'s cue measurement consults it — absent ⇒ no visibility
+	 *  gating, so a node hidden for the current layout is measured as if it drew. */
+	layoutType?: () => LayoutType,
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
@@ -500,10 +507,10 @@ export const createLinesFlowV2 = (
 	// every engine cue (`reelStop`, `winShow`, …), so the coded paths are untouched.
 	const shownScenes = (): Scene[] => {
 		const out: Scene[] = [];
-		// De-duplicated against the ACCUMULATOR rather than a `Set` — two containers may share one
-		// scene, and measuring it twice would just re-take the same max, but the list is also what
-		// the walk iterates. A handful of mounted screens makes the linear scan free, and the house
-		// lint rule reserves a bare `Set` for non-reactive modules.
+		// De-duplicated against the ACCUMULATOR rather than a `Set`: two containers may share one
+		// scene, and `svelte/prefer-svelte-reactivity` flags a bare `Set` in a `.svelte.ts` module
+		// (it cannot tell a throwaway local from reactive state). A handful of mounted screens makes
+		// the linear scan free either way.
 		for (const c of mount.ordered()) {
 			if (out.some((s) => s.id === c.sceneId)) continue;
 			const scene = editorDoc.scenes.find((s) => s.id === c.sceneId);
@@ -511,18 +518,31 @@ export const createLinesFlowV2 = (
 		}
 		return out;
 	};
-	const cueAnimationMs = (cue: string): number =>
-		cueAnimationDurationMs(shownScenes(), cue, {
+	const cueAnimationMs = (cue: string): number => {
+		// A name the GAME registered is NOT driven by the open bus — `getComponentSignal` resolves it
+		// against the closed registry — and its emitter subscriber already returns a real completion
+		// promise, which `awaitCue` already awaits. Measuring it too would stack a SECOND wait on a cue
+		// that waits correctly today: `specialBookReveal`/`specialBookHide` are both a vocabulary cue
+		// and a catalog signal, so a project whose scene also names one on a spine would silently get
+		// `max(real completion, that clip)` — and `specialBookReveal` fires under `setExpandingSymbol`,
+		// which is UNSKIPPABLE, so the extra wait would not even be slam-raced. `enter` is instance-fired
+		// and takes no bus subscription at all. Skipping both is what keeps every shipped doc identical.
+		if (isRegisteredComponentSignal(cue) || cue === ENTER_SIGNAL) return 0;
+		return cueAnimationDurationMs(shownScenes(), cue, {
 			spineClipMs,
 			// ONE CYCLE even when the cue loops — `flipbookCycleMs` reports nothing for a looping clip
 			// (right for the implicit `showContainer.durationMs` walk, wrong for an explicit per-node
 			// await), so force the override off. See `cueDuration.ts`'s header.
 			flipbookCycleMs: (clipId, direction) => flipbookCycleMs(clipId, false, direction),
-			resolveComponent: (defId) => {
-				const def = getComponent(defId);
+			resolveComponent: (defId, version) => {
+				const def = getComponent(defId, version);
 				return def ? { root: def.root } : undefined;
 			},
+			// The layout being drawn RIGHT NOW, so a node hidden for it is not measured — the same
+			// live scalar `<LayoutNodeView>` resolves its own visibility from.
+			layoutType: layoutType?.(),
 		});
+	};
 
 	// §6.3 Text Message overlays. The static list of authored message nodes (groups flattened so a
 	// message inside a group still renders + harvests) + the reactive set of the ones a `show` exec has
@@ -570,7 +590,6 @@ export const createLinesFlowV2 = (
 		// shuffle→land→intro) BLOCKS the flow until it finishes — matching the coded handler's awaited
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload, opts) => {
-			trace('cue', cue);
 			// The author-named half: fire the cue NAME on the open component-signal bus too, so a
 			// spine whose `cues[]` names it plays its animation. Synchronous and payload-less (a
 			// `SignalSource` carries no payload) — the bus is a bare `subscribe(run)` event contract,
@@ -589,7 +608,7 @@ export const createLinesFlowV2 = (
 			// Turbo-scaled like a `delay`, and folded into `awaitCue` so a SLAM collapses it: an
 			// authored wait must never outlive the round the player already chose to skip.
 			const ms = opts?.await ? cueAnimationMs(cue) : 0;
-			if (ms > 0) trace('cue', cue, `⏱ ${Math.round(ms)}ms`);
+			trace('cue', cue, ms > 0 ? `⏱ ${Math.round(ms)}ms` : '');
 			return awaitCue(
 				cue,
 				Promise.all([
