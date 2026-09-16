@@ -161,6 +161,46 @@ def test_the_trim_geometry_goes_too() -> None:
     check("...but the creative fields are untouched", "name" in l1, True)
 
 
+def test_the_unplaced_clear_covers_everything_the_placed_clear_does() -> None:
+    """The two halves of one clear must not drift.
+
+    `auto_pack_layout` pops `_REPACK_CLEARED_KEYS` off a region it PLACED and
+    `_PACK_GEOM_KEYS` off one it did not. They were written by two changes
+    landing the same day and briefly disagreed: the placed branch had learned
+    the camelCase spellings (`offX`/`origW`, which `video_to_clip` really emits
+    because the launcher's `parseRegions` reads only camelCase) while the
+    unplaced branch still cleared snake_case only.
+
+    It was dormant -- an unplaced region is neither composed nor framed -- but
+    it is the trap `_REPACK_CLEARED_KEYS` exists to close: a surviving `orig_*`
+    is live INPUT, not a dead field. Its mere presence is what `fit_to_region`
+    reads as `spine_slot`, flipping placement from `contain` to `fill`. So the
+    superset relation is pinned, not just today's contents."""
+    missing = [k for k in u._REPACK_CLEARED_KEYS if k not in u._PACK_GEOM_KEYS]
+    check("every key the placed clear removes, the unplaced clear removes too",
+          missing, [])
+    check("...plus the placement itself, which only an unplaced region loses",
+          [k for k in ("x", "y", "w", "h", "rotated", "rotate")
+           if k not in u._PACK_GEOM_KEYS], [])
+    check("no duplicates, so the tuple stays readable as a set",
+          len(u._PACK_GEOM_KEYS), len(set(u._PACK_GEOM_KEYS)))
+
+
+def test_an_unplaced_region_loses_camelcase_trim_too() -> None:
+    """The behavioural half of the above: the spelling a real producer writes.
+    `video_to_clip._build_manifest` emits offX/offY/origW/origH."""
+    m, _n, _c = _packed(
+        [{"name": "H1", "prompt": "a cherry"},
+         {"name": "L1", "x": 9, "y": 9, "w": 10, "h": 10,
+          "offX": 3, "offY": 4, "origW": 20, "origH": 20}],
+        {"H1": (64, 64)})
+    l1 = _region(m, "L1")
+    check("the camelCase trim is gone as well",
+          [k for k in ("offX", "offY", "origW", "origH") if k in l1], [])
+    check("...so nothing is left to read as a spine slot and force `fill`",
+          "origW" in l1 or "orig_w" in l1, False)
+
+
 def test_a_never_placed_region_is_not_reported_as_lost() -> None:
     """A region added but never generated had no rect to lose. Reporting it as
     'removed from the atlas' would cry wolf on the ordinary growth path."""
@@ -482,6 +522,8 @@ def test_the_deploy_source_names_what_it_dropped() -> None:
 if __name__ == "__main__":
     for fn in (test_a_region_with_no_art_loses_the_previous_packings_rect,
                test_the_trim_geometry_goes_too,
+               test_the_unplaced_clear_covers_everything_the_placed_clear_does,
+               test_an_unplaced_region_loses_camelcase_trim_too,
                test_a_never_placed_region_is_not_reported_as_lost,
                test_losing_a_rect_is_said_out_loud,
                test_rotated_regions_is_walked_too,
