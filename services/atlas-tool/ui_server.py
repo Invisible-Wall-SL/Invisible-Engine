@@ -3329,24 +3329,42 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     return note, True
 
 
-def _composed_page(stem: str) -> Path | None:
-    """The page compose just wrote for `stem`, in the format deploy prefers.
+def _page_mtime(p: Path) -> float | None:
+    """`p`'s mtime, or None when it is not a readable non-empty file."""
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    return st.st_mtime if p.is_file() and st.st_size > 0 else None
+
+
+def _composed_page(stem: str) -> tuple[Path | None, str | None]:
+    """The page compose just wrote for `stem`, in the format deploy prefers,
+    plus a note when a candidate was rejected. (None, None) when neither is
+    there.
 
     `.webp` when it encoded to something non-empty (compose deletes a broken
-    one), else the `.png` compose always writes. None when neither is there."""
+    one), else the `.png` compose always writes.
+
+    A webp OLDER than the png beside it is NOT the page compose just wrote — it
+    is a leftover (or, on the cloud, a copy hydration restored from R2 over the
+    fresh one). It used to win anyway, because this preferred `.webp`
+    unconditionally, and it was then published under the new rects and deployed:
+    frames cropped out of a page of the wrong size, and every rect past the
+    short page's bottom edge dropped. An older webp is therefore ignored in
+    favour of the png, and said out loud."""
     webp = ATLAS_DIR / f"{stem}_new.webp"
-    try:
-        if webp.is_file() and webp.stat().st_size > 0:
-            return webp
-    except OSError:
-        pass
     png = ATLAS_DIR / f"{stem}_new.png"
-    try:
-        if png.is_file() and png.stat().st_size > 0:
-            return png
-    except OSError:
-        pass
-    return None
+    wt, pt = _page_mtime(webp), _page_mtime(png)
+    if wt is not None and pt is not None and wt < pt - 1:
+        return png, (f"ℹ Ignored {webp.name}: it is OLDER than {png.name} "
+                     f"beside it, so it is not the page this compose wrote — "
+                     f"used the .png.")
+    if wt is not None:
+        return webp, None
+    if pt is not None:
+        return png, None
+    return None, None
 
 
 def publish_pack_page(mp: Path, started_at: float) -> str | None:
@@ -3385,7 +3403,8 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     if str(atlas.get("layout", "")).strip().lower() != "pack":
         return None
     stem = mp.stem.replace("atlas_manifest_", "")
-    page = _composed_page(stem)
+    page, pick_note = _composed_page(stem)
+    tail = f"\n{pick_note}" if pick_note else ""
     if page is None:
         return ("⚠ Page pointer not updated: compose wrote no "
                 f"{stem}_new.(webp|png) — the manifest still names its previous "
@@ -3397,7 +3416,35 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     if not fresh:
         return (f"⚠ Page pointer not updated: {page.name} predates this compose "
                 f"(leftover from an earlier run) — the manifest still names its "
-                f"previous page.")
+                f"previous page." + tail)
+    # THE STRUCTURAL CHECK, and the only one that cannot be fooled: MEASURE the
+    # page. An mtime says when a file was last written, not what is in it —
+    # hydration restoring an old page from R2 over the fresh one stamps a
+    # perfectly fresh mtime on stale bytes, and that is exactly how a 2047x1173
+    # page came to be published under a 1934x1612 packing (test6, 2026-09-16).
+    # A page whose real size contradicts the manifest it would be published
+    # under is never correct, so it is refused rather than pointed at: every
+    # rect would crop the wrong pixels, and every rect past the shorter page's
+    # edge would be dropped at deploy.
+    try:
+        with Image.open(page) as _pg:
+            real = _pg.size
+    except Exception as e:  # noqa: BLE001 — unreadable page = not publishable
+        return (f"⚠ Page pointer not updated: {page.name} could not be read "
+                f"({type(e).__name__}: {e}) — the manifest still names its "
+                f"previous page." + tail)
+    try:
+        want = (int(atlas["width"]), int(atlas["height"]))
+    except (KeyError, TypeError, ValueError):
+        want = (0, 0)
+    if want[0] > 0 and want[1] > 0 and real != want:
+        return (f"⚠ Page pointer not updated: {page.name} is {real[0]}×{real[1]} "
+                f"but this atlas packed {want[0]}×{want[1]} — that page is not "
+                f"what this compose laid out (a leftover, or a copy restored "
+                f"from R2 over it). Publishing it would crop every frame out of "
+                f"the wrong canvas and drop the rows past its bottom edge. The "
+                f"manifest still names its previous page; re-run Create Atlas."
+                + tail)
     prefix = str(R2_PREFIX)
     if not prefix:
         return None  # local/dev with no bucket: nothing to point at
@@ -3407,7 +3454,7 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     except Exception as e:  # noqa: BLE001 — a failed PUT must not rewrite fields
         return (f"⚠ Composed page not mirrored to R2 ({type(e).__name__}: {e}) "
                 f"— the manifest still names its previous page rather than a key "
-                f"that isn't in the bucket.")
+                f"that isn't in the bucket." + tail)
     with _manifest_lock:
         m = _read_manifest_at(mp) or {}
         atlas = m.setdefault("atlas", {})
@@ -3422,7 +3469,8 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
         # `export_prefix` is deliberately LEFT: it is true provenance (where this
         # manifest came from) and it gates the ref auto-seed on activation.
         _write_manifest_at(mp, m)
-    return f"Page → {key}" + (f" (was {was})" if was and was != key else "")
+    return (f"Page → {key}" + (f" (was {was})" if was and was != key else "")
+            + tail)
 
 
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
@@ -8675,6 +8723,89 @@ class Handler(BaseHTTPRequestHandler):
         copied = []
         page_src = None  # the deployed page image the .json should point at
         skipped_empty = []
+        # WHICH FILE IS THE PAGE — decided by MEASURING it, BEFORE a single byte
+        # is uploaded. Deploy globs `<stem>_new.*` on its own (it can run long
+        # after the compose that wrote them), so it must make this judgement for
+        # itself and not inherit the page pointer's.
+        #
+        # Preference is still WebP — it is what the game loads. But a candidate
+        # whose real pixel size is not the size these rects were packed into is
+        # not this atlas's page at all: it is a leftover from an earlier packing
+        # or, on the cloud, a copy hydration restored from R2 over the fresh one.
+        # Shipping it puts every frame in the wrong place and drops every rect
+        # past the shorter page's bottom edge — test6, 2026-09-16: 25 frames
+        # packed 1934×1612, a 2047×1173 page deployed, 7 frames gone and the clip
+        # playing 18 frames. Size is the test, not mtime: hydration stamps stale
+        # bytes with a brand-new mtime, and an mtime cannot see inside a file.
+        # With no declared size to check against (nothing packed yet) the fallback
+        # is the ordering rule — a `.webp` older than the `.png` beside it is not
+        # the page the last compose wrote.
+        _decl = m.get("atlas") or {}
+        try:
+            decl_w, decl_h = int(_decl["width"]), int(_decl["height"])
+        except (KeyError, TypeError, ValueError):
+            decl_w = decl_h = 0
+        cands = [p for suf in (".webp", ".png")
+                 for p in sources
+                 if p.suffix.lower() == suf and _page_mtime(p) is not None]
+        # The ordering rule comes FIRST, because it catches what the size rule
+        # cannot: a stale page that happens to be the same size as the fresh one
+        # (a re-render of the same layout) would otherwise be preferred on its
+        # extension alone and ship the wrong ART. Compose writes the `.png` and
+        # then the `.webp`, so a webp older than the png beside it was not
+        # written by the same run.
+        ordered_out: list[Path] = []
+        if len(cands) == 2 and (_page_mtime(cands[0]) or 0) < (
+                _page_mtime(cands[1]) or 0) - 1:
+            ordered_out, cands = [cands[0]], cands[1:]
+        measured: list[tuple[Path, tuple[int, int]]] = []
+        for c in cands:
+            try:
+                with Image.open(c) as _pg:
+                    measured.append((c, _pg.size))
+            except Exception:  # noqa: BLE001 — unreadable = not a page
+                pass
+        page_pick: Path | None = None
+        wrong_size: list[str] = []   # measured, and not this atlas's page
+        if decl_w > 0 and decl_h > 0 and measured:
+            for c, size in measured:
+                if size == (decl_w, decl_h):
+                    page_pick = c
+                    break
+                wrong_size.append(f"{c.name} ({size[0]}×{size[1]})")
+            if page_pick is None:
+                return (f"⚠ REFUSED to deploy — this manifest packed its "
+                        f"{len(m.get('regions') or [])} region(s) into "
+                        f"{decl_w}×{decl_h}, but the composed page is "
+                        f"{', '.join(wrong_size)}. The page and the rects come "
+                        f"from different runs, so every frame would be cropped "
+                        f"out of the wrong canvas and every rect past the page's "
+                        f"edge would be dropped. NOTHING was uploaded — what is "
+                        f"already deployed still stands. Re-run Create Atlas, "
+                        f"then deploy again.")
+        elif measured:
+            page_pick = measured[0][0]
+        # Whatever lost is not uploaded: the loop below must not put a page in
+        # the bucket that this pre-pass just rejected. `.atlas` (spine geometry)
+        # and any 0-byte file stay in `sources` — the loop reports those itself.
+        rejected = ordered_out + [c for c, _ in measured if c is not page_pick]
+        sources = [s for s in sources if s not in rejected]
+        skipped_stale = [c.name for c in rejected]
+        real_w, real_h = next(
+            ((w, h) for c, (w, h) in measured if c is page_pick), (0, 0))
+        page_ink: bool | None = None  # None = not measured; False = blank page
+        # The page's alpha, kept for the per-rect ink test below. Held rather
+        # than re-opened: it is one band of an image already read, and the test
+        # is a crop per frame.
+        page_alpha: Image.Image | None = None
+        if page_pick is not None and not page_only:
+            try:
+                with Image.open(page_pick) as _pg:
+                    page_alpha = _pg.convert("RGBA").getchannel("A")
+                    page_ink = page_alpha.getbbox() is not None
+            except Exception:  # noqa: BLE001
+                page_ink = None
+                page_alpha = None
         # WEBP-ONLY GAME PAGES: compose writes BOTH `<stem>_new.png` (always) and
         # `<stem>_new.webp` (best-effort). Historically deploy shipped both, so a
         # game ended up with a dead `.png` twin next to the `.webp` it actually
@@ -8748,29 +8879,12 @@ class Handler(BaseHTTPRequestHandler):
         # are. Only the fallback fills these; a bound `.atlas` owns its own.
         trimmed_count = 0
         framed_sizes: set[tuple[int, int]] = set()
-        # The page being deployed, MEASURED. Ground truth for both guards below:
-        # the manifest's `atlas.width/height` (and a bound `.atlas` header) can
-        # describe a page this deploy is not shipping. Measured once, here, so
-        # the bound-`.atlas` path gets the same checks as the fallback.
+        # `real_w/real_h`, `page_alpha` and `page_ink` were measured BEFORE the
+        # upload (see the size guard above) — ground truth for both rect guards
+        # below, and for the bound-`.atlas` path as much as the fallback.
         blank: list[str] = []     # a rect the page has no ink under
         _is_pack = str((m.get("atlas") or {}).get(
             "layout", "")).strip().lower() == "pack"
-        real_w = real_h = 0       # 0 = could not measure
-        page_ink: bool | None = None  # None = not measured; False = blank page
-        # The page's alpha, kept for the per-rect ink test below. Held rather
-        # than re-opened: it is one band of an image already read, and the test
-        # is a crop per frame.
-        page_alpha: Image.Image | None = None
-        if not page_only and page_src is not None:
-            try:
-                with Image.open(page_src) as _pg:
-                    real_w, real_h = _pg.size
-                    page_alpha = _pg.convert("RGBA").getchannel("A")
-                    page_ink = page_alpha.getbbox() is not None
-            except Exception:  # noqa: BLE001
-                real_w = real_h = 0
-                page_ink = None
-                page_alpha = None
         atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
         if not page_only and atlas_path is not None and atlas_path.exists():
             # First choice: the bound `.atlas` is the authoritative region map.
@@ -8996,6 +9110,12 @@ class Handler(BaseHTTPRequestHandler):
                           f"deployed page is actually {real_w}×{real_h} — the "
                           f"manifest describes a different page than the one "
                           f"shipped. Re-run Create Atlas, then deploy again.")
+        if skipped_stale:
+            json_note += (f"  ⚠ Did NOT ship {', '.join(skipped_stale)} — not "
+                          f"this atlas's page (a leftover from an earlier "
+                          f"packing, or a copy restored from R2 over the fresh "
+                          f"one). {page_pick.name if page_pick else 'Nothing'} "
+                          f"was deployed instead.")
         if skipped_empty:
             json_note += (f"  ⚠ Skipped empty page file(s) {', '.join(skipped_empty)} "
                           f"(0 bytes — likely a failed WEBP encode); deployed the "

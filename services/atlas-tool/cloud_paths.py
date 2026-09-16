@@ -187,6 +187,15 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
     # bound and are only needed once a project is actively opened, so they
     # hydrate lazily on first access (see ensure_lazy) instead of for every
     # cold project.
+    #
+    # `atlas/` is pulled here deliberately, even though the tool also WRITES it
+    # (publish_pack_page mirrors each composed page there): a fresh container has
+    # to be able to slice/deploy a page composed in a previous life without
+    # re-composing, and staging mirrors R2 1:1. It is only safe because
+    # pull_prefix never overwrites a local file NEWER than the object — this
+    # thread runs in the background and once replaced a page a compose had just
+    # written with the old copy from the bucket, which is how a stale page got
+    # published under fresh rects (test6, 2026-09-16).
     def _bg() -> None:
         for sub in ("input/", "atlas/"):
             try:
