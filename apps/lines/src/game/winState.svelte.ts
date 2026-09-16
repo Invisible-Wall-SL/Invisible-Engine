@@ -74,6 +74,11 @@ export const winState = $state<{
 	countUpAmount: number;
 	coinsEmit: boolean;
 	countUpComplete: boolean;
+	/** Where the big-win RUN-UP stopped (book units), so the overlay's own count CONTINUES from
+	 *  that number instead of restarting at zero — the cue and the overlay are two renderers of
+	 *  ONE number. Set by `cueBigWinCountUp` just before the overlay shows, read by `WinGate` as
+	 *  the count-up's `startFrom`, cleared on `winHide`. 0 ⇒ no cue ran ⇒ count from zero. */
+	cueHandoffAmount: number;
 	escalationActive: boolean;
 	escalationOutroComplete: boolean;
 	escalationSpeedScale: number;
@@ -88,6 +93,7 @@ export const winState = $state<{
 	countUpAmount: 0,
 	coinsEmit: false,
 	countUpComplete: false,
+	cueHandoffAmount: 0,
 	escalationActive: false,
 	escalationOutroComplete: false,
 	escalationSpeedScale: 1,

@@ -5,7 +5,7 @@ import { createGetEmptyPaddedBoard } from 'utils-slots';
 import { sequence } from 'utils-shared/sequence';
 import { roundSkip } from 'utils-shared/skipToken';
 
-import { boardDimensions } from './gameConfig';
+import { activeWinLevelData, boardDimensions } from './gameConfig';
 import { getActiveSymbolInfoMap, resolveSymbolSizeRatios, symbolMapGeneration } from './symbolMap';
 import { resolveSymbolState } from './symbolCell';
 import { eventEmitter } from './eventEmitter';
@@ -24,7 +24,7 @@ import {
 	startWinCycle,
 	stopWinCycle,
 } from './winSymbolCycle';
-import { showAllWinLines, winsOnThisBoard } from './flowEffects';
+import { showAllWinLines, winsOnThisBoard, cueBigWinCountUp } from './flowEffects';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import type { RawSymbol, SymbolState } from './types';
@@ -113,6 +113,20 @@ const dispatchBookEvent = async (
 	// the one-at-a-time narration plays. Off (the default) this is a single boolean read.
 	if (bookEvent.type === 'winInfo' && bakedWinLineConfig().line.allAtOnce) {
 		await showAllWinLines(winsOnThisBoard(bookEvent, context.bookEvents));
+	}
+
+	// BIG-WIN RUN-UP (Symbols State Machine → "Count up to cue the big win"): count the amount text
+	// up to the tier threshold BEFORE anything shows the overlay, then hand the number over. Placed
+	// HERE for the same reason as the all-at-once draw above — it is the one seam all three dispatch
+	// paths cross. It cannot live in the coded `setWin` handler (a flow that OWNS `setWin` never
+	// reaches it) nor in the v2 `winShow` effect (the authored choreography broadcasts `winShow`
+	// BEFORE that effect, so the overlay is already up, and wires no `amount`). Off ⇒ one boolean
+	// read. Awaited: the run-up IS the beat before the celebration.
+	if (bookEvent.type === 'setWin') {
+		await cueBigWinCountUp({
+			amount: bookEvent.amount,
+			winLevelData: activeWinLevelData(bookEvent.winLevel),
+		});
 	}
 
 	// Capture the retrigger's extra-spins count for the `freeSpinsAdded` / `freeSpinsAddedText` value

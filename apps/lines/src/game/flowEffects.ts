@@ -52,6 +52,7 @@ import { eventEmitter } from './eventEmitter';
 import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
+import { winState } from './winState.svelte';
 import { type WinLevelData } from 'engine-game';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
@@ -616,7 +617,11 @@ export const cueBigWinCountUp = async ({
 	if (!threshold) return;
 	// Thresholds are bet-MULTIPLIERS; the book amount is fixed-point. Capped at the round's own
 	// total so the cue can never count past the number it is introducing.
-	const target = Math.min(threshold * BOOK_AMOUNT_MULTIPLIER, amount);
+	// `amount` is the round total and only ever CAPS the target. On a big win it cannot bind (the
+	// win reached a big tier, so it is at least the smallest big threshold), which is why an
+	// unknown amount is allowed to skip the cap rather than disable the cue.
+	const ceiling = threshold * BOOK_AMOUNT_MULTIPLIER;
+	const target = amount > 0 ? Math.min(ceiling, amount) : ceiling;
 	if (target <= 0) return;
 	const winText = bakedWinText();
 	await awaitPresentation({
@@ -629,6 +634,9 @@ export const cueBigWinCountUp = async ({
 		amountAt: (value: number) =>
 			formatWinText(winText.amountFormat, { amount: bookEventAmountToCurrencyString(value) }),
 	});
+	// Hand the number over: the overlay's own count-up starts HERE instead of at zero, so the two
+	// renderers read as one continuous count. Cleared by `WinGate` on `winHide`.
+	winState.cueHandoffAmount = target;
 	eventEmitter.broadcast({ type: 'winAmountCueHide' });
 };
 
@@ -1270,16 +1278,11 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.freeSpinCounterCurrent = 0;
 	},
 
-	/** Show the win presentation flags (`setWin`), after the optional big-win RUN-UP has counted the
-	 *  round total to the tier threshold — the same cue the coded `setWin` handler runs, awaited
-	 *  here BEFORE the flags so the overlay comes up exactly where the count stops. Un-authored ⇒
-	 *  `cueBigWinCountUp` returns immediately and this is the effect it always was. */
-	winShow: async (payload) => {
+	/** Show the win presentation flags (`setWin`). The big-win RUN-UP is NOT run here: an authored
+	 *  choreography does `broadcast('winShow')` BEFORE this effect, so the overlay would already be
+	 *  on screen. It runs at the dispatch seam instead (`utils.ts`), ahead of every path. */
+	winShow: (payload) => {
 		const winLevelData = winLevelDataOf(payload.winLevel as number);
-		// `amount` is what the cue counts, and an authored node need not wire it (the reference
-		// choreography only passes `winLevel` here). Unwired ⇒ 0 ⇒ the cue's own `target <= 0` gate
-		// returns, so the effect stays exactly what it was rather than counting to NaN.
-		await cueBigWinCountUp({ amount: numberOrUndefined(payload.amount) ?? 0, winLevelData });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';
 	},
