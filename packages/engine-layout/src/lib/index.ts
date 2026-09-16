@@ -37,6 +37,7 @@ export * from './builtinRegions';
 export * from './builtinSpineMeta';
 export * from './coverTransform';
 export * from './componentDesignSize';
+export * from './blendMode';
 export * from './backgroundScenes';
 export * from './buyFeatureScene';
 export * from './confirmScene';

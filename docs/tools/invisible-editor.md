@@ -253,12 +253,41 @@ Other editing affordances:
 ### 4. Edit properties
 
 The right-hand **Properties** panel edits the selected node — its transform
-(`x/y`, anchor, scale, rotation, alpha, zIndex, tint), text content/style for
+(`x/y`, anchor, scale, rotation, alpha, zIndex, tint, blend), text content/style for
 text nodes, spine animation/skin for spine nodes (driven by dropdowns when the
 canvas can read the bundle's animations), background cover (fit / zoom /
 alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
+
+#### Blend — how an item mixes with the art behind it
+
+Select a **sprite, spine, flipbook clip or FX effect** and Transform shows a **blend**
+dropdown. It is the Photoshop control: instead of simply covering what is behind it, the
+item's pixels are combined with them.
+
+- **Normal** — the default, and what every item has until you change it. Covers the art
+  behind it.
+- **Add (Linear Dodge)** — sums the two. The reach-for-it mode for **glows, light shafts,
+  sparks, flares** and most additive FX: black pixels in the art disappear entirely and
+  bright ones lift the backdrop. An emitter set to Add reads as one glow, not a crowd of
+  particle sprites.
+- **Multiply** — multiplies the two, so the result is always darker. Use it for
+  **shadows, dirt passes, vignettes and colour washes**; white pixels vanish.
+- **Screen** — the inverse of Multiply, always lighter. A softer lift than Add, which is
+  usually what you want over an already-bright backdrop where Add would blow out to white.
+
+The canvas shows the real result, not an approximation: a blended item composites against
+everything drawn beneath it — **including the art on the screens below it in the list**,
+so a glow placed on the base-game screen visibly lifts the Background screen's art. That
+is the same thing the game does, so the preview and the shipped game agree.
+
+Blend is **per device layout** like the rest of Transform: switch the layoutType pill to
+`portrait` and pick a different mode there to override just that ratio (a dot + × marks
+the override and clears it). Useful, because an additive glow tuned over a wide desktop
+backdrop often has to fall back to Normal over a portrait crop.
+
+> Text, rects and containers deliberately have no blend control.
 
 #### Plays on signal — a spine or flipbook that changes what it plays
 

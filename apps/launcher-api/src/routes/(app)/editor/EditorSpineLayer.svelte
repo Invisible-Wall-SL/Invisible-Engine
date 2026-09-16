@@ -102,6 +102,24 @@
 		 * THIS layer is filtered to the active scene, so the "see all screens" composite
 		 * never stacks several dims into a black-out. Unset = no scrim. */
 		activeSceneId?: string | null;
+		/**
+		 * Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested spines
+		 * follow their top-level ancestor). `null` ⇒ every node, which is the un-blended path and
+		 * byte-identical to before this existed.
+		 *
+		 * It exists for {@link blend}: a rig that blends has to render into its OWN canvas element,
+		 * because this layer draws into a transparent WebGL surface — an `add` applied INSIDE it
+		 * blends against nothing and shows no change, while the game shows a glow. Splitting the
+		 * scene's rigs across one layer per blend mode lets the browser composite each element
+		 * against the art beneath it, which is what the game actually does.
+		 */
+		nodeFilter?: Set<string> | null;
+		/**
+		 * CSS `mix-blend-mode` for this layer's canvas — how the whole element composites onto the
+		 * art beneath it. Absent / `'normal'` ⇒ ordinary source-over (parity). Paired with
+		 * {@link nodeFilter}, which narrows the layer to the nodes that share this mode.
+		 */
+		blend?: string;
 		/** Loaded project component defs, so the overlay can EXPAND a `componentInstance`'s
 		 * tree and render spines nested inside it — the same `componentMap` the 2D canvas +
 		 * text overlay use. Without it, only directly-placed spines render. */
@@ -168,6 +186,8 @@
 		sceneFilter = null,
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
+		nodeFilter = null,
+		blend = 'normal',
 		worldTransformOf,
 		boneRiders,
 		spinePreview = null,
@@ -454,6 +474,7 @@
 			if (hiddenSceneIds.has(sc.id)) continue;
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
+				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				const t = resolveTransform(n, layoutType);
 				if (!t.visible) continue;
 				if (n.kind === 'spine') {
@@ -1432,7 +1453,7 @@
 	});
 </script>
 
-<canvas bind:this={canvas} class="spine-layer"></canvas>
+<canvas bind:this={canvas} class="spine-layer" style:mix-blend-mode={blend}></canvas>
 
 <style>
 	.spine-layer {
