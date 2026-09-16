@@ -120,6 +120,58 @@ check(
 	'without the reset a later non-big win would start its count at the previous big win threshold.',
 );
 
+console.log('\nwin overlay — park until pressed\n');
+
+const vocab = read('packages/engine-flow-v2/src/reference/standardVocab.ts');
+const winEvent = read('apps/lines/src/components/Win.svelte');
+
+// The chain is: /flow inspector -> node payload -> flow effect -> emitter event -> WinGate.
+// Each link is asserted, because a missing one fails silently.
+check(
+	/name: 'waitForPress'/.test(vocab),
+	'the /flow winUpdate node offers waitForPress',
+	'standardVocab.ts must declare the param, or the author has no box to tick.',
+);
+check(
+	/waitForPress\?: boolean;/.test(winEvent),
+	'the winUpdate emitter event carries waitForPress',
+	'Win.svelte declares the event shape the gate reads.',
+);
+check(
+	/waitForPress: payload\.waitForPress === true,/.test(effects),
+	'the flow effect forwards waitForPress',
+	'flowEffects.ts must pass the authored value into the broadcast.',
+);
+check(
+	/waitForPress = emitterEvent\.waitForPress \?\? false;/.test(gate),
+	'WinGate reads waitForPress off the event',
+	"without this the gate never sees the author's intent.",
+);
+
+// Arming. The two guards are load-bearing: a slam means the player asked to move on, and an
+// authored container that already holds the beat must not get a second tap surface under it.
+check(
+	/if \(waitForPress && !roundSkip\.isSkipped\(\) && !winState\.flowHoldsPresentation\)/.test(gate),
+	'the park arms only when it should',
+	'arming must be gated on the switch, on NOT being slammed, and on the flow not already holding.',
+);
+check(
+	/if \(winState\.awaitingDismiss && waitForPress\) await waitForDismissPress\(\);/.test(gate),
+	'concludePresentation holds for the press',
+	'the conclude must wait, or the overlay closes itself exactly as before.',
+);
+check(
+	/winState\.dismissPressed = true;/.test(gate) &&
+		/if \(winState\.dismissPressed\) return Promise\.resolve\(\);/.test(gate),
+	'the press is LATCHED, and the wait honours the latch',
+	'a press that lands before the wait is wired would otherwise hold the round for the whole cap.',
+);
+check(
+	/const PARK_HOLD_CAP_MS = /.test(gate) && /waitForTimeout\(PARK_HOLD_CAP_MS\)/.test(gate),
+	'the park is bounded',
+	'the spin button is locked during the celebration, so an abandoned parked win must still release.',
+);
+
 console.log(
 	failures === 0 ? `\nbig-win cue: OK (${checks} checks)\n` : `\nbig-win cue: ${failures} FAILED\n`,
 );

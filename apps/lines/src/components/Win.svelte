@@ -13,6 +13,10 @@
 				winLevelData: WinLevelData | undefined;
 				holdToSpeedUp?: boolean;
 				tapToSkip?: boolean;
+				/** PARK the overlay after the count-up: it stays on screen until the player presses,
+				 *  instead of concluding on its own. Unset ⇒ off (the overlay self-concludes, exactly
+				 *  as before). Authored on the same `winUpdate` node as the two toggles above. */
+				waitForPress?: boolean;
 		  }
 		// Broadcast by `WinGate` the moment its count-up finishes (natural or slammed). Drives the
 		// `winCountUpComplete` component signal so an authored `bigWin` container's tap/prompt arms

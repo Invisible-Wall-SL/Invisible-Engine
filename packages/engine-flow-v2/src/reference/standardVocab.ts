@@ -490,6 +490,13 @@ export const standardVocabulary = ({
 					description:
 						'Let the player TAP once to jump the win count-up straight to the final total. Unset ⇒ off. With Hold to speed up also on, a quick tap skips while a press-and-hold speeds up.',
 				},
+				{
+					name: 'waitForPress',
+					type: BOOL,
+					optional: true,
+					description:
+						'PARK the win screen once the count-up lands: it stays until the player presses, instead of closing on its own. Unset ⇒ off (the overlay concludes by itself, as it always has). Use it when the flow owns the win and composes no tap of its own — otherwise the celebration plays and vanishes unread. A slammed spin skips the park, and an abandoned screen still releases after a few minutes so a round can never block forever.',
+				},
 			],
 			category: 'effect',
 		},

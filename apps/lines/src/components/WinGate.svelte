@@ -63,6 +63,23 @@
 	 */
 	const DISMISS_HOLD_CAP_MS = 10_000;
 
+	/**
+	 * RUNAWAY GUARD on a PARKED win (`waitForPress` authored on the `winUpdate` node) — the same
+	 * discipline as the two caps above, sized for a different thing.
+	 *
+	 * {@link DISMISS_HOLD_CAP_MS} bounds an ACCIDENT: the player tapped to land the total and then
+	 * put the phone down, and ten seconds is far longer than anyone needs to read a number they just
+	 * asked to see. This bounds an INTENTION: the author asked the celebration to wait, so the wait
+	 * is the beat, not a stray hold — capping it at ten seconds would simply re-break the thing the
+	 * option exists to fix.
+	 *
+	 * It is still capped, and deliberately so: the spin button is locked while the celebration is up
+	 * (`stateUi.celebrationLock.win`), so a slam is NOT always reachable, and an abandoned autoplay
+	 * run would otherwise block the round forever. Five minutes is past any plausible reading of a
+	 * win screen while still being a bounded number.
+	 */
+	const PARK_HOLD_CAP_MS = 5 * 60_000;
+
 	const context = getContext();
 
 	// Under a v2 flow that DRIVES the screens, the authored container's `tapToContinue` overlay is
@@ -82,6 +99,9 @@
 	// count-up + tap-to-slam `PressToContinue`, exactly as the coded `FreeSpinOutroGate` fallback does.
 	let holdToSpeedUp = $state(false);
 	let tapToSkip = $state(false);
+	// PARK the overlay on the player once the count lands (`waitForPress`). Per-instance like the
+	// two above, and read in `OnMount` below rather than by any render branch.
+	let waitForPress = $state(false);
 	let interactionSpeedScale = $state(1);
 	// `undefined` — the provider's original single fixed-duration tween — on the coded path OR when
 	// hold-to-speed-up is off (a pure tap-to-skip surface never accelerates); the dynamic scale only
@@ -192,8 +212,35 @@
 	 * plays in full (escalation unchanged). Un-escalating ⇒ the flag is inert — byte-identical.
 	 */
 	function dismissNow() {
+		// LATCHED, not just acted on: a parked win may not have wired its wait yet when the press
+		// lands (an instant count-up finishes in the tick it mounts), and a promise that missed the
+		// press would hold the round for the whole cap.
+		winState.dismissPressed = true;
 		winState.escalationOutroComplete = true;
 		void concludePresentation();
+	}
+
+	/** A promise that resolves when the player DISMISSES a parked win (`waitForPress`), raced
+	 *  against {@link PARK_HOLD_CAP_MS}. Same reactive→promise bridge as
+	 *  {@link waitForEscalationOutro}, and resolves immediately when the press already landed. */
+	function waitForDismissPress(): Promise<void> {
+		if (winState.dismissPressed) return Promise.resolve();
+		return new Promise<void>((resolve) => {
+			let stop = () => {};
+			let settled = false;
+			const settle = () => {
+				if (settled) return;
+				settled = true;
+				stop();
+				resolve();
+			};
+			stop = $effect.root(() => {
+				$effect(() => {
+					if (winState.dismissPressed) settle();
+				});
+			});
+			void waitForTimeout(PARK_HOLD_CAP_MS).then(settle);
+		});
 	}
 
 	/**
@@ -207,6 +254,10 @@
 		if (concluded) return;
 		concluded = true;
 		if (winState.escalationActive) await waitForEscalationOutro();
+		// PARKED — the tiers have played, the number has landed, and the author asked the screen to
+		// wait. Held here rather than by an earlier branch so an escalating win still walks its chain
+		// and plays its outro first; the park is the beat AFTER the celebration, not instead of it.
+		if (winState.awaitingDismiss && waitForPress) await waitForDismissPress();
 		oncomplete();
 	}
 
@@ -269,6 +320,7 @@
 			winState.escalationForceStep = 0;
 			winState.escalationStepIndex = 0;
 			winState.awaitingDismiss = false;
+			winState.dismissPressed = false;
 		},
 		winHide: () => {
 			show = false;
@@ -281,6 +333,7 @@
 			winState.escalationForceStep = 0;
 			winState.escalationStepIndex = 0;
 			winState.awaitingDismiss = false;
+			winState.dismissPressed = false;
 			// Reset the count-up-complete latch when the win DISMISSES — the load-bearing reset for a
 			// REPEAT win. Under an authored flow the win container (and its `tapArmAfterSignal:
 			// 'winCountUpComplete'` tap) is mounted by `showContainer` BEFORE that win's `winShow`
@@ -297,6 +350,7 @@
 			// Unset ⇒ off (a plain count-up); the author ticks either/both in the node's inspector.
 			holdToSpeedUp = emitterEvent.holdToSpeedUp ?? false;
 			tapToSkip = emitterEvent.tapToSkip ?? false;
+			waitForPress = emitterEvent.waitForPress ?? false;
 			winState.amount = emitterEvent.amount;
 			winState.winLevelData = emitterEvent.winLevelData;
 			await waitForResolve((resolve) => (oncomplete = resolve));
@@ -334,6 +388,16 @@
 						winState.countUpComplete = true;
 						context.eventEmitter.broadcast({ type: 'winCountUpComplete' });
 						await roundSkip.wait(300);
+						// PARK (`waitForPress`): arm the hold from the AUTHOR's intent rather than from a tap.
+						// The hold and its dismiss press already existed — they were reachable only by tapping
+						// to land, so a game whose flow composes no tap surface could never get them, and its
+						// celebration played to nobody and vanished. Two guards: a SLAM means the player asked
+						// to move on, and an authored container that already holds the presentation owns the
+						// beat itself (`flowHoldsPresentation`) — arming here would put a second tap surface
+						// under its own.
+						if (waitForPress && !roundSkip.isSkipped() && !winState.flowHoldsPresentation) {
+							winState.awaitingDismiss = true;
+						}
 						// On the escalation path this waits for the collapsed chain's final outro before
 						// resolving; un-escalating ⇒ resolves now, exactly as before (byte-identical).
 						await concludePresentation();
