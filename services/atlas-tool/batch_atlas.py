@@ -876,11 +876,21 @@ def source_image_candidates(manifest: dict, atlas_path: Path | None,
     # FIRST (highest priority) so it wins over legacy basename guesses, and used
     # as the by-key fallback. _staging_rel() strips the <C>/<P> prefix (CRITICAL:
     # raw STAGING_ROOT / <key> would double it).
+    #
+    # `atlas/` is in the same family: a `pack` atlas names the page the tool
+    # ITSELF composed (`atlas/<stem>_new.webp`, mirrored to R2 by
+    # ui_server.publish_pack_page) so its rects and its page come from one
+    # producer. It is not lazy — hydrate pulls `atlas/` in the background at
+    # startup — but it still has to be offered here by key, or the by-BASENAME
+    # fallback below scans only the historic refs/sheets locations and never
+    # finds it.
     sip = atlas_meta.get("source_image_path")
     sip_srel = _staging_rel(sip) if sip else ""
-    if sip_srel.startswith("sheets/") or sip_srel.startswith("sheet_src/"):
-        project_paths.ensure_lazy(
-            "sheets/" if sip_srel.startswith("sheets/") else "sheet_src/")
+    sip_sub = next((s for s in ("sheets/", "sheet_src/", "atlas/")
+                    if sip_srel.startswith(s)), "")
+    if sip_sub:
+        if sip_sub != "atlas/":
+            project_paths.ensure_lazy(sip_sub)
         cands.append(STAGING_ROOT / sip_srel)
     si = atlas_meta.get("source_image")
     if si:
@@ -897,11 +907,12 @@ def source_image_candidates(manifest: dict, atlas_path: Path | None,
             cands.append(atlas_path.parent / pg)
         cands += [INPUT_DIR / pg, INPUT_DIR / "refs" / pg,
                   INPUT_DIR / "refs" / "atlas" / pg]
-    # Nothing on disk yet — auto-hydrate from R2. A Sheet-Maker `source_image_path`
-    # fetches by EXACT key (preserving the sheets/ subtree); otherwise the legacy
-    # page (seeded under refs/atlas/) pulls by basename. Same as atlas_file_path.
+    # Nothing on disk yet — auto-hydrate from R2. A `source_image_path` naming a
+    # known subtree (a Sheet-Maker `sheets/` page, a composed `atlas/` page)
+    # fetches by EXACT key, preserving that subtree; otherwise the legacy page
+    # (seeded under refs/atlas/) pulls by basename. Same as atlas_file_path.
     if not any(c.exists() for c in cands):
-        if sip_srel.startswith("sheets/") or sip_srel.startswith("sheet_src/"):
+        if sip_sub:
             name = Path(sip_srel).name
             pulled = _hydrate_from_r2_by_name(name, r2_key=sip)
         else:

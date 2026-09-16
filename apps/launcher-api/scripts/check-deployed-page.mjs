@@ -1,5 +1,5 @@
 /**
- * Guard `pickDeployedPage`'s derived-subtree exclusion.
+ * Guard `pickDeployedPage`'s derived-subtree exclusion + `isDeployedPageStale`'s rule.
  *
  * Run: `node apps/launcher-api/scripts/check-deployed-page.mjs`
  *
@@ -15,14 +15,20 @@
  *     back upside down on a rig that had rendered correctly.
  *
  * The second one shipped and reached a live rig. This exists so the third one cannot.
+ *
+ * The same file's OTHER half, `isDeployedPageStale`, answers "is that page too old for the
+ * manifest's rects?" — and got the third instance of this family anyway (2026-09-16), by rejecting
+ * a page that was right. Its cases are pinned at the bottom with the real R2 numbers.
  */
-import { pickDeployedPage } from '../src/lib/server/deployedPage.ts';
+import { isDeployedPageStale, pickDeployedPage } from '../src/lib/server/deployedPage.ts';
 
 const PREFIX = 'client/project/deploy/';
 const STEMS = new Set(['sheet1']);
 
 let fails = 0;
+let total = 0;
 const check = (name, ok) => {
+	total++;
 	if (!ok) {
 		fails++;
 		console.error('FAIL:', name);
@@ -64,5 +70,46 @@ check('a newer page in a real subtree still wins', pick(newerReal) === newerReal
 const lookalike = { key: `${PREFIX}_bootcamp/sheet1.webp`, lastModified: 9999, size: 900_000 };
 check('a look-alike folder (_bootcamp) is NOT excluded', pick(lookalike) === lookalike.key);
 
-console.log(`${9 - fails} passed, ${fails} failed`);
+// --- `isDeployedPageStale` ---------------------------------------------------------------
+// The live case that broke it, `invisible_wall/test6` 2026-09-16: an atlas generated in Flipbook
+// video mode (which wrote the SOURCE page once, at 08:37, and never again), re-packed in the Atlas
+// Maker (which re-wrote the MANIFEST at 09:55) and deployed (09:50). The manifest's own declared
+// size, 2047x1173, matches the DEPLOY; the untouched source page is 1934x1612. The old guard read
+// only "manifest newer than deploy" and served the 1934x1612 page to /flipbook, /editor and
+// /symbols — every frame sliced at the wrong coordinates, unfixable by a hard reload.
+const at = (hms) => Date.parse(`2026-09-16T${hms}Z`);
+const SOURCE = at('08:37:51'); // sheets/S_New_Squid_Idle/….png            1934x1612
+const DEPLOY = at('09:50:20'); // deploy/sprites/S_New_Squid_Idle/….webp   2047x1173
+const MANIFEST = at('09:55:47'); // manifests/atlas_manifest_S_New_Squid_Idle.json, declares 2047x1173
+
+check(
+	'THE BUG: a manifest re-saved after a deploy does NOT demote a page the source is older than',
+	isDeployedPageStale(DEPLOY, SOURCE, MANIFEST) === false,
+);
+check(
+	'an un-shipped re-pack (source page written with the manifest, after the deploy) is rejected',
+	isDeployedPageStale(DEPLOY, MANIFEST, MANIFEST) === true,
+);
+check(
+	'a source page missing from R2 (mtime 0) leaves nothing better, so the deploy stands',
+	isDeployedPageStale(DEPLOY, 0, MANIFEST) === false,
+);
+check(
+	'a deploy newer than the manifest is never stale',
+	isDeployedPageStale(MANIFEST + 1, SOURCE, MANIFEST) === false,
+);
+check(
+	'unknown mtimes (0) disable the guard — manifest',
+	isDeployedPageStale(DEPLOY, MANIFEST, 0) === false,
+);
+check(
+	'unknown mtimes (0) disable the guard — deployed page',
+	isDeployedPageStale(0, MANIFEST, MANIFEST) === false,
+);
+check(
+	'a source page written in the same second as the deploy is not newer evidence',
+	isDeployedPageStale(DEPLOY, DEPLOY, MANIFEST) === false,
+);
+
+console.log(`${total - fails} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

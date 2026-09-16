@@ -39,6 +39,48 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-16 — **A correctly deployed atlas was served as the OLD art in `/editor`, `/symbols` AND
+  `/flipbook` — the stale-deploy guard rejected the right page.** Owner flow: generate an atlas in
+  Flipbook 🎬 video mode → re-pack it in the Atlas Maker → deploy. The deployed atlas is correct;
+  every launcher tool that resolves regions kept drawing the previous art, and **a hard browser
+  reload did not fix it** — which is what identifies it as server-side, not a client cache.
+  - **Verified against live R2** (`invisible_wall/test6`, read-only probe):
+
+    | object | mtime | pixels |
+    | --- | --- | --- |
+    | `manifests/atlas_manifest_S_New_Squid_Idle.json` | 09:55:47Z | declares `atlas` 2047x1173 |
+    | `deploy/sprites/S_New_Squid_Idle/….webp` | 09:50:20Z | **2047x1173** |
+    | `sheets/S_New_Squid_Idle/….png` | 08:37:51Z | 1934x1612 |
+
+    The manifest's own declared page size matches the DEPLOY exactly. The source page is the
+    Flipbook video mode's original, written once and never touched by the Atlas Maker's re-pack.
+  - **Cause: the 2026-07-14 guard used the wrong evidence.** `editorRegions.ts findDeployedPage`
+    rejected a deployed page whenever the manifest was newer than it (09:50 < 09:55), so
+    `resolvePageKey` fell through to `atlas.source_image_path` — a page of a DIFFERENT SIZE, so
+    fresh rects were cropped at meaningless coordinates. **A manifest mtime is not a proxy for
+    "the geometry changed":** a manifest is re-saved by a metadata edit, an auto-seed, or the Atlas
+    Maker's own `_refresh_manifest_from_r2` writeback, none of which move a rect. And because the
+    fallback it chose was OLDER STILL than the page it rejected, the guard was strictly worse than
+    no guard at all.
+  - **Fix: reject the deploy only when the fallback is better evidence.** New pure predicate
+    `deployedPage.ts isDeployedPageStale(deployedModified, sourceModified, manifestModified)` —
+    stale iff the manifest is newer than the deploy **and** the SOURCE page is itself newer than the
+    deploy (i.e. an un-shipped re-pack is what wrote it). A source page older than the deploy, or
+    missing from R2 (legacy manifests carry a local Windows path in `source_image`), is not better
+    evidence, so the deploy stands. The un-shipped-re-pack case the guard was built for — the
+    "new region shows up but the image is blank" bug — behaves exactly as before. Cost is one
+    `headObject` on the source key, paid ONLY in the suspicious case (the cheap manifest-vs-deploy
+    test gates it), so the hot path is unchanged.
+  - Pinned by `pnpm -C apps/launcher-api check:deployed-page` (now 16 assertions), **mutation-
+    verified**: restoring the mtime-only rule fails exactly the three new cases (the live one, the
+    missing-source one, and the same-second one). The institutional reasoning + the R2 numbers live
+    in the `isDeployedPageStale` doc comment, because the rule reads like something to "simplify"
+    straight back.
+  - **Not the same thing as `/flipbook`'s new ↻ Refresh from R2** (same day, [flipbook
+    status](flipbook.md)): that button fixes IN-SESSION staleness in a tab left open, and was
+    written believing the server was clean. It is a real gap; it was not this report's cause.
+  - ⏳ **Not live-verified** — needs the launcher deploy, then a re-check of the same sheet.
+
 - 2026-09-14 — **A background cover can be fitted on ONE axis, aligned off-centre, and both per screen layout** (owner: *“specify if I fit using X or Y … overwritable per screen layout … I should be able to change the anchor, right now this option is not doing anything”*). Three things in one seam. (a) **`fit` gained `width` / `height`.** `cover`/`contain` pick the driving axis FROM the aspect ratio, so which axis they pin flips as the window ratio crosses the art's — there was no way to say “always span the window's width, crop/gap vertically”. The two new values pin the uniform fit scale to that axis. (b) **The anchor now means something on a cover node.** It was dead — every cover path overwrote it with `0.5` — so the crop was always taken from the centre. The fit is still COMPUTED centred; `coverTransform` then slides the fitted art within the overflow (CSS `object-position` semantics: `0` = left/top edge, `1` = right/bottom) and returns that as the centre to draw at, so there is exactly one alignment formula and the art keeps its own 0.5 pivot everywhere. Parity is free: every editor spawn already writes `anchor {0.5,0.5}`, and an absent anchor defaults to it ⇒ zero slide. (c) **Per-layoutType overrides** — `NodeOverride` gains `fit` + `coverScale` (stretch and alignment already ride the existing per-layout `scale`/`anchor`), and all four canonical readers take the active `layoutType`, resolving that bucket before the base. **That also fixed a latent bug:** `backgroundCoverStretch` read only the BASE `scale`, so a per-ratio stretch override was silently ignored by every cover path. The Properties “Background” section now carries **fit** (4 options) / **cover scale** / **align x** / **align y**, each with the standard overridden-dot + × reset in a non-base ratio. Wired through every cover surface so the preview can't disagree with the game: runtime `LayoutNodeView` (sprite / flipbook / componentInstance covers, and the SPINE cover — sized by `<SpineProvider fit>`, so its alignment comes from the shared `coverAnchorOffset` against the skeleton dims it is sized from), the coded `<Background>` (same helper, per rig key), `EditorCanvas` (both cover paths) and `EditorSpineLayer` (background/coverFit + the `cover`-placement preview art). pixi-svelte's `spineSizeScale` learned the same two axis fits. A per-axis fit on a `preview.art` bind anchor also had to map to the COVER placement in `resolveAnchorPreviewArt` — only `'cover'` did, so `width`/`height` would have demoted the full-bleed background to a centred overlay; that resolver is now layoutType-aware for the same reason (a per-ratio fit override could otherwise flip the GAME to a cover while the editor kept previewing a centred overlay). **The componentInstance cover is threaded inside `coverBoxTransform`, not at its call sites** — #611 gave that path a second entry point (the editor-baked `node.coverBox`, which is the path every re-saved doc takes), so an anchor applied to one `return` would align the same backdrop differently depending on whether the editor had baked it. `tools/bg-scene-spike/coverBox.ts` — the parity guard for exactly that pair of surfaces — gained the anchor + per-axis fit as inputs, because a formula parameter it does not exercise is a parameter it no longer guards.
 
   **Verified:** the RUNTIME half is browser-verified against a real doc — `fit: 'cover'` fitted the background rig at scale 0.47958 and `fit: 'width'` at 0.41831 (= 1280 ÷ the rig's authored 3059.92, read off the live Pixi tree); anchor `{0,0}` vs `{1,1}` visibly pinned a half-size contain to the top-left then the bottom-right; and a per-bucket override beat a deliberately wrong base. The EDITOR half is ⏳ **not browser-verified** (auth-gated) — owner confirms live. Gates on the rebased tree: eslint, `check:undefined-names`, the flow-vocabulary check, both `lines` and `launcher-api` builds, `test-cover-fit.mjs`, the bg-scene spike, and `packages/engine-layout/scripts/test-cover-axis-anchor.mjs` (33 assertions over the real module: the axis fits, the alignment, the offset helper, override precedence).
@@ -126,7 +168,7 @@ Shipped capabilities on `main`:
 - 2026-07-15 — **Component Editor repaint + anchor-aware readout preview.** (a) The Component Editor (`/components`) reused `EditorCanvas` but passed NO `redrawNonce` and NO `onDirty` to `EditorProperties`, so a transform/anchor/param edit mutated the draft but never repainted ("nothing changes when I change anchors"). Added an `editNonce` bumped on every panel edit (`onDirty` + the inline `onSetInstanceParam`) and fed to the canvas — mirrors the Scene Editor's nonce. (b) `drawHudChip`'s decomposed readout caption/value text ignored the node ANCHOR (hardcoded `textAlign:'center'` at the origin) while the game honours it (`HudCaption`/`HudValue` render `<CatalogText anchor={transform.anchor}>`) — so left/right-aligning a readout text previewed wrong. Now draws left-aligned + shifted by `measuredWidth × anchor.x` / `size × anchor.y`, WYSIWYG for any fractional anchor. ([detail in history](../history.md)).
 - 2026-07-15 — HUD Readout **per-text style params (v1→v2)**: the Caption and Value texts can now be styled independently via collapsible `Caption`/`Value` groups (`captionFill`/`captionFontSize`/`captionFontFamily` + `value*`), each inheriting the SHARED `fill`/`fontSize`/`fontFamily` when unset — so older instances are byte-identical. Wired through the coded `HudCaption`/`HudValue` parts and the editor's 2D chip preview. A **saved def is a frozen snapshot** and would hide the new coded params — so `componentStorage` (`listComponents` + `loadComponent`) now runs `mergeBuiltinCodedParams()`: it additively unions the code-defined params of ANY built-in-backed def (never removing/overriding author params, no version bump), so an old saved `hudReadout` in project/shared R2 gains the new controls automatically. ([detail in history](../history.md)).
 - 2026-07-15 — Properties-panel edits now repaint the canvas live: `markDirty()` bumps `canvasRedrawNonce` (the redraw effects only track a field whitelist + the nonce, never per-node `params`/`bind.props`/`transform`). Also: removed the redundant `center` v-align/h-align option (identical to the default `centre` at runtime — only `bottom`/`left`/`right` deviate), and implemented horizontal align in the editor `standardToWorld` preview (was vertical-only). ([detail in history](../history.md)).
-- 2026-07-14 — Editor regions: mtime guard so a re-packed atlas's NEW region no longer shows as an EMPTY image (manifest newer than deployed page ⇒ fall back to source page) ([detail in history](../history.md)).
+- 2026-07-14 — Editor regions: mtime guard so a re-packed atlas's NEW region no longer shows as an EMPTY image (manifest newer than deployed page ⇒ fall back to source page) ([detail in history](../history.md)). **Narrowed 2026-09-16** — the manifest-vs-deploy test alone rejected correct pages; see the entry at the top of this section.
 - 2026-07-13 — Bone-ridden stand-in symbol preview for the free-spin symbol reveal ([detail in history](../history.md)).
 - 2026-07-08 — Invisible FX: LIVE particle preview on the Scene Editor canvas + place effects as an `effect` node ([detail in history](../history.md)).
 - 2026-07-03 — Removed the per-screen and per-instance "Shows during" gates entirely (Flow owns visibility, standing rule) ([detail in history](../history.md)).

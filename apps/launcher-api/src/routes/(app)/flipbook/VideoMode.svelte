@@ -15,11 +15,17 @@
 	 * author sees whether the background cutout actually produced alpha.
 	 */
 	import { onDestroy } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
 	import { findUnexposedGates } from '$lib/blueprintGates';
 	import RunPicker, { type RunPickerItem } from '$lib/RunPicker.svelte';
-	import RegionThumb from '../editor/RegionThumb.svelte';
-	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
-	import { cropRegionToPng } from '../editor/regionCrop';
+	import RegionThumb, { clearPageImages } from '../editor/RegionThumb.svelte';
+	import {
+		clearRegionCache,
+		fetchRegions,
+		type EditorRegion,
+		type RegionSet,
+	} from '../editor/editorRegions.client';
+	import { clearCropPages, cropRegionToPng } from '../editor/regionCrop';
 
 	/** One project atlas, as `+page.server.ts` streams it for the clip editor's region picker. */
 	interface SourceAtlas {
@@ -1811,6 +1817,36 @@ Overwrite it?`)
 		),
 	);
 
+	const REFRESH_TITLE =
+		"Re-read this project's sheets from R2 — the region rects and the page image are cached " +
+		'for this browser session, so this picker keeps offering the old art (and would crop the ' +
+		'old pixels into the generation source) after an atlas is re-packed elsewhere.';
+
+	let refreshing = $state(false);
+
+	/**
+	 * The clip editor's ↻ Refresh from R2, over this picker. The three caches it drops are all
+	 * MODULE-level and live for the whole SPA session; `clearCropPages` is the one that matters
+	 * most here, because `cropRegionToPng` is what becomes the uploaded generation source — a
+	 * stale decode there spends GPU time on art the project no longer has.
+	 */
+	async function refreshArt(): Promise<void> {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			clearRegionCache();
+			clearPageImages();
+			clearCropPages();
+			regionSets = {};
+			ensureRegions(sheetKey);
+			// `atlases` is a prop off the page's server load, so a sheet packed since this tab opened
+			// only reaches the select through a re-run of that load.
+			await invalidateAll();
+		} finally {
+			refreshing = false;
+		}
+	}
+
 	async function pickRegion(region: EditorRegion): Promise<void> {
 		const set = regionSet;
 		if (!set || pickBusy) return;
@@ -2966,6 +3002,14 @@ Overwrite it?`)
 							{/each}
 						</select>
 						<input placeholder="Filter regions…" bind:value={regionFilter} />
+						<button
+							class="rrefresh"
+							disabled={!!pickBusy || refreshing}
+							title={REFRESH_TITLE}
+							onclick={refreshArt}
+						>
+							{refreshing ? '…' : '↻'}
+						</button>
 					</div>
 					<p class="crumb">
 						The region is cropped at its own size, keeping its untrimmed frame and its alpha — the
@@ -3735,6 +3779,10 @@ Overwrite it?`)
 	.rtools input {
 		flex: 1;
 		min-width: 0;
+	}
+	.rtools .rrefresh {
+		flex: none;
+		padding: 4px 8px;
 	}
 	.rgrid {
 		display: grid;

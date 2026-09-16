@@ -32,6 +32,17 @@ function loadPage(url: string): Promise<HTMLImageElement> {
 	return p;
 }
 
+/**
+ * Drop the decoded pages so the next crop re-reads them from R2. A crop is uploaded as a
+ * GENERATION source, so a stale decode here does not merely mislead the eye — it feeds the old
+ * art to a paid GPU run. Called by Invisible Flipbook's ↻ Refresh from R2 alongside
+ * `clearRegionCache` / `clearPageImages`; this cache is keyed by the same versioned URL, so it
+ * only ever goes stale together with them.
+ */
+export function clearCropPages(): void {
+	pages.clear();
+}
+
 /** Pixel size of the PNG a crop of `region` produces — its untrimmed frame. */
 export function regionCropSize(region: EditorRegion): { w: number; h: number } {
 	return { w: region.origW ?? region.w, h: region.origH ?? region.h };

@@ -2997,6 +2997,13 @@ def auto_pack_layout(m: dict) -> str | None:
     atlas["layout"] = "pack"
     atlas["width"] = int(result["width"])
     atlas["height"] = int(result["height"])
+    # The TexturePacker descriptor named here (if any) describes the page this
+    # re-pack just superseded, and the launcher's `backfillMissingGeometry`
+    # treats it as AUTHORITATIVE — it overwrites every rect it can match by name.
+    # Left in place it silently restores the OLD packing on top of the NEW page,
+    # so rects and pixels disagree again one layer up. There is no replacement to
+    # name: compose emits a descriptor only at Deploy.
+    atlas.pop("texturepacker_json", None)
     note = (f"Auto-packed {len(items)} region(s) → page "
             f"{result['width']}×{result['height']}")
     if skipped:
@@ -3004,6 +3011,102 @@ def auto_pack_layout(m: dict) -> str | None:
                  f"{', '.join(skipped[:8])}"
                  + (" …" if len(skipped) > 8 else ""))
     return note
+
+
+def _composed_page(stem: str) -> Path | None:
+    """The page compose just wrote for `stem`, in the format deploy prefers.
+
+    `.webp` when it encoded to something non-empty (compose deletes a broken
+    one), else the `.png` compose always writes. None when neither is there."""
+    webp = ATLAS_DIR / f"{stem}_new.webp"
+    try:
+        if webp.is_file() and webp.stat().st_size > 0:
+            return webp
+    except OSError:
+        pass
+    png = ATLAS_DIR / f"{stem}_new.png"
+    try:
+        if png.is_file() and png.stat().st_size > 0:
+            return png
+    except OSError:
+        pass
+    return None
+
+
+def publish_pack_page(mp: Path, started_at: float) -> str | None:
+    """Point a re-packed `pack` atlas's manifest at the page THIS tool composed,
+    and make that page real in R2 first. Returns a log note, or None for a
+    manifest this does not apply to.
+
+    WHY. A `pack` manifest's rects are re-derived by `auto_pack_layout` from the
+    generated art on every Create Atlas, so its geometry has exactly one
+    producer: this tool. Its `atlas.source_image_path` pointed somewhere else
+    entirely — a Flipbook sheet under `sheets/`, an imported page under
+    `refs/atlas/` — pages NOBODY re-packs. The manifest therefore invalidated
+    its own declared page the first time it was re-packed: fresh rects, a page of
+    a different size, and every consumer that crops the declared page by those
+    rects (the editor, `/symbols`, `/flipbook`) slicing the wrong pixels. Naming
+    our own composed page closes it — the rects and the page now come from the
+    same producer, in the same run.
+
+    ORDERING. The page does not exist when `auto_pack_layout` runs (it is what
+    compose is about to make) and its extension is not known until the WEBP
+    encode either succeeds or doesn't. So the fields are written HERE, after the
+    compose subprocess, and only after the bytes are in R2 — never the other way
+    round, because a manifest naming a key that isn't in the bucket is the very
+    failure this removes. `started_at` is when compose began: a page older than
+    that is a LEFTOVER from an earlier run, not this packing, so it is refused
+    rather than published under the new rects.
+
+    The window this leaves is the compose itself — between `auto_pack_layout`'s
+    save and this one the manifest carries new rects and its previous page
+    pointer. That window is structural (compose must read the geometry it is
+    composing, so the geometry has to be saved first) and it is not a
+    regression: before this, that mismatched state was the PERMANENT one."""
+    with _manifest_lock:
+        m = _read_manifest_at(mp) or {}
+    atlas = m.get("atlas") or {}
+    if str(atlas.get("layout", "")).strip().lower() != "pack":
+        return None
+    stem = mp.stem.replace("atlas_manifest_", "")
+    page = _composed_page(stem)
+    if page is None:
+        return ("⚠ Page pointer not updated: compose wrote no "
+                f"{stem}_new.(webp|png) — the manifest still names its previous "
+                f"page.")
+    try:
+        fresh = page.stat().st_mtime >= started_at - 2
+    except OSError:
+        fresh = False
+    if not fresh:
+        return (f"⚠ Page pointer not updated: {page.name} predates this compose "
+                f"(leftover from an earlier run) — the manifest still names its "
+                f"previous page.")
+    prefix = str(R2_PREFIX)
+    if not prefix:
+        return None  # local/dev with no bucket: nothing to point at
+    key = f"{prefix}/atlas/{page.name}"
+    try:
+        storage.push_file(page, key)
+    except Exception as e:  # noqa: BLE001 — a failed PUT must not rewrite fields
+        return (f"⚠ Composed page not mirrored to R2 ({type(e).__name__}: {e}) "
+                f"— the manifest still names its previous page rather than a key "
+                f"that isn't in the bucket.")
+    with _manifest_lock:
+        m = _read_manifest_at(mp) or {}
+        atlas = m.setdefault("atlas", {})
+        if str(atlas.get("layout", "")).strip().lower() != "pack":
+            return None  # re-read: it stopped being a pack atlas mid-compose
+        was = str(atlas.get("source_image_path", ""))
+        atlas["source_image"] = page.name
+        atlas["source_image_path"] = key
+        # Same reason as auto_pack_layout's pop — a descriptor for a page we just
+        # replaced outranks the manifest's own rects in the launcher.
+        atlas.pop("texturepacker_json", None)
+        # `export_prefix` is deliberately LEFT: it is true provenance (where this
+        # manifest came from) and it gates the ref auto-seed on activation.
+        _write_manifest_at(mp, m)
+    return f"Page → {key}" + (f" (was {was})" if was and was != key else "")
 
 
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
@@ -3095,7 +3198,11 @@ def _run_compose_pinned(mp: Path) -> None:
     cmd = [PY, str(TOOLS / "batch_atlas.py"),
            "--manifest", str(mp),
            "--include-rotated", "--include-hidden", "--compose-only"]
-    _run_cmd(cmd, 1, pre_note=pre_note)
+    # `started_at` is read by the post-hook to tell the page compose is ABOUT to
+    # write from a leftover of an earlier run (see publish_pack_page).
+    started_at = time.time()
+    _run_cmd(cmd, 1, pre_note=pre_note,
+             post_hook=lambda: publish_pack_page(mp, started_at))
 
 
 # The CRT boot splash lives in iw_common.splash (shared with the Sheet

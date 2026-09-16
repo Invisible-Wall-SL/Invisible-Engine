@@ -78,7 +78,7 @@ clip references frames its sheet no longer has.
 |---|---|
 | **Left — Clips** | Every clip saved in this project, with its frame count. Below it: the clip **Name** box and **Save**, **Save As…**, **Delete**. |
 | **Centre — Preview + Frames** | The playback canvas with its transport (play/pause, scrubber, fps, loop) on top; the **ordered frame list** underneath. |
-| **Right — Source sheet** | A dropdown of the project's atlas sheets, a filter box, and a clickable grid of that sheet's regions. |
+| **Right — Source sheet** | A dropdown of the project's atlas sheets, a filter box, and a clickable grid of that sheet's regions. **↻ Refresh from R2** re-reads them. |
 
 ### 🎬 Video mode
 
@@ -103,6 +103,16 @@ In the right column, choose an atlas from **Source sheet**. These are the same m
 the Scene Editor, Rigger and FX read (the project's `manifests/*.json`); a sheet with no
 regions or no page image is not listed. The grid fills with a thumbnail per region — use
 the filter box to narrow a big sheet by name.
+
+**↻ Refresh from R2** (beside the *Source sheet* heading) re-reads the sheet list, the
+region rects and the page art. Press it after you re-pack or redeploy an atlas in the
+**Atlas Maker** or the **Sheet Maker** — those run in another tab, and until you refresh
+(or reload the page) this tab keeps drawing the art it cached when you opened it, so a
+clip you reopen shows the OLD frames even though the deployed atlas is correct. It also
+picks up a sheet that was added or renamed since you opened the tool. It never touches
+the clip you are editing — unsaved frame order, fps, bounds and name all survive it.
+
+🎬 Video mode's **🧩 Atlas region** source tab has the same ↻ button.
 
 ### 3. Build the frame order
 
@@ -339,7 +349,9 @@ whichever you use, the blueprint receives the same thing:
   atlas, filter by name, click a thumbnail. The region is cropped **at its own size**, keeping
   its untrimmed frame and its transparency, so the still the model animates is exactly the art
   the game draws — not a thumbnail of it, and not padded to a square. This is the shortest path
-  from a symbol you already packed to an animation of it.
+  from a symbol you already packed to an animation of it. **↻** beside the filter box re-reads
+  the atlases from R2 — press it if you re-packed one in another tab, because the crop is what
+  gets uploaded and generated from, so stale art here costs a whole GPU run.
 - **⬆ From my computer** — drop an image on the panel or choose a file. PNG, JPEG or WEBP, up
   to 24 MB.
 
