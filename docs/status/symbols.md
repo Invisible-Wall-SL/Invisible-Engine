@@ -521,6 +521,31 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-16 — **The big-win run-up was dead on the only path that matters, and the overlay restarted
+  the count.** Owner report: "I get the Big win overlay right away starting to count from 0." Two
+  distinct bugs in yesterday's cue.
+  - **PLACEMENT.** The cue was invoked from the coded `setWin` handler and the v2 `winShow` EFFECT.
+    A v2 flow that OWNS `setWin` never reaches the coded handler, and the authored choreography is
+    `seq(broadcast('winShow'), effect('winShow', …), …)` — so by the time the effect ran the overlay
+    was already on screen, and it wires no `amount`, so the cue self-gated to a no-op. It now runs at
+    `dispatchBookEvent` (`game/utils.ts`), the ONE seam every dispatch path crosses — the same seam
+    `showAllWinLines` and `recordWinCycleWins` live on, for exactly the same reason. One call site.
+  - **THE HANDOFF.** The overlay's count-up restarted at 0 instead of continuing from where the run-up
+    stopped, so the number the player was reading jumped backwards. The cue now publishes
+    `winState.cueHandoffAmount`, `WinCountUpProvider` takes an opt-in `startFrom` (default 0 ⇒
+    byte-identical for the free-spin outro and every un-cued win), and `WinGate` seeds the count from
+    it. Cleared on `winHide` and deliberately NOT on `winShow` — the cue runs BEFORE the overlay
+    shows, so clearing there would throw away the very number the win was handed.
+  - `amount` now only CAPS the target instead of gating it: on a big win the cap cannot bind (the win
+    reached a big tier, so it is at least the smallest big threshold), so an unknown amount no longer
+    silently disables the cue.
+  - **Guard:** `pnpm check:big-win-cue` (`scripts/check-big-win-cue.mjs`) — 9 source assertions
+    pinning the placement and the handoff, mutation-tested. Nothing else would notice this regression:
+    a silent no-op looks exactly like "the author didn't turn it on".
+  - Verified live (book mock, `BIG_WIN=1`, a 120× round): `cue reached {amount: 12000, type: big}` →
+    `cue landed, handoff = 1000` → `count-up provider seeded at 1000 → 12000`. The overlay now picks
+    the number up at $10.00 (the first big tier) and carries it to $120.00.
+
 - 2026-09-15 — **The win amount can COUNT, and the count can be what announces the big win.** Owner
   request; three controls in **/symbols → Win amount text**, in a new **Count up** group under the
   style fields. All default OFF, which is the whole parity argument: the stamp is on the beat every

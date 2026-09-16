@@ -272,6 +272,10 @@
 		},
 		winHide: () => {
 			show = false;
+			// The run-up belongs to the win that just ended. Cleared HERE and never on `winShow` —
+			// the cue runs BEFORE the overlay shows, so clearing it there would throw away the very
+			// number this win was handed.
+			winState.cueHandoffAmount = 0;
 			winState.escalationOutroComplete = false;
 			concluded = false;
 			winState.escalationForceStep = 0;
@@ -304,7 +308,13 @@
 	{#if winLevelData}
 		{@const isBigWin = winLevelData.type === 'big'}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration} {speedScale} seekable={canTapStep}>
+		<WinCountUpProvider
+			{amount}
+			{duration}
+			{speedScale}
+			seekable={canTapStep}
+			startFrom={winState.cueHandoffAmount}
+		>
 			{#snippet children({ countUpAmount, startCountUp, finishCountUp, jumpTo, countUpCompleted })}
 				{#if isBigWin && !headless}
 					<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />

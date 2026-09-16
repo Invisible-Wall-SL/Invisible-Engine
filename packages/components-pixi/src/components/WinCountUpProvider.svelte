@@ -9,6 +9,12 @@
 		amount: number;
 		duration: number;
 		/**
+		 * Opt-in START value for the count (book units), for a consumer that is CONTINUING a count
+		 * something else already began — the big-win overlay picking up where the Symbols-tool
+		 * run-up stopped. Omitted / 0 ⇒ the count starts at zero, byte-identical to before.
+		 */
+		startFrom?: number;
+		/**
 		 * Opt-in continuous speed multiplier for the count-up (e.g. hold-to-fast-forward). `> 1`
 		 * shortens the REMAINING time proportionally IN REAL TIME and may change mid-count-up (hold /
 		 * release); `1` is normal speed. OMITTING it keeps the single fixed-duration tween unchanged —
@@ -46,7 +52,10 @@
 	};
 
 	const props: Props = $props();
-	const countUpAmount = new Tween(0);
+	// Seeded at the handoff value, not 0, when a consumer is continuing someone else's count.
+	// Read ONCE at init, which is per-win: `FadeContainer` drops its children when it finishes
+	// fading out, so the next win builds a fresh provider.
+	const countUpAmount = new Tween(Math.max(0, props.startFrom ?? 0));
 	const interruptible = createInterruptible();
 
 	let countUpCompleted = $state(false);
@@ -81,7 +90,11 @@
 			return;
 		}
 		const remaining = props.amount - countUpAmount.current;
-		const baseRemaining = props.duration * (remaining / props.amount);
+		// Proportional to the SPAN this provider actually counts, not to the whole amount — a
+		// continued count covers only `amount - startFrom`, so scaling by `amount` would make every
+		// re-target of a handed-over count too fast.
+		const span = props.amount - Math.max(0, props.startFrom ?? 0);
+		const baseRemaining = span > 0 ? props.duration * (remaining / span) : 0;
 		void countUpAmount.set(props.amount, { duration: Math.max(baseRemaining, 0) / scale });
 	};
 	// Re-target on every speed change (hold / release) while a count-up is running; `current` is read
