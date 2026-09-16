@@ -577,6 +577,7 @@ ATLAS_GEOM_FIELDS = [
     ("atlas_cell_height", "Default cell height", "number", "cell_height"),
     ("atlas_format", "Atlas format", "text", "format"),
     ("atlas_source_image", "Atlas source image", "text", "source_image"),
+    ("atlas_pack_trim", "Frame trim (from-scratch layout)", "text", "pack_trim"),
 ]
 _ATLAS_GEOM_KEYS = {ui: mk for ui, _, _, mk in ATLAS_GEOM_FIELDS}
 _ATLAS_GEOM_NUMERIC = {"atlas_width", "atlas_height",
@@ -675,6 +676,14 @@ SETTING_HELP = {
     "atlas_format":
         "Pixel format tag stored in the manifest (e.g. RGBA). Informational; "
         "does not change generation.",
+    "atlas_pack_trim":
+        "Only for a from-scratch atlas (the Atlas Maker packs the page). "
+        "Trim = each frame is cut down to its own visible pixels, giving the "
+        "smallest page — right for symbols, which are placed one at a time. "
+        "Keep the full frame = each frame keeps the whole canvas it was drawn "
+        "on, so every frame in an ANIMATION shares one centre and the "
+        "character stops drifting up/down/left/right between frames. Costs "
+        "page area. Changing this takes effect on the next Create Atlas.",
     "atlas_file":
         "Optional Spine/libGDX .atlas that owns region geometry (x/y/w/h). "
         "Browse to or paste an absolute path, or a name next to the manifests. "
@@ -1074,6 +1083,18 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
         norm = "on" if batch_atlas._truthy(cur, True) else "off"
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm)}</select>')
+    if key == "atlas_pack_trim":
+        # Two named choices, no blank: a blank _ATLAS_GEOM_KEYS value is SKIPPED
+        # on save ("never wipe required atlas geometry"), so offering one would
+        # make the setting look changeable and silently not change. Absent
+        # normalizes to the default, so an untouched atlas keeps its behaviour.
+        norm = cur.strip().lower()
+        if norm not in PACK_TRIM_MODES:
+            norm = PACK_TRIM_DEFAULT
+        opts = "".join(
+            f'<option value="{v}"{" selected" if v == norm else ""}>'
+            f'{html.escape(lbl)}</option>' for v, lbl in PACK_TRIM_MODES.items())
+        return f'<select{common}>{opts}</select>'
     avail, marker = _options_for(key, cache, target)
     if avail:
         # Per-atlas blank = inherit the global, always offered. A GLOBAL blank
@@ -2942,6 +2963,98 @@ _REPACK_CLEARED_KEYS = ("off_x", "off_y", "orig_w", "orig_h",
                         "offX", "offY", "origW", "origH",
                         "fit_mode", "bounds", "offsets")
 
+# How a from-scratch re-pack treats each frame's transparent border. Stored
+# per-manifest at `atlas.pack_trim`; absent = "alpha" = what this tool has
+# always done.
+#   alpha - pack each frame at its own ALPHA bbox. Smallest page. Every frame
+#           becomes its own tight crop, so the frames only line up again if the
+#           trim recording where that crop sat is KEPT (see _carried_trim).
+#   keep  - pack each frame at its full canvas. Frames authored on one canvas
+#           then share one centre with no trim record at all, which is what an
+#           animation needs; it costs page area to get.
+PACK_TRIM_MODES = {
+    "alpha": "Trim each frame to its alpha (smallest page)",
+    "keep": "Keep the full frame (all frames share one centre)",
+}
+PACK_TRIM_DEFAULT = "alpha"
+
+
+def pack_trim_mode(m: dict) -> str:
+    """The `atlas.pack_trim` choice for this manifest, normalized. Anything
+    unrecognised (including absent) reads as the historical default, so an
+    atlas authored before this setting existed re-packs exactly as it did."""
+    v = str((m.get("atlas") or {}).get("pack_trim", "")).strip().lower()
+    return v if v in PACK_TRIM_MODES else PACK_TRIM_DEFAULT
+
+
+# The four trim fields, snake_case -> the camelCase a producer may have used.
+# Both spellings are real here: this tool writes snake_case, `video_to_clip`
+# writes camelCase because the launcher's `parseRegions` reads only that — see
+# `_REPACK_CLEARED_KEYS` for why the fix belongs on the consumer side.
+_TRIM_CAMEL = {"off_x": "offX", "off_y": "offY",
+               "orig_w": "origW", "orig_h": "origH"}
+
+
+def _recorded_trim(r: dict) -> tuple[int, int, int, int] | None:
+    """The trim this region already records — (off_x, off_y, orig_w, orig_h) —
+    or None when it records none. Either spelling; the `orig_*` pair is what
+    makes a record exist (the offsets default to 0, as everywhere else here)."""
+    def _pick(snake: str, default=None):
+        for k in (snake, _TRIM_CAMEL[snake]):
+            if r.get(k) is not None:
+                return r[k]
+        return default
+    ow, oh = _pick("orig_w"), _pick("orig_h")
+    if ow is None or oh is None:
+        return None
+    try:
+        return (int(_pick("off_x", 0)), int(_pick("off_y", 0)),
+                int(ow), int(oh))
+    except (TypeError, ValueError):
+        return None
+
+
+def _carried_trim(r: dict, img_size: tuple[int, int],
+                  box: tuple[int, int, int, int]) -> dict:
+    """The trim a re-packed region must KEEP, in the spelling it already uses.
+
+    A re-pack changes WHERE a frame sits on the page. It does not change what
+    the frame's original canvas was — that is a property of the source art,
+    invariant under repacking. Dropping it is how a 25-frame animation ends up
+    with 24 different "original canvases": with no record, every consumer
+    (`_deployatlas`'s `_pick(…, default=rw)`, the launcher's `parseRegions`)
+    reasonably fills the gap with the frame's own packed size, so each frame
+    declares itself its own tight crop and PIXI anchors every one on a
+    different centre. The character then walks around as the clip plays.
+
+    `box` is the crop being packed out of an `img_size` canvas (the alpha bbox,
+    or the whole canvas under `pack_trim: "keep"`). The record COMPOSES: the
+    bound art IS the crop the old record describes, so the original canvas
+    carries over unchanged and the offset just moves further inside it.
+
+    Only ever PRESERVES, never invents. A region that recorded no trim gets
+    none, so every atlas packed before this existed re-packs byte-identically.
+    And the carry is gated on the art still BEING that crop (file size == the
+    rect the record was written for): after a regenerate the art is new and the
+    old canvas describes nothing, so it is dropped exactly as before."""
+    prev = _recorded_trim(r)
+    if prev is None:
+        return {}
+    try:
+        had = (int(r["w"]), int(r["h"]))
+    except (KeyError, TypeError, ValueError):
+        return {}
+    if had != tuple(img_size):
+        return {}
+    pox, poy, pw, ph = prev
+    ox, oy = pox + int(box[0]), poy + int(box[1])
+    cw, ch = int(box[2] - box[0]), int(box[3] - box[1])
+    if (ox, oy) == (0, 0) and (cw, ch) == (pw, ph):
+        return {}  # nothing is trimmed away — no record is the honest answer
+    camel = any(k in r for k in _TRIM_CAMEL.values())
+    out = {"off_x": ox, "off_y": oy, "orig_w": pw, "orig_h": ph}
+    return {(_TRIM_CAMEL[k] if camel else k): v for k, v in out.items()}
+
 
 def _sanitize_region_name(raw: str) -> str:
     """A region name is used verbatim as a variant-file prefix
@@ -3045,7 +3158,11 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     For each region, measure its committed variant / override at its ALPHA-
     trimmed footprint (the same crop compose's default `contain` path uses), pack
     all of them into an auto-sized page, then stamp `x/y/w/h(/rotated)` back onto
-    each region plus `atlas.width/height`. Compose then places each region via
+    each region plus `atlas.width/height`. `atlas.pack_trim: "keep"` measures the
+    whole canvas instead, so frames authored on one canvas keep one common centre
+    (see PACK_TRIM_MODES); absent = "alpha" = the historical behaviour.
+    Either way a trim the region ALREADY recorded is preserved, re-based onto the
+    new crop — see `_carried_trim`. Compose then places each region via
     the default contain path — rect == trimmed bbox ⇒ 1:1, no scaling — and
     `_deployatlas`'s manifest-regions fallback emits the TexturePacker descriptor
     from these same fields. Re-running after adding/generating regions re-packs,
@@ -3080,22 +3197,35 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     items: list[dict] = []
     by_name: dict[str, dict] = {}
     skipped: list[str] = []
+    keep_full = pack_trim_mode(m) == "keep"
+    carried: dict[str, dict] = {}   # name -> the trim record to re-stamp
     for r in regions:
         src = (batch_atlas.override_image_path(r)
                or batch_atlas._pick_variant_png(batch_dir, r))
         bbox = None
+        size = (0, 0)
         if src is not None:
             try:
                 with Image.open(src) as im:
-                    bbox = im.convert("RGBA").getchannel("A").getbbox()
+                    rgba = im.convert("RGBA")
+                    size = rgba.size
+                    bbox = rgba.getchannel("A").getbbox()
             except Exception:  # noqa: BLE001 — an unreadable variant = unplaced
                 bbox = None
         if not bbox:
+            # No ink (or no readable file) = nothing to place. Unchanged under
+            # `keep`: a rect the page is blank under is refused at deploy
+            # anyway (`_rect_has_ink`), so packing full-canvas emptiness would
+            # only buy a frame that gets dropped one step later.
             skipped.append(r["name"])
             continue
-        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        # `keep` packs the WHOLE canvas the art was rendered on, so frames that
+        # share a canvas share a centre. `alpha` packs the ink only.
+        box = (0, 0, size[0], size[1]) if keep_full else bbox
+        w, h = box[2] - box[0], box[3] - box[1]
         items.append({"name": r["name"], "w": int(w), "h": int(h)})
         by_name[r["name"]] = r
+        carried[r["name"]] = _carried_trim(r, size, box)
     if not items:
         # Deliberately does NOT strip. Measuring nothing at all is equally the
         # signature of a FAILED STAGING HYDRATION — cloud_paths.ensure_lazy
@@ -3132,11 +3262,23 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
         r["w"], r["h"] = int(pr["w"]), int(pr["h"])
         r["rotated"] = bool(pr["rotated"])
         placed.add(pr["name"])
-        # The trimmed art IS the frame — no logical Spine trim. Drop any stale
-        # trim/orig/fit_mode a previous pack (or import) left so the descriptor
-        # + compose stay on the plain contain path.
+        # Clear first, then re-stamp what survives the re-pack. Everything in
+        # `_REPACK_CLEARED_KEYS` describes the PREVIOUS packing, so it all goes
+        # — but a recorded trim is not only a description of the old rect, it
+        # also names the frame's ORIGINAL CANVAS, which the re-pack did not
+        # change. `_carried_trim` re-derives it against the new crop; a region
+        # that recorded none still ends up with none, exactly as before.
         for k in _REPACK_CLEARED_KEYS:
             r.pop(k, None)
+        r.update(carried.get(pr["name"]) or {})
+        if keep_full:
+            # The rect IS the whole canvas, so the art must be pasted verbatim.
+            # Without an explicit `contain`, `fit_to_region` falls to its legacy
+            # path, which alpha-crops the art and re-centres it in the rect —
+            # re-introducing the per-frame centre this mode exists to remove.
+            # Explicit `contain` runs `_packer_compose_tile`, and rect == image
+            # size makes that a pass-through.
+            r["fit_mode"] = "contain"
     # Everything the packer did NOT just place is off this page — including a
     # measured item the packer somehow returned nothing for. Its old rect now
     # points into a differently-sized sheet, so it goes.
@@ -3154,7 +3296,30 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     # by which a region stripped just above could be handed a rect back.
     atlas.pop("texturepacker_json", None)
     note = (f"Auto-packed {len(placed)} region(s) → page "
-            f"{result['width']}×{result['height']}")
+            f"{result['width']}×{result['height']}"
+            + (" (full frames kept — one common centre)" if keep_full else ""))
+    kept = sum(1 for n in placed if carried.get(n))
+    if kept:
+        note += (f"; kept the recorded original canvas on {kept} region(s) "
+                 f"(a re-pack moves a frame, it does not re-author it)")
+    if keep_full:
+        # `keep` keeps whatever canvas each region's COMMITTED ART is on. It
+        # cannot give back a canvas the art was already cropped to, and it does
+        # not make two differently-sized renders agree. When the canvases do
+        # not agree the mode has NOT delivered what its label promises, and
+        # saying "full frames kept — one common centre" over the top of that
+        # would be the same silent wrong answer this setting exists to end.
+        canvases = sorted({(by_name[n]["w"], by_name[n]["h"]) for n in placed})
+        if len(canvases) > 1:
+            note += ("\n⚠ 'Keep the full frame' packed %d DIFFERENT canvas "
+                     "sizes (%s%s), so these frames still do NOT share one "
+                     "centre. This mode keeps the canvas each region's "
+                     "committed art is on — it cannot give back a canvas the "
+                     "art was already cropped to. Re-render the regions at one "
+                     "output size, or re-run the session that authored them."
+                     % (len(canvases),
+                        ", ".join(f"{w}×{h}" for w, h in canvases[:3]),
+                        " …" if len(canvases) > 3 else ""))
     if skipped:
         note += (f"; {len(skipped)} not generated yet (skipped): "
                  f"{', '.join(skipped[:8])}"
@@ -8578,6 +8743,11 @@ class Handler(BaseHTTPRequestHandler):
         # its own, but only if the tool says which ones went missing and why.
         no_rect: list[str] = []   # no complete x/y/w/h — not on this page
         off_page: list[str] = []  # a rect that leaves the page — stale geometry
+        # Evidence for the "invented canvas" note: how many framed regions
+        # carry a real trim record, and how many distinct packed sizes there
+        # are. Only the fallback fills these; a bound `.atlas` owns its own.
+        trimmed_count = 0
+        framed_sizes: set[tuple[int, int]] = set()
         # The page being deployed, MEASURED. Ground truth for both guards below:
         # the manifest's `atlas.width/height` (and a bound `.atlas` header) can
         # describe a page this deploy is not shipping. Measured once, here, so
@@ -8655,6 +8825,9 @@ class Handler(BaseHTTPRequestHandler):
                         if r.get(k) is not None:
                             return r[k]
                     return default
+                if _recorded_trim(r) is not None:
+                    trimmed_count += 1
+                framed_sizes.add((rw, rh))
                 normed.append({
                     "name": name,
                     "x": rx, "y": ry, "w": rw, "h": rh,
@@ -8790,6 +8963,30 @@ class Handler(BaseHTTPRequestHandler):
             json_note += ("  ℹ In the game a dropped frame reads as a flipbook "
                           "playing SHORT, or a symbol rendering nothing — the "
                           "console names the clip and the frames.")
+        if (_is_pack and tp_regions and trimmed_count == 0
+                and len(framed_sizes) > 1):
+            # NOT a guess, and not repairable here: the frames' true canvas is
+            # simply not in the data any more. `sourceSize` has to be written,
+            # so the fallback fills the gap with each frame's own packed size
+            # (`_pick(…, default=rw)`). That is correct for genuinely untrimmed
+            # art — which is uniformly sized, because nothing was cut off it —
+            # and is the exact signature of DESTROYED trim when the sizes all
+            # differ: every frame then declares itself its own tight crop and
+            # the game anchors each on a different centre. Say it out loud;
+            # silence here is what let a whole animation ship jittering.
+            json_note += (
+                f"  ⚠ {len(tp_regions)} frame(s) carry NO trim record, yet they "
+                f"have {len(framed_sizes)} different sizes — so each one was "
+                f"written with sourceSize = its own packed size and the frames "
+                f"do NOT share a common centre. For a symbol sheet that is "
+                f"fine. For an ANIMATION it is the up/down/left/right jitter. "
+                f"Fix it BEFORE the art is cropped: set this atlas's 'Frame "
+                f"trim' to keep the full frame and re-run Create Atlas, while "
+                f"each region's committed art still has its margins. Once a "
+                f"page of tight crops is all that is left there is nothing to "
+                f"restore from — what was cut off is recorded nowhere — and a "
+                f"Flipbook sheet has to be re-made by re-running its video "
+                f"session.")
         if real_w > 0 and page_w > 0 and (page_w, page_h) != (real_w, real_h):
             # `meta.size` came from the manifest but the page shipped at a
             # different size, so every frame's rect is read against the wrong
