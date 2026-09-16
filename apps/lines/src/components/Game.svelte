@@ -161,6 +161,7 @@
 		dispatchFlowV2Event,
 		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
+	import { resolveCelebrationLock } from '../game/celebrationLock';
 	import {
 		FREE_SPIN_STEPS,
 		hasAuthoredFreeSpinOutro,
@@ -1121,6 +1122,10 @@
 	// signal). Both default off/empty ⇒ no v2 flow / a non-owning flow is byte-identical (parity).
 	let flowOwnsSetWin = $state(false);
 	let winAwaitTargets = $state<ReadonlySet<string>>(new Set());
+	// The static set of container ids the v2 doc ever `hideContainer`s — which is what decides
+	// whether a container's MOUNT means "on screen now" or means nothing at all. See the celebration
+	// lock below and `hideContainerIds`. Empty ⇒ no v2 flow (parity).
+	let flowHideTargets = $state<ReadonlySet<string>>(new Set());
 	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
 	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
 	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
@@ -1505,46 +1510,42 @@
 		boardFrameGlowHide: () => (boardGlowActive = false),
 	});
 
-	// SPIN-BUTTON CELEBRATION LOCK — maintain `stateUi.celebrationLock` off the EMITTER
-	// cues so `hasCelebrationOverlay()` (read by `utils-shared/spinStop`) is correct on
-	// every presentation path. The coded book-event handlers + flow-v1 effects set the
-	// `*Show` FLAGS, but a flow-v2 authored game fires only the `fireCue` (visual) and
-	// omits the flag-setting `effect` node — so keying the lock off those flags left the
-	// button live during the intro + win on the Book-of-Borut remake. These cues ARE
-	// broadcast on all paths. `reveal` resets each spin, so a hide that a flow-v2 doc
-	// routes through a `hideContainer` (e.g. the intro) instead of a `*Hide` cue can never
-	// leave the button stuck inert — the celebration always ends before its next reveal.
-	// Drive the celebration lock off `activeScreenIds` (the flow screens actually mounted),
-	// NOT the `*Show` emitter cues: a flow-v2 authored game mounts its intro/outro via
-	// `showContainer` and never broadcasts `freeSpinIntroShow`, so a cue subscription stays
-	// deaf (verified live on the Book-of-Borut remake — the intro screen was up for its full
-	// duration with no cue and the latch never set). The coded / v1 ids are the engine's canonical
-	// flow screen ids (`flowDoc.ts`: `freeSpinIntro` / `freeSpinOutro` / `bigWin`). A big win whose
-	// presentation is a HUD count-up + tap (no such screen mounted) is caught instead by
-	// `hasContinuePress()`, OR'd in at the spinStop chokepoint.
+	// FREE-SPIN CELEBRATION VISIBILITY, for a flow that MOUNTS its intro/outro once and toggles them
+	// by CUE (`drivenSeed`'s overlay-visibility model — see `hideContainerIds`). Under that model the
+	// container is shown at start-up and never hidden, so the celebration lock below cannot read its
+	// mount; these are the cues the doc's own choreography fires and the bound components already
+	// subscribe to (`<FreeSpinIntroVisual>`, `<FreeSpinOutroVisual>`/`<FreeSpinOutroGate>`), so they
+	// track what is actually drawn. Same shape as the board-glow latch above.
+	let freeSpinIntroCueShown = $state(false);
+	let freeSpinOutroCueShown = $state(false);
+	context.eventEmitter.subscribeOnMount({
+		freeSpinIntroShow: () => (freeSpinIntroCueShown = true),
+		freeSpinIntroHide: () => (freeSpinIntroCueShown = false),
+		freeSpinOutroShow: () => (freeSpinOutroCueShown = true),
+		freeSpinOutroHide: () => (freeSpinOutroCueShown = false),
+	});
+
+	// SPIN-BUTTON CELEBRATION LOCK — maintain `stateUi.celebrationLock` so `hasCelebrationOverlay()`
+	// (read by `utils-shared/spinStop`) is correct on every presentation path: coded, flow-v1 and
+	// flow-v2 alike. The RULE — which signals mean "a celebration owns the screen", and why a
+	// container's mount is trustworthy under one authoring model and meaningless under the other —
+	// lives once in `../game/celebrationLock`, where it can be asserted headlessly.
 	//
-	// NAME-AGNOSTIC WIN (design doc §14, the win-overlay twin of the FS-7 outro) — under a v2 flow
-	// that DRIVES screens an author names their win / celebration container ANYTHING, so the literal
-	// `bigWin` no longer covers it. Instead lock while ANY `showContainer{awaitComplete}`-held
-	// container is shown (`winAwaitTargets` ∩ `activeScreenIds`): such a container holds the round on
-	// its tap, so the spin button must not slam-skip it — the same reason the coded `bigWin` locked.
-	// This covers the win count-up window BEFORE the authored tap arms (its `tapToContinue`+
-	// `PressToContinue` locks via `continuePressCount` only once armed). The clause is gated on
-	// `flowV2DrivesScreens`, so the coded / v1 path keeps ONLY the `bigWin` id check ⇒ byte-identical.
-	// `celebrationLock.{intro,outro,win}` are read ONLY through `hasCelebrationOverlay` (which ORs the
-	// three), so OR-ing the held clause into `.win` is behaviour-identical to adding a new field.
+	// A big win whose presentation is a HUD count-up + tap (no celebration screen mounted at all) is
+	// not covered here: it is caught by `hasContinuePress()`, OR'd in at the `spinStop` chokepoint.
 	$effect(() => {
-		const ids = new Set(activeScreenIds);
-		stateUi.celebrationLock.intro = ids.has('freeSpinIntro');
-		stateUi.celebrationLock.outro = ids.has('freeSpinOutro');
-		// The held clause on its own, WITHOUT the coded `bigWin` id: the WIN GATE reads it to decide
-		// whether the flow already holds the presentation after the count-up, and a v1/coded `bigWin`
-		// screen holds nothing (it is a mounted scene, not a `showContainer{awaitComplete}`), so folding
-		// the id in would suppress the gate's own hold on exactly the path that needs it. The lock below
-		// still ORs both — a coded `bigWin` must grey the spin button as it always has.
-		const flowHeld = flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id));
-		winState.flowHoldsPresentation = flowHeld;
-		stateUi.celebrationLock.win = ids.has('bigWin') || flowHeld;
+		const lock = resolveCelebrationLock({
+			activeScreenIds,
+			flowV2DrivesScreens,
+			flowHideTargets,
+			winAwaitTargets,
+			introCueShown: freeSpinIntroCueShown,
+			outroCueShown: freeSpinOutroCueShown,
+		});
+		stateUi.celebrationLock.intro = lock.intro;
+		stateUi.celebrationLock.outro = lock.outro;
+		stateUi.celebrationLock.win = lock.win;
+		winState.flowHoldsPresentation = lock.flowHoldsPresentation;
 	});
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
@@ -1909,6 +1910,7 @@
 			// name-agnostic signal the celebration lock reads. Both empty/false with no v2 flow (parity).
 			flowOwnsSetWin = flowV2?.ownsEvent('setWin') ?? false;
 			winAwaitTargets = flowV2?.awaitTargets ?? new Set();
+			flowHideTargets = flowV2?.hideTargets ?? new Set();
 
 			// Invisible Flow v1 — ONLY when v2 does NOT drive screens (else every screen doubles). v1's
 			// screen mounts are all `flow`-gated, so leaving `flow` undefined makes them inert;

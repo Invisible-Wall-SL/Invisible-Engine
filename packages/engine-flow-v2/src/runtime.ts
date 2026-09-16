@@ -816,3 +816,46 @@ export const awaitCompleteContainerIds = (doc: FlowDoc): Set<ContainerId> => {
 	}
 	return ids;
 };
+/**
+ * PURE graph read — the set of container ids some `hideContainer` node targets, i.e. the containers
+ * this doc ever takes back down.
+ *
+ * It exists to tell two INCOMPATIBLE authoring models apart, because a consumer that reads "is this
+ * container mounted?" means completely different things under each:
+ *
+ *  - **SHOW/HIDE PER ROUND** (Book of Borut) — a celebration container is shown when its
+ *    presentation starts and hidden when it ends, so MOUNTED means "on screen right now".
+ *  - **MOUNT ONCE, TOGGLE BY CUE** (`drivenSeed`, and therefore every project seeded from it) — the
+ *    free-spin intro/outro containers are shown at start-up and NEVER hidden; their bound components
+ *    render nothing until a `freeSpinIntroShow`-style cue fires. There MOUNTED means nothing at all:
+ *    it is true for the whole session.
+ *
+ * The spin-button celebration lock (`apps/lines` `Game.svelte`) reads this to pick the right test per
+ * container: one in this set still locks on MOUNT (unchanged), one that is not must be judged by its
+ * visibility CUE instead. Without the split, a seeded flow pins the lock on from boot — found live on
+ * `invisible_wall/test6`, whose turbo button was greyed for the entire session and whose slam-stop was
+ * dead, because `freeSpinIntro`/`freeSpinOutro` were shown once at start and never hidden.
+ *
+ * Group BODIES are walked too (unlike {@link awaitCompleteContainerIds}, which reads the top level
+ * only): a `hideContainer` collapsed into a group is still a hide, and missing one would silently
+ * switch that container back to the cue test. Done with a plain recursive scan rather than
+ * `flattenGroups`, which rewires edges and THROWS on a malformed group — this is a boot-time read and
+ * must not be able to take the game down for a graph the interpreter itself tolerates.
+ *
+ * LIMITATION: a `hideContainer` living inside a shared FUNCTION body is not seen (the function library
+ * is a separate doc this pure read has no handle on). Such a container falls back to the cue test, so
+ * the lock can only ever fail OPEN — the celebration stays slam-skippable, which is the pre-lock
+ * behaviour. Failing open is the deliberate direction: failing closed is what left `test6`'s HUD dead.
+ */
+export const hideContainerIds = (doc: FlowDoc): Set<ContainerId> => {
+	const ids = new Set<ContainerId>();
+	const scan = (graph: Graph): void => {
+		for (const node of graph.nodes) {
+			if (node.kind === 'hideContainer') ids.add(node.ref);
+			else if (node.kind === 'group' && node.body) scan(node.body);
+		}
+	};
+	scan(doc.graph);
+	return ids;
+};
+

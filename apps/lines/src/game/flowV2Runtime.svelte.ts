@@ -44,6 +44,7 @@ import {
 	flowOwnsContainerEvent,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
+	hideContainerIds,
 	runFlowContainerEvent,
 	runFlowEvent,
 	SCREEN_LIFECYCLE_SIGNALS,
@@ -209,6 +210,11 @@ export type LinesFlowV2 = {
 	 *  spin-button celebration lock reads this to hold the button while ANY such container is shown,
 	 *  NAME-AGNOSTICALLY (a win / celebration container can be named anything). */
 	awaitTargets: ReadonlySet<string>;
+	/** The set of container ids the doc ever `hideContainer`s. Static (read from the doc's graph).
+	 *  The celebration lock reads it to know whether a container's MOUNT is evidence it is on screen
+	 *  (a doc that shows/hides per round) or means nothing (the `drivenSeed` mount-once model, where
+	 *  the container is shown at start-up and toggled by cue). See `hideContainerIds`. */
+	hideTargets: ReadonlySet<string>;
 	/** Does the flow OWN this container event — i.e. author an exec edge from a `showContainer`
 	 *  node's fused `<componentId>.on<action>` pin? An owned press routes to the flow ALONE (the
 	 *  coded `onpress` is suppressed, no doubling); an un-owned press falls through to the coded
@@ -614,6 +620,7 @@ export const createLinesFlowV2 = (
 		resolveScene,
 		ordered: () => mount.ordered(),
 		awaitTargets: awaitCompleteContainerIds(doc),
+		hideTargets: hideContainerIds(doc),
 		ownsContainerEvent: (componentId, action) => flowOwnsContainerEvent(doc, componentId, action),
 		dispatchContainerEvent: (componentId, action, payload) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
