@@ -2954,10 +2954,18 @@ def _sanitize_region_name(raw: str) -> str:
 # The geometry a `pack` atlas's packer OWNS. On this layout these fields are
 # pure DERIVED OUTPUT — re-stamped from scratch on every Create Atlas — so a
 # region the packer did not place must not be left holding any of them.
-# Mirrors batch_atlas._GEOM_KEYS (which includes the legacy `rotate` spelling)
-# plus `fit_mode`, which auto_pack already drops from every region it places.
-_PACK_GEOM_KEYS = ("x", "y", "w", "h", "rotated", "rotate", "off_x", "off_y",
-                   "orig_w", "orig_h", "fit_mode", "bounds", "offsets")
+#
+# Built FROM `_REPACK_CLEARED_KEYS` rather than restating it, because the two
+# halves of the same clear must not drift: a PLACED region gets that tuple
+# popped, an UNPLACED one gets this one, and for a while they disagreed — the
+# unplaced branch kept the camelCase spellings (`offX`/`origW`/…) that the
+# placed branch had learned to clear. Dormant, but exactly the trap
+# `_REPACK_CLEARED_KEYS` exists to close: a surviving `orig_*` is live input,
+# not a dead field — its mere PRESENCE is what `fit_to_region` reads as
+# `spine_slot`, flipping placement from `contain` to `fill`. The rect itself
+# (and the legacy `rotate` spelling, per batch_atlas._GEOM_KEYS) is what this
+# adds on top: an unplaced region has no placement at all, not just no trim.
+_PACK_GEOM_KEYS = ("x", "y", "w", "h", "rotated", "rotate") + _REPACK_CLEARED_KEYS
 
 
 def _strip_pack_geometry(regions: list[dict]) -> list[str]:
