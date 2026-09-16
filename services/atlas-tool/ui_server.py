@@ -2918,6 +2918,30 @@ def run_render(names: list[str], variants: int = 1,
 AUTO_PACK_MAX_WIDTH = 2048
 AUTO_PACK_PADDING = 2
 
+# What a from-scratch re-pack must CLEAR off a region: the packed rect it stamps
+# IS the frame, so any trim/fit_mode a previous pack or an import left behind now
+# describes a frame that no longer exists.
+#
+# Both spellings, deliberately. This tool writes trim snake_case, but camelCase is
+# a real producer spelling in this codebase, not a typo: `video_to_clip.py`
+# `_build_manifest` emits `offX/offY/origW/origH` because the launcher's
+# `parseRegions` (apps/launcher-api/src/lib/server/editorRegions.ts) reads ONLY
+# camelCase — and that file's `RawRegion` comment explains at length why teaching
+# it snake_case is a versioned migration, not a parser tweak. So the fix belongs
+# here, on the consumer: match what producers write rather than change it.
+#
+# No producer reaches this today — the Flipbook sheet stopped declaring
+# `layout:"pack"` (#682), which is the only way in. The clear covers both spellings
+# anyway, because the readers on THIS side (`_normalize_converted_region`,
+# `_deployatlas`'s manifest-regions fallback) take either, and a surviving `orig_*`
+# is live input rather than a dead field: its mere PRESENCE is what `fit_to_region`
+# reads as `spine_slot`, flipping placement from `contain` to `fill`. A clear that
+# silently skips half the spellings it is aimed at is a wrong answer waiting for
+# the next producer that declares `pack`.
+_REPACK_CLEARED_KEYS = ("off_x", "off_y", "orig_w", "orig_h",
+                        "offX", "offY", "origW", "origH",
+                        "fit_mode", "bounds", "offsets")
+
 
 def _sanitize_region_name(raw: str) -> str:
     """A region name is used verbatim as a variant-file prefix
@@ -2990,8 +3014,7 @@ def auto_pack_layout(m: dict) -> str | None:
         # The trimmed art IS the frame — no logical Spine trim. Drop any stale
         # trim/orig/fit_mode a previous pack (or import) left so the descriptor
         # + compose stay on the plain contain path.
-        for k in ("off_x", "off_y", "orig_w", "orig_h", "fit_mode",
-                  "bounds", "offsets"):
+        for k in _REPACK_CLEARED_KEYS:
             r.pop(k, None)
     atlas = m.setdefault("atlas", {})
     atlas["layout"] = "pack"
