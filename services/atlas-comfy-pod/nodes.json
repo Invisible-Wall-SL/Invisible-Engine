@@ -68,6 +68,13 @@
 			"note": "The SDXL Pulid* nodes, incl. PulidModelLoader used by Characterdesignertest3."
 		},
 		{
+			"name": "ComfyUI_essentials",
+			"url": "https://github.com/cubiq/ComfyUI_essentials",
+			"sha": "9d9f4bedfc9f",
+			"prod": true,
+			"note": "MaskBlur+, SimpleMath+, ImageCompositeFromMaskBatch+ — used by the SAM3 background-removal graph, which had them only because ONE artist box did. This sha is the one that graph was authored against, read off the node properties in its export. In skipRequirements: its five requirements (numba, colour-science, rembg, pixeloe, transparent-background) are ALL unpinned, and rembg would pull a CPU onnxruntime alongside the onnxruntime-gpu the face stack installs explicitly. Verified safe to skip at this sha — every one of those is imported lazily inside the single node that uses it (rembg in RemBGSession.execute, transparent_background in TransparentBGSession.execute, colour in ImageApplyLUT.execute, pixeloe in PixelOEPixelize.execute); module level is only torch/numpy/scipy/PIL/kornia, all of which ComfyUI core already ships. Those four nodes will fail at execute time, nothing else."
+		},
+		{
 			"name": "ComfyUI-PuLID-Flux2",
 			"url": "https://github.com/iFayens/ComfyUI-PuLID-Flux2",
 			"sha": "3a0a3f5f1826",
@@ -97,8 +104,14 @@
 			"vendored": true,
 			"noClasses": true,
 			"note": "Ours, frontend-only: re-surfaces a run's error on the failing node when the /ws socket dropped."
+		},
+		{
+			"name": "ComfyUI-SemanticLayers",
+			"vendored": true,
+			"prod": true,
+			"note": "Ours, nodes-only, no third-party deps: routes a layered decomposer's variable layer batch onto fixed semantic outputs. Already COPY'd by both Dockerfiles — listed here because this file is what sync-local-nodes.py and the /comfyui panel read, and its absence is why neither could see the pack. It is on NO registry and has no git url, so nothing can INSTALL it: Manager's 'install missing nodes' returns empty and there is nothing to clone. It reaches a machine only as files. Unlisted until 2026-09-15, which is how the artist's box ended up without it while carrying every other pack."
 		}
 	],
-	"skipRequirements": ["ComfyUI-PuLID-Flux2"],
+	"skipRequirements": ["ComfyUI-PuLID-Flux2", "ComfyUI_essentials"],
 	"corePacks": ["websocket_image_save"]
 }
