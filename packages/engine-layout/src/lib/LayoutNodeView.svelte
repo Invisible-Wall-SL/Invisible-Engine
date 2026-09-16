@@ -31,6 +31,7 @@
 	import TextBox from './TextBox.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
+	import { pixiBlendMode } from './blendMode';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -619,6 +620,15 @@
 			key: isManifestAssetKey(sheet) ? editorArtTextureKey(sheet, parsed.region) : undefined,
 			fallbackKey: parsed.region,
 		};
+	/**
+	 * The node's PixiJS blend mode (`undefined` for `normal`, so `propsSyncEffect` skips the prop
+	 * entirely and an un-blended node takes the byte-identical parity path). Passed alongside
+	 * `alpha` on every renderable branch — sprite, spine, flipbook, and the effect's wrapper
+	 * container, which is what makes a whole particle effect blend as ONE (pixi inherits
+	 * `groupBlendMode` down the subtree) rather than per particle sprite.
+	 */
+	const blendMode = $derived(pixiBlendMode(transform.blendMode));
+
 	});
 </script>
 
@@ -808,6 +818,7 @@
 			animation or a signal cue) gives it something to play; otherwise it would sit on its
 			static bind pose over the button. A spine with a `defaultAnimation`, or one without
 			`stateAnimations` at all (every spine before this feature), is always visible — parity.
+			{blendMode}
 		-->
 		{@const isStateOverlay =
 			!effDefaultAnimation &&
@@ -893,6 +904,7 @@
 				/>
 			{/if}
 			<!--
+			{blendMode}
 				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
 				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<SpineProvider>` — no extra
 				transform, so a bone layer resolves this rig's bone (`SpineBoneAttach` → `getContextSpine`)
@@ -1092,3 +1104,5 @@
 		{/if}
 	{/if}
 {/if}
+				{blendMode}
+				{blendMode}

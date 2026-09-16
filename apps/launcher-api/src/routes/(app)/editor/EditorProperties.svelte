@@ -5,6 +5,8 @@
 		backgroundCoverScale,
 		backgroundFit,
 		builtinSpineMeta,
+		BLEND_MODE_LABELS,
+		BLEND_MODES,
 		BUILTIN_SPINE_NAMES,
 		BUTTON_STATE_PARAMS,
 		BUTTON_VISUAL_STATES,
@@ -25,6 +27,7 @@
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
+		type BlendMode,
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
@@ -1003,6 +1006,7 @@
 		'tint',
 		'visible',
 	] as const satisfies readonly (keyof NodeOverride)[];
+		'blendMode',
 
 	type OverrideKey = (typeof overrideKeys)[number];
 
@@ -1144,6 +1148,39 @@
 		if (Number.isNaN(value)) return;
 		if (isOverrideMode) {
 			(ensureOverride(n) as Record<string, unknown>)[axis] = value;
+	/**
+	 * Blend mode. `normal` DELETES the field rather than storing it, so a doc only ever carries
+	 * the modes an author actually chose — and in override mode it deletes the override key, which
+	 * is how a ratio falls back to the base mode instead of being pinned to `normal`. (Clearing an
+	 * override and setting it to the base's value are different things, and only the first is what
+	 * "back to normal here" means when the base is already `normal`.)
+	 */
+	function setBlendMode(n: LayoutNode, mode: string): void {
+		const value = (BLEND_MODES as readonly string[]).includes(mode)
+			? (mode as BlendMode)
+			: 'normal';
+		if (isOverrideMode) {
+			if (value === 'normal') return clearOverrideKey(n, 'blendMode');
+			ensureOverride(n).blendMode = value;
+		} else if (value === 'normal') {
+			delete n.blendMode;
+		} else {
+			n.blendMode = value;
+		}
+		markDirty();
+	}
+
+	/** The kinds the blend control is offered on — the ART kinds whose preview honours it
+	 * (`EditorCanvas`'s blend runs for the 2D pair, its blended WebGL overlays for the other two).
+	 * Text/rect/container are deliberately out: they render on surfaces the preview does not blend,
+	 * so offering the control there would promise a preview the editor can't keep. */
+	function supportsBlend(n: LayoutNode | null): boolean {
+		return (
+			!!n &&
+			(n.kind === 'sprite' || n.kind === 'spine' || n.kind === 'flipbook' || n.kind === 'effect')
+		);
+	}
+
 		} else if (
 			n.kind === 'sprite' ||
 			n.kind === 'spine' ||
@@ -2716,6 +2753,30 @@
 				{#if isOverrideMode && hasOverrideKey(node, 'visible')}
 					<span class="ovdot" title="Overridden"></span>
 					<button class="reset" onclick={() => clearOverrideKey(node, 'visible')}>×</button>
+		{#if supportsBlend(node)}
+			<!-- Photoshop-style blend: how this item's pixels combine with the art beneath it,
+			     instead of covering it. The canvas previews it exactly — `add`/`screen` lift the
+			     backdrop, `multiply` darkens it — because each blended item composites on its own
+			     layer, the same as the game's PixiJS blend. -->
+			<div class="row">
+				<label class="field wide">
+					<span>blend</span>
+					<select
+						value={t.blendMode ?? 'normal'}
+						onchange={(e) => setBlendMode(node, e.currentTarget.value)}
+					>
+						{#each BLEND_MODES as mode (mode)}
+							<option value={mode}>{BLEND_MODE_LABELS[mode]}</option>
+						{/each}
+					</select>
+					{#if isOverrideMode && hasOverrideKey(node, 'blendMode')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'blendMode')}>×</button>
+					{/if}
+				</label>
+			</div>
+		{/if}
+
 				{/if}
 			</label>
 		</div>

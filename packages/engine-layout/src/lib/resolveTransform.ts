@@ -67,6 +67,7 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 		width: override.width ?? sizedBase?.width,
 		height: override.height ?? sizedBase?.height,
 		tint: override.tint ?? tintedBase?.tint,
+		blendMode: override.blendMode ?? node.blendMode,
 		visible,
 		screenAnchor: override.screenAnchor ?? node.screenAnchor,
 	};

@@ -97,6 +97,24 @@
 		sceneFilter?: Set<string> | null;
 		/** Editor-only: the id of the ACTIVE (selected) scene. A full-screen-dim overlay
 		 * (free-spin intro/outro — `overlayDim` in the catalog) draws its scrim ONLY when
+		/**
+		 * Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested spines
+		 * follow their top-level ancestor). `null` ⇒ every node, which is the un-blended path and
+		 * byte-identical to before this existed.
+		 *
+		 * It exists for {@link blend}: a rig that blends has to render into its OWN canvas element,
+		 * because this layer draws into a transparent WebGL surface — an `add` applied INSIDE it
+		 * blends against nothing and shows no change, while the game shows a glow. Splitting the
+		 * scene's rigs across one layer per blend mode lets the browser composite each element
+		 * against the art beneath it, which is what the game actually does.
+		 */
+		nodeFilter?: Set<string> | null;
+		/**
+		 * CSS `mix-blend-mode` for this layer's canvas — how the whole element composites onto the
+		 * art beneath it. Absent / `'normal'` ⇒ ordinary source-over (parity). Paired with
+		 * {@link nodeFilter}, which narrows the layer to the nodes that share this mode.
+		 */
+		blend?: string;
 		 * THIS layer is filtered to the active scene, so the "see all screens" composite
 		 * never stacks several dims into a black-out. Unset = no scrim. */
 		activeSceneId?: string | null;
@@ -166,6 +184,8 @@
 		sceneFilter = null,
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
+		nodeFilter = null,
+		blend = 'normal',
 		worldTransformOf,
 		boneRiders,
 		spinePreview = null,
@@ -454,6 +474,7 @@
 				if (n.kind === 'spine') {
 					out.push({
 						nodeId: n.id,
+				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 						assetKey: n.assetKey,
 						defaultAnimation: n.defaultAnimation,
 						skin: n.skin,
@@ -1412,7 +1433,7 @@
 	});
 </script>
 
-<canvas bind:this={canvas} class="spine-layer"></canvas>
+<canvas bind:this={canvas} class="spine-layer" style:mix-blend-mode={blend}></canvas>
 
 <style>
 	.spine-layer {

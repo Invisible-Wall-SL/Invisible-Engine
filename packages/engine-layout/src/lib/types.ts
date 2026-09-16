@@ -7,6 +7,9 @@
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
 
+import type { BlendMode } from './blendMode';
+import type { CoverFit } from './coverTransform';
+
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
  * `portrait`); now a `string` because the bucket set is author-defined via
@@ -37,6 +40,13 @@ export interface NodeOverride {
 	alpha?: number;
 	zIndex?: number;
 	tint?: number;
+	/**
+	 * Per-layoutType BLEND MODE — this layoutType's {@link BaseNode.blendMode}. Sibling of
+	 * `tint`/`alpha`: an additive glow that reads well over a wide desktop backdrop often has
+	 * to fall back to `normal` in portrait, where the art behind it is a different crop.
+	 * Absent ⇒ the base `blendMode` (parity).
+	 */
+	blendMode?: BlendMode;
 	visible?: boolean;
 	screenAnchor?: Point2D;
 	/**
@@ -106,6 +116,22 @@ interface BaseNode {
 	 * from {@link BaseNode.preview}.art.fit instead — see `backgroundFit`. Both the
 	 * game runtime and the editor preview read fit + scale through one helper so the
 	 * two agree. Additive — absent = `'cover'`.
+	/**
+	 * Photoshop-style BLEND MODE — how this node's pixels combine with the art already drawn
+	 * beneath them (`normal` / `add` / `multiply` / `screen`; see {@link BlendMode}). The knob a
+	 * glow, a light shaft, a shadow wash or a colour grade needs: `add` and `screen` lift the
+	 * backdrop instead of covering it, `multiply` darkens it.
+	 *
+	 * Authored on {@link BaseNode} rather than per kind because the rule is the same for every
+	 * renderable, but the editor surfaces the control — and the preview honours it — for the four
+	 * ART kinds: `sprite`, `spine`, `flipbook` and `effect`. An `effect` blends as ONE (the mode
+	 * rides its wrapper container, and PixiJS inherits `groupBlendMode` down the subtree), not per
+	 * particle sprite, which is what makes an additive emitter read as a single glow.
+	 *
+	 * Per-layoutType overridable via {@link NodeOverride.blendMode}. Absent ⇒ `normal` — a node
+	 * without it renders byte-identically to before this field existed.
+	 */
+	blendMode?: BlendMode;
 	 */
 	fit?: 'cover' | 'contain';
 	/**
@@ -1259,4 +1285,6 @@ export interface CinematicDoc {
 	};
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
+	/** Resolved blend mode — see {@link BaseNode.blendMode}. `undefined` / `'normal'` ⇒ no blend. */
+	blendMode?: BlendMode;
 }

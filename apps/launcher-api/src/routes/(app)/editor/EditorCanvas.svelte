@@ -9,6 +9,8 @@
 		builtinSheetIdForRegion,
 		builtinSheetKey,
 		computeOverlayPlacement,
+		canvasCompositeOp,
+		cssBlendMode,
 		coverTransform,
 		hostedComponentSpace,
 		instancePreviewSpineBundle,
@@ -24,6 +26,7 @@
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		type ComponentDef,
+		type BlendMode,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -1039,6 +1042,22 @@
 		const tMeasured = new Map<string, { w: number; h: number }>();
 		for (const m of textMeasuredByScene.values()) for (const [k, v] of m) tMeasured.set(k, v);
 		textMeasured = tMeasured;
+		blendRunCache.delete(id);
+		blendOverlayCache.delete(id);
+		normalOverlayCache.delete(id);
+		// The scene's blend overlays report under synthetic `<sceneId>#blend:<mode>` keys — purge
+		// them too, else a removed scene's rigs stay "ready" forever and keep their placeholders off.
+		const blendPrefix = `${id}#blend:`;
+		for (const map of [
+			spineReadyByScene,
+			spineNaturalByScene,
+			spineMetaByScene,
+			effectReadyByScene,
+			effectBoundsByScene,
+			spineLoadByScene,
+		] as Map<string, unknown>[]) {
+			for (const key of [...map.keys()]) if (key.startsWith(blendPrefix)) map.delete(key);
+		}
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
@@ -1063,15 +1082,19 @@
 		fontSettled = fd;
 	}
 
-	/** Svelte action: register a per-scene 2D canvas + size/draw it once it mounts. */
-	function registerSceneCanvasAction(el: HTMLCanvasElement, id: string) {
-		registerSceneCanvas(id, el);
+	/** Svelte action: register one {@link BlendRun}'s 2D canvas + size/draw it once it mounts.
+	 * The scene's per-scene buffers are only forgotten when its LAST run canvas goes — a scene
+	 * that merely re-splits its runs (an author flips one node to `add`) must keep them. */
+	function registerSceneCanvasAction(el: HTMLCanvasElement, run: BlendRun) {
+		registerSceneCanvas(run.key, el);
 		resizeCanvas();
 		schedule();
 		return {
 			destroy() {
-				registerSceneCanvas(id, null);
-				forgetScene(id);
+				registerSceneCanvas(run.key, null);
+				const prefix = `${run.sceneId}#`;
+				for (const key of sceneCanvases.keys()) if (key.startsWith(prefix)) return;
+				forgetScene(run.sceneId);
 			},
 		};
 	}
@@ -1848,12 +1871,135 @@
 		return hudEffectFilter;
 	}
 
-	/** Per-scene 2D canvas registry — each game scene's node art draws onto its OWN
-	 * canvas (registered here on mount) so it z-orders with the rest of its group. */
+	/** Per-RUN 2D canvas registry — each game scene's node art draws onto its own canvas
+	 * (registered here on mount) so it z-orders with the rest of its group. Keyed by
+	 * {@link BlendRun.key}, not by scene id: a scene whose nodes use more than one blend mode
+	 * draws across several stacked canvases (see {@link blendRuns}). */
 	const sceneCanvases = new Map<string, HTMLCanvasElement>();
-	function registerSceneCanvas(id: string, el: HTMLCanvasElement | null): void {
-		if (el) sceneCanvases.set(id, el);
-		else sceneCanvases.delete(id);
+	function registerSceneCanvas(key: string, el: HTMLCanvasElement | null): void {
+		if (el) sceneCanvases.set(key, el);
+		else sceneCanvases.delete(key);
+	}
+
+	// ---------- blend modes (§ Photoshop-style node blending) ----------
+
+	/**
+	 * One stretch of consecutive top-level nodes that share a blend mode, drawn on its OWN
+	 * `<canvas>` element carrying that mode as CSS `mix-blend-mode`.
+	 *
+	 * Why elements and not `ctx.globalCompositeOperation` on the one scene canvas: a scene canvas
+	 * is TRANSPARENT and holds only its own scene. Blending inside it composites against that
+	 * scene's art alone, so the canonical case — an additive glow in the base-game screen lifting
+	 * the BACKGROUND screen's art, which lives in a different scene group — would show nothing in
+	 * the editor while the game showed the glow. Stacked elements let the browser composite each
+	 * run against everything already painted beneath it, which is exactly what PixiJS does with
+	 * one scene graph.
+	 *
+	 * RUNS, not one layer per mode, so draw order is untouched: a blended node still paints
+	 * between the same two siblings it does today. A scene with no blending yields exactly ONE run
+	 * — the single canvas the editor has always had (parity, no extra surfaces).
+	 */
+	interface BlendRun {
+		/** `<sceneId>#<runIndex>` — the canvas-registry key and the `{#each}` key. */
+		key: string;
+		sceneId: string;
+		mode: BlendMode;
+		/** CSS `mix-blend-mode` for the run's canvas element. */
+		css: string;
+		/** Top-level node ids in this run (draw order comes from the scene, not this set). */
+		ids: Set<string>;
+	}
+
+	/** Effective blend mode of a top-level node for the ACTIVE layoutType (per-ratio overrides
+	 * included) — `'normal'` when unset, which is every node that predates this feature. */
+	function nodeBlendMode(n: LayoutNode): BlendMode {
+		return resolveTransform(n, layoutType).blendMode ?? 'normal';
+	}
+
+	/** Memoized runs per scene — the Sets are handed to the WebGL overlays as props, so a fresh
+	 * reference on every re-render would rebuild their skeletons/emitters each frame. Recomputed
+	 * only when the scene's id→mode sequence (or the layoutType) actually changes. */
+	const blendRunCache = new Map<string, { sig: string; runs: BlendRun[] }>();
+	function blendRuns(s: Scene): BlendRun[] {
+		const modes = s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`);
+		const sig = `${layoutType}|${modes.join(',')}`;
+		const hit = blendRunCache.get(s.id);
+		if (hit && hit.sig === sig) return hit.runs;
+		const runs: BlendRun[] = [];
+		for (const n of s.nodes) {
+			const mode = nodeBlendMode(n);
+			const last = runs[runs.length - 1];
+			if (last && last.mode === mode) last.ids.add(n.id);
+			else
+				runs.push({
+					key: `${s.id}#${runs.length}`,
+					sceneId: s.id,
+					mode,
+					css: cssBlendMode(mode),
+					ids: new Set([n.id]),
+				});
+		}
+		// An empty scene still needs its canvas — the group's other sublayers stack on it.
+		if (runs.length === 0) {
+			runs.push({ key: `${s.id}#0`, sceneId: s.id, mode: 'normal', css: 'normal', ids: new Set() });
+		}
+		blendRunCache.set(s.id, { sig, runs });
+		return runs;
+	}
+
+	/**
+	 * The blend GROUPS a scene's WebGL overlay (spine / FX) splits into: the un-blended nodes stay
+	 * on the layer the editor already mounted (`nodeFilter: null` — byte-identical parity), and
+	 * each non-normal mode gets ONE extra layer. Unlike the 2D runs this collapses to one layer per
+	 * MODE rather than per run, because the overlays already sit in a fixed stack above the 2D art
+	 * (2D → spine → text → FX) and so make no intra-scene z-order promise to keep. That also keeps
+	 * the WebGL context count bounded: a scene adds a context per distinct blend mode it uses, and
+	 * blending is opt-in, so the common scene adds none.
+	 */
+	interface BlendOverlayGroup {
+		/** Synthetic merge/report key — `forgetScene` purges these alongside the scene. */
+		key: string;
+		mode: BlendMode;
+		css: string;
+		ids: Set<string>;
+	}
+	const blendOverlayCache = new Map<string, { sig: string; groups: BlendOverlayGroup[] }>();
+	function blendOverlayGroups(s: Scene): BlendOverlayGroup[] {
+		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
+		const hit = blendOverlayCache.get(s.id);
+		if (hit && hit.sig === sig) return hit.groups;
+		const byMode = new Map<BlendMode, Set<string>>();
+		for (const n of s.nodes) {
+			const mode = nodeBlendMode(n);
+			if (mode === 'normal') continue;
+			const set = byMode.get(mode) ?? new Set<string>();
+			set.add(n.id);
+			byMode.set(mode, set);
+		}
+		const groups: BlendOverlayGroup[] = [...byMode].map(([mode, ids]) => ({
+			key: `${s.id}#blend:${mode}`,
+			mode,
+			css: cssBlendMode(mode),
+			ids,
+		}));
+		blendOverlayCache.set(s.id, { sig, groups });
+		return groups;
+	}
+
+	/** The un-blended top-level node ids of a scene — the `nodeFilter` for its BASE overlay layer,
+	 * so a blended rig renders on its own blended layer instead of twice. `null` when the scene
+	 * blends nothing, which is the untouched path the overlays take today. */
+	const normalOverlayCache = new Map<string, { sig: string; ids: Set<string> | null }>();
+	function normalOverlayFilter(s: Scene): Set<string> | null {
+		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
+		const hit = normalOverlayCache.get(s.id);
+		if (hit && hit.sig === sig) return hit.ids;
+		const blended = s.nodes.some((n) => nodeBlendMode(n) !== 'normal');
+		const ids = blended
+			? new Set(s.nodes.filter((n) => nodeBlendMode(n) === 'normal').map((n) => n.id))
+			: null;
+		normalOverlayCache.set(s.id, { sig, ids });
+		return ids;
 	}
 
 	function findNodeById(id: string): LayoutNode | null {
@@ -1871,6 +2017,15 @@
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		const dpr = window.devicePixelRatio || 1;
+	/**
+	 * True while the 2D surface being drawn carries its nodes' blend on the ELEMENT (a
+	 * {@link BlendRun} canvas), so `drawNode` must not apply it a second time via
+	 * `globalCompositeOperation`. False for the HUD canvas, which is one shared surface and
+	 * therefore blends inline. NESTED nodes always blend inline — they cannot have an element of
+	 * their own — so this only ever suppresses the top-level application.
+	 */
+	let elementCarriesBlend = false;
+
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1945,20 +2100,27 @@
 	function drawSceneCanvases(): void {
 		const dpr = window.devicePixelRatio || 1;
 		for (const s of visibleGameScenes()) {
-			const c = sceneCanvases.get(s.id);
-			if (!c) continue;
-			const sctx = c.getContext('2d');
-			if (!sctx) continue;
-			sctx.setTransform(1, 0, 0, 1, 0, 0);
-			sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
-			sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-			sctx.translate(panX, panY);
-			sctx.scale(zoom, zoom);
-			for (const node of s.nodes) drawNode(sctx, node, s);
+			for (const run of blendRuns(s)) {
+				const c = sceneCanvases.get(run.key);
+				if (!c) continue;
+				const sctx = c.getContext('2d');
+				if (!sctx) continue;
+				sctx.setTransform(1, 0, 0, 1, 0, 0);
+				sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
+				sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+				sctx.translate(panX, panY);
+				sctx.scale(zoom, zoom);
+				// Iterate the SCENE, not the run's set, so draw order stays doc order.
+				for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
+			}
 		}
 	}
 
 	/**
+		// Each run canvas carries its own blend on the element, so the node draws must NOT also
+		// apply it (see `elementCarriesBlend`). Restored before returning so the HUD pass — one
+		// shared surface, which has to blend inline — is unaffected.
+		elementCarriesBlend = true;
 	 * Draw the HUD screens on the top-most `hudCanvas` — ABOVE the spine/FX overlay,
 	 * so the HUD renders on top like the real game (the base canvas, which holds the
 	 * game scenes, sits below the spine layer). Also draws the selection overlay here
@@ -1971,6 +2133,7 @@
 		const dpr = window.devicePixelRatio || 1;
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		elementCarriesBlend = false;
 		ctx.clearRect(0, 0, hudCanvas.width, hudCanvas.height); // transparent overlay
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.translate(panX, panY);
@@ -2155,6 +2318,13 @@
 			// tile's coded box or the instance's size overrides, so a per-instance background
 			// previews here exactly as the game draws it. Read off `bind.component`, never a
 			// hardcoded component id; no declaration ⇒ every branch below is unchanged (parity).
+		// Photoshop-style blend. A TOP-LEVEL node on a scene run canvas already has its mode on the
+		// element, so applying it here too would blend twice; every other case (a nested child, the
+		// shared HUD canvas) blends inline against whatever this surface has already drawn.
+		if (nested || !elementCarriesBlend) {
+			const op = canvasCompositeOp(t.blendMode);
+			if (op !== 'source-over') ctx.globalCompositeOperation = op;
+		}
 			const tile = boundComponentTileImage(node.bind.component);
 			const tileParams = instanceParams ?? componentParams;
 			const tileNum = (key?: string): number | undefined =>
@@ -4126,9 +4296,16 @@
 	     scene's whole group — so a Background spine renders below the base-game 2D. The
 	     spine/text sublayers are filtered to the one scene + mounted only when present
 	     (keeps WebGL/pixi contexts bounded). -->
-	{#each visibleGameScenes() as s, i (s.id)}
-		<div class="scene-group" style="z-index:{i + 1}">
-			<canvas class="scene-2d" use:registerSceneCanvasAction={s.id}></canvas>
+	{#each visibleGameScenes() as s (s.id)}
+		<div class="scene-group">
+			<!-- One canvas per BLEND RUN (usually exactly one): consecutive top-level nodes that
+			     share a blend mode, with the mode on the element so the browser composites the run
+			     against everything painted beneath it — earlier scene groups included. See
+			     `blendRuns`. -->
+			{#each blendRuns(s) as run (run.key)}
+				<canvas class="scene-2d" style:mix-blend-mode={run.css} use:registerSceneCanvasAction={run}
+				></canvas>
+			{/each}
 			{#if sceneHasSpine(s)}
 				<EditorSpineLayer
 					{scenes}
@@ -4196,6 +4373,7 @@
 					}}
 					onMeasuredChange={(sizes) => {
 						mergeTextMeasured(s.id, sizes);
+					nodeFilter={normalOverlayFilter(s)}
 						schedule();
 					}}
 				/>
@@ -4260,6 +4438,7 @@
 				activeSceneId={null}
 				playing={playingSpines}
 				onReadyKeysChange={(keys) => {
+					nodeFilter={normalOverlayFilter(s)}
 					mergeSpineReady(HUD_SPINE_KEY, keys);
 					schedule();
 				}}
@@ -4271,6 +4450,81 @@
 					mergeSpineMeta(HUD_SPINE_KEY, meta);
 					schedule();
 				}}
+			<!-- BLENDED rigs / effects: one extra overlay per blend mode the scene uses, each
+			     carrying the mode as CSS `mix-blend-mode` on its own element. They render nothing
+			     when the scene blends nothing (`blendOverlayGroups` is empty), so the common scene
+			     mounts exactly the surfaces it always has. Reports go under the group's synthetic
+			     key, which `forgetScene` purges with the scene. -->
+			{#each blendOverlayGroups(s) as g (g.key)}
+				{#if sceneHasSpine(s)}
+					<EditorSpineLayer
+						{scenes}
+						{mainSizesMap}
+						{layoutType}
+						{frameWidth}
+						{frameHeight}
+						{panX}
+						{panY}
+						{zoom}
+						{assets}
+						{componentMap}
+						{spinePreview}
+						{spinePreviewNodeId}
+						{symbolStatics}
+						{gridDimensions}
+						worldTransformOf={nodeTransform}
+						reloadToken={spineReload}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={g.ids}
+						blend={g.css}
+						activeSceneId={scene.id}
+						playing={playingSpines}
+						{boneRiders}
+						onReadyKeysChange={(keys) => {
+							mergeSpineReady(g.key, keys);
+							schedule();
+						}}
+						onNaturalSizesChange={(sizes) => {
+							mergeSpineNatural(g.key, sizes);
+							schedule();
+						}}
+						onSpineMetaChange={(meta) => {
+							mergeSpineMeta(g.key, meta);
+							schedule();
+						}}
+						onLoadingChange={(c) => {
+							mergeSpineLoading(g.key, c);
+						}}
+					/>
+				{/if}
+				{#if sceneHasEffect(s)}
+					<EditorEffectLayer
+						{scenes}
+						{layoutType}
+						{frameWidth}
+						{frameHeight}
+						{panX}
+						{panY}
+						{zoom}
+						{componentMap}
+						worldTransformOf={nodeTransform}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={g.ids}
+						blend={g.css}
+						playing={playingEffects}
+						onReadyKeysChange={(ids) => {
+							mergeEffectReady(g.key, ids);
+							schedule();
+						}}
+						onBoundsChange={(bounds) => {
+							mergeEffectBounds(g.key, bounds);
+							schedule();
+						}}
+					/>
+				{/if}
+			{/each}
 				onLoadingChange={(c) => {
 					mergeSpineLoading(HUD_SPINE_KEY, c);
 				}}
@@ -4474,6 +4728,12 @@
 		   draws on top. Sits above every scene group (which use z-index 1..N); the HUD
 		   needs a higher stacking context. Input passes through to the base canvas. */
 		position: absolute;
+		/* THE blending boundary. A node's `mix-blend-mode` composites against every layer beneath
+		   it inside this box — the base frame canvas and earlier scene groups included, which is
+		   what makes an additive glow in one screen lift the BACKGROUND screen's art the way the
+		   game does. `isolate` stops it reaching the launcher chrome outside; `overflow:hidden`
+		   already clipped everything here, so nothing that used to escape this box now can't. */
+		isolation: isolate;
 		inset: 0;
 		z-index: 1000;
 		pointer-events: none;
@@ -4507,9 +4767,12 @@
 		pointer-events: none;
 	}
 	.scene-group {
-		/* One composite group per game scene; z-index (set inline by scene order) makes
-		   a later scene's whole group — its 2D + spine + text — sit above an earlier
-		   scene's group. Input passes through to the base canvas underneath. */
+		/* One composite group per game scene. Ordering is DOM order (the groups are emitted in
+		   scene order), NOT z-index: a positioned element with a z-index forms a stacking context,
+		   which would isolate its blended canvases to the group and leave a blend unable to see the
+		   scene beneath it. `z-index:auto` positioned elements still paint above the non-positioned
+		   base canvas and below the rider/HUD layers (z-index 999+), so the stack is unchanged.
+		   Input passes through to the base canvas underneath. */
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
