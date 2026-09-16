@@ -296,10 +296,14 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * `docs/design/game-type-templates.md`). `lines` for every config that predates the field, so
 	 * every existing game is unchanged.
 	 *
-	 * This is the runtime's read of the win model. It does NOT yet select a different win
-	 * EVALUATION — the engine still presents whatever the RGS reports — but it is what lets the
-	 * payline-specific surfaces stand down, and what `warnOnGameConfigIssues` uses to say plainly
-	 * that a declared `ways`/`cluster`/`scatter` model is not being honoured yet.
+	 * This is the runtime's read of the win model, and it deliberately selects no win EVALUATION: the
+	 * RGS decides what a spin pays and the engine presents it, which is the only shape that survives
+	 * meeting a real provider. What the model DOES drive here is every surface whose meaning depends
+	 * on it — `payoutDivisor()`, payline colour, the payline diagram, win-line shape, anticipation.
+	 *
+	 * The mock's evaluator must mirror `payoutDivisor()` exactly (see `payoutBaseFor` in
+	 * `scripts/mock-rgs-server.mjs`), or the info page prices a win differently from the wallet that
+	 * credits it. `pnpm check:stake` is the gate on that agreement.
 	 */
 	function activeWinModel(): WinModel {
 		return resolveWinModel(getActiveGameConfig());
