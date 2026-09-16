@@ -172,6 +172,19 @@ check(
 	'the spin button is locked during the celebration, so an abandoned parked win must still release.',
 );
 
+const state = read('apps/lines/src/game/winState.svelte.ts');
+
+// PAIRING. Every `PressToContinue` fires its OWN Space hotkey directly, but the POINTER is
+// routed by `<ContinuePressMask>` to the TOP registered press alone. So when an authored
+// tapToContinue outranks the gate's dismiss, a click reaches only the authored tap — and unless
+// that tap also releases the park, the mouse looks dead while the keyboard still works.
+check(
+	/winState\.dismissPressed = true;/.test(state),
+	'the authored tap releases a PARKED win too',
+	'releaseWinDismissHold() must set `dismissPressed`, not just `escalationOutroComplete` — ' +
+		'otherwise the pointer and the Space key disagree about whether the win was dismissed.',
+);
+
 console.log(
 	failures === 0 ? `\nbig-win cue: OK (${checks} checks)\n` : `\nbig-win cue: ${failures} FAILED\n`,
 );
