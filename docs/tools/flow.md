@@ -135,6 +135,26 @@ about the second wire.
 mounted is **lost**, not queued: there is no replay when the screen later appears. If the
 character lives on a screen the flow shows, fire its cue *after* the **show**, never before.
 
+**Waiting for one.** Tick **Wait for this cue to finish** in the inspector and the chain holds
+until the animation the cue starts is done, so the next node does not land on top of it — the
+answer to "why does my second cue fire immediately?". A scene cue has no listener that can
+report back (nothing is subscribed to an invented name but the artwork itself), so the wait is
+**measured**: the longest clip any cued spine or flipbook plays for that signal, on a screen
+that is currently showing.
+
+Three things follow from *measured*, and each is deliberate:
+
+- A **looping** cue waits **one cycle**. A loop has no end, but you ticked the box on that
+  node, so one pass is the only finite answer — and it is the one the idle → spin → idle recipe
+  above wants.
+- If **nothing showing** names the cue, there is **no wait at all** — the same "the screen has
+  to be showing" rule as Trap 2, so a cue that reached nobody cannot stall the round.
+- The wait scales with **turbo** and a **slam** collapses it, exactly like a **Delay**. An
+  authored wait never outlives a round the player chose to skip.
+
+A clip that has not loaded yet measures nothing and so does not wait; fire the cue after the
+screen is up and its assets are in.
+
 The Scene-Editor half — the block's fields, and exactly what **loop** does on each kind — is in
 [the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).
 
@@ -202,10 +222,11 @@ palette). It shows the node's derived pins and a kind-specific editor:
   of `$item` / `$index` / `$engine.<key>` / `$input`). A data-in that is **fed by a wire**
   shows a **wired** tag instead (the wire supplies it).
 - **Fire Cue** — a **Wait for this cue to finish** tick. Off, the cue is broadcast and the
-  chain runs straight on; on, the chain pauses until the cue's listeners are done. Turn it
-  on when a later node undoes what the cue starts (a hide that would erase a win line before
-  its symbols finish animating). It makes no difference to an author-named scene cue: a
-  spine's cue animation is never waited on, so the chain continues either way.
+  chain runs straight on; on, the chain pauses until the cue finishes. Turn it on when a later
+  node undoes what the cue starts (a hide that would erase a win line before its symbols finish
+  animating). What "finishes" means depends on the cue: an **engine** cue waits for its
+  listeners, while a **scene cue you named** waits for the animation it starts — see
+  [Scene cues](#scene-cues--animate-a-placed-character).
 - **ForEach** — a **Mode** toggle (**sequence** = one item at a time, **parallel** = all
   at once).
 - **Sequence / Parallel** — a **Count** (how many ordered / concurrent exec-outs to

@@ -452,10 +452,18 @@
 				<span class="flabel">Wait for this cue to finish</span>
 			</label>
 			<p class="hint">
-				Pauses the chain until the cue's listeners finish, instead of firing it and running straight
-				on. Turn this ON when a LATER node undoes what the cue starts — e.g.
+				Pauses the chain until the cue finishes, instead of firing it and running straight on. Turn
+				this ON when a LATER node undoes what the cue starts — e.g.
 				<code>boardWithAnimateSymbols</code> must be awaited or the
 				<code>hideWinLine</code> after it erases the win line before the symbols finish animating.
+			</p>
+			<p class="hint">
+				What "finishes" means depends on the cue. An <strong>engine</strong> cue waits for its
+				listeners. A cue <strong>you named</strong> in the Scene Editor has no listener that can
+				report back, so it waits for the <strong>animation it starts</strong> — the longest clip any
+				cued spine or flipbook plays for this signal, on a screen that is currently shown. A looping
+				cue waits one cycle (a loop has no end, and you asked to wait). Nothing shown names the cue ⇒
+				no wait. The wait is turbo-scaled and a slam collapses it, exactly like a Delay.
 			</p>
 		{/if}
 
