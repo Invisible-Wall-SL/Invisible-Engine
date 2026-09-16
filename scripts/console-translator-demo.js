@@ -47,7 +47,9 @@
 			get sid() { return sid; },
 			get seq() { return seq; },
 			get gid() { return gid; },
-			nextSeq() { const c = seq; seq = seq + 1; return c; },
+			// seq = POSITION in the round's stored action array, so it advances by the number of
+			// stored actions posted (a `bet+play` moves it by two). Keep in sync with sessionState.ts.
+			takeSeq(storedActions) { const c = seq; if (storedActions > 0) seq = seq + storedActions; return c; },
 			startRound() { seq = 0; gid = null; },
 			bindRound(v) { gid = v; },
 			endRound() { gid = null; },
@@ -102,7 +104,7 @@
 		const endpoint = config.endpoint ?? '/rgs/engine';
 		return {
 			post: async ({ body, seqOverride, gidOverride }) => {
-				const seq = seqOverride ?? session.nextSeq();
+				const seq = seqOverride ?? session.takeSeq(body.filter((e) => e.action !== 'config').length);
 				const gid = gidOverride === null ? null : (gidOverride ?? session.gid);
 				const params = new URLSearchParams();
 				params.set('sid', session.sid);

@@ -1,0 +1,15 @@
+{
+	"_comment": "2-complex partner test node. VERIFIED 2026-09-16 against a live session on game 2 (Book-of math, alias BookOfBetOptions): the engine endpoint is /webnode/engine (no .js), the session token rides ?sid=, and the server answers Access-Control-Allow-Origin: * — which is WHY withCredentials must be false, since a browser rejects a wildcard origin on a credentialed request. Config event confirmed 5x3, 10 paylines, SCAT as scatter+wild, betOptions [10,1000], denom 0.01 (1 credit = 1 cent). simpleRequest is REQUIRED here: the preflight answers ACAO * but no Access-Control-Allow-Headers, so an application/json content type is refused; text/plain makes it a simple request and is parsed identically.",
+	"id": "2complex-bookof",
+	"rgs": {
+		"baseUrl": "https://gs.2-complex.science",
+		"endpoint": "/webnode/engine",
+		"withCredentials": false,
+		"simpleRequest": true,
+		"allowUrlOverride": false
+	},
+	"session": {
+		"param": "sid",
+		"required": true
+	}
+}

@@ -226,6 +226,12 @@ export const ENV = {
 	},
 	// Public origin where published games are served (R2 `test_server/<key>/`
 	// behind Cloudflare). Non-secret → code default; env overrides.
+	/** Partner RGS admin credentials, a JSON map keyed by delivery-profile id — see
+	 *  `partnerRgs.ts`. Holds SECRETS: it is the reason session minting is server-side at all, so it
+	 *  must never be echoed into a response, a redirect or a log line. Unset ⇒ no partner launches. */
+	get PARTNER_RGS() {
+		return env.PARTNER_RGS ?? '';
+	},
 	get GAMES_BASE_URL() {
 		return env.GAMES_BASE_URL ?? 'https://games.invisiblewall.org';
 	},

@@ -55,7 +55,9 @@
 		let seq = 0, gid = null;
 		return {
 			get sid() { return sid; }, get seq() { return seq; }, get gid() { return gid; },
-			nextSeq() { const c = seq; seq++; return c; },
+			// seq = POSITION in the round's stored action array, so it advances by the number of
+			// stored actions posted (a `bet+play` moves it by two). Keep in sync with sessionState.ts.
+			takeSeq(storedActions) { const c = seq; if (storedActions > 0) seq = seq + storedActions; return c; },
 			startRound() { seq = 0; gid = null; },
 			bindRound(v) { gid = v; },
 			endRound() { gid = null; },
@@ -446,7 +448,7 @@
 	// ============================================================
 	const baseFor = () => state.mode === 'mock' ? state.mockBaseUrl : '';
 	const post = async (body) => {
-		const seq = state.session.nextSeq();
+		const seq = state.session.takeSeq(body.filter((e) => e.action !== 'config').length);
 		const gid = state.session.gid;
 		const params = new URLSearchParams();
 		params.set('sid', sid);

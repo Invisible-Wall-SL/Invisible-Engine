@@ -196,7 +196,7 @@ Body: [{action, context}, …]
 
 The `events` array IS the Invisible Engine book-event sequence — translation is mostly pass-through.
 
-**`seq` is NOT a monotonic counter:** resets to 0 each new round, increments only within an in-flight round. Owned by the session state (`startRound()` / `nextSeq()` / `bindRound(gid)` / `endRound()`).
+**`seq` is a POSITION, not a counter:** it is the 0-based index in the round's stored action array at which the posted action(s) are placed. The server appends every stored action it receives, so a request carrying `[bet, play]` advances the array by **two** and the next action belongs at `seq=2`; omitting `seq` appends. Writing to an **already-occupied** position is how the engine exposes **replay** — re-posting `play` at an earlier free spin's slot shows that spin again instead of advancing — so a counter that advanced once per request would silently replay the round rather than merely mis-number it. `config` and the empty-body balance probe are NOT stored and consume no position. Owned by the session state (`startRound()` / `takeSeq(storedActions)` / `bindRound(gid)` / `endRound()`); `seqOverride` on the fetcher is the replay seam.
 
 **Cloudflare:** the EAGaming edge is behind Cloudflare managed challenge. Server-side fetches (Node, curl) get bounced. Probing must run inside a real browser tab on the game origin.
 

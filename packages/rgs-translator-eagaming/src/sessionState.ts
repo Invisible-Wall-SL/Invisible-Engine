@@ -1,18 +1,27 @@
 /**
  * Session state for the Play4Fun protocol.
  *
- * Observed behaviour (from real Hot Fruits captures):
- *   - `seq` is sent on every request but is NOT a monotonic counter scoped
- *     to the session. New rounds start with seq=0; seq increments only
- *     within the action sequence of a single in-flight round, and resets
- *     when the next round starts.
- *   - `gid` (game round id) is returned by the server in
- *     `platform.gameRound.id` after a `bet+play` call and must be echoed
- *     back as a query param on subsequent in-round actions (e.g. `collect`).
+ *   - `seq` is **the 0-based POSITION in the round's stored action array at which the action(s)
+ *     you are posting should be placed** — not a request counter. The server appends every stored
+ *     action it receives, so a request carrying `[bet, play]` advances the array by TWO, and the
+ *     next action goes at `seq=2`. Omitting `seq` appends.
  *
- * This state object owns both pieces. Call `startRound()` when a `bet+play`
- * is fired (resets seq, clears gid). Call `bindRound(gid)` when the server
- * returns a gameRound id. Call `endRound()` after a successful collect.
+ *     This matters because writing to an ALREADY-OCCUPIED position is how the engine exposes
+ *     REPLAY: re-posting `play` at `seq=2` of `[bet,play,play,play,play]` replays the first free
+ *     spin instead of advancing the round. So a counter that advanced once per REQUEST (what this
+ *     file assumed before) does not merely mis-number — after a two-action `bet+play` it aims every
+ *     subsequent action one slot short, and the round silently replays itself instead of moving on.
+ *     The captured Hot Fruits `collect` in `types.ts` carries `seq=2` after a `bet+play`, which is
+ *     the same rule; the capture was right and the counter was wrong.
+ *
+ *     `config` and the empty-body balance probe are NOT stored and must not consume a position.
+ *
+ *   - `gid` (game round id) is returned by the server in `platform.gameRound.id` after a `bet+play`
+ *     call and must be echoed back as a query param on subsequent in-round actions (e.g. `collect`).
+ *
+ * This state object owns both pieces. Call `startRound()` when a `bet+play` is fired (the round's
+ * action array starts empty again). Call `bindRound(gid)` when the server returns a gameRound id.
+ * Call `endRound()` after a successful collect.
  */
 
 export interface Play4FunSessionState {
@@ -20,8 +29,10 @@ export interface Play4FunSessionState {
 	readonly seq: number;
 	readonly gid: string | null;
 
-	/** Pull the current seq and increment for the next request. */
-	nextSeq(): number;
+	/** Reserve `storedActions` slots in the round's action array and return the position the new
+	 *  action(s) go at. Pass 0 for a call the server does not store (balance / config): it reports
+	 *  the current position without consuming one. */
+	takeSeq(storedActions: number): number;
 	/** Reset seq to 0 and clear gid (call when starting a fresh round). */
 	startRound(): void;
 	/** Record the gid returned by the server on the bet+play response. */
@@ -45,10 +56,10 @@ export const createPlay4FunSessionState = (sid: string): Play4FunSessionState =>
 		get gid() {
 			return gid;
 		},
-		nextSeq() {
-			const current = seq;
-			seq = seq + 1;
-			return current;
+		takeSeq(storedActions: number) {
+			const position = seq;
+			if (storedActions > 0) seq = seq + storedActions;
+			return position;
 		},
 		startRound() {
 			seq = 0;

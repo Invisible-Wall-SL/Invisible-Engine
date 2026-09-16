@@ -85,9 +85,17 @@ jobs:
 
       # PUBLIC_RGS_TRANSPORT=play4fun is REQUIRED: the test server's mock RGS speaks Play4Fun, and a
       # bundle built without it never completes the handshake and hangs on a blank loading screen.
+      #
+      # PUBLIC_DELIVERY_PROFILES='*' compiles every profile in packages/delivery-profile/profiles/
+      # into the bundle so a launch URL can pick one with `?rgs_profile=<id>` — the shared runtime is
+      # one artifact that has to reach our own test server AND a partner's RGS without a rebuild per
+      # target. It is a whitelist: the URL picks among hosts we shipped, it can never name one.
+      # Omitting the param (or `?rgs_profile=internal`) keeps the pre-existing behaviour, our RGS
+      # through `?rgs_url=`.
       - name: Build the ${{ env.RUNTIME }} runtime
         env:
           PUBLIC_RGS_TRANSPORT: play4fun
+          PUBLIC_DELIVERY_PROFILES: '*'
         run: pnpm --filter ${{ env.RUNTIME }} build
 
       - name: Publish to _runtime/${{ env.RUNTIME }}

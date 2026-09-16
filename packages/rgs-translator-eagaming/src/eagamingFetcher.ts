@@ -1,14 +1,20 @@
-import type {
-	Play4FunRequestBody,
-	Play4FunResponse,
-	Play4FunTransportConfig,
-} from './types';
+import type { Play4FunRequestBody, Play4FunResponse, Play4FunTransportConfig } from './types';
 import type { Play4FunSessionState } from './sessionState';
 import { responseClosedRound } from './translator';
 
+/** Actions the server does NOT append to the round's stored action array. They must not consume a
+ *  position, or every later action would aim past the end of the array. The empty-body balance
+ *  probe is the same case, and falls out of the count naturally. */
+const NON_STORED_ACTIONS = new Set(['config']);
+
+const storedActionCount = (body: Play4FunRequestBody): number =>
+	body.filter((entry) => !NON_STORED_ACTIONS.has(entry.action)).length;
+
 export interface Play4FunPostOptions {
 	body: Play4FunRequestBody;
-	/** Override seq instead of pulling from the session counter. */
+	/** Write at an explicit position instead of the next free one. An ALREADY-OCCUPIED position is
+	 *  how the engine replays: re-posting `play` at the slot of an earlier free spin shows that spin
+	 *  again rather than advancing the round. */
 	seqOverride?: number;
 	/** Override gid (defaults to whatever the session state holds). Pass null
 	 *  to explicitly omit gid even when the session has one bound. */
@@ -39,13 +45,17 @@ export const createPlay4FunFetcher = (
 ) => {
 	const fetchImpl = config.fetchImpl ?? fetch;
 	const endpoint = config.endpoint ?? '/rgs/engine';
+	// Uncredentialed by default for a DELIVERED build, where the sid in the query string is the
+	// credential and a wildcard `Access-Control-Allow-Origin` is the only CORS answer that scales to
+	// an open-ended set of client/aggregator hosts. `true` restores the same-origin-iframe behaviour
+	// this protocol was captured under. See `DeliveryProfileRgs.withCredentials`.
+	const credentials: RequestCredentials = config.withCredentials === false ? 'omit' : 'include';
+	const contentType = config.contentType ?? 'application/json';
 
 	return {
 		post: async (options: Play4FunPostOptions): Promise<Play4FunPostResult> => {
-			const seq = options.seqOverride ?? session.nextSeq();
-			const gid = options.gidOverride === null
-				? null
-				: options.gidOverride ?? session.gid;
+			const seq = options.seqOverride ?? session.takeSeq(storedActionCount(options.body));
+			const gid = options.gidOverride === null ? null : (options.gidOverride ?? session.gid);
 
 			const params = new URLSearchParams();
 			params.set('sid', session.sid);
@@ -56,9 +66,9 @@ export const createPlay4FunFetcher = (
 
 			const response = await fetchImpl(url, {
 				method: 'POST',
-				credentials: 'include',
+				credentials,
 				headers: {
-					'Content-Type': 'application/json',
+					'Content-Type': contentType,
 					...options.headers,
 				},
 				body: JSON.stringify(options.body),

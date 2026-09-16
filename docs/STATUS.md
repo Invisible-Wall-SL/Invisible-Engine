@@ -59,6 +59,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md) — the earlier per-tool R2 layout the unified repo superseded + project scaffolding.
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
+- [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile + `config.json` that carry which RGS a build talks to and how the host page passes a session. Phase 1 built; Phases 2–3 (protocol deltas, packaging) unbuilt.
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
@@ -70,7 +71,13 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
 2. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-3. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
+3. **Delivery builds, Phases 2–3** ([design](design/delivery-builds.md)) — the profile + `config.json`
+   (Phase 1) shipped 2026-09-14. Still unbuilt: the **protocol deltas** against a partner RGS (bet-mode
+   enum `0|1|2` in `context[0]`, server-supplied bet levels + jurisdiction instead of the ladder the
+   facade currently invents, and the real cascade event vocabulary), then **packaging** (a
+   package-for-delivery mode on `publish-game-bundle.mjs`). Blocked in part on answers from the
+   partner — see the design doc's open questions.
+4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
    passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
    **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
    refresh [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders

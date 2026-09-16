@@ -24,18 +24,18 @@ Body: [{action, context}, …]
 
 ### Actions
 
-| Action      | Context                    | Effect                                                   |
-|-------------|----------------------------|----------------------------------------------------------|
-| `bet`       | `[a, betPerLine]`          | Debit. Total stake = `a * betPerLine`.                   |
-| `play`      | `null`                     | Spin. Round stays open; needs separate `collect`.        |
-| `play`      | `''` (empty string)        | Spin and auto-collect in one round-trip.                 |
-| `collect`   | (omitted)                  | Close an open round, credit win.                         |
-| (empty `[]`)| —                          | Heartbeat. Server returns `{events:[], platform:{balance}}`. |
+| Action       | Context             | Effect                                                       |
+| ------------ | ------------------- | ------------------------------------------------------------ |
+| `bet`        | `[a, betPerLine]`   | Debit. Total stake = `a * betPerLine`.                       |
+| `play`       | `null`              | Spin. Round stays open; needs separate `collect`.            |
+| `play`       | `''` (empty string) | Spin and auto-collect in one round-trip.                     |
+| `collect`    | (omitted)           | Close an open round, credit win.                             |
+| (empty `[]`) | —                   | Heartbeat. Server returns `{events:[], platform:{balance}}`. |
 
 ### Query parameters
 
 - `sid` — session ID (typically from the launch URL)
-- `seq` — request sequence number; resets to **0** on each new round, increments only **within** an in-flight round
+- `seq` — the 0-based **position** in the round's stored action array at which the posted action(s) are placed, **not** a request counter: a request carrying `[bet, play]` advances it by **two**, so the next action belongs at `seq=2`. Omitting it appends. Writing to an already-occupied position is how the engine **replays** that step. `config` and the empty-body balance probe are not stored and consume no position
 - `gid` — game round ID; only sent when continuing a round (e.g. `collect`). The server returns it in `platform.gameRound.id` after the opening `bet+play`
 
 ### Response shape
@@ -66,9 +66,9 @@ It's a workspace package — already available to any app in the monorepo:
 ```jsonc
 // apps/<your-app>/package.json
 {
-  "dependencies": {
-    "rgs-translator-eagaming": "workspace:*"
-  }
+	"dependencies": {
+		"rgs-translator-eagaming": "workspace:*",
+	},
 }
 ```
 
@@ -84,10 +84,11 @@ Owns the session's `seq` and `gid` lifecycle. Use one instance per session.
 import { createPlay4FunSessionState } from 'rgs-translator-eagaming';
 
 const session = createPlay4FunSessionState('S27932');
-session.startRound();         // call before each new bet+play
-session.nextSeq();            // 0, 1, 2, … (within current round)
+session.startRound(); // call before each new bet+play (the action array starts empty)
+session.takeSeq(2); // position for a 2-action `bet+play` post; advances BY TWO
+session.takeSeq(0); // a non-stored call (balance/config): reports, consumes nothing
 session.bindRound('G123abc'); // record gid from server response
-session.endRound();           // call after a successful collect
+session.endRound(); // call after a successful collect
 ```
 
 The fetcher (below) auto-binds gid from responses, so you usually only call `startRound()` and `endRound()` manually.
@@ -101,15 +102,15 @@ import { createPlay4FunFetcher, createPlay4FunSessionState } from 'rgs-translato
 
 const session = createPlay4FunSessionState('S27932');
 const fetcher = createPlay4FunFetcher(
-  { baseUrl: '', sid: session.sid }, // empty baseUrl = same-origin (recommended in-tab)
-  session,
+	{ baseUrl: '', sid: session.sid }, // empty baseUrl = same-origin (recommended in-tab)
+	session,
 );
 
 const result = await fetcher.post({
-  body: [
-    { action: 'bet', context: [5, 2] },
-    { action: 'play', context: '' },
-  ],
+	body: [
+		{ action: 'bet', context: [5, 2] },
+		{ action: 'play', context: '' },
+	],
 });
 // result.response is the parsed Play4FunResponse
 // result.url, result.requestSeq, result.requestGid for debugging
@@ -119,10 +120,10 @@ const result = await fetcher.post({
 
 ```ts
 import {
-  buildBetActions,
-  buildHeartbeat,
-  buildCollectAction,
-  buildSingleAction,
+	buildBetActions,
+	buildHeartbeat,
+	buildCollectAction,
+	buildSingleAction,
 } from 'rgs-translator-eagaming';
 
 buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 });
@@ -160,11 +161,11 @@ The `state` field IS the events array — already in the right shape for Invisib
 
 ```ts
 import {
-  createPlay4FunFetcher,
-  createPlay4FunSessionState,
-  buildBetActions,
-  buildCollectAction,
-  translateBetResponse,
+	createPlay4FunFetcher,
+	createPlay4FunSessionState,
+	buildBetActions,
+	buildCollectAction,
+	translateBetResponse,
 } from 'rgs-translator-eagaming';
 
 const session = createPlay4FunSessionState(SID_FROM_URL);
@@ -173,7 +174,7 @@ const fetcher = createPlay4FunFetcher({ baseUrl: '', sid: session.sid }, session
 // Auto-collect round (one round-trip)
 session.startRound();
 const r = await fetcher.post({
-  body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 }),
+	body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 }),
 });
 const translated = translateBetResponse(r.response);
 console.log('events:', translated.round.state);
@@ -183,7 +184,13 @@ session.endRound();
 // Manual-collect round (two round-trips)
 session.startRound();
 const r1 = await fetcher.post({
-  body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5, playContext: null }),
+	body: buildBetActions({
+		amount: 10,
+		mode: 'BASE',
+		currency: 'USD',
+		betLinesOrConfig: 5,
+		playContext: null,
+	}),
 });
 // inspect r1.response.events, decide to collect
 const r2 = await fetcher.post({ body: buildCollectAction() });
@@ -213,21 +220,21 @@ node scripts/smoke-mock.mjs              # full round-lifecycle smoke test
 
 ## Discovery scripts
 
-| Script | Purpose |
-|---|---|
+| Script                                                 | Purpose                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | [console-sniffer.js](../../scripts/console-sniffer.js) | Monkey-patches `fetch` and `XMLHttpRequest` in the live game iframe; logs every request to `window.eaSniffed`. |
-| [console-probe.js](../../scripts/console-probe.js)     | Paste-in probe runner; fires a sequence of test actions against the live endpoint. |
-| [probe.mjs](../../scripts/probe.mjs)                   | Standalone Node probe (CF will block it for EAGaming-fronted hosts). |
-| [smoke-mock.mjs](../../scripts/smoke-mock.mjs)         | Round-lifecycle smoke test against the mock server. |
+| [console-probe.js](../../scripts/console-probe.js)     | Paste-in probe runner; fires a sequence of test actions against the live endpoint.                             |
+| [probe.mjs](../../scripts/probe.mjs)                   | Standalone Node probe (CF will block it for EAGaming-fronted hosts).                                           |
+| [smoke-mock.mjs](../../scripts/smoke-mock.mjs)         | Round-lifecycle smoke test against the mock server.                                                            |
 
 ## Source files
 
-| File | Purpose |
-|---|---|
-| `src/types.ts`            | Wire-format types for requests, responses, events. Sample payloads at the bottom of the file. |
-| `src/sessionState.ts`     | sid + seq + gid lifecycle. |
-| `src/translator.ts`       | Action builders + `translateBetResponse`. |
-| `src/eagamingFetcher.ts`  | HTTP transport (`createPlay4FunFetcher`). Auto-binds gid. |
+| File                     | Purpose                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `src/types.ts`           | Wire-format types for requests, responses, events. Sample payloads at the bottom of the file. |
+| `src/sessionState.ts`    | sid + seq + gid lifecycle.                                                                    |
+| `src/translator.ts`      | Action builders + `translateBetResponse`.                                                     |
+| `src/eagamingFetcher.ts` | HTTP transport (`createPlay4FunFetcher`). Auto-binds gid.                                     |
 
 ## License
 
