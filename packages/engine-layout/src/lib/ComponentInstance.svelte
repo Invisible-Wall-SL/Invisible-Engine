@@ -524,9 +524,6 @@
 		return map;
 	})();
 
-	/** The one component-LIFECYCLE signal: fired by this instance on its visible edge, never by a
-	 *  source. Named once so the two subscribe loops and the visible-edge effect below agree. */
-
 	let signalAnims = $state<Record<string, ComponentSignalAnim>>({});
 	// A cue is an EVENT delivered as STATE, so every fire must be distinguishable from the last:
 	// re-firing the same cue writes the same animation name, and the spine's value comparison then

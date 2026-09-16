@@ -466,10 +466,10 @@
 				no wait. The wait is turbo-scaled and a slam collapses it, like a Delay.
 			</p>
 			<p class="hint">
-				<strong>Scene cues only wait under a flow that drives screens</strong> — one that owns
-				<code>load</code> and mounts its screens with <strong>Show</strong>. A book-events-only flow
-				leaves the screens to the game, so it cannot tell which are up and the wait is zero (the cue
-				still fires, and still animates).
+				"Shown" means <strong>shown by this flow</strong> — a screen it mounted with
+				<strong>Show</strong>. A cued character on a screen the <em>game</em> puts up, with no
+				<strong>Show</strong> for it anywhere in this flow, is not measured and the wait is zero
+				(the cue still fires, and still animates). Pair it with a <strong>Delay</strong> there.
 			</p>
 		{/if}
 

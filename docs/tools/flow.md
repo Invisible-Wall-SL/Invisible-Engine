@@ -140,7 +140,7 @@ until the animation the cue starts is done, so the next node does not land on to
 answer to "why does my second cue fire immediately?". A scene cue has no listener that can
 report back (nothing is subscribed to an invented name but the artwork itself), so the wait is
 **measured**: the longest clip any cued spine or flipbook plays for that signal, on a screen
-that is currently showing.
+this flow is currently showing.
 
 Things that follow from *measured*, each deliberate:
 
@@ -158,10 +158,11 @@ Things that follow from *measured*, each deliberate:
 
 **Two limits worth knowing before you rely on it.**
 
-**It needs a flow that drives screens** — one that owns `load` and mounts its screens with
-**Show**. A book-events-only flow leaves the screens to the game, so it cannot tell which are
-up, and the wait is zero. The cue still fires and the character still animates; only the
-*waiting* is unavailable. Pair the cue with a **Delay** there.
+**"Shown" means shown by this flow.** The wait is measured over the screens *this* flow
+mounted with **Show**. If the character lives on a screen the game puts up by itself, and no
+**Show** for it appears anywhere in this flow, nothing is measured and the wait is zero. The cue
+still fires and the character still animates; only the *waiting* is unavailable — pair it with a
+**Delay** there.
 
 **An engine cue is not affected by any of this.** A cue the engine already owns
 (`specialBookReveal`, `winShow`, the sounds) waits for its real listeners, exactly as it always

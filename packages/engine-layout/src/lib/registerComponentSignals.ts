@@ -118,10 +118,12 @@ export function isRegisteredComponentSignal(key: string): boolean {
 
 /**
  * The one component-LIFECYCLE signal: fired by an instance itself on its visible edge and by no
- * source. It is in the catalog but NOT in the registry, so both subscribe loops skip it explicitly
- * — otherwise the open bus would hand it a subscription it never had, and an author naming a scene
- * cue `enter` could replay every mounted component's intro at once. Callers that reason about who
- * drives a cue must skip it for the same reason.
+ * source. It is in the catalog but NOT in the registry, so `<ComponentInstance>`'s subscribe loops
+ * skip it explicitly — otherwise the open bus would hand it a subscription it never had, and an
+ * author naming a scene cue `enter` could replay every mounted component's intro at once. Callers
+ * that reason about who drives a cue must skip it for the same reason. (The scene-level seam in
+ * `<LayoutNodeView>` does not skip it: a bare scene node has no instance lifecycle to collide with,
+ * and `enter` is a catalog key, so the flow palette never offers it either way.)
  */
 export const ENTER_SIGNAL = 'enter';
 

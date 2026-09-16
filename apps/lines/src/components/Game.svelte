@@ -1893,9 +1893,6 @@
 				// Phase A intent bridge — an intent-command action (startSpin/…) invokes the SAME coded
 				// body the button press runs (shared with v1's `invokeIntent`).
 				(intent) => invokeHostIntent(intent),
-				// The live layout, so a `fireCue{await}` does not wait for a cued node this orientation
-				// hides (it would never draw, so its clip never plays).
-				() => context.stateLayoutDerived.layoutType(),
 			);
 			setFlowV2(flowV2);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A

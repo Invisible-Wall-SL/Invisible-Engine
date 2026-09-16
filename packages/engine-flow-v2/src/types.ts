@@ -217,7 +217,7 @@ export interface FireCueNode extends NodeBase {
 	 * subscriber that can report completion — it travels a bare `subscribe(run)` signal bus — so the
 	 * game env waits for the ANIMATION it starts instead, measured off the mounted scenes
 	 * (`engine-layout`'s `cueAnimationDurationMs`). The interpreter only awaits what
-	 * {@link FlowV2Env.broadcast} returns; it does not know which kind it got.
+	 * the env's `broadcast` (`runtime.ts`) returns; it does not know which kind it got.
 	 */
 	await?: boolean;
 }

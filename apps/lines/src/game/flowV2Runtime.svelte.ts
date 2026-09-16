@@ -25,7 +25,7 @@
  * `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
-import type { LayoutDoc, LayoutType, Scene } from 'engine-layout';
+import type { LayoutDoc, Scene } from 'engine-layout';
 import {
 	cueAnimationDurationMs,
 	emitComponentSignal,
@@ -33,6 +33,7 @@ import {
 	flipbookCycleMs,
 	getComponent,
 	isRegisteredComponentSignal,
+	resolveComponent,
 	resolveEffect,
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
@@ -67,6 +68,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
+import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
@@ -297,11 +299,6 @@ export const createLinesFlowV2 = (
 	/** Invoke a game INTENT (spin/buyBonus/…) — the SAME `invokeHostIntent` bridge the v1 flow uses.
 	 *  The env routes an intent-command action (startSpin/…) here. Absent ⇒ those actions no-op. */
 	invokeIntent?: (intent: string) => void,
-	/** The layout the game is drawing right now (`stateLayoutDerived.layoutType`, which lives in the
-	 *  layout CONTEXT, not a module). Read live on each call so an orientation change mid-round is
-	 *  picked up. Only `fireCue{await}`'s cue measurement consults it — absent ⇒ no visibility
-	 *  gating, so a node hidden for the current layout is measured as if it drew. */
-	layoutType?: () => LayoutType,
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
@@ -520,13 +517,17 @@ export const createLinesFlowV2 = (
 	};
 	const cueAnimationMs = (cue: string): number => {
 		// A name the GAME registered is NOT driven by the open bus — `getComponentSignal` resolves it
-		// against the closed registry — and its emitter subscriber already returns a real completion
-		// promise, which `awaitCue` already awaits. Measuring it too would stack a SECOND wait on a cue
-		// that waits correctly today: `specialBookReveal`/`specialBookHide` are both a vocabulary cue
-		// and a catalog signal, so a project whose scene also names one on a spine would silently get
-		// `max(real completion, that clip)` — and `specialBookReveal` fires under `setExpandingSymbol`,
-		// which is UNSKIPPABLE, so the extra wait would not even be slam-raced. `enter` is instance-fired
-		// and takes no bus subscription at all. Skipping both is what keeps every shipped doc identical.
+		// against the closed registry — so its cue reaches a spine through the emitter subscription it
+		// always had, on whatever timing that subscriber already has. Measuring it here would CHANGE
+		// that timing for docs that ship today: `specialBookReveal`/`specialBookHide` are the only two
+		// names that are both a fireable vocabulary cue AND a catalog signal, so a project whose scene
+		// also names one on a spine would silently get `max(existing wait, that clip)`. For
+		// `specialBookReveal` that existing wait is real (its subscriber returns the shuffle promise)
+		// and it fires under `setExpandingSymbol`, which is UNSKIPPABLE — so the added wait would not
+		// even be slam-raced. `specialBookHide`'s subscriber is synchronous, so that one stays
+		// fire-and-forget: NOT the behaviour a tick would ideally buy, but exactly the behaviour it has
+		// on `main`, which is the point. Leaving every registered name alone is what makes "no shipped
+		// doc changes" literally true. `enter` is instance-fired and takes no bus subscription at all.
 		if (isRegisteredComponentSignal(cue) || cue === ENTER_SIGNAL) return 0;
 		return cueAnimationDurationMs(shownScenes(), cue, {
 			spineClipMs,
@@ -534,13 +535,15 @@ export const createLinesFlowV2 = (
 			// (right for the implicit `showContainer.durationMs` walk, wrong for an explicit per-node
 			// await), so force the override off. See `cueDuration.ts`'s header.
 			flipbookCycleMs: (clipId, direction) => flipbookCycleMs(clipId, false, direction),
+			// `resolveComponent`, not `getComponent`: the latter `console.warn`s on a version-pin miss,
+			// and the renderer already does that once per mount. This runs on every awaited fire.
 			resolveComponent: (defId, version) => {
-				const def = getComponent(defId, version);
+				const def = resolveComponent(defId, version).def;
 				return def ? { root: def.root } : undefined;
 			},
 			// The layout being drawn RIGHT NOW, so a node hidden for it is not measured — the same
 			// live scalar `<LayoutNodeView>` resolves its own visibility from.
-			layoutType: layoutType?.(),
+			layoutType: stateLayoutDerived.layoutType(),
 		});
 	};
 
@@ -608,7 +611,8 @@ export const createLinesFlowV2 = (
 			// Turbo-scaled like a `delay`, and folded into `awaitCue` so a SLAM collapses it: an
 			// authored wait must never outlive the round the player already chose to skip.
 			const ms = opts?.await ? cueAnimationMs(cue) : 0;
-			trace('cue', cue, ms > 0 ? `⏱ ${Math.round(ms)}ms` : '');
+			if (ms > 0) trace('cue', cue, `⏱ ${Math.round(ms)}ms`);
+			else trace('cue', cue);
 			return awaitCue(
 				cue,
 				Promise.all([
