@@ -61,11 +61,21 @@ def slice_regions(src: Image.Image, regions: list[dict], out_dir: Path) -> dict[
     src = src.convert("RGBA")
     sw, sh = src.size
     written: dict[str, str] = {}
+    is_pack = str(B.ATLAS_META.get("layout", "")).strip().lower() == "pack"
     for r in regions:
         # Geometry via region_box so the legacy no-atlas path works: an
         # explicit region x/y/w/h still wins; a region that omits w/h falls
         # back to the settings cell size (ATLAS_META.cell_*), then the full
         # image — same resolution the generate/compose engine uses.
+        #
+        # That fallback is authored intent for a cell-grid atlas, but on a
+        # `pack` layout the rect is DERIVED and its absence means "not on this
+        # page" (auto_pack_layout strips it off anything it did not place).
+        # Slicing such a region would crop the WHOLE page and bind it as that
+        # region's ref — a plausible-looking file of entirely the wrong art.
+        if is_pack and not all(r.get(k) is not None for k in ("x", "y", "w", "h")):
+            print(f"  skip {r['name']}: not placed on this page (no rect)")
+            continue
         x, y, w, h = B.region_box(r)
         rotated = bool(r.get("rotated"))
         # w/h in the .atlas are the UNROTATED region size. When rotate:90 the

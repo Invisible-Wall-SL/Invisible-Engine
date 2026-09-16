@@ -304,7 +304,7 @@ def test_run_compose_survives_the_dropdown_moving_under_it() -> None:
     u._run_cmd = fake_run_cmd
     u.rebuild_fx_layers = switch_the_dropdown
     u.repair_sheet_fit_mode = lambda m: []                        # noqa: E731
-    u.auto_pack_layout = lambda m: None                           # noqa: E731
+    u.auto_pack_layout = lambda m: (None, False)                  # noqa: E731
     u.project_paths.ensure_lazy = lambda p: None                  # noqa: E731
 
     u.run_compose()

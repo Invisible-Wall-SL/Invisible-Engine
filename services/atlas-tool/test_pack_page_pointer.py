@@ -319,8 +319,10 @@ def test_a_non_pack_manifest_is_left_exactly_as_it_was() -> None:
     mp = _fixture({"H1": (80, 80)}, dict(original))
     _install(bucket, mp, compose=_compose_the_declared_page)
 
+    # (note, changed) since the unplaced-rect fix; `changed` is the save
+    # signal the caller used to infer from the note's leading glyph.
     check("auto_pack_layout no-ops on it",
-          u.auto_pack_layout(_read(mp)), None)
+          u.auto_pack_layout(_read(mp)), (None, False))
     u.run_compose()
     check("the atlas block is byte-for-byte what it was",
           _read(mp)["atlas"], original)
@@ -364,7 +366,7 @@ def test_the_flipbook_sheet_no_longer_declares_pack() -> None:
 
     check("no layout declaration", "layout" in man["atlas"], False)
     check("auto_pack_layout therefore never touches it",
-          u.auto_pack_layout(man), None)
+          u.auto_pack_layout(man), (None, False))
     check("its page pointer stays the packer's own page",
           man["atlas"]["source_image_path"],
           "unassigned/cloud/sheets/clip/clip.png")
