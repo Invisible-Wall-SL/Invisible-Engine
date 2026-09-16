@@ -305,7 +305,20 @@ def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
     a newer LastModified than the file we last downloaded, so it re-downloads.
     A 0 / missing size never skips (downloads to be safe). Returns the number
     of files ACTUALLY downloaded (skips don't count). Best-effort: any per-file
-    error counts as not-downloaded, never raises."""
+    error counts as not-downloaded, never raises.
+
+    HYDRATION NEVER OVERWRITES NEWER LOCAL WORK. A local file whose mtime is
+    newer than the R2 object's LastModified was produced AFTER that object, so
+    the object has nothing to teach it and downloading over it destroys work in
+    progress. Before this, a DIFFERENT byte count sent the download through
+    unconditionally — and hydrate() pulls `atlas/` in a BACKGROUND thread, so a
+    pull that landed while (or just after) the tool composed a page replaced the
+    fresh page with the old one from the bucket, stamped with a fresh mtime. The
+    page pointer's "is this page from this compose?" mtime check saw a
+    brand-new file and published the old pixels under the new rects (test6,
+    2026-09-16). No mtime-based guard downstream can see that happen; the only
+    fix is not to do it. A genuinely re-uploaded object still re-downloads — its
+    LastModified is newer than the copy we hold."""
     from concurrent.futures import ThreadPoolExecutor
 
     cli = _client()
@@ -325,6 +338,12 @@ def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
                 # re-uploaded one (newer LastModified) re-downloads.
                 if not mtime or dest.stat().st_mtime >= mtime:
                     return 0
+            elif mtime and dest.is_file() and dest.stat().st_mtime > mtime:
+                # Different bytes, and OURS are newer: locally produced since
+                # this object was written (a page compose just wrote, an export
+                # mid-flight). Hydration restores what is missing — it does not
+                # overwrite newer local work. See the docstring.
+                return 0
             dest.parent.mkdir(parents=True, exist_ok=True)
             cli.download_file(bucket, key, str(dest))
             return 1

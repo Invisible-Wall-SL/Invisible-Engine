@@ -3907,6 +3907,20 @@ def main() -> None:
                     ATLAS_DIR /
                     f"{manifest_path.stem.replace('atlas_manifest_', '')}_new.png")
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        # A `<stem>_new.webp` from an EARLIER run must not outlive this save.
+        # It is the file both the page pointer and deploy PREFER, so a stale
+        # webp sitting beside a fresh png is a page of the wrong size waiting to
+        # be published under the rects this compose just produced. Deleting it
+        # here — immediately before the two saves — means the only webp that can
+        # exist from now on is the one written below, and if that encode fails
+        # the png is unambiguously the page. (It is deleted HERE and not at the
+        # top of compose on purpose: a compose that dies before this point must
+        # leave the previous page deployable.)
+        webp_path = out_path.with_suffix(".webp")
+        try:
+            webp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         canvas.save(out_path)
         print(f"Composed {placed}/{len(regions)} regions")
         print(f"Saved {out_path}")
@@ -3915,7 +3929,6 @@ def main() -> None:
         # deploy never copies a corrupt page that the game then fails to load
         # (meta.image would point at an empty page → whole atlas gone). The PNG
         # above is always valid; deploy falls back to it.
-        webp_path = out_path.with_suffix(".webp")
         try:
             canvas.save(webp_path, "WEBP", quality=95)
             if webp_path.stat().st_size == 0:
