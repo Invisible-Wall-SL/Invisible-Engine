@@ -208,8 +208,17 @@ export interface ActionNode extends NodeBase {
 export interface FireCueNode extends NodeBase {
 	kind: 'fireCue';
 	ref: string; // the cue name (resolves in `TemplateVocabulary.cues`).
-	/** AWAIT the cue's subscribers before continuing the exec chain (an awaited `broadcastAsync` —
-	 *  e.g. a reveal that must finish before the next event). Default `false` = fire-and-forget. */
+	/**
+	 * AWAIT this cue before continuing the exec chain (e.g. a reveal that must finish before the next
+	 * event). Default `false` = fire-and-forget.
+	 *
+	 * WHAT IS AWAITED IS THE ENV'S CALL, and it differs by cue. An ENGINE cue resolves when its
+	 * subscribers do (an awaited `broadcastAsync`). A cue the AUTHOR named in the Scene Editor has no
+	 * subscriber that can report completion — it travels a bare `subscribe(run)` signal bus — so the
+	 * game env waits for the ANIMATION it starts instead, measured off the mounted scenes
+	 * (`engine-layout`'s `cueAnimationDurationMs`). The interpreter only awaits what
+	 * the env's `broadcast` (`runtime.ts`) returns; it does not know which kind it got.
+	 */
 	await?: boolean;
 }
 

@@ -27,9 +27,13 @@
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
+	cueAnimationDurationMs,
 	emitComponentSignal,
+	ENTER_SIGNAL,
 	flipbookCycleMs,
 	getComponent,
+	isRegisteredComponentSignal,
+	resolveComponent,
 	resolveEffect,
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
@@ -64,6 +68,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
+import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
@@ -492,6 +497,56 @@ export const createLinesFlowV2 = (
 		});
 	};
 
+	// How long the animation an AUTHOR-NAMED cue starts runs — what `fireCue{await}` waits for on a
+	// scene cue. Measured over the scenes currently MOUNTED only: the open signal bus has no replay,
+	// so a cue fired at an unmounted screen reaches nobody, and measuring it would hold the exec
+	// chain for an animation that never played. A cue no mounted scene names ⇒ 0 ⇒ no wait, which is
+	// every engine cue (`reelStop`, `winShow`, …), so the coded paths are untouched.
+	const shownScenes = (): Scene[] => {
+		const out: Scene[] = [];
+		// De-duplicated against the ACCUMULATOR rather than a `Set`: two containers may share one
+		// scene, and `svelte/prefer-svelte-reactivity` flags a bare `Set` in a `.svelte.ts` module
+		// (it cannot tell a throwaway local from reactive state). A handful of mounted screens makes
+		// the linear scan free either way.
+		for (const c of mount.ordered()) {
+			if (out.some((s) => s.id === c.sceneId)) continue;
+			const scene = editorDoc.scenes.find((s) => s.id === c.sceneId);
+			if (scene) out.push(scene);
+		}
+		return out;
+	};
+	const cueAnimationMs = (cue: string): number => {
+		// A name the GAME registered is NOT driven by the open bus — `getComponentSignal` resolves it
+		// against the closed registry — so its cue reaches a spine through the emitter subscription it
+		// always had, on whatever timing that subscriber already has. Measuring it here would CHANGE
+		// that timing for docs that ship today: `specialBookReveal`/`specialBookHide` are the only two
+		// names that are both a fireable vocabulary cue AND a catalog signal, so a project whose scene
+		// also names one on a spine would silently get `max(existing wait, that clip)`. For
+		// `specialBookReveal` that existing wait is real (its subscriber returns the shuffle promise)
+		// and it fires under `setExpandingSymbol`, which is UNSKIPPABLE — so the added wait would not
+		// even be slam-raced. `specialBookHide`'s subscriber is synchronous, so that one stays
+		// fire-and-forget: NOT the behaviour a tick would ideally buy, but exactly the behaviour it has
+		// on `main`, which is the point. Leaving every registered name alone is what makes "no shipped
+		// doc changes" literally true. `enter` is instance-fired and takes no bus subscription at all.
+		if (isRegisteredComponentSignal(cue) || cue === ENTER_SIGNAL) return 0;
+		return cueAnimationDurationMs(shownScenes(), cue, {
+			spineClipMs,
+			// ONE CYCLE even when the cue loops — `flipbookCycleMs` reports nothing for a looping clip
+			// (right for the implicit `showContainer.durationMs` walk, wrong for an explicit per-node
+			// await), so force the override off. See `cueDuration.ts`'s header.
+			flipbookCycleMs: (clipId, direction) => flipbookCycleMs(clipId, false, direction),
+			// `resolveComponent`, not `getComponent`: the latter `console.warn`s on a version-pin miss,
+			// and the renderer already does that once per mount. This runs on every awaited fire.
+			resolveComponent: (defId, version) => {
+				const def = resolveComponent(defId, version).def;
+				return def ? { root: def.root } : undefined;
+			},
+			// The layout being drawn RIGHT NOW, so a node hidden for it is not measured — the same
+			// live scalar `<LayoutNodeView>` resolves its own visibility from.
+			layoutType: stateLayoutDerived.layoutType(),
+		});
+	};
+
 	// §6.3 Text Message overlays. The static list of authored message nodes (groups flattened so a
 	// message inside a group still renders + harvests) + the reactive set of the ones a `show` exec has
 	// raised. `<FlowV2Messages>` renders each whose `visibleWhile` state-gate matches OR whose id is in
@@ -537,16 +592,34 @@ export const createLinesFlowV2 = (
 		// awaits it, so a cue whose subscriber returns a completion promise (e.g. the `specialBookReveal`
 		// shuffle→land→intro) BLOCKS the flow until it finishes — matching the coded handler's awaited
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
-		broadcast: (cue, payload) => {
-			trace('cue', cue);
+		broadcast: (cue, payload, opts) => {
 			// The author-named half: fire the cue NAME on the open component-signal bus too, so a
 			// spine whose `cues[]` names it plays its animation. Synchronous and payload-less (a
-			// `SignalSource` carries no payload), and NOT awaited — a looping cue has no completion,
-			// so folding it into `awaitCue` would hang the exec chain. A name no spine cue subscribes
-			// is a no-op, so every existing cue is byte-identical: the emitter broadcast below is
-			// untouched and remains the only awaited half.
+			// `SignalSource` carries no payload) — the bus is a bare `subscribe(run)` event contract,
+			// so a spine it drives can never report back that it finished.
 			emitComponentSignal(cue);
-			return awaitCue(cue, eventEmitter.broadcastAsync({ type: cue, ...payload } as never));
+			// …which is exactly why "Wait for this cue to finish" is MEASURED for a scene cue rather
+			// than listened for. Awaiting the emitter alone returned in the same microtask (nothing
+			// subscribes an author-named cue there), so the tick was a silent no-op and the next node
+			// ran straight away. `cueAnimationMs` is the length of the clip this cue starts on a
+			// MOUNTED screen — 0, and so no wait at all, for every cue no scene names.
+			//
+			// Only measured when the node actually ticked the box (`opts.await`). Cues fire constantly
+			// — a `reelStop` per reel, a sound per beat — and the walk would be thrown away on every
+			// one of them.
+			//
+			// Turbo-scaled like a `delay`, and folded into `awaitCue` so a SLAM collapses it: an
+			// authored wait must never outlive the round the player already chose to skip.
+			const ms = opts?.await ? cueAnimationMs(cue) : 0;
+			if (ms > 0) trace('cue', cue, `⏱ ${Math.round(ms)}ms`);
+			else trace('cue', cue);
+			return awaitCue(
+				cue,
+				Promise.all([
+					ms > 0 ? waitPresentation(ms / (stateBetDerived.timeScale() || 1)) : undefined,
+					eventEmitter.broadcastAsync({ type: cue, ...payload } as never),
+				]),
+			);
 		},
 		// Slam-aware delay: every authored Delay node collapses when the player slams the round, so
 		// a v2-driven presentation fast-forwards exactly like the coded one — except inside an

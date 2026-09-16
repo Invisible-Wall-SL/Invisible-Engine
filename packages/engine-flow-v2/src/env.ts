@@ -31,8 +31,14 @@ export interface FlowV2EnvDeps {
 	/** Resolve a registered effect/command by name, or `undefined` (⇒ the interpreter no-ops it).
 	 *  A game passes its closed effect registry here; the env never implements an effect itself. */
 	effect: (name: string) => FlowV2Effect | undefined;
-	/** Broadcast a named cue with its resolved payload (the game wires its event emitter). */
-	broadcast: (cue: string, payload: Record<string, unknown>) => void | Promise<void>;
+	/** Broadcast a named cue with its resolved payload (the game wires its event emitter). `opts.await`
+	 *  forwards the `fireCue` node's own "wait for this cue" tick — a HINT so the game can skip work
+	 *  nobody will wait on (measuring an author-named cue's animation); see `FlowV2Env.broadcast`. */
+	broadcast: (
+		cue: string,
+		payload: Record<string, unknown>,
+		opts?: { await?: boolean },
+	) => void | Promise<void>;
 	/** `waitForTimeout` — `(ms) => new Promise(r => setTimeout(r, ms))`; the interpreter passes the
 	 *  ALREADY turbo-scaled duration (it divides by `timeScale()` before calling). */
 	waitForTimeout: (ms: number) => Promise<void>;
@@ -59,7 +65,7 @@ export interface FlowV2EnvDeps {
  */
 export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	effect: (name, payload) => deps.effect(name)?.(payload),
-	broadcast: (cue, payload) => deps.broadcast(cue, payload),
+	broadcast: (cue, payload, opts) => deps.broadcast(cue, payload, opts),
 	waitForTimeout: (ms) => deps.waitForTimeout(ms),
 	timeScale: () => deps.timeScale(),
 	showContainer: (containerId) => deps.mount.show(containerId),

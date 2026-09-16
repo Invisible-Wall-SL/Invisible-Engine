@@ -52,8 +52,21 @@ import type {
 export interface FlowV2Env {
 	/** An `action` node — invoke a named template effect/command with its resolved payload. */
 	effect(name: string, payload: Record<string, unknown>): void | Promise<void>;
-	/** A `fireCue` node — broadcast a named cue (with any resolved payload). */
-	broadcast(cue: string, payload: Record<string, unknown>): void | Promise<void>;
+	/**
+	 * A `fireCue` node — broadcast a named cue (with any resolved payload).
+	 *
+	 * `opts.await` forwards the node's own "Wait for this cue to finish" tick, purely so an env can
+	 * SKIP work it would throw away: the game's env measures how long an author-named cue's animation
+	 * runs (there is no completion event to listen for — see `cueDuration.ts`), and that walk is
+	 * pointless for the overwhelming majority of fires, which nobody waits on. It is a hint, not
+	 * permission: the interpreter alone decides whether to await the returned promise, so an env that
+	 * ignores `opts` is correct and unchanged.
+	 */
+	broadcast(
+		cue: string,
+		payload: Record<string, unknown>,
+		opts?: { await?: boolean },
+	): void | Promise<void>;
 	/** A `delay` node — wait the (already turbo-scaled) duration. */
 	waitForTimeout(ms: number): Promise<void>;
 	/** The live turbo scalar (`() => isTurbo ? 2 : 1`); a `delay`'s ms is divided by it. */
@@ -286,7 +299,9 @@ class FlowInterpreter {
 				// AWAIT the cue's subscribers only when the node opts in (`await: true`), matching the
 				// coded handlers' `broadcast` (fire-and-forget) vs `broadcastAsync` (awaited) split. A
 				// fire-and-forget cue still triggers its subscribers; the flow just doesn't block.
-				const done = this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope));
+				const done = this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope), {
+					await: !!node.await,
+				});
 				if (node.await) await done;
 				return this.nextExec(graph, node.id, 'exec');
 			}
@@ -858,4 +873,3 @@ export const hideContainerIds = (doc: FlowDoc): Set<ContainerId> => {
 	scan(doc.graph);
 	return ids;
 };
-

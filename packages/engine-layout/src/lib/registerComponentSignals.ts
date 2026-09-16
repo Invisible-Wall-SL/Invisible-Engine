@@ -103,6 +103,30 @@ export function getComponentSignal(key: string): SignalSource {
 	return registry.get(key) ?? openSource(key);
 }
 
+/**
+ * Is `key` a GAME-REGISTERED signal (so {@link getComponentSignal} resolves it against the closed
+ * registry and the open bus never drives it)? The distinction is invisible to a cue's author — the
+ * two names that are BOTH a vocabulary cue and a catalog signal (`specialBookReveal` /
+ * `specialBookHide`) look like any other — but it decides who reports completion: a registered
+ * name's emitter subscriber returns a real completion promise, so a caller measuring the cue's
+ * animation on top would stack a SECOND, longer wait onto a cue that already waits correctly.
+ * Exposed for exactly that check (`flowV2Runtime`'s `cueAnimationMs`).
+ */
+export function isRegisteredComponentSignal(key: string): boolean {
+	return registry.has(key);
+}
+
+/**
+ * The one component-LIFECYCLE signal: fired by an instance itself on its visible edge and by no
+ * source. It is in the catalog but NOT in the registry, so `<ComponentInstance>`'s subscribe loops
+ * skip it explicitly — otherwise the open bus would hand it a subscription it never had, and an
+ * author naming a scene cue `enter` could replay every mounted component's intro at once. Callers
+ * that reason about who drives a cue must skip it for the same reason. (The scene-level seam in
+ * `<LayoutNodeView>` does not skip it: a bare scene node has no instance lifecycle to collide with,
+ * and `enter` is a catalog key, so the flow palette never offers it either way.)
+ */
+export const ENTER_SIGNAL = 'enter';
+
 export function clearComponentSignals(): void {
 	registry.clear();
 	open.clear();
