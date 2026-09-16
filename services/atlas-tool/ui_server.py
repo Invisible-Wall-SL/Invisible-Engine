@@ -2951,7 +2951,86 @@ def _sanitize_region_name(raw: str) -> str:
     return s.strip("_-")
 
 
-def auto_pack_layout(m: dict) -> str | None:
+# The geometry a `pack` atlas's packer OWNS. On this layout these fields are
+# pure DERIVED OUTPUT — re-stamped from scratch on every Create Atlas — so a
+# region the packer did not place must not be left holding any of them.
+# Mirrors batch_atlas._GEOM_KEYS (which includes the legacy `rotate` spelling)
+# plus `fit_mode`, which auto_pack already drops from every region it places.
+_PACK_GEOM_KEYS = ("x", "y", "w", "h", "rotated", "rotate", "off_x", "off_y",
+                   "orig_w", "orig_h", "fit_mode", "bounds", "offsets")
+
+
+def _strip_pack_geometry(regions: list[dict]) -> list[str]:
+    """Clear the packer-owned geometry off regions it did not place.
+
+    Returns the names that ACTUALLY lost a rect (had a complete x/y/w/h), which
+    is the only part worth reporting: a region that never had one is the
+    ordinary "added but not generated yet" case and says nothing.
+
+    Why this has to happen: the packer re-runs from scratch every Create Atlas
+    and re-sizes the page, so a rect it did not just write describes the
+    PREVIOUS page. Leaving one behind made `_deployatlas`'s manifest-regions
+    fallback emit a TexturePacker frame for it — a well-formed descriptor
+    pointing at arbitrary pixels of the new page, so the frame shipped showing
+    some other symbol's art with nothing anywhere to say so."""
+    dropped: list[str] = []
+    for r in regions:
+        had_rect = all(k in r and r[k] is not None for k in ("x", "y", "w", "h"))
+        if any(k in r for k in _PACK_GEOM_KEYS):
+            for k in _PACK_GEOM_KEYS:
+                r.pop(k, None)
+            if had_rect:
+                dropped.append(r["name"])
+    return dropped
+
+
+def _rect_on_page(n: dict, page_w: int, page_h: int) -> bool:
+    """Does this normalized region's rect actually lie on the page?
+
+    A rect that leaves the page cannot be the region's art — it is geometry
+    left over from a differently-sized sheet, and the frame built from it would
+    address arbitrary (or absent) pixels. Module-level and pure so the guard
+    that keeps such a frame out of the deployed `.json` is the one the tests
+    exercise, not a copy of it.
+
+    Rotation: `atlas_writers.write_texturepacker_json` never swaps w/h, so a
+    rotated region's footprint on the page is (h x w), not (w x h). Checking
+    the display size would both pass a rect that overruns the edge and fail one
+    that fits."""
+    fw, fh = (n["h"], n["w"]) if n.get("rotated") else (n["w"], n["h"])
+    return (n["x"] >= 0 and n["y"] >= 0 and fw > 0 and fh > 0
+            and n["x"] + fw <= page_w and n["y"] + fh <= page_h)
+
+
+def _rect_has_ink(page_alpha: Image.Image, n: dict) -> bool:
+    """Does the page actually carry art under this region's rect?
+
+    A rect the page is transparent under is a frame the game will resolve to
+    nothing — an invisible symbol, with a well-formed descriptor saying it
+    should be there. On a `pack` atlas that state is definitionally a fault:
+    auto_pack only ever stamps a rect after measuring NON-EMPTY art, so a blank
+    one means the art went away between that measurement and compose (compose's
+    own "no generated variant found" skip is the door it goes out of).
+
+    Module-level and pure for the same reason as `_rect_on_page`: the guard the
+    tests exercise must be the guard that ships. Same (h x w) footprint rule."""
+    fw, fh = (n["h"], n["w"]) if n.get("rotated") else (n["w"], n["h"])
+    box = (n["x"], n["y"], n["x"] + fw, n["y"] + fh)
+    return page_alpha.crop(box).getbbox() is not None
+
+
+def _lost_rect_note(lost: list[str]) -> str:
+    """Say out loud that a region left the atlas. It has no art on the new page,
+    so the deploy will emit no frame for it and the game will fail to find it —
+    a missing frame is loud, but only if the tool says which ones went."""
+    return ("\n⚠ %d region(s) had no art to place and were REMOVED from the "
+            "atlas (their old rect pointed into the previous page). The "
+            "deployed .json will have no frame for them until they are "
+            "generated: %s" % (len(lost), ", ".join(lost[:8])
+                               + (" …" if len(lost) > 8 else "")))
+
+
+def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     """From-scratch (`atlas.layout == "pack"`) atlases: derive the page layout
     from the generated art instead of a pre-authored `.atlas`.
 
@@ -2964,15 +3043,28 @@ def auto_pack_layout(m: dict) -> str | None:
     from these same fields. Re-running after adding/generating regions re-packs,
     so the page morphs to fit.
 
-    Regions with no committed image yet are left UNPLACED (compose already skips
-    a region with no variant). Mutates `m`; the CALLER saves it — same contract
+    Regions with no committed image yet are left UNPLACED — and are STRIPPED of
+    the packer-owned geometry (`_strip_pack_geometry`), because on a re-pack
+    every other region moves onto a newly-sized page and a rect left behind
+    describes the old one. Compose already skips a region with no variant, so
+    the region simply is not in this atlas; the deploy then emits no frame for
+    it (rather than a frame onto arbitrary pixels), and the note names any that
+    lost a rect — dropping a symbol from the sheet is a change the user must see.
+
+    The strip runs ONLY when at least one region measured. Measuring nothing at
+    all is also what a failed staging hydration looks like, and wiping every
+    rect on a network blip would be the bigger harm — see the `not items` branch.
+
+    Returns `(note, changed)`. `changed` is the save signal, kept separate from
+    the note because the caller used to infer it from a leading "⚠" and the two
+    are not the same question. Mutates `m`; the CALLER saves it — same contract
     as rebuild_fx_layers, and the reason is the same: this opens every region's
     art to measure it, so the read->mutate->save cycle has to be closed by whoever
     holds the manifest lock, not from in here. Never raises — any failure returns
-    a readable note and leaves the prior geometry untouched. Returns None when
-    `m` is not a pack atlas (so callers can no-op silently)."""
+    a readable note and leaves the prior geometry untouched. Returns
+    `(None, False)` when `m` is not a pack atlas (so callers no-op silently)."""
     if str((m.get("atlas") or {}).get("layout", "")).strip().lower() != "pack":
-        return None
+        return None, False
     regions = [r for bucket in ("regions", "rotated_regions")
                for r in (m.get(bucket) or [])
                if isinstance(r, dict) and r.get("name")]
@@ -2997,13 +3089,33 @@ def auto_pack_layout(m: dict) -> str | None:
         items.append({"name": r["name"], "w": int(w), "h": int(h)})
         by_name[r["name"]] = r
     if not items:
-        return ("⚠ Auto-pack: nothing generated yet — generate at least one "
+        # Deliberately does NOT strip. Measuring nothing at all is equally the
+        # signature of a FAILED STAGING HYDRATION — cloud_paths.ensure_lazy
+        # swallows every R2 error and leaves `batch/` as it found it — and
+        # clearing every region's geometry on a transient network fault, then
+        # mirroring that manifest back to R2, is a worse harm than the stale
+        # rects it would remove. The strip below runs only once at least one
+        # region has measured, which is the proof that hydration worked.
+        # The page this produces is caught at the other end instead: a composed
+        # page with no ink in it refuses to deploy a frame map at all.
+        stale = [r["name"] for r in regions
+                 if all(k in r and r[k] is not None for k in ("x", "y", "w", "h"))]
+        note = ("⚠ Auto-pack: nothing generated yet — generate at least one "
                 "region before Create Atlas.")
+        if stale:
+            note += ("\n⚠ %d region(s) still carry a rect from an earlier "
+                     "packing while NOTHING measured this time. If that is a "
+                     "hydration glitch rather than an empty atlas, do not "
+                     "deploy — reload and Create Atlas again first: %s"
+                     % (len(stale), ", ".join(stale[:8])
+                        + (" …" if len(stale) > 8 else "")))
+        return note, False
     try:
         result = pack.pack(items, width=AUTO_PACK_MAX_WIDTH, height=0,
                            padding=AUTO_PACK_PADDING, allow_rotation=False)
     except ValueError as e:
-        return f"⚠ Auto-pack failed: {e}"
+        return f"⚠ Auto-pack failed: {e}", False
+    placed: set[str] = set()
     for pr in result["regions"]:
         r = by_name.get(pr["name"])
         if r is None:
@@ -3011,11 +3123,16 @@ def auto_pack_layout(m: dict) -> str | None:
         r["x"], r["y"] = int(pr["x"]), int(pr["y"])
         r["w"], r["h"] = int(pr["w"]), int(pr["h"])
         r["rotated"] = bool(pr["rotated"])
+        placed.add(pr["name"])
         # The trimmed art IS the frame — no logical Spine trim. Drop any stale
         # trim/orig/fit_mode a previous pack (or import) left so the descriptor
         # + compose stay on the plain contain path.
         for k in _REPACK_CLEARED_KEYS:
             r.pop(k, None)
+    # Everything the packer did NOT just place is off this page — including a
+    # measured item the packer somehow returned nothing for. Its old rect now
+    # points into a differently-sized sheet, so it goes.
+    lost = _strip_pack_geometry([r for r in regions if r["name"] not in placed])
     atlas = m.setdefault("atlas", {})
     atlas["layout"] = "pack"
     atlas["width"] = int(result["width"])
@@ -3025,15 +3142,18 @@ def auto_pack_layout(m: dict) -> str | None:
     # treats it as AUTHORITATIVE — it overwrites every rect it can match by name.
     # Left in place it silently restores the OLD packing on top of the NEW page,
     # so rects and pixels disagree again one layer up. There is no replacement to
-    # name: compose emits a descriptor only at Deploy.
+    # name: compose emits a descriptor only at Deploy. It is also the one route
+    # by which a region stripped just above could be handed a rect back.
     atlas.pop("texturepacker_json", None)
-    note = (f"Auto-packed {len(items)} region(s) → page "
+    note = (f"Auto-packed {len(placed)} region(s) → page "
             f"{result['width']}×{result['height']}")
     if skipped:
         note += (f"; {len(skipped)} not generated yet (skipped): "
                  f"{', '.join(skipped[:8])}"
                  + (" …" if len(skipped) > 8 else ""))
-    return note
+    if lost:
+        note += _lost_rect_note(lost)
+    return note, True
 
 
 def _composed_page(stem: str) -> Path | None:
@@ -3202,12 +3322,13 @@ def _run_compose_pinned(mp: Path) -> None:
         # being wrapped — this lock is for short writes, not for work.
         with _manifest_lock:
             m = _read_manifest_at(mp) or {}
-            pack_note = auto_pack_layout(m)
-            # Its two failure notes ("nothing generated yet", "Auto-pack
-            # failed") lead with ⚠ and stamp nothing — writing on those would
-            # push an unmutated manifest to R2 for no reason. The old inline
-            # save_manifest sat past both early returns; this is that same gate.
-            if pack_note and not pack_note.startswith("⚠"):
+            pack_note, pack_changed = auto_pack_layout(m)
+            # Save on the function's OWN signal, not on the shape of its note.
+            # The gate used to be `not note.startswith("⚠")` — but "nothing
+            # generated yet" is a ⚠ that now still clears stale rects, and a
+            # non-pack manifest is a None that must not be written. Only
+            # auto_pack_layout knows whether it mutated anything.
+            if pack_changed:
                 _write_manifest_at(mp, m)
         if pack_note:
             pre_note = f"{pre_note}\n{pack_note}" if pre_note else pack_note
@@ -3581,6 +3702,14 @@ def _parity_of(region: dict, page: Image.Image) -> dict:
                 "why": "no output_override and no generated variant — the art "
                        "compose would place can't be resolved, so this "
                        "region's pixels can't be predicted"}
+    # A region with no rect is not on this page at all, so there is nothing to
+    # compare. Must be answered BEFORE region_box, which in this process raises
+    # on it: `batch_atlas.ATLAS_META` is only populated in the compose
+    # subprocess, so its fallback resolves to int(None) here.
+    if not all(region.get(k) is not None for k in ("x", "y", "w", "h")):
+        return {"verdict": "NO SOURCE", "delta": "",
+                "why": "not placed on this page — the region has no rect, so "
+                       "Create Atlas did not pack it in (generate it first)"}
     rx, ry, tw, th = batch_atlas.region_box(region)
     rotated = bool(region.get("rotated"))
     try:
@@ -8436,16 +8565,51 @@ class Handler(BaseHTTPRequestHandler):
                 f"stay intact.\n")
         tp_regions: list[dict] | None = None  # normalized region dicts for the writer
         page_w = page_h = 0
+        # Manifest regions the fallback below REFUSED to describe. Both are
+        # reported in the deploy note: a frame the game can't find is loud on
+        # its own, but only if the tool says which ones went missing and why.
+        no_rect: list[str] = []   # no complete x/y/w/h — not on this page
+        off_page: list[str] = []  # a rect that leaves the page — stale geometry
+        # The page being deployed, MEASURED. Ground truth for both guards below:
+        # the manifest's `atlas.width/height` (and a bound `.atlas` header) can
+        # describe a page this deploy is not shipping. Measured once, here, so
+        # the bound-`.atlas` path gets the same checks as the fallback.
+        blank: list[str] = []     # a rect the page has no ink under
+        _is_pack = str((m.get("atlas") or {}).get(
+            "layout", "")).strip().lower() == "pack"
+        real_w = real_h = 0       # 0 = could not measure
+        page_ink: bool | None = None  # None = not measured; False = blank page
+        # The page's alpha, kept for the per-rect ink test below. Held rather
+        # than re-opened: it is one band of an image already read, and the test
+        # is a crop per frame.
+        page_alpha: Image.Image | None = None
+        if not page_only and page_src is not None:
+            try:
+                with Image.open(page_src) as _pg:
+                    real_w, real_h = _pg.size
+                    page_alpha = _pg.convert("RGBA").getchannel("A")
+                    page_ink = page_alpha.getbbox() is not None
+            except Exception:  # noqa: BLE001
+                real_w = real_h = 0
+                page_ink = None
+                page_alpha = None
         atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
         if not page_only and atlas_path is not None and atlas_path.exists():
             # First choice: the bound `.atlas` is the authoritative region map.
             try:
                 parsed = atlas_format.parse_atlas(atlas_path)
-                tp_regions = parsed["regions"]
-                page_w, page_h = parsed["page"]["width"], parsed["page"]["height"]
+                # Read BOTH before committing either: assigning `tp_regions`
+                # first and then raising on the page header left it set, so the
+                # `tp_regions is None` gate below never fired and the promised
+                # fall-through to the manifest regions never happened.
+                _regions = parsed["regions"]
+                _pw, _ph = parsed["page"]["width"], parsed["page"]["height"]
+                tp_regions, page_w, page_h = _regions, _pw, _ph
             except Exception as e:  # noqa: BLE001
                 json_note = (f"  ⚠ Bound .atlas could not be parsed "
                              f"({type(e).__name__}: {e}); ")
+                tp_regions = None
+                page_w = page_h = 0
                 atlas_path = None  # fall through to the manifest-regions fallback
         if not page_only and tp_regions is None:
             # Fallback: build the spritesheet from the manifest's own regions.
@@ -8470,7 +8634,14 @@ class Handler(BaseHTTPRequestHandler):
                     rx, ry = int(r["x"]), int(r["y"])
                     rw, rh = int(r["w"]), int(r["h"])
                 except (KeyError, TypeError, ValueError):
-                    continue  # a region without a complete rect can't be a frame
+                    # A region without a complete rect can't be a frame. On a
+                    # `pack` atlas that is the normal "added but not generated
+                    # yet" state (auto_pack_layout strips the geometry off
+                    # anything it did not place) — but the game will fail to
+                    # find the frame, so it is named below rather than dropped
+                    # in silence.
+                    no_rect.append(str(name))
+                    continue
                 def _pick(*keys, default=None):
                     for k in keys:
                         if r.get(k) is not None:
@@ -8486,23 +8657,65 @@ class Handler(BaseHTTPRequestHandler):
                     "orig_h": int(_pick("orig_h", "origH", default=rh)),
                 })
             if normed:
-                tp_regions = normed
-                # Page size: prefer the manifest's atlas block, else the actual
-                # deployed page image's pixel size (always correct).
-                atl = m.get("atlas") or {}
-                try:
-                    page_w = int(atl["width"])
-                    page_h = int(atl["height"])
-                except (KeyError, TypeError, ValueError):
-                    page_w = page_h = 0
-                if (page_w <= 0 or page_h <= 0) and page_src is not None:
+                # Refuse a frame whose rect is not on the page (`_rect_on_page`
+                # — the shipped predicate, not a copy). Emitting one produced a
+                # well-formed `.json` whose symbol silently showed the wrong
+                # picture. Measured against the REAL page only: a stale
+                # `atlas.width` must not be allowed to condemn regions that are
+                # genuinely on the sheet.
+                if real_w > 0 and real_h > 0:
+                    keep: list[dict] = []
+                    for n in normed:
+                        if _rect_on_page(n, real_w, real_h):
+                            keep.append(n)
+                        else:
+                            off_page.append(n["name"])
+                    normed = keep
+                # A rect the page is blank under is the PARTIAL version of the
+                # blank-page case below: the descriptor says a symbol is there
+                # and the game resolves it to nothing. Only compose can produce
+                # it — its "no generated variant found" skip drops a region that
+                # still holds a rect, when the art goes away between auto_pack's
+                # measurement and the subprocess. Refused only on a `pack`
+                # layout, where a rect is only ever stamped after measuring
+                # non-empty art so a blank one is definitionally a fault; a
+                # bound `.atlas` is authored elsewhere and may legitimately
+                # carry an empty slot, so there it is reported, not dropped.
+                if page_alpha is not None and normed:
+                    inked, empty = [], []
+                    for n in normed:
+                        (inked if _rect_has_ink(page_alpha, n) else empty
+                         ).append(n)
+                    blank = [n["name"] for n in empty]
+                    if blank and _is_pack:
+                        normed = inked
+                if normed:
+                    tp_regions = normed
+                    # Page size: prefer the manifest's atlas block, else the
+                    # actual deployed page image's pixel size.
+                    atl = m.get("atlas") or {}
                     try:
-                        with Image.open(page_src) as _pg:
-                            page_w, page_h = _pg.size
-                    except Exception:  # noqa: BLE001
+                        page_w = int(atl["width"])
+                        page_h = int(atl["height"])
+                    except (KeyError, TypeError, ValueError):
                         page_w = page_h = 0
+                    if page_w <= 0 or page_h <= 0:
+                        page_w, page_h = real_w, real_h
         if page_only:
             pass  # page-only: no TexturePacker .json (see spine_note above)
+        elif page_ink is False:
+            # The page has no ink ANYWHERE, so every frame in the map would
+            # address blank pixels. This is what a compose over a staging dir
+            # that failed to hydrate leaves behind — and it is exactly the case
+            # auto_pack_layout refuses to "repair" by clearing rects, because a
+            # network blip must not rewrite the manifest. Refuse the frame map
+            # instead: a game with no spritesheet fails at load, loudly and at
+            # the right place.
+            json_note += ("  ⚠ REFUSED to write the spritesheet .json — the "
+                          "composed page is entirely blank, so every frame "
+                          "would point at empty pixels. Nothing was generated, "
+                          "or the variant pile did not load. The page image was "
+                          "deployed; re-run Create Atlas and deploy again.")
         elif tp_regions and page_src is not None and page_w > 0 and page_h > 0:
             try:
                 page_image = f"{out_base}{page_src.suffix}"
@@ -8518,6 +8731,13 @@ class Handler(BaseHTTPRequestHandler):
         elif page_src is None:
             json_note += ("  ⚠ No .webp/.png page in composed output → "
                           "TexturePacker .json skipped (meta.image would dangle).")
+        elif not tp_regions and (off_page or no_rect or blank):
+            # Regions existed — they were all refused. Saying "no regions[]"
+            # here would be false, and flatly contradicted by the note the
+            # refusal appends below.
+            json_note += ("  ⚠ EVERY region was refused, so no TexturePacker "
+                          ".json was emitted (see below). Game spritesheet not "
+                          "produced; only the page image was deployed.")
         elif not tp_regions:
             json_note += ("  ⚠ No bound .atlas AND no manifest regions[] for this "
                           "manifest → no TexturePacker .json emitted. Game "
@@ -8526,6 +8746,51 @@ class Handler(BaseHTTPRequestHandler):
         else:
             json_note += ("  ⚠ Could not determine page image size → "
                           "TexturePacker .json skipped (meta.size would be 0).")
+        # Say which regions did NOT make it into the frame map. Only the
+        # manifest-regions fallback can produce these; the bound-`.atlas` path
+        # leaves both lists empty. A missing frame is a loud failure in the game
+        # — name it here so it is loud in the tool that caused it too.
+        def _names(v: list[str]) -> str:
+            return ", ".join(v[:8]) + (" …" if len(v) > 8 else "")
+        if off_page:
+            json_note += (f"  ⚠ {len(off_page)} region(s) DROPPED from the "
+                          f"spritesheet .json — their rect lies outside the "
+                          f"{real_w}×{real_h} page, so it is geometry left over "
+                          f"from an earlier packing and the frame would have "
+                          f"shown the wrong art. Re-run Create Atlas, then "
+                          f"deploy again: {_names(off_page)}")
+        if no_rect:
+            json_note += (f"  ⚠ {len(no_rect)} region(s) have no placement on "
+                          f"this page and got no frame — generate them, then "
+                          f"Create Atlas + deploy: {_names(no_rect)}")
+        if blank:
+            what = ("DROPPED from the spritesheet .json" if _is_pack
+                    else "kept, but the game will render them as nothing")
+            json_note += (f"  ⚠ {len(blank)} region(s) have a rect the page is "
+                          f"BLANK under, so they were {what}. Compose could not "
+                          f"find their art (it went away between Create Atlas "
+                          f"measuring it and the compose run). Re-generate "
+                          f"them, then Create Atlas + deploy: {_names(blank)}")
+        # Name the symptom, not just the cause. A dropped frame surfaces in the
+        # game as a flipbook playing SHORT or a symbol that renders nothing —
+        # `Flipbook.svelte` console.errors the clip id and the frame names when
+        # it happens. Saying so here is what lets someone meeting that console
+        # line work back to the deploy that caused it. (Deliberately NOT a
+        # lookup against the launcher's clip docs: that couples this tool to
+        # their format to bridge a gap both ends already report.)
+        if blank or off_page:
+            json_note += ("  ℹ In the game a dropped frame reads as a flipbook "
+                          "playing SHORT, or a symbol rendering nothing — the "
+                          "console names the clip and the frames.")
+        if real_w > 0 and page_w > 0 and (page_w, page_h) != (real_w, real_h):
+            # `meta.size` came from the manifest but the page shipped at a
+            # different size, so every frame's rect is read against the wrong
+            # canvas. Not repaired here (which of the two is right depends on
+            # whether compose has run since) — but never left unsaid.
+            json_note += (f"  ⚠ meta.size says {page_w}×{page_h} while the "
+                          f"deployed page is actually {real_w}×{real_h} — the "
+                          f"manifest describes a different page than the one "
+                          f"shipped. Re-run Create Atlas, then deploy again.")
         if skipped_empty:
             json_note += (f"  ⚠ Skipped empty page file(s) {', '.join(skipped_empty)} "
                           f"(0 bytes — likely a failed WEBP encode); deployed the "

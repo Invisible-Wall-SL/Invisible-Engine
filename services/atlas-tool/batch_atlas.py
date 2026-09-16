@@ -3857,7 +3857,26 @@ def main() -> None:
             return
         canvas = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
         placed = 0
+        # A 'pack' atlas's rects are DERIVED: auto_pack_layout stamps one on
+        # every region it placed and strips it off every region it did not, so
+        # "no rect" means "not on this page" and there is no authored geometry
+        # to fall back to. region_box's fallback would answer (0, 0, page) —
+        # which for a region that acquired art in the window between that
+        # measurement and this subprocess (a render finishing while Create Atlas
+        # runs) paints one symbol across the WHOLE sheet, destroying every other
+        # region's pixels. Only a `pack` layout: a cell-grid atlas uses that
+        # fallback on purpose, for a single full-page image.
+        is_pack = str(atlas.get("layout", "")).strip().lower() == "pack"
+
+        def _unplaced(r: dict) -> bool:
+            return is_pack and not all(
+                r.get(k) is not None for k in ("x", "y", "w", "h"))
+
         for region in regions:
+            if _unplaced(region):
+                print(f"  skip {region['name']}: not placed on this page "
+                      f"(no rect — re-run Create Atlas to pack it in)")
+                continue
             ov = override_image_path(region)
             if ov is not None:
                 img = Image.open(ov).convert("RGBA")
