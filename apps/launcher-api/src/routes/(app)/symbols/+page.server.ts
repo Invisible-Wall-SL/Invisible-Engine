@@ -1,5 +1,3 @@
-import { soundOptionsFor } from '$lib/soundOptions';
-import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
 import { resolveCascade, resolveReelBehaviour, symbolsInPlay } from 'game-config';
 import { roleHasTool } from '$lib/roles';
@@ -108,9 +106,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clientKey,
 		projectKey,
 		docEtag,
-		/** What every sound picker on this page may offer: the engine's own sounds PLUS the ones this
-		 *  project uploaded in Invisible Sound. Before this, an uploaded sound was unselectable here. */
-		soundOptions: soundOptionsFor(await loadSoundsDoc(clientKey, projectKey)),
 		bigTiers,
 		projectName: await projectName(projectKey),
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
