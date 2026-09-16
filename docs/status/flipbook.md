@@ -211,10 +211,11 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
    `services/atlas-tool/runpod/provision.sh` clones `ComfyUI-RMBG` but fetches no weights, and
    `services/atlas-comfy-pod/tools/fetch-models.py` has no RMBG entry. Item 1's open question —
    *do the weights resolve on a cold worker?* — was answered the hard way on 2026-09-03: they
-   resolve by downloading on demand into `models/RMBG/` on the SHARED volume, and a concurrent
-   first download left a `.py` there with NUL bytes in it, failing every cutout on every worker
-   for 14 hours (the 2026-09-04 entry in Recent changes). Until this lands, the first run of any
-   new BiRefNet model should be **1 variation**, so one worker writes that folder.
+   resolve by downloading on demand into `models/RMBG/BiRefNet/` on the SHARED volume — ONE
+   folder that every BiRefNet variant shares — and a concurrent first download left a `.py`
+   there with NUL bytes in it, failing every cutout on every worker for 14 hours (the 2026-09-04
+   entry in Recent changes). Until this lands, the first run of any new BiRefNet model should be
+   **1 variation**, so one worker writes that folder.
 
 ## Blocked (owner / external)
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
@@ -577,9 +578,15 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
   deploy in the window (#575's variations 1–10 ran on its code and passed), the GPU tier, the
   container disk. Live-verified the same hour: #585's sliders/dropdowns on the built-in
   blueprint, and #587 (label stacked above the slider) after its rebuild.
+  - **One folder, every variant — which is why a single torn file took the whole tool down.**
+    All twelve BiRefNet models share `models/RMBG/BiRefNet/`: `birefnet.py`, `BiRefNet_config.py`
+    and `config.json` sit there beside each `<model>.safetensors` (the node's `MODEL_CONFIG`
+    declares `cache_dir: "BiRefNet"`, and `hf_hub_download` fills it on first use). So one torn
+    `.py` breaks toonout, general, all of them — switching model is not a workaround.
   - **Remediated — the volume is no longer torn.** The fix on a pod terminal that mounts the
-    volume: grep the folder for NUL bytes and delete the offending files so the node re-fetches
-    them, then re-run with **1 variation** so a single worker re-downloads cleanly before scaling
+    volume: `grep -lP` the folder's `*.py` for NUL bytes, delete the two `.py` and `config.json`
+    (keep the weights — the node re-fetches the Python), stop any session still re-rolling into
+    it, then re-run with **1 variation** so a single worker re-downloads cleanly before scaling
     back up. Renders were coming off the GPU complete again by 2026-09-07 (the sweep in the
     2026-09-07 entry below found five finished that day), so what survives this incident is the
     prevention: **Open item 7**.
