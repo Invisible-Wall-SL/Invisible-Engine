@@ -106,8 +106,45 @@ Three collapsible panels sit above the region grid:
 - **⚙ Global settings** — the shared defaults in `atlas_config.json`.
 - **🧩 Atlas settings** — per-atlas overrides (blank = inherit the global) plus
   this atlas's geometry (`atlas_file`, width/height, cell size, **Atlas format**,
-  source image, deploy prefix/basename).
+  source image, **Frame trim**, deploy prefix/basename).
 - **📝 Atlas style** — the positive prefix/suffix and negative for this atlas.
+
+### Frame trim — why an animation drifts and how to stop it
+
+**Frame trim (from-scratch layout)** in **🧩 Atlas settings** decides how
+`Create Atlas` measures each region on a from-scratch (`pack`) atlas. It does
+nothing for an atlas whose geometry comes from a bound `.atlas`.
+
+| Choice | What happens |
+|---|---|
+| **Trim each frame to its alpha** (default) | every frame is cut down to its own visible pixels, so the page is as small as it can be. Right for symbols — each one is placed on its own, so its canvas does not matter. |
+| **Keep the full frame** | every frame keeps the whole canvas its art is on, so all the frames of an **animation** share one centre. Costs page area. |
+
+The default is what this tool has always done, so every existing atlas keeps its
+behaviour until you change this. It takes effect on the next **Create Atlas**.
+
+**The symptom it exists for:** an animation whose character moves up and down
+and left and right between frames that should be still. Each frame is being
+anchored on its own ink rather than on a shared canvas. The deploy note says so
+when it sees the signature — frames with no recorded trim *and* several
+different sizes.
+
+**What "the whole canvas" means, exactly.** Create Atlas measures each region's
+**committed art** — its generated variant, or the image you bound to it — never
+the sheet page it may have come from. So `Keep the full frame` keeps the canvas
+*that* art is on. Rendering one atlas with one set of settings gives every
+region the same canvas, which is the case the option is for. It cannot give back
+a canvas the art was already cropped to, and it cannot reconcile regions whose
+art disagrees (one re-rendered after a gen-size change, `gpt_image_size:
+match_ref`, a hand-uploaded image). When it packs more than one canvas size the
+pack note says so instead of claiming a shared centre it did not produce.
+
+**A sheet that already shipped in the bad state cannot be repaired by switching
+this setting, and there is no migration for it.** Its regions' art has already
+been cut down to tight crops, and what was cut off was never recorded — not in
+the manifest, not in the page, and not in the Flipbook's own descriptor, which
+records the frames as untrimmed. Re-run the Flipbook video session that authored
+it.
 
 ### Run generation on — RunPod or my computer
 
