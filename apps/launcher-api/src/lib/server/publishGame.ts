@@ -25,7 +25,7 @@ import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { checkSoundsForPublish } from './soundPublishCheck';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
-import { upsertTestServerGame } from './testServerManifest';
+import { SHARED_RUNTIME_ID, upsertTestServerGame } from './testServerManifest';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -91,10 +91,11 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
  *
  * The id stays `'lines'` for compatibility: every published manifest already references it, and
  * `runtime-release.yml` auto-publishes it on every engine merge. The name is historical — it means
- * "the shared engine runtime", not "the lines game".
+ * "the shared engine runtime", not "the lines game", which is why the Game Maker card no longer
+ * PRINTS it (it read as a game type: "lines runtime" on a cluster game). See `SHARED_RUNTIME_ID`.
  */
 function runtimeFor(_gameType: string): string {
-	return 'lines';
+	return SHARED_RUNTIME_ID;
 }
 
 /**

@@ -157,6 +157,15 @@ export function isMockProtocol(value: unknown): value is MockProtocol {
 	return typeof value === 'string' && (MOCK_PROTOCOLS as readonly string[]).includes(value);
 }
 
+/**
+ * The ONE shared prebuilt runtime bundle every online game is served from
+ * (`test_server/_runtime/lines/`). The id is historical: it means "the shared engine runtime", NOT
+ * "the lines game" — the bundle is built from `apps/lines`, which carries the whole engine, and a
+ * published game behaves as ways/cluster/scatter because its CONFIG says so. See `runtimeFor` in
+ * `publishGame.ts` for why there is deliberately only one.
+ */
+export const SHARED_RUNTIME_ID = 'lines';
+
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
 	name: string;

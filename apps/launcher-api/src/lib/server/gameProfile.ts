@@ -43,7 +43,8 @@ import {
 import { TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
-import type { MockProtocol } from './testServerManifest';
+import { protocolFor } from './mockProtocol';
+import { SHARED_RUNTIME_ID, type MockProtocol } from './testServerManifest';
 
 /** Everything the profile is derived from — assembled once per project by the page loader. */
 export interface GameProfileSignals {
@@ -67,6 +68,9 @@ export interface ProfileChip {
 	id: string;
 	text: string;
 	title: string;
+	/** `warn` ⇒ the chip reports DRIFT the author has to act on, and is styled to stand out.
+	 *  Absent ⇒ a neutral statement of fact. */
+	tone?: 'warn';
 }
 
 export interface GameProfile {
@@ -91,6 +95,7 @@ interface ProfileContext extends GameProfileSignals {
 interface ChipSource {
 	id: string;
 	title: string;
+	tone?: 'warn';
 	/** `null` ⇒ this chip does not apply to this project and is omitted. */
 	text: (ctx: ProfileContext) => string | null;
 }
@@ -187,12 +192,40 @@ const FACTS: readonly ChipSource[] = [
 	{
 		id: 'runtime',
 		title: 'The shared prebuilt engine bundle this published game is served from.',
-		text: (ctx) => (ctx.runtimeId ? `${ctx.runtimeId} runtime` : null),
+		// Deliberately NOT `${runtimeId} runtime`. Every online game is served from the same bundle,
+		// so naming it says nothing about THIS game — and because the id is historically `lines`, it
+		// read as a game type: a cluster game displaying "lines runtime" looked misconfigured, and
+		// cost a real double-take. Name the bundle only if a second one ever exists.
+		text: (ctx) =>
+			ctx.runtimeId
+				? ctx.runtimeId === SHARED_RUNTIME_ID
+					? 'shared runtime'
+					: `${ctx.runtimeId} runtime`
+				: null,
 	},
 	{
 		id: 'protocol',
 		title: 'Which mock-RGS protocol the Invisible Test Server deals this game.',
 		text: (ctx) => (ctx.protocol ? `${ctx.protocol} RGS protocol` : null),
+	},
+	{
+		id: 'protocolDrift',
+		tone: 'warn',
+		title:
+			'This game was published BEFORE its current game kind, so the test server is still ' +
+			'dealing it the old protocol — its wins are decided the wrong way. Re-publish to fix.',
+		// The card's other chips read LIVE state (kind, config), but `protocol` is stamped into the
+		// manifest at publish. So the two silently disagree whenever a kind changes — or, as here,
+		// whenever a kind gains a protocol it did not have when the game was last published, which
+		// is exactly how a Cluster game sat on the `lines` mock being paid by paylines and looked
+		// entirely healthy on the card. Comparing them is the only thing that makes that visible.
+		text: (ctx) => {
+			if (!ctx.protocol) return null;
+			const expected = protocolFor(ctx.gameTypeId);
+			return ctx.protocol === expected
+				? null
+				: `re-publish — dealing ${ctx.protocol}, kind wants ${expected}`;
+		},
 	},
 	{
 		id: 'configSource',
@@ -464,7 +497,14 @@ function render(sources: readonly ChipSource[], ctx: ProfileContext): ProfileChi
 	const out: ProfileChip[] = [];
 	for (const source of sources) {
 		const text = source.text(ctx);
-		if (text) out.push({ id: source.id, text, title: source.title });
+		if (text) {
+			out.push({
+				id: source.id,
+				text,
+				title: source.title,
+				...(source.tone && { tone: source.tone }),
+			});
+		}
 	}
 	return out;
 }

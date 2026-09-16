@@ -69,9 +69,9 @@ nothing that can go stale:
 - **Game** — its identity: the game kind, how it pays (line pays / _N_ ways /
   cluster / scatter, with the threshold and direction), the board (`5 × 3`, or
   `5 reels · 3/4/5/4/3 rows` for a stepped one), payline count, RTP, max win, and
-  — once published — which shared engine runtime serves it and which mock-RGS
-  protocol it is dealt. A last chip says whether the project has authored its own
-  Game Config or is still inheriting its game type's template.
+  — once published — _shared runtime_ plus which mock-RGS protocol it is dealt.
+  A last chip says whether the project has authored its own Game Config or is
+  still inheriting its game type's template.
 - **Using** — the optional mechanics and presentation features it actually has
   switched on: wild / scatter / multiplier symbols, cascading (tumble) reels,
   multiplier collect, expanding book symbol, buy feature, ante bet, stacked
@@ -83,6 +83,21 @@ nothing that can go stale:
 Hover any chip for what it means and where it comes from. A project that has
 switched nothing on says _"no optional features yet"_ rather than listing the
 engine's whole menu — the list reports what a game **uses**, not what it could.
+
+Two of those chips deserve a note, because they are the only ones that do **not**
+read live state:
+
+- **`shared runtime`** names no game type on purpose. Every online game is served
+  from the same prebuilt bundle, so printing its id said nothing about _this_
+  game — and the id is historically `lines`, which read as a game type (a cluster
+  game showing "lines runtime" looks misconfigured). If a second bundle ever
+  exists, that one _is_ named.
+- **An amber `re-publish — dealing …, kind wants …` chip** means the mock-RGS
+  protocol is behind the game kind. `protocol` is stamped into the test-server
+  manifest at **publish** time, while the kind chip beside it is live, so the two
+  drift whenever a kind changes — or gains a protocol it did not have when the
+  game was last published. While it shows, the test server decides that game's
+  wins the old way (a cluster game paid by paylines). **Publish** clears it.
 
 The feature list grows with the engine: each new optional mechanic adds one entry
 to the detector table in `src/lib/server/gameProfile.ts`, so a shipped mechanic is
