@@ -382,6 +382,13 @@ type BakedBundle = {
 		 * coded constants, i.e. authored art sets the pace unbounded up to the runaway guard
 		 * (byte-parity). A SHAPER, deliberately distinct from that guard: see `symbolBeat.ts`. */
 		winBeat?: { maxMs?: number };
+		/** "Let the next spin start as soon as the symbols are back" (Invisible Symbols State Machine
+		 * output, consumed by `components/TumbleBoard.svelte`): the emerge arrival stops GATING the
+		 * round. The intro still plays in full — it is simply no longer awaited, so the board is
+		 * released the moment every cell has been seated with its new art. Absent ⇒ the arrival is
+		 * awaited exactly as before (byte-parity). Only meaningful under the `emerge` swap style,
+		 * which is the only one that has an arrival to wait on. */
+		arrivalRelease?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -403,6 +410,11 @@ type BakedBundle = {
 				size?: number;
 				color?: string;
 				placement?: 'line' | 'boardCenter';
+				countUp?: boolean;
+				countUpDuration?: number;
+				cueBigWin?: boolean;
+				fadeIn?: boolean;
+				fadeInDuration?: number;
 			};
 		};
 	};
@@ -995,6 +1007,22 @@ export type ResolvedWinLine = {
 		 * `'boardCenter'` in the middle of the reel window — where only the most recently announced
 		 * win stamps, so an all-at-once round doesn't pile every amount on one spot. */
 		placement: 'line' | 'boardCenter';
+		/** COUNT the stamped amount up from zero instead of stamping it whole. The win narration
+		 * awaits the count, so the symbols celebrate after the number lands. Default OFF
+		 * (byte-identical to before this switch); a slammed round skips the count. */
+		countUp: boolean;
+		/** How long that count takes, in SECONDS. */
+		countUpDuration: number;
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 * counts the ROUND TOTAL from zero to the big-win threshold, then hides as the overlay takes
+		 * over and carries the number the rest of the way. Default OFF; read only with `countUp` on
+		 * (`flowEffects.ts#cueBigWinCountUp`). */
+		cueBigWin: boolean;
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Default OFF, and
+		 * independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: boolean;
+		/** How long that fade takes, in SECONDS. */
+		fadeInDuration: number;
 	};
 };
 
@@ -1029,6 +1057,11 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			size: w?.text?.size ?? 0.5,
 			color: w?.text?.color ?? '#ffffff',
 			placement: w?.text?.placement ?? 'line',
+			countUp: w?.text?.countUp ?? false,
+			countUpDuration: w?.text?.countUpDuration ?? 0.6,
+			cueBigWin: w?.text?.cueBigWin ?? false,
+			fadeIn: w?.text?.fadeIn ?? false,
+			fadeInDuration: w?.text?.fadeInDuration ?? 0.3,
 		},
 	};
 }
@@ -1103,6 +1136,31 @@ export function bakedWinBeatMaxMs(): number | undefined {
 			? bakedBundle.symbols?.winBeat
 			: undefined;
 	return c?.maxMs;
+}
+
+/**
+ * "Let the next spin start as soon as the symbols are back" — whether the `emerge` arrival stops
+ * GATING the round (`components/TumbleBoard.svelte`'s `tumbleBoardAppear`).
+ *
+ * Default FALSE, i.e. the arrival is awaited exactly as it always has been. Measured on the live
+ * `test6`, which authors an `intro` and therefore takes the long guard: of a 3.4s `reveal`, the
+ * board's own clips were finished by t+2.1s and the round released at t+3.4s — the arrival beat
+ * running out its {@link INTRO_BEAT_CAP_MS}. The same shape repeats per cascade step, which is why
+ * the pause between two wins of one spin feels the same length as the one after it.
+ *
+ * Turning it on does NOT shorten a single animation: the intro still plays, and still settles the
+ * cell to `static` on both exits of its own bounded race. It only stops the round WAITING for it.
+ * That is a presentation trade the project owns — the next spin may begin over an intro still
+ * playing — so it is a switch rather than a new default. Mirrors `bakedWinExplodeEnabled`'s
+ * runtime→baked→undefined resolution.
+ */
+export function bakedArrivalReleaseEnabled(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.arrivalRelease
+		: hasBakedDoc()
+			? bakedBundle.symbols?.arrivalRelease
+			: undefined;
+	return c?.enabled ?? false;
 }
 
 /**

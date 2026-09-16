@@ -36,6 +36,7 @@ import { stateBonus, stateBonusDerived } from 'components-ui-html';
 import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
+import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
 import {
@@ -48,7 +49,7 @@ import {
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
-import { playWildExplodeSound } from './soundBindings';
+import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
@@ -60,6 +61,7 @@ import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import type { WinLineShape } from '../components/WinLine.svelte';
 import {
+	activeBigTierThresholds,
 	activeWinLevelData,
 	activeWinModel,
 	boardDimensions,
@@ -98,12 +100,13 @@ export const winLevelSoundsPlay = ({
 
 export const winLevelSoundsStop = () => {
 	eventEmitter.broadcast({ type: 'soundStop', name: 'sfx_bigwin_coinloop' });
-	if (stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame') {
-		// check if SUPERSPIN, when finishing a bet.
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
-	} else {
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_main' });
-	}
+	// The track the game COMES BACK TO, resolved from the project's own choice (Invisible Sound →
+	// Game moments → Base game / Free-spin music) rather than named here. It was the literal
+	// `bgm_main` / `bgm_freespin` until 2026-09-15, which meant a game whose theme is an uploaded
+	// track was handed back to a name its author had never picked — the one beat they could not
+	// author, sitting at the end of the loudest moment in the game.
+	const inFeature = stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame';
+	broadcastMusicCue(inFeature ? 'freeSpinMusic' : 'baseMusic');
 	eventEmitter.broadcastAsync({ type: 'uiShow' });
 };
 
@@ -440,7 +443,12 @@ export const winLineTextFor = ({
 	kind: number;
 	amount: number;
 	line?: number;
-}): { amount: string; message: string } => {
+}): {
+	amount: string;
+	message: string;
+	amountValue: number;
+	amountAt: (value: number) => string;
+} => {
 	const winText = bakedWinText();
 	const vars = {
 		count: kind,
@@ -452,6 +460,16 @@ export const winLineTextFor = ({
 	return {
 		amount: formatWinText(winText.amountFormat, vars),
 		message: formatWinText(resolveWinLineMessage(winText, symbol, kind).template, vars),
+		// The count's TARGET (raw book units) and a re-formatter for every tick in between. The stamp
+		// is re-rendered through the SAME authored `amountFormat` + currency formatter as the final
+		// value, so a project's template and currency govern the counting frames too rather than only
+		// the one that lands.
+		amountValue: amount,
+		amountAt: (value: number) =>
+			formatWinText(winText.amountFormat, {
+				...vars,
+				amount: bookEventAmountToCurrencyString(value),
+			}),
 	};
 };
 
@@ -560,6 +578,59 @@ export const showAllWinLines = async (
 };
 
 const winLevelDataOf = (winLevel: number): WinLevelData | undefined => activeWinLevelData(winLevel);
+
+/**
+ * THE BIG WIN'S RUN-UP — the win amount text counting up as the cue that the overlay is coming
+ * (Invisible Symbols State Machine → "Count up to cue the big win").
+ *
+ * The round TOTAL is stamped in the middle of the reels and counted from zero to the SMALLEST
+ * big-win threshold; the round holds for that count, then the stamp is hidden and the big-win
+ * overlay comes up and carries the number the rest of the way to the total. The two halves of one
+ * number, told by two renderers — which is why the cue stops exactly where the overlay starts.
+ *
+ * EVERY gate below is a parity gate: with the switch un-authored (or on a round that never reaches
+ * a big tier, or on a project whose config declares none) this returns before broadcasting
+ * anything, so the round is byte-identical to before. `awaitPresentation` → `broadcastAsync`
+ * resolves on `Promise.all([])` when `WinLine` is not mounted, so an unmounted host degrades to a
+ * no-op rather than hanging the round on a listener that will never answer.
+ *
+ * Shared by the coded `setWin` handler and the v2 `winShow` effect, exactly like `winLineTextFor` —
+ * parity between the two dispatch paths by construction, not by two edits staying in step.
+ */
+export const cueBigWinCountUp = async ({
+	amount,
+	winLevelData,
+}: {
+	amount: number;
+	winLevelData: WinLevelData | undefined;
+}): Promise<void> => {
+	const text = bakedWinLineConfig().text;
+	if (!text.enabled || !text.countUp || !text.cueBigWin) return;
+	if (winLevelData?.type !== 'big') return;
+	// A slam means "show me the result now" — the overlay's own count-up still runs, so nothing is
+	// lost by dropping the cue that introduces it.
+	if (roundSkip.isSkipped()) return;
+	// The SMALLEST big tier: the number at which the round became a big win, which is exactly where
+	// the overlay takes over. A project with no big tiers has no such moment to cue.
+	const threshold = activeBigTierThresholds()[0];
+	if (!threshold) return;
+	// Thresholds are bet-MULTIPLIERS; the book amount is fixed-point. Capped at the round's own
+	// total so the cue can never count past the number it is introducing.
+	const target = Math.min(threshold * BOOK_AMOUNT_MULTIPLIER, amount);
+	if (target <= 0) return;
+	const winText = bakedWinText();
+	await awaitPresentation({
+		type: 'winAmountCue',
+		target,
+		// The SAME authored `amountFormat` the line stamps use, with only `{amount}` bound — a total
+		// has no symbol or line to name. `formatWinText` leaves an unknown token verbatim, which is
+		// its documented behaviour, so a template that names one degrades to showing that token
+		// rather than breaking the stamp.
+		amountAt: (value: number) =>
+			formatWinText(winText.amountFormat, { amount: bookEventAmountToCurrencyString(value) }),
+	});
+	eventEmitter.broadcast({ type: 'winAmountCueHide' });
+};
 
 /** A flow payload field as a real number, or `undefined` so the callee's own default applies. The
  *  payload is `Record<string, unknown>` fed from an authored doc, so a bare `as number` cast is an
@@ -1199,9 +1270,16 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.freeSpinCounterCurrent = 0;
 	},
 
-	/** Show the win presentation flags (`setWin`). */
-	winShow: (payload) => {
+	/** Show the win presentation flags (`setWin`), after the optional big-win RUN-UP has counted the
+	 *  round total to the tier threshold — the same cue the coded `setWin` handler runs, awaited
+	 *  here BEFORE the flags so the overlay comes up exactly where the count stops. Un-authored ⇒
+	 *  `cueBigWinCountUp` returns immediately and this is the effect it always was. */
+	winShow: async (payload) => {
 		const winLevelData = winLevelDataOf(payload.winLevel as number);
+		// `amount` is what the cue counts, and an authored node need not wire it (the reference
+		// choreography only passes `winLevel` here). Unwired ⇒ 0 ⇒ the cue's own `target <= 0` gate
+		// returns, so the effect stays exactly what it was rather than counting to NaN.
+		await cueBigWinCountUp({ amount: numberOrUndefined(payload.amount) ?? 0, winLevelData });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';
 	},

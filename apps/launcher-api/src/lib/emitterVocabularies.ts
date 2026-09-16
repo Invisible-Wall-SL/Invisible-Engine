@@ -143,6 +143,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'WinLine',
 			},
 			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
+				group: 'WinLine',
+			},
+			{
 				type: 'freeSpinIntroShow',
 				group: 'Free spins',
 			},
@@ -250,6 +270,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'name',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
 					},
 				],
 			},
@@ -771,6 +796,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'WinLine',
 			},
 			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
+				group: 'WinLine',
+			},
+			{
 				type: 'freeSpinIntroShow',
 				group: 'Free spins',
 			},
@@ -878,6 +923,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'name',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
 					},
 				],
 			},
@@ -1399,6 +1449,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'WinLine',
 			},
 			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
+				group: 'WinLine',
+			},
+			{
 				type: 'freeSpinIntroShow',
 				group: 'Free spins',
 			},
@@ -1506,6 +1576,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'name',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
 					},
 				],
 			},

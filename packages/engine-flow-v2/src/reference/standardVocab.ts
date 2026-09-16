@@ -646,8 +646,40 @@ export const standardVocabulary = ({
 		{ name: 'freeSpinOutroHide', payload: [] },
 		// Sound — the `name` inputs are typed as codegen'd enums so the inspector offers a DROPDOWN of
 		// the game's real sound names (`MusicName`/`SoundEffectName`/`SoundName`, from `sound.ts`).
-		{ name: 'soundMusic', payload: [{ name: 'name', type: MUSIC }] },
-		{ name: 'soundOnce', payload: [{ name: 'name', type: SOUND_EFFECT }] },
+		//
+		// `volume` is OPTIONAL and must stay so: an omitted optional data-in is legal, while a
+		// required one raises `unfilled-data-in` — declaring it required would invalidate every
+		// sound cue in every graph already authored. Absent ⇒ the level on the sound's own library
+		// row, which is where a track's mix belongs. Set it here for the exception: the same bed
+		// wanted quieter under a particular screen. 0..1, folded into
+		// `music slider × this × the entry's own volume`, so it scales with the player's mixer and
+		// can only ever attenuate — there is no way to make a sound louder than its file.
+		{
+			name: 'soundMusic',
+			payload: [
+				{ name: 'name', type: MUSIC },
+				{
+					name: 'volume',
+					type: FLOAT,
+					optional: true,
+					description:
+						'This firing only, 0..1. Leave it unfed to play at the level set on the sound’s own row in Invisible Sound — that is where a track’s mix belongs. Set it for the exception: the same bed wanted quieter under one screen. Multiplied by the player’s music slider and by the entry’s own level, so it can only attenuate.',
+				},
+			],
+		},
+		{
+			name: 'soundOnce',
+			payload: [
+				{ name: 'name', type: SOUND_EFFECT },
+				{
+					name: 'volume',
+					type: FLOAT,
+					optional: true,
+					description:
+						'This firing only, 0..1. Leave it unfed to play at the level set on the sound’s own row in Invisible Sound. Multiplied by the player’s SFX slider and by the entry’s own level, so it can only attenuate.',
+				},
+			],
+		},
 		{ name: 'soundLoop', payload: [{ name: 'name', type: SOUND_EFFECT }] },
 		{ name: 'soundStop', payload: [{ name: 'name', type: SOUND }] },
 		{ name: 'soundScatterCounterIncrease', payload: [] },

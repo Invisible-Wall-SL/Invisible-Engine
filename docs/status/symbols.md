@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-15)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-15)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (branch `engine/arrival-release`, not yet on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -271,6 +271,31 @@ Working on `main`:
   `pnpm --filter launcher-api check:clear-reel` (74 → **95** checks — new part 9: sparsity, the
   round-trip, both ends of the range, the five rejections, the client setter's clamp + dirty
   signature, and both bundle paths). ⏳ owner visual-verify.
+- **Release the round on arrival** (2026-09-15, default OFF ⇒ byte-parity). Doc-level global
+  `arrivalRelease: { enabled? }` — under the `emerge` swap style the round stops WAITING for the
+  arrival intro. It shortens nothing: the intro still plays in full and still settles its cell to the
+  resting art on both exits of its own bounded race (`INTRO_BEAT_CAP_MS`, 2 s, in
+  `TumbleBoard.svelte`'s `tumbleBoardAppear`) — it is simply detached rather than awaited, so the
+  board is released the moment every cell has been seated with its new art. The measurement behind
+  it, on the live `test6` in a real browser at 136–204 fps: `reveal` took **3.0–3.4 s on every spin,
+  win or not**, and inside a 3401 ms one the board's own clips were finished at **t+2088** while the
+  round released at **t+3401** — the tail being that cap, which the project pays because it authors
+  an `intro`; a cascade step (~2.14 s) pays it again, which is why the pause between two wins of one
+  spin feels like the pause after it. Deliberately a SWITCH and not a new default: the trade is that
+  the next spin may begin over an intro still playing, and that is a presentation call the project
+  owns. Not gated on the swap style at SAVE (the doc and the config are independently edited, and a
+  flag silently dropped because `/config` said so comes back as a switch that will not stay on) —
+  only the tool's section is hidden on a non-emerge project, and stays visible while authored.
+  Authored in its own section under **Winning symbols explode**. Full chain: `.strict` Zod + sparse
+  rebuild in `symbolsStorage.ts` → client
+  type/`arrivalReleaseEnabled`/`setArrivalReleaseEnabled`/`docSignature` → spread PUT →
+  `symbolExport.ts` verbatim → `/api/editor/export-symbols` → **bake whitelist** + runtime bundle →
+  `bundle.symbols.arrivalRelease`, plus a `gameProfile` chip. Engine half on the same branch
+  (`bakedArrivalReleaseEnabled()` in `apps/lines/src/editor-scenes.ts`, read at dispatch time by
+  `tumbleBoardAppear`). Offline gate: `pnpm --filter launcher-api check:clear-reel` (95 → **111**
+  checks — new part 10: sparsity, the ON round-trip, the `.strict`/non-boolean rejections, that a
+  non-emerge project still keeps the flag it saved, the client setter + dirty signature, and both
+  bundle paths). ⏳ owner visual-verify.
 - **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
   `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
   waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
@@ -495,6 +520,62 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-15 — **The win amount can COUNT, and the count can be what announces the big win.** Owner
+  request; three controls in **/symbols → Win amount text**, in a new **Count up** group under the
+  style fields. All default OFF, which is the whole parity argument: the stamp is on the beat every
+  paying spin runs, in every game on the shared `runtime:lines` bundle.
+  - **`text.countUp`** + **`text.countUpDuration`** (seconds, coded default `0.6`): the stamp runs
+    from zero to the win instead of appearing whole, and the narration AWAITS it — the symbols
+    celebrate after the number lands, not over it. Every counting FRAME is re-rendered through the
+    same authored `amountFormat` + currency formatter as the value that lands: `winLineTextFor` now
+    also returns `amountValue` (the raw book target) and `amountAt(value)`, and every `winLineShow`
+    dispatch site already spreads `...winLineTextFor({…})`, so they inherit it with no call-site
+    edit — parity by construction.
+  - **`text.fadeIn`** + **`text.fadeInDuration`** (coded default `0.3`) is deliberately NOT awaited:
+    it runs WHILE the count does, so the number is already moving as the stamp arrives. Independent
+    of the count — a stamp that appears whole can fade in too.
+  - **`text.cueBigWin`** is the one the owner actually asked for. On a round that reaches a big
+    tier the amount text becomes the big win's RUN-UP: the **round TOTAL** (not one payline's
+    payout) is stamped centred — whatever `placement` says, because a total did not land on a line
+    — and counted `0 → the smallest big-win threshold`, capped at the round's own total. At that
+    number it HIDES and the overlay comes up and carries the count the rest of the way. One number,
+    two renderers; the cue stops exactly where the overlay starts.
+  - **The cue is a no-op on every axis that could make it wrong**: switch off, `text.enabled` off,
+    not a `big` win level, a slammed round, no big tier in the Game Config, or a non-positive
+    target. Shared by BOTH dispatch paths — `bookEventHandlerMap.setWin` and the flow-v2 `winShow`
+    effect both await `cueBigWinCountUp` immediately before the overlay flags — for the same reason
+    `winLineTextFor` is: two hand-kept copies drift. The v2 path passes
+    `numberOrUndefined(payload.amount) ?? 0`, because an authored `winShow` node need not wire
+    `amount` and the `target <= 0` gate then returns rather than counting to NaN.
+  - **Two new emitter cues** (`winAmountCue` / `winAmountCueHide`) and a separate `$state` cue stamp
+    in `WinLine.svelte`, held apart from `lines`: it belongs to the ROUND, so it has no points to
+    trace and no key to merge on. `awaitPresentation` → `broadcastAsync` resolves on
+    `Promise.all([])` when `WinLine` is unmounted, so an unmounted host degrades to a no-op instead
+    of hanging the round.
+  - **Watch the flow-vocabulary codegen.** `scripts/gen-flow-vocabulary.mjs` walks the emitter union
+    counting `{ < ( [` against `} > ) ]` and stops at the first `;` at depth 0, so an inline
+    `(value: number) => string` field type reads as an unbalanced `>` and silently drops the WHOLE
+    union from the `/flow` palette (hence the named `WinAmountFormatter` alias), and a `;` inside a
+    doc comment truncates it. A doc comment in front of `type:` also loses that member, since the
+    discriminant is read from the member's first field — so the new member's comment sits outside
+    its braces. Regenerate with `node scripts/gen-flow-vocabulary.mjs`; `--check` is green.
+  - **Verified LIVE** (dev, `scripts/mock-rgs-server-book.mjs` with `BIG_WIN=1`, the switches forced
+    on): each paying line stamped a counted + faded amount (`$0.00` → `$100.00`), and a 120× round
+    broadcast the cue at target `1000` book units — the smallest big tier (10×) on a $1 bet — which
+    landed, hid, and handed over to the big-win overlay. Offline contract check:
+    `pnpm --filter launcher-api exec tsx --tsconfig tsconfig.scripts.json
+    scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineText` +
+    `normalizeSymbolsDoc`, so the client and server prunes cannot drift). Runtime release + Borut
+    `engine` submodule bump owed.
+
+- 2026-09-15 — **The round can be released when the symbols are back, instead of when their intros finish.** Owner report: a delay on EVERY spin, win or not, plus an identical-feeling pause between two wins of one cascading spin. Measured on the live `test6` in a real browser at **136–204 fps** (not a throttled tab): `reveal` took **3.0–3.4 s per spin** and a cascade step ~2.14 s; inside one 3401 ms `reveal` the board's own clips were finished at **t+2088** and the round released at **t+3401**. The 1.3 s tail is not animation, it is the round WAITING on the emerge arrival beat, which takes the long `INTRO_BEAT_CAP_MS` (2 s) branch because the project authors an `intro`. No authored value is touched by the fix — not the tumble pattern's `stepMs`, not a clip's frame rate, not `clearBoard` — so the switch is a new doc-global, `arrivalRelease: { enabled? }`, default OFF.
+
+  - **What ON means, precisely.** Nothing is shortened. The intro still plays in full, and still settles its cell to the resting art on BOTH exits of its own bounded race, so a cell whose art can never report is still put right rather than frozen mid-rise. The beat is DETACHED, not skipped: only the awaiting stops, and the board is released the moment every cell has been seated with its new art. The accepted trade is that the next spin may begin over an intro still playing — which is why it is a switch and not a new default. Only meaningful under the `emerge` swap style, the only board with an arrival to wait on.
+  - **Launcher side (this task).** `.strict` Zod beside `winExplodeSchema` + the sparse rebuild in `normalizeSymbolsDoc` (only ON persists); the `SymbolExportResult` field + verbatim pass-through in `symbolExport.ts`; the `/api/editor/export-symbols` destructure **and** response; the client type, `arrivalReleaseEnabled`, `setArrivalReleaseEnabled` and the **dirty signature** line (missing it means the switch flips, the page never goes dirty, and Save stays disabled); the bake whitelist's rebuild + its line in the baked `symbols` block; a new section under "Winning symbols explode", shown when the project is on `emerge` OR the flag is already authored (so it can always be turned off); and a `gameProfile` chip.
+  - **One decision worth keeping.** The SAVE does not consult the project's reel behaviour. The symbols doc and the config doc are edited independently, and a flag silently dropped because `/config` currently says `emerge` is off would come back as a switch that will not stay on — the class of bug the sparse-write contract exists to avoid. Only the tool's SECTION is gated on the swap style, and it stays visible while the flag is set (with a note saying it changes nothing as things stand).
+  - **Gate.** `check-clear-reel-and-win-explode.ts` grew a part 10 (95 → **111 checks**) over the REAL `normalizeSymbolsDoc` + the REAL client setters: an untouched doc persists nothing and reads OFF; explicit OFF still persists nothing; ON round-trips; an unknown key and a non-boolean are `ZodError`s; a non-emerge project still keeps the flag it saved; the setter turns it on and deletes it again; turning it on moves the dirty signature and the saved doc signs the same as the draft; and the exporter, the endpoint and the bake whitelist all carry it. Mutation-verified both ways: deleting the `docSignature` line fails "turning it on marks the page DIRTY", deleting the bake bundle line fails "…and puts it on the bundle"; restoring each goes back to 111/111.
+  - **Engine change — needs a runtime release to reach the online games and a Borut `engine` submodule bump for the remake.** ⏳ owner visual-verify: switch it on for a cascading emerge project, save, rebuild, and watch a fast round for an intro the next spin starts over.
 
 - 2026-09-15 — **`check:tumble-pattern` was red on every Windows clone, and the trap is the one `check:clear-reel` hit five days earlier.** It reported `1 of 34 FAILED` on any checkout with `core.autocrlf=true` while nothing was wrong: its `read()` handed raw file text to `/\n\t\t\t\ttumblePattern,\n/`, and the whitelist line in `bake-editor-doc.mjs` — present and correct — ends `tumblePattern,\r\n`, so the pattern's TRAILING newline never matched. Exactly 1 of 34 and not more because the sibling assertion on the export endpoint (`/\n\t\t\ttumblePattern,/`) has no trailing `\n` and matched all along: **a LEADING `\n` survives CRLF, a trailing one does not** — which is why this fails in ones and twos rather than obviously, and reads like a real contract breach. Fixed by normalizing in `read()`, copying the helper and its comment verbatim from `check-clear-reel-and-win-explode.ts`, which was given exactly this fix on 2026-09-10 (see that entry below); this file predates it and never picked it up.
   - **The convention, for the next guard that greps source.** Fourteen of this repo's offline guards already normalize (`readFileSync(…).replace(/\r\n/g, '\n')`; seventeen files in all, counting fixtures and the sync scripts). A new one asserting on a pattern that names a line break MUST too, or it is red on Windows for a reason that has nothing to do with its claim — and the danger is not the red, it is the repair: a guard that cries wolf gets ignored, or "fixed" by weakening the assertion, which is how a bundle-path check stops checking. Both incidents were found by someone hitting the failure locally, never by CI, because CI runs on LF.

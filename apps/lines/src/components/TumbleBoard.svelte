@@ -152,6 +152,7 @@
 	import BoardMask from './BoardMask.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
 	import {
+		bakedArrivalReleaseEnabled,
 		bakedSymbolTransition,
 		bakedTumblePattern,
 		type SymbolTransition,
@@ -783,6 +784,9 @@
 		 * left parked on `intro` is a symbol frozen mid-rise for the rest of the round.
 		 */
 		tumbleBoardAppear: async ({ reelIndex: onlyReel }) => {
+			// Read at DISPATCH time, not at mount: the live runtime bundle resolves after this
+			// component does, exactly as `bakedSymbolTransition` is read inside the explode handler.
+			const releaseOnArrival = bakedArrivalReleaseEnabled();
 			// ONE classification pass, so the two phases below cannot disagree about a single cell —
 			// and so `moved` is captured BEFORE anything is placed, which is the only moment it is
 			// still answerable (after phase 1 every survivor is already sitting on its seat).
@@ -870,17 +874,34 @@
 					// `land` (or the resting art), which often has nothing to report — so waiting the
 					// intro cap on it does not wait for an animation, it just adds 2 s to every arrival.
 					// See `hasAuthoredSymbolState`.
-					await awaitSymbolBeat(
-						(resolve) => {
-							tumbleSymbol.oncomplete = () => {
-								tumbleSymbol.symbolState = 'static';
-								resolve();
-							};
-						},
-						hasAuthoredSymbolState(tumbleSymbol.rawSymbol.name, 'intro')
-							? INTRO_BEAT_CAP_MS
-							: TRANSIT_BEAT_CAP_MS,
-					);
+					const beat = () =>
+						awaitSymbolBeat(
+							(resolve) => {
+								tumbleSymbol.oncomplete = () => {
+									tumbleSymbol.symbolState = 'static';
+									resolve();
+								};
+							},
+							hasAuthoredSymbolState(tumbleSymbol.rawSymbol.name, 'intro')
+								? INTRO_BEAT_CAP_MS
+								: TRANSIT_BEAT_CAP_MS,
+						);
+					// RELEASE ON ARRIVAL (Invisible Symbols → "Let the next spin start as soon as the
+					// symbols are back"). The beat is unchanged — same completion, same cap, same settle
+					// on both exits — it simply stops being AWAITED, so the round is released once every
+					// cell has been seated with its new art instead of once the last intro has played
+					// out. Detached deliberately rather than skipped: a cell whose art can never report
+					// must still come off `intro`, or it is frozen mid-rise for the rest of the round,
+					// and that guarantee is the cap's whole job. Same fire-and-forget contract the seat
+					// transitions above keep, for the same reason — `tumbleBoardReset` sweeps whatever a
+					// slam or a skipped round leaves behind.
+					if (releaseOnArrival) {
+						void beat().then(() => {
+							tumbleSymbol.symbolState = 'static';
+						});
+						return;
+					}
+					await beat();
 					tumbleSymbol.symbolState = 'static';
 				}),
 			);

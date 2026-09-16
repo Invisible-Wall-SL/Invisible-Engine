@@ -61,6 +61,7 @@
 		setWinCycleHoldAfterBigWin,
 		setWinExplodeEnabled,
 		setWinBeatMaxMs,
+		setArrivalReleaseEnabled,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -85,6 +86,7 @@
 		winCycleHoldAfterBigWin,
 		winExplodeEnabled,
 		winBeatMaxMs,
+		arrivalReleaseEnabled,
 		WIN_BEAT_MAX_MS_MIN,
 		WIN_BEAT_MAX_MS_MAX,
 		winCycleShowLine,
@@ -1165,6 +1167,11 @@
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
+		countUp: false,
+		countUpDuration: 0.6,
+		cueBigWin: false,
+		fadeIn: false,
+		fadeInDuration: 0.3,
 	} as const;
 
 	// Engine builtin bitmap fonts (declared in each game's Game.svelte, not in the R2
@@ -1317,6 +1324,10 @@
 	// The authored ceiling on ONE win/explosion beat. `null` — a blank box — is a real state, not a
 	// default standing in for one: unset means the authored animation keeps setting the pace.
 	const wbMaxMs = $derived(winBeatMaxMs(doc));
+	// "Let the next spin start as soon as the symbols are back" — the emerge arrival stops gating the
+	// round. Sibling of the ceiling above, not the same knob: that one SHORTENS a beat, this one
+	// leaves the beat alone and stops waiting on it.
+	const arOn = $derived(arrivalReleaseEnabled(doc));
 
 	/** The win-beat ceiling (ms). A blank box clears it. Committed on CHANGE rather than on every
 	 *  keystroke, because the setter clamps into the range the server accepts and a mid-typing clamp
@@ -3010,6 +3021,110 @@
 								</p>
 							</div>
 
+							<div class="wl-group">
+								<h3>Count up</h3>
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Count the amount up</span>
+										<label class="switch sm" class:on={wlText.countUp ?? WL_DEFAULTS.countUp}>
+											<input
+												type="checkbox"
+												checked={wlText.countUp ?? WL_DEFAULTS.countUp}
+												onchange={(e) => patchWinLineText({ countUp: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.countUp ?? WL_DEFAULTS.countUp) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label"
+											>Count-up length {(
+												wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration
+											).toFixed(2)}s</span
+										>
+										<input
+											type="range"
+											min="0.1"
+											max="3"
+											step="0.05"
+											disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+											value={wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration}
+											oninput={(e) =>
+												patchWinLineText({ countUpDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<div class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label">Count up to cue the big win</span>
+										<label class="switch sm" class:on={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}>
+											<input
+												type="checkbox"
+												disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+												checked={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}
+												onchange={(e) => patchWinLineText({ cueBigWin: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<div class="field">
+										<span class="label">Fade the amount in</span>
+										<label class="switch sm" class:on={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}>
+											<input
+												type="checkbox"
+												checked={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}
+												onchange={(e) => patchWinLineText({ fadeIn: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.fadeIn ?? WL_DEFAULTS.fadeIn) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}>
+										<span class="label"
+											>Fade length {(wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration).toFixed(
+												2,
+											)}s</span
+										>
+										<input
+											type="range"
+											min="0.05"
+											max="1.5"
+											step="0.05"
+											disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}
+											value={wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration}
+											oninput={(e) =>
+												patchWinLineText({ fadeInDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Off (the default), the amount appears at its full value the moment the line lands.
+									On, it runs up from zero over the length above — and the win narration WAITS for
+									it: the symbols only start celebrating once the number has landed, so the count is
+									read rather than talked over. A slammed spin skips the count entirely and stamps
+									the final amount.
+								</p>
+								<p class="wl-note">
+									<strong>Count up to cue the big win</strong> turns that count into the big win's run-up,
+									and only on a round that actually reaches a big-win tier — every other spin keeps the
+									ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not one
+									payline's payout), centred on the reels, counting from zero up to the big-win threshold;
+									at that number it hides and the big-win overlay comes up and carries the count the
+									rest of the way to the total. A project with no big-win tiers in the Game Config has
+									nothing to cue, so nothing changes.
+								</p>
+								<p class="wl-note">
+									<strong>Fade the amount in</strong> brings the stamp up from transparent over the fade
+									length, WHILE the count is already running — the number is moving as it arrives, not
+									after. Independent of the count: a stamp that appears whole can fade in too.
+								</p>
+							</div>
+
 							<button type="button" class="ghost wl-reset" onclick={resetWinTextStyle}>
 								Reset text style
 							</button>
@@ -3232,6 +3347,60 @@
 						</div>
 					{/if}
 				</section>
+
+				{#if data.reelBehaviour.emerge || arOn}
+					<section class="winline" class:expanded={arOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Let the next spin start as soon as the symbols are back</h2>
+								<p class="wl-sub">
+									On a board whose new symbols <strong>emerge</strong> in place, the round is held
+									until the last symbol has finished its <strong>Intro</strong>. Turn this on and it
+									is released the moment every symbol is back on screen instead — the intros still
+									play, they are simply no longer waited for.
+								</p>
+							</div>
+							<label class="switch" class:on={arOn}>
+								<input
+									type="checkbox"
+									checked={arOn}
+									onchange={(e) => (doc = setArrivalReleaseEnabled(doc, e.currentTarget.checked))}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">{arOn ? 'On' : 'Off'}</span>
+							</label>
+						</div>
+
+						{#if arOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<p class="wl-note">
+										Nothing is cut short: every symbol still plays its intro in full and still
+										settles into its resting art at the end, whether or not its animation reports
+										finishing. What changes is only what the round WAITS for. The trade is that the
+										next spin may begin over an intro still rising — worth watching once at speed
+										before shipping it.
+									</p>
+									<p class="wl-note">
+										Measured on the live <code>test6</code>: a spin's symbol clips were done 2.1 s
+										in and the round released at 3.4 s, the gap being the arrival beat running out
+										its two-second cap. A cascade step pays the same wait again, which is why the
+										pause between two wins of one spin feels like the pause after it.
+									</p>
+									{#if !data.reelBehaviour.emerge}
+										<p class="wl-note">
+											This project does not use the <strong>emerge</strong> swap style (<strong
+												>Game Config → Reel behaviour</strong
+											>), so the switch changes nothing as things stand — a board that drops or
+											spins its symbols in has no arrival to wait on. It is shown because it is
+											authored; turn it off to drop it from the project entirely.
+										</p>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</section>
+				{/if}
 
 				<section class="winline symbolsounds" class:expanded={true}>
 					<div class="wl-head">

@@ -300,6 +300,21 @@ export interface WinLineTextStyle {
 	/** WHERE the amount is stamped: at the winning line's end (`'line'`, absent ⇒ the default) or in
 	 *  the middle of the reel window (`'boardCenter'`). Only the non-default value persists. */
 	placement?: 'line' | 'boardCenter';
+	/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the amount
+	 *  appears at its final value, byte-identical to before this switch. */
+	countUp?: boolean;
+	/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+	countUpDuration?: number;
+	/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it counts
+	 *  the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win overlay takes over
+	 *  and carries the number the rest of the way. Absent ⇒ OFF. Only meaningful with `countUp` on,
+	 *  which is why it drops with it. */
+	cueBigWin?: boolean;
+	/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF. Independent of
+	 *  {@link countUp} — a static stamp can fade in too. */
+	fadeIn?: boolean;
+	/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+	fadeInDuration?: number;
 }
 
 /** Global win-line overlay config. Sparse: `enabled` is the LINE's switch — absent = ON, only
@@ -510,6 +525,11 @@ export interface SymbolsDoc {
 	 *  Set ⇒ a longer animation is cut short. This is the AUTHOR's pace, not the engine's runaway
 	 *  guard — that one stays where it is, sized above anything a project plausibly authors. */
 	winBeat?: { maxMs?: number };
+	/** "Let the next spin start as soon as the symbols are back" — the emerge arrival stops gating the
+	 *  round. Sparse and default OFF: absent ⇒ the round waits for the last intro to finish, exactly
+	 *  as before this existed. It shortens no animation — the intro still plays and still settles its
+	 *  cell — it only stops being awaited. Only meaningful under the `emerge` swap style. */
+	arrivalRelease?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -896,6 +916,24 @@ export function winLineTextPlacement(doc: SymbolsDoc): 'line' | 'boardCenter' {
 	return doc.winLine?.text?.placement ?? 'line';
 }
 
+/** The effective "count the stamped amount up from zero" flag. Defaults to `false` (byte-parity —
+ *  the amount was stamped whole before this switch). */
+export function winLineTextCountUp(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.countUp ?? false;
+}
+
+/** The effective "count up to cue the big win" flag. Defaults to `false`; only read while
+ *  {@link winLineTextCountUp} is on, which is also the only state it persists in. */
+export function winLineTextCueBigWin(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.cueBigWin ?? false;
+}
+
+/** The effective "fade the stamp in" flag. Defaults to `false`, and is independent of the count —
+ *  a static stamp can fade in too. */
+export function winLineTextFadeIn(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.fadeIn ?? false;
+}
+
 /** The effective "keep the winning SYMBOLS animating until the next spin" flag — the game's
  *  `winSymbolCycle`. Defaults to `true`, matching the engine's resolved default. Independent of
  *  {@link winLineEnabled}: the replay never draws the line. */
@@ -986,6 +1024,22 @@ export function setWinBeatMaxMs(doc: SymbolsDoc, ms: number | null): SymbolsDoc 
 	return next;
 }
 
+/** The effective "release the round when the symbols arrive, not when their intros finish" flag.
+ *  Defaults to `false` (byte-parity — the emerge arrival has always been awaited). Unlike
+ *  {@link winBeatMaxMs} this shortens nothing: the intro plays in full either way. */
+export function arrivalReleaseEnabled(doc: SymbolsDoc): boolean {
+	return doc.arrivalRelease?.enabled ?? false;
+}
+
+/** Turn the arrival release on/off. Sparse like `setWinExplodeEnabled`: OFF deletes the key so an
+ *  untouched/reset project persists nothing. */
+export function setArrivalReleaseEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.arrivalRelease = { enabled: true };
+	else delete next.arrivalRelease;
+	return next;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -1019,6 +1073,19 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 		// so a value equal to its default drops, keeping an untouched project shipping no `winLine`.
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;
@@ -1490,6 +1557,9 @@ export function docSignature(doc: SymbolsDoc): string {
 		// Same trap, same reason: typing a win-beat ceiling has to move this signature, and clearing
 		// it has to move it back to the `null` an untouched doc signs.
 		winBeat: doc.winBeat?.maxMs ?? null,
+		// Same trap a third time: without this line the arrival-release switch flips on screen, the
+		// page never goes dirty, and Save stays disabled on a change that looks made.
+		arrivalRelease: doc.arrivalRelease?.enabled === true ? true : null,
 		bookVfx,
 		transition,
 		tumblePattern,

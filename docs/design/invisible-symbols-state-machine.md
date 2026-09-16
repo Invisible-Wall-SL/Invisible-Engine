@@ -143,6 +143,11 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
 			"size": 0.6,
 			"color": "#ffffff",
 			"placement": "boardCenter",
+			"countUp": true,
+			"countUpDuration": 0.6,
+			"cueBigWin": true,
+			"fadeIn": true,
+			"fadeInDuration": 0.3,
 		}, // enabled: present only when it DIFFERS from the line's
 	},
 }
@@ -164,6 +169,26 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
   from the winning line's end to the middle of the reel window. In `boardCenter` only the
   LAST-shown line stamps — with `line.allAtOnce` on, every amount would otherwise land on the
   identical spot.
+- **How the amount ARRIVES is five more sparse `text` fields**, all default OFF so an
+  un-authored project is byte-identical: `text.countUp` + `text.countUpDuration` (seconds, coded
+  default `0.6`) count the stamp up from zero and the win narration AWAITS that count, so the
+  symbols celebrate after the number lands; `text.fadeIn` + `text.fadeInDuration` (coded default
+  `0.3`) bring the stamp up from alpha 0 WHILE the count runs, and are independent of it;
+  `text.cueBigWin` (only meaningful with `countUp`, and dropped with it) re-purposes the count as
+  the BIG WIN's run-up. Every counting frame is re-rendered through the SAME authored
+  `amountFormat` + currency formatter as the value that lands (`flowEffects.ts#winLineTextFor`
+  returns `amountAt`), so the template governs the whole count rather than only its last frame.
+- **The big-win cue is one number told by two renderers.** On a round that reaches a big tier, the
+  stamp shows the round TOTAL — not a payline's payout — centred whatever `placement` says (a
+  total did not land on a line), counted `0 → activeBigTierThresholds()[0] × BOOK_AMOUNT_MULTIPLIER`
+  and capped at the round's own total. At the threshold it HIDES and the big-win overlay comes up
+  and carries the count to the total: the cue stops exactly where the overlay starts. Orchestrated
+  by `flowEffects.ts#cueBigWinCountUp`, awaited from BOTH dispatch paths (`bookEventHandlerMap`'s
+  `setWin` and the v2 `winShow` effect) so the two cannot disagree, and gated to a no-op on every
+  axis — switch off, not a big round, a slammed round, no configured big tier, a non-positive
+  target. It rides two new emitter cues (`winAmountCue` / `winAmountCueHide`) whose
+  `broadcastAsync` resolves on `Promise.all([])` when `WinLine` is unmounted, so an unmounted host
+  degrades to a no-op rather than hanging the round.
 - **Sparse on purpose.** Default (on, default style) writes nothing. Only the off-state
   (`enabled: false`), a `text.enabled` that DISAGREES with it, a non-default `text.placement`,
   and the individual fields the author changes are persisted; the two "Reset … style" buttons
@@ -497,6 +522,41 @@ a typo. Refusing it in Zod fails loudly, in front of the author, while ignoring 
 exactly like a ceiling that had been applied to art nobody is watching at build time. The tool's
 setter rounds and clamps into the same range, so a mistyped number can never come back as a save 400
 that loses the whole doc.
+
+## Release the round on arrival — added 2026-09-15
+
+**The problem.** Under the `emerge` swap style the round is not released until the last arriving
+symbol's `intro` beat has finished, and that beat takes a 2 s cap (`INTRO_BEAT_CAP_MS`) on any
+project that authors an `intro`. The wait is therefore paid on EVERY spin, win or not, and again per
+cascade step — a picture that has already settled, with the round still holding.
+
+**The shape.** One optional doc-global, a sibling of `winExplode`:
+
+```ts
+arrivalRelease?: { enabled?: boolean } // sparse, ON only
+```
+
+On, the arrival beat is DETACHED rather than awaited: it still runs, still ends on the same cap, and
+still settles its cell to the resting art on both exits — the round simply stops waiting for it and
+is released once every cell has been seated with its new art. Off (absent), byte-identical to before
+the field existed.
+
+**Why a switch rather than a better default.** It buys latency with a presentation risk — the next
+spin can begin over an intro still playing — and which side of that trade a game wants is a project
+decision, not an engine one. It is also the only honest shape: the alternative fixes (shorten the
+intro, drop the cap) change authored values, and the ask was explicitly to change none of them.
+
+**Why the save does not consult the swap style.** The flag is only meaningful under `emerge`, but
+the symbols doc and the game config are edited independently, so a save that dropped it because
+`/config` currently says otherwise would present as a switch that will not stay on. The gate is in
+the TOOL (the section is hidden on a non-emerge project, and stays visible while the flag is set),
+never in the data.
+
+**Chain (rule 8).** `.strict` Zod + sparse prune (`enabled: true` only) → client
+type/`arrivalReleaseEnabled`/`setArrivalReleaseEnabled`/`docSignature` → the spread PUT →
+`symbolExport.ts` verbatim → `/api/editor/export-symbols` response → `bake-editor-doc.mjs` whitelist
+AND the runtime bundle → `BakedBundle.symbols.arrivalRelease` → `bakedArrivalReleaseEnabled()` →
+`TumbleBoard.svelte`. A `gameProfile` chip reports it. Absent ⇒ byte-identical.
 
 ## "Spine export" demystified
 

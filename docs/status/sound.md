@@ -232,23 +232,88 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
-- 2026-09-15 — **S10's leftover: three pages paid an R2 read for a value nothing read.** S9 gave
-  `/config`, `/editor`, `/symbols` and `/flow-v2` a `soundOptions` payload; S10 moved sound
-  authoring into `/sound` and deleted the pickers from the first three — but left their loaders
-  still computing it. Each therefore did an extra `loadSoundsDoc` (an R2 `sounds.json` GET) on
-  **every** page load, awaited inline in the returned object, and threw the result away.
+- 2026-09-15 — **The music a game comes BACK to is authored now, and a cue can carry its own level.**
+  Three owner questions off one uploaded soundtrack: _"it starts correct, but it doesn't loop, and I
+  do not see any option to make it loop"_ · _"when I get out of the big win, there is no more music
+  playing, and I would like SM to play instead"_ · _"the music I selected have different volumes, and
+  I would like to be able to specify a specific volume to play at, probably from the flow itself."_
 
-  Removed from those three loaders, along with the now-unused `soundOptionsFor` / `loadSoundsDoc`
-  imports. **`/flow-v2` is untouched** — it is the one real consumer
-  (`withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions)`), and `/sound` reads
-  the doc by its own separate `loadSoundsDocWithEtag` path.
+  **Looping was already authorable and already shipped** — `loop` on the library row → normalize →
+  `soundCatalogEntries` → `bakedSounds.ts`'s sprite tuple `[0, durationMs, true]`, which is the only
+  place looping is expressed anywhere in the engine. The shipped audiosprite marks 8 of its 53
+  regions the same way (`bgm_main` is `[71000, 132452.83, true]`), which is the entire reason a
+  built-in bed loops "by default" and an upload does not. No hop drops the flag. What was broken is
+  that **the ▶ audition ignored it**, so the one experiment that could teach an author what the
+  checkbox does answered "nothing" — fixed, ▶ now honours `loop` and `vol` both.
 
-  Checked before cutting, because a loader could have wanted the doc for a second reason:
-  `loadSoundsDoc` and `soundOptionsFor` each appeared exactly once per file, on that one line. No
-  component, child route or `$page.data` reference to `soundOptions` exists outside `/flow-v2`, and
-  none of the three pages spreads or bracket-indexes its page `data`. 15 lines deleted, nothing
-  added. Build green; `check:sounds-doc` and `check:sound-bindings` hold; lint unchanged (its 158
-  pre-existing errors are byte-identical before and after, none in these files).
+  **The real gap was the RESTORE.** `winLevelSoundsStop` named `bgm_main` / `bgm_freespin` as
+  literals, as did the free-spin switch, the bet-mode switch and the boot autoplay. So a project
+  could author the track for the start of the game (a flow cue), and for every win tier
+  (`winTiers`), and the first big win still handed the game back to a name its author had never
+  chosen — or to silence, in a bundle that no longer carries it. The one beat nobody could author
+  sat at the end of the loudest moment in the game. **Two new catalogue slots** — `baseMusic` and
+  `freeSpinMusic`, defaults `bgm_main` / `bgm_freespin` — make it the same kind of authored answer as
+  every other moment, and because the tool renders `SOUND_SLOTS`, they appear in Game moments with no
+  UI change — FIRST in the list, since they are what a project with its own soundtrack sets before
+  anything else (`SOUND_SLOT_IDS` and `SOUND_SLOTS` must stay in step; `sounds.fixture.ts` zips them).
+  All four of `apps/lines`' call sites go through `broadcastMusicCue` / `musicCue`
+  (`soundBindings.ts`) — the other reference apps still carry their own literals, which is fine
+  while they stay dev/reference. A project that has authored nothing resolves to the same two names
+  it played before.
+
+  **The slot decides what the game comes BACK to, not what starts it.** Under a flow that drives the
+  screens the boot autoplay is deliberately suppressed, so the opening track is still the
+  `soundMusic` cue on Game Signals' `tapToStart` pin — a project that sets the slot and leaves that
+  node on `bgm_main` opens on the engine's music and switches to its own only after the first
+  restore. Said in the slot's own help text and in the guide, because the help text is the only
+  instruction an author gets.
+
+  The tool's own **`notRebindable`** list — "shipped sounds this project can NOT rebind … each a
+  candidate for promotion into `SOUND_SLOTS`" — drops `bgm_main` and `bgm_freespin` as a
+  consequence, with no change to the usage index: a slot's resolved names count as bound, defaults
+  included. That list was the standing description of exactly this bug, waiting for someone to hit
+  it.
+
+  **And a per-firing volume on the flow cues.** `soundMusic` and `soundOnce` gained an OPTIONAL
+  `volume` pin (`optional: true` matters: a required data-in would have raised `unfilled-data-in` on
+  every sound cue in every graph already authored). The event already carried `volume` for
+  `soundOnce`; the music player now takes one the way `createPlayOnce` always has — stored on
+  `soundVolume` before `initSoundVolume` folds it into `playerVolume × volume × the entry's own
+  level`, so it scales with the player's music slider and can only attenuate. **The resume path
+  needed it too**: music PAUSES rather than stops, so re-firing the base bed after a big win takes
+  the `paused` branch, which would have dropped a newly asked-for level every time. An
+  already-playing bed re-mixes without restarting.
+
+  **PER-FIRING means per-firing, and getting that wrong was the review's catch.** The first cut kept
+  `volume ?? sound.soundVolume` — which is right for a one-shot, whose map entry is DELETED by its
+  `end` handler, and wrong for music, whose entry lives forever so a track can be paused and
+  resumed. It made the level sticky: one `soundMusic(theme, 0.3)` anywhere in a flow re-mixed every
+  later restore of that track, `winLevelSoundsStop`'s included, for the rest of the session —
+  inaudibly, since nothing says a number it never asked for is being applied. A firing that asks for
+  nothing now resets the multiplier to 1 (the row's level). The cost, recorded so nobody
+  rediscovers it: a music track faded with `soundFade` and then re-fired comes back at its row level
+  rather than the faded one — re-asking for a track is a request to play it, and no music is faded
+  today (the only `soundFade` in the engine targets the anticipation LOOP).
+
+  **The flow's number is the first author-set volume that reaches the players unguarded** — the
+  inspector's number input has no range, and howler IGNORES a volume outside 0..1 (it returns the
+  current level instead), so `2` would be a silent no-op that then skewed every later mix. Both
+  players now run it through `usablePlayVolume`, which DISCARDS out of range rather than clamping —
+  the same rule `readVolume` and `normalizeSoundsDoc` already apply to the authored paths.
+
+  **Verified.** `packages/utils-sound/banks.fixture.ts` grew a 9th section, **12 claims** driving
+  the real players against fake howls: unasked ⇒ the entry's own level; asked ⇒ multiplied, not
+  substituted (0.4 × 0.5 = 0.2); a resume replays by id AND re-mixes; a level change does not
+  restart the bed; **a per-firing level does not outlive its firing**, neither across a
+  pause/resume nor while the bed keeps playing; out of range falls back to the row's level on both
+  players. Mutation-tested — dropping the volume handling from the resume branch alone fails
+  "…and the new level lands on the resume". `check:sounds-doc`, `check:sound-bindings` and
+  `game-config`'s `sounds.fixture.ts` all still hold (their slot claims are generic over
+  `SOUND_SLOT_IDS`, and both new slots ship defaults). `node scripts/gen-flow-vocabulary.mjs
+  --check` passes — the launcher's generated `emitterVocabularies.ts` is the second output of that
+  generator and CI gates it, so a hand-edit of the game-side copy alone would have failed the PR.
+  `pnpm --filter lines build` and `pnpm --filter launcher-api build` green; `engine-flow-v2` and
+  `game-config` typecheck clean.
 
 - 2026-09-15 — **Leaving the page mid-upload no longer eats the file silently.** Same day, same
   owner, the report one layer in: _"I have add 2 sounds, I have seen them writing 'uploading' … but
@@ -309,6 +374,24 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   `svelte.config.js` has no `kit.version` block, so no tab ever learns its JS is a build behind (the
   structural answer to any request-contract change like #669's multipart→JSON); and real PUT
   progress (XHR `upload.onprogress`) would replace a frozen filename on a 25 MB file.
+
+- 2026-09-15 — **S10's leftover: three pages paid an R2 read for a value nothing read.** S9 gave
+  `/config`, `/editor`, `/symbols` and `/flow-v2` a `soundOptions` payload; S10 moved sound
+  authoring into `/sound` and deleted the pickers from the first three — but left their loaders
+  still computing it. Each therefore did an extra `loadSoundsDoc` (an R2 `sounds.json` GET) on
+  **every** page load, awaited inline in the returned object, and threw the result away.
+
+  Removed from those three loaders, along with the now-unused `soundOptionsFor` / `loadSoundsDoc`
+  imports. **`/flow-v2` is untouched** — it is the one real consumer
+  (`withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions)`), and `/sound` reads
+  the doc by its own separate `loadSoundsDocWithEtag` path.
+
+  Checked before cutting, because a loader could have wanted the doc for a second reason:
+  `loadSoundsDoc` and `soundOptionsFor` each appeared exactly once per file, on that one line. No
+  component, child route or `$page.data` reference to `soundOptions` exists outside `/flow-v2`, and
+  none of the three pages spreads or bracket-indexes its page `data`. 15 lines deleted, nothing
+  added. Build green; `check:sounds-doc` and `check:sound-bindings` hold; lint unchanged (its 158
+  pre-existing errors are byte-identical before and after, none in these files).
 
 - 2026-09-15 — **A sound can be uploaded at all now, and a hard load of `/sound` stops being a 500.**
   Two unrelated defects, both reached from one owner report: _"I added some sounds, I can't find them

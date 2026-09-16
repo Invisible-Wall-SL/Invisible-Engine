@@ -234,6 +234,21 @@ const winLineTextSchema = z
 		 *  at the winning line's end; `'boardCenter'` puts it in the middle of the reel window
 		 *  instead, where only the most recently announced win stamps so the amounts never pile up. */
 		placement: z.enum(['line', 'boardCenter']).optional(),
+		/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the
+		 *  amount appears at its final value, byte-identical to before this switch. */
+		countUp: z.boolean().optional(),
+		/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+		countUpDuration: z.number().optional(),
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 *  counts the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win
+		 *  overlay takes over and carries the number the rest of the way. Absent ⇒ OFF. Only
+		 *  meaningful with `countUp` on, which is why it drops with it. */
+		cueBigWin: z.boolean().optional(),
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF.
+		 *  Independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: z.boolean().optional(),
+		/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+		fadeInDuration: z.number().optional(),
 	})
 	.strict();
 
@@ -533,6 +548,32 @@ const winBeatSchema = z
 	})
 	.strict();
 
+/**
+ * "Let the next spin start as soon as the symbols are back" — the switch that stops the emerge
+ * ARRIVAL from gating the round.
+ *
+ * Nothing about the arrival changes: the intro still plays in full and still settles its cell to the
+ * resting art on both exits of its own bounded race. It simply stops being AWAITED, so the board is
+ * released the moment every cell has been seated with its new art rather than when the last intro
+ * has played out. Measured on the live `test6` (136–204 fps, not a throttled tab): a 3401 ms
+ * `reveal` whose board clips were finished at t+2088 — the 1.3 s tail is the round waiting on an
+ * arrival beat that is capped at 2 s because the project authors an `intro`.
+ *
+ * A switch and not a new default, because the trade is a PRESENTATION one the project has to own:
+ * the next spin may begin over an intro still playing. Sparse and default OFF like `winExplode`, so
+ * an untouched project persists no key and is released exactly as it always was.
+ *
+ * Only meaningful under the `emerge` swap style (`/config` → Reel behaviour) — the only board that
+ * has an arrival to wait on — but deliberately NOT gated on it here: the doc and the reel behaviour
+ * are two independently edited documents, and a save that silently dropped the flag because the
+ * config said so would come back as a switch that will not stay on.
+ */
+const arrivalReleaseSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -546,6 +587,7 @@ export const symbolsDocSchema = z
 		winCycle: winCycleSchema.optional(),
 		winExplode: winExplodeSchema.optional(),
 		winBeat: winBeatSchema.optional(),
+		arrivalRelease: arrivalReleaseSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -576,6 +618,19 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 		const text = { ...winLine.text };
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;
@@ -737,6 +792,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// clearing the box round-trips to no key at all and the beats go back to running as long as their
 	// art does. Rebuilt (not forwarded) like every field above — this block is the whitelist.
 	if (doc.winBeat?.maxMs !== undefined) next.winBeat = { maxMs: doc.winBeat.maxMs };
+	// Default-OFF again, so ONLY the ON state persists: an untouched project — and one that turned
+	// the release back off — round-trips to no key and keeps awaiting its arrival byte-for-byte.
+	if (doc.arrivalRelease?.enabled === true) next.arrivalRelease = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

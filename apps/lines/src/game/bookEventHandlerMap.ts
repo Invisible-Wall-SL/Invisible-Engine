@@ -9,7 +9,7 @@ import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
-import { playWildExplodeSound } from './soundBindings';
+import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
@@ -28,6 +28,7 @@ import {
 	winLineTextFor,
 	winLineColorFor,
 	showWinInfoMessage,
+	cueBigWinCountUp,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
@@ -216,8 +217,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });
 		}
 		// Free-game background music plays THROUGH the whole feature (not part of the momentary
-		// intro), so it switches whether or not the coded intro celebration runs.
-		eventEmitter.broadcast({ type: 'soundMusic', name: 'bgm_freespin' });
+		// intro), so it switches whether or not the coded intro celebration runs. The TRACK is the
+		// project's `freeSpinMusic` slot rather than a literal, so a game with its own audio sounds
+		// like itself in the feature too.
+		broadcastMusicCue('freeSpinMusic');
 		if (presentIntro) {
 			// PLAYER-GATED (`PLAYER_GATED_CUES`): `FreeSpinIntroGate` holds this until a
 			// press-to-continue, so it stays released-on-skip even though the intro is otherwise
@@ -306,6 +309,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setWin: async (bookEvent: BookEventOfType<'setWin'>) => {
 		const winLevelData = activeWinLevelData(bookEvent.winLevel);
 
+		// The optional big-win RUN-UP: the round total counted up to the tier threshold, as the cue
+		// that the overlay is coming. Awaited BEFORE the overlay shows, so the count stops exactly
+		// where the overlay's own count-up picks the number up. A no-op unless the project authored
+		// it AND this round reached a big tier (see `cueBigWinCountUp`).
+		await cueBigWinCountUp({ amount: bookEvent.amount, winLevelData });
 		eventEmitter.broadcast({ type: 'winShow' });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';

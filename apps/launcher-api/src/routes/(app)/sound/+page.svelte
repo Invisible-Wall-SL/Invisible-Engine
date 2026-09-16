@@ -259,6 +259,11 @@
 		// The authored level, so what you hear is what the game will play — auditioning at full
 		// volume a sound you deliberately mixed down to 0.2 tells you nothing useful.
 		player.volume = entry.volume ?? 1;
+		// And the authored LOOP, for the same reason and a sharper one: this button is the only
+		// place an author can test what the checkbox does, and it used to play one pass whatever the
+		// box said — so the experiment that should teach "this is what loop means" answered "this
+		// control does nothing". A loop is stopped by pressing ■, like any other audition.
+		player.loop = entry.loop ?? false;
 		playingId = entry.id;
 		void player.play().catch(() => {
 			playingId = null;

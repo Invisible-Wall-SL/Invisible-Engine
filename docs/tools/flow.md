@@ -81,7 +81,10 @@ function library:
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
   own cues **plus every signal name authored on a spine or a flipbook in this project's
   screens**, so a cue you invented in the Scene Editor is waiting here to be dragged out
-  (see below).
+  (see below). The two sound cues — `soundMusic` and `soundOnce` — also take an optional
+  **volume** (`0`–`1`) for that one firing; leave it unfed and the sound plays at the level
+  set on its row in [Invisible Sound](./sound.md), which is where a track's mix belongs. It
+  multiplies with that row's level, so it can only ever make a sound quieter.
 - **Functions** — reusable sub-graphs from the shared library (see *Collapse to Function*).
   Each row also has **✎** (edit its body) and **✕** (delete it, blocked while it is in use).
 - **Containers** — a **show** and a **hide** button per container the flow declares
