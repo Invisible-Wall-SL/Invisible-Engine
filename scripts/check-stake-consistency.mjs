@@ -96,7 +96,16 @@ async function play(model) {
 
 	await facade.requestAuthenticate({ rgsUrl, sessionID, language: 'en' });
 
-	const out = { betEcho: null, winRounds: [], winsSeen: 0, scatterWin: null, emptyPositions: 0 };
+	const out = {
+		betEcho: null,
+		winRounds: [],
+		winsSeen: 0,
+		scatterWin: null,
+		emptyPositions: 0,
+		fractionalPays: 0,
+		zeroPays: 0,
+		rawWinsSeen: 0,
+	};
 	for (let i = 0; i < 200; i++) {
 		const bet = await facade.requestBet({
 			rgsUrl,
@@ -108,6 +117,16 @@ async function play(model) {
 		if (bet.error) break;
 		const raw = bet._raw?.events ?? [];
 		out.betEcho ??= raw.find((e) => e.event === 'bet')?.context ?? null;
+
+		// The RAW wire, before the facade converts to bet-multipliers: the protocol's only
+		// denomination is the whole cent.
+		for (const e of raw) {
+			if (e.event !== 'spinWin') continue;
+			out.rawWinsSeen++;
+			const pay = e.context?.pay;
+			if (!Number.isInteger(pay)) out.fractionalPays++;
+			else if (pay <= 0) out.zeroPays++;
+		}
 
 		const state = bet.round?.state ?? [];
 		for (const e of state) {
@@ -162,7 +181,27 @@ for (const model of MODELS) {
 			: ` (${r.winRounds.length} rounds)`,
 	);
 
-	// 3. A win that pays must light something up.
+	// 3. The wire carries WHOLE CENTS, and never a zero-pay win — a zero would still start a win
+	//    presentation, so the player would count up to nothing. `roundPays`/`payCents` is what
+	//    guarantees both, and `ways` is the model that would break it on its own: its payout base is
+	//    the stake ÷ the ways count, which is routinely fractional.
+	//
+	//    Scoped to the four models of the LINES mock on purpose. The BOOK mock deliberately emits a
+	//    zero-pay SCAT entry so the scatters still glow on the trigger spin — it must NOT be
+	//    "fixed" to match this.
+	check(r.rawWinsSeen > 0, 'wins reach the wire', ` (${r.rawWinsSeen})`);
+	check(
+		r.fractionalPays === 0,
+		'every win pays a WHOLE cent',
+		` (${r.fractionalPays}/${r.rawWinsSeen} fractional)`,
+	);
+	check(
+		r.zeroPays === 0,
+		'no win is emitted at pay 0',
+		` (${r.zeroPays}/${r.rawWinsSeen} zero-pay)`,
+	);
+
+	// 4. A win that pays must light something up.
 	check(r.winsSeen > 0, 'wins reach the client', ` (${r.winsSeen})`);
 	check(
 		r.emptyPositions === 0,
@@ -170,7 +209,7 @@ for (const model of MODELS) {
 		` (${r.emptyPositions}/${r.winsSeen} empty)`,
 	);
 
-	// 4. The SCAT (free-spin trigger) win specifically — the one whose cells used to go missing.
+	// 5. The SCAT (free-spin trigger) win specifically — the one whose cells used to go missing.
 	check(!!r.scatterWin, 'a SCAT (free-spin trigger) win occurs');
 	if (r.scatterWin) {
 		check(
