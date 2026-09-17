@@ -20,10 +20,15 @@ let dev = NODE_ENV === 'development';
  * (typo'd key, wrong type, missing the two fields a delivery cannot work without), and nothing more.
  */
 const deliveryProfileProblems = (profile) => {
+	// KEEP IN SYNC with `DELIVERY_PROFILE_FIELDS` in packages/delivery-profile/src/normalize.ts.
+	// The two checks are deliberately separate (this one fails the build, that one degrades at
+	// runtime) but the FIELD LIST is one fact in two places, and it has drifted twice — each time
+	// making a profile that used the new field fail the build. `profile.fixture.ts` now asserts they
+	// agree, so a third drift fails a fixture instead of a delivery.
 	const KNOWN = {
 		'': ['id', 'rgs', 'session'],
 		rgs: ['baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
-		session: ['param', 'required'],
+		session: ['param', 'source', 'required'],
 	};
 	const problems = [];
 	const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
