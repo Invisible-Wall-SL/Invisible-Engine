@@ -1,4 +1,4 @@
-"""Animated WEBP → Atlas Maker REFERENCE IMAGES + an empty `pack` atlas.
+"""Animated WEBP → Atlas Maker REFERENCE IMAGES + an empty `grid` atlas.
 
 Design: docs/design/invisible-flipbook-video.md (build-plan step 3, second export).
 
@@ -12,14 +12,29 @@ and builds the atlas there, with the Flipbook out of the loop.
 
 Four rules hold this path together; each is a decision, not a default:
 
-1. **NOTHING IS PACKED HERE.** No packer, no trim, no downscale, no
-   `atlas.width/height`, no `x/y/w/h` on any region. The manifest is an EMPTY
-   `pack` atlas (`_newatlas`'s shape) carrying only names and refs, and
-   `auto_pack_layout` leaves a region with no committed image UNPLACED, so this
-   export produces no page at all — by design. The page is built later, by
-   Create Atlas, out of the GENERATED art at the generation size, so the
-   full-resolution refs cannot inflate it: they are loose input files that never
-   reach a page.
+1. **NOTHING IS PACKED HERE — the page is DECLARED, not built.** No packer, no
+   trim, no downscale, and no `x/y/w/h` on any region: the rects are stamped by
+   `ui_server.grid_layout` on every Create Atlas, out of the GENERATED art at
+   the generation size, so the full-resolution refs never reach a page.
+
+   What this DOES write is the four geometry fields that layout reads —
+   `atlas.width`, `atlas.height`, `atlas.cell_width`, `atlas.cell_height` — plus
+   `layout: "grid"`. They are a STARTING POINT, sized to hold the frames at
+   their native size, and they are meant to be retyped: the author opens
+   ⚙ Settings, changes the cell, presses Create Atlas, and the grid re-flows.
+
+   `layout: "grid"` and not `"pack"`, and that is the whole point of this shape.
+   `auto_pack_layout` packs at a hardcoded 2048 page width and then OVERWRITES
+   `atlas.width/height` with the packer's own result, deriving every rect from
+   the art it measured — so on a `pack` atlas the four Settings fields are
+   output, and an author who sets them watches the packer discard them. That is
+   exactly what happened to the first version of this export. A flipbook also
+   wants the opposite of what a packer gives: identical cells in frame order, so
+   every frame shares one centre, not a tight crop per frame.
+
+   Region ORDER is therefore load-bearing here: `grid_layout` flows regions in
+   MANIFEST ORDER, and this writes them in FRAME order, so the manifest's list
+   IS the animation. Nothing downstream may sort it.
 
 2. **`style_ref`, never `shape_ref`.** A `shape_ref` goes through
    `batch_atlas.normalize_shape_ref`, which grayscales the image
@@ -56,6 +71,7 @@ from pathlib import Path
 
 from PIL import Image, ImageSequence
 
+import batch_atlas
 import cloud_paths as project_paths
 import storage
 import video_to_clip
@@ -70,6 +86,21 @@ MAX_REF_FRAMES = 120
 # Where the refs live under INPUT_DIR. A subfolder per export, because one
 # session can drop 80+ files into a `refs/` the Atlas Maker's own picker opens.
 REF_SUBDIR = "refs/video"
+
+# How each generated frame maps into its grid cell (`batch_atlas.fit_to_region`).
+# `contain` is the default because it is the only one of the three that keeps a
+# flipbook a flipbook: every frame uniformly scaled and centred in an identical
+# cell, never distorted, never cropped — so the animation does not wobble.
+# `cover` fills the cell and crops the overflow; `fill` stretches to it.
+FIT_MODES = ("contain", "cover", "fill")
+DEFAULT_FIT = "contain"
+
+# Ceiling on a seeded page's side. Not a GPU or R2 limit — a texture one: 4096
+# is the side every target this art ships to can sample, and a page past it
+# silently fails to upload on the weakest of them. The seed refuses rather than
+# exceeding it, because a page nobody can load is worse than an export that
+# tells you to raise the stride.
+MAX_PAGE_SIDE = 4096
 
 
 def _sanitize_region_name(raw: str) -> str:
@@ -126,6 +157,80 @@ def _pick_frames(im: Image.Image, start: int, end: int, stride: int) -> list[int
     return picked
 
 
+def _normalize_fit(fit: str) -> str:
+    """The `fit` argument, validated. Rejected rather than coerced: a typo'd
+    `"containe"` silently falling back to the default would place every frame
+    the caller did NOT ask for, and the placement is invisible until the atlas
+    is composed."""
+    v = str(fit or DEFAULT_FIT).strip().lower()
+    if v not in FIT_MODES:
+        raise ValueError(
+            f"Unknown fit '{fit}' — use one of {', '.join(FIT_MODES)}.")
+    return v
+
+
+def _grid_page(count: int, cell_w: int, cell_h: int) -> tuple[int, int]:
+    """The smallest page that holds `count` cells of `cell_w` x `cell_h`.
+
+    Smallest by AREA, tie-broken on the shorter long side then the fewer
+    columns, so the seed is a compact near-square rather than one long strip —
+    an 8-frame export becomes 4x2, not 8x1. Exact multiples of the cell (no
+    power-of-two rounding): `grid_layout` divides the page by the cell, so any
+    slack is page area that can never hold a whole cell.
+
+    Raises when nothing fits under MAX_PAGE_SIDE. The caller's fix is upstream
+    of this function (fewer or smaller frames), so the message names both the
+    arithmetic and the knob."""
+    max_cols = MAX_PAGE_SIDE // cell_w
+    max_rows = MAX_PAGE_SIDE // cell_h
+    if max_cols < 1 or max_rows < 1:
+        raise ValueError(
+            f"Each frame is {cell_w}x{cell_h}, which is larger than the "
+            f"{MAX_PAGE_SIDE}px atlas page this can seed — not even one frame "
+            f"fits. Render the variation at a smaller size, then export again.")
+    best: tuple[tuple[int, int, int], tuple[int, int]] | None = None
+    # More columns than frames can only ever waste area (rows is already 1), so
+    # the search stops there.
+    for cols in range(1, min(max_cols, count) + 1):
+        rows = -(-count // cols)
+        if rows > max_rows:
+            continue
+        w, h = cols * cell_w, rows * cell_h
+        key = (w * h, max(w, h), cols)
+        if best is None or key < best[0]:
+            best = (key, (w, h))
+    if best is None:
+        raise ValueError(
+            f"{count} frames of {cell_w}x{cell_h} need more than a "
+            f"{MAX_PAGE_SIDE}x{MAX_PAGE_SIDE} atlas page "
+            f"(at most {max_cols * max_rows} of them fit). Raise the stride or "
+            f"narrow the range, then export again — or export fewer frames and "
+            f"lower the cell size in the Atlas Maker's ⚙ Settings afterwards.")
+    return best[1]
+
+
+def _gen_settings() -> dict:
+    """`gen_width`/`gen_height` resolved from THIS project's effective
+    `atlas_config.json`, to be written into the manifest's own `settings` block.
+
+    Those two keys are `PER_ATLAS_KEYS`: a manifest that omits them inherits the
+    project-wide default at render time, so a fresh export's generation size is
+    whatever the global happens to be on the day it is generated — which is not
+    the same number as on the day it was exported. Stating it makes the manifest
+    self-describing, and it stays editable (blanking the field in ⚙ Settings
+    puts the region back on the global)."""
+    cfg = batch_atlas.load_config()
+    out: dict = {}
+    for key in ("gen_width", "gen_height"):
+        try:
+            v = int(float(cfg.get(key) or 0))
+        except (TypeError, ValueError):
+            v = 0
+        if v > 0:
+            out[key] = v
+    return out
+
+
 def _write_ref(input_dir: Path, r2: str, relpath: str, blob: bytes) -> None:
     """One ref image into staging AND R2 — the `video_to_clip._write_page`
     pattern. Staging is what this container's generation reads; R2 is what
@@ -138,39 +243,56 @@ def _write_ref(input_dir: Path, r2: str, relpath: str, blob: bytes) -> None:
 
 def _build_manifest(slug: str, regions: list[dict], *, session_id: str,
                     variation: int, source: str, picked: list[int],
-                    stride: int, fps: float, size: tuple[int, int]) -> dict:
-    """An EMPTY `pack` atlas (`ui_server._newatlas`'s shape) plus one region per
-    exported frame, each carrying only a name and a `style_ref`.
+                    stride: int, fps: float, size: tuple[int, int],
+                    page: tuple[int, int], settings: dict) -> dict:
+    """An EMPTY `grid` atlas plus one region per exported frame, each carrying a
+    name, a `style_ref` and a `fit_mode`.
 
-    No geometry of any kind: see rule 1 in the module docstring. The `_comment`
-    carries the provenance a regenerated atlas otherwise loses — which render
-    these frames came from, which frames, and at what RATE they were meant to
-    play, the one fact a folder of stills cannot hold."""
+    No per-region geometry: the cells are stamped by `grid_layout` on every
+    Create Atlas, from the four `atlas` fields seeded here. See rule 1 in the
+    module docstring for why `grid` and not `pack`.
+
+    The `_comment` carries the provenance a regenerated atlas otherwise loses —
+    which render these frames came from, which frames, and at what RATE they
+    were meant to play, the one fact a folder of stills cannot hold."""
     w, h = size
-    return {
+    page_w, page_h = page
+    m = {
         "_comment": (
             f"Reference images exported from the Invisible Flipbook video mode: "
             f"session {session_id}, variation #{int(variation)} ({source}), "
             f"frames {picked[0]}-{picked[-1]} step {int(stride)} "
             f"({len(picked)} of them) at {w}x{h}, rendered at {fps} fps. "
-            f"Full resolution, untrimmed, unscaled, and NOTHING is packed — "
-            f"generate each region, then Create Atlas builds the page."),
-        "atlas": {"layout": "pack"},
+            f"Full resolution, untrimmed, unscaled, and NOTHING is packed. The "
+            f"{page_w}x{page_h} page and {w}x{h} cell below are a STARTING "
+            f"POINT: change Atlas width/height and Default cell width/height in "
+            f"Settings and press Create Atlas, and the grid re-flows. Region "
+            f"order is frame order — do not sort it."),
+        "atlas": {"layout": "grid", "width": page_w, "height": page_h,
+                  "cell_width": w, "cell_height": h},
         "style": {"positive_prefix": "", "positive_suffix": "", "negative": ""},
         "regions": regions,
     }
+    if settings:
+        m["settings"] = settings
+    return m
 
 
 def build_ref_set(session_id: str, variation: int, *, name: str = "",
-                  start: int = 0, end: int = 0, stride: int = 1) -> dict:
+                  start: int = 0, end: int = 0, stride: int = 1,
+                  fit: str = DEFAULT_FIT) -> dict:
     """Export one variation's frames as Atlas Maker reference images.
 
     Writes `<input_dir>/refs/video/<slug>/<slug>_NNNN.png` (mirrored to
     `<r2>/input/…`) and `atlas_manifest_<slug>.json` into both `manifest_dir`
     and `<r2>/manifests/`. Raises `ValueError` with a user-readable message on
-    anything the caller can fix; the route renders it verbatim."""
+    anything the caller can fix; the route renders it verbatim.
+
+    `fit` is how each REGENERATED frame will sit in its grid cell — see
+    FIT_MODES. It is stamped on every region and is editable afterwards."""
     fname_src = video_to_clip._variation_file(session_id, variation)
     slug = _atlas_slug(name, session_id, variation)
+    fit = _normalize_fit(fit)
 
     pp = project_paths.resolve()
     r2 = pp["r2_project_prefix"]
@@ -192,6 +314,10 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     im = video_to_clip._open_variation(session_id, fname_src)
     picked = _pick_frames(im, start, end, stride)
     width, height = im.width, im.height
+    # Sized BEFORE a single byte is written, like every other refusal here: a
+    # page that cannot be seeded is the caller's to fix upstream (stride/range),
+    # and half an export on disk is the state this whole module avoids.
+    page = _grid_page(len(picked), width, height)
 
     # Pillow fills a WEBP frame's `info["duration"]` only after an explicit
     # seek()+load(); reading it off `ImageSequence.Iterator` yields None and the
@@ -215,7 +341,10 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
         # survives into the ref the way it left the render.
         frame.convert("RGBA").save(buf, format="PNG")
         _write_ref(input_dir, r2, relpath, buf.getvalue())
-        regions.append({"name": region, "style_ref": relpath})
+        # `fit_mode` is the ONE placement field this export writes, and it is
+        # authored input, not derived geometry: `grid_layout` re-stamps x/y/w/h
+        # on every Create Atlas but deliberately leaves this alone.
+        regions.append({"name": region, "style_ref": relpath, "fit_mode": fit})
 
     if len(regions) != len(picked):
         # The WEBP's header promised `n_frames` the decoder could not deliver
@@ -230,7 +359,7 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     manifest = _build_manifest(
         slug, regions, session_id=session_id, variation=int(variation),
         source=fname_src, picked=picked, stride=max(1, int(stride)), fps=fps,
-        size=(width, height))
+        size=(width, height), page=page, settings=_gen_settings())
     blob = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
     man_dir.mkdir(parents=True, exist_ok=True)
     (man_dir / man_name).write_bytes(blob)

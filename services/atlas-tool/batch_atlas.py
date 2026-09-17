@@ -637,6 +637,34 @@ def _effective_param_value(p: dict, raw):
     return value
 
 
+# The layouts this tool LAYS OUT ITSELF, as against reading a pre-authored
+# `.atlas` or falling back to the legacy no-layout cell grid. On these the
+# manifest owns its regions and every rect is DERIVED OUTPUT, re-stamped from
+# scratch on every Create Atlas:
+#   pack - ui_server.auto_pack_layout measures each region's generated art and
+#          packs it into an auto-sized page.
+#   grid - ui_server.grid_layout flows the regions, IN MANIFEST ORDER, through a
+#          fixed cell grid whose page and cell size the author typed in
+#          ⚙ Settings (`atlas.width/height/cell_width/cell_height`).
+# They differ in who decides the page size — the packer on `pack`, the author on
+# `grid` — but they agree on everything the callers below test for: the page is
+# composed here, the rects have exactly one producer, and no `.atlas` outranks
+# them. A gate that means "this tool owns the layout" must ask THIS, not
+# `layout == "pack"`.
+FROM_SCRATCH_LAYOUTS = frozenset({"pack", "grid"})
+
+
+def atlas_layout(m: dict) -> str:
+    """`manifest["atlas"]["layout"]`, normalized. Absent/blank = "" — the
+    `.atlas`-bound / legacy cell-grid manifests, which declare nothing."""
+    return str((m.get("atlas") or {}).get("layout", "")).strip().lower()
+
+
+def is_from_scratch(m: dict) -> bool:
+    """Does this tool lay this manifest out itself? See FROM_SCRATCH_LAYOUTS."""
+    return atlas_layout(m) in FROM_SCRATCH_LAYOUTS
+
+
 def region_box(region: dict) -> tuple[int, int, int, int]:
     """Resolve a region's (x, y, w, h). Explicit region values win; missing
     w/h fall back to atlas.cell_width/cell_height, then the full atlas size;
@@ -3851,25 +3879,34 @@ def main() -> None:
         except (KeyError, TypeError, ValueError):
             page_w = page_h = 0
         if page_w <= 0 or page_h <= 0:
-            print("Nothing to compose yet — this atlas has no page geometry. "
-                  "Generate at least one region, then Create Atlas (the page is "
-                  "packed from the generated art).")
+            if atlas_layout(manifest) == "grid":
+                print("Nothing to compose yet — this atlas has no page "
+                      "geometry. Set Atlas width and Atlas height in Settings "
+                      "(on a grid layout the page is yours, not the packer's), "
+                      "then Create Atlas.")
+            else:
+                print("Nothing to compose yet — this atlas has no page "
+                      "geometry. Generate at least one region, then Create "
+                      "Atlas (the page is packed from the generated art).")
             return
         canvas = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
         placed = 0
-        # A 'pack' atlas's rects are DERIVED: auto_pack_layout stamps one on
-        # every region it placed and strips it off every region it did not, so
+        # A from-scratch atlas's rects are DERIVED: the layout pass stamps one
+        # on every region it placed and leaves none on a region it did not, so
         # "no rect" means "not on this page" and there is no authored geometry
         # to fall back to. region_box's fallback would answer (0, 0, page) —
         # which for a region that acquired art in the window between that
         # measurement and this subprocess (a render finishing while Create Atlas
         # runs) paints one symbol across the WHOLE sheet, destroying every other
-        # region's pixels. Only a `pack` layout: a cell-grid atlas uses that
-        # fallback on purpose, for a single full-page image.
-        is_pack = str(atlas.get("layout", "")).strip().lower() == "pack"
+        # region's pixels. On `grid` the same fallback is a quieter version of
+        # the same wrong answer: cell_width/cell_height ARE set there, so every
+        # unplaced region would be painted into the top-left cell, one over
+        # another. Both layouts refuse instead; the legacy no-layout cell grid
+        # keeps that fallback on purpose, for a single full-page image.
+        derived_layout = is_from_scratch(manifest)
 
         def _unplaced(r: dict) -> bool:
-            return is_pack and not all(
+            return derived_layout and not all(
                 r.get(k) is not None for k in ("x", "y", "w", "h"))
 
         for region in regions:

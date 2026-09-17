@@ -3188,8 +3188,12 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     art to measure it, so the read->mutate->save cycle has to be closed by whoever
     holds the manifest lock, not from in here. Never raises — any failure returns
     a readable note and leaves the prior geometry untouched. Returns
-    `(None, False)` when `m` is not a pack atlas (so callers no-op silently)."""
-    if str((m.get("atlas") or {}).get("layout", "")).strip().lower() != "pack":
+    `(None, False)` when `m` is not a pack atlas (so callers no-op silently) —
+    `grid` deliberately included: a grid atlas is from-scratch too, but its page
+    and cell size are the AUTHOR's input, so `grid_layout` lays it out and this
+    must not touch it (packing one would overwrite the very fields the author
+    set)."""
+    if batch_atlas.atlas_layout(m) != "pack":
         return None, False
     regions = [r for bucket in ("regions", "rotated_regions")
                for r in (m.get(bucket) or [])
@@ -3330,6 +3334,154 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     return note, True
 
 
+# What a grid re-flow must CLEAR off a region it places. The rect it stamps IS
+# the authored cell, never a tight crop, so any trim record left on the region
+# describes a frame this layout does not have — and a surviving `orig_*` is live
+# input, not a dead field: its mere PRESENCE is what `fit_to_region` reads as
+# `spine_slot`, flipping an un-annotated region's placement from `contain` to
+# `fill`. Both spellings, for the reason spelled out on `_REPACK_CLEARED_KEYS`.
+# `rotated`/`rotate` go for the same reason the rect does: a grid cell is
+# upright by construction, and a stale flag makes every consumer compute the
+# footprint as (h x w) — `_rect_on_page`, `_rect_has_ink` and the TexturePacker
+# writer all swap on it.
+#
+# `fit_mode` is DELIBERATELY NOT cleared, and that is the one real difference
+# from the pack path. There it is derived output (auto_pack picks it from
+# `pack_trim`); here it is the author's placement choice, stamped at export from
+# the 🖼 To Atlas Maker `fit` control and editable after — clearing it would
+# silently drop every frame back to the alpha-crop-and-rescale default, which is
+# exactly the per-frame re-centring a flipbook must not have.
+_GRID_CLEARED_KEYS = tuple(
+    k for k in _REPACK_CLEARED_KEYS if k != "fit_mode") + ("rotated", "rotate")
+
+
+def grid_layout(m: dict) -> tuple[str | None, bool]:
+    """Cell-grid (`atlas.layout == "grid"`) atlases: flow the regions through
+    the page the AUTHOR sized, in manifest order.
+
+    The opposite of `auto_pack_layout` in the one way that matters: there the
+    packer decides the page and overwrites `atlas.width/height` with its own
+    result, so the Settings fields are output and typing in them does nothing.
+    Here those four fields — `atlas.width`, `atlas.height`, `atlas.cell_width`,
+    `atlas.cell_height` — are INPUT. They are read, never written. Region `i`
+    lands at `x = (i % cols) * cell_width`, `y = (i // cols) * cell_height`,
+    at exactly one cell's size, with `cols = width // cell_width` and
+    `rows = height // cell_height`.
+
+    MANIFEST ORDER IS THE ANIMATION. The 🖼 To Atlas Maker export writes one
+    region per frame in frame order, so a sort — by name, by size, by anything —
+    would re-order the flipbook. Regions are taken exactly as they lie, `regions`
+    then `rotated_regions` (every manifest walk in this file reads both buckets;
+    a grid atlas normally has only the first).
+
+    RE-RUN TO RE-FLOW. This runs on every Create Atlas, from the manifest's
+    CURRENT settings — that is the whole point. Change the cell size in
+    ⚙ Settings, press Create Atlas, and every rect moves. Nothing is frozen at
+    export time.
+
+    ONE PAGE, AND A REFUSAL RATHER THAN A SILENT TRUNCATION. `batch_atlas` has
+    no page concept — a manifest has a single `source_image` — so there is no
+    second sheet to overflow onto. When the regions outnumber the cells NOTHING
+    is changed and the note names the capacity, the count and the three knobs
+    that fix it. Same rule as `MAX_REF_FRAMES` and the ref-zip ceiling: this
+    tool refuses rather than shortens, because a short atlas and a complete one
+    look identical once they are a manifest.
+
+    Returns `(note, changed)`, mutates `m`, and the CALLER saves — the same
+    contract as `auto_pack_layout`, for the same reason. Never raises: every
+    bad input comes back as a readable note with the prior geometry untouched.
+    Returns `(None, False)` when `m` is not a grid atlas."""
+    if batch_atlas.atlas_layout(m) != "grid":
+        return None, False
+    try:
+        atlas = m.setdefault("atlas", {})
+
+        def _dim(key: str) -> int:
+            try:
+                return int(float(atlas.get(key) or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        page_w, page_h = _dim("width"), _dim("height")
+        cell_w, cell_h = _dim("cell_width"), _dim("cell_height")
+        labels = {"width": "Atlas width", "height": "Atlas height",
+                  "cell_width": "Default cell width",
+                  "cell_height": "Default cell height"}
+        missing = [labels[k] for k, v in (("width", page_w), ("height", page_h),
+                                          ("cell_width", cell_w),
+                                          ("cell_height", cell_h)) if v <= 0]
+        if missing:
+            return ("⚠ Grid layout: nothing was laid out — %s %s missing (or "
+                    "zero, or not a number). Set all four in ⚙ Settings "
+                    "(Atlas width/height + Default cell width/height), then "
+                    "Create Atlas again."
+                    % (", ".join(missing),
+                       "is" if len(missing) == 1 else "are")), False
+        if cell_w > page_w or cell_h > page_h:
+            return (f"⚠ Grid layout: the cell ({cell_w}×{cell_h}) is bigger "
+                    f"than the page ({page_w}×{page_h}), so not one whole cell "
+                    f"fits and nothing was laid out. Lower Default cell "
+                    f"width/height, or raise Atlas width/height.", False)
+
+        regions = [r for bucket in ("regions", "rotated_regions")
+                   for r in (m.get(bucket) or [])
+                   if isinstance(r, dict) and r.get("name")]
+        if not regions:
+            return ("⚠ Grid layout: this atlas has no regions yet — nothing to "
+                    "lay out."), False
+
+        cols, rows = page_w // cell_w, page_h // cell_h
+        capacity = cols * rows
+        if capacity < len(regions):
+            return (f"⚠ Grid layout: this {page_w}×{page_h} page holds "
+                    f"{cols}×{rows} = {capacity} cell(s) of {cell_w}×{cell_h}, "
+                    f"but the atlas has {len(regions)} region(s) — "
+                    f"{len(regions) - capacity} would not fit. NOTHING was "
+                    f"re-laid out (the manifest keeps the geometry it had): an "
+                    f"atlas is ONE page here, so an overflowing grid is refused "
+                    f"rather than silently shortened. Any one of these fixes "
+                    f"it — raise Atlas width/height, lower Default cell "
+                    f"width/height, or re-export from the Flipbook with a "
+                    f"bigger stride (fewer frames)."), False
+
+        changed = False
+        for i, r in enumerate(regions):
+            want = {"x": (i % cols) * cell_w, "y": (i // cols) * cell_h,
+                    "w": cell_w, "h": cell_h}
+            if any(r.get(k) != v for k, v in want.items()):
+                changed = True
+            r.update(want)
+            for k in _GRID_CLEARED_KEYS:
+                if k in r:
+                    r.pop(k, None)
+                    changed = True
+        # Same reason as auto_pack_layout's pop: a TexturePacker descriptor
+        # names the page this re-flow just superseded, and the launcher's
+        # `backfillMissingGeometry` treats it as AUTHORITATIVE — it would
+        # overwrite every rect by name and restore the OLD grid on the NEW page.
+        if atlas.pop("texturepacker_json", None) is not None:
+            changed = True
+
+        spare = capacity - len(regions)
+        note = (f"Grid layout: {len(regions)} region(s) → a {cols}×{rows} grid "
+                f"of {cell_w}×{cell_h} cells on the {page_w}×{page_h} page you "
+                f"set" + (f" ({spare} cell(s) spare)" if spare else ""))
+        slack = [f"{n}px {where}" for n, where in
+                 ((page_w - cols * cell_w, "on the right"),
+                  (page_h - rows * cell_h, "at the bottom")) if n]
+        if slack:
+            # Say it, because it is the arithmetic the author did not do: a
+            # 1000px page of 300px cells wastes 100px that LOOKS like it should
+            # have held something.
+            note += (f"\nℹ No whole cell fits in the last "
+                     f"{' and '.join(slack)}, so that page area stays empty — "
+                     f"the page is not an exact multiple of the cell.")
+        return note, changed
+    except Exception as e:  # noqa: BLE001 — a layout hiccup never breaks compose
+        return (f"⚠ Grid layout failed ({type(e).__name__}: {e}) — the manifest "
+                f"was not saved, so it keeps the geometry it had."), False
+
+
 def _page_mtime(p: Path) -> float | None:
     """`p`'s mtime, or None when it is not a readable non-empty file."""
     try:
@@ -3369,20 +3521,24 @@ def _composed_page(stem: str) -> tuple[Path | None, str | None]:
 
 
 def publish_pack_page(mp: Path, started_at: float) -> str | None:
-    """Point a re-packed `pack` atlas's manifest at the page THIS tool composed,
-    and make that page real in R2 first. Returns a log note, or None for a
-    manifest this does not apply to.
+    """Point a re-laid-out FROM-SCRATCH atlas's manifest at the page THIS tool
+    composed, and make that page real in R2 first. Returns a log note, or None
+    for a manifest this does not apply to.
 
-    WHY. A `pack` manifest's rects are re-derived by `auto_pack_layout` from the
-    generated art on every Create Atlas, so its geometry has exactly one
+    WHY. A from-scratch manifest's rects are re-derived on every Create Atlas —
+    by `auto_pack_layout` from the generated art on `pack`, by `grid_layout`
+    from the author's cell size on `grid` — so its geometry has exactly one
     producer: this tool. Its `atlas.source_image_path` pointed somewhere else
     entirely — a Flipbook sheet under `sheets/`, an imported page under
-    `refs/atlas/` — pages NOBODY re-packs. The manifest therefore invalidated
-    its own declared page the first time it was re-packed: fresh rects, a page of
-    a different size, and every consumer that crops the declared page by those
+    `refs/atlas/` — pages NOBODY re-derives. The manifest therefore invalidated
+    its own declared page the first time it was re-laid out: fresh rects, a page
+    of a different size, and every consumer that crops the declared page by those
     rects (the editor, `/symbols`, `/flipbook`) slicing the wrong pixels. Naming
     our own composed page closes it — the rects and the page now come from the
-    same producer, in the same run.
+    same producer, in the same run. `grid` needs it for exactly the same reason
+    `pack` does: the export that creates one seeds `source_image` with nothing
+    at all, and re-running Create Atlas after a cell-size change re-writes every
+    rect, so a page pointer left alone would name whatever was there before.
 
     ORDERING. The page does not exist when `auto_pack_layout` runs (it is what
     compose is about to make) and its extension is not known until the WEBP
@@ -3401,7 +3557,7 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     with _manifest_lock:
         m = _read_manifest_at(mp) or {}
     atlas = m.get("atlas") or {}
-    if str(atlas.get("layout", "")).strip().lower() != "pack":
+    if not batch_atlas.is_from_scratch(m):
         return None
     stem = mp.stem.replace("atlas_manifest_", "")
     page, pick_note = _composed_page(stem)
@@ -3459,8 +3615,8 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     with _manifest_lock:
         m = _read_manifest_at(mp) or {}
         atlas = m.setdefault("atlas", {})
-        if str(atlas.get("layout", "")).strip().lower() != "pack":
-            return None  # re-read: it stopped being a pack atlas mid-compose
+        if not batch_atlas.is_from_scratch(m):
+            return None  # re-read: it stopped owning its layout mid-compose
         was = str(atlas.get("source_image_path", ""))
         atlas["source_image"] = page.name
         atlas["source_image_path"] = key
@@ -3528,9 +3684,13 @@ def _run_compose_pinned(mp: Path) -> None:
     except Exception as e:  # noqa: BLE001 — never block compose on a repair
         _rn = f"[fit_mode repair skipped] {e}"
         pre_note = f"{pre_note}\n{_rn}" if pre_note else _rn
-    # From-scratch atlases lay themselves out: pack the generated art into a
-    # page and write geometry onto the manifest BEFORE the compose subprocess
-    # reads it. No-op (returns None) for `.atlas`-bound / cell-grid manifests.
+    # From-scratch atlases lay themselves out and write geometry onto the
+    # manifest BEFORE the compose subprocess reads it: `pack` packs the
+    # generated art into an auto-sized page, `grid` re-flows the regions through
+    # the page + cell size the author set in ⚙ Settings. Both are re-derived on
+    # EVERY Create Atlas — that is how an edited cell size reaches the page.
+    # Each gates on its own layout, so exactly one of them ever does anything;
+    # both no-op (None, False) for `.atlas`-bound / legacy cell-grid manifests.
     try:
         # Under the lock end to end. It measures every region's art, so it is
         # not instant — but it reads the same local files compose is about to
@@ -3545,17 +3705,19 @@ def _run_compose_pinned(mp: Path) -> None:
         with _manifest_lock:
             m = _read_manifest_at(mp) or {}
             pack_note, pack_changed = auto_pack_layout(m)
-            # Save on the function's OWN signal, not on the shape of its note.
+            grid_note, grid_changed = grid_layout(m)
+            # Save on the functions' OWN signal, not on the shape of their note.
             # The gate used to be `not note.startswith("⚠")` — but "nothing
             # generated yet" is a ⚠ that now still clears stale rects, and a
-            # non-pack manifest is a None that must not be written. Only
-            # auto_pack_layout knows whether it mutated anything.
-            if pack_changed:
+            # manifest neither owns is a None that must not be written. Only
+            # they know whether they mutated anything.
+            if pack_changed or grid_changed:
                 _write_manifest_at(mp, m)
-        if pack_note:
-            pre_note = f"{pre_note}\n{pack_note}" if pre_note else pack_note
-    except Exception as e:  # noqa: BLE001 — never block compose on a pack hiccup
-        _pn = f"[auto-pack skipped] {e}"
+        layout_note = "\n".join(n for n in (pack_note, grid_note) if n)
+        if layout_note:
+            pre_note = f"{pre_note}\n{layout_note}" if pre_note else layout_note
+    except Exception as e:  # noqa: BLE001 — never block compose on a layout hiccup
+        _pn = f"[auto-layout skipped] {e}"
         pre_note = f"{pre_note}\n{_pn}" if pre_note else _pn
     # Pass the manifest explicitly (full staging path) so compose reads the same
     # creative manifest the steps above just prepared — not whatever the
@@ -7675,11 +7837,13 @@ class Handler(BaseHTTPRequestHandler):
                 )).encode()
             if route == "/video/torefs":
                 # The other export: the same frames as Atlas Maker REFERENCE
-                # images (full size, untrimmed, unpacked) + an empty `pack`
+                # images (full size, untrimmed, unpacked) + an empty `grid`
                 # manifest pointing at them. Inline for the same reason toclip
                 # is — Pillow seconds, not GPU minutes. NOT in
                 # `_REF_MUTATING_ROUTES`: that mirror re-pushes the WHOLE input
                 # tree, and this route has already put every file it wrote.
+                # `fit` is optional and validated by the module (an unknown one
+                # raises ValueError → the `{"error": …}` shape below).
                 return json.dumps(video_to_refs.build_ref_set(
                     sid,
                     int(payload.get("variation") or 0),
@@ -7687,6 +7851,7 @@ class Handler(BaseHTTPRequestHandler):
                     start=int(payload.get("start") or 0),
                     end=int(payload.get("end") or 0),
                     stride=int(payload.get("stride") or 1),
+                    fit=str(payload.get("fit") or video_to_refs.DEFAULT_FIT),
                 )).encode()
             return json.dumps(video_runner.delete_session(sid)).encode()
         except ValueError as e:
@@ -8899,8 +9064,19 @@ class Handler(BaseHTTPRequestHandler):
         # upload (see the size guard above) — ground truth for both rect guards
         # below, and for the bound-`.atlas` path as much as the fallback.
         blank: list[str] = []     # a rect the page has no ink under
-        _is_pack = str((m.get("atlas") or {}).get(
-            "layout", "")).strip().lower() == "pack"
+        # DELIBERATELY `pack` alone, not `is_from_scratch`. The two things this
+        # flag decides both rest on a property only AUTO-PACKING has: a pack rect
+        # is stamped ONLY after measuring non-empty art, so a blank one is
+        # definitionally a fault (drop the frame) and same-sized frames with no
+        # trim record are definitionally destroyed trim (warn). Neither holds on
+        # `grid`: grid_layout never opens an image, so an ungenerated region gets
+        # its cell like every other one — a blank cell there is the ordinary
+        # "not generated yet" state, and the non-pack branch already says exactly
+        # that ("kept, but the game will render them as nothing"). Dropping it
+        # instead would turn a visible hole into a missing frame. (The trim
+        # warning is moot on a grid anyway: every frame is one cell, so
+        # `framed_sizes` can never exceed one.)
+        _is_pack = batch_atlas.atlas_layout(m) == "pack"
         atlas_path = batch_atlas.atlas_file_path(m, manifest_path())
         if not page_only and atlas_path is not None and atlas_path.exists():
             # First choice: the bound `.atlas` is the authoritative region map.
@@ -9500,11 +9676,13 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         cards = []
         g_pipe = str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
-        # A from-scratch ('pack' layout) atlas owns its regions in the manifest,
-        # so each card gets a delete affordance. An `.atlas`-bound atlas takes
-        # its regions from the geometry file — deleting one here is meaningless.
-        is_pack = str((m.get("atlas") or {}).get(
-            "layout", "")).strip().lower() == "pack"
+        # A from-scratch atlas (`pack` or `grid`) owns its regions in the
+        # manifest, so each card gets a delete affordance. An `.atlas`-bound
+        # atlas takes its regions from the geometry file — deleting one here is
+        # meaningless. Grid belongs on this side for the same reason pack does:
+        # its regions ARE the manifest's list, and on the next Create Atlas the
+        # grid simply re-flows around the gap.
+        is_pack = batch_atlas.is_from_scratch(m)
         for r in all_regions(m):
             name = r["name"]
             eff_pipe = str(r.get("pipeline", "")).strip().lower() or g_pipe

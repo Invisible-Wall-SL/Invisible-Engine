@@ -44,10 +44,22 @@ except the first bullet below, which is on a branch:
   Max px.
   - **The owner's objection is what the design answers.** They did not want the export to create an
     atlas, because "this atlas could be very big otherwise since the source ref images will be of
-    1024x1024". It cannot: `auto_pack_layout` leaves a region with no committed image UNPLACED, so
-    a manifest carrying only `style_ref`s produces **no page at all**. The refs are loose files
-    under `input/refs/video/<slug>/`; the page appears on Create Atlas, from the generated art at
-    `GEN_WIDTH`/`GEN_HEIGHT`. "An atlas" is a manifest here, not a sheet — the two were one word.
+    1024x1024". It cannot: the refs are loose input files under `input/refs/video/<slug>/` and never
+    enter a sheet; the page is built from the GENERATED art, fitted into the cells. "An atlas" is a
+    manifest here, not a sheet — the two were one word, and that was the whole confusion.
+  - **It exports a `grid` atlas, not a `pack` one** _(changed 2026-09-17, after the owner reported
+    "i do not get the correct resize and atlas size I set in the atlas settings")_. The first cut
+    wrote `layout: "pack"`, which derives the page from the art and **overwrites** the very
+    `atlas.width`/`height` the owner had typed in Settings — so those fields could never take
+    effect. The new `grid` layout reads them instead and re-flows on every Create Atlas. The layout
+    is an Atlas Maker feature and its detail lives in [status/atlas-maker](atlas-maker.md); here it
+    means the export seeds a cell the size of a video frame, the smallest page that holds the
+    frames (capped at 4096 a side), a `settings` block stating the generation size explicitly
+    rather than inheriting a global that may change, and a per-region `fit_mode` chosen in the
+    panel (**Fit**: contain / cover / fill, default `contain` — uniform scale, centred, which is
+    what keeps a regenerated sequence registered).
+  - **One page: an over-capacity grid refuses rather than laying out a partial one.** Multi-page
+    does not exist anywhere in `batch_atlas.py` — see atlas-maker's open item 12.
   - **`style_ref`, never `shape_ref`.** `normalize_shape_ref` grayscales, thresholds and rescales
     onto a 1024² canvas; bound as a shape ref these frames would stop being pictures. Pinned by a
     fixture assertion that no region carries a `shape_ref`.
