@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { deserialize } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
@@ -1917,13 +1918,17 @@
 		const existing = location.search.replace(/^\?/, '');
 		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
 		const res = await fetch(target, { method: 'POST', body: fd });
-		const json = (await res.json()) as { type: string; data?: string };
-		if (!json.data) return {};
-		const parsed = JSON.parse(json.data) as unknown[];
-		const root = parsed[0] as Record<string, number>;
-		const out: Record<string, unknown> = {};
-		for (const [key, idx] of Object.entries(root)) out[key] = parsed[idx];
-		return out;
+		// Action results are devalue-encoded: an indexed array where EVERY value is a
+		// reference, at every depth. Hand-resolving only the top level left nested payloads
+		// (e.g. the save's `warnings`) as raw indices, and returned `{}` for `error`/`redirect`
+		// results — which the save below read as "no error", reporting a 500 or an expired
+		// session as "Saved." while nothing reached R2. `deserialize` is SvelteKit's own decoder.
+		const result = deserialize(await res.text());
+		if (result.type === 'success' || result.type === 'failure') return result.data ?? {};
+		if (result.type === 'error') {
+			return { error: result.error?.message ?? 'The server returned an error.' };
+		}
+		return { error: 'Your session expired — reload the page and sign in again.' };
 	}
 
 	/**
