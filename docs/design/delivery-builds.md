@@ -189,6 +189,55 @@ supplies the multiplier ladder and the default selection, so the game does not h
 which is most of Phase 2 item 2 below, from the other direction: `betOptions` (server) gives the
 credit cost per option, `betMultipliers` (host) gives the stake steps.
 
+### The set is per-brand, and it is a REQUEST CHANNEL
+
+This is not a fixed contract we discover and conform to. The schema is declared **per brand**, and
+the partner extends it on request: we name a field, its type and its scope, they add it to the
+brand, set it server-side, and it appears in `config` on the next `get_game`. Their words: _"you can
+tell me add variable 'wtf' as a stringlist … and it will be part of server knowledge"_.
+
+Brands differ because their games do — a `crash` brand carries `externalWsHost` (it needs a socket),
+`mainBetMultiplierIndexes`, `maxMultiplier` and its own history model, and simply does not have most
+of the slot chrome above. So OUR brand's set is ours to shape, and `eanew` is only where we start
+because that is where game 2 lives.
+
+`host.ts` is already built for this: it reads **by name** and returns null when a field is absent, so
+honouring a new one is a one-line read that cannot break an operator who has not set it. Adding a
+field is cheap on both sides; the expensive thing is inventing client behaviour for a value the
+operator never declared, which is the mistake `betOptionsName` nearly walked us into.
+
+### What we should ask for — and what we should honour first
+
+Nothing is blocking: every field the client currently reads already exists in `eanew`. The gap runs
+the other way — fields that are **already there** and which we still answer ourselves:
+
+| Already declared, not yet honoured                                                                                  | What we do instead today               |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `betMultipliers` · `initialBetMultiplierIndex` · `minNormalBet` · `maxNormalBet`                                    | `requestAuthenticate` invents a ladder |
+| `currencySymbol` · `currencyFormat` · `isLockChangeCurrency`                                                        | format money from our own config       |
+| `locale`                                                                                                            | Lingui's own resolution                |
+| `allowAutoplay` · `autoplayDisabled` · `autoplaySpins`                                                              | a coded autoplay menu                  |
+| `minSpinDuration`                                                                                                   | coded spin timing                      |
+| `home`                                                                                                              | no lobby/exit affordance               |
+| `showCreditValue` · `showBetRanges` · `errorPanel` · `clock` · `elapsedTime` · `showTime` · `confirmGameRoundStart` | coded on/off                           |
+| `historyClient` · `externalHistoryUrl`                                                                              | no history surface                     |
+
+Each is an operator's declaration about a REGULATED or contractual surface, so each one we answer
+ourselves is a place a delivery can be wrong for a jurisdiction. Work through them by how much they
+cost to get wrong — the bet ladder first, then currency, then autoplay.
+
+### `service` is read and then ignored
+
+`readHostGameSettings()` already returns `service` (`"webnode/engine"`) and nothing consumes it: the
+profile's baked `rgs.endpoint` wins. Worth closing, and it may close something bigger with it — in
+their own template the game API is built as a **relative** path (`'/' + RequestController.getBaseUrl()
+
+- '/engine'`), i.e. same-origin with the page. If that is how a real operator deployment is wired,
+then a delivery's RGS is same-origin, and the CORS work (`simpleRequest`, the `text/plain`dodge, the
+preflight question) is moot for exactly the case it was built for. Confirm before assuming either
+way:`allowUrlOverride: false` already stops the URL being repointed, and a relative endpoint is a
+  strictly smaller attack surface than an absolute one.
+
 ## Phase 3 — the embeddable build ✅ BUILT
 
 `pnpm --filter lines build:embed` (`PUBLIC_DELIVERY_EMBED=1` + `scripts/build-embed.mjs`) produces
