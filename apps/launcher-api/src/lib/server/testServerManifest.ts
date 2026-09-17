@@ -141,7 +141,21 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 	return { status: 'unknown' };
 }
 
-export type MockProtocol = 'lines' | 'book' | 'ways' | 'cluster' | 'scatter';
+/**
+ * The mock RGS protocols the test server implements — the VALUE, with the type derived from it, so
+ * a runtime validator and the type can never disagree. (A hand-copied allowlist behind the union
+ * would: there is no `svelte-check` here and a type error still builds green, so a missing member
+ * ships silently — see `apps/launcher-api/CLAUDE.md` §Validate.) Its own list lives in
+ * `services/test-server/server.mjs`: a name this side accepts but that side doesn't leaves the game
+ * with no mock to talk to.
+ */
+export const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter'] as const;
+
+export type MockProtocol = (typeof MOCK_PROTOCOLS)[number];
+
+export function isMockProtocol(value: unknown): value is MockProtocol {
+	return typeof value === 'string' && (MOCK_PROTOCOLS as readonly string[]).includes(value);
+}
 
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
