@@ -71,6 +71,7 @@ check('credentialed fetch (the captured same-origin behaviour)', DEFAULT_DELIVER
 check('?rgs_url= still wins', DEFAULT_DELIVERY_PROFILE.rgs.allowUrlOverride, true);
 check('same-origin base', DEFAULT_DELIVERY_PROFILE.rgs.baseUrl, '');
 check('session param', DEFAULT_DELIVERY_PROFILE.session.param, 'sessionID');
+check('the token comes from the URL, as it always did', DEFAULT_DELIVERY_PROFILE.session.source, 'param'); // prettier-ignore
 check('demo session still minted', DEFAULT_DELIVERY_PROFILE.session.required, false);
 check('a JSON content type (NOT the preflight-free simple request)', DEFAULT_DELIVERY_PROFILE.rgs.simpleRequest, false); // prettier-ignore
 check('an absent patch is a no-op', merge(undefined).profile, DEFAULT_DELIVERY_PROFILE);
@@ -137,6 +138,13 @@ check('...and each refusal is reported', merge(policed, DELIVERY, 'override').wa
 check('the BAKED half may set all three', merge(policed, DELIVERY, 'baked').profile.rgs.allowUrlOverride, true); // prettier-ignore
 check('an override CAN repoint the host', merge({ rgs: { baseUrl: 'https://staging.example' } }, DELIVERY, 'override').profile.rgs.baseUrl, 'https://staging.example'); // prettier-ignore
 check('...and rename the session param', merge({ session: { param: 'token' } }, DELIVERY, 'override').profile.session.param, 'token'); // prettier-ignore
+
+console.log('\n7b. the token can be taken from the operator page instead of the URL');
+check('a profile can ask for it', merge({ session: { source: 'host' } }).profile.session.source, 'host'); // prettier-ignore
+check('...and back again', merge({ session: { source: 'param' } }, DELIVERY).profile.session.source, 'param'); // prettier-ignore
+check('anything else is refused', merge({ session: { source: 'postMessage' } }, DELIVERY).profile.session.source, DELIVERY.session.source); // prettier-ignore
+check('...and named', merge({ session: { source: 'postMessage' } }, DELIVERY).warnings, ['session.source must be "param" or "host" — ignored']); // prettier-ignore
+check('omitting it keeps what the build was cut with', merge({ session: {} }, DELIVERY).profile.session.source, DELIVERY.session.source); // prettier-ignore
 
 console.log('\n8. the shipped partner profile resolves to the transport we intend');
 const shipped = JSON.parse(

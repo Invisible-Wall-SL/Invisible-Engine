@@ -9,6 +9,7 @@
 
 export {
 	requestAuthenticate,
+	requestBalance,
 	requestBet,
 	requestEndRound,
 	requestEndEvent,

@@ -58,6 +58,20 @@ export interface DeliveryProfileRgs {
 }
 
 export interface DeliveryProfileSession {
+	/**
+	 * Where the session token comes from.
+	 *
+	 * `param` — a query param on our own URL. Every launch WE generate, and the only source that
+	 * existed before an operator hosted us.
+	 * `host` — `params.GameSettings.token` on the operator's embed page (see `host.ts`). Their
+	 * wrapper resolves the session server-side and never puts it in the game's URL, so a delivery
+	 * that waits for a query param would sit there forever.
+	 *
+	 * `host` still falls back to the param when the page carries no token, which is what keeps our
+	 * own QA links working against a delivery build.
+	 */
+	source: 'param' | 'host';
+
 	/** Query-param name the host page carries the session token in. Ours is `sessionID`; a partner
 	 *  minting sessions through their own platform is likelier to use `sid`. */
 	param: string;
@@ -98,6 +112,7 @@ export const DEFAULT_DELIVERY_PROFILE: DeliveryProfile = {
 	}),
 	session: Object.freeze({
 		param: 'sessionID',
+		source: 'param',
 		required: false,
 	}),
 };

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
 
-	import { requestAuthenticate, requestReplay } from 'rgs-requests';
-	import { getDeliveryProfile, loadDeliveryProfile } from 'delivery-profile';
+	import { requestAuthenticate, requestBalance, requestReplay } from 'rgs-requests';
+	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
 	import { stateUrlDerived, stateBet, stateConfig, stateModal, stateUi } from 'state-shared';
 	import { API_AMOUNT_MULTIPLIER, MOST_USED_BET_INDEXES } from 'constants-shared/bet';
 
@@ -129,6 +129,39 @@
 		}
 	};
 
+	/**
+	 * Keep the balance fresh while the game is open, at the cadence the OPERATOR asked for.
+	 *
+	 * Their embed page states `balanceUpdateInterval` (30s on the 2-complex node) because a player
+	 * can top up in the casino cashier without leaving the game: without a poll the HUD keeps showing
+	 * the balance from boot, and the first spin after a deposit looks like it was refused.
+	 *
+	 * Deliberately driven by the HOST's number and nothing else — no embed page, no polling, so every
+	 * game we run today is untouched. The transport decides whether asking is safe: `requestBalance`
+	 * returns undefined mid-round and on any failure, so a poll can neither interrupt a spin nor
+	 * blank the HUD on a dropped packet.
+	 */
+	let balanceTimer: ReturnType<typeof setInterval> | undefined;
+
+	const startBalancePolling = () => {
+		const interval = hostNumber('balanceUpdateInterval');
+		if (!interval) return;
+		// A pathologically small value would hammer the RGS; a minute's worth of slack is plenty for
+		// "a deposit shows up eventually".
+		const period = Math.max(interval, 5_000);
+		balanceTimer = setInterval(async () => {
+			const data = await requestBalance({
+				sessionID: stateUrlDerived.sessionID(),
+				rgsUrl: stateUrlDerived.rgsUrl(),
+			});
+			if (data?.balance) {
+				stateBet.balanceAmount = data.balance.amount / API_AMOUNT_MULTIPLIER;
+			}
+		}, period);
+	};
+
+	onDestroy(() => clearInterval(balanceTimer));
+
 	const handleReplay = async () => {
 		stateBet.betAmount = stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER || 0;
 		stateBet.wageredBetAmount = stateUrlDerived.amount() / API_AMOUNT_MULTIPLIER || 0;
@@ -174,6 +207,9 @@
 		}
 
 		authenticated = true;
+
+		// After authenticate, so the first poll cannot race the boot balance it would overwrite.
+		startBalancePolling();
 	});
 </script>
 

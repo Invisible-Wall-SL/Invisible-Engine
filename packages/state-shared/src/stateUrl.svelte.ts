@@ -1,6 +1,6 @@
 import { locales } from 'config-lingui';
 import { page } from '$app/state';
-import { getDeliveryProfile } from 'delivery-profile';
+import { getDeliveryProfile, readHostGameSettings } from 'delivery-profile';
 
 export type Language = (typeof locales)[number];
 
@@ -71,7 +71,12 @@ const lang = () =>
  */
 const sessionID = () => {
 	const profile = getDeliveryProfile();
-	const raw = getRawSearchParam(profile.session.param) || getRawSearchParam('sessionID');
+	// An operator's embed page resolves the session server-side and never puts it in the game's URL
+	// (`params.GameSettings.token`), so a delivery waiting on a query param would wait forever. The
+	// param is still read as a fallback, which is what keeps our own QA links working there.
+	const fromHost = profile.session.source === 'host' ? (readHostGameSettings()?.token ?? '') : '';
+	const raw =
+		fromHost || getRawSearchParam(profile.session.param) || getRawSearchParam('sessionID');
 	if (raw && raw !== DEMO_SESSION) return raw;
 	if (profile.session.required) return '';
 	// Give each browser its own mock wallet; never touch a real per-player session.
