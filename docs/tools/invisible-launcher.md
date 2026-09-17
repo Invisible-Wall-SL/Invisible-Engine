@@ -90,6 +90,14 @@ press — fetch + hard-reset to `origin/main`, advance the engine submodule to i
 branch tip, `pnpm install && pnpm build` (assets pull live from R2), upload the
 bundle, register the game card, verify it's live.
 
+**Every publish builds the latest engine.** A game repo holds no game code of its
+own: the game layer is compiled straight from the engine submodule that the step
+above just advanced to `main`, so there is no engine version to choose and no way
+for a build to fall behind. (Until 2026-09-17 each repo carried a copy of the
+engine's game layer, frozen on the day it was scaffolded — that is what made
+builds ship a months-old game. If an older repo still has a `src/` folder the
+build ignores it and says so; `git rm -r src` clears it up.)
+
 **You don't pick a template for an existing project.** A project's **game kind**
 (Lines, Book of, Ways, Cluster, Scatter, or a custom kind) is authored online —
 in Invisible Game Maker or the editor's kind picker — and the portal sends it
@@ -115,7 +123,8 @@ game repo (engine submodule + build wiring), makes the first commit, pushes a
 private GitHub repo if the `gh` CLI is signed in, and shares the setup so every
 other machine clones it on the next Sync. Then ☁ Publish works like any other
 game. Nothing is typed — the folder, the cloud key and the build all follow the
-project it's scaffolding for.
+project it's scaffolding for, and the repo carries no game code, so it tracks the
+engine automatically.
 
 - It appears **only on a project that has no repo**, and disappears once used.
 - Needs *Engine dir* set in Settings (it drives the engine's own scaffolder) and,

@@ -9,24 +9,28 @@
  * Usage:
  *   node scripts/new-game.mjs --name "Book of Foo" [--slug book-of-foo] \
  *        [--dir "C:/Invisible Wall SL/Projects/iGaming/<client>"] [--port 3003] \
- *        [--client <launcherClientKey>] [--no-seed-src]
+ *        [--client <launcherClientKey>]
  *
  * What it does (all mechanical, all reversible — it only writes a fresh dir):
  *   1. mkdir <dir>/<slug>, git init (on `main`)
  *   2. add this engine as the `engine/` submodule (Invisible-Engine, branch main)
  *   3. write the engine-consumption wiring (pnpm-workspace, package.json with
  *      workspace:* engine deps, svelte/vite config extending the engine configs,
- *      tsconfig, .gitignore, app.html)
- *   4. SEED the game itself from `apps/lines` — its `src/` and `static/` — so the
- *      repo builds the same game the shared runtime bundle runs (see SEED_APP)
+ *      tsconfig, .gitignore)
+ *   4. seed `static/` from `apps/lines` — the default audio + bitmap fonts a game
+ *      boots with before `pull:assets` mirrors the project's own over the top
  *   5. print the next steps (pnpm install, add the GitHub remote, deploy)
  *
- * Step 4 used to be absent: the scaffold wrote a placeholder route saying "fill in
- * src/ to build the game", on the theory that a new game starts from scratch. That
- * made the repo useless for the case that actually happens — the desktop launcher's
- * 🏗 Scaffold, which gives an EXISTING online game a standalone build. It built and
- * published perfectly and served the placeholder, because there was no game in it.
- * Pass `--no-seed-src` for the old bare skeleton.
+ * THE REPO HAS NO `src/`, AND THAT IS THE POINT. It used to get a full copy of
+ * `apps/lines/src`, so that it would build a real game rather than the placeholder
+ * route the first version wrote. But a copy is a snapshot: the desktop launcher
+ * advances `engine/` to `origin/main` before every build, so `packages/*` stayed
+ * current while the game layer stayed frozen at scaffold day — and 53 of the last 60
+ * engine commits touch `apps/lines/src`. Every scaffolded game silently shipped a
+ * months-old engine. Now `config-svelte` points `kit.files` straight at the
+ * submodule's `apps/lines/src` (see `packages/config-svelte/appSrc.js`), so the game
+ * layer is the engine's, current by construction, and a desktop build and the shared
+ * online runtime bundle are once again the same code.
  */
 import { execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, cpSync, readFileSync } from 'node:fs';
@@ -38,8 +42,8 @@ const DEFAULT_PARENT = 'C:/Invisible Wall SL/Projects/iGaming';
 const ENGINE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The app a new game's source starts from — ALWAYS `lines`, for EVERY game kind, and that
- * is a decision rather than a gap. Same reasoning `runtimeFor()` encodes in
+ * The app a new game is BUILT FROM — ALWAYS `lines`, for EVERY game kind, and that is a
+ * decision rather than a gap. Same reasoning `runtimeFor()` encodes in
  * `apps/launcher-api/src/lib/server/publishGame.ts`: `apps/ways`, `apps/cluster` and
  * `apps/scatter` are still the vanilla upstream samples — no flow-v2 interpreter, no editor
  * scenes, no symbols registry, no game-config resolver — so seeding a ways game from
@@ -48,20 +52,22 @@ const ENGINE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  * surfaces stand down for a non-lines model, and a Book-of game is `apps/lines` plus a
  * bookOf scene set.
  *
- * Keep in lock-step with `runtimeFor`. A standalone build and the shared runtime bundle must
- * be the SAME code, or "publish it online" and "publish a fixed build" stop being two views
- * of one game — which is the entire premise of having both.
+ * Keep in lock-step with `runtimeFor` AND with `config-svelte/appSrc.js`, which is what
+ * actually points a game repo's build at `apps/<SEED_APP>/src`. A standalone build and the
+ * shared runtime bundle must be the SAME code, or "publish it online" and "publish a fixed
+ * build" stop being two views of one game — which is the entire premise of having both.
  */
 const SEED_APP = 'lines';
 
 /**
- * Copied wholesale from the seed app. NOT its configs: `vite.config.js`, `svelte.config.js`,
- * `tsconfig.json` and `package.json` reach the engine by monorepo-relative paths
- * (`../../packages/…`), whereas a standalone repo vendors it at `./engine/` — the scaffolder
- * writes its own and they must win. `static/` carries the default audio + bitmap fonts the
- * game boots with before `pull:assets` mirrors the project's own over the top.
+ * Copied wholesale from the seed app. `static/` carries the default audio + bitmap fonts the
+ * game boots with before `pull:assets` mirrors the project's own over the top, and it is the
+ * ONLY thing copied: `src/` is read live from the submodule (see the header note), and the
+ * configs (`vite.config.js`, `svelte.config.js`, `tsconfig.json`, `package.json`) reach the
+ * engine by monorepo-relative paths (`../../packages/…`) whereas a standalone repo vendors it
+ * at `./engine/` — the scaffolder writes its own and they must win.
  */
-const SEED_DIRS = ['src', 'static'];
+const SEED_DIRS = ['static'];
 
 function arg(flag, fallback) {
 	const i = process.argv.indexOf(flag);
@@ -72,7 +78,7 @@ const name = arg('--name');
 if (!name) {
 	console.error(
 		'Usage: node scripts/new-game.mjs --name "Book of Foo" [--slug ...] [--dir ...]\n' +
-			'       [--port 3003] [--client <launcherClientKey>] [--no-seed-src]',
+			'       [--port 3003] [--client <launcherClientKey>]',
 	);
 	process.exit(1);
 }
@@ -86,7 +92,6 @@ const slug = arg(
 const parent = arg('--dir', DEFAULT_PARENT);
 const port = arg('--port', '3003');
 const dest = join(parent, slug);
-const seedSrc = !process.argv.includes('--no-seed-src');
 // The launcher CLIENT this project belongs to. `pull:assets` and `publish:storybook` hit
 // /api/deploy, which is keyed `<client>/<project>` — and this defaulted to `${slug}/${slug}`
 // with a comment saying to change it. Nothing ever did, so a scaffolded game asked the deploy
@@ -163,8 +168,10 @@ const files = {
 					//   build:engine — rebuild engine workspace dists so engine SOURCE
 					//                  changes reach this bundle (gotcha-game-build-stale-engine-dist)
 					//   bake:doc     — freeze the editor layout + custom component defs into
-					//                  src/baked-editor-bundle.json (no runtime fetch) AND export
-					//                  the doc-referenced art + project fonts into R2 deploy/
+					//                  baked-editor-bundle.json beside the app source the build
+					//                  compiles (no runtime fetch) AND export the doc-referenced
+					//                  art + project fonts into R2 deploy/. No --dest: the script
+					//                  puts it where editor-scenes.ts imports it from.
 					//   pull:assets  — mirror the R2 deploy/ art + fonts into static/assets/
 					//                  (live-assets.md). MUST run AFTER bake:doc — the export it
 					//                  triggers is what populates deploy/ for this same build.
@@ -176,7 +183,7 @@ const files = {
 					//                  because it imports the game's TS symbol-map module.
 					'build:engine': `pnpm --filter "${slug}^..." run build`,
 					'pull:assets': `node ./engine/apps/launcher-api/scripts/pull-project-assets.mjs --project ${client}/${slug} --dest ./static/assets`,
-					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug} --dest ./src/baked-editor-bundle.json`,
+					'bake:doc': `node ./engine/apps/launcher-api/scripts/bake-editor-doc.mjs --project ${slug}`,
 					'publish:symbols': `node --experimental-strip-types ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs --project ${slug}`,
 					// publish:storybook — upload an already-built storybook-static/ to
 					// `<client>/<project>/storybook/` so the launcher's Invisible Storybook
@@ -192,7 +199,6 @@ const files = {
 					build:
 						'pnpm build:engine && pnpm bake:doc --optional && pnpm pull:assets --optional && pnpm publish:symbols --optional && vite build',
 					preview: 'vite preview',
-					lint: 'eslint "src"',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
 				},
 				devDependencies: { ...SEED_DEV_DEPS },
@@ -291,42 +297,17 @@ export default defineConfig(({ mode }) => {
 
 	'.env.example': `# Copy to .env. Point at your RGS / mock as needed.\n# PUBLIC_RGS_TRANSPORT=play4fun\n`,
 
-	'src/app.html': `<!doctype html>
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		%sveltekit.head%
-	</head>
-	<body data-sveltekit-preload-data="hover">
-		<div style="display:contents">%sveltekit.body%</div>
-	</body>
-</html>
-`,
-
-	'src/routes/+layout.svelte': `<script>\n\tlet { children } = $props();\n</script>\n\n{@render children()}\n`,
-
-	// REQUIRED by adapter-static (config-svelte's adapter): without `prerender` the
-	// build fails at the adapter step with "Encountered dynamic routes". `ssr = false`
-	// because the game is a client-rendered pixi canvas. Same file every shipped game has.
-	'src/routes/+layout.ts': `// Emit a static html file for the page.
-// https://kit.svelte.dev/docs/page-options#prerender
-export const prerender = true;
-
-// The game is a client-side pixi canvas — there is nothing to server-render.
-// https://kit.svelte.dev/docs/page-options#ssr
-export const ssr = false;
-
-// https://kit.svelte.dev/docs/page-options#trailingslash
-export const trailingSlash = 'ignore';
-`,
-
-	'src/routes/+page.svelte': `<script>\n\t// Minimal placeholder. Replace with the game's root component, or copy\n\t// src/ from an existing game (e.g. Book of Borut) to start from real code.\n</script>\n\n<h1>${name}</h1>\n<p>Engine submodule wired. Fill in src/ to build the game.</p>\n`,
-
 	'README.md': `# ${name}
 
 Standalone game. The Invisible engine is vendored as the \`engine/\` git submodule
-(pinned to a commit on \`main\`) — see \`docs/design/games-deploy.md\` in the engine.
+— see \`docs/design/games-deploy.md\` in the engine.
+
+**This repo has no \`src/\`.** The game layer is read from
+\`engine/apps/lines/src\` at build time (\`config-svelte\` points SvelteKit's
+\`kit.files\` there), so a build is always on the engine the submodule is at — it
+cannot fall behind. What this repo owns is the project's identity, its
+\`static/\` boot assets and the lockfile; the game itself is authored online
+(scenes, flow, symbols, sounds, config) and baked in at build time.
 
 ## Setup
 \`\`\`bash
@@ -337,7 +318,11 @@ pnpm install
 pnpm dev          # http://localhost:${port}
 \`\`\`
 
-## Bump the engine (when you choose to take new engine work)
+## Move the engine pin
+The desktop launcher's publish advances the submodule to \`origin/main\` before
+every build, so a published build is always current without this. Use it to move
+the COMMITTED pin (what a plain \`git clone\` + \`pnpm build\` here gets).
+
 This repo's \`pnpm-workspace.yaml\` globs \`engine/packages/*\`, so the root
 \`pnpm-lock.yaml\` pins the engine packages' deps. The pin and the lockfile MUST
 move together — bumping the pin alone breaks the launcher's frozen install
@@ -381,33 +366,25 @@ for (const [rel, content] of Object.entries(files)) {
 	writeFileSync(p, content);
 }
 
-// Seed the GAME over the wiring, in that order and not the reverse. Everything in `files`
-// that lands under `src/` is a PLACEHOLDER (app.html plus the three route files), and the
-// seed app supplies a real one of each — so writing the wiring first and copying the game
-// second is what replaces them. Doing it the other way round reinstates the placeholder,
-// which is precisely the bug this seeding exists to fix.
-//
-// The standalone wiring itself is never at risk: every file the scaffolder writes that is
-// standalone-specific (package.json, vite/svelte/tsconfig, pnpm-workspace) sits at the repo
-// ROOT, and the seed only ever touches `src/` and `static/`.
-if (seedSrc) {
-	const from = join(ENGINE_ROOT, 'apps', SEED_APP);
-	if (!existsSync(from)) {
-		console.error(
-			`✗ cannot seed the game: ${from} is missing.\n` +
-				'  Re-run with --no-seed-src for a bare skeleton you fill in yourself.',
-		);
-		process.exit(1);
-	}
-	for (const dir of SEED_DIRS) {
-		const src = join(from, dir);
-		if (!existsSync(src)) continue;
-		cpSync(src, join(dest, dir), { recursive: true });
-	}
-	console.log(`✓ Seeded src/ + static/ from apps/${SEED_APP} — this repo builds a real game.`);
-} else {
-	console.log('⚠ --no-seed-src: this repo has a placeholder route, not a game.');
+// Seed the BOOT ASSETS. Only `static/` is copied — the application source is read live from
+// the submodule (see the header note), so there is nothing here that can go stale. The
+// standalone wiring is never at risk either: every standalone-specific file the scaffolder
+// writes (package.json, vite/svelte/tsconfig, pnpm-workspace) sits at the repo ROOT.
+const seedFrom = join(ENGINE_ROOT, 'apps', SEED_APP);
+if (!existsSync(seedFrom)) {
+	console.error(`✗ cannot seed boot assets: ${seedFrom} is missing.`);
+	process.exit(1);
 }
+for (const dir of SEED_DIRS) {
+	const src = join(seedFrom, dir);
+	if (!existsSync(src)) continue;
+	cpSync(src, join(dest, dir), { recursive: true });
+}
+console.log(
+	`✓ Seeded ${SEED_DIRS.join(' + ')}/ from apps/${SEED_APP}.\n` +
+		`  The game layer itself is read from engine/apps/${SEED_APP}/src at build time, so this ` +
+		`repo\n  cannot fall behind the engine.`,
+);
 
 console.log(`
 ✓ Scaffolded ${slug} at:
@@ -423,6 +400,7 @@ Next steps:
        git push -u origin main
   5. Point a deploy target (Railway/static host) at this repo's build/.
 
-To start from real game code instead of the placeholder route, copy src/ from an
-existing game (e.g. Book of Borut) and adjust package.json deps to match.
+This repo has no src/ — the game layer is read from engine/apps/lines/src at build
+time, so it can never fall behind the engine. Author the game online (scenes, flow,
+symbols, sounds, config); the build bakes that in and pulls its art from R2.
 `);

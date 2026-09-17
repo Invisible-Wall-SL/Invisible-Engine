@@ -33,7 +33,12 @@
 //     --project bookofborut --dest ./src/baked-editor-bundle.json --token <t> --dry-run
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
+
+// Relative path, NOT the package name: a standalone game repo never installs the engine
+// submodule's own node_modules, so `import 'config-svelte'` would not resolve there. `appSrc.js`
+// is a node-builtins-only leaf for exactly this reason.
+import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -45,13 +50,16 @@ const hasFlag = (name) => args.includes(`--${name}`);
 const DEFAULT_BASE = 'https://app.invisiblewall.org';
 
 const USAGE =
-	'Usage: node bake-editor-doc.mjs --project <projectKey> --dest <out.json> \\\n' +
+	'Usage: node bake-editor-doc.mjs --project <projectKey> [--dest <out.json>] \\\n' +
 	'         [--base <url>] [--token <t>] [--dry-run] [--optional]\n' +
 	'\n' +
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project> — the client is\n' +
 	'                                DB-resolved). Required.\n' +
-	'  --dest <path>                 output JSON file to write (required)\n' +
+	'  --dest <path>                 output JSON file. Optional — defaults to\n' +
+	'                                baked-editor-bundle.json beside the app source the\n' +
+	'                                build compiles. In a standalone game repo only the\n' +
+	'                                FILE NAME is taken from it (see the note below).\n' +
 	`  --base <url>                  launcher base (default ${DEFAULT_BASE})\n` +
 	'  --token <t>                   shared read token; defaults to env\n' +
 	'                                EDITOR_DOC_SECRET or LIVE_ASSETS_TOKEN\n' +
@@ -73,15 +81,39 @@ if (!project) {
 	process.exit(1);
 }
 
+const DEFAULT_DEST_NAME = 'baked-editor-bundle.json';
 const destArg = getFlag('dest');
-if (!destArg) {
-	console.error(USAGE);
-	console.error(
-		'Missing --dest (the game repo JSON file to write, e.g. src/baked-editor-bundle.json).',
+/**
+ * WHERE THE BAKED BUNDLE GOES. `editor-scenes.ts` reaches it by a RELATIVE import
+ * (`./baked-editor-bundle.json`), so it has to sit beside the app source the build actually
+ * compiles — and for a standalone game repo that is now the engine submodule's `apps/lines/src`,
+ * not the game's own `src/` (see `config-svelte/appSrc.js`).
+ *
+ * `--dest` is therefore OPTIONAL and, for a standalone build, advisory. Every repo scaffolded
+ * before this change has `--dest ./src/baked-editor-bundle.json` frozen into its `package.json`;
+ * honouring that literally would write the project's authored layout to a file nothing imports,
+ * and the build would silently ship the engine's checked-in default instead — a game with no
+ * scenes, no fonts and no custom components, failing exactly as if nobody had ever opened the
+ * editor. So the destination's FILE NAME is taken from `--dest` and its DIRECTORY from the real
+ * app source. That reaches every existing repo through the submodule, with no `package.json` edit.
+ *
+ * Writing a generated file into the vendored engine is already how this works: the submodule is
+ * read-only source in a game repo, its dirty state is build output (`engine-layout`'s generated
+ * scenes do the same), the launcher's publish resets + cleans it before every build, and
+ * `bump-game-engine.mjs` force-checkouts past it.
+ */
+const requestedDest = destArg
+	? isAbsolute(destArg)
+		? destArg
+		: resolve(process.cwd(), destArg)
+	: resolve(appSrcDir(), DEFAULT_DEST_NAME);
+const dest = isStandaloneGame() ? resolve(appSrcDir(), basename(requestedDest)) : requestedDest;
+if (dest !== requestedDest) {
+	console.info(
+		`[bake-editor-doc] standalone game build — writing beside the engine's app source ` +
+			`(${dest.split(sep).join('/')}) rather than ${requestedDest.split(sep).join('/')}.`,
 	);
-	process.exit(1);
 }
-const dest = isAbsolute(destArg) ? destArg : resolve(process.cwd(), destArg);
 
 const base = (getFlag('base') || DEFAULT_BASE).replace(/\/+$/, '');
 const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.LIVE_ASSETS_TOKEN;

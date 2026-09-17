@@ -174,11 +174,40 @@ const deliveryProfilesDefine = () => {
 	return { __IE_DELIVERY_PROFILES__: JSON.stringify(registry) };
 };
 
+/** On during dev and for a debug publish; a static `false` otherwise, so the Invisible Debug
+ * framework + its tools tree-shake out of a player build entirely. */
+const debugBuild = () => dev || process.env.PUBLIC_IE_DEBUG === '1';
+
+/**
+ * The Invisible Debug switch + the build stamp (`docs/design/invisible-debug-framework.md`).
+ * `GameVersion.svelte` reads `__IE_BUILD__` to print which build is on screen, and the desktop
+ * launcher passes the SAME version/time it registers to the portal so the stamp and the Games
+ * card can be compared at a glance.
+ *
+ * It belongs in the shared base for the reason the delivery profile does: anything an app has to
+ * opt into by hand is something a build can be cut without — and one was. `scripts/new-game.mjs`
+ * wrote a scaffolded game a `vite.config.js` that declared `__IE_DEBUG__` but not `__IE_BUILD__`,
+ * a copy of `apps/lines`'s config that drifted the moment the stamp was added. `GameVersion`
+ * guards with `typeof`, so it did not crash — every desktop-built game just quietly showed a blank
+ * build stamp. Declared here, a game repo gets it by existing.
+ *
+ * An app that sets its own still wins: `mergeConfig(base, overrides)` gives `define` to the
+ * overrides, so `apps/lines`'s mode-accurate version stays authoritative for the monorepo apps.
+ */
+const gameBuildDefine = () => ({
+	__IE_DEBUG__: JSON.stringify(debugBuild()),
+	__IE_BUILD__: JSON.stringify({
+		version: process.env.PUBLIC_BUILD_VERSION ?? '',
+		builtAt: process.env.PUBLIC_BUILD_TIME ?? new Date().toISOString(),
+		debug: debugBuild(),
+	}),
+});
+
 export default () =>
 	defineConfig({
 		plugins: [sveltekit(), lingui()],
 		logLevel: 'info',
-		define: { ...deliveryProfileDefine(), ...deliveryProfilesDefine() },
+		define: { ...gameBuildDefine(), ...deliveryProfileDefine(), ...deliveryProfilesDefine() },
 		// Inline EVERY build-time asset into the bundle (single-file game deploy). This includes
 		// the KTX2/libktx transcoder (`pixi-svelte` imports it via `?url`): a standalone game's
 		// deploy remaps/omits `_app/immutable/assets/`, so an emitted transcoder file 404s there.
