@@ -572,6 +572,7 @@ PER_ATLAS_KEYS = {
 # UI key -> manifest atlas key. Always per-manifest (no global fallback).
 ATLAS_GEOM_FIELDS = [
     ("atlas_file", "Source .atlas (geometry)", "text", "atlas_file"),
+    ("atlas_layout", "Layout", "text", "layout"),
     ("atlas_width", "Atlas width", "number", "width"),
     ("atlas_height", "Atlas height", "number", "height"),
     ("atlas_cell_width", "Default cell width", "number", "cell_width"),
@@ -583,6 +584,43 @@ ATLAS_GEOM_FIELDS = [
 _ATLAS_GEOM_KEYS = {ui: mk for ui, _, _, mk in ATLAS_GEOM_FIELDS}
 _ATLAS_GEOM_NUMERIC = {"atlas_width", "atlas_height",
                        "atlas_cell_width", "atlas_cell_height"}
+
+# The `atlas.layout` choices the 🧩 Atlas settings panel offers, and how each
+# one reads. The KEYS are `batch_atlas.FROM_SCRATCH_LAYOUTS` — the layouts this
+# tool lays out ITSELF — because those are exactly the ones it is safe to move
+# between (see `atlas_geom_fields_for`). Stated once, pinned by a fixture, so a
+# layout added there can never quietly become unofferable here.
+ATLAS_LAYOUT_MODES = {
+    "pack": "Pack the art (the tool sizes the page)",
+    "grid": "Grid of cells (your atlas + cell size are used as they are)",
+}
+# What an unrecognised stored value falls back to in the dropdown. Barely
+# reachable — the control renders only for an atlas that is ALREADY from-scratch,
+# so its value is normally one of the two above — but `pack` is the right answer
+# anyway: it is the layout every from-scratch atlas had before `grid` existed.
+ATLAS_LAYOUT_DEFAULT = "pack"
+
+
+def atlas_geom_fields_for(m: dict) -> list[tuple[str, str, str, str]]:
+    """The geometry rows 🧩 Atlas settings renders for THIS manifest.
+
+    All of ATLAS_GEOM_FIELDS except `atlas_layout`, which is offered ONLY on an
+    atlas that is ALREADY from-scratch. THAT GATE IS THE SAFETY PROPERTY OF THE
+    WHOLE SWITCH. A manifest with no `layout` is the `.atlas`-bound / explicit-
+    geometry kind: its rects were authored elsewhere (a Spine/libGDX `.atlas`,
+    the Sheet Maker, or by hand) and nothing in this tool re-derives them.
+    Offering `pack` there would let one dropdown hand that geometry to the
+    packer, which measures the ART, re-packs it and OVERWRITES
+    `atlas.width/height` — the authored rects are gone, the `.atlas` they came
+    from no longer describes the page, and there is no undo. Between `pack` and
+    `grid` nothing is lost that was not already derived output: both re-stamp
+    every rect on every Create Atlas. So a bound atlas keeps no `layout` field
+    at all, and the row simply is not there.
+
+    Module-level and pure so the fixtures exercise the gate that ships."""
+    return [f for f in ATLAS_GEOM_FIELDS
+            if f[0] != "atlas_layout" or batch_atlas.is_from_scratch(m)]
+
 
 # Plain-language explanation for every Settings field. {lora}/{ckpt}/{cn}/
 # {rmbg} are filled with the current values so the tip names the actual model
@@ -677,6 +715,21 @@ SETTING_HELP = {
     "atlas_format":
         "Pixel format tag stored in the manifest (e.g. RGBA). Informational; "
         "does not change generation.",
+    "atlas_layout":
+        "Who decides where every region sits — and whether the four size "
+        "fields below are yours or the tool's. Pack the art = the tool "
+        "measures what you generated, packs it as tightly as it can, and "
+        "OVERWRITES Atlas "
+        "width/height with the page it chose (typing a size there does "
+        "nothing). Grid of cells = your Atlas width/height and Default cell "
+        "width/height are READ and never overwritten; the regions flow through "
+        "that grid in manifest order (left to right, then down), and it "
+        "re-flows on every Create Atlas — change a cell size, press Create "
+        "Atlas, every frame moves. Grid is the one for a flipbook/animation, "
+        "where the frames must share one cell. Switching CLEARS every region's "
+        "current rect (it belongs to the layout you are leaving); the next "
+        "Create Atlas lays them all out again. Only shown for an atlas this "
+        "tool builds itself — one bound to a .atlas keeps that file's geometry.",
     "atlas_pack_trim":
         "Only for a from-scratch atlas (the Atlas Maker packs the page). "
         "Trim = each frame is cut down to its own visible pixels, giving the "
@@ -1084,6 +1137,20 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
         norm = "on" if batch_atlas._truthy(cur, True) else "off"
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm)}</select>')
+    if key == "atlas_layout":
+        # Two named choices, no blank, for the same reason as `atlas_pack_trim`
+        # below — a blank _ATLAS_GEOM_KEYS value is SKIPPED on save, so a blank
+        # option would look changeable and silently do nothing. Rendered only
+        # for an already-from-scratch atlas (`atlas_geom_fields_for`), so the
+        # stored value is normally already one of these two.
+        norm = cur.strip().lower()
+        if norm not in ATLAS_LAYOUT_MODES:
+            norm = ATLAS_LAYOUT_DEFAULT
+        opts = "".join(
+            f'<option value="{v}"{" selected" if v == norm else ""}>'
+            f'{html.escape(lbl)}</option>'
+            for v, lbl in ATLAS_LAYOUT_MODES.items())
+        return f'<select{common}>{opts}</select>'
     if key == "atlas_pack_trim":
         # Two named choices, no blank: a blank _ATLAS_GEOM_KEYS value is SKIPPED
         # on save ("never wipe required atlas geometry"), so offering one would
@@ -3082,12 +3149,18 @@ def _sanitize_region_name(raw: str) -> str:
 _PACK_GEOM_KEYS = ("x", "y", "w", "h", "rotated", "rotate") + _REPACK_CLEARED_KEYS
 
 
-def _strip_pack_geometry(regions: list[dict]) -> list[str]:
+def _strip_pack_geometry(regions: list[dict],
+                         keys: tuple[str, ...] = _PACK_GEOM_KEYS) -> list[str]:
     """Clear the packer-owned geometry off regions it did not place.
 
     Returns the names that ACTUALLY lost a rect (had a complete x/y/w/h), which
     is the only part worth reporting: a region that never had one is the
     ordinary "added but not generated yet" case and says nothing.
+
+    `keys` exists for the ONE other caller that clears a slightly smaller set —
+    `switch_atlas_layout`, which keeps the author's `fit_mode`. It is a
+    parameter rather than a second copy of this loop because "clear these, and
+    report who lost a rect" is the part that must never diverge between them.
 
     Why this has to happen: the packer re-runs from scratch every Create Atlas
     and re-sizes the page, so a rect it did not just write describes the
@@ -3098,12 +3171,80 @@ def _strip_pack_geometry(regions: list[dict]) -> list[str]:
     dropped: list[str] = []
     for r in regions:
         had_rect = all(k in r and r[k] is not None for k in ("x", "y", "w", "h"))
-        if any(k in r for k in _PACK_GEOM_KEYS):
-            for k in _PACK_GEOM_KEYS:
+        if any(k in r for k in keys):
+            for k in keys:
                 r.pop(k, None)
             if had_rect:
                 dropped.append(r["name"])
     return dropped
+
+
+# What moving BETWEEN the from-scratch layouts clears off every region: the
+# whole packer-owned set except `fit_mode`. Derived from `_PACK_GEOM_KEYS` so a
+# field added there is cleared by the switch too, without a second list to keep
+# in step.
+#
+# `fit_mode` is the one field in that set that is AUTHORED rather than derived:
+# the 🖼 To Atlas Maker export stamps the author's `fit` choice on every region
+# ("the ONE placement field this export writes"), and it means the same thing on
+# both sides of the switch. `_GRID_CLEARED_KEYS` already refuses to clear it, for
+# the reason spelled out there — dropping it puts every frame back on the
+# alpha-crop-and-rescale default, which is the per-frame re-centring a flipbook
+# must not have, and `grid_layout` would never put it back. The pack side loses
+# nothing by keeping it: auto_pack pops and re-derives `fit_mode` from
+# `pack_trim` on every region it places.
+_LAYOUT_SWITCH_CLEARED_KEYS = tuple(k for k in _PACK_GEOM_KEYS
+                                    if k != "fit_mode")
+
+
+def switch_atlas_layout(m: dict, want: str) -> tuple[bool, list[str]]:
+    """Move an atlas BETWEEN the from-scratch layouts, clearing the geometry the
+    layout it is leaving owned.
+
+    Why the clear. A `pack` rect describes a page the packer sized from the art;
+    a `grid` rect describes a cell the author sized. Neither survives the move,
+    so a rect left behind is the same class of fault `_strip_pack_geometry`
+    already exists for — a well-formed frame addressing arbitrary pixels of a
+    page nothing laid out. It matters MOST where the incoming layout writes
+    nothing at all: `grid_layout` deliberately changes nothing when the regions
+    overflow the page, and nothing when the cell size is missing (which is
+    exactly the state a just-switched `pack` atlas is in, since a packer never
+    wrote one). Without this the old pack rects would simply survive that refusal
+    and deploy as if they were the grid. After the clear every region is
+    UNPLACED until the next Create Atlas re-stamps it, which is a state the rest
+    of the tool already handles by name (compose skips it, the deploy emits no
+    frame for it). What is NOT cleared is the author's `fit_mode` — see
+    `_LAYOUT_SWITCH_CLEARED_KEYS`.
+
+    Refuses anything that is not a move between `FROM_SCRATCH_LAYOUTS`, and any
+    manifest that is not ALREADY from-scratch — see `atlas_geom_fields_for` for
+    why a `.atlas`-bound atlas must never be handed to the packer. The same
+    layout again is not a move, so an ordinary Save (the panel posts every field
+    every time) never costs a region its rect.
+
+    Returns `(changed, lost)` — whether `m` was mutated (the caller's save
+    signal) and the names that actually lost a rect. Mutates `m`; the CALLER
+    saves, the same contract as the two layout passes."""
+    new = str(want).strip().lower()
+    if new not in batch_atlas.FROM_SCRATCH_LAYOUTS:
+        return False, []
+    if not batch_atlas.is_from_scratch(m):
+        return False, []
+    if batch_atlas.atlas_layout(m) == new:
+        return False, []
+    lost = _strip_pack_geometry(
+        [r for bucket in ("regions", "rotated_regions")
+         for r in (m.get(bucket) or [])
+         if isinstance(r, dict) and r.get("name")],
+        _LAYOUT_SWITCH_CLEARED_KEYS)
+    atlas = m.setdefault("atlas", {})
+    atlas["layout"] = new
+    # Same pop as both layout passes make: the descriptor names the page of the
+    # layout being left, and the launcher's `backfillMissingGeometry` treats it
+    # as AUTHORITATIVE — it would hand every region that old rect straight back
+    # by name, undoing the clear one layer up.
+    atlas.pop("texturepacker_json", None)
+    return True, lost
 
 
 def _rect_on_page(n: dict, page_w: int, page_h: int) -> bool:
@@ -3407,16 +3548,33 @@ def grid_layout(m: dict) -> tuple[str | None, bool]:
         labels = {"width": "Atlas width", "height": "Atlas height",
                   "cell_width": "Default cell width",
                   "cell_height": "Default cell height"}
-        missing = [labels[k] for k, v in (("width", page_w), ("height", page_h),
-                                          ("cell_width", cell_w),
-                                          ("cell_height", cell_h)) if v <= 0]
-        if missing:
+        missing_keys = [k for k, v in (("width", page_w), ("height", page_h),
+                                       ("cell_width", cell_w),
+                                       ("cell_height", cell_h)) if v <= 0]
+        if missing_keys:
+            fix = ("Set all four in 🧩 Atlas settings (Atlas width/height + "
+                   "Default cell width/height), then Create Atlas again.")
+            if all(k.startswith("cell_") for k in missing_keys):
+                # THE pack -> grid LANDING. A packed atlas has a page (the
+                # packer wrote width/height) and has never had a cell size —
+                # nothing in the pack layout reads one — so this branch is the
+                # first thing the author sees straight after switching, and
+                # "Default cell width is missing" alone reads as a fault rather
+                # than as the one step left to take. No cell size is invented
+                # for them: the cell IS the layout, so a guess would lay the
+                # atlas out in a grid they never chose and it would look
+                # deliberate.
+                fix = ("That is normal right after switching a packed atlas to "
+                       "the grid layout: the packer sized the page, but only "
+                       "you can say how big a cell is. Type it in 🧩 Atlas "
+                       "settings (Default cell width + Default cell height), "
+                       "then press Create Atlas again — every region will be "
+                       "laid out in that grid, in manifest order. Nothing is "
+                       "guessed for you, because the cell size IS the layout.")
             return ("⚠ Grid layout: nothing was laid out — %s %s missing (or "
-                    "zero, or not a number). Set all four in ⚙ Settings "
-                    "(Atlas width/height + Default cell width/height), then "
-                    "Create Atlas again."
-                    % (", ".join(missing),
-                       "is" if len(missing) == 1 else "are")), False
+                    "zero, or not a number). %s"
+                    % (", ".join(labels[k] for k in missing_keys),
+                       "is" if len(missing_keys) == 1 else "are", fix)), False
         if cell_w > page_w or cell_h > page_h:
             return (f"⚠ Grid layout: the cell ({cell_w}×{cell_h}) is bigger "
                     f"than the page ({page_w}×{page_h}), so not one whole cell "
@@ -5178,8 +5336,13 @@ async function saveCfg(btn){{
  // saving Atlas settings printed feedback under the Global button.
  let stat=(btn&&btn.nextElementSibling)||document.getElementById('cfgstat');
  let r=await fetch('/saveconfig',{{method:'POST',body:JSON.stringify(cfgData())}});
- if(stat) stat.textContent=await r.text(); else await r.text();
- setTimeout(()=>location.reload(),900);
+ let txt=await r.text();
+ if(stat) stat.textContent=txt;
+ // The reload wipes this line, and 900ms is plenty for "Settings saved".
+ // A LONGER reply is one the server went out of its way to write — the layout
+ // switch reports how many regions just lost their rect, and the reload is
+ // exactly what brings those now-unplaced cards back. Let it be read first.
+ setTimeout(()=>location.reload(),txt.length>90?5000:900);
 }}
 // ONE rule everywhere (Settings, advanced popup, cards): a field shows when
 // its data-pipe group matches the active pipeline.
@@ -9814,7 +9977,10 @@ class Handler(BaseHTTPRequestHandler):
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
                 )
-        for ui_key, label, typ, mk in ATLAS_GEOM_FIELDS:
+        # NOT ATLAS_GEOM_FIELDS directly: `atlas_layout` is shown only for an
+        # atlas this tool already lays out itself, so a `.atlas`-bound one can
+        # never be handed to the packer. See `atlas_geom_fields_for`.
+        for ui_key, label, typ, mk in atlas_geom_fields_for(m):
             step = " step=any" if typ == "number" else ""
             tip = help_for(ui_key, cfg)
             tip_esc = html.escape(tip, quote=True)
@@ -10552,6 +10718,13 @@ class Handler(BaseHTTPRequestHandler):
         # switch. Settings-panel saves (which post the manifest-bound fields)
         # still persist as before.
         manifest_dirty = False
+        # The layout this save MOVED the atlas to (blank = no move), and how
+        # many regions actually lost a rect to it. Said out loud in the reply:
+        # the switch clears every rect, so the page reloads with the region
+        # cards unplaced, and the author must be told that is the switch doing
+        # its job rather than the atlas breaking.
+        _layout_switch = ""
+        _layout_lost = 0
         _num = cfg_num
 
         for k, v in edits.items():
@@ -10599,6 +10772,24 @@ class Handler(BaseHTTPRequestHandler):
                 sv = str(v).strip()
                 if sv == "":
                     continue  # never wipe required atlas geometry
+                if k == "atlas_layout":
+                    # Not a plain field write: changing the layout also clears
+                    # the rects the previous one owned, and the helper decides
+                    # whether this even IS a change (the panel posts every
+                    # field on every save). It refuses a manifest that is not
+                    # already from-scratch, so a stale tab or a hand-made POST
+                    # cannot hand a .atlas-bound atlas to the packer either.
+                    switched, lost = switch_atlas_layout(m, sv)
+                    if switched:
+                        _layout_switch = batch_atlas.atlas_layout(m)
+                        _layout_lost = len(lost)
+                        manifest_dirty = True
+                    # ALWAYS, switched or not: an unrecognised value must not
+                    # fall through to the generic `atlas[mk] = sv` below and
+                    # write itself into `atlas.layout`, where anything outside
+                    # FROM_SCRATCH_LAYOUTS reads as ".atlas-bound" and silently
+                    # turns off every from-scratch gate in the tool.
+                    continue
                 mk = _ATLAS_GEOM_KEYS[k]
                 atlas[mk] = int(float(sv)) if k in _ATLAS_GEOM_NUMERIC else sv
                 manifest_dirty = True
@@ -10662,6 +10853,15 @@ class Handler(BaseHTTPRequestHandler):
                         rebuild_fx_layers_at(mp, base_names=None)
             except Exception:  # noqa: BLE001 — a seed hiccup must not 500 a save
                 pass
+        if _layout_switch:
+            return ("Settings saved — layout is now '%s'. %s%s Press "
+                    "🧩 Create Atlas to lay the regions out again."
+                    % (_layout_switch,
+                       ("%d region(s) lost the rect the previous layout gave "
+                        "them." % _layout_lost) if _layout_lost else
+                       "No region had a rect from the previous layout.",
+                       " Set Default cell width/height first."
+                       if _layout_switch == "grid" else ""))
         return "Settings saved (per-atlas overrides + globals)"
 
 

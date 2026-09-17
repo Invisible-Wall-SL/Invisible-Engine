@@ -159,6 +159,34 @@ There are two from-scratch layouts, and they answer opposite questions.
 Grid is what the Flipbook's [🖼 To Atlas Maker export](flipbook.md) creates, because
 a regenerated frame sequence wants uniform cells and a page size you control.
 
+**Switching an existing atlas — the `Layout` dropdown in 🧩 Atlas settings.** The layout
+used to be fixed when the atlas was created, so an atlas born `pack` could never honour
+an atlas size no matter what you typed. `Layout` now switches it in place, keeping every
+prompt, seed and reference on its regions:
+
+| Choice | |
+|---|---|
+| **Pack the art (the tool sizes the page)** | `pack` |
+| **Grid of cells (your atlas + cell size are used as they are)** | `grid` |
+
+It also tells you what the atlas *currently is* — worth a look if you are not sure which
+layout an atlas was created with.
+
+Two deliberate behaviours:
+
+- **It is offered only on a from-scratch atlas.** An atlas whose geometry comes from a
+  bound `.atlas` has no layout at all, and converting one to `pack` would re-pack and
+  destroy the geometry the `.atlas` defines. So the field simply is not there for it.
+- **Switching clears every region's rect from the old layout,** and says how many lost
+  one. A pack rect describes a page the packer sized; a grid rect describes your cells.
+  The regions come back placed on the next Create Atlas — that is expected, not a fault.
+
+Straight after switching `pack` → `grid` the atlas has a page (the packer wrote one) but
+has never had a cell size — nothing in `pack` reads one. Create Atlas will say so and lay
+out nothing, because the cell size *is* the layout and guessing it would produce a grid
+you did not choose. Type **Default cell width / height** (and your real Atlas width /
+height), then Create Atlas.
+
 **The geometry is recomputed on every Create Atlas, never frozen.** Change the cell
 size in Settings, run Create Atlas again, and the whole grid re-flows. That is the
 point of the mode: on a `pack` atlas the same edit is silently discarded, because
