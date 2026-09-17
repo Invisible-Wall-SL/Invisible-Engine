@@ -172,6 +172,13 @@ const slices = [
 	sliceBetween(symbolBeatSource, 'awaitSymbolBeat', 'export const awaitSymbolBeat = (', ';\n'),
 	sliceBetween(symbolBeatSource, 'WIN_BEAT_CAP_MS', 'export const WIN_BEAT_CAP_MS = ', ';\n'),
 	sliceBetween(symbolBeatSource, 'WIN_BEAT_MIN_MS', 'export const WIN_BEAT_MIN_MS = ', ';\n'),
+	// …and the budget that picks between them, with the transit cap it floors an un-authored beat
+	// at. Sliced rather than restated for the same reason the two caps are: a fixture carrying its
+	// own copy would go on asserting a ceiling the game had stopped honouring. It is also what took
+	// this whole file out — a new free identifier landed in the handler and the slice threw here, on
+	// `main`, before a single claim below could run.
+	sliceBetween(symbolBeatSource, 'TRANSIT_BEAT_CAP_MS', 'export const TRANSIT_BEAT_CAP_MS = ', ';\n'), // prettier-ignore
+	sliceBetween(symbolBeatSource, 'resolveWinBeatBudget', 'export const resolveWinBeatBudget = (', '\n};\n'), // prettier-ignore
 	// The slam policy the coded handler and `animateSymbols` reach every cue through.
 	sliceBetween(unskippableSource, 'PLAYER_GATED_CUES', 'export const PLAYER_GATED_CUES', ']);\n'),
 	sliceBetween(unskippableSource, 'SLAM_MINIMUM_DISPLAY_CUES', 'export const SLAM_MINIMUM_DISPLAY_CUES', ';\n'), // prettier-ignore
@@ -439,6 +446,13 @@ const buildRound = ({
 		'getFlowV2',
 		'playBookEvent',
 		'coded',
+		// THE AUTHORED WIN-BEAT CEILING (Invisible Symbols → win beat). Unauthored here, which is the
+		// state every project is in until someone sets one, and therefore the behaviour every claim
+		// below was written against: `resolveWinBeatBudget` then answers with the coded guard.
+		'bakedWinBeatMaxMs',
+		// WHICH SYMBOLS AUTHORED A STATE. `false` for everything here: an un-authored state inherits,
+		// which is what every project ships with and what these claims measure against.
+		'hasAuthoredSymbolState',
 		`let show = true;
 const context = {
 	stateGame,
@@ -502,6 +516,8 @@ return {
 		() => undefined,
 		async () => {},
 		{ playBookEvent: async () => {} },
+		() => undefined,
+		() => true,
 	);
 
 	return { runtime, clock, stateGame, transitions, log, seam, config, roundSkip, rebuildBoard };
@@ -1017,19 +1033,34 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 		'\t\t\t}}',
 	);
 	const body = forward.slice(forward.indexOf('=> {') + 4, forward.lastIndexOf('}}'));
+	// `cascade` is the second argument because ONE cell component draws the board now, whoever is
+	// driving it (docs/design/board-cell-continuity.md). `null` is the resting board, which is what
+	// every claim here is about; the cascade's own contract is asserted straight after.
 	const gate = new Function(
 		'state',
+		'cascade',
 		`let forwarded = 0;
 const props = { reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
-${body}
+// The body RETURNS EARLY on the cascade branch, so it runs as its own function rather than inline.
+(() => { ${body} })();
 return { forwarded, state: props.reelSymbol.symbolState };`,
 	);
-	check('a `win` cell reports its beat', gate('win').forwarded, 1);
-	check('an `explosion` cell reports its beat', gate('explosion').forwarded, 1);
-	check('a cell that has moved on to `postWinStatic` reports nothing', gate('postWinStatic').forwarded, 0); // prettier-ignore
-	check('…nor one the board clear took over', gate('clearReel').forwarded, 0);
-	check('a `land` cell reports nothing and settles itself', gate('land').forwarded, 0);
-	check('…to `static`', gate('land').state, 'static');
+	const resting = (state) => gate(state, null);
+	const cascading = (state) => gate(state, { y: { current: 0 } });
+	check('a `win` cell reports its beat', resting('win').forwarded, 1);
+	check('an `explosion` cell reports its beat', resting('explosion').forwarded, 1);
+	check('a cell that has moved on to `postWinStatic` reports nothing', resting('postWinStatic').forwarded, 0); // prettier-ignore
+	check('…nor one the board clear took over', resting('clearReel').forwarded, 0);
+	check('a `land` cell reports nothing and settles itself', resting('land').forwarded, 0);
+	check('…to `static`', resting('land').state, 'static');
+
+	// A CASCADE STEP arms the cell itself, beat by beat — explode, land, intro — so every completion
+	// is reported straight through and the cell settles nothing on its own. That is what the step's
+	// own cell component used to do, and it has to keep doing it now that there is only one.
+	for (const state of ['clearReel', 'land', 'intro', 'static']) {
+		check(`a cascading \`${state}\` cell reports straight through`, cascading(state).forwarded, 1);
+	}
+	check('…and the cell settles nothing behind the step’s back', cascading('land').state, 'land');
 
 	// AND THE FIXTURE AGREES WITH IT. The harness's cell is what every timing above is measured
 	// through, so a cell that reported a beat something else had taken over would make the slam case
@@ -1199,14 +1230,26 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 		'boardExplodeWinSymbols: async (',
 		'\n\t\t},\n',
 	);
+	// TWO removals, and both of them are the pop's: a winner whose symbol authored no `explosion`
+	// leaves immediately (there is no animation to wait on, and lighting one would buy the whole cap
+	// for a cell with nothing to show), and every other winner leaves when its beat ends. "Explode
+	// and be gone" is the promise either way — a winner left standing is swept by the next board's
+	// clear playing `clearReel`, which is the double pop this feature exists to prevent.
 	check(
 		'the pop handler is the one that removes',
 		(pop.match(/\.removed = true/g) ?? []).length,
-		1,
+		2,
 	);
-	check('…and it is the only place in the component that does', (boardSource.match(/\.removed = true/g) ?? []).length, 1); // prettier-ignore
-	check('…on BOTH exits of the race, i.e. after the await rather than inside the arm', pop.indexOf('.removed = true') > pop.indexOf('awaitSymbolBeat('), true); // prettier-ignore
-	check('…bounded by the win-beat cap', pop.includes('WIN_BEAT_CAP_MS'), true);
+	check('…and it is the only place in the component that does', (boardSource.match(/\.removed = true/g) ?? []).length, (pop.match(/\.removed = true/g) ?? []).length); // prettier-ignore
+	// The UNCONDITIONAL one — the second — has to sit after the await, so it fires on both exits of
+	// the race rather than only on the report. The early one is before it by definition: it is the
+	// short-circuit that never races at all.
+	check('…on BOTH exits of the race, i.e. after the await rather than inside the arm', pop.lastIndexOf('.removed = true') > pop.indexOf('awaitSymbolBeat('), true); // prettier-ignore
+	// Bounded by the AUTHORED ceiling when a project sets one and by the coded guard when it does
+	// not — `resolveWinBeatBudget` is the one place that decides which, so "cap each win at N" bounds
+	// what a paying cell costs in total rather than only its first half.
+	check('…bounded by the win-beat budget', pop.includes('budget.capMs'), true);
+	check('…which is the authored ceiling or the coded guard', boardSource.includes('const budget = resolveWinBeatBudget(bakedWinBeatMaxMs());'), true); // prettier-ignore
 
 	// THE GATE is at the broadcaster, so with the switch off the cue never exists. Driven above; here
 	// the containment claim: nothing else in the game broadcasts it.

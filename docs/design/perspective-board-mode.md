@@ -7,6 +7,13 @@
 > when the mode is on **the reel-shaped behaviours stand down** rather than being ported to a
 > trapezoid. Off by default ⇒ byte-parity, the same discipline as
 > [reel anticipation](reel-anticipation.md) and [stacked pictures](stacked-picture-mode.md).
+>
+> **Superseded in one place (2026-09-17):** this plan is written around the cascade as an OVERLAY —
+> a second component tree that mounts while the reel board is hidden, with its own cells, its own
+> ground tiles and its own mask. It is not one any more. A step drives the board's OWN cells and
+> `Board.svelte` draws them throughout, because the hand-over was re-creating every symbol's
+> component and restarting its animation board-wide. The cues, the three swap styles and the mode
+> switch below are unchanged. See [board-cell-continuity](board-cell-continuity.md).
 
 ## The ask
 

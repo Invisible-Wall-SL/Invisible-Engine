@@ -563,6 +563,11 @@ const symbolDimmed = new Function(
 	'props',
 	'stateGame',
 	'winDimCellKey',
+	// Is a CASCADE STEP driving this cell? `null` — the win dim is a RESTING-board presentation, so
+	// the only state in which this claim means anything is the one where no step owns the board. The
+	// cell stands the dim down while one does (docs/design/board-cell-continuity.md), and a dim that
+	// still fired mid-cascade would key off rows a step is in the middle of rearranging.
+	'cascade',
 	`return ${symbolDimExpr};`,
 );
 
@@ -585,7 +590,12 @@ const symbolDimmed = new Function(
 			const stripRow = row - tilePaddingRow;
 			const where = `cell (${reelIndex}, row ${row} / strip ${stripRow})`;
 			const drawn = drawTile(getters, reelIndex, row, winDim);
-			const symbolIsDim = symbolDimmed({ reelIndex, row: stripRow }, { winDim }, winDimCellKey);
+			const symbolIsDim = symbolDimmed(
+				{ reelIndex, row: stripRow },
+				{ winDim },
+				winDimCellKey,
+				null,
+			);
 			const pays = paying.some((p) => p.reel === reelIndex && p.stripRow === stripRow);
 			// 1. the tile darkens iff the SYMBOL on that same cell darkens…
 			same(

@@ -17,6 +17,15 @@ import type {
 export type SpinningReelMotion = 'spinning' | 'bouncing' | 'stopped';
 export type SpinningReelSymbolState = 'static' | 'land' | 'spin';
 
+/**
+ * Where a cell sits while a CASCADE owns the board, in place of the strip's own `symbolY()`.
+ *
+ * A cascade positions each symbol individually — winners pop out, survivors fall into the gaps, new
+ * symbols drop in from above — which a strip addressed by one scroll offset cannot express. So the
+ * cascade drives a Tween per cell and the cell prefers it while one is attached.
+ */
+export type ReelSymbolCascadeSeat = { y: Tween<number> };
+
 export function createReelForSpinning<TRawSymbol extends object, TSymbolState extends string>(
 	reelOptions: SpinningReelCreateOptions<TRawSymbol, TSymbolState>,
 ) {
@@ -56,6 +65,21 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			 * byte-identical.
 			 */
 			removed: false,
+			/**
+			 * The CASCADE's seat for this cell while it owns the board — see
+			 * {@link ReelSymbolCascadeSeat}.
+			 *
+			 * It lives ON the cell rather than in a side table because the cascade ADOPTS these very
+			 * objects (`docs/design/board-cell-continuity.md`). The overlay used to CLONE the standing
+			 * board, and a clone is a different component, so every symbol's clip restarted at frame
+			 * one the moment the board changed hands — board-wide, twice per board change. Sharing the
+			 * object is what lets one `{#each}` keep drawing the same cell either side of that seam.
+			 *
+			 * `null` for every cell nobody attaches one to, which is every cell of a game that never
+			 * cascades and every cell of a cascading game outside a step — so the strip's own y stays
+			 * the only source anything reads by default.
+			 */
+			cascade: null as ReelSymbolCascadeSeat | null,
 		});
 
 		return reelSymbol;
@@ -443,6 +467,19 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState.motion = 'stopped';
 		placeY(homeY());
 		if (reelSymbols) {
+			// The strip owns these cells now, so it owns their y: a cell handed back by the cascade
+			// still carries the Tween that cascade was driving, and left attached it would pin the
+			// symbol to wherever the step left it for the rest of the round. Renumbered for the same
+			// reason — `symbolY()` reads `symbolIndex`, and a cell arrives here at its index in the
+			// CASCADE's combined column, which is not its index in the strip.
+			reelSymbols.forEach((reelSymbol, symbolIndex) => {
+				reelSymbol.cascade = null;
+				reelSymbol.symbolIndex = symbolIndex;
+			});
+			// `prevSymbols` and `targetSymbols` share these objects until the next `prepareToSpin` /
+			// `preSpinPadding` replaces the target set — and both of those run before `addPadding`,
+			// which is the only thing that concatenates the two. That ordering is what keeps a spin
+			// strip free of the same cell twice.
 			prevSymbols = [...reelSymbols];
 			targetSymbols = [...reelSymbols];
 			paddingRawReel = reelOptions.initialSymbols;
@@ -499,6 +536,13 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		spin,
 		stop,
 		setSymbolsWithRawSymbols,
+		// Mint cells of this reel's own shape, and hand a set of them back as the settled strip. The
+		// pair is what lets the CASCADE trade objects with the reel instead of cloning it: the
+		// symbols it brings in are minted here, and the board it settles is ADOPTED rather than
+		// rebuilt, so a cell keeps the one component that has been drawing it all along
+		// (`docs/design/board-cell-continuity.md`).
+		createSymbols: createReelSymbols,
+		setSymbolsWithReelSymbols,
 		readyToSpinEffect,
 	};
 }

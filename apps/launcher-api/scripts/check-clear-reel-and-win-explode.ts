@@ -521,28 +521,32 @@ check('undrawn: removed', drawsCell({ reelSymbol: { removed: true } }, false), f
 check('undrawn: covered', drawsCell({ reelSymbol: { removed: false } }, true), false);
 check('undrawn: both', drawsCell({ reelSymbol: { removed: true } }, true), false);
 
-// THE CASCADE OVERLAY. Its survivor layer is built from the resting board while the reel board is
-// hidden, so a seat the pop emptied has to arrive UNDRAWN — but in the ORDINARY state, because the
-// step's removal filters `base` by what THAT step popped. Born `clearReel` it would be swept by a
-// cascade that never named it, and the combined column would settle SHORT.
+// THE CASCADE STEP. Its survivor layer is the board's OWN cells, adopted where they sit
+// (docs/design/board-cell-continuity.md) — so a seat the pop emptied arrives UNDRAWN and in the
+// ORDINARY state without either being re-derived. That matters twice over: undrawn is what stops
+// the symbol coming back on screen for the length of the next clear, and ordinary (`static`, not
+// `clearReel`) is what stops a step that never named the seat from sweeping it out of `base` and
+// settling the column SHORT. The layer used to CLONE the board and had to be taught to read
+// `boardRemoved()` to get the first half right; adoption is what makes both halves unmissable.
+const adoption = slice(
+	tumbleBoard,
+	'initTumbleBoardBaseReel',
+	'\tconst initTumbleBoardBaseReel = (',
+	'\tconst initTumbleBoardBase = ',
+);
 check(
-	'BOTH survivor-layer initialisers seed the removal, so the pop is not undone',
-	[
-		slice(tumbleBoard, 'initTumbleBoardBaseReel', '\tconst initTumbleBoardBaseReel = ('),
-		slice(tumbleBoard, 'initTumbleBoardBase', '\tconst initTumbleBoardBase = ('),
-	].every((source) => source.includes('boardRemoved()') && /\bremoved: removed\b/.test(source)),
+	'the survivor layer adopts the board’s own cells',
+	adoption.includes('reelState.symbols') && adoption.includes('attachCascadeSeat('),
 	true,
 );
 check(
-	'…and a removed seat is born undrawn but ORDINARY, so only the step that names it sweeps it',
-	tumbleBoard.includes('exploded: removed,') &&
-		tumbleBoard.includes("symbolState: 'static' as SymbolState,") &&
-		!tumbleBoard.includes("symbolState: (removed ? 'clearReel' : 'static')"),
+	'…so neither the removal flag nor the state is rewritten on the way in',
+	!adoption.includes('removed') && !adoption.includes('symbolState'),
 	true,
 );
 check(
 	'the explode step skips a seat that is already gone, and marks it for its own removal',
-	/if \(tumbleSymbol\.exploded\) \{\s*\n\s*tumbleSymbol\.symbolState = 'clearReel';\s*\n\s*return;\s*\n\s*\}/.test(
+	/if \(tumbleSymbol\.removed\) \{\s*\n\s*tumbleSymbol\.symbolState = 'clearReel';\s*\n\s*return;\s*\n\s*\}/.test(
 		tumbleBoard,
 	),
 	true,
