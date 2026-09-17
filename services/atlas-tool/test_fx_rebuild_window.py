@@ -285,6 +285,13 @@ def test_run_compose_survives_the_dropdown_moving_under_it() -> None:
     re-resolved `manifest_path()` would merge or stamp the wrong atlas with
     nothing looking wrong until the art shipped."""
     mp = _manifest()
+    # Give the base region a rect: a `pack` atlas on which NOTHING is placed
+    # composes nothing at all now (ui_server.nothing_is_placed), and a run that
+    # never launches a subprocess cannot answer which manifest it was handed.
+    # A half-laid-out atlas is the mid-session shape this test means anyway.
+    _fx = _read(mp)
+    _fx["regions"][0].update({"x": 0, "y": 0, "w": 64, "h": 64})
+    mp.write_text(json.dumps(_fx), encoding="utf-8")
     other = mp.parent / "atlas_manifest_OTHER.json"
     other.write_text(json.dumps({"atlas": {}, "style": {}, "regions": []}),
                      encoding="utf-8")

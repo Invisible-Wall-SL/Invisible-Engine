@@ -3978,15 +3978,95 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
             + tail)
 
 
+# All four present and non-None = the region is PLACED on this page. Exactly the
+# test `batch_atlas`'s compose applies (`_unplaced`), and it has to be: the guard
+# below asks the question compose is about to answer, so a looser one here would
+# let through a page compose then draws nothing on.
+_PLACED_RECT_KEYS = ("x", "y", "w", "h")
+
+
+def nothing_is_placed(m: dict) -> bool:
+    """Would composing `m` draw NOT ONE region, because none of them has a rect?
+
+    ONLY EVER TRUE FOR A FROM-SCRATCH ATLAS, and that restriction is the whole
+    subtlety. On `pack`/`grid` a rect is derived output — the layout pass stamps
+    one on every region it placed and none on the rest — so compose refuses
+    `region_box`'s (0, 0, page) fallback for a region without one and skips it.
+    A `.atlas`-bound or authored-geometry manifest reaches that same fallback ON
+    PURPOSE (a single full-page image is authored by omitting the geometry), so
+    a missing rect there is a placement rather than an absence and this stays
+    False for it. `is_from_scratch`, not `layout == "pack"`, for the reason
+    given on FROM_SCRATCH_LAYOUTS.
+
+    ZERO, NOT "SOME". Half a page of rects is the normal working state — regions
+    are generated a few at a time, and `auto_pack_layout` places the ones that
+    have art and strips the ones that do not. Such an atlas must keep composing
+    exactly as before: the placed regions are drawn, the rest are skipped. Only
+    an atlas where compose would draw literally nothing is refused."""
+    if not batch_atlas.is_from_scratch(m):
+        return False
+    return not any(
+        all(r.get(k) is not None for k in _PLACED_RECT_KEYS)
+        for bucket in ("regions", "rotated_regions")
+        for r in (m.get(bucket) or [])
+        if isinstance(r, dict) and r.get("name"))
+
+
+def _blank_compose_report(m: dict, layout_note: str | None,
+                          pre_note: str | None) -> str:
+    """What the render panel shows INSTEAD of composing an empty page.
+
+    The layout note is the RESULT of this run, not a preamble: it is the reason
+    nothing was laid out and it already ends in the action that fixes it (type a
+    cell size / generate a region, then Create Atlas). Reusing it verbatim is
+    deliberate — a third wording of "no cell size" would be one more place for
+    the advice to drift out of step with the code that refuses."""
+    n = sum(1 for bucket in ("regions", "rotated_regions")
+            for r in (m.get(bucket) or [])
+            if isinstance(r, dict) and r.get("name"))
+    layout = batch_atlas.atlas_layout(m) or "from-scratch"
+    what = (f"Not one of this {layout} atlas's {n} region(s) is placed — none "
+            f"of them has a rect"
+            if n else f"This {layout} atlas has no regions at all")
+    head = ("✖ Create Atlas composed NOTHING, and this atlas still shows the "
+            "page it showed before.\n"
+            f"{what}, so compose would have skipped every single region and "
+            "written an EMPTY page over the one you have. Here is why, and "
+            "what fixes it:\n")
+    reason = layout_note or ("Generate at least one region — or, on a grid "
+                             "atlas, set Default cell width + Default cell "
+                             "height in 🧩 Atlas settings — then press Create "
+                             "Atlas again.")
+    return "\n".join(p for p in (pre_note, head, reason) if p) + "\n"
+
+
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # See run_render: re-apply the request thread's context on this worker.
     if ctx:
         project_paths.set_context(*ctx)
-    # Compose picks each region's variant PNG from batch/ in the subprocess, so
-    # the variant pile must be on local disk first (it hydrates lazily).
-    project_paths.ensure_lazy("batch/")
-    with pinned_manifest(manifest_path()) as mp:
-        _run_compose_pinned(mp)
+    # SAY "RUNNING" BEFORE THE SLOW PART, not when the subprocess starts.
+    # `/createatlas` starts this thread and the page polls /progress right after
+    # the POST returns; poll() stops the moment it reads `running: false`. Every
+    # step below — the staging hydrate, the FX rebuild, the layout pass — used
+    # to run with the flag still down, so a poll landing in that window ended
+    # the loop against the PREVIOUS run's log. That was survivable while the
+    # compose always wrote a page (it appeared anyway); it is not survivable now
+    # that a run can end in a refusal whose only trace is this log. The `finally`
+    # is what makes claiming it safe: whatever happens in here — the refusal
+    # below, a raise, a subprocess that never starts — the flag comes back down.
+    with _render_lock:
+        _render_state.update(running=True, done=False, cur=0, total=1,
+                             diagnostics=[], started=time.time(),
+                             log="Create Atlas: preparing…\n")
+    try:
+        # Compose picks each region's variant PNG from batch/ in the subprocess,
+        # so the variant pile must be on local disk first (it hydrates lazily).
+        project_paths.ensure_lazy("batch/")
+        with pinned_manifest(manifest_path()) as mp:
+            _run_compose_pinned(mp)
+    finally:
+        with _render_lock:
+            _render_state.update(running=False, done=True)
 
 
 def _run_compose_pinned(mp: Path) -> None:
@@ -4039,6 +4119,7 @@ def _run_compose_pinned(mp: Path) -> None:
     # EVERY Create Atlas — that is how an edited cell size reaches the page.
     # Each gates on its own layout, so exactly one of them ever does anything;
     # both no-op (None, False) for `.atlas`-bound / legacy cell-grid manifests.
+    layout_note: str | None = None
     try:
         # Under the lock end to end. It measures every region's art, so it is
         # not instant — but it reads the same local files compose is about to
@@ -4061,12 +4142,35 @@ def _run_compose_pinned(mp: Path) -> None:
             # they know whether they mutated anything.
             if pack_changed or grid_changed:
                 _write_manifest_at(mp, m)
-        layout_note = "\n".join(n for n in (pack_note, grid_note) if n)
-        if layout_note:
-            pre_note = f"{pre_note}\n{layout_note}" if pre_note else layout_note
+        layout_note = "\n".join(n for n in (pack_note, grid_note) if n) or None
     except Exception as e:  # noqa: BLE001 — never block compose on a layout hiccup
-        _pn = f"[auto-layout skipped] {e}"
-        pre_note = f"{pre_note}\n{_pn}" if pre_note else _pn
+        layout_note = f"[auto-layout skipped] {e}"
+    # NOTHING TO DRAW ⇒ NOTHING TO COMPOSE. The layout passes above refuse on
+    # purpose — no cell size on `grid`, nothing generated yet on `pack` — and a
+    # refusal leaves every region without a rect. Compose then skips every one
+    # of them (batch_atlas's `_unplaced`) and still writes a page: a blank
+    # atlas.width × atlas.height canvas, which `publish_pack_page` then points
+    # the manifest at, superseding the page that was there. That is how a
+    # correct refusal upstream came out as "my atlas is always empty now".
+    # So refuse the compose too: no subprocess, no post-hook, and
+    # `atlas.source_image`/`source_image_path` left exactly as they are.
+    #
+    # The layout note becomes the RESULT of the run instead of a preamble under
+    # an empty page — it is the reason, and it already names the fix.
+    #
+    # Read back from DISK, deliberately: `mp` is what the subprocess is handed,
+    # so the bytes on disk are what it would compose. That also keeps the guard
+    # honest when the block above failed before (or during) its save.
+    with _manifest_lock:
+        laid_out = _read_manifest_at(mp) or {}
+    if nothing_is_placed(laid_out):
+        with _render_lock:
+            _render_state.update(
+                running=False, done=True, cur=0, total=1, diagnostics=[],
+                log=_blank_compose_report(laid_out, layout_note, pre_note))
+        return
+    if layout_note:
+        pre_note = f"{pre_note}\n{layout_note}" if pre_note else layout_note
     # Pass the manifest explicitly (full staging path) so compose reads the same
     # creative manifest the steps above just prepared — not whatever the
     # subprocess's config default would resolve against the script dir, and not
