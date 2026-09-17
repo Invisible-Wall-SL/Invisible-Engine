@@ -198,9 +198,20 @@ Nothing you set is lost by being hidden: a hidden field keeps its stored value, 
 
 Two deliberate behaviours:
 
-- **It is offered only on a from-scratch atlas.** An atlas whose geometry comes from a
-  bound `.atlas` has no layout at all, and converting one to `pack` would re-pack and
-  destroy the geometry the `.atlas` defines. So the field simply is not there for it.
+- **It is withheld from a `.atlas`-bound atlas only.** If `Source .atlas (geometry)` is
+  set, the rects came from that file and handing them to the packer would re-measure and
+  overwrite them with no undo — so the field simply is not there. Every other atlas gets
+  it, **including an older one that has no layout of its own**: those carry rects authored
+  elsewhere but are bound to nothing, and locking them out was a bug (they could never
+  reach the grid).
+- **An atlas with no layout opens on "Authored geometry (leave as is)".** That is its real
+  state and choosing it does nothing at all — it stores no layout and clears no rect. It
+  exists so the row can appear without implying the atlas is already `pack`, which one
+  save would have made true, handing the authored rects to the packer.
+- **Leaving "Authored geometry" is the one destructive switch.** Picking `pack` or `grid`
+  there discards the rects and trim the regions were authored with, and nothing in this
+  tool can put them back — the next Create Atlas lays every region out from scratch. The
+  reply says so and names how many regions lost their rect.
 - **Switching clears every region's rect from the old layout,** and says how many lost
   one. A pack rect describes a page the packer sized; a grid rect describes your cells.
   The regions come back placed on the next Create Atlas — that is expected, not a fault.

@@ -665,6 +665,41 @@ def is_from_scratch(m: dict) -> bool:
     return atlas_layout(m) in FROM_SCRATCH_LAYOUTS
 
 
+def is_atlas_bound(m: dict) -> bool:
+    """Is this manifest BOUND to a pre-authored `.atlas` file?
+
+    That file is the authoritative region map: `atlas_writers` parses it, a
+    same-named manifest region may not override its geometry (`_GEOM_KEYS`),
+    and the deploy prefers it over `regions[]`. Nothing in this tool re-derives
+    those rects, and the `.atlas` on disk would no longer describe the page if
+    something did."""
+    return bool(str((m.get("atlas") or {}).get("atlas_file", "")).strip())
+
+
+def can_choose_layout(m: dict) -> bool:
+    """May the author CHOOSE this manifest's layout in 🧩 Atlas settings?
+
+    NOT the same question as `is_from_scratch`, and conflating the two is the
+    fault this exists to fix. `is_from_scratch` asks whether the tool ALREADY
+    lays this manifest out — it is the right gate for compose, slice, the page
+    pointer and the deploy, all of which act on the geometry as it stands. This
+    asks whether handing the layout to the tool would DESTROY something that
+    only exists outside it, which is true of exactly one shape: a manifest bound
+    to a `.atlas`.
+
+    The third shape is why they differ. A legacy / authored-geometry manifest
+    has NO `layout` and NO `atlas_file`, but real rects (typically with an
+    `offX/offY/origW/origH` trim and a `texturepacker_json`) written by an
+    exporter or by hand. `is_from_scratch` is False for it, so gating the
+    dropdown on that predicate withheld the one control that could ever GIVE it
+    a layout — the atlases with no layout were the only ones that could not
+    choose one. Its rects are still lost by a switch (see
+    `ui_server.switch_atlas_layout`, which says so in the reply), but they are
+    lost to a choice the author made with the consequence named, not to a
+    control they were refused."""
+    return not is_atlas_bound(m)
+
+
 def region_box(region: dict) -> tuple[int, int, int, int]:
     """Resolve a region's (x, y, w, h). Explicit region values win; missing
     w/h fall back to atlas.cell_width/cell_height, then the full atlas size;
