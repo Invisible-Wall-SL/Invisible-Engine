@@ -305,6 +305,25 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 ## R2 (Cloudflare object storage)
 
 - Bucket: `invisibleassets`. Endpoint: `https://175d2ae4501d5de0a1ca970f2bb31448.r2.cloudflarestorage.com`.
+
+> ⚠️ **From Spain, R2's S3 endpoint is intermittently unreachable — and it is not our outage.** That
+> hostname resolves to `172.64.66.1` / `172.64.190.1`, inside Cloudflare anycast ranges Spanish ISPs
+> null-route under the LaLiga anti-piracy court orders (typically around match kick-offs). The
+> fingerprint, measured 2026-09-17: DNS answers normally, TCP 443 to both addresses never connects
+> (a bare `ConnectTimeoutError` / 25 s with no SYN-ACK), while `cloudflare.com`,
+> `api.cloudflare.com`, `app.invisiblewall.org` and `games.invisiblewall.org` all connect in ~25 ms.
+> **Railway is not affected**, so anything server-side (the online Game Maker publish, the exe
+> download, the test server's own hydrate) keeps working — it is only tools that talk to R2 *from a
+> Spanish line* that fail. Publishing a desktop-built game has a way through:
+> `apps/launcher-api/scripts/publish-game-via-portal.mjs` relays the bundle through the portal (see
+> [status/launcher](status/launcher.md), 2026-09-17). Don't debug these as credential or bucket
+> problems: check TCP 443 to those two addresses first.
+>
+> **`BODY_SIZE_LIMIT` (launcher-api) defaults to `32M` in code** (`apps/launcher-api/scripts/start.mjs`,
+> the `start` script) because adapter-node otherwise caps request bodies at 512 KB, which the bundle
+> relay needs to exceed. A service variable of the same name still wins — and **if that service's
+> start command is set in the Railway dashboard to `node build/index.js`, the wrapper is bypassed**
+> and the variable is the only way to raise it.
 - Key layout:
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — spine assets
