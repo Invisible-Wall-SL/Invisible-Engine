@@ -2791,6 +2791,12 @@ Overwrite it?`)
 				</p>
 
 				<div class="actions">
+					<!-- The rule wants `resolve()` from `$app/paths`, which arrived in SvelteKit 2.26;
+					     this repo pins 2.17.3, whose `$app/paths` exports only `resolveRoute`. `{base}`
+					     does not satisfy it either. Disabled inline rather than parked in
+					     eslint-suppressions.json — that baseline is for burning DOWN existing debt,
+					     not for adding new lines to it (same call as comfyui/+page.svelte). -->
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 					<a class="dl" href="/atlas">🖼 Open the Atlas Maker</a>
 				</div>
 			{:else if !refsProbe}
