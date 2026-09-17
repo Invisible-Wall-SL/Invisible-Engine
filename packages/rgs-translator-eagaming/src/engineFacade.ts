@@ -1280,8 +1280,11 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 	// This ordering is load-bearing, and it used to be the other way round. Our mock auto-collects on
 	// `play.context: ''`, so a bet's response already carried `gameRoundOver` and a stashed balance
 	// was the whole answer. The partner RGS does NOT: the round stays `updating` and the win is
-	// credited only by an explicit `collect` (verified — balance 999760 after bet+play, 999780 after
-	// collect, win 20). With the stash checked first, that collect was unreachable, so every round
+	// credited only by an explicit `collect`. Measured first (balance 999760 after bet+play, 999780
+	// after collect, win 20) and then CONFIRMED by the RGS author as the intended flow, with no case
+	// in which the collect should be withheld — worth recording, because this is a money path and a
+	// later reader should not have to re-derive it from two captures.
+	// With the stash checked first, that collect was unreachable, so every round
 	// was left open and every win went uncredited while the HUD showed one anyway, computed by us.
 	if (session.gid) {
 		const collectResult = await fetcher.post({ body: buildCollectAction() });
