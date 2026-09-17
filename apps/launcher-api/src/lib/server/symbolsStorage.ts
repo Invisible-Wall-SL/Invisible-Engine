@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { isManifestAssetKey, SYMBOL_STATES } from 'engine-layout';
+import {
+	isManifestAssetKey,
+	SYMBOL_STATES,
+	TUMBLE_PATTERNS,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+} from 'engine-layout';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
@@ -228,6 +234,21 @@ const winLineTextSchema = z
 		 *  at the winning line's end; `'boardCenter'` puts it in the middle of the reel window
 		 *  instead, where only the most recently announced win stamps so the amounts never pile up. */
 		placement: z.enum(['line', 'boardCenter']).optional(),
+		/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the
+		 *  amount appears at its final value, byte-identical to before this switch. */
+		countUp: z.boolean().optional(),
+		/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+		countUpDuration: z.number().optional(),
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 *  counts the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win
+		 *  overlay takes over and carries the number the rest of the way. Absent ⇒ OFF. Only
+		 *  meaningful with `countUp` on, which is why it drops with it. */
+		cueBigWin: z.boolean().optional(),
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF.
+		 *  Independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: z.boolean().optional(),
+		/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+		fadeInDuration: z.number().optional(),
 	})
 	.strict();
 
@@ -386,7 +407,7 @@ const bookVfxSchema = z
 
 /**
  * The explosion → intro TRANSITION — one project-global animation the game mounts at every seat
- * whose outgoing symbol starts `tumbleExplosion` under the `emerge` swap style, so the pop's end and
+ * whose outgoing symbol starts `clearReel` under the `emerge` swap style, so the pop's end and
  * the intro's start overlap instead of cutting (docs/design/perspective-board-mode.md §"The mode
  * switch"). Optional + sparse like `bookVfx`: absent ⇒ nothing renders, nothing ships, byte-identical.
  * Passed through VERBATIM to `bundle.symbols.transition`; the engine (`TumbleBoard.svelte`) owns
@@ -412,6 +433,26 @@ const transitionSchema = z
 	.refine(layerHasKindField, {
 		message: 'the explosion transition is missing the field its kind requires',
 	});
+
+/**
+ * THE CASCADE EXPLOSION PATTERN — the order the winning seats pop in (`pattern`) and the gap
+ * between two waves of them (`stepMs`, milliseconds).
+ *
+ * A SIBLING of `transition`, not a field inside it: the transition is what covers the seam at ONE
+ * seat, this is the order the seats are reached in, and a project routinely wants one without the
+ * other (the transition is `emerge`-only; a pattern applies to every cascading board).
+ *
+ * Both fields are optional and both defaults are pruned on save (see `pruneTumblePattern`), so a
+ * project that never picks a pattern persists no key and its board keeps exploding in one frame.
+ * The pattern list + the step ceiling come from `engine-layout/tumblePattern`, the one home the
+ * game's `TumbleBoard` reads them from too.
+ */
+const tumblePatternSchema = z
+	.object({
+		pattern: z.enum(TUMBLE_PATTERNS).optional(),
+		stepMs: z.number().int().min(0).max(TUMBLE_STEP_MS_MAX).optional(),
+	})
+	.strict();
 
 /**
  * Reel-anticipation presentation FX (Invisible Symbols State Machine → `docs/design/reel-anticipation.md`
@@ -469,6 +510,21 @@ const anticipationSchema = z
 	})
 	.strict();
 
+/**
+ * "A winning symbol POPS at the end of its win" — the switch that gives `explosion` a second
+ * meaning on a board that does not cascade.
+ *
+ * It has to be EXPLICIT and default OFF rather than being inferred from "is `explosion` authored",
+ * because every game already binds `explosion` for the Book-of column morph — an implicit trigger
+ * would fire on every existing project and break byte-parity on the one beat every paying spin
+ * runs. Sparse: only the ON state is persisted, so an untouched project ships no key at all.
+ */
+const winExplodeSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -480,8 +536,10 @@ export const symbolsDocSchema = z
 		winLine: winLineSchema.optional(),
 		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
+		winExplode: winExplodeSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
+		tumblePattern: tumblePatternSchema.optional(),
 		anticipation: anticipationSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
@@ -509,6 +567,19 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 		const text = { ...winLine.text };
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;
@@ -538,13 +609,73 @@ function pruneStackedPictures(
 }
 
 /**
+ * The ONE legacy state key, folded before validation.
+ *
+ * `tumbleExplosion` was renamed to `clearReel` on 2026-09-10 (the behaviour is unchanged — it is
+ * still what the cascade removal and the board CLEAR both play). Saved docs in R2 hold the old key
+ * in two places: `symbols[name].tumbleExplosion` (the binding) and
+ * `symbolSounds[name].tumbleExplosion` (the cue).
+ *
+ * It has to run BEFORE `symbolsDocSchema.parse`, not as a schema union, because the state records
+ * are keyed by `z.enum(SYMBOL_STATES)` — Zod REJECTS an unlisted key rather than stripping it, and
+ * `loadSymbolsDocWithEtag` catches a parse failure by falling back to `emptySymbolsDoc()`. A doc
+ * carrying the old key would therefore have read as a project that had never authored anything,
+ * silently losing every binding it held. Folding here also means nothing downstream — export, bake,
+ * the game — ever sees the old name.
+ *
+ * The new key WINS if a doc somehow carries both: a `clearReel` entry can only have been written by
+ * the current tool, so it is the author's later answer.
+ */
+const LEGACY_STATE_KEYS: ReadonlyArray<readonly [legacy: string, current: string]> = [
+	['tumbleExplosion', 'clearReel'],
+];
+
+const foldLegacyStates = (states: unknown): unknown => {
+	if (!states || typeof states !== 'object' || Array.isArray(states)) return states;
+	const entries = { ...(states as Record<string, unknown>) };
+	let changed = false;
+	for (const [legacy, current] of LEGACY_STATE_KEYS) {
+		if (!(legacy in entries)) continue;
+		const value = entries[legacy];
+		delete entries[legacy];
+		changed = true;
+		if (entries[current] === undefined && value !== undefined) entries[current] = value;
+	}
+	return changed ? entries : states;
+};
+
+/** Fold {@link LEGACY_STATE_KEYS} through both state-keyed maps of a raw symbols doc. Returns the
+ *  input untouched when it holds no legacy key, so a current doc costs one shallow scan. */
+export function migrateLegacySymbolStates(input: unknown): unknown {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+	const doc = input as Record<string, unknown>;
+	const next = { ...doc };
+	let changed = false;
+	for (const field of ['symbols', 'symbolSounds'] as const) {
+		const map = doc[field];
+		if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
+		const folded: Record<string, unknown> = {};
+		let fieldChanged = false;
+		for (const [name, states] of Object.entries(map as Record<string, unknown>)) {
+			const foldedStates = foldLegacyStates(states);
+			if (foldedStates !== states) fieldChanged = true;
+			folded[name] = foldedStates;
+		}
+		if (!fieldChanged) continue;
+		next[field] = folded;
+		changed = true;
+	}
+	return changed ? next : input;
+}
+
+/**
  * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
  * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
  * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
  * PUT endpoint maps that to a 400.
  */
 export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
-	const doc = symbolsDocSchema.parse(input ?? {});
+	const doc = symbolsDocSchema.parse(migrateLegacySymbolStates(input) ?? {});
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
@@ -603,6 +734,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// Same inverse-of-default persistence again: `holdAfterBigWin` defaults OFF.
 	if (doc.winCycle?.holdAfterBigWin === true) winCycle.holdAfterBigWin = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
+	// Default-OFF, so ONLY the ON state persists and an untouched project round-trips to no key —
+	// the same inversion `showMessage`/`dimNonWinning`/`holdAfterBigWin` use above.
+	if (doc.winExplode?.enabled === true) next.winExplode = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).
@@ -616,6 +750,10 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// with its one default pruned — see `pruneTransition`.
 	const transition = pruneTransition(doc.transition);
 	if (transition) next.transition = transition;
+	// Whitelisted + defaults pruned, so a project left on "All at once" round-trips to no key at all
+	// and its cascade keeps exploding in one frame — see `pruneTumblePattern`.
+	const tumblePattern = pruneTumblePattern(doc.tumblePattern);
+	if (tumblePattern) next.tumblePattern = tumblePattern;
 	// Sparse whitelist like `boardGlow`/`bookVfx`: drop an empty per-tier object and a now-empty
 	// `anticipation`, so a reset round-trips to no key and an un-authored project stays byte-identical.
 	const anticipation = pruneAnticipation(doc.anticipation);
@@ -631,6 +769,28 @@ function pruneTransition(transition: SymbolsDoc['transition']): SymbolsDoc['tran
 	if (transition.delayMs === undefined || transition.delayMs > 0) return transition;
 	const { delayMs: _zero, ...binding } = transition;
 	return binding;
+}
+
+/**
+ * Drop the two defaults, so only a DELIBERATE pattern persists.
+ *
+ * `all` is what the cascade has always done, and a `stepMs` on top of it means nothing (the engine
+ * short-circuits the pattern before it reads the step), so an author who picks a pattern and then
+ * picks `all` again must round-trip to the same bytes as never having opened the panel. The step is
+ * dropped only when it EQUALS the default — an author who deliberately re-picks 80 ms is storing the
+ * same number the engine would have applied anyway.
+ */
+function pruneTumblePattern(
+	tumblePattern: SymbolsDoc['tumblePattern'],
+): SymbolsDoc['tumblePattern'] {
+	if (!tumblePattern) return undefined;
+	const pattern = tumblePattern.pattern;
+	if (!pattern || pattern === 'all') return undefined;
+	const next: NonNullable<SymbolsDoc['tumblePattern']> = { pattern };
+	if (tumblePattern.stepMs !== undefined && tumblePattern.stepMs !== TUMBLE_STEP_MS_DEFAULT) {
+		next.stepMs = tumblePattern.stepMs;
+	}
+	return next;
 }
 
 /** Drop each empty per-tier FX object and a now-empty `anticipation`, so a reset round-trips to

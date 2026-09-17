@@ -13,14 +13,40 @@ import {
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
+	TUMBLE_PATTERN_HINTS,
+	TUMBLE_PATTERN_LABELS,
+	TUMBLE_PATTERNS,
+	TUMBLE_PATTERNS_PER_SEAT,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+	isTumblePattern,
+	tumbleExplosionDelays,
 	type SymbolNameEntry,
 	type SymbolStateName,
+	type TumblePatternConfig,
+	type TumblePatternName,
 } from 'engine-layout';
 
 export type { SymbolNameEntry };
 
 export { SYMBOL_STATES };
 export type SymbolState = SymbolStateName;
+
+/** The cascade EXPLOSION PATTERN vocabulary — re-exported from its ONE home in `engine-layout`, the
+ *  same module the game's `TumbleBoard` orders its seats with. Re-exported rather than re-declared
+ *  for the reason `SYMBOL_STATES` is: this page and the engine must offer the same list, and a
+ *  hand-copied one drifts silently here (the launcher build transpiles TS without checking it). */
+export {
+	TUMBLE_PATTERN_HINTS,
+	TUMBLE_PATTERN_LABELS,
+	TUMBLE_PATTERNS,
+	TUMBLE_PATTERNS_PER_SEAT,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+	isTumblePattern,
+	tumbleExplosionDelays,
+};
+export type { TumblePatternConfig, TumblePatternName };
 
 /** The book-only states. They mirror new engine states and are valid in the doc for
  *  every game (the schema accepts them), but the grid only SHOWS their columns for a
@@ -51,15 +77,15 @@ export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 /**
  * Column-header tooltips, for the states whose NAME does not carry the whole rule.
  *
- * Partial on purpose: a state gets an entry only when leaving it out would mislead. `Tumble
- * explosion` needs one because an EMPTY cell there is not a gap — it inherits `Explosion` — and a
+ * Partial on purpose: a state gets an entry only when leaving it out would mislead. `Clear
+ * reel` needs one because an EMPTY cell there is not a gap — it inherits `Explosion` — and a
  * blank column that silently works is exactly the kind of thing an author re-authors by hand.
  */
 export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 	intro:
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
-	tumbleExplosion:
-		'The explosion played when the cascade REMOVES this symbol, as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	clearReel:
+		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, or the board clearing before the next spin — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
@@ -274,6 +300,21 @@ export interface WinLineTextStyle {
 	/** WHERE the amount is stamped: at the winning line's end (`'line'`, absent ⇒ the default) or in
 	 *  the middle of the reel window (`'boardCenter'`). Only the non-default value persists. */
 	placement?: 'line' | 'boardCenter';
+	/** COUNT the stamped amount up from zero instead of stamping it whole. Absent ⇒ OFF — the amount
+	 *  appears at its final value, byte-identical to before this switch. */
+	countUp?: boolean;
+	/** How long that count takes, in SECONDS. Unset ⇒ the engine's coded `0.6`. */
+	countUpDuration?: number;
+	/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it counts
+	 *  the ROUND TOTAL from zero to the big-win threshold, then hides as the big-win overlay takes over
+	 *  and carries the number the rest of the way. Absent ⇒ OFF. Only meaningful with `countUp` on,
+	 *  which is why it drops with it. */
+	cueBigWin?: boolean;
+	/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Absent ⇒ OFF. Independent of
+	 *  {@link countUp} — a static stamp can fade in too. */
+	fadeIn?: boolean;
+	/** How long that fade takes, in SECONDS. Unset ⇒ the engine's coded `0.3`. */
+	fadeInDuration?: number;
 }
 
 /** Global win-line overlay config. Sparse: `enabled` is the LINE's switch — absent = ON, only
@@ -474,6 +515,11 @@ export interface SymbolsDoc {
 		dimNonWinning?: boolean;
 		holdAfterBigWin?: boolean;
 	};
+	/** "A winning symbol POPS at the end of its win" — plays the symbol's Explosion state after its
+	 *  Win beat, before it settles back to Post-win. Sparse and default OFF: only the ON state is
+	 *  written, so an untouched project ships nothing and renders byte-identical. Deliberately NOT
+	 *  inferred from "is Explosion authored" — every game binds Explosion for the Book-of morph. */
+	winExplode?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -487,6 +533,11 @@ export interface SymbolsDoc {
 	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
 	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
 	anticipation?: AnticipationConfig;
+	/** The cascade EXPLOSION PATTERN — the order the winning seats pop in (`pattern`) and the gap in
+	 *  ms between two waves (`stepMs`). Sparse: absent — and `all` — ⇒ the whole board explodes in
+	 *  one frame, nothing ships, byte-identical. Passed through verbatim to
+	 *  `bundle.symbols.tumblePattern`. */
+	tumblePattern?: TumblePatternConfig;
 	updatedAt?: string;
 }
 
@@ -506,14 +557,14 @@ export interface SymbolDefaults {
  *  Deliberately stops short of that rule's LAST resort (any unauthored state falls back to `static`).
  *  That arm is a crash-guard, not an authoring rule: mirroring it here would paint every unbound cell
  *  with the symbol's resting art and destroy the grid's only signal for "nothing is bound here". The
- *  arms below are different — each is advertised in the UI (the `Tumble explosion` and `Intro` column
+ *  arms below are different — each is advertised in the UI (the `Clear reel` and `Intro` column
  *  hints, the book-state docs), so the preview owes the author a matching picture. */
 const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// Book states (`bookIntro`/`bookIdle`) mirror the live win art.
 	if (BOOK_STATE_SET.has(state)) return 'win';
 	// A project that binds ONE explosion keeps the cascade it already had — the second binding
 	// exists only so a game CAN use a different skeleton when the tumble removes a symbol.
-	if (state === 'tumbleExplosion') return 'explosion';
+	if (state === 'clearReel') return 'explosion';
 	// An emerge with no authored intro plays the symbol's ordinary LAND animation, so the grid shows
 	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
 	// owes the author the matching picture.
@@ -787,6 +838,56 @@ export function clearTransition(doc: SymbolsDoc): SymbolsDoc {
 	return next;
 }
 
+/** The effective explosion pattern = the doc's value ?? `all`, which is what the cascade has always
+ *  done (every winning seat in one frame). */
+export function tumblePatternName(doc: SymbolsDoc): TumblePatternName {
+	return doc.tumblePattern?.pattern ?? 'all';
+}
+
+/** The effective gap between two waves, ms. Only meaningful once a pattern other than `all` is
+ *  picked — the engine short-circuits before it reads this. */
+export function tumbleStepMs(doc: SymbolsDoc): number {
+	return doc.tumblePattern?.stepMs ?? TUMBLE_STEP_MS_DEFAULT;
+}
+
+/** Pick the explosion pattern, returning a NEW doc. `all` DROPS the whole section rather than
+ *  storing the default — the same sparse round-trip rule the server's `pruneTumblePattern` applies,
+ *  so the page and the saved doc agree on what "untouched" looks like and a project that tries a
+ *  pattern and changes its mind saves the bytes it started with. */
+export function setTumblePattern(doc: SymbolsDoc, pattern: TumblePatternName): SymbolsDoc {
+	if (pattern === 'all') return clearTumblePattern(doc);
+	return { ...doc, tumblePattern: { ...doc.tumblePattern, pattern } };
+}
+
+/**
+ * Set the gap between two waves (ms), clamped to the shared ceiling and floored to an integer.
+ *
+ * A NO-OP while the pattern is `all`: storing a step under it would persist a section the engine
+ * never reads, which is exactly the "authored" ghost the sparse rule exists to prevent.
+ *
+ * The DEFAULT gap drops the field rather than storing it, mirroring the server's
+ * `pruneTumblePattern`. Both halves have to agree or the page is permanently dirty: it would sign a
+ * `stepMs` the server strips on save, so Save would light up again the instant it finished.
+ */
+export function setTumbleStepMs(doc: SymbolsDoc, stepMs: number): SymbolsDoc {
+	const pattern = doc.tumblePattern?.pattern;
+	if (!pattern || pattern === 'all') return doc;
+	if (!Number.isFinite(stepMs)) return doc;
+	const clamped = Math.min(Math.max(Math.floor(stepMs), 0), TUMBLE_STEP_MS_MAX);
+	return {
+		...doc,
+		tumblePattern: clamped === TUMBLE_STEP_MS_DEFAULT ? { pattern } : { pattern, stepMs: clamped },
+	};
+}
+
+/** Back to "all at once" — no key at all, so an untouched/reset project ships nothing. New doc. */
+export function clearTumblePattern(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.tumblePattern) return doc;
+	const next = { ...doc };
+	delete next.tumblePattern;
+	return next;
+}
+
 /** The effective "draw the win LINE" flag = the doc's value ?? `true` (game default). Governs the
  *  traced line only — the stamped amount is {@link winLineTextEnabled}. */
 export function winLineEnabled(doc: SymbolsDoc): boolean {
@@ -803,6 +904,24 @@ export function winLineTextEnabled(doc: SymbolsDoc): boolean {
 /** The effective stamp PLACEMENT: at the winning line's end, or centred in the reel window. */
 export function winLineTextPlacement(doc: SymbolsDoc): 'line' | 'boardCenter' {
 	return doc.winLine?.text?.placement ?? 'line';
+}
+
+/** The effective "count the stamped amount up from zero" flag. Defaults to `false` (byte-parity —
+ *  the amount was stamped whole before this switch). */
+export function winLineTextCountUp(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.countUp ?? false;
+}
+
+/** The effective "count up to cue the big win" flag. Defaults to `false`; only read while
+ *  {@link winLineTextCountUp} is on, which is also the only state it persists in. */
+export function winLineTextCueBigWin(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.cueBigWin ?? false;
+}
+
+/** The effective "fade the stamp in" flag. Defaults to `false`, and is independent of the count —
+ *  a static stamp can fade in too. */
+export function winLineTextFadeIn(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.fadeIn ?? false;
 }
 
 /** The effective "keep the winning SYMBOLS animating until the next spin" flag — the game's
@@ -851,6 +970,22 @@ export function winCycleHoldAfterBigWin(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.holdAfterBigWin ?? false;
 }
 
+/** The effective "a winning symbol explodes at the end of its win" flag. Defaults to `false`
+ *  (byte-parity — a winner went straight from `win` to `postWinStatic` before this switch), and
+ *  the symbol is NOT removed from the board: it still settles into its Post-win art. */
+export function winExplodeEnabled(doc: SymbolsDoc): boolean {
+	return doc.winExplode?.enabled ?? false;
+}
+
+/** Turn the end-of-win pop on/off. Sparse like `winCycle.showMessage`: OFF deletes the key so an
+ *  untouched/reset project persists nothing. */
+export function setWinExplodeEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.winExplode = { enabled: true };
+	else delete next.winExplode;
+	return next;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -884,6 +1019,19 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 		// so a value equal to its default drops, keeping an untouched project shipping no `winLine`.
 		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
 		if (text.placement === 'line') delete text.placement;
+		// `countUp` defaults OFF, so only the ON override persists — and both the count's length and
+		// the big-win cue are meaningless without it, so they drop with it.
+		if (text.countUp !== true) {
+			delete text.countUp;
+			delete text.countUpDuration;
+			delete text.cueBigWin;
+		}
+		if (text.cueBigWin !== true) delete text.cueBigWin;
+		// Same inversion for the fade: only the ON override persists, and its length rides with it.
+		if (text.fadeIn !== true) {
+			delete text.fadeIn;
+			delete text.fadeInDuration;
+		}
 		if (Object.keys(text).length) next.text = text;
 	}
 	return Object.keys(next).length ? next : undefined;
@@ -1331,6 +1479,14 @@ export function docSignature(doc: SymbolsDoc): string {
 		for (const state of SYMBOL_STATES) if (states[state]) ordered[state] = states[state];
 		symbolSounds[symbol] = ordered;
 	}
+	// Listed here or picking an explosion pattern never marks the page dirty and Save stays disabled —
+	// the same trap every sibling above carries a warning about.
+	const tumblePattern = doc.tumblePattern
+		? {
+				pattern: doc.tumblePattern.pattern ?? null,
+				stepMs: doc.tumblePattern.stepMs ?? null,
+			}
+		: null;
 	return JSON.stringify({
 		symbols,
 		names,
@@ -1340,8 +1496,12 @@ export function docSignature(doc: SymbolsDoc): string {
 		winLine,
 		stackedPictures,
 		winCycle,
+		// Listed here or turning the end-of-win pop on never marks the page dirty and Save stays
+		// disabled — the same trap every sibling above carries a warning about.
+		winExplode: doc.winExplode?.enabled === true ? true : null,
 		bookVfx,
 		transition,
+		tumblePattern,
 		anticipation,
 	});
 }

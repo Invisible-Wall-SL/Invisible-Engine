@@ -14,10 +14,33 @@
  * zoom (1 = exact cover), and a per-axis `stretchX`/`stretchY` applies the free
  * non-uniform stretch on top — so the returned scale is per-axis (`scaleX`/`scaleY`).
  *
+ * The fit is always COMPUTED against the centre of the target; `anchorX`/`anchorY`
+ * then ALIGN the fitted art inside it (0 = left/top edge, 0.5 = centred — the
+ * default, 1 = right/bottom edge), i.e. they slide the art within the crop overflow
+ * the way CSS `object-position` does. That is the only meaning a cover node's anchor
+ * has: the art is always drawn from its own centre (pivot 0.5), so the alignment
+ * lives in the returned `x`/`y`.
+ *
  * Art dimensions: spine art uses `skeleton.data.width/height` (the authored size —
  * the same source the pixi-svelte spine-sizing fix reads); sprite art uses the
  * texture's natural size.
  */
+
+/**
+ * How the art is fitted to the target box:
+ * - `cover` (default) — fill it, cropping the overflowing axis (`max` of the two axis scales).
+ * - `contain` — fit fully inside it, letterboxing the short axis (`min`).
+ * - `width` — match the target's WIDTH exactly (fit on X), whatever that does to the height.
+ * - `height` — match the target's HEIGHT exactly (fit on Y).
+ *
+ * `cover`/`contain` pick the axis by aspect, so which one drives the scale flips as the window
+ * ratio crosses the art's; `width`/`height` PIN it to the named axis, which is what an author
+ * wants when a backdrop must always span the window horizontally (and be cropped/gapped
+ * vertically by design) regardless of ratio. Per-layout overridable — see
+ * {@link NodeOverride.fit} — so a portrait bucket can fit on Y while desktop fits on X.
+ */
+export type CoverFit = 'cover' | 'contain' | 'width' | 'height';
+
 export interface CoverInput {
 	/** Authored art width (spine `skeleton.data.width`, sprite natural width). */
 	artWidth: number;
@@ -33,8 +56,12 @@ export interface CoverInput {
 	stretchX?: number;
 	/** Free vertical stretch applied on top of the fitted cover scale (default 1). */
 	stretchY?: number;
-	/** `cover` (default) fills the target (may crop); `contain` fits inside it. */
-	fit?: 'cover' | 'contain';
+	/** How the art is fitted to the target box — see {@link CoverFit}. Default `'cover'`. */
+	fit?: CoverFit;
+	/** Horizontal alignment inside the target: 0 = left edge, 0.5 = centred (default), 1 = right. */
+	anchorX?: number;
+	/** Vertical alignment inside the target: 0 = top edge, 0.5 = centred (default), 1 = bottom. */
+	anchorY?: number;
 }
 
 export interface CoverTransform {
@@ -42,18 +69,23 @@ export interface CoverTransform {
 	scaleX: number;
 	/** Vertical scale to apply to the art (`fitScale * coverScale * stretchY`). */
 	scaleY: number;
-	/** Centre x of the target (the art is drawn centred on this). */
+	/** Where to draw the art's CENTRE — the target centre, slid by the anchor alignment. */
 	x: number;
-	/** Centre y of the target. */
+	/** Where to draw the art's CENTRE on y — the target centre, slid by the anchor alignment. */
 	y: number;
 }
 
 /**
- * Compute a centred true-cover (or contain) transform for art of the given authored
+ * Compute a true-cover (or contain / per-axis) transform for art of the given authored
  * dimensions over the given target box. The fitted scale is uniform; `coverScale`
  * zooms it uniformly and `stretchX`/`stretchY` apply the free non-uniform stretch on
- * top. Degenerate art (zero dims) falls back to `coverScale * stretch` centred on the
- * target so a draw never collapses to nothing.
+ * top. Degenerate art (zero dims) falls back to `coverScale * stretch` so a draw never
+ * collapses to nothing.
+ *
+ * The returned `x`/`y` is where the art's CENTRE goes: the target centre for the default
+ * `0.5` anchor, slid within the overflow (`fitted size − target size`) for any other —
+ * anchor `0` puts the art's left/top edge on the target's, anchor `1` its right/bottom.
+ * So the fit is unchanged by the anchor; only where the crop falls moves.
  */
 export function coverTransform({
 	artWidth,
@@ -64,27 +96,57 @@ export function coverTransform({
 	stretchX = 1,
 	stretchY = 1,
 	fit = 'cover',
+	anchorX = 0.5,
+	anchorY = 0.5,
 }: CoverInput): CoverTransform {
-	const x = targetWidth / 2;
-	const y = targetHeight / 2;
+	const align = (target: number, drawn: number, anchor: number): number =>
+		target / 2 + (0.5 - anchor) * (drawn - target);
 	if (!(artWidth > 0) || !(artHeight > 0)) {
-		return { scaleX: coverScale * stretchX, scaleY: coverScale * stretchY, x, y };
+		return {
+			scaleX: coverScale * stretchX,
+			scaleY: coverScale * stretchY,
+			x: align(targetWidth, 0, anchorX),
+			y: align(targetHeight, 0, anchorY),
+		};
 	}
 	const sx = targetWidth / artWidth;
 	const sy = targetHeight / artHeight;
-	const fitScale = fit === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+	const fitScale =
+		fit === 'width'
+			? sx
+			: fit === 'height'
+				? sy
+				: fit === 'contain'
+					? Math.min(sx, sy)
+					: Math.max(sx, sy);
+	const scaleX = fitScale * coverScale * stretchX;
+	const scaleY = fitScale * coverScale * stretchY;
 	return {
-		scaleX: fitScale * coverScale * stretchX,
-		scaleY: fitScale * coverScale * stretchY,
-		x,
-		y,
+		scaleX,
+		scaleY,
+		x: align(targetWidth, artWidth * scaleX, anchorX),
+		y: align(targetHeight, artHeight * scaleY, anchorY),
 	};
 }
 
 /**
+ * The anchor ALIGNMENT alone — how far the fitted art is slid off the target centre
+ * ({@link coverTransform}'s `x`/`y` minus that centre). For the cover paths that do NOT
+ * position the art themselves (a spine, sized by pixi-svelte's `fit` from its skeleton
+ * dims and placed at its own authored spot): they keep their position and ADD this, so a
+ * default `0.5` anchor is byte-identical (`0`) and a moved anchor slides the art the same
+ * distance it would slide a sprite. One formula, so a spine background and a sprite
+ * background cannot align differently.
+ */
+export function coverAnchorOffset(input: CoverInput): { dx: number; dy: number } {
+	const cover = coverTransform(input);
+	return { dx: cover.x - input.targetWidth / 2, dy: cover.y - input.targetHeight / 2 };
+}
+
+/**
  * Canonical readers for a background cover node's doc-driven cover **scale**,
- * **stretch** and **fit** (§10.3 step 4) — the SINGLE place every cover code path
- * resolves them, so the game runtime + all three editor cover paths agree:
+ * **stretch**, **fit** and **anchor** (§10.3 step 4) — the SINGLE place every cover code
+ * path resolves them, so the game runtime + all three editor cover paths agree:
  *
  * - **cover scale** = `node.coverScale` (the uniform cover multiplier; `1` = exact
  *   edge-to-edge cover).
@@ -93,30 +155,70 @@ export function coverTransform({
  * - **cover fit** = the node's `fit` field, with a `bind` preview-art anchor
  *   reading `preview.art.fit` instead (the field the editor already round-trips
  *   for those anchors). Default `'cover'`.
+ * - **cover anchor** = `node.anchor` read as the ALIGNMENT of the fitted art inside the
+ *   window (default `{0.5, 0.5}` = centred, which is what every editor-spawned node
+ *   carries — so this is parity until an author moves it).
  *
- * `node` is typed loosely so this lives in the dependency-free cover module
- * (consumers pass a `LayoutNode`; only `coverScale`/`scale`/`fit`/`preview` are read).
+ * Every reader takes the active `layoutType` and honours that bucket's
+ * {@link NodeOverride} first, so a cover can be fitted/zoomed/stretched/aligned
+ * differently per screen ratio. Omitting it reads the BASE values only — pass it from
+ * any surface that renders a specific layout (all of them do).
+ *
+ * `node` is typed loosely so this lives in the dependency-free cover module (consumers
+ * pass a `LayoutNode`; only `coverScale`/`scale`/`anchor`/`fit`/`preview`/`overrides`
+ * are read).
  */
-interface BackgroundCoverNode {
+interface BackgroundCoverFields {
 	coverScale?: number;
 	scale?: { x: number; y: number };
-	fit?: 'cover' | 'contain';
-	preview?: { art?: { fit?: 'cover' | 'contain' } };
+	anchor?: { x: number; y: number };
+	fit?: CoverFit;
+}
+
+interface BackgroundCoverNode extends BackgroundCoverFields {
+	preview?: { art?: { fit?: CoverFit } };
+	overrides?: Partial<Record<string, BackgroundCoverFields>>;
+}
+
+/** This node's per-layoutType cover override, when the caller named a layout that has one. */
+function coverOverride(
+	node: BackgroundCoverNode,
+	layoutType?: string,
+): BackgroundCoverFields | undefined {
+	return layoutType ? node.overrides?.[layoutType] : undefined;
 }
 
 /** The uniform cover scale multiplier (`coverScale`, default `1` = exact edge-to-edge cover). */
-export function backgroundCoverScale(node: BackgroundCoverNode): number {
-	return node.coverScale ?? 1;
+export function backgroundCoverScale(node: BackgroundCoverNode, layoutType?: string): number {
+	return coverOverride(node, layoutType)?.coverScale ?? node.coverScale ?? 1;
 }
 
 /** The free per-axis cover stretch (`node.scale`, default `{ x: 1, y: 1 }`). */
-export function backgroundCoverStretch(node: BackgroundCoverNode): { x: number; y: number } {
-	return { x: node.scale?.x ?? 1, y: node.scale?.y ?? 1 };
+export function backgroundCoverStretch(
+	node: BackgroundCoverNode,
+	layoutType?: string,
+): { x: number; y: number } {
+	const scale = coverOverride(node, layoutType)?.scale ?? node.scale;
+	return { x: scale?.x ?? 1, y: scale?.y ?? 1 };
+}
+
+/**
+ * The cover ALIGNMENT (`node.anchor`, default centred). A cover node's art is always drawn
+ * from its own centre, so its anchor cannot mean "pivot" the way a placed node's does — it
+ * means where the fitted art sits inside the window (0 = left/top edge, 1 = right/bottom).
+ * Before this it meant NOTHING on a cover node: every cover path overwrote it with `0.5`.
+ */
+export function backgroundCoverAnchor(
+	node: BackgroundCoverNode,
+	layoutType?: string,
+): { x: number; y: number } {
+	const anchor = coverOverride(node, layoutType)?.anchor ?? node.anchor;
+	return { x: anchor?.x ?? 0.5, y: anchor?.y ?? 0.5 };
 }
 
 /** The canonical cover fit — `preview.art.fit` for a bind anchor, else `node.fit`; default `'cover'`. */
-export function backgroundFit(node: BackgroundCoverNode): 'cover' | 'contain' {
-	return node.preview?.art?.fit ?? node.fit ?? 'cover';
+export function backgroundFit(node: BackgroundCoverNode, layoutType?: string): CoverFit {
+	return coverOverride(node, layoutType)?.fit ?? node.preview?.art?.fit ?? node.fit ?? 'cover';
 }
 
 /**

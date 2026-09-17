@@ -536,16 +536,20 @@ export function resolveAnchorPreviewArt(
 	 * falls back to the catalog default (parity). Ignored for sprite previews. */
 	previewSpineBundle?: string,
 ): ResolvedPreviewArt | undefined {
-	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement
-	//    (cover → cover, anything else → centred); a node needing a board-relative
-	//    spot just leaves `art` off and lets the catalog default apply.
+	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement (any
+	//    WINDOW-filling fit — `cover` and the per-axis `width`/`height` — → the cover
+	//    placement, which then honours the node's own fit/scale/stretch; anything else →
+	//    centred); a node needing a board-relative spot just leaves `art` off and lets the
+	//    catalog default apply.
 	const override = node.preview?.art;
 	if (override) {
+		const fillsWindow =
+			override.fit === 'cover' || override.fit === 'width' || override.fit === 'height';
 		return {
 			kind: override.kind,
 			assetKey: override.assetKey,
 			region: override.region,
-			placement: override.fit === 'cover' ? 'cover' : 'centre',
+			placement: fillsWindow ? 'cover' : 'centre',
 		};
 	}
 	const component = node.bind?.component;

@@ -8,8 +8,9 @@ image generation — then inspect, curate and deploy the results.
 The original local Python Atlas Maker, **re-hosted on Railway** (a re-host, not
 a rewrite). It lists every region from the active manifest and lets you, per
 region: toggle render on/off, edit the prompt, lock/unlock/change the seed, view
-the latest output and shape ref, and lock the seed that produced a good output
-with one click. A Settings panel edits the global `atlas_config.json`.
+the latest output and shape ref, pick which generated variant the region uses,
+and lock the seed that produced a good output with one click. A Settings panel
+edits the global `atlas_config.json`.
 
 The actual image generation happens on **your local ComfyUI** (see
 [comfyui.md](comfyui.md)) — the cloud tool drives it over the Cloudflare tunnel.
@@ -70,12 +71,33 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
    `/fsbrowse` browser (returns R2-relative paths).
 3. **Render** — the tool sends the workflow to your ComfyUI and shows live
    progress on the button; thumbnails + seeds refresh in place when done.
-4. **Curate** — review variants, pick the best, lock its seed.
+4. **Curate** — open **▦ variants**, click the one you want. The pick is saved
+   the moment you click it, and it is what **Create Atlas** composes — you do
+   not have to lock it. Optionally **🔒 lock this pick** as well, which is a
+   separate promise: *don't re-render this slot at all.*
 5. **Compose / slice** — assemble the atlas page / slice a source page into
    refs (needs the `.atlas` geometry + source image in R2, see limitations).
 6. **🖼 View atlas** — check the composed page in the **Region Overlay
    Inspector** (below) before you deploy it.
 7. **Deploy** — `/deployatlas` copies the finished result to R2.
+
+### Picking a variant vs locking a slot
+
+Two different promises, on purpose — they used to share one field, and a pick
+made without a lock was silently discarded.
+
+| | **▦ variants → click one** | **🔒 lock this pick / the `lock` box** |
+|---|---|---|
+| Means | "compose THIS file" | "don't re-render this slot" |
+| Saved | immediately, on click | on save, as the region's `lock` flag (+ the seed) |
+| Create Atlas | uses exactly that file | unchanged — the lock is about rendering |
+| Render selected | still re-renders the slot | **skips** it (and for `gpt_image`, that is what stops a second paid call) |
+
+The card always shows the file `Create Atlas` will compose, so if you can see
+it, it ships. A pick lasts until you pick again, delete that file, or
+**re-render that same region** — a fresh render is newer art, so the card moves
+to it and the pin goes with it. Lock the pick if you want it to outlive future
+renders. Nothing is lost to a render you stopped or that failed.
 
 ## ⚙ Settings — and where the dropdowns get their values
 

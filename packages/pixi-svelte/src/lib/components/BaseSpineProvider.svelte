@@ -11,9 +11,10 @@
 		 * pivot can't be computed statically). Ignored when the skeleton has authored bounds. */
 		anchorFallback?: number | { x?: number; y?: number };
 		// When set AND both `width`/`height` are given, the spine sizes by a UNIFORM
-		// cover/contain scale instead of per-axis stretch (true cover, no distortion).
-		// Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
-		fit?: 'cover' | 'contain';
+		// cover/contain scale instead of per-axis stretch (true cover, no distortion) —
+		// `'width'`/`'height'` pin that uniform scale to the named axis instead of picking
+		// it by aspect. Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
+		fit?: 'cover' | 'contain' | 'width' | 'height';
 		// Skeleton skin name. When set + non-empty, applied via the spine-pixi-v8 API
 		// after construction. Absent = the runtime's default-skin behaviour (untouched).
 		skin?: string;

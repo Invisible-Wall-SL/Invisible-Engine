@@ -174,7 +174,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   `symbols`, `anticipation` and `winTiers`. Every level is sparse and an empty level is DROPPED on
   save, because `{}` and absent must read the same to a runtime — a project that authored a cue and
   then cleared it must not read as authored-with-nothing, which is silence rather than a default.
-  `enabled: false` is the one exception that stands alone: it is the gesture that *means* "play
+  `enabled: false` is the one exception that stands alone: it is the gesture that _means_ "play
   nothing here". Slot names are stored only when they DEPART from the catalogue.
 - **The migration is whole-doc and one-way** (`effectiveSoundBindings`). No block ⇒ read
   `/config`'s `sounds` + `winLevels[].sound` and `/symbols`' `symbolSounds` + anticipation cues, so
@@ -222,6 +222,11 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-09-10 — **The per-symbol cue row “Tumble explosion” is now “Clear reel”.** Symbol-state rename only, decided in Invisible Symbols (see [symbols.md](symbols.md)): the state `tumbleExplosion` became `clearReel`, because the beat is a symbol being TAKEN OFF the board — the cascade’s removal _and_ the swap-in-place board CLEAR — not only a tumble. Nothing about the sound moved: same gate (the project cascades OR clears), same additive relationship to the game-wide ladder, same audiosprite keys.
+
+  - **A saved binding is not re-authored.** `symbolSounds[symbol].tumbleExplosion` is folded into `clearReel` at the symbols-doc load boundary (`symbolsStorage#migrateLegacySymbolStates`), before validation — the per-symbol map is keyed by `z.enum(SYMBOL_STATES)` and Zod rejects an unlisted key, so an un-folded doc would have loaded as an empty one and lost every cue on it.
+  - **The game-wide SLOT is still `tumbleExplosion`** (`packages/game-config/src/sounds.ts`, `/config` → Sounds → “Tumble explosion”). It lives in the sounds doc, a different namespace from the symbol states, and renaming it would migrate a second doc for no gain.
+
 - 2026-08-27 — **Per-symbol cues gained `Intro`, and `Tumble explosion` was offered to the wrong set of projects.** `Intro` is the cue a symbol makes as it SURFACES under the new `emerge` swap style (`/config` → Reel behaviour); it is heard **alongside** the ordinary landing cue rather than instead of it, unlike `Land`, whose per-symbol binding replaces the game-wide slot. The difference is whether there is a class cue to override: an emerge has no game-wide slot of its own, so there is nothing to replace. **The correction:** `tumbleExplosion` was gated on `resolveCascade` alone, but two things play that state — a tumble removing a symbol, and the swap-in-place CLEAR step, which a swapping board runs every round. A project authoring the sink half of an emerge was therefore offered no row for the very cue it fires. Both gates now come from one helper (`symbolCueStates`) reading the resolved config, so the state a beat plays and the switch that turns that beat on stay two separate questions asked in one place. Full story in [game-config.md](game-config.md).
 
 - 2026-08-26 — **Authoring moved into the tool — the game's sounds are chosen here now.** Design step
@@ -262,7 +267,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
   **Flow needed no schema change.** `validate.ts` checks an enum literal with
   `typeof value === 'string'` and has never tested membership, so a graph naming a project sound was
-  always *valid* — it simply could not be authored. `withProjectSounds` widens the vocabulary's three
+  always _valid_ — it simply could not be authored. `withProjectSounds` widens the vocabulary's three
   sound enums, which changes what the inspector lists and nothing else, and returns the vocabulary by
   **identity** when the project has no library.
 
@@ -536,7 +541,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   conditional read/write; `projectPaths.ts` gains `SUB.sounds`, `soundsDocKey` and `soundFileKey`.
 
   **The normalize DROPS rather than prunes, and that is the design.** Every other doc here is sparse
-  — an absent field falls back. A sound entry can instead be *unshippable*: no file, a name no
+  — an absent field falls back. A sound entry can instead be _unshippable_: no file, a name no
   binding could address, a non-positive duration, or a duplicate. Each of those would reach a player
   as silence, which howler produces without an error, so keeping them would be storing a fact the
   tool would then display as a sound that can never play. **Duplicates collapse LAST-WINS on both
@@ -574,7 +579,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 - 2026-08-26 — **The sound player can hold more than one audio bank — the precondition for a project
   having sounds of its own.** `docs/design/invisible-sound.md` step S1. Before this, `createSound`
   built exactly one `Howl` from exactly one `LoadedAudio` and played by indexing that one sprite map,
-  so "upload a sound and hear it in the game" was not hard but *structurally impossible*: the
+  so "upload a sound and hear it in the game" was not hard but _structurally impossible_: the
   audiosprite is baked into each app's `static/` and identical for every project. `load()` now takes
   an ordered bank list (a single audio still works — every caller passes one, unchanged), builds a
   `Howl` per bank, and resolves each name to the **last** bank declaring it. That is the same
@@ -584,14 +589,14 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   **The load-bearing constraint is that a `soundId` is only unique within its own `Howl`.** Every
   play/stop/pause/fade/rate/volume path therefore routes through `howlFor(name)` rather than a
   captured howl; crossing them would mis-target silently, since howler reports nothing. `configFor`
-  reads the base volume from the *owning* bank, so an override brings its own mix. `hasSound()` spans
+  reads the base volume from the _owning_ bank, so an override brings its own mix. `hasSound()` spans
   every bank, and `destroy()` unloads **once per bank** — it used to unload the three players'
   `howl`, which was the same object three times, and would have left every bank after the first
   loaded forever. **Membership is by `sprite`, never by `config`:** owning a name you cannot play
   routes it to a howl that declines it silently, which is the failure this whole feature exists to
   end.
 
-  Two behaviour fixes fell out, both from resolving the howl *before* playing: an unplayable name no
+  Two behaviour fixes fell out, both from resolving the howl _before_ playing: an unplayable name no
   longer pins itself in the sound map as `playing` with a null id (it could never play again, even
   after a bank carrying it loaded), and an unknown music track no longer pauses the music that was
   playing before discovering it has nothing to start. Also removed three pieces of dead code the

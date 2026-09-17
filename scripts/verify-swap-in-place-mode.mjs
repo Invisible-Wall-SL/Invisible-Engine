@@ -963,7 +963,7 @@ const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, mo
 		// trace here at all. The real players are `soundBindings.ts`, which reads baked project data
 		// no fixture has — so what is asserted is that the beat asks, not what it picks.
 		'playTumbleExplosionSound',
-		'playSymbolTumbleExplosionSound',
+		'playSymbolClearReelSound',
 		'playSymbolIntroSound',
 		// WHICH SYMBOLS AUTHORED AN INTRO. A parameter rather than a constant, because the whole
 		// point of the predicate is that the two answers cost different amounts of time, and a
@@ -1002,7 +1002,7 @@ return {
 			onSymbolLand: ({ rawSymbol: landedSymbol }) => onLand?.(landedSymbol.name),
 		},
 		() => onSound?.('tumbleExplosion'),
-		(symbolName) => onSound?.(`symbol:tumbleExplosion:${symbolName}`),
+		(symbolName) => onSound?.(`symbol:clearReel:${symbolName}`),
 		(symbolName) => onSound?.(`symbol:intro:${symbolName}`),
 		// Default: NOTHING is authored. That is the state every project is in the day the style
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.

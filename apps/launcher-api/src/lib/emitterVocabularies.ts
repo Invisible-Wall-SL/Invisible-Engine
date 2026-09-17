@@ -132,6 +132,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'WinLine',
 			},
 			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
+				group: 'WinLine',
+			},
+			{
 				type: 'freeSpinIntroShow',
 				group: 'Free spins',
 			},
@@ -749,6 +769,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'WinLine',
 			},
 			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
+				group: 'WinLine',
+			},
+			{
 				type: 'freeSpinIntroShow',
 				group: 'Free spins',
 			},
@@ -1363,6 +1403,26 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'winLineHide',
+				group: 'WinLine',
+			},
+			{
+				type: 'winAmountCue',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'target',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'amountAt',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winAmountCueHide',
 				group: 'WinLine',
 			},
 			{

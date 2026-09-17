@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -14,6 +15,7 @@
 		resolveTransform,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
+		type CoverFit,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -95,8 +97,6 @@
 		 * order) so a scene's spine sits above/below ANOTHER scene's 2D art per the doc
 		 * order — not always on top. Unset = render every non-hidden scene (legacy). */
 		sceneFilter?: Set<string> | null;
-		/** Editor-only: the id of the ACTIVE (selected) scene. A full-screen-dim overlay
-		 * (free-spin intro/outro — `overlayDim` in the catalog) draws its scrim ONLY when
 		/**
 		 * Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested spines
 		 * follow their top-level ancestor). `null` ⇒ every node, which is the un-blended path and
@@ -115,6 +115,8 @@
 		 * {@link nodeFilter}, which narrows the layer to the nodes that share this mode.
 		 */
 		blend?: string;
+		/** Editor-only: the id of the ACTIVE (selected) scene. A full-screen-dim overlay
+		 * (free-spin intro/outro — `overlayDim` in the catalog) draws its scrim ONLY when
 		 * THIS layer is filtered to the active scene, so the "see all screens" composite
 		 * never stacks several dims into a black-out. Unset = no scrim. */
 		activeSceneId?: string | null;
@@ -182,10 +184,10 @@
 		reloadToken = 0,
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
-		activeSceneId = null,
-		componentMap = new Map<string, ComponentDef>(),
 		nodeFilter = null,
 		blend = 'normal',
+		activeSceneId = null,
+		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
 		boneRiders,
 		spinePreview = null,
@@ -410,7 +412,10 @@
 		 * canonical readers the game runtime + 2D canvas use. */
 		coverScale?: number;
 		stretch?: { x: number; y: number };
-		fit?: 'cover' | 'contain';
+		fit?: CoverFit;
+		/** The cover's ALIGNMENT in the window (the node's anchor, default centred) — where the
+		 *  fitted art sits inside the frame, the one meaning an anchor has on a cover node. */
+		coverAnchor?: { x: number; y: number };
 		/** A `canvas`-space spine node with `node.coverFit`: cover-fit the window with the
 		 * SAME true-cover branch a `background`-space spine uses (target = the frame/window),
 		 * but the scene stays flow-gated (not a persistent background) — mirrors the runtime
@@ -469,12 +474,12 @@
 			if (hiddenSceneIds.has(sc.id)) continue;
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
+				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				const t = resolveTransform(n, layoutType);
 				if (!t.visible) continue;
 				if (n.kind === 'spine') {
 					out.push({
 						nodeId: n.id,
-				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 						assetKey: n.assetKey,
 						defaultAnimation: n.defaultAnimation,
 						skin: n.skin,
@@ -486,9 +491,10 @@
 						placement: undefined,
 						transform: t,
 						space: sc.space,
-						coverScale: backgroundCoverScale(n),
-						stretch: backgroundCoverStretch(n),
-						fit: backgroundFit(n),
+						coverScale: backgroundCoverScale(n, layoutType),
+						stretch: backgroundCoverStretch(n, layoutType),
+						fit: backgroundFit(n, layoutType),
+						coverAnchor: backgroundCoverAnchor(n, layoutType),
 						coverFit: sc.space === 'canvas' && n.coverFit === true,
 					});
 				} else {
@@ -507,9 +513,10 @@
 							// doc-driven cover scale + stretch + fit from `preview.art.fit` /
 							// `coverScale` / `scale` — the SAME canonical readers the game runtime +
 							// 2D canvas use.
-							coverScale: backgroundCoverScale(n),
-							stretch: backgroundCoverStretch(n),
-							fit: backgroundFit(n),
+							coverScale: backgroundCoverScale(n, layoutType),
+							stretch: backgroundCoverStretch(n, layoutType),
+							fit: backgroundFit(n, layoutType),
+							coverAnchor: backgroundCoverAnchor(n, layoutType),
 						});
 					}
 				}
@@ -1066,6 +1073,7 @@
 					target.coverScale ?? 1,
 					target.stretch ?? { x: 1, y: 1 },
 					target.fit ?? 'cover',
+					target.coverAnchor ?? { x: 0.5, y: 0.5 },
 				);
 			} else if (target.space === 'background' || target.coverFit) {
 				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
@@ -1074,6 +1082,7 @@
 				// checked BEFORE the plain canvas/standard branch below so it cover-fits.
 				const nat = naturalSizeOf(inst);
 				const bgStretch = target.stretch ?? { x: 1, y: 1 };
+				const bgAnchor = target.coverAnchor ?? { x: 0.5, y: 0.5 };
 				const cover = coverTransform({
 					artWidth: nat?.w ?? frameWidth,
 					artHeight: nat?.h ?? frameHeight,
@@ -1083,6 +1092,8 @@
 					stretchX: bgStretch.x,
 					stretchY: bgStretch.y,
 					fit: target.fit ?? 'cover',
+					anchorX: bgAnchor.x,
+					anchorY: bgAnchor.y,
 				});
 				inst.skeleton.x = cover.x;
 				inst.skeleton.y = cover.y;
@@ -1274,7 +1285,8 @@
 		posOffset: { x: number; y: number },
 		coverScale: number,
 		stretch: { x: number; y: number },
-		fit: 'cover' | 'contain',
+		fit: CoverFit,
+		coverAnchor: { x: number; y: number },
 	): void {
 		const nat = naturalSizeOf(inst);
 		// `getBounds` writes via `.set()`, so these MUST implement it (a plain `{x,y}`
@@ -1373,7 +1385,12 @@
 		// `coverScale 1` + `fit cover` is exact full-bleed. A `contain` placement (centred
 		// overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
-		const { scaleX: sx, scaleY: sy } = coverTransform({
+		const {
+			scaleX: sx,
+			scaleY: sy,
+			x: coverX,
+			y: coverY,
+		} = coverTransform({
 			artWidth: bw,
 			artHeight: bh,
 			targetWidth: frameWidth,
@@ -1382,11 +1399,14 @@
 			stretchX: isCover ? stretch.x : 1,
 			stretchY: isCover ? stretch.y : 1,
 			fit: isCover ? fit : 'contain',
+			anchorX: isCover ? coverAnchor.x : 0.5,
+			anchorY: isCover ? coverAnchor.y : 0.5,
 		});
-		// cover ignores the offset (caller passes 0); contain adds it in world px. The
-		// bounds centre is scaled per-axis so a stretched cover stays centred.
-		inst.skeleton.x = frameWidth / 2 - sx * cx + posOffset.x;
-		inst.skeleton.y = frameHeight / 2 + sy * cy + posOffset.y;
+		// cover ignores the offset (caller passes 0) and sits where its anchor ALIGNS it
+		// (the frame centre for the default centred anchor); contain adds the offset in world
+		// px. The bounds centre is scaled per-axis so a stretched cover stays put.
+		inst.skeleton.x = coverX - sx * cx + posOffset.x;
+		inst.skeleton.y = coverY + sy * cy + posOffset.y;
 		inst.skeleton.scaleX = sx;
 		inst.skeleton.scaleY = -sy;
 	}

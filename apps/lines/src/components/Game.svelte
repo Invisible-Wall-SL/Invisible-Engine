@@ -96,6 +96,7 @@
 		TAP_TO_CONTINUE_DEF,
 		LOADING_BAR_DEF,
 		findReelGridNode,
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -1042,9 +1043,10 @@
 	const backgroundCover = $derived(
 		bgNode
 			? {
-					scale: backgroundCoverScale(bgNode),
-					fit: backgroundFit(bgNode),
-					stretch: backgroundCoverStretch(bgNode),
+					scale: backgroundCoverScale(bgNode, context.stateLayoutDerived.layoutType()),
+					fit: backgroundFit(bgNode, context.stateLayoutDerived.layoutType()),
+					stretch: backgroundCoverStretch(bgNode, context.stateLayoutDerived.layoutType()),
+					anchor: backgroundCoverAnchor(bgNode, context.stateLayoutDerived.layoutType()),
 				}
 			: undefined,
 	);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		BUILTIN_SHEETS,
@@ -59,6 +59,7 @@
 		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
 		setWinCycleHoldAfterBigWin,
+		setWinExplodeEnabled,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -81,6 +82,7 @@
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleHoldAfterBigWin,
+		winExplodeEnabled,
 		winCycleShowLine,
 		winCycleShowMessage,
 		winCycleShowText,
@@ -96,6 +98,18 @@
 		TRANSITION_KIND_LABELS,
 		setTransition,
 		clearTransition,
+		setTumblePattern,
+		setTumbleStepMs,
+		tumblePatternName,
+		tumbleStepMs,
+		TUMBLE_PATTERN_HINTS,
+		TUMBLE_PATTERN_LABELS,
+		TUMBLE_PATTERNS,
+		TUMBLE_PATTERNS_PER_SEAT,
+		TUMBLE_STEP_MS_DEFAULT,
+		TUMBLE_STEP_MS_MAX,
+		isTumblePattern,
+		tumbleExplosionDelays,
 		type AnticipationTier,
 		type AnticipationTierFx,
 		type BoardGlowConfig,
@@ -169,7 +183,7 @@
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
 	// The state columns the grid renders: the base states, plus the two book-only ones
-	// (`bookIntro`/`bookIdle`) ONLY for a book game, `tumbleExplosion` for a project that cascades OR
+	// (`bookIntro`/`bookIdle`) ONLY for a book game, `clearReel` for a project that cascades OR
 	// clears its board on a swap, and `intro` ONLY for a project whose swap style is the emerge. The
 	// `stacked` state is never a grid column — its tall art lives in the "Stacked pictures" section.
 	// Every gate comes from the server, RESOLVED (`resolveCascade` / `resolveReelBehaviour`), so
@@ -181,6 +195,70 @@
 			clears: data.reelBehaviour.clears,
 		}),
 	);
+
+	// ── Explosion pattern ──────────────────────────────────────────────────────
+	// The order the winning seats pop in. Shown on exactly the projects that have an explosion step
+	// to order — the SAME gate the `Clear reel` grid column uses, and for the same two reasons:
+	// a cascade removes the winning symbols, and a swap-in-place board CLEARS itself before the new
+	// symbols arrive. Both run through `tumbleBoardExplode`, so both are patterned by this one pick.
+	const explodesSeats = $derived(Boolean(data.cascade || data.reelBehaviour.clears));
+	const tumblePattern = $derived(tumblePatternName(doc));
+	const tumbleStep = $derived(tumbleStepMs(doc));
+	const tumblePerSeat = $derived(TUMBLE_PATTERNS_PER_SEAT.includes(tumblePattern));
+
+	/** The preview board — a plain 5×3, not the project's real grid. The point is to read the SHAPE
+	 *  of the wave, and a fixed board makes every pattern comparable while you flick through them. */
+	const PATTERN_PREVIEW_BOUNDS = { reels: 5, rows: 3 };
+	const patternPreviewSeats = Array.from({ length: PATTERN_PREVIEW_BOUNDS.rows }, (_, row) =>
+		Array.from({ length: PATTERN_PREVIEW_BOUNDS.reels }, (_, reel) => ({ reel, row })),
+	).flat();
+	/** Bumped when a preview run finishes, so `random` re-rolls its shuffle on every loop instead of
+	 *  replaying one frozen order — the `$derived` below reads it purely as a dependency. */
+	let patternPlayToken = $state(0);
+	/** The wave currently reached, `-1` before the run starts. A seat is lit once its own wave has
+	 *  been reached, and stays lit until the loop restarts — a board coming apart, not a chase. */
+	let patternWave = $state(-1);
+	/** The WAVE INDEX per seat, straight from the engine's own ordering. Asked for with a 1 ms step so
+	 *  the returned delay IS the wave number — the preview then can't drift from what the game plays,
+	 *  because it is the same function answering. */
+	const patternPreviewWaves = $derived.by(() => {
+		void patternPlayToken;
+		return tumbleExplosionDelays(
+			patternPreviewSeats,
+			{ pattern: tumblePattern, stepMs: 1 },
+			PATTERN_PREVIEW_BOUNDS,
+		);
+	});
+
+	$effect(() => {
+		// The panel is not rendered at all for a project with no explosion step to order, and neither
+		// is this loop then: an ungated effect would keep a `setTimeout` chain alive writing
+		// `patternWave` for the lifetime of every lines/book-of tab, driving nothing.
+		if (!explodesSeats) return;
+		const waves = patternPreviewWaves;
+		// The authored gap is the preview's pace, floored only so a 0 ms step still shows something
+		// rather than resolving in one frame. Read UNTRACKED: tracking it would restart the run from
+		// wave -1 on every `input` event, so the preview would stutter for as long as the slider is
+		// being dragged. The loop re-reads it when it comes round again, which is soon enough.
+		const stepMs = Math.max(
+			untrack(() => tumbleStep),
+			16,
+		);
+		const last = waves.reduce((max, wave) => Math.max(max, wave), 0);
+		let wave = 0;
+		let timer: ReturnType<typeof setTimeout>;
+		const tick = () => {
+			patternWave = wave;
+			wave += 1;
+			// The pause before the loop restarts — long enough to read the finished board, which is
+			// what a pattern is judged on.
+			timer =
+				wave <= last ? setTimeout(tick, stepMs) : setTimeout(() => (patternPlayToken += 1), 900);
+		};
+		patternWave = -1;
+		timer = setTimeout(tick, 250);
+		return () => clearTimeout(timer);
+	});
 
 	/**
 	 * Cells whose EFFECTIVE binding is a SPINE left on `(first animation)`.
@@ -1083,6 +1161,11 @@
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
+		countUp: false,
+		countUpDuration: 0.6,
+		cueBigWin: false,
+		fadeIn: false,
+		fadeInDuration: 0.3,
 	} as const;
 
 	// Engine builtin bitmap fonts (declared in each game's Game.svelte, not in the R2
@@ -1229,6 +1312,9 @@
 	const wcShowMessage = $derived(winCycleShowMessage(doc));
 	const wcDim = $derived(winCycleDimNonWinning(doc));
 	const wcHold = $derived(winCycleHoldAfterBigWin(doc));
+	// "Winning symbols explode" — its OWN section, not a `winCycle` field: the pop belongs to the
+	// round's win presentation, while `winCycle` is what happens on the resting board afterwards.
+	const weOn = $derived(winExplodeEnabled(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineLineStyle(doc);
@@ -1837,6 +1923,96 @@
 						{/if}
 					</div>
 				</section>
+
+				{#if explodesSeats}
+					<section class="winline tumblepattern" class:expanded={tumblePattern !== 'all'}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Explosion pattern</h2>
+								<p class="wl-sub">
+									The order the winning symbols blow up in. By default the whole board explodes in
+									one frame; pick a pattern and it comes apart in waves instead — column by column,
+									row by row, out from the middle — with a gap between each wave. Purely how it
+									looks: the same symbols explode, pay the same, and are replaced the same way. The
+									board-clear step of a swap-in-place board follows this too.
+								</p>
+							</div>
+							<label class="field tp-pick">
+								<span class="label">Pattern</span>
+								<select
+									value={tumblePattern}
+									onchange={(e) => {
+										// Narrowed, not cast: a launcher type error compiles and ships green (see
+										// `apps/launcher-api/CLAUDE.md`), so the one guard on a DOM string is a runtime one.
+										const picked = e.currentTarget.value;
+										if (isTumblePattern(picked)) doc = setTumblePattern(doc, picked);
+									}}
+								>
+									{#each TUMBLE_PATTERNS as name (name)}
+										<option value={name}>{TUMBLE_PATTERN_LABELS[name]}</option>
+									{/each}
+								</select>
+							</label>
+						</div>
+
+						<div class="wl-config">
+							<div class="wl-group">
+								<div class="tp-preview">
+									<div
+										class="tp-grid"
+										style="--tp-reels: {PATTERN_PREVIEW_BOUNDS.reels}"
+										aria-hidden="true"
+									>
+										{#each patternPreviewSeats as seat, index (`${seat.reel}:${seat.row}`)}
+											<span class="tp-cell" class:lit={patternWave >= patternPreviewWaves[index]}>
+												{patternPreviewWaves[index] + 1}
+											</span>
+										{/each}
+									</div>
+									<div class="tp-legend">
+										<p class="wl-note">{TUMBLE_PATTERN_HINTS[tumblePattern]}</p>
+										<p class="wl-note">
+											The number in each cell is the wave it pops on, replayed here on a 5×3 board
+											at the gap you picked. Your game's own grid drives the real thing, and the
+											waves are counted over the symbols that actually won — a win on three reels
+											pops in three waves, never with two empty ones in front of it.
+										</p>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						{#if tumblePattern !== 'all'}
+							<div class="wl-config">
+								<div class="wl-group">
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">Gap between waves {tumbleStep} ms</span>
+											<input
+												type="range"
+												min="0"
+												max={TUMBLE_STEP_MS_MAX}
+												step="10"
+												value={tumbleStep}
+												oninput={(e) => (doc = setTumbleStepMs(doc, Number(e.currentTarget.value)))}
+											/>
+										</label>
+									</div>
+									<p class="wl-note">
+										Default {TUMBLE_STEP_MS_DEFAULT} ms. The gap is added to the explosion step the player
+										waits through on every cascading spin, so the whole step grows by the gap times one
+										less than the number of waves — a 5-column sweep at 80 ms costs 320 ms.
+										{#if tumblePerSeat}
+											<strong> This pattern pops one symbol at a time,</strong>
+											so its cost grows with the size of the win rather than with the board: a 15-symbol
+											win at {tumbleStep} ms adds {14 * tumbleStep} ms. Keep the gap short.
+										{/if}
+									</p>
+								</div>
+							</div>
+						{/if}
+					</section>
+				{/if}
 
 				{#if data.reelBehaviour.emerge || doc.transition}
 					<section class="bookvfx">
@@ -2824,6 +3000,110 @@
 								</p>
 							</div>
 
+							<div class="wl-group">
+								<h3>Count up</h3>
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Count the amount up</span>
+										<label class="switch sm" class:on={wlText.countUp ?? WL_DEFAULTS.countUp}>
+											<input
+												type="checkbox"
+												checked={wlText.countUp ?? WL_DEFAULTS.countUp}
+												onchange={(e) => patchWinLineText({ countUp: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.countUp ?? WL_DEFAULTS.countUp) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label"
+											>Count-up length {(
+												wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration
+											).toFixed(2)}s</span
+										>
+										<input
+											type="range"
+											min="0.1"
+											max="3"
+											step="0.05"
+											disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+											value={wlText.countUpDuration ?? WL_DEFAULTS.countUpDuration}
+											oninput={(e) =>
+												patchWinLineText({ countUpDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<div class="field" class:disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}>
+										<span class="label">Count up to cue the big win</span>
+										<label class="switch sm" class:on={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}>
+											<input
+												type="checkbox"
+												disabled={!(wlText.countUp ?? WL_DEFAULTS.countUp)}
+												checked={wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin}
+												onchange={(e) => patchWinLineText({ cueBigWin: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.cueBigWin ?? WL_DEFAULTS.cueBigWin) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<div class="field">
+										<span class="label">Fade the amount in</span>
+										<label class="switch sm" class:on={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}>
+											<input
+												type="checkbox"
+												checked={wlText.fadeIn ?? WL_DEFAULTS.fadeIn}
+												onchange={(e) => patchWinLineText({ fadeIn: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlText.fadeIn ?? WL_DEFAULTS.fadeIn) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label class="field" class:disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}>
+										<span class="label"
+											>Fade length {(wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration).toFixed(
+												2,
+											)}s</span
+										>
+										<input
+											type="range"
+											min="0.05"
+											max="1.5"
+											step="0.05"
+											disabled={!(wlText.fadeIn ?? WL_DEFAULTS.fadeIn)}
+											value={wlText.fadeInDuration ?? WL_DEFAULTS.fadeInDuration}
+											oninput={(e) =>
+												patchWinLineText({ fadeInDuration: Number(e.currentTarget.value) })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Off (the default), the amount appears at its full value the moment the line lands.
+									On, it runs up from zero over the length above — and the win narration WAITS for
+									it: the symbols only start celebrating once the number has landed, so the count is
+									read rather than talked over. A slammed spin skips the count entirely and stamps
+									the final amount.
+								</p>
+								<p class="wl-note">
+									<strong>Count up to cue the big win</strong> turns that count into the big win's run-up,
+									and only on a round that actually reaches a big-win tier — every other spin keeps the
+									ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not one
+									payline's payout), centred on the reels, counting from zero up to the big-win threshold;
+									at that number it hides and the big-win overlay comes up and carries the count the
+									rest of the way to the total. A project with no big-win tiers in the Game Config has
+									nothing to cue, so nothing changes.
+								</p>
+								<p class="wl-note">
+									<strong>Fade the amount in</strong> brings the stamp up from transparent over the fade
+									length, WHILE the count is already running — the number is moving as it arrives, not
+									after. Independent of the count: a stamp that appears whole can fade in too.
+								</p>
+							</div>
+
 							<button type="button" class="ghost wl-reset" onclick={resetWinTextStyle}>
 								Reset text style
 							</button>
@@ -2972,6 +3252,45 @@
 									symbols. "Replay the win message too" is independent of the line and defaults OFF:
 									turn it on to re-show that win's info toast ("You win $X with N Bananas") on every
 									pass, otherwise the message only shows once when the round first presents.
+								</p>
+							</div>
+						</div>
+					{/if}
+				</section>
+
+				<section class="winline" class:expanded={weOn}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Winning symbols explode</h2>
+							<p class="wl-sub">
+								When a win has finished playing, each winning symbol plays its <strong
+									>Explosion</strong
+								> animation before settling back into its post-win art — the symbol goes out with a pop
+								instead of simply stopping. It is not removed from the board: taking symbols off stays
+								the job of the cascade, or of "Clear the board" in Reel behaviour.
+							</p>
+						</div>
+						<label class="switch" class:on={weOn}>
+							<input
+								type="checkbox"
+								checked={weOn}
+								onchange={(e) => (doc = setWinExplodeEnabled(doc, e.currentTarget.checked))}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{weOn ? 'On' : 'Off'}</span>
+						</label>
+					</div>
+
+					{#if weOn}
+						<div class="wl-config">
+							<div class="wl-group">
+								<p class="wl-note">
+									Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
+									plays whatever is there, and a symbol with nothing bound falls back the way it always
+									does. The pop happens once, on the spin's own win presentation: the resting replay
+									above re-lights the same symbols until the next spin and deliberately does not pop
+									them again. A symbol hidden underneath a stacked picture is skipped too, since the
+									tall picture is what is drawn there.
 								</p>
 							</div>
 						</div>
@@ -4481,6 +4800,55 @@
 	}
 	.wl-reset {
 		align-self: flex-start;
+	}
+	/* ── Explosion pattern ─────────────────────────────────────────────────── */
+	.tp-pick {
+		flex: 0 0 auto;
+		min-width: 220px;
+	}
+	.tp-preview {
+		display: flex;
+		align-items: flex-start;
+		gap: 18px;
+		flex-wrap: wrap;
+	}
+	.tp-grid {
+		display: grid;
+		grid-template-columns: repeat(var(--tp-reels), 26px);
+		gap: 4px;
+		padding: 8px;
+		background: #0b0b11;
+		border: 1px solid #24242e;
+		border-radius: 8px;
+	}
+	.tp-cell {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 26px;
+		border-radius: 5px;
+		background: #1c1c26;
+		color: #55555f;
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		/* Only the un-lit direction is eased: a symbol POPS on its wave and then fades back as the
+		   loop resets, which is the asymmetry the real explosion has. */
+		transition:
+			background 260ms ease,
+			color 260ms ease;
+	}
+	.tp-cell.lit {
+		background: #4d6bd8;
+		color: #f2f4ff;
+		transition: none;
+	}
+	.tp-legend {
+		flex: 1 1 320px;
+		min-width: 260px;
+	}
+	.tp-legend .wl-note:first-child {
+		margin-top: 0;
+		color: #9a9aa6;
 	}
 	.wl-text h2 {
 		margin: 0;

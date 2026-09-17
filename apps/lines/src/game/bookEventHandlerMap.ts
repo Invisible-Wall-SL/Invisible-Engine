@@ -3,7 +3,6 @@ import _ from 'lodash';
 import { type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
-import { waitForResolve } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
@@ -13,6 +12,7 @@ import { playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
+import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import {
@@ -28,6 +28,7 @@ import {
 	winLineTextFor,
 	winLineColorFor,
 	showWinInfoMessage,
+	cueBigWinCountUp,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
@@ -159,7 +160,15 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				//    expanded board still lands at its final state, just instantly.
 				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
-				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
+				// BOUNDED. `explosion` is a ONE-SHOT beat (`symbolStateLoopsByDefault`), so this awaits a
+				// completion the cell gets exactly ONE chance to report — and a cell that cannot report (art
+				// bound to a state that never fires `complete`, a seat out of frame) would hang the morph,
+				// and with it the round, FOREVER: `roundSkip.race` releases only on a slam, which is a
+				// player action, not a guarantee. Capped at the cascade's own `clearReel` beat, which plays
+				// this very art for the same kind of step (`symbolBeat.ts`).
+				await roundSkip.race(
+					awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), TRANSIT_BEAT_CAP_MS),
+				);
 				// 2. Swap to the special and play its land spine in the cleared cell.
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
@@ -306,6 +315,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	setWin: async (bookEvent: BookEventOfType<'setWin'>) => {
 		const winLevelData = activeWinLevelData(bookEvent.winLevel);
 
+		// The optional big-win RUN-UP: the round total counted up to the tier threshold, as the cue
+		// that the overlay is coming. Awaited BEFORE the overlay shows, so the count stops exactly
+		// where the overlay's own count-up picks the number up. A no-op unless the project authored
+		// it AND this round reached a big tier (see `cueBigWinCountUp`).
+		await cueBigWinCountUp({ amount: bookEvent.amount, winLevelData });
 		eventEmitter.broadcast({ type: 'winShow' });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';

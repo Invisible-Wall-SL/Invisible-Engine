@@ -66,27 +66,43 @@ Until then every push to `main` rebuilt all five — a docs-only or engine-only 
 >
 > The runner now [re-attaches at boot](../services/atlas-tool/video_runner.py) and collects a render straight from its R2 hand-off slot whenever the job ends without handing one back — a gone record, a FAILED/TIMED_OUT job that had already uploaded, an empty payload, a late stop, even a job whose id was lost — so a swap costs minutes rather than the render. A **boot** only ever *collects* — the sweep never starts a variation its author had queued. Note the limit of that: a READ adopts the ordinary way (`collect_only=False`), so a browser left open on the session does resume the queued tail — not instantly, though. While the collect-only pass is running the session is in memory and a read returns it without adopting; the tail starts on the first poll (≤2.5 s) after the collected job finishes and the session is handed back. Unattended, nothing is spent; attended, it finishes as its author asked. **That is damage control; the fix is the Watch Paths above**, which now keep an unrelated push from touching this service at all. A push under `services/atlas-tool/**` or `services/_shared/**` still swaps the container, so don't ship one while a video session is running.
 
-**How to tell whether a push actually deployed, without the Railway dashboard.** Railway reports each build to GitHub's deployments API, so `gh` answers this from the terminal:
+**How to tell whether a push actually deployed, without the Railway dashboard.** Railway writes to TWO GitHub APIs, and they are not equally useful. **Use the COMMIT STATUS api — it names the service and says what happened to it in words:**
 
 ```bash
-id=$(gh api "repos/Invisible-Wall-SL/Invisible-Engine/deployments?sha=$(git rev-parse HEAD)" --jq '.[0].id')
-gh api "repos/Invisible-Wall-SL/Invisible-Engine/deployments/$id/statuses" --jq '[.[]|.state]|join(" ")'
+gh api repos/Invisible-Wall-SL/Invisible-Engine/commits/$(git rev-parse HEAD)/status \
+  --jq '.statuses[] | "\(.state)\t\(.context)\t\(.description)"'
 ```
 
-**Read it by COUNTING `success` — but the expected count now depends on the PATHS the commit touches** (Watch Paths, above). A commit under `services/_shared/**` still builds four — launcher, atlas-tool, atlas-backend, sheet-tool (the test-server does not watch `_shared`); one under a single service's dir builds that one plus the launcher; a `docs/**` or `apps/**` commit builds only the launcher, so ONE success is a complete deploy. Before 2026-09-07 every settled deploy showed four or more (Railway sometimes posts extra rows — two deploys on 2026-09-01 ended at five). Skipped services post no status at all; Railway's own UI labels them **Skipped — "No changes to watched files"**, which is the surest read. The statuses carry no service name, no description and no commit — only a project URL — so *which* service succeeded is not recoverable, and Railway leaves stale `in_progress` rows behind forever; they mean nothing. **Count only `success`.**
+```
+success  Invisible Pipeline - Atlas Tool     Success - atlas-tool-production.up.railway.app
+success  Invisible Pipeline - Launcher       Success - app.invisiblewall.org
+success  Invisible Pipeline - Sheet Tool     No deployment needed - watched paths not modified
+```
 
-**A low count is NOT proof of a flake — deploys are wildly uneven, so wait before re-triggering.** Measured the same day: `234e4c69` went 4/4 in **6 minutes**, while `ec07abaa` three minutes later was still at **1/4 after 27 minutes** and only reached 3/4 at **+34**. Both were fine. Give a deploy **half an hour** before treating it as the builder flake documented above; re-pushing early just queues another round of builds behind the ones already running, which is what makes the next one look stuck too.
+**Read the DESCRIPTION, not the state — a SKIPPED service also reports `success`.** That is the trap this whole section used to fall into: counting `success` rows counts the services that did nothing. Three strings, observed on `bb74ebc2` (2026-09-09):
+
+| description | what it means |
+|---|---|
+| `Success - <domain>` | this service really deployed, and that is where it went |
+| `No deployment needed - watched paths not modified` | **skipped** (state is still `success`) |
+| `Railway is deploying the service` | still building (state `pending`) |
+
+So a push is fully out when **every service you expected to build says `Success -`** and the rest say `No deployment needed`. Which services *should* build depends on the PATHS the commit touches (Watch Paths, above): `services/_shared/**` builds four — launcher, atlas-tool, atlas-backend, sheet-tool (the test-server does not watch `_shared`); a single service's dir builds that one plus the launcher; `docs/**` or `apps/**` builds only the launcher. Their rows settle independently and minutes apart — on `bb74ebc2` the three skips landed at once, Atlas Tool went green at +1m, the Launcher a little after — so a half-`pending` reading is mid-rollout, not a failure. (No `failure`/`error` row appears in the last 20 commits on `main`, so the wording Railway uses for a failed build is not recorded here; treat anything that is neither `success` nor `pending` as one and read its description.)
+
+**The deployments API is the WEAKER read — don't reach for it first.** `deployments?sha=…` → `/deployments/<id>/statuses` returns bare `in_progress` rows with an empty description, no service name and no commit, only a project URL: the repo-root Python services share ONE deployment record (`Invisible Pipeline / production`) and the launcher is its own project, so *which* service succeeded is genuinely not recoverable there. It also leaves stale `in_progress` rows behind forever — on `bb74ebc2` it still showed two `in_progress` and no `success` at a moment when the commit-status API already had Atlas Tool green. Those rows mean nothing. Everything the old "count `success`" advice was working around is an artefact of this endpoint, not of Railway.
+
+**Rows still `pending` are NOT proof of a flake — deploys are wildly uneven, so wait before re-triggering.** (Measured before the commit-status read above, by counting `success` on the deployments API — hence the `n/4` shorthand; the patience is what carries over.) Measured the same day: `234e4c69` went 4/4 in **6 minutes**, while `ec07abaa` three minutes later was still at **1/4 after 27 minutes** and only reached 3/4 at **+34**. Both were fine. Give a deploy **half an hour** before treating it as the builder flake documented above; re-pushing early just queues another round of builds behind the ones already running, which is what makes the next one look stuck too.
 
 **Then verify the RUNNING code, not the build:**
 - **launcher** — `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. This works for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
 - **atlas-tool / sheet-tool** — there is **no unauthenticated signal at all**. `_gate()` is the first line of both `do_GET` and `do_POST`, so every path including `/` is 403 unless the request carries the secret (careful: an UNSET secret disables the gate entirely — `ui_server.py`'s `_gate` opens with `if not ATLAS_TOOL_SECRET: return True, None`, and sheet-tool has its own in `sheet_server.py` keyed off `SHEET_TOOL_SECRET` — so it is the request without the secret that gets the 403, not the deployment without the var), and the response carries no commit or deployment header (`x-railway-request-id` is per-request). A 403 proves the service is up and running *our* code; it says nothing about *which commit*. The only proof of BEHAVIOUR is exercising the change through the launcher, signed in — but for the narrower question *"did my commit deploy?"* there is a signal after all, and it needs no Railway token:
 
   ```bash
-  gh api repos/Invisible-Wall-SL/Invisible-Engine/deployments --jq '.[0]|{sha,environment}'
-  gh api repos/Invisible-Wall-SL/Invisible-Engine/deployments/<id>/statuses --jq '.[0].state'
+  gh api repos/Invisible-Wall-SL/Invisible-Engine/commits/$(git rev-parse HEAD)/status \
+    --jq '.statuses[] | select(.context | test("Atlas Tool|Sheet Tool")) | "\(.state)\t\(.context)\t\(.description)"'
   ```
 
-  Railway registers a **GitHub Deployment per commit** and moves it `in_progress` → `success`/`failure`, so a `success` on your own sha is Railway saying the rollout finished (2026-09-07: `9489570b` went green ~5 min after the merge). Two limits: the record is per **Railway environment** (`Invisible Pipeline / production` covers the repo-root Python services together, the launcher is its own project), so it does not break out WHICH service, and a green deploy still says nothing about whether the change WORKS.
+  That is the commit-status read from the top of this section, narrowed to the service you care about: `Success - atlas-tool-production.up.railway.app` is Railway naming the service AND the domain it rolled out to, which is exactly the "did my commit deploy?" answer this bullet needs. It still says nothing about whether the change WORKS — for that, exercise it through the launcher, signed in. (The older recipe here read `/deployments/<id>/statuses` and could not break out which service deployed; see the weaker-read note above for why. 2026-09-07: `9489570b` went green ~5 min after the merge; 2026-09-09: `bb74ebc2`'s Atlas Tool row was green ~1 min after, while the deployments API still showed only stale `in_progress`.)
 
 **⚠️ atlas-tool + sheet-tool + atlas-backend build from the REPO ROOT (since 2026-05-31, fix #3).** Both Python tools now share `services/_shared/iw_common/` (storage, banner, ComfyUI client, thread-local context base — see each tool's `cloud_paths.py` thin layer). For the Dockerfile to `COPY services/_shared/iw_common`, the build **context must be the repo root**, so each service's Railway **Root Directory = repo root** and **Dockerfile Path = `services/<svc>/Dockerfile`** (Settings → Build). The Dockerfiles `COPY services/<svc>/requirements.txt`, `COPY services/_shared/iw_common ./iw_common`, then `COPY services/<svc>/ .` with `ENV PYTHONPATH=/app`. **This is a COUPLED change:** the new Dockerfiles only work once the Root Directory is flipped, and the old subdir setting only works with the old Dockerfiles — flip the setting and deploy the new commit together (Railway keeps the last good deploy live if a build fails, so there's no outage, just a failed build until both sides match).
 
@@ -369,7 +385,55 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 ## DNS (Cloudflare)
 
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.
-- `comfy` = the named tunnel (proxied/orange, behind Access).
+- `comfy` = the named tunnel (proxied/orange, behind Access). A named tunnel **requires** the proxy — it can never go grey.
+- `games` = the test server (`Invisible-test-Server`), **proxied/orange** today. See the next section — being orange is what makes it disappear for Spanish ISPs.
+
+### ⚠️ "The games won't load" is usually the ISP blocking a Cloudflare IP — NOT our bug
+
+**First incident: 2026-09-14, ~23:00 CEST.** `games.invisiblewall.org` was completely unreachable from the owner's machine (Movistar/Telefónica) — a bare TCP timeout, no HTTP status at all. It looked exactly like a broken engine release. It was not. Nothing had been deployed, and every `Runtime release` run was green.
+
+**How to tell in 30 seconds** — `node scripts/check-games-reachability.mjs`. It resolves the hostname, tries each IP, and then re-fetches the same URL through a Cloudflare edge IP that is *not* blocked. If the origin answers on a different edge IP, the platform is healthy and your network is the problem. Do not touch code, do not re-publish, do not re-run the release.
+
+What the 2026-09-14 evidence looked like:
+
+| Probe | Result |
+|---|---|
+| `games.invisiblewall.org` → `188.114.96.5`, `188.114.97.5` (the IPs DNS returns) | TCP connect **times out** |
+| Same URL forced through `188.114.96.1` (`curl --resolve`) | **200**, 2,973,162 bytes, 0.33 s, `x-railway-edge: bcn1` |
+| `app.invisiblewall.org` (grey, Railway direct `69.46.46.107`) | **303** — fine |
+| `www.cloudflare.com` (`104.16.x`) | **200** — fine |
+| Scan of `188.114.96.0/24` | `.1 .9 .10 .11 .13` open; `.2–.8 .12` blocked |
+
+That last row is the proof of mechanism: a **scattered list of individual IPs** inside one /24 is a blocklist, not an outage and not a routing failure. Spanish ISPs null-route specific Cloudflare anycast addresses under the LaLiga anti-piracy orders, typically during live-match windows. Those IPs are **shared by thousands of Cloudflare zones** — the block is applied to the address with no knowledge of which sites sit behind it.
+
+**It cleared by itself — and that is the most important fact here.** Re-scanned **2026-09-15 08:08 CEST**: all thirteen IPs open, `games` reachable on its own DNS IPs, `GET / → 200`. Nothing was changed on our side between the two scans. Every blocked address lifted *in the same window*, which confirms one coordinated, time-boxed list rather than a dozen independent incidents — so it is scheduled, it is external, and **it will come back on the next match night**. Do not read a recovery as "fixed"; the only thing that makes it stop recurring is taking `games` off the proxy (below).
+
+Consequences worth internalising:
+
+- **It is not about us.** Not our repo's visibility, not our DNS, not our content. Our hostname never enters into the decision; only the IP does. A zone can also *become* affected without anything changing on our side, because Cloudflare rotates which anycast IPs a zone answers with.
+- **It hits `comfy` too** (same IPs), so the ComfyUI tunnel dies in the same window and the pipeline tools start failing "for no reason".
+- **Changing DNS resolver does not help** — `1.1.1.1` and `8.8.8.8` both hand back the same blocked IPs. The block is on the address, not the name.
+- **`app` keeps working** throughout, because it is grey/Railway-direct. That asymmetry — launcher fine, games dead — is the fingerprint.
+
+**Unblock yourself right now** (per machine, admin PowerShell; any Cloudflare edge IP serves any proxied zone, SNI does the routing):
+
+```bash
+Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`n188.114.96.1 games.invisiblewall.org`n188.114.96.1 comfy.invisiblewall.org" -Encoding utf8
+```
+
+Re-check the pinned IP with the script before trusting it — today's open IP can be tomorrow's blocked one. A VPN or a different carrier also works.
+
+**The permanent fix — take `games` off the Cloudflare proxy (OWNER, dashboard only).** This is the same shape `app`/`www` already use, so it is a proven configuration on this zone, and it removes `games` from the blast radius for good.
+
+1. Cloudflare → `invisiblewall.org` → **DNS** → the `games` record. Note its current CNAME target (the `*.up.railway.app` host) before changing anything — the orange cloud hides it from public DNS, so this is your only chance to read it.
+2. Railway → **Invisible-test-Server** → Settings → Networking: confirm `games.invisiblewall.org` is listed as a custom domain and that the CNAME target Railway shows matches step 1.
+3. Flip the `games` record to **DNS-only (grey cloud)**. Leave the CNAME target alone.
+4. Wait for Railway to issue the Let's Encrypt cert for the domain (it can only do this once DNS resolves to it directly — the panel goes green). Until it does, expect TLS errors; this is the one window where the flip is visible to users, so do it off-hours.
+5. Verify: `curl -sI https://games.invisiblewall.org/` — `Server:` should no longer say `cloudflare`, and `cf-ray` / `cf-cache-status` should be gone.
+
+**After the flip, cache purging for games becomes a no-op** — there is no edge in front of it any more. That is harmless and needs no code change: `purgeGameCache()` still runs on `register-game` and simply purges URLs nobody caches, and `purgeEverything()` (the admin "Purge edge cache" button) still matters for the hosts that stay proxied. It also *removes* a whole class of bug — the stale-`index.html` and cached-404 traps in `reference_runtime_release` stop being possible for games. Keep `CF_API_TOKEN`/`CF_ZONE_ID` set; `comfy` still needs the zone.
+
+**Trade-off accepted:** losing the edge means no Cloudflare caching or DDoS shielding for the test server, and the Railway origin is directly addressable. For an internal, invite-gated test server that already serves its game index `no-store` and its bundles content-hashed, reachability is worth more than the edge.
 
 ## Security / secret rotation
 

@@ -40,6 +40,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import zipfile
 from pathlib import Path
 
 from PIL import Image, ImageSequence
@@ -149,6 +150,85 @@ def _variation_file(session_id: str, variation: int) -> str:
 
 def probe_variation(session_id: str, variation: int) -> dict:
     return probe(session_id, _variation_file(session_id, variation))
+
+
+# --- interchange export: the raw frame sequence ------------------------------
+# Deliberately NOT the packer path. `_extract`'s trim / stride / max_size exist
+# to make atlas space cheap; a sequence handed to After Effects or another
+# sprite tool has to be what was actually rendered — every frame, full
+# resolution, untrimmed, unscaled.
+#
+# The zip is built in RAM on a shared container, so both ceilings below are real
+# limits rather than advice, and passing one RAISES. A silently truncated zip is
+# indistinguishable from a complete one — the same reason a partial session
+# listing is refused rather than served.
+ZIP_MAX_FRAMES = 600
+ZIP_MAX_BYTES = 250 * 1024 * 1024
+
+
+def frame_zip(session_id: str, variation: int) -> tuple[str, bytes]:
+    """Every frame of one variation as full-resolution RGBA PNGs, plus the fps.
+
+    Returns `(filename, zip_bytes)`.
+
+    ZIP_STORED, never DEFLATE: a PNG is already a deflate stream, so
+    re-compressing it buys ~nothing and costs a second pass over every pixel.
+
+    `info.json` rides along because a folder of stills loses the one fact this
+    tool exists to own — TIME. Nothing in a PNG says what rate to play it at.
+    """
+    fname = _variation_file(session_id, variation)
+    im = _open_variation(session_id, fname)
+    total = int(getattr(im, "n_frames", 1) or 1)
+    if total > ZIP_MAX_FRAMES:
+        raise ValueError(
+            f"That render has {total} frames — past the {ZIP_MAX_FRAMES} this "
+            "download packs in one go. Use 🎞 Make flipbook instead, which trims "
+            "and strides before it packs.")
+    width, height = im.width, im.height
+
+    durations = [d for d in _frame_durations(im) if d > 0]
+    ms = sorted(durations)[len(durations) // 2] if durations else 0
+    fps = round(1000.0 / ms, 3) if ms else DEFAULT_FPS
+
+    buf = io.BytesIO()
+    written = 0
+    has_alpha = False
+    count = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for i, frame in enumerate(ImageSequence.Iterator(im)):
+            rgba = frame.convert("RGBA")
+            if not has_alpha and rgba.getchannel("A").getextrema()[0] < 255:
+                has_alpha = True
+            png = io.BytesIO()
+            rgba.save(png, format="PNG")
+            blob = png.getvalue()
+            written += len(blob)
+            if written > ZIP_MAX_BYTES:
+                raise ValueError(
+                    f"This frame sequence passed {ZIP_MAX_BYTES // (1024 * 1024)} MB at "
+                    f"frame {i + 1} of {total}, so nothing was downloaded — a short zip "
+                    "would look exactly like a complete one. Take the animated WEBP "
+                    "instead, or re-generate at a smaller size.")
+            zf.writestr(f"frame_{i:04d}.png", blob)
+            count += 1
+        zf.writestr("info.json", json.dumps({
+            "_comment": (
+                "Frame sequence exported from the Invisible Flipbook video mode. The "
+                "PNGs are the render verbatim: full resolution, untrimmed, unscaled. "
+                "Play them at `fps` — the rate is the one thing a folder of stills "
+                "cannot carry."),
+            "session": session_id,
+            "variation": int(variation),
+            "source": fname,
+            "frames": count,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_ms": ms,
+            "has_alpha": has_alpha,
+        }, indent=2, ensure_ascii=False))
+    return f"{_slug(f'{session_id}_{int(variation):03d}')}_frames.zip", buf.getvalue()
 
 
 def _extract(

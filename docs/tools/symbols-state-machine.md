@@ -10,7 +10,7 @@ standard deploy chain.
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
-plus `Tumble explosion` on a game that cascades or clears its board, and `Intro` on one whose
+plus `Clear reel` on a game that cascades or clears its board, and `Intro` on one whose
 swap style is **Emerge**.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
@@ -61,7 +61,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
    (`Book intro`, `Book idle`); a game that **cascades or clears its board** adds
-   `Tumble explosion` (see [Two explosions](#two-explosions) below); a game whose
+   `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
    [The Intro state](#the-intro-state) below). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
@@ -74,7 +74,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
    Two states borrow another's binding when they have none of their own, and a cell showing
    borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
-   the donor. `Tumble explosion` borrows `Explosion` (see [Two explosions](#two-explosions));
+   the donor. `Clear reel` borrows `Explosion` (see [Two explosions](#two-explosions));
    `Book intro` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
    replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
@@ -267,12 +267,66 @@ glow _entirely_ — your own layered art, not one spine — use the **Board glow
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
 
+### Explosion pattern
+
+Shown for a project that has an explosion step to order — one that **cascades**, or one whose
+swap-in-place board **clears** itself before the new symbols arrive. Both run through the same beat,
+so both are ordered by this one pick. (Same gate as the `Clear reel` grid column.)
+
+By default the whole board explodes in the **same frame**. Pick a pattern and it comes apart in
+**waves** instead, with a gap between each:
+
+| Pattern                         | What it looks like                                                       |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `All at once`                   | Every winning symbol in one frame — the default, and what it always did. |
+| `Columns · left to right`       | The leftmost winning column pops first, sweeping rightwards.             |
+| `Columns · right to left`       | The same sweep pointed the other way.                                    |
+| `Columns · centre outwards`     | The middle column first, the wave spreading to both edges together.      |
+| `Columns · edges inwards`       | Both outer columns first, closing in on the middle.                      |
+| `Rows · top to bottom`          | The top winning row first, then each row below it.                       |
+| `Rows · bottom to top`          | Bottom up.                                                               |
+| `Diagonal · from the top-left`  | A diagonal wave off the top-left corner.                                 |
+| `Diagonal · from the top-right` | The same off the top-right.                                              |
+| `Radial · centre outwards`      | Rings spreading out from the middle of the board.                        |
+| `Random · one at a time`        | A shuffled order, re-rolled every step — never the same twice.           |
+| `One at a time · reading order` | Left to right, top to bottom, one symbol per wave.                       |
+
+- **Gap between waves** — milliseconds between one wave and the next (0–500, default **80**). Only
+  shown once a pattern is picked; `All at once` has nothing to space out.
+- The panel plays the pattern **live** on a 5×3 board, each cell numbered with the wave it pops on,
+  so you can compare shapes without spinning.
+
+**The waves are counted over the symbols that actually won**, not over the board. A win on three
+reels pops in three waves — it never waits through two empty ones first — so a pattern reads the
+same on a small win as on a full board. The exception is deliberate: `Radial`, `Columns · centre
+outwards` and `Columns · edges inwards` measure from the middle of the **board**, so an off-centre
+win is seen to be off-centre.
+
+**It costs time.** The gap is added to a step the player waits through on every cascading spin: the
+step grows by the gap times one less than the number of waves, so a 5-column sweep at 80 ms costs
+320 ms. The two **one-at-a-time** patterns scale with the size of the win rather than the board — a
+15-symbol cluster at 80 ms adds over a second — so keep their gap short. There is a hard ceiling of
+**2 s on the whole spread**: past that the gap is tightened to fit rather than the round being held
+up, so a one-at-a-time pattern at a large gap will play faster than the slider says on a big win.
+Everything a pattern plausibly wants is under the ceiling and plays exactly as set.
+
+It is purely how it looks: the same symbols explode, pay the same, and are replaced the same way,
+and the step still ends when the last symbol's animation does. If you also use a **Transition**
+(below), it keeps working: each seat's bridge waits for the last wave, so it still lands on the
+intro rather than playing early into nothing. The step's explosion **sound** fires
+once with the first wave, as it always has; a symbol's own per-symbol cue (Invisible Sound →
+Per-symbol cues) now lands with **that symbol's** pop rather than with the step.
+
+Stored as one optional top-level field, `tumblePattern: { pattern, stepMs? }`. Nothing is written
+for `All at once` or for the default gap, so an untouched project is byte-identical. Reaches a
+standalone game (Book of Borut) only with an `engine` submodule bump.
+
 ### Transition (explosion → intro)
 
 Shown for a project whose `/config` → Reel behaviour → swap style is **Emerge** — the one
 style with an `Intro` to bridge — and for one that still has a transition saved from when it
 was, so a binding that ships is never hidden. Under it every seat does the same thing on a board clear and on
-every cascade step: the outgoing symbol plays its `Tumble explosion`, is removed, and the incoming
+every cascade step: the outgoing symbol plays its `Clear reel`, is removed, and the incoming
 one appears and plays its `Intro`. That seam is a hard cut. The **Transition** is one project-wide
 animation the game mounts **at each exploding seat**, a set number of milliseconds after the
 explosion fires, so it plays over the explosion's end and the intro's start.
@@ -383,6 +437,29 @@ you can stamp the amount with no line under it, or draw the line and say nothing
   screen at a time — the win just announced — so with **Show all win lines at once** on you
   read the wins being narrated rather than every amount piled on the same spot.
 
+Under the style fields sits a **Count up** group — how the amount ARRIVES, rather than what it
+looks like. All five controls default **off/unset**, so a project that never opens the group is
+byte-identical to before it existed.
+
+- **Count the amount up** (default **Off**) and **Count-up length** (0.1–3s, default 0.6s,
+  disabled unless the toggle is on). Off, the amount appears at its full value the moment the
+  line lands. On, it runs up from zero over that length — and the win narration **waits for it**:
+  the symbols only start celebrating once the number has landed, so the count is read rather than
+  talked over. Every counting frame is rendered through the same Invisible Win Text
+  `amountFormat` and the same currency as the final value. A slammed spin skips the count
+  entirely and stamps the final amount.
+- **Count up to cue the big win** (default **Off**, disabled unless Count the amount up is on).
+  Turns that count into the big win's run-up, and **only on a round that actually reaches a
+  big-win tier** — every other spin keeps the ordinary per-line amounts. On such a round the stamp
+  shows the **round total** (not one payline's payout), centred on the reels whatever **Position**
+  says, counting from zero up to the smallest big-win threshold from the Invisible Game Config; at
+  that number it hides and the big-win overlay comes up and carries the count the rest of the way
+  to the total. A project with no big-win tiers configured has no such moment, so nothing changes.
+- **Fade the amount in** (default **Off**) and **Fade length** (0.05–1.5s, default 0.3s, disabled
+  unless the toggle is on). Brings the stamp up from transparent, **while the count is already
+  running** — the number is moving as it arrives, not after. Independent of the count: a stamp
+  that appears whole can fade in too.
+
 A **Reset text style** button clears the font/size/colour/position back to the coded
 defaults, leaving this section's on/off alone.
 
@@ -390,7 +467,10 @@ Every field of both sections is optional and **sparse**: only an on/off that dif
 its default and the fields you actually change are written, under
 `winLine: { enabled?, line?, text? }` on the doc — `enabled` is the LINE's switch,
 `text.enabled` the amount's (absent ⇒ it follows the line's), and `text.placement` the
-position (absent ⇒ at the line).
+position (absent ⇒ at the line). The Count-up group writes `text.countUp` /
+`text.countUpDuration` / `text.cueBigWin` / `text.fadeIn` / `text.fadeInDuration`, each
+default-OFF: turning a switch back off drops it AND the field that only makes sense with it
+(the count's length and the big-win cue go with `countUp`, the fade length with `fadeIn`).
 
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration; `line.fullPayline`/`line.fullPaylineColor` carry the full
@@ -462,6 +542,39 @@ in seconds — passed straight through to `bundle.symbols.winCycle` at export/ba
 by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s, line drawn, text drawn, no toast,
 no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every
 `runtime:lines` game has it.
+
+### Winning symbols explode
+
+Its own section, directly under the replay above, and **off by default**.
+
+Turn it on and a winning symbol plays its **Explosion** animation once its win has finished
+playing, then settles into its post-win art. It is the difference between a win that stops and a
+win that goes out with a pop. **The symbol is not removed from the board** — taking symbols off
+stays the job of the cascade, or of `/config` → Reel behaviour → **Clear the board**; those play
+`Clear reel`, not this.
+
+The art is whatever the grid's **Explosion** column holds for that symbol. Nothing new to bind: a
+symbol with no explosion of its own falls back the way it always does (`Explosion` → `Static`), and
+the engine ships `engine-explosion` for exactly this if you have not commissioned one — see
+[The shared spine library](#the-shared-spine-library).
+
+Two things it deliberately does NOT do:
+
+- **It does not fire on the resting replay.** "Winning symbols after the spin" re-lights the same
+  cells every few hundred milliseconds until the next bet; popping them on every pass would read as
+  a glitch rather than a narration, so the pop happens once, on the spin's own win presentation.
+- **It skips a symbol hidden under a stacked picture.** Such a cell draws nothing of its own (the
+  tall picture is what is on screen there), so it has no pop to play and nothing that could report
+  one finishing.
+
+The beat is capped the same way the win beat is — an explosion bound to art that can never report
+completion cannot hang the round. It carries no minimum, though: the readable pause was already
+spent on the win itself.
+
+Stored sparsely as `winExplode: { enabled: true }` — only the ON state persists, so a project that
+never opens this section ships nothing and plays exactly as it did before the switch existed. It
+travels verbatim to `bundle.symbols.winExplode` and is read by the engine's
+`bakedWinExplodeEnabled()`; the beat itself is in `apps/lines/src/components/Board.svelte`.
 
 ### Symbol sounds
 
@@ -582,14 +695,14 @@ and ships through the same export chain. The full library — chrome and symbols
 listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
 bundles that matter here are:
 
-| Bundle                                           | Animations                                                      | Bind it to                                               |
-| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- |
-| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static`                                           | that symbol's Win / Static                               |
-| `engine-symbol-m`                                | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier                                           |
-| `engine-symbol-s`                                | `scatter_static` `_spin` `_land` `_win`                         | the scatter, state for state                             |
-| `engine-symbol-w`                                | `wild_dynamite` `_static` `_land` `_exploded_static`            | the wild                                                 |
-| `engine-explosion`                               | `explosion`                                                     | **Explosion**, on any symbol                             |
-| `engine-win-meter-explosion`                     | `explosion`                                                     | **Tumble explosion** — the engine's second, larger burst |
+| Bundle                                           | Animations                                                      | Bind it to                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------- |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static`                                           | that symbol's Win / Static                         |
+| `engine-symbol-m`                                | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier                                     |
+| `engine-symbol-s`                                | `scatter_static` `_spin` `_land` `_win`                         | the scatter, state for state                       |
+| `engine-symbol-w`                                | `wild_dynamite` `_static` `_land` `_exploded_static`            | the wild                                           |
+| `engine-explosion`                               | `explosion`                                                     | **Explosion**, on any symbol                       |
+| `engine-win-meter-explosion`                     | `explosion`                                                     | **Clear reel** — the engine's second, larger burst |
 
 `engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
@@ -623,11 +736,11 @@ A symbol can blow up for two different reasons, and they are **two separate colu
 
 - **`Explosion`** — the symbol is destroyed IN PLACE on a resting reel. The Book-of column
   expand is the one that does this: the old symbol pops and the book takes its seat.
-- **`Tumble explosion`** — the **cascade** removes the symbol, on the tumble overlay,
-  with the board about to fall. Only a cascading game gets this column, so it appears when
-  `/config` → **Cascade** is on (it is on by default for a cluster / scatter win model).
+- **`Clear reel`** — the symbol is **taken off the board**: the cascade removing it on the
+  tumble overlay with the board about to fall, or the board CLEARING before the next spin
+  (`/config` → Reel behaviour → **Clear the board**). Either reason earns the column.
 
-**Leaving a `Tumble explosion` cell empty is not a gap** — it falls through to that
+**Leaving a `Clear reel` cell empty is not a gap** — it falls through to that
 symbol's `Explosion` binding, which is exactly what the engine did before the two were
 split. The grid draws that borrowed art and badges the cell **inherits Explosion**, so an
 empty column is visibly working rather than silently working. Bind it only when the

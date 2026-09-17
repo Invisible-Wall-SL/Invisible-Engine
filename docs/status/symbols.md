@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-03)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an optional **explosion → intro Transition** (emerge boards only) that overlaps the pop's end and the intro's start at each seat — built and offline-verified, ⏳ owner visual-verify + a Borut `engine` submodule bump.
+**One-line state:** _(2026-09-15)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay. All default OFF; verified LIVE in dev (book mock, `BIG_WIN=1`) — per-line stamps counted $0.00→$100.00 with the fade, and a 120× round cued the overlay at the $10.00 big-win threshold. ⏳ a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -16,8 +16,8 @@ Working on `main`:
 
 - **The tool page** (`/symbols`, `(app)` route, `ssr = false`, auth + role gate;
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
-  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Tumble explosion` on a cascading
-  project and the two book states on a book game. Each cell shows its effective binding
+  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Clear reel` on a project that
+  cascades or clears its board and the two book states on a book game. Each cell shows its effective binding
   (override or coded default): sprite frame thumbnail, a live spine animation on the
   shared canvas, or a flipbook clip's first frame. Cell editor toggles
   **Sprite / Spine / Flipbook**, uses the editor's `RegionPicker` / spine-bundle picker /
@@ -79,6 +79,19 @@ Working on `main`:
   **shared engine** (`apps/lines/components/WinLine.svelte` + `bakedWinLineConfig()`,
   `806d6cf`), so every `runtime:lines` game draws it (default-on) — Book of Borut _remake_
   now included. ⏳ owner confirm the drawn line on a real win.
+- **How the win amount ARRIVES** (2026-09-15, all default OFF ⇒ byte-parity). A **Count up** group
+  in the tool's Win-amount-text section, five sparse fields on `winLine.text`: `countUp` +
+  `countUpDuration` (seconds, coded default `0.6`) count the stamp from zero and make the win
+  narration AWAIT it; `fadeIn` + `fadeInDuration` (`0.3`) bring it up from alpha 0 _while_ the count
+  runs; `cueBigWin` turns that count into the BIG WIN's run-up (round total, centred, `0 → the
+smallest big tier`, then hidden as the overlay takes over). Rides `winLine` verbatim through
+  export/bake. Engine: `winLineTextFor` also returns `amountValue`/`amountAt`, `WinLine.svelte`
+  gained per-entry `count`/`fade` tweens plus a round-level cue stamp on two new emitter cues, and
+  `flowEffects#cueBigWinCountUp` is awaited from BOTH `setWin` dispatch paths. VERIFIED LIVE
+  (dev, `scripts/mock-rgs-server-book.mjs` with `BIG_WIN=1`, the three switches forced on): each
+  paying line stamped a counted+faded amount (`$0.00` → `$100.00`), and a 120× round broadcast the
+  cue at target `1000` book units — the smallest big tier (10×) on a $1 bet — which landed, hid, and
+  handed over to the big-win overlay. Runtime release + Borut submodule bump owed.
 - **Show full payline** (2026-07-27, default OFF). `winLine.line.fullPayline` +
   `line.fullPaylineColor` (coded default `#4a90d9`): when on, the line is traced across the
   WHOLE payline (all reels) as a static underlay beneath the winning segment, in the chosen
@@ -193,6 +206,76 @@ Working on `main`:
     `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
     exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
     special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **`clearReel` — the state that was `tumbleExplosion`** (2026-09-10, pure rename, behaviour
+  UNCHANGED). Key `tumbleExplosion` → `clearReel`, label “Tumble explosion” → **“Clear reel”**,
+  everywhere: `engine-layout/symbolStates` (`SYMBOL_STATES`, `CASCADE_SYMBOL_STATES`,
+  `SYMBOL_STATE_LABELS`), the Zod schema, the client `STATE_HINTS`/`INHERITS_FROM`, `gameProfile`,
+  the `apps/lines` engine (`symbolCell`, `TumbleBoard`, `TumbleSymbol`, `flowEffects`, `symbolBeat`,
+  `soundBindings`, `editor-scenes`), the per-symbol SOUND state list (`/sound`), and the offline
+  gates. It still plays on BOTH the cascade’s win-removal and `clearOutgoingSymbols`, still gated on
+  `cascade || reelBehaviour.clears`, still inherits `explosion`. **Migration folds the legacy key at
+  the load boundary** (`symbolsStorage#migrateLegacySymbolStates`), across `symbols[name]` AND
+  `symbolSounds[name]`, and is reused by `symbolDefaults` on read and on WRITE (a submodule-pinned
+  game publishes the names its own commit knows). It has to precede the Zod parse: the state records
+  are keyed by `z.enum(SYMBOL_STATES)`, which REJECTS an unlisted key, and `loadSymbolsDocWithEtag`
+  answers a parse failure with `emptySymbolsDoc()` — so an un-folded legacy doc would have read as a
+  never-authored project and lost every binding silently. NOT renamed, deliberately: the
+  `tumbleBoard*` cues + `stateTumble` internals (the tumble OVERLAY), `tumbleExplosionDelays` + the
+  `TUMBLE_PATTERNS` family (a lone `clearReelDelays` in `tumblePattern.ts` reads worse than the churn
+  saves), and the game-wide `tumbleExplosion` SOUND SLOT in `game-config/sounds.ts` (a `/config` key,
+  not a symbol state).
+- **Winning symbols explode** (2026-09-10, default OFF ⇒ byte-parity). Doc-global
+  `winExplode: { enabled?: boolean }` — a winning cell plays its `explosion` state after its `win`
+  beat and before the `postWinStatic` revert, so a symbol goes out with a pop on a board that does
+  NOT cascade. Bounded like the win beat (`awaitSymbolBeat` + `WIN_BEAT_CAP_MS`) but with NO floor
+  (`WIN_BEAT_MIN_MS` was already spent on the win). The cell still ends at `postWinStatic`: the
+  symbol is not removed — removal stays the cascade’s / the clear step’s job. **An explicit switch,
+  not an inference from “is `explosion` authored”** — every game binds `explosion` for the Book-of
+  morph, so the inference is true everywhere and would re-time every paying spin in every shipped
+  game. Two decided edges: the RESTING replay does not pop (`winSymbolCycle` marks its passes
+  `replay: true` on `boardWithAnimateSymbols`, so the pop stays on the round’s own presentation
+  rather than looping until the next bet), and a STACKED-COVERED cell is skipped (it mounts no
+  `<Symbol>`, so it could neither draw the pop nor report it). Full chain: `.strict` Zod + sparse
+  prune → client type/accessor/setter/`docSignature` → spread PUT → `symbolExport` verbatim →
+  `/api/editor/export-symbols` → **bake whitelist** + runtime bundle → `bakedWinExplodeEnabled()` →
+  `Board.svelte`, plus a `gameProfile` chip. ⏳ owner visual-verify.
+- **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
+  `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
+  waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
+  `random`, `sequential`), gap 0–500 ms, default 80. Like the Transition below it, it covers BOTH
+  moments that reach `tumbleBoardExplode`: every cascade step and the swap-in-place board CLEAR.
+  The order lives in ONE place both halves import — `engine-layout/tumblePattern`'s
+  `tumbleExplosionDelays(seats, config, bounds)` — so the tool's live preview and the game cannot
+  disagree; the tool asks for it with `stepMs: 1` so the returned delay IS the wave number.
+  DENSE RANKING over the exploding seats, not the board: a win on three reels pops in three waves
+  rather than waiting through the empty ones, which is what keeps a pattern reading the same on a
+  small win. The exception is deliberate — `radial` / `columnsOut` / `columnsIn` take their centre
+  from the BOARD (the live `stateTumble.base` extents), so an off-centre win reads as off-centre.
+  Engine: `TumbleBoard.svelte` computes the delays once per step and each seat `waitForTimeout`s its
+  own before setting `tumbleExplosion`; the step's `Promise.all` contract is untouched, so it still
+  ends on the LAST beat and simply lasts `(waves - 1) × stepMs` longer. A seat whose symbol has left
+  `stateTumble.base[reel]` by the time its wave fires is DROPPED (identity check, not index) —
+  a slam, `tumbleBoardReset` or a refill splicing the column would otherwise leave the beat waiting
+  on a symbol with no renderer to report `oncomplete`, stalling behind `TRANSIT_BEAT_CAP_MS`.
+  TWO CEILINGS: `stepMs` caps one gap at 500 ms, and `TUMBLE_SPREAD_MS_MAX` (2 s) caps the WHOLE
+  spread by scaling the step down while every seat keeps its wave — because a per-seat pattern's
+  wave count grows with the win (`sequential` × 15 seats × 500 ms = 7 s) and a swap-in-place board
+  with "clear the board" explodes every seat on every spin, on a step nothing races against the
+  round-skip token. An UNKNOWN pattern name answers all-zero rather than throwing: Zod stops one at
+  save, but the launcher deploys from `main` while a shipped game pins the engine submodule, so a
+  newly added pattern can reach an older engine — and a throw there would take `broadcastAsync`, the
+  `tumbleBoard` book event and the round with it. TRANSITION INTERACTION: the pop is per seat and
+  staggered while the intro it bridges is one board-wide beat, so `scheduleTransition` takes a
+  `catchUpMs` (`lastDelay - thisDelay`) and every seat's bridge lands at the same absolute moment —
+  the authored `delayMs` after the LAST wave. Zero without a pattern, so that seam is byte-identical.
+  Sound: the step-wide
+  `playTumbleExplosionSound` still fires ONCE with the first wave; `playSymbolTumbleExplosionSound`
+  moved behind the delay so a symbol's own cue lands with its own pop. Both defaults are pruned on
+  save (`all`, and a step equal to the default) on the SERVER and in the client setter — they have to
+  agree or the page would be permanently dirty. Ships the full chain (schema → client → export →
+  `/api/editor/export-symbols` → bake whitelist + runtime bundle → `bakedTumblePattern()`), plus a
+  `gameProfile` row. Verified offline: `node scripts/verify-tumble-pattern.mjs` (40 checks) and
+  `pnpm --filter launcher-api check:tumble-pattern` (34).
 - **Explosion → intro Transition** (2026-09-03, default OFF ⇒ byte-parity). Doc-level global
   `transition: { kind: 'spine' | 'flipbook' | 'fx', assetKey?, animationName?, clipId?, effectId?,
   delayMs? }` — ONE project-wide animation the cascade overlay mounts at every seat whose outgoing
@@ -375,6 +458,45 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-15 — **The win amount can COUNT, and the count can be what announces the big win.** Owner request, three new controls in **/symbols → Win amount text**, in a new **Count up** group under the style fields. All default OFF, so an un-authored project is byte-identical — which is the whole parity argument here: the stamp is on the beat every paying spin runs, in every game on the shared `runtime:lines` bundle.
+
+  - **Count the amount up** (`text.countUp`, + `text.countUpDuration`, seconds, coded default `0.6`). The stamp runs from zero to the win instead of appearing whole, and the narration **awaits it** — the symbols celebrate after the number lands, rather than over it. Every counting FRAME is re-rendered through the same authored `amountFormat` + currency formatter as the value that lands: `winLineTextFor` now returns `amountValue` (the raw book target) and `amountAt(value)` alongside the two strings, so a project's template and currency govern the whole count and not just its last frame. All four `winLineShow` dispatch sites already spread `...winLineTextFor({…})`, so they inherit it with no call-site edit — parity by construction, the same trick the message layer used.
+  - **Fade the amount in** (`text.fadeIn`, + `text.fadeInDuration`, coded default `0.3`) is deliberately NOT awaited: it runs WHILE the count does, so the number is already moving as the stamp arrives instead of starting once it is opaque. Independent of the count — a stamp that appears whole can fade in too.
+  - **Count up to cue the big win** (`text.cueBigWin`) is the one the owner actually asked for and the only one with a shape decision in it. On a round that reaches a big tier the amount text becomes the big win's RUN-UP: the **round TOTAL** (not one payline's payout) is stamped centred — whatever `placement` says, because a total did not land on a line — and counted `0 → the smallest big-win threshold`, capped at the round's own total. At that number it **hides** and the big-win overlay comes up and carries the count the rest of the way. One number, two renderers, and the cue stops exactly where the overlay starts. Ordinary non-big rounds are untouched and keep their per-line stamps, each counting its own payout.
+  - **The cue is a no-op on every axis that could make it wrong**: switch off, `text.enabled` off, not a `big` win level, a slammed round, no big tier in the Game Config, or a non-positive target. It is shared by BOTH dispatch paths — `bookEventHandlerMap.setWin` and the flow-v2 `winShow` effect both await `cueBigWinCountUp` immediately before the overlay flags — for the same reason `winLineTextFor` is: two hand-kept copies drift. The v2 path passes `numberOrUndefined(payload.amount) ?? 0`, because an authored `winShow` node need not wire `amount` (the reference choreography does not) and the `target <= 0` gate then returns rather than counting to NaN.
+  - **Two new emitter cues** (`winAmountCue` / `winAmountCueHide`) and a separate `$state` cue stamp in `WinLine.svelte`, held apart from `lines`: it belongs to the ROUND, so it has no points to trace and no key to merge on. `awaitPresentation` → `broadcastAsync` resolves on `Promise.all([])` when `WinLine` is unmounted, so an unmounted host degrades to a no-op instead of hanging the round.
+  - **The codegen ate the win-line vocabulary twice before this landed**, and both traps are worth knowing because they fail SILENTLY (the `/flow` palette just loses events). `scripts/gen-flow-vocabulary.mjs` walks the union body counting `{ < ( [` against `} > ) ]` and stopping at the first `;` at depth 0 — so (1) an inline `(value: number) => string` field type reads as an unbalanced `>` and drops the WHOLE union (hence the named `WinAmountFormatter` alias), and (2) a `;` inside a doc COMMENT terminates the union body early. A doc comment in front of `type:` also loses the member, since the discriminant is read from the member's first field — so the new member's comment sits outside its braces. Regenerated (`node scripts/gen-flow-vocabulary.mjs`); the diff is purely additive and `--check` is green.
+  - **Client and server prune IDENTICALLY**, which is the invariant this tool reads dirty on: `countUp` off drops its duration AND `cueBigWin`; `cueBigWin` off drops itself; `fadeIn` off drops its duration. Verified offline over the REAL `setWinLineText` + `normalizeSymbolsDoc` — `apps/launcher-api/scripts/check-win-amount-count-up.ts`, **32 checks**, run with `pnpm --filter launcher-api exec tsx --tsconfig tsconfig.scripts.json scripts/check-win-amount-count-up.ts` (NOT yet registered as a `check:*` script — `package.json` was being edited by a concurrent session). Mutation-tested: dropping one line of the server prune fails it. `winLine` still travels VERBATIM through `symbolExport.ts` → the export endpoint → `bake-editor-doc.mjs` (which embeds `w.text` wholesale, no field enumeration), so no whitelist work was owed. **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
+
+- 2026-09-15 — **The end-of-win pop left a hole in the board for four seconds, because every symbol state was authored to LOOP.** Owner report on a live board: after a big win the winning cells showed no symbols at all. The cell did reach `postWinStatic` exactly as designed — but only after the pop burned the full `WIN_BEAT_CAP_MS`, and for those four seconds the symbol was repeatedly blown apart and cleared. Measured in `apps/lines` against the book mock with the switch on: explosion phases of **4022 / 4026 / 4013 / 4017 / 3992 ms**, and a live track reading `{ anim: 'explosion', duration: 0.533, loop: true }` — a half-second pop restarting ~7.5 times, with no end for `awaitSymbolBeat` to settle on.
+
+  - **The cause was the default, not the beat.** `symbolCellSchema.loop` is sparse and documents "ABSENT MEANS LOOP", and no cell authors it — so `win`, `land`, `explosion` and `clearReel` all looped. That default is right for a state describing how a symbol IS and wrong for one describing a symbol LEAVING. `engine-layout/symbolStates.ts` now owns the answer (`TERMINAL_SYMBOL_STATES` = `explosion` + `clearReel`, `symbolStateLoopsByDefault()`) and `Symbol.svelte` asks it instead of a flat `?? true`. An explicit authored `loop` still wins in both directions.
+  - **Why it bit spine and not flipbook.** `SymbolFlipbook` times its `oncomplete` off the clip LENGTH, so a looping clip still completes after one cycle (deliberate — see its docstring). A spine reports only through the runtime's own `complete`, so a looping one has nothing to end the beat.
+  - **`clearReel` is included on purpose.** It is the other half of the same beat, awaited the same way by `TumbleBoard`, and unauthored it renders the `explosion` binding itself — so leaving it out would give one project's pop an end and its neighbour's an endless loop depending only on which of the two cells got bound. `win`/`land` are deliberately NOT included: both are states a game may legitimately repeat on a resting board, and changing them would re-time every shipped game.
+  - **The two Book-of column-morph waits are now BOUNDED** (`bookEventHandlerMap.expandBookColumns` and its flow-v2 twin in `flowEffects.ts`). They awaited this completion through `roundSkip.race(waitForResolve(...))` — released only by a player slam — which a looping explosion hid by firing `complete` every cycle. One-shot gives the cell exactly ONE chance to report, so an unbounded wait there became a real freeze risk; both now race `awaitSymbolBeat(..., TRANSIT_BEAT_CAP_MS)`, the same cap the cascade's `clearReel` beat already spends on this very art.
+  - **Verified live**, `apps/lines` + `scripts/mock-rgs-server-book.mjs`, instrumenting raw spine `complete` events against the cell's `symbolState`: `win → 4656ms complete → explosion (loop:false, 0.53s) → 5198ms complete → 5206ms postWinStatic`. The pop is **543 ms** where it was 4000, the revert lands 8 ms after the animation ends, and a 3-second sample of the resting board finds no cell in `explosion`. Also re-run with `FORCE_TRIGGER=1`: trigger → reveal → free spins 1→3 of 10, column morph intact, no hang. **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake.
+  - **Noticed in passing, NOT fixed:** the reference `M` spine's `low_multiplier_static` is a **zero-duration looping** animation, so every cell resting on it fires `complete` every frame — ~21,000 callbacks in 20 seconds of play, each walking `ReelSymbol`'s state comparison. Harmless today (the comparisons all miss) but it is a beat-resolution hazard one mis-ordered frame away, and pure waste on the hot path.
+
+- 2026-09-10 — **One of the two explosions is not an explosion — it is the board taking a symbol away, so it is called `Clear reel` now.** Owner call. `explosion` and `tumbleExplosion` read as a matched pair and were not one: `explosion` is a symbol popping WHERE IT STANDS while the reel keeps it (the Book-of column morph), while the other is a symbol being TAKEN OFF — fired as much by the swap-in-place board CLEAR, which a swapping lines game runs every single round, as by a cascade. “Tumble” named the one caller that happened to come first.
+  - **A pure rename.** `tumbleExplosion` → `clearReel`, “Tumble explosion” → “Clear reel”. Same gate (`cascade || clears`), same `explosion` inheritance, same two callers, same bytes on the wire for a project that has authored the state.
+  - **The migration is the part that could have gone silently wrong.** Saved R2 docs hold the old key in TWO state-keyed maps (`symbols[name]` and `symbolSounds[name]`), and a game’s PUBLISHED `defaults.json` can hold it too — a shipped game pins the engine as a submodule and publishes the state names its own commit knows. Both are folded before validation, at one boundary, because those records are keyed by `z.enum(SYMBOL_STATES)`: Zod **rejects** an unlisted key rather than stripping it, and `loadSymbolsDocWithEtag` answers a parse failure with `emptySymbolsDoc()`. Un-folded, a fully authored project would have loaded as a never-authored one — every binding and every per-symbol cue gone, with no error anywhere. The fold also runs on the defaults WRITE, so an un-bumped game’s `publish:symbols` cannot 400 into the `--optional` swallow.
+  - **Three things were deliberately left alone**, each a different namespace: the `tumbleBoard*` emitter cues and `stateTumble` internals (the tumble OVERLAY, a separate concept); `tumbleExplosionDelays` and the `TUMBLE_PATTERNS` family in `engine-layout/tumblePattern.ts` (renaming one function inside a module of `TUMBLE_*` siblings reads worse than the churn saves); and the game-wide `tumbleExplosion` SOUND SLOT in `packages/game-config/src/sounds.ts`, which is a `/config` → Sounds key in the sounds doc, not a symbol state.
+- 2026-09-10 — **A winning symbol can now go out with a pop.** New default-OFF doc-global `winExplode: { enabled? }` and a **/symbols → “Winning symbols explode”** section beside the resting replay: on, a winning cell plays its `explosion` state after its `win` beat and before settling into `postWinStatic`. This is what gives `explosion` a meaning on a board that does NOT cascade — until now the state existed only for the Book-of column morph.
+
+  - **The symbol is NOT removed.** The cell still ends at `postWinStatic`; taking a symbol off the board stays the job of the cascade and of “Clear the board”, which play `clearReel`.
+  - **An explicit switch, and that is the whole design.** Inferring it from “is `explosion` authored” was the obvious alternative and would have fired on every existing project — every game binds `explosion` for the morph — re-timing the one beat every paying spin runs, in every shipped game, through the shared `_runtime/lines` bundle.
+  - **Two edges decided rather than left to fall out.** (1) The pop fires on the round’s own presentation ONLY. `boardWithAnimateSymbols` is also driven by `winSymbolCycle`, which re-lights that spin’s winners every pass until the next bet; popping on each pass would be a board whose symbols blow up on a loop, and would add a second bounded beat to a cycle nothing races against a skip token. The cycle now marks its passes (`animateSymbols({ replay: true })` → an optional `replay` on the cue) and the pop is gated on its absence. (2) A stacked-covered cell is skipped: it mounts no `<Symbol>`, so there is nothing to draw the pop with and nothing that could ever report it — the beat would be a second dead hold that also ended the tall picture’s win art early, for no picture.
+  - **Bounded, but with no floor.** `awaitSymbolBeat` + `WIN_BEAT_CAP_MS`, so an explosion bound to art that can never report cannot hang the round; no `WIN_BEAT_MIN_MS`, because the readable minimum is already spent on the win and a second one would be added to every paying spin.
+  - Full chain shipped (`.strict` Zod + sparse prune → client type/accessor/setter/dirty signature → spread PUT → `symbolExport` verbatim → `/api/editor/export-symbols` → **bake whitelist** + runtime bundle → `bakedWinExplodeEnabled()` → `Board.svelte`), plus a `gameProfile` chip. New gate **`pnpm --filter launcher-api check:clear-reel`** (29 checks) covers BOTH changes over the REAL functions — the legacy fold on both maps, “the newer key wins”, that the raw schema still REJECTS an unlisted state (which pins the fold’s stakes), sparse OFF-parity, the `.strict` rejections, the client/server signature agreement, and that `winExplode` reaches both bundle paths. Mutation-verified: deleting the migration call and deleting the bake line each fail it. **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
+  - **`symbolSounds` now reaches both bundle paths (fixed in the same change).** It was in `SymbolExportResult` but missing from BOTH the `/api/editor/export-symbols` response destructure and the `bake-editor-doc.mjs` whitelist. The consequence was narrower than it first reads: the per-symbol cues' PRIMARY carrier is the sound export, which folds them into `catalog.bindings.symbols` (`soundExport.ts`), and `bakedSymbolSounds()` consults that first — so no cue was actually being dropped. What was broken is the FALLBACK underneath it (`editor-scenes.ts`, `symbols.symbolSounds`), which the runtime path carried and the bake path never wrote: two bundles built by the two routes answered differently the moment a project shipped no `bindings` block. Both hand-written lists now carry it, and `check:clear-reel` asserts the whole chain (mutation-tested: dropping it from either list fails the script).
+
+- 2026-09-08 — **The cascade explodes in WAVES, if you ask it to.** Owner report: clicking spin blew the whole board up in one frame, with no way to say otherwise per game. New optional doc-global `tumblePattern: { pattern, stepMs? }` and a **/symbols → Explosion pattern** panel (shown for a project that cascades OR clears its board, the same gate as the `Tumble explosion` column). Twelve patterns — `all` (the default, unchanged), columns L→R / R→L / centre-out / edges-in, rows top-down / bottom-up, two diagonals, radial, random and reading-order — with a 0–500 ms gap (default 80) and a live 5×3 preview numbering each seat's wave.
+  - **The waves are dense over the WINNING seats, not over the board.** A win on reels 2–4 pops on waves 0,1,2 rather than 2,3,4 with two waves of dead air first, so a pattern reads the same on a three-symbol line as on a full board. The three centre-relative patterns are the deliberate exception: they measure from the board's middle, so an off-centre win looks off-centre.
+  - **One home for the order:** `packages/engine-layout/src/lib/tumblePattern.ts` (`TUMBLE_PATTERNS` + `tumbleExplosionDelays`), read by the game's `TumbleBoard` and by the tool's preview — the same reason `symbolStates` lives there. Sparse and byte-identical when absent (`all` and a 0 gap both resolve to the single frame before any sort runs).
+  - **A pending wave is dropped when the board is swept** (slam / skipped round / `tumbleBoardReset`) or when a refill splices its column: a symbol off its column can never report `oncomplete`, so popping it would stall the beat behind its cap.
+  - **Two guards found in review and closed:** the whole SPREAD is capped at 2 s (the per-wave 500 ms cap bounds nothing for a pattern whose wave count grows with the win, and a board-clear board explodes every seat every spin), and an unknown pattern name degrades to one frame instead of throwing inside the explode step — which matters because the launcher can ship a pattern a submodule-pinned game's engine does not know.
+  - **A symbol's own explosion cue now lands with its own pop** rather than with the step; the step-wide `tumble_win_*` cue still fires once, with the first wave.
+  - Full chain shipped (schema + prune → client setters + dirty signature → `symbolExport` → `/api/editor/export-symbols` → **bake whitelist** → runtime bundle → `bakedTumblePattern()`), plus a `gameProfile` row. Offline-verified: `node scripts/verify-tumble-pattern.mjs` (57 checks — every pattern's wave grid, the spread ceiling and the unknown-name degradation, and the REAL `tumbleBoardExplode` driven on a virtual clock incl. the sweep/splice guards and the transition catch-up) and `pnpm --filter launcher-api check:tumble-pattern` (34 checks — prune, rejection, both bundle paths, the client half). **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
 - 2026-09-07 — **The Highlight (win frame) only drew on SPINE symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its spine-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolSpine.svelte`, the spine arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolSpine` was left a pure pass-through to `SymbolSpineMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, spine cells unchanged. **Engine change — needs a runtime release to reach the online games** (and a Borut submodule bump for the remake).
 - 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (spine / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify; Borut submodule bump owed. Details in the Current-state bullet.
 - 2026-09-03 — **Spine cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every spine cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's spine loader (`spineRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own `window.spine` — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-spines`). Details in [editor status](editor.md).

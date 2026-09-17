@@ -66,25 +66,25 @@ console.log('\nthe cascade explosion inherits the on-reel one');
 const oneExplosion: StateMapLike = { static: sprite('s'), explosion: spine('boom') };
 check(
 	'an UNBOUND tumble explosion plays the normal explosion — the pre-split behaviour, kept',
-	resolveSymbolState(oneExplosion, 'tumbleExplosion'),
+	resolveSymbolState(oneExplosion, 'clearReel'),
 	'explosion',
 );
 check(
 	'...and a bound one wins, which is the whole point of the second binding',
 	resolveSymbolState(
-		{ ...oneExplosion, tumbleExplosion: spine('cascade_boom') },
-		'tumbleExplosion',
+		{ ...oneExplosion, clearReel: spine('cascade_boom') },
+		'clearReel',
 	),
-	'tumbleExplosion',
+	'clearReel',
 );
 check(
 	'the on-reel explosion is NEVER redirected to the cascade one',
-	resolveSymbolState({ static: sprite('s'), tumbleExplosion: spine('cascade_boom') }, 'explosion'),
+	resolveSymbolState({ static: sprite('s'), clearReel: spine('cascade_boom') }, 'explosion'),
 	'static',
 );
 check(
 	'neither explosion bound ⇒ static, not a crash mid-tumble',
-	resolveSymbolState(M, 'tumbleExplosion'),
+	resolveSymbolState(M, 'clearReel'),
 	'static',
 );
 

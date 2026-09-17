@@ -30,17 +30,23 @@ export const POST: RequestHandler = async ({ url }) => {
 		// `bookVfx` (the book-symbol VFX layers) is on this list for the SAME reason — omit it and the
 		// bake path would ship no book VFX while the runtime path did. `stacked` (the stacked-picture
 		// config) and `transition` (the explosion → intro transition) are here for the SAME reason — the
-		// bake reads them off this response.
+		// bake reads them off this response. `tumblePattern` (the cascade explosion order) likewise, and so is
+		// `winExplode` (the end-of-win pop). `symbolSounds` (the per-symbol cues) is here as the
+		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
+		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
 		const {
 			map,
 			index,
 			names,
+			symbolSounds,
 			highlight,
 			boardGlow,
 			winLine,
 			winCycle,
+			winExplode,
 			bookVfx,
 			transition,
+			tumblePattern,
 			anticipation,
 			stacked,
 		} = await exportEditorSymbols(clientKey, projectKey);
@@ -50,12 +56,15 @@ export const POST: RequestHandler = async ({ url }) => {
 			map,
 			index,
 			names,
+			symbolSounds,
 			highlight,
 			boardGlow,
 			winLine,
 			winCycle,
+			winExplode,
 			bookVfx,
 			transition,
+			tumblePattern,
 			anticipation,
 			stacked,
 		});

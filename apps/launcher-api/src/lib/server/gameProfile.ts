@@ -40,6 +40,7 @@ import {
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
+import { TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import type { MockProtocol } from './testServerManifest';
@@ -333,6 +334,12 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.winCycle?.holdAfterBigWin === true ? 'Hold after big win' : null),
 	},
 	{
+		id: 'winExplode',
+		title:
+			'Each winning symbol plays its Explosion animation at the end of its win, before settling back to its post-win art.',
+		text: (ctx) => (ctx.symbols.winExplode?.enabled === true ? 'Winning symbols explode' : null),
+	},
+	{
 		id: 'highlight',
 		title: 'A custom win-frame spine looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
@@ -361,9 +368,18 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'explosionState',
 		title: 'Symbols have an authored explosion animation — the cascade’s defining beat.',
 		text: (ctx) =>
-			ctx.states.has('explosion') || ctx.states.has('tumbleExplosion')
-				? 'Explosion animations'
-				: null,
+			ctx.states.has('explosion') || ctx.states.has('clearReel') ? 'Explosion animations' : null,
+	},
+	{
+		id: 'tumblePattern',
+		title:
+			'The winning symbols explode in waves — by column, by row, out from the middle — rather than all in the same frame.',
+		text: (ctx) => {
+			const pattern = ctx.symbols.tumblePattern?.pattern;
+			return pattern && pattern !== 'all'
+				? `Explosion pattern: ${TUMBLE_PATTERN_LABELS[pattern]}`
+				: null;
+		},
 	},
 	{
 		id: 'symbolNames',

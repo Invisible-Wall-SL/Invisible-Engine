@@ -11,7 +11,7 @@
 	 * a still-frame flipbook would buy nothing.
 	 */
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
+	import { invalidateAll, replaceState } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import VideoMode from './VideoMode.svelte';
@@ -36,8 +36,9 @@
 		type FlipbookClip,
 		type FlipbookFrameBox,
 	} from 'engine-flipbook';
-	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
-	import RegionThumb from '../editor/RegionThumb.svelte';
+	import { clearRegionCache, fetchRegions, type RegionSet } from '../editor/editorRegions.client';
+	import RegionThumb, { clearPageImages } from '../editor/RegionThumb.svelte';
+	import { clearCropPages } from '../editor/regionCrop';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -474,6 +475,44 @@
 		ensureRegions(sheetKey);
 		for (const key of clipSheetKeys(clip)) ensureRegions(key);
 	});
+
+	const REFRESH_TITLE =
+		"Re-read this project's sheets from R2 — the region rects and the page image are cached " +
+		'for this browser session, so this tab keeps drawing the old art after an atlas is ' +
+		're-packed or redeployed elsewhere.';
+
+	/** ↻ Refresh spinner — one click is several awaits long, so a second must not stack. */
+	let refreshing = $state(false);
+
+	/**
+	 * Re-read the source art from R2. The server answers fresh on every call — what goes stale is
+	 * CLIENT-side and lives for the whole SPA session: `fetchRegions`' module cache (the rects AND
+	 * the `pageVersion` that busts the image URL) and `RegionThumb`'s shared page decodes. So an
+	 * atlas re-packed in the Atlas Maker — a separate origin, in another tab — keeps drawing its
+	 * OLD art here until those are dropped. Same remedy as the Scene Editor's ↻ Reload art
+	 * (`EditorCanvas.refreshAssets`).
+	 */
+	async function refreshArt(): Promise<void> {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			clearRegionCache();
+			clearPageImages();
+			clearCropPages();
+			regionSets = {};
+			// Resetting `regionSets` re-runs the effect above, but re-fetching here explicitly keeps
+			// the refresh correct if that dependency ever moves; `fetchRegions` de-dupes per sheet.
+			ensureRegions(sheetKey);
+			for (const key of clipSheetKeys(clip)) ensureRegions(key);
+			// The sheet LIST and each sheet's region names come from the server load, so a sheet added,
+			// renamed or re-packed since this tab opened needs that load re-run too. Safe for unsaved
+			// work: `clip`, `pickerId`, `clips` and `sheetKey` seed from `data` once, and nothing syncs
+			// `data.openedClip` back into them.
+			await invalidateAll();
+		} finally {
+			refreshing = false;
+		}
+	}
 
 	const regionSet = $derived(regionSets[sheetKey] ?? null);
 	const visibleRegions = $derived(
@@ -1410,7 +1449,17 @@
 			</section>
 
 			<aside class="picker">
-				<h3>Source sheet</h3>
+				<div class="head">
+					<h3>Source sheet</h3>
+					<button
+						class="refresh"
+						disabled={busy || refreshing}
+						title={REFRESH_TITLE}
+						onclick={refreshArt}
+					>
+						{refreshing ? 'Refreshing…' : '↻ Refresh from R2'}
+					</button>
+				</div>
 				<select
 					class="sheet"
 					value={sheetKey}
@@ -1524,10 +1573,13 @@
 		padding: 12px;
 		min-height: 0;
 	}
-	.rail .head {
+	.rail .head,
+	.picker .head {
 		display: flex;
+		flex: none;
 		align-items: center;
 		justify-content: space-between;
+		gap: 8px;
 	}
 	.cliplist {
 		flex: 1;
@@ -1616,6 +1668,11 @@
 		padding: 3px 8px;
 		border-color: #2563eb;
 		color: #bfdbfe;
+	}
+	.refresh {
+		flex: none;
+		padding: 3px 8px;
+		white-space: nowrap;
 	}
 
 	/* --- centre: preview + ordered frames --- */

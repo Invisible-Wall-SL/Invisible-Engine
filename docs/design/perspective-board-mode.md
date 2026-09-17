@@ -44,7 +44,7 @@ replaces symbols in place: the outgoing ones play out and the incoming ones fall
 
 1. **The cascade.** #375 landed `tumbleBoard` in the shared runtime as an **overlay** that mounts for
    the duration of a cascade and unmounts again — `boardHide → tumbleBoardShow → init → explode →
-   removeExploded → slideDown → boardSettle → tumbleBoardHide → boardShow`
+removeExploded → slideDown → boardSettle → tumbleBoardHide → boardShow`
    (`apps/lines/src/game/bookEventHandlerMap.ts`, `stateTumble.svelte.ts`, `TumbleBoard.svelte`).
    Seats come from the shared `getSymbolY`, not a fixed `SYMBOL_SIZE` step, precisely so a cascade
    drops symbols onto the same seat a settled board would give them.
@@ -69,11 +69,11 @@ replaces symbols in place: the outgoing ones play out and the incoming ones fall
 Today the board is a **separable, uniform** lattice: `x = f(reel)`, `y = g(row)`, one cell size, one
 board scale. Perspective breaks exactly three of those assumptions:
 
-| Assumption today             | Under perspective                                                 |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `x` depends only on the reel | `x` depends on the **row** too — columns converge toward the back  |
-| every row has the same pitch | the pitch **compresses** with depth                                |
-| one scale for the whole board| each row has **its own scale**                                     |
+| Assumption today              | Under perspective                                                 |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `x` depends only on the reel  | `x` depends on the **row** too — columns converge toward the back |
+| every row has the same pitch  | the pitch **compresses** with depth                               |
+| one scale for the whole board | each row has **its own scale**                                    |
 
 Everything else — non-square cells, gaps, reel/row lead, per-cell seat alignment, board nudge,
 per-ratio overrides — survives untouched, because the formulation below _contracts the existing
@@ -205,6 +205,7 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
 - **Three swap STYLES**, each an arm of its own in `presentReveal` rather than one parameterised
   path, because `apps/lines` is the shared `_runtime/lines` bundle and the shipped path must stay
   the shipped path:
+
   - `dropIn` — the whole board falls at once (the sequence above; what an absent `swapStyle` means).
   - `columnCascade` — the resting board drains column by column, left to right, each column
     refilling as it empties.
@@ -212,7 +213,7 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     its authored `intro` state there, so the arrival ANIMATION is the whole presentation. This is
     the only style reachable for "the symbols rise out of the water", and it is not reachable by
     shortening a fall: a fall that lands in 1 ms is still a fall, and its `land` beat still fires
-    *after* the movement rather than instead of it. `columnStaggerMs` sweeps it, defaulting to `0`
+    _after_ the movement rather than instead of it. `columnStaggerMs` sweeps it, defaulting to `0`
     (the un-swept surfacing) where the cascade defaults to 140 ms.
 
     It governs the CASCADE's refill as well as the reveal — a game that surfaces on the spin and
@@ -232,14 +233,15 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     The seam itself — pop out, then intro in, at the same seat — is a hard cut by construction, and
     an authored style will usually want something to cover it. That is the **Transition** (Invisible
     Symbols → Transition, added 2026-09-03): one project-global spine / flipbook / FX the cascade
-    overlay mounts at every exploding seat `delayMs` after `tumbleExplosion` fires, drawn above the
+    overlay mounts at every exploding seat `delayMs` after `clearReel` fires, drawn above the
     symbols and torn down on its own completion. It is fire-and-forget on purpose — it never joins the
     beat, so the intro starts exactly when it does without it and a slow effect can cost the round
     nothing — and it is gated on this style, since a sliding refill has no intro to bridge. It ships as
     a symbols-doc global (`bundle.symbols.transition`), so nothing new travels the layout doc.
+
 - **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
   `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
-  `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the
+  `clearReel` is gated on cascading), and inherits `land` when unauthored — so switching the
   style on before any art is bound gives a board that appears and plays its ordinary landing.
 - **Stood down with the roll:** reel anticipation (a spin-slowing tease by definition, and the owner
   of the only geometry-bound dim), the anticipation camera, sequential reel stop, and stacked-picture

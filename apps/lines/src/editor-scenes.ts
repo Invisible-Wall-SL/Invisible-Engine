@@ -14,6 +14,7 @@ import type {
 	SoundBindings,
 	SoundCatalog,
 	SymbolNameMap,
+	TumblePatternConfig,
 	WinTextDoc,
 	CinematicDoc,
 } from 'engine-layout';
@@ -69,7 +70,7 @@ export type BookVfxLayer = {
 /**
  * The explosion → intro TRANSITION (Invisible Symbols State Machine output). Structurally a
  * {@link BookVfxLayer} without the `sprite` kind (a transition has a duration; a frozen frame has
- * none) and without fit hints, plus `delayMs`: how long after a seat's `tumbleExplosion` starts before
+ * none) and without fit hints, plus `delayMs`: how long after a seat's `clearReel` starts before
  * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE.
  */
 export type SymbolTransition = {
@@ -301,6 +302,12 @@ type BakedBundle = {
 		 * {@link bakedSymbolTransitionAssets}), an `fx` rides {@link bakedEffects}. Absent ⇒ the hard cut,
 		 * byte-identical to before (parity). See {@link SymbolTransition}. */
 		transition?: SymbolTransition;
+		/** The cascade EXPLOSION PATTERN (Invisible Symbols State Machine output) — the order the
+		 * winning seats pop in and the millisecond gap between two waves of them.
+		 * `components/TumbleBoard.svelte` reads it once per explode step and staggers the seats;
+		 * `engine-layout/tumblePattern` owns the pattern list + the ordering both halves share.
+		 * Assetless. Absent ⇒ every seat pops in the same frame, byte-identical to before (parity). */
+		tumblePattern?: TumblePatternConfig;
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
 		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
 		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
@@ -361,6 +368,14 @@ type BakedBundle = {
 			 * with the replay off the hold still holds, on a static board. */
 			holdAfterBigWin?: boolean;
 		};
+		/** "A winning symbol POPS at the end of its win" (Invisible Symbols State Machine output,
+		 * consumed by `components/Board.svelte`): after a paying cell's `win` beat completes, it plays
+		 * its `explosion` state before settling into `postWinStatic`. The symbol is NOT removed —
+		 * taking it off the board stays the cascade's / the clear step's job. Absent ⇒ off
+		 * (byte-parity: a winner went straight from `win` to `postWinStatic` before this switch).
+		 * Deliberately a switch rather than an inference from "is `explosion` bound": every game binds
+		 * `explosion` for the Book-of column morph. */
+		winExplode?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -382,6 +397,11 @@ type BakedBundle = {
 				size?: number;
 				color?: string;
 				placement?: 'line' | 'boardCenter';
+				countUp?: boolean;
+				countUpDuration?: number;
+				cueBigWin?: boolean;
+				fadeIn?: boolean;
+				fadeInDuration?: number;
 			};
 		};
 	};
@@ -882,6 +902,19 @@ export function bakedSymbolTransition(): SymbolTransition | undefined {
 }
 
 /**
+ * The cascade explosion PATTERN authored in the Invisible Symbols State Machine — the order the
+ * winning seats pop in and the gap between two waves. `components/TumbleBoard.svelte` hands it to
+ * `tumbleExplosionDelays` on every explode step. Mirrors `bakedBookVfx`'s runtime→baked→undefined
+ * resolution; undefined ⇒ `tumbleExplosionDelays` answers all-zero and the whole board pops in one
+ * frame, exactly as it always did (parity).
+ */
+export function bakedTumblePattern(): TumblePatternConfig | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.tumblePattern;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.tumblePattern;
+}
+
+/**
  * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
  * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay spine key. When
  * set, `resolveTierFx` / `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it
@@ -961,6 +994,22 @@ export type ResolvedWinLine = {
 		 * `'boardCenter'` in the middle of the reel window — where only the most recently announced
 		 * win stamps, so an all-at-once round doesn't pile every amount on one spot. */
 		placement: 'line' | 'boardCenter';
+		/** COUNT the stamped amount up from zero instead of stamping it whole. The win narration
+		 * awaits the count, so the symbols celebrate after the number lands. Default OFF
+		 * (byte-identical to before this switch); a slammed round skips the count. */
+		countUp: boolean;
+		/** How long that count takes, in SECONDS. */
+		countUpDuration: number;
+		/** On a round that reaches a BIG-WIN tier, the amount text becomes the big win's RUN-UP: it
+		 * counts the ROUND TOTAL from zero to the big-win threshold, then hides as the overlay takes
+		 * over and carries the number the rest of the way. Default OFF; read only with `countUp` on
+		 * (`flowEffects.ts#cueBigWinCountUp`). */
+		cueBigWin: boolean;
+		/** Fade the stamp in (alpha 0→1) WHILE the count is already running. Default OFF, and
+		 * independent of `countUp` — a static stamp can fade in too. */
+		fadeIn: boolean;
+		/** How long that fade takes, in SECONDS. */
+		fadeInDuration: number;
 	};
 };
 
@@ -995,6 +1044,11 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			size: w?.text?.size ?? 0.5,
 			color: w?.text?.color ?? '#ffffff',
 			placement: w?.text?.placement ?? 'line',
+			countUp: w?.text?.countUp ?? false,
+			countUpDuration: w?.text?.countUpDuration ?? 0.6,
+			cueBigWin: w?.text?.cueBigWin ?? false,
+			fadeIn: w?.text?.fadeIn ?? false,
+			fadeInDuration: w?.text?.fadeInDuration ?? 0.3,
 		},
 	};
 }
@@ -1034,6 +1088,24 @@ export function bakedWinCycleConfig(): {
 		dimNonWinning: c?.dimNonWinning ?? false,
 		holdAfterBigWin: c?.holdAfterBigWin ?? false,
 	};
+}
+
+/**
+ * "A winning symbol POPS at the end of its win" — whether a paying cell plays its `explosion` state
+ * between its `win` beat and the `postWinStatic` revert (`components/Board.svelte`).
+ *
+ * Default FALSE, and that default is the whole reason the switch exists rather than being inferred:
+ * every game binds `explosion` for the Book-of column morph, so "is it authored" would be true
+ * everywhere and would re-time every paying spin in every shipped game. Mirrors
+ * `bakedWinCycleConfig`'s runtime→baked→undefined resolution.
+ */
+export function bakedWinExplodeEnabled(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.winExplode
+		: hasBakedDoc()
+			? bakedBundle.symbols?.winExplode
+			: undefined;
+	return c?.enabled ?? false;
 }
 
 /**

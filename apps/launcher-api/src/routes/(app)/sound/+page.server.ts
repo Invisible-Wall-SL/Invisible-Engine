@@ -39,7 +39,7 @@ import type { PageServerLoad } from './$types';
  *
  * A function rather than an expression inline in the payload because it answers a question with
  * three inputs and one hard-won correction in it (see the field's doc): the state a beat plays and
- * the switch that turns that beat on are not the same fact, and `tumbleExplosion` shipped gated on
+ * the switch that turns that beat on are not the same fact, and `clearReel` shipped gated on
  * the wrong one.
  */
 const symbolCueStates = (config: GameConfigDoc | undefined): readonly SymbolStateName[] => {
@@ -47,7 +47,7 @@ const symbolCueStates = (config: GameConfigDoc | undefined): readonly SymbolStat
 	return [
 		'land' as const,
 		...(behaviour.swapInPlace && behaviour.swapStyle === 'emerge' ? (['intro'] as const) : []),
-		...(resolveCascade(config) || behaviour.clearBoard ? (['tumbleExplosion'] as const) : []),
+		...(resolveCascade(config) || behaviour.clearBoard ? (['clearReel'] as const) : []),
 	];
 };
 
@@ -123,7 +123,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		 * let an author bind a cue nothing will ever play and be told nothing, which is precisely how
 		 * `tumble_win_1…5` sat unheard in the audiosprite for the life of the fork.
 		 *
-		 * `land` always. `tumbleExplosion` whenever the project CASCADES OR CLEARS — two things play
+		 * `land` always. `clearReel` whenever the project CASCADES OR CLEARS — two things play
 		 * that state, not one, and gating it on the cascade alone hid it from exactly the projects
 		 * authoring the second: a swap-in-place board with "Clear the board" ticked runs
 		 * `clearOutgoingSymbols` on every single round. `intro` only under the `emerge` swap style,

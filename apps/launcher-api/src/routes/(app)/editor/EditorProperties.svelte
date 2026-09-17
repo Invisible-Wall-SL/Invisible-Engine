@@ -2,11 +2,12 @@
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundFit,
-		builtinSpineMeta,
 		BLEND_MODE_LABELS,
 		BLEND_MODES,
+		builtinSpineMeta,
 		BUILTIN_SPINE_NAMES,
 		BUTTON_STATE_PARAMS,
 		BUTTON_VISUAL_STATES,
@@ -26,11 +27,12 @@
 		SYMBOL_STATES,
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
-		type ComponentDef,
 		type BlendMode,
+		type ComponentDef,
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type CoverFit,
 		type AnticipationProfile,
 		type ButtonStateAnimations,
 		type EditableParam,
@@ -1004,9 +1006,11 @@
 		'alpha',
 		'zIndex',
 		'tint',
-		'visible',
-	] as const satisfies readonly (keyof NodeOverride)[];
 		'blendMode',
+		'visible',
+		'fit',
+		'coverScale',
+	] as const satisfies readonly (keyof NodeOverride)[];
 
 	type OverrideKey = (typeof overrideKeys)[number];
 
@@ -1144,10 +1148,6 @@
 		markDirty();
 	}
 
-	function setSpriteSize(n: LayoutNode, axis: 'width' | 'height', value: number): void {
-		if (Number.isNaN(value)) return;
-		if (isOverrideMode) {
-			(ensureOverride(n) as Record<string, unknown>)[axis] = value;
 	/**
 	 * Blend mode. `normal` DELETES the field rather than storing it, so a doc only ever carries
 	 * the modes an author actually chose — and in override mode it deletes the override key, which
@@ -1181,6 +1181,10 @@
 		);
 	}
 
+	function setSpriteSize(n: LayoutNode, axis: 'width' | 'height', value: number): void {
+		if (Number.isNaN(value)) return;
+		if (isOverrideMode) {
+			(ensureOverride(n) as Record<string, unknown>)[axis] = value;
 		} else if (
 			n.kind === 'sprite' ||
 			n.kind === 'spine' ||
@@ -1524,24 +1528,31 @@
 
 	// ---------- background cover (§10.3 step 4) ----------
 	// Cover SCALE is a dedicated UNIFORM zoom on the fitted cover (= `node.coverScale`,
-	// 1 = exact edge-to-edge), authored base-only like `fit`. The TRANSFORM panel's
-	// SCALE.X/SCALE.Y (= `node.scale`) author the free non-uniform STRETCH on top, so
-	// the two are independent. Cover FIT is the canonical fit read by every cover path:
-	// `preview.art.fit` for a `bind` preview-art anchor (the field those anchors
-	// already round-trip), else the node-level `fit`.
-	const coverScaleValue = $derived(node ? backgroundCoverScale(node) : 1);
-	const coverFitValue = $derived(node ? backgroundFit(node) : 'cover');
-	/** True when the node carries an editor preview-art payload — its fit lives in
-	 * `preview.art.fit`; otherwise fit lives in the node-level `fit` field. */
+	// 1 = exact edge-to-edge). The TRANSFORM panel's SCALE.X/SCALE.Y (= `node.scale`)
+	// author the free non-uniform STRETCH on top, so the two are independent. Cover FIT is
+	// the canonical fit read by every cover path: `preview.art.fit` for a `bind` preview-art
+	// anchor (the field those anchors already round-trip), else the node-level `fit`.
+	//
+	// Both take a per-layoutType OVERRIDE, like the transform fields above: on a non-base
+	// ratio tab the panel shows what THAT ratio resolves to and editing writes
+	// `overrides[layoutType]`, so a backdrop can fit on X for desktop and on Y for portrait.
+	const coverScaleValue = $derived(node ? backgroundCoverScale(node, layoutType) : 1);
+	const coverFitValue = $derived(node ? backgroundFit(node, layoutType) : 'cover');
+	const coverAnchorValue = $derived(node ? backgroundCoverAnchor(node, layoutType) : null);
+	/** True when the node carries an editor preview-art payload — its BASE fit lives in
+	 * `preview.art.fit`; otherwise it lives in the node-level `fit` field. (A per-layout
+	 * override always lives in `overrides[layoutType].fit`, whichever kind of node it is.) */
 	const usesPreviewArtFit = $derived(!!node?.preview?.art);
 
 	function setCoverScale(n: LayoutNode, value: number): void {
 		if (Number.isNaN(value)) return;
-		n.coverScale = value;
+		if (isOverrideMode) ensureOverride(n).coverScale = value;
+		else n.coverScale = value;
 		markDirty();
 	}
-	function setCoverFit(n: LayoutNode, value: 'cover' | 'contain'): void {
-		if (n.preview?.art) n.preview.art.fit = value;
+	function setCoverFit(n: LayoutNode, value: CoverFit): void {
+		if (isOverrideMode) ensureOverride(n).fit = value;
+		else if (n.preview?.art) n.preview.art.fit = value;
 		else n.fit = value;
 		markDirty();
 	}
@@ -2742,17 +2753,6 @@
 			</label>
 		</div>
 
-		<div class="row">
-			<label class="field check">
-				<input
-					type="checkbox"
-					checked={t.visible}
-					onchange={(e) => setBool(node, 'visible', e.currentTarget.checked)}
-				/>
-				<span>visible</span>
-				{#if isOverrideMode && hasOverrideKey(node, 'visible')}
-					<span class="ovdot" title="Overridden"></span>
-					<button class="reset" onclick={() => clearOverrideKey(node, 'visible')}>×</button>
 		{#if supportsBlend(node)}
 			<!-- Photoshop-style blend: how this item's pixels combine with the art beneath it,
 			     instead of covering it. The canvas previews it exactly — `add`/`screen` lift the
@@ -2777,6 +2777,17 @@
 			</div>
 		{/if}
 
+		<div class="row">
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={t.visible}
+					onchange={(e) => setBool(node, 'visible', e.currentTarget.checked)}
+				/>
+				<span>visible</span>
+				{#if isOverrideMode && hasOverrideKey(node, 'visible')}
+					<span class="ovdot" title="Overridden"></span>
+					<button class="reset" onclick={() => clearOverrideKey(node, 'visible')}>×</button>
 				{/if}
 			</label>
 		</div>
@@ -2888,23 +2899,71 @@
 						value={coverScaleValue}
 						oninput={(e) => setCoverScale(node, e.currentTarget.valueAsNumber)}
 					/>
+					{#if isOverrideMode && hasOverrideKey(node, 'coverScale')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'coverScale')}>×</button>
+					{/if}
 				</label>
 				<label class="field">
 					<span>fit</span>
 					<select
 						value={coverFitValue}
-						onchange={(e) => setCoverFit(node, e.currentTarget.value as 'cover' | 'contain')}
+						onchange={(e) => setCoverFit(node, e.currentTarget.value as CoverFit)}
 					>
 						<option value="cover">cover (fill, may crop)</option>
 						<option value="contain">contain (fit inside)</option>
+						<option value="width">fit width — X (may crop/gap Y)</option>
+						<option value="height">fit height — Y (may crop/gap X)</option>
 					</select>
+					{#if isOverrideMode && hasOverrideKey(node, 'fit')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'fit')}>×</button>
+					{/if}
 				</label>
 			</div>
 			<p class="muted small">
-				Uniform zoom on the cover — <strong>1</strong> = exact edge-to-edge. Use
-				<strong>scale.x</strong> / <strong>scale.y</strong> in Transform to stretch it (e.g. 1.0 ×
-				1.2 = taller).
-				{#if usesPreviewArtFit}Fit is stored on the preview art.{/if}
+				<strong>cover</strong> / <strong>contain</strong> choose the axis by ratio;
+				<strong>fit width</strong> / <strong>fit height</strong> pin the fit to that one axis
+				whatever the window ratio. Cover scale is a uniform zoom on the fit —
+				<strong>1</strong> = exact edge-to-edge. Both are per-screen-layout: switch the ratio tab
+				above and set them there to override just that layout.
+				{#if usesPreviewArtFit}Base fit is stored on the preview art.{/if}
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>align x</span>
+					<input
+						type="number"
+						step="0.1"
+						value={coverAnchorValue?.x ?? 0.5}
+						oninput={(e) => setAnchor(node, 'x', e.currentTarget.valueAsNumber)}
+					/>
+					{#if isOverrideMode && hasOverrideKey(node, 'anchor')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'anchor')}>×</button>
+					{/if}
+				</label>
+				<label class="field">
+					<span>align y</span>
+					<input
+						type="number"
+						step="0.1"
+						value={coverAnchorValue?.y ?? 0.5}
+						oninput={(e) => setAnchor(node, 'y', e.currentTarget.valueAsNumber)}
+					/>
+					{#if isOverrideMode && hasOverrideKey(node, 'anchor')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'anchor')}>×</button>
+					{/if}
+				</label>
+			</div>
+			<p class="muted small">
+				Where the fitted art sits in the window: <strong>0.5</strong> = centred (the default),
+				<strong>0</strong> = left / top edge, <strong>1</strong> = right / bottom — i.e. which side
+				of an over-covering image you keep. This IS the Transform anchor (a cover is always drawn
+				from its own centre, so its anchor aligns instead of pivoting). Use
+				<strong>scale.x</strong> / <strong>scale.y</strong> in Transform to stretch the cover (e.g. 1.0
+				× 1.2 = taller).
 			</p>
 		</section>
 	{/if}
@@ -3770,6 +3829,45 @@
 						oninput={(e) => {
 							const v = e.currentTarget.valueAsNumber;
 							node.boardNudgeY = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+			</div>
+			<p class="muted small">
+				<strong>Symbol overflow</strong> — extra px of room outside the reels, so art drawn bigger
+				than its cell isn't cut off at the board edge. It grows the clip only: no cell moves and the
+				board keeps its size. In game it applies
+				<strong>only once every reel has stopped</strong> — a spinning strip still ends at the board
+				edge. Blank = 0 = no spill (today's behaviour).
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>overflow X</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						placeholder="0"
+						value={node.overflowX ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.overflowX = Number.isFinite(v) && v > 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>overflow Y</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						placeholder="0"
+						value={node.overflowY ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.overflowY = Number.isFinite(v) && v > 0 ? v : undefined;
 							markDirty();
 						}}
 					/>

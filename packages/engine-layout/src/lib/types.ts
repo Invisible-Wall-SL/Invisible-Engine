@@ -71,6 +71,22 @@ export interface NodeOverride {
 	 * non-componentInstance nodes. Absent ⇒ the base params (parity).
 	 */
 	params?: Record<string, unknown>;
+	/**
+	 * Per-layoutType BACKGROUND-COVER FIT — how a cover node ({@link BaseNode.fit}) is fitted
+	 * to the window for THIS layoutType. The whole point of the per-axis fits: a backdrop that
+	 * should span the WIDTH on desktop (`'width'`) often has to span the HEIGHT in portrait
+	 * (`'height'`), and `cover`/`contain` can't express that — they pick the axis by aspect.
+	 * Resolved by `backgroundFit`, so the game runtime and every editor cover path agree.
+	 * Absent ⇒ the base `fit` (parity).
+	 */
+	fit?: CoverFit;
+	/**
+	 * Per-layoutType BACKGROUND-COVER ZOOM — this layoutType's {@link BaseNode.coverScale}.
+	 * Sibling of {@link NodeOverride.fit}: a fit pinned to one axis usually wants its own zoom
+	 * per ratio (the stretch and the alignment already ride the per-layout `scale`/`anchor`).
+	 * Absent ⇒ the base `coverScale` (parity).
+	 */
+	coverScale?: number;
 }
 
 /**
@@ -82,16 +98,40 @@ interface BaseNode {
 	label?: string;
 	x: number;
 	y: number;
+	/**
+	 * Draw pivot, 0..1 per axis. On a COVER node (`background` space / {@link BaseNode.coverFit})
+	 * the art is always drawn from its own centre, so this means the ALIGNMENT of the fitted art
+	 * inside the window instead — 0 = left/top edge, 0.5 = centred (the default every spawn
+	 * carries), 1 = right/bottom — i.e. which part of a cropped cover you keep. See
+	 * `backgroundCoverAnchor`.
+	 */
 	anchor?: Point2D;
 	scale?: Point2D;
 	/**
 	 * Background cover-scale multiplier — a dedicated UNIFORM zoom on the fitted
 	 * cover (`1` = exact edge-to-edge cover). Independent of {@link BaseNode.scale},
 	 * which authors the free non-uniform STRETCH ratio on top. Absent = `1`.
+	 * Per-layoutType overridable via {@link NodeOverride.coverScale}.
 	 */
 	coverScale?: number;
 	rotation?: number;
 	alpha?: number;
+	/**
+	 * Photoshop-style BLEND MODE — how this node's pixels combine with the art already drawn
+	 * beneath them (`normal` / `add` / `multiply` / `screen`; see {@link BlendMode}). The knob a
+	 * glow, a light shaft, a shadow wash or a colour grade needs: `add` and `screen` lift the
+	 * backdrop instead of covering it, `multiply` darkens it.
+	 *
+	 * Authored on {@link BaseNode} rather than per kind because the rule is the same for every
+	 * renderable, but the editor surfaces the control — and the preview honours it — for the four
+	 * ART kinds: `sprite`, `spine`, `flipbook` and `effect`. An `effect` blends as ONE (the mode
+	 * rides its wrapper container, and PixiJS inherits `groupBlendMode` down the subtree), not per
+	 * particle sprite, which is what makes an additive emitter read as a single glow.
+	 *
+	 * Per-layoutType overridable via {@link NodeOverride.blendMode}. Absent ⇒ `normal` — a node
+	 * without it renders byte-identically to before this field existed.
+	 */
+	blendMode?: BlendMode;
 	zIndex?: number;
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
@@ -109,31 +149,18 @@ interface BaseNode {
 	/**
 	 * Background cover fit (§10.4). Canonical fit for a plain `background`-SPACE
 	 * sprite/spine node — `'cover'` (default) fills the window edge-to-edge (may
-	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect.
+	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect, and
+	 * `'width'`/`'height'` pin the fit to that ONE axis whatever the window ratio
+	 * (see {@link CoverFit}). Per-layoutType overridable via {@link NodeOverride.fit}.
 	 * The cover *scale* multiplier lives in {@link BaseNode.coverScale} (1 = exact
-	 * cover); `scale.x`/`scale.y` author the free non-uniform stretch on top. For a
+	 * cover); `scale.x`/`scale.y` author the free non-uniform stretch on top, and
+	 * `anchor` aligns the fitted art in the window (0.5 = centred). For a
 	 * `bind` cover anchor (e.g. the animated Background) the canonical fit is read
 	 * from {@link BaseNode.preview}.art.fit instead — see `backgroundFit`. Both the
 	 * game runtime and the editor preview read fit + scale through one helper so the
 	 * two agree. Additive — absent = `'cover'`.
-	/**
-	 * Photoshop-style BLEND MODE — how this node's pixels combine with the art already drawn
-	 * beneath them (`normal` / `add` / `multiply` / `screen`; see {@link BlendMode}). The knob a
-	 * glow, a light shaft, a shadow wash or a colour grade needs: `add` and `screen` lift the
-	 * backdrop instead of covering it, `multiply` darkens it.
-	 *
-	 * Authored on {@link BaseNode} rather than per kind because the rule is the same for every
-	 * renderable, but the editor surfaces the control — and the preview honours it — for the four
-	 * ART kinds: `sprite`, `spine`, `flipbook` and `effect`. An `effect` blends as ONE (the mode
-	 * rides its wrapper container, and PixiJS inherits `groupBlendMode` down the subtree), not per
-	 * particle sprite, which is what makes an additive emitter read as a single glow.
-	 *
-	 * Per-layoutType overridable via {@link NodeOverride.blendMode}. Absent ⇒ `normal` — a node
-	 * without it renders byte-identically to before this field existed.
 	 */
-	blendMode?: BlendMode;
-	 */
-	fit?: 'cover' | 'contain';
+	fit?: CoverFit;
 	/**
 	 * Per-node opt-in to true cover-fit (aspect-preserving fill to the canvas/window)
 	 * for a cover-capable node (`isCoverFitKind` — sprite / spine / flipbook) in a normal
@@ -202,7 +229,7 @@ interface BaseNode {
 			kind: 'spine' | 'sprite';
 			assetKey: string;
 			region?: string;
-			fit?: 'cover' | 'contain';
+			fit?: CoverFit;
 		};
 	};
 	/**
@@ -590,6 +617,29 @@ export interface ReelGridNode extends BaseNode {
 	 */
 	boardNudgeX?: number;
 	boardNudgeY?: number;
+	/**
+	 * SYMBOL OVERFLOW — how far past the reel window a LANDED symbol's art may spill, in px
+	 * (the same units as the cell size). The board is clipped to its window so a rolling strip
+	 * cannot be seen above or below the reels; the cost is that art drawn larger than its cell —
+	 * a tall creature, a symbol on a rock — is cut off at the window edge. This grows the CLIP
+	 * only, never the lattice: no cell moves, no seat moves, the board keeps its size.
+	 *
+	 * IT APPLIES ONLY WHILE THE BOARD IS SETTLED (`boardOverflow` in `gameState.svelte.ts`). A
+	 * spinning strip is exactly what the window exists to hide — its symbols are culled at the
+	 * window edge, so a clip that reached past it would pop half a symbol into view every time
+	 * one crossed the boundary. So the clip grows the moment the last reel stops and shrinks back
+	 * the moment the next spin starts, which is what makes "only the pictures that landed" the
+	 * literal behaviour rather than an approximation.
+	 *
+	 * Absent / 0 ⇒ the window is the board, byte-identical to before this existed — and that
+	 * matters because `apps/lines` is the shared runtime bundle every online game runs.
+	 *
+	 * The X axis is the smaller knob in practice: the mask already over-extends horizontally by a
+	 * whole cell on each side (see `BoardMask`), so side art has that much room before this is
+	 * needed at all.
+	 */
+	overflowX?: number;
+	overflowY?: number;
 	/**
 	 * Spin-FEEL tuning (animation, not layout): optional per-field overrides of the
 	 * game's coded `SPIN_OPTIONS_*`, applied by the game's `spinOptions` getter.
@@ -1235,6 +1285,8 @@ export interface ResolvedTransform {
 	width?: number;
 	height?: number;
 	tint?: number;
+	/** Resolved blend mode — see {@link BaseNode.blendMode}. `undefined` / `'normal'` ⇒ no blend. */
+	blendMode?: BlendMode;
 	visible: boolean;
 	/** Window-edge anchor for `canvas`-space scenes — see {@link BaseNode.screenAnchor}. */
 	screenAnchor?: Point2D;
@@ -1285,6 +1337,4 @@ export interface CinematicDoc {
 	};
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
-	/** Resolved blend mode — see {@link BaseNode.blendMode}. `undefined` / `'normal'` ⇒ no blend. */
-	blendMode?: BlendMode;
 }

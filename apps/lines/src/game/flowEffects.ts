@@ -33,9 +33,10 @@ import {
 	type GameMessageKind,
 } from 'state-shared';
 import { stateBonus, stateBonusDerived } from 'components-ui-html';
-import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
+import { waitForTimeout } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
+import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
 import {
@@ -52,6 +53,7 @@ import { playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
+import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
@@ -60,6 +62,7 @@ import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import type { WinLineShape } from '../components/WinLine.svelte';
 import {
+	activeBigTierThresholds,
 	activeWinLevelData,
 	activeWinModel,
 	boardDimensions,
@@ -133,9 +136,13 @@ const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcas
 export const animateSymbols = async ({
 	positions,
 	color,
+	replay,
 }: {
 	positions: Position[];
 	color?: string;
+	/** This call is the RESTING replay (`winSymbolCycle`), not the round's own narration. Only the
+	 *  end-of-win pop reads it — see `Board.svelte`. */
+	replay?: boolean;
 }) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
 	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
@@ -144,6 +151,7 @@ export const animateSymbols = async ({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
 		winLineColor: color,
+		...(replay ? { replay: true } : {}),
 	});
 };
 
@@ -440,7 +448,12 @@ export const winLineTextFor = ({
 	kind: number;
 	amount: number;
 	line?: number;
-}): { amount: string; message: string } => {
+}): {
+	amount: string;
+	message: string;
+	amountValue: number;
+	amountAt: (value: number) => string;
+} => {
 	const winText = bakedWinText();
 	const vars = {
 		count: kind,
@@ -452,6 +465,16 @@ export const winLineTextFor = ({
 	return {
 		amount: formatWinText(winText.amountFormat, vars),
 		message: formatWinText(resolveWinLineMessage(winText, symbol, kind).template, vars),
+		// The count's TARGET (raw book units) and a re-formatter for every tick in between. The stamp
+		// is re-rendered through the SAME authored `amountFormat` + currency formatter as the final
+		// value, so a project's template and currency govern the counting frames too rather than only
+		// the one that lands.
+		amountValue: amount,
+		amountAt: (value: number) =>
+			formatWinText(winText.amountFormat, {
+				...vars,
+				amount: bookEventAmountToCurrencyString(value),
+			}),
 	};
 };
 
@@ -561,6 +584,59 @@ export const showAllWinLines = async (
 
 const winLevelDataOf = (winLevel: number): WinLevelData | undefined => activeWinLevelData(winLevel);
 
+/**
+ * THE BIG WIN'S RUN-UP — the win amount text counting up as the cue that the overlay is coming
+ * (Invisible Symbols State Machine → "Count up to cue the big win").
+ *
+ * The round TOTAL is stamped in the middle of the reels and counted from zero to the SMALLEST
+ * big-win threshold; the round holds for that count, then the stamp is hidden and the big-win
+ * overlay comes up and carries the number the rest of the way to the total. The two halves of one
+ * number, told by two renderers — which is why the cue stops exactly where the overlay starts.
+ *
+ * EVERY gate below is a parity gate: with the switch un-authored (or on a round that never reaches
+ * a big tier, or on a project whose config declares none) this returns before broadcasting
+ * anything, so the round is byte-identical to before. `awaitPresentation` → `broadcastAsync`
+ * resolves on `Promise.all([])` when `WinLine` is not mounted, so an unmounted host degrades to a
+ * no-op rather than hanging the round on a listener that will never answer.
+ *
+ * Shared by the coded `setWin` handler and the v2 `winShow` effect, exactly like `winLineTextFor` —
+ * parity between the two dispatch paths by construction, not by two edits staying in step.
+ */
+export const cueBigWinCountUp = async ({
+	amount,
+	winLevelData,
+}: {
+	amount: number;
+	winLevelData: WinLevelData | undefined;
+}): Promise<void> => {
+	const text = bakedWinLineConfig().text;
+	if (!text.enabled || !text.countUp || !text.cueBigWin) return;
+	if (winLevelData?.type !== 'big') return;
+	// A slam means "show me the result now" — the overlay's own count-up still runs, so nothing is
+	// lost by dropping the cue that introduces it.
+	if (roundSkip.isSkipped()) return;
+	// The SMALLEST big tier: the number at which the round became a big win, which is exactly where
+	// the overlay takes over. A project with no big tiers has no such moment to cue.
+	const threshold = activeBigTierThresholds()[0];
+	if (!threshold) return;
+	// Thresholds are bet-MULTIPLIERS; the book amount is fixed-point. Capped at the round's own
+	// total so the cue can never count past the number it is introducing.
+	const target = Math.min(threshold * BOOK_AMOUNT_MULTIPLIER, amount);
+	if (target <= 0) return;
+	const winText = bakedWinText();
+	await awaitPresentation({
+		type: 'winAmountCue',
+		target,
+		// The SAME authored `amountFormat` the line stamps use, with only `{amount}` bound — a total
+		// has no symbol or line to name. `formatWinText` leaves an unknown token verbatim, which is
+		// its documented behaviour, so a template that names one degrades to showing that token
+		// rather than breaking the stamp.
+		amountAt: (value: number) =>
+			formatWinText(winText.amountFormat, { amount: bookEventAmountToCurrencyString(value) }),
+	});
+	eventEmitter.broadcast({ type: 'winAmountCueHide' });
+};
+
 /** A flow payload field as a real number, or `undefined` so the callee's own default applies. The
  *  payload is `Record<string, unknown>` fed from an authored doc, so a bare `as number` cast is an
  *  assumption, not a check — an unwired pin arrives `undefined` and a bad literal arrives a string. */
@@ -604,7 +680,7 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
 		.filter(({ row }) => row > 0 && row < strip.length - 1);
 
 /**
- * CLEAR the outgoing symbols — they play their authored `tumbleExplosion` state and leave,
+ * CLEAR the outgoing symbols — they play their authored `clearReel` state and leave,
  * instead of simply being replaced (`/config` → Reel behaviour → "Clear the board before the new symbols fall
  * in").
  *
@@ -619,7 +695,7 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
  * THE REMOVAL IS SCOPED TO THE COLUMN, and that is correctness rather than symmetry: a cascade runs
  * its columns concurrently on an absolute stagger, so column `i + 1` can be mid-explosion while
  * column `i` reaches its removal. An unscoped filter takes every symbol currently in the
- * `tumbleExplosion` state — the neighbour's included, mid-animation.
+ * `clearReel` state — the neighbour's included, mid-animation.
  *
  * NO NEW CUES. It is `tumbleBoardInit` (the resting board as the survivor layer, nothing queued
  * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`: precisely the two steps a swap
@@ -639,9 +715,18 @@ const clearOutgoingSymbols = async (reelIndex?: number) => {
 	}
 	// The cascade has already seeded `base` with the whole resting board, so this column needs no
 	// init of its own — only its own cells exploded, and only its own survivors filtered.
+	//
+	// `patternScope: 'board'` because THIS CALL IS ONE COLUMN OF A BOARD-WIDE EVENT. The authored
+	// explosion pattern orders seats by dense-ranking them among themselves, which is right when the
+	// caller hands over the whole exploding set — and wrong here, where it would see one column's
+	// worth of identical column keys, answer "all wave 0", and hand every column the same instant.
+	// With every column also launched together (`columnStaggerMs` defaults to 0 under `emerge`), that
+	// made the whole board pop in one frame no matter which pattern was picked — on the one beat a
+	// swap-in-place player watches on EVERY spin.
 	await eventEmitter.broadcastAsync({
 		type: 'tumbleBoardExplode',
 		explodingPositions: visibleColumnPositions(reelIndex, board[reelIndex] ?? []),
+		patternScope: 'board',
 	});
 	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded', reelIndex });
 };
@@ -1075,7 +1160,15 @@ const effects: Record<string, FlowEffect> = {
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
 				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
-				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
+				// BOUNDED. `explosion` is a ONE-SHOT beat (`symbolStateLoopsByDefault`), so this awaits a
+				// completion the cell gets exactly ONE chance to report — and a cell that cannot report (art
+				// bound to a state that never fires `complete`, a seat out of frame) would hang the morph,
+				// and with it the round, FOREVER: `roundSkip.race` releases only on a slam, which is a
+				// player action, not a guarantee. Capped at the cascade's own `clearReel` beat, which plays
+				// this very art for the same kind of step (`symbolBeat.ts`).
+				await roundSkip.race(
+					awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), TRANSIT_BEAT_CAP_MS),
+				);
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
 				await roundSkip.wait(0.12 * SECOND);
@@ -1182,9 +1275,16 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.freeSpinCounterCurrent = 0;
 	},
 
-	/** Show the win presentation flags (`setWin`). */
-	winShow: (payload) => {
+	/** Show the win presentation flags (`setWin`), after the optional big-win RUN-UP has counted the
+	 *  round total to the tier threshold — the same cue the coded `setWin` handler runs, awaited
+	 *  here BEFORE the flags so the overlay comes up exactly where the count stops. Un-authored ⇒
+	 *  `cueBigWinCountUp` returns immediately and this is the effect it always was. */
+	winShow: async (payload) => {
 		const winLevelData = winLevelDataOf(payload.winLevel as number);
+		// `amount` is what the cue counts, and an authored node need not wire it (the reference
+		// choreography only passes `winLevel` here). Unwired ⇒ 0 ⇒ the cue's own `target <= 0` gate
+		// returns, so the effect stays exactly what it was rather than counting to NaN.
+		await cueBigWinCountUp({ amount: numberOrUndefined(payload.amount) ?? 0, winLevelData });
 		stateUi.winShow = true;
 		stateUi.bigWinShow = winLevelData?.type === 'big';
 	},

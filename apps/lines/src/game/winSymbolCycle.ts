@@ -330,7 +330,13 @@ export const startWinCycle = async (): Promise<void> => {
 					messageKind: 'win',
 				});
 			}
-			await animateSymbols({ positions, color: winLineColorFor(win.meta?.lineIndex) });
+			await animateSymbols({
+				positions,
+				color: winLineColorFor(win.meta?.lineIndex),
+				// Marks the pass as a REPLAY, which is what keeps the end-of-win pop (`winExplode`) on
+				// the round's own presentation instead of firing it on every loop until the next bet.
+				replay: true,
+			});
 			if (token !== generation) return;
 			// Never between passes in all-at-once mode — the whole set stays up until the next spin.
 			if (!allAtOnce) clearCycleLine();

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
@@ -8,9 +9,9 @@
 		boundComponentTileImage,
 		builtinSheetIdForRegion,
 		builtinSheetKey,
-		computeOverlayPlacement,
 		canvasCompositeOp,
 		cssBlendMode,
+		computeOverlayPlacement,
 		coverTransform,
 		hostedComponentSpace,
 		instancePreviewSpineBundle,
@@ -25,8 +26,8 @@
 		anchoredPosition,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
-		type ComponentDef,
 		type BlendMode,
+		type ComponentDef,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -497,9 +498,15 @@
 	 * tiny offset sprite.
 	 */
 	function backgroundTransform(node: LayoutNode, t: ResolvedTransform): ResolvedTransform {
-		const stretch = backgroundCoverStretch(node);
-		const coverScale = backgroundCoverScale(node);
-		const fit = backgroundFit(node);
+		// Every cover input is read for the ACTIVE layoutType (this bucket's override first, then
+		// the base) through the shared readers, so the ratio tabs preview the per-layout fit / zoom
+		// / stretch / alignment the game will run. The node's ANCHOR is the alignment of the fitted
+		// art in the window; the drawn pivot below stays fixed (0.5 for art, 0 for a composed
+		// instance) and the alignment rides in `cover.x`/`cover.y`.
+		const stretch = backgroundCoverStretch(node, layoutType);
+		const coverScale = backgroundCoverScale(node, layoutType);
+		const fit = backgroundFit(node, layoutType);
+		const anchor = backgroundCoverAnchor(node, layoutType);
 		// A background componentInstance covers as ONE composed unit, matching the runtime
 		// (`LayoutNodeView` `bgComponent`). Unlike a sprite (drawn anchored 0.5 at the frame
 		// centre), `drawComponentInstance` expands the def's children from the transform
@@ -523,6 +530,8 @@
 				stretchX: stretch.x,
 				stretchY: stretch.y,
 				fit,
+				anchorX: anchor.x,
+				anchorY: anchor.y,
 			});
 			return {
 				...t,
@@ -545,6 +554,8 @@
 			stretchX: stretch.x,
 			stretchY: stretch.y,
 			fit,
+			anchorX: anchor.x,
+			anchorY: anchor.y,
 		});
 		return {
 			...t,
@@ -665,9 +676,10 @@
 		// so this 2D path stays unified with `backgroundTransform` + the spine layer;
 		// the contain placement (centred overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
-		const fit = isCover ? backgroundFit(node) : 'contain';
-		const coverScale = isCover ? backgroundCoverScale(node) : 1;
-		const stretch = isCover ? backgroundCoverStretch(node) : { x: 1, y: 1 };
+		const fit = isCover ? backgroundFit(node, layoutType) : 'contain';
+		const coverScale = isCover ? backgroundCoverScale(node, layoutType) : 1;
+		const stretch = isCover ? backgroundCoverStretch(node, layoutType) : { x: 1, y: 1 };
+		const anchor = isCover ? backgroundCoverAnchor(node, layoutType) : { x: 0.5, y: 0.5 };
 		const nat = artNaturalSize(node);
 		// `coverTransform` returns per-axis scales for art of natural size; this 2D
 		// path draws via explicit width/height, so multiply the natural dims by them.
@@ -682,16 +694,19 @@
 			stretchX: stretch.x,
 			stretchY: stretch.y,
 			fit,
+			anchorX: anchor.x,
+			anchorY: anchor.y,
 		});
 		const width = artW * cover.scaleX;
 		const height = artH * cover.scaleY;
 		// cover (full-bleed Background) ignores the offset — it stays non-draggable and
-		// pinned to the frame. contain (centred overlays) honours the draggable offset.
+		// pinned to the frame, positioned by the cover's own anchor alignment. contain
+		// (centred overlays) stays frame-centred and honours the draggable offset.
 		const applyOffset = fit === 'contain';
 		return {
 			...t,
-			x: frameWidth / 2 + (applyOffset ? offX : 0),
-			y: frameHeight / 2 + (applyOffset ? offY : 0),
+			x: cover.x + (applyOffset ? offX : 0),
+			y: cover.y + (applyOffset ? offY : 0),
 			anchor: { x: 0.5, y: 0.5 },
 			scale: { x: 1, y: 1 },
 			rotation: 0,
@@ -1027,21 +1042,6 @@
 		spineLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
-		const meta = new Map<string, SpineMeta>();
-		for (const m of spineMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
-		onSpineMeta?.(meta);
-		const keys = new Set<string>();
-		for (const set of spineReadyByScene.values()) for (const k of set) keys.add(k);
-		readySpineKeys = keys;
-		const nat = new Map<string, { w: number; h: number }>();
-		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
-		spineNaturalSizes = nat;
-		const ids = new Set<string>();
-		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
-		readyTextIds = ids;
-		const tMeasured = new Map<string, { w: number; h: number }>();
-		for (const m of textMeasuredByScene.values()) for (const [k, v] of m) tMeasured.set(k, v);
-		textMeasured = tMeasured;
 		blendRunCache.delete(id);
 		blendOverlayCache.delete(id);
 		normalOverlayCache.delete(id);
@@ -1058,6 +1058,21 @@
 		] as Map<string, unknown>[]) {
 			for (const key of [...map.keys()]) if (key.startsWith(blendPrefix)) map.delete(key);
 		}
+		const meta = new Map<string, SpineMeta>();
+		for (const m of spineMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
+		onSpineMeta?.(meta);
+		const keys = new Set<string>();
+		for (const set of spineReadyByScene.values()) for (const k of set) keys.add(k);
+		readySpineKeys = keys;
+		const nat = new Map<string, { w: number; h: number }>();
+		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
+		spineNaturalSizes = nat;
+		const ids = new Set<string>();
+		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
+		readyTextIds = ids;
+		const tMeasured = new Map<string, { w: number; h: number }>();
+		for (const m of textMeasuredByScene.values()) for (const [k, v] of m) tMeasured.set(k, v);
+		textMeasured = tMeasured;
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
@@ -2002,6 +2017,15 @@
 		return ids;
 	}
 
+	/**
+	 * True while the 2D surface being drawn carries its nodes' blend on the ELEMENT (a
+	 * {@link BlendRun} canvas), so `drawNode` must not apply it a second time via
+	 * `globalCompositeOperation`. False for the HUD canvas, which is one shared surface and
+	 * therefore blends inline. NESTED nodes always blend inline — they cannot have an element of
+	 * their own — so this only ever suppresses the top-level application.
+	 */
+	let elementCarriesBlend = false;
+
 	function findNodeById(id: string): LayoutNode | null {
 		for (const n of scene.nodes) if (n.id === id) return n;
 		return null;
@@ -2017,15 +2041,6 @@
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		const dpr = window.devicePixelRatio || 1;
-	/**
-	 * True while the 2D surface being drawn carries its nodes' blend on the ELEMENT (a
-	 * {@link BlendRun} canvas), so `drawNode` must not apply it a second time via
-	 * `globalCompositeOperation`. False for the HUD canvas, which is one shared surface and
-	 * therefore blends inline. NESTED nodes always blend inline — they cannot have an element of
-	 * their own — so this only ever suppresses the top-level application.
-	 */
-	let elementCarriesBlend = false;
-
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2099,6 +2114,10 @@
 	 */
 	function drawSceneCanvases(): void {
 		const dpr = window.devicePixelRatio || 1;
+		// Each run canvas carries its own blend on the element, so the node draws must NOT also
+		// apply it (see `elementCarriesBlend`). Restored before returning so the HUD pass — one
+		// shared surface, which has to blend inline — is unaffected.
+		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
 			for (const run of blendRuns(s)) {
 				const c = sceneCanvases.get(run.key);
@@ -2114,13 +2133,10 @@
 				for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
 			}
 		}
+		elementCarriesBlend = false;
 	}
 
 	/**
-		// Each run canvas carries its own blend on the element, so the node draws must NOT also
-		// apply it (see `elementCarriesBlend`). Restored before returning so the HUD pass — one
-		// shared surface, which has to blend inline — is unaffected.
-		elementCarriesBlend = true;
 	 * Draw the HUD screens on the top-most `hudCanvas` — ABOVE the spine/FX overlay,
 	 * so the HUD renders on top like the real game (the base canvas, which holds the
 	 * game scenes, sits below the spine layer). Also draws the selection overlay here
@@ -2133,7 +2149,6 @@
 		const dpr = window.devicePixelRatio || 1;
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
-		elementCarriesBlend = false;
 		ctx.clearRect(0, 0, hudCanvas.width, hudCanvas.height); // transparent overlay
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.translate(panX, panY);
@@ -2303,6 +2318,13 @@
 		const sy = t.scale?.y ?? 1;
 		if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
 		if (t.alpha !== undefined) ctx.globalAlpha = t.alpha;
+		// Photoshop-style blend. A TOP-LEVEL node on a scene run canvas already has its mode on the
+		// element, so applying it here too would blend twice; every other case (a nested child, the
+		// shared HUD canvas) blends inline against whatever this surface has already drawn.
+		if (nested || !elementCarriesBlend) {
+			const op = canvasCompositeOp(t.blendMode);
+			if (op !== 'source-over') ctx.globalCompositeOperation = op;
+		}
 
 		if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
@@ -2318,13 +2340,6 @@
 			// tile's coded box or the instance's size overrides, so a per-instance background
 			// previews here exactly as the game draws it. Read off `bind.component`, never a
 			// hardcoded component id; no declaration ⇒ every branch below is unchanged (parity).
-		// Photoshop-style blend. A TOP-LEVEL node on a scene run canvas already has its mode on the
-		// element, so applying it here too would blend twice; every other case (a nested child, the
-		// shared HUD canvas) blends inline against whatever this surface has already drawn.
-		if (nested || !elementCarriesBlend) {
-			const op = canvasCompositeOp(t.blendMode);
-			if (op !== 'source-over') ctx.globalCompositeOperation = op;
-		}
 			const tile = boundComponentTileImage(node.bind.component);
 			const tileParams = instanceParams ?? componentParams;
 			const tileNum = (key?: string): number | undefined =>
@@ -2830,9 +2845,24 @@
 			// at the window edge here exactly as it does live.
 			ctx.save();
 			ctx.beginPath();
+			// The window, GROWN by the authored symbol overflow — the same growth the game applies to
+			// its mask once the board settles (`boardOverflow`). Absent ⇒ `0` on both axes ⇒ the two
+			// rects below are the ones that were always drawn.
 			const clip = geo.clip;
-			if (clip) ctx.rect(clip.x, clip.y, clip.w, clip.h);
-			else ctx.rect(left, top, w, h);
+			if (clip)
+				ctx.rect(
+					clip.x - geo.overflowX,
+					clip.y - geo.overflowY,
+					clip.w + geo.overflowX * 2,
+					clip.h + geo.overflowY * 2,
+				);
+			else
+				ctx.rect(
+					left - geo.overflowX,
+					top - geo.overflowY,
+					w + geo.overflowX * 2,
+					h + geo.overflowY * 2,
+				);
 			ctx.clip();
 			ctx.translate(cx, cy);
 			const symTransform: import('engine-layout').ResolvedTransform = {
@@ -2867,6 +2897,23 @@
 			ctx.stroke();
 		} else {
 			ctx.strokeRect(left, top, w, h);
+		}
+
+		// SYMBOL OVERFLOW: the extra room a settled symbol's art may spill into, dashed so it reads as
+		// a clip boundary rather than a second board. Drawn only when authored, so an ordinary board's
+		// preview is untouched — and drawn LAST so it sits over the board outline it grows from.
+		if (geo.overflowX > 0 || geo.overflowY > 0) {
+			const box = geo.clip ?? { x: left, y: top, w, h };
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = 'rgba(93, 176, 255, 0.55)';
+			ctx.setLineDash([6 / zoom, 5 / zoom]);
+			ctx.strokeRect(
+				box.x - geo.overflowX,
+				box.y - geo.overflowY,
+				box.w + geo.overflowX * 2,
+				box.h + geo.overflowY * 2,
+			);
+			ctx.setLineDash([]);
 		}
 	}
 
@@ -4326,6 +4373,7 @@
 					reloadToken={spineReload}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
+					nodeFilter={normalOverlayFilter(s)}
 					activeSceneId={scene.id}
 					playing={playingSpines}
 					{boneRiders}
@@ -4373,7 +4421,6 @@
 					}}
 					onMeasuredChange={(sizes) => {
 						mergeTextMeasured(s.id, sizes);
-					nodeFilter={normalOverlayFilter(s)}
 						schedule();
 					}}
 				/>
@@ -4391,6 +4438,7 @@
 					worldTransformOf={nodeTransform}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
+					nodeFilter={normalOverlayFilter(s)}
 					playing={playingEffects}
 					onReadyKeysChange={(ids) => {
 						mergeEffectReady(s.id, ids);
@@ -4402,54 +4450,6 @@
 					}}
 				/>
 			{/if}
-		</div>
-	{/each}
-
-	<!-- Bone-ridden stand-in symbol overlay (Scene Editor preview): sits ABOVE the scene groups
-	     (their spine layers included) so a reveal's symbol rides ON TOP of its rig, and BELOW the
-	     HUD layers. Driven by `drawRiders`' own rAF reading the shared `boneRiders` map. -->
-	<canvas bind:this={riderCanvas} class="rider-layer"></canvas>
-
-	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
-	<!-- HUD spine overlay: like the HUD text overlay below, the HUD scenes draw on the
-	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
-	     spine nested in a placed HUD component (a spin button's `R_SpinButton`) would only
-	     ever show its 2D placeholder. This live spine layer (filtered to the HUD scenes) sits
-	     just above the HUD's 2D canvas, so the editor reflects the in-game button. -->
-	{#if hudSpineScenes().length > 0}
-		<div class="hud-spine-layer">
-			<EditorSpineLayer
-				{scenes}
-				{mainSizesMap}
-				{layoutType}
-				{frameWidth}
-				{frameHeight}
-				{panX}
-				{panY}
-				{zoom}
-				{assets}
-				{componentMap}
-				{spinePreview}
-				{spinePreviewNodeId}
-				worldTransformOf={nodeTransform}
-				reloadToken={spineReload}
-				{hiddenSceneIds}
-				sceneFilter={hudSpineSceneFilter()}
-				activeSceneId={null}
-				playing={playingSpines}
-				onReadyKeysChange={(keys) => {
-					nodeFilter={normalOverlayFilter(s)}
-					mergeSpineReady(HUD_SPINE_KEY, keys);
-					schedule();
-				}}
-				onNaturalSizesChange={(sizes) => {
-					mergeSpineNatural(HUD_SPINE_KEY, sizes);
-					schedule();
-				}}
-				onSpineMetaChange={(meta) => {
-					mergeSpineMeta(HUD_SPINE_KEY, meta);
-					schedule();
-				}}
 			<!-- BLENDED rigs / effects: one extra overlay per blend mode the scene uses, each
 			     carrying the mode as CSS `mix-blend-mode` on its own element. They render nothing
 			     when the scene blends nothing (`blendOverlayGroups` is empty), so the common scene
@@ -4525,6 +4525,53 @@
 					/>
 				{/if}
 			{/each}
+		</div>
+	{/each}
+
+	<!-- Bone-ridden stand-in symbol overlay (Scene Editor preview): sits ABOVE the scene groups
+	     (their spine layers included) so a reveal's symbol rides ON TOP of its rig, and BELOW the
+	     HUD layers. Driven by `drawRiders`' own rAF reading the shared `boneRiders` map. -->
+	<canvas bind:this={riderCanvas} class="rider-layer"></canvas>
+
+	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
+	<!-- HUD spine overlay: like the HUD text overlay below, the HUD scenes draw on the
+	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
+	     spine nested in a placed HUD component (a spin button's `R_SpinButton`) would only
+	     ever show its 2D placeholder. This live spine layer (filtered to the HUD scenes) sits
+	     just above the HUD's 2D canvas, so the editor reflects the in-game button. -->
+	{#if hudSpineScenes().length > 0}
+		<div class="hud-spine-layer">
+			<EditorSpineLayer
+				{scenes}
+				{mainSizesMap}
+				{layoutType}
+				{frameWidth}
+				{frameHeight}
+				{panX}
+				{panY}
+				{zoom}
+				{assets}
+				{componentMap}
+				{spinePreview}
+				{spinePreviewNodeId}
+				worldTransformOf={nodeTransform}
+				reloadToken={spineReload}
+				{hiddenSceneIds}
+				sceneFilter={hudSpineSceneFilter()}
+				activeSceneId={null}
+				playing={playingSpines}
+				onReadyKeysChange={(keys) => {
+					mergeSpineReady(HUD_SPINE_KEY, keys);
+					schedule();
+				}}
+				onNaturalSizesChange={(sizes) => {
+					mergeSpineNatural(HUD_SPINE_KEY, sizes);
+					schedule();
+				}}
+				onSpineMetaChange={(meta) => {
+					mergeSpineMeta(HUD_SPINE_KEY, meta);
+					schedule();
+				}}
 				onLoadingChange={(c) => {
 					mergeSpineLoading(HUD_SPINE_KEY, c);
 				}}
@@ -4681,6 +4728,12 @@
 		height: 100%;
 		overflow: hidden;
 		background: #0b0b10;
+		/* THE blending boundary. A node's `mix-blend-mode` composites against every layer beneath
+		   it inside this box — the base frame canvas and earlier scene groups included, which is
+		   what makes an additive glow in one screen lift the BACKGROUND screen's art the way the
+		   game does. `isolate` stops it reaching the launcher chrome outside; `overflow:hidden`
+		   already clipped everything here, so nothing that used to escape this box now can't. */
+		isolation: isolate;
 	}
 	.wrap.dragover {
 		outline: 2px dashed #7ee0c0;
@@ -4728,12 +4781,6 @@
 		   draws on top. Sits above every scene group (which use z-index 1..N); the HUD
 		   needs a higher stacking context. Input passes through to the base canvas. */
 		position: absolute;
-		/* THE blending boundary. A node's `mix-blend-mode` composites against every layer beneath
-		   it inside this box — the base frame canvas and earlier scene groups included, which is
-		   what makes an additive glow in one screen lift the BACKGROUND screen's art the way the
-		   game does. `isolate` stops it reaching the launcher chrome outside; `overflow:hidden`
-		   already clipped everything here, so nothing that used to escape this box now can't. */
-		isolation: isolate;
 		inset: 0;
 		z-index: 1000;
 		pointer-events: none;

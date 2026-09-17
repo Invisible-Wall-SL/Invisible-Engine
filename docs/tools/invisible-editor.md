@@ -160,8 +160,8 @@ Open the **Library** tab. It is grouped into:
   On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
   `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
   placed size, exactly like a background image does. It then stops being draggable
-  and resizable: tune it with **cover scale** / **fit** in the Background section and
-  **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **bounds
+  and resizable: tune it with **fit** / **cover scale** / **align x** / **align y** in the
+  Background section and **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **bounds
   box** when it declares one, else from its **first frame**, so frames of different sizes
   don't make the backdrop breathe.
 
@@ -253,8 +253,8 @@ Other editing affordances:
 The right-hand **Properties** panel edits the selected node — its transform
 (`x/y`, anchor, scale, rotation, alpha, zIndex, tint, blend), text content/style for
 text nodes, spine animation/skin for spine nodes (driven by dropdowns when the
-canvas can read the bundle's animations), background cover/fit for cover
-sprites, and the slot the node fills (when a template is loaded). It also offers
+canvas can read the bundle's animations), background cover (fit / zoom /
+alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
 
@@ -286,6 +286,45 @@ the override and clears it). Useful, because an additive glow tuned over a wide 
 backdrop often has to fall back to Normal over a portrait crop.
 
 > Text, rects and containers deliberately have no blend control.
+
+#### Background — how a full-bleed cover is fitted, zoomed and aligned
+
+Select a node that covers the window — anything on a `background` screen, or a
+sprite / spine / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
+screen — and the Properties panel shows a **Background** section. The node stops being
+draggable (its transform is computed, not authored); these controls are how you shape it:
+
+- **fit** — how the art is matched to the window:
+
+  - **cover (fill, may crop)** — the default: fill both axes, cropping the overflow.
+  - **contain (fit inside)** — fit fully inside, letterboxing the short axis.
+  - **fit width — X** — the art is exactly as wide as the window, whatever that does
+    vertically (crop or gap).
+  - **fit height — Y** — the art is exactly as tall as the window.
+
+  `cover` / `contain` _choose_ the axis from the aspect ratio, so which axis they pin
+  flips as the window ratio crosses the art's. The two per-axis fits **pin** it, which is
+  what you want when a backdrop must always span the window horizontally (say) and you
+  have decided what happens on the other axis.
+
+- **cover scale** — a uniform zoom on the fit. `1` = exactly the fit; `1.1` over-covers
+  by 10%.
+
+- **align x / align y** — where the fitted art sits in the window: `0.5` (default) is
+  centred, `0` hugs the left / top edge, `1` the right / bottom. On a cropping cover this
+  chooses **which part of the image you keep**; on a `contain` fit (or an under-zoomed
+  cover) it chooses which edge the art hugs. This is the same field as the Transform
+  **anchor** — a cover is always drawn from its own centre, so its anchor aligns instead
+  of pivoting.
+
+- **scale.x / scale.y** (in Transform) — free non-uniform stretch on top of the fit
+  (e.g. `1.0 × 1.2` = 20% taller). Independent of cover scale, which stays uniform.
+
+All four — fit, cover scale, alignment and stretch — are **per device layout**: switch
+the layoutType pill to `portrait` (or any non-base bucket) and set them there to override
+just that ratio, leaving desktop alone. A dot + × next to the control marks an override
+and clears it. That is the usual reason to reach for the per-axis fits: a backdrop that
+should span the WIDTH on desktop often has to span the HEIGHT in portrait.
 
 #### Art bounds — the box a sprite is sized by
 
@@ -324,6 +363,33 @@ It is stored as `reelGrid.symbolSizeRatios` on the layout doc and travels to the
 game on the normal scene bake — no separate asset step. Resizing the reel cell
 itself (`cellSize`) scales the grid _and_ the symbols together; this control
 changes only the symbol's size _within_ its cell.
+
+#### Symbol overflow — room for art that spills past the reel
+
+The board is **clipped to its reel window**, which is what stops a spinning strip from
+being seen above and below the reels. The cost is that a symbol drawn bigger than its
+cell — a creature with tentacles, a character standing on a rock — gets **cut off at the
+board edge**. With the **reel grid** node selected, **overflow X** and **overflow Y**
+(px, blank = 0) buy that art extra room outside the window.
+
+- It grows the **clip only**. No cell moves, no symbol moves, the board keeps its size —
+  the window it is drawn through just reaches further out.
+- **In game it applies only once every reel has stopped.** A rolling strip still ends at
+  the board edge, so you never see the reel continue into the padding; the extra room
+  appears the moment the last reel lands and is gone again on the next spin. That is why
+  the reels stagger-stop first and the art "opens up" at the settle rather than per reel.
+- On the canvas the extra room is drawn as a **dashed outline** outside the board box,
+  and symbol art is previewed clipped to it — the preview is the settled board, which is
+  the generous moment, so check a spin in the live game if you dial a large value.
+- **X is the smaller knob.** The board already tolerates about a full cell of horizontal
+  spill on each side, so side art usually has room without it; the cut people actually
+  hit is top and bottom, which is **overflow Y**.
+- Blank / `0` is the old behaviour exactly, and a negative is ignored (it would shrink
+  the window rather than grow it). Resizing the board scales the overflow with it.
+
+> Reach for **Art bounds** first when a symbol looks wrong _inside_ its cell — that
+> declares the box the art is sized by. Overflow is for art that is sized right and is
+> _meant_ to hang outside the reel.
 
 #### Perspective (advanced)
 

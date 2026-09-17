@@ -128,6 +128,26 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'WinLine',
 		},
 		{
+			type: 'winAmountCue',
+			group: 'WinLine',
+			fields: [
+				{
+					key: 'target',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'amountAt',
+					kind: 'object',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'winAmountCueHide',
+			group: 'WinLine',
+		},
+		{
 			type: 'freeSpinIntroShow',
 			group: 'Free spins',
 		},

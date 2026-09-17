@@ -338,12 +338,15 @@ async function main() {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
 		names: undefined,
+		symbolSounds: undefined,
 		highlight: undefined,
 		boardGlow: undefined,
 		winLine: undefined,
 		winCycle: undefined,
+		winExplode: undefined,
 		bookVfx: undefined,
 		transition: undefined,
+		tumblePattern: undefined,
 		anticipation: undefined,
 		stacked: undefined,
 	};
@@ -444,6 +447,10 @@ async function main() {
 				if (c.holdAfterBigWin === true) out.holdAfterBigWin = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
+			// The end-of-win pop — one switch that defaults OFF, so ONLY the ON state persists. Must
+			// reach BOTH bundle paths (this + the runtime `SymbolExportResult`): omit it here and a
+			// project that turned the pop on would ship without it through the bake path.
+			const winExplode = s?.winExplode?.enabled === true ? { enabled: true } : undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -462,9 +469,43 @@ async function main() {
 				s?.transition && typeof s.transition === 'object' && typeof s.transition.kind === 'string'
 					? s.transition
 					: undefined;
+			// The cascade EXPLOSION PATTERN — a pattern name + a millisecond gap, assetless. MUST reach
+			// BOTH bundle paths for the same reason the transition above must: omit it here and a
+			// project would explode in waves on the live runtime bundle and in one frame on the baked
+			// one. Rebuilt field-by-field rather than forwarded whole so a hand-edited doc cannot
+			// smuggle a non-numeric step into a `setTimeout`; the server already pruned the defaults, so
+			// a project on "all at once" arrives here as `undefined` and bakes no field at all.
+			//
+			// The NAME is checked for shape, not membership, and deliberately: this script imports
+			// nothing from the workspace (it runs standalone inside a game build), so an allowlist here
+			// would be a hand-copied `TUMBLE_PATTERNS` — the drift trap the rest of this feature avoids
+			// by having exactly one list. Membership is enforced where that list lives: Zod on save,
+			// and `tumbleExplosionDelays`, which answers "one frame" for a name it does not know rather
+			// than throwing inside the explode step.
+			const tumblePattern = (() => {
+				const t = s?.tumblePattern;
+				if (!t || typeof t !== 'object') return undefined;
+				if (typeof t.pattern !== 'string' || t.pattern === 'all') return undefined;
+				const out = { pattern: t.pattern };
+				if (Number.isFinite(t.stepMs)) out.stepMs = t.stepMs;
+				return out;
+			})();
 			const names =
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
+					: undefined;
+			/**
+			 * The per-symbol sound cues (`symbolSounds[name][state]`). Carried for the SAME
+			 * "must reach both bundle paths" reason as the fields above, but it is a FALLBACK here,
+			 * not the primary carrier: the sound export folds these into `catalog.bindings.symbols`,
+			 * which `bakedSymbolSounds` consults first. That fold is what the runtime path already
+			 * had underneath it (`SymbolExportResult` passes `symbolSounds` verbatim) and the bake
+			 * path did not — so a bundle built by each route answered differently the moment the
+			 * bindings block was absent.
+			 */
+			const symbolSounds =
+				s?.symbolSounds && typeof s.symbolSounds === 'object' && Object.keys(s.symbolSounds).length
+					? s.symbolSounds
 					: undefined;
 			// The reel-anticipation presentation FX (per-tier escalation + optional overlay `spineKey`).
 			// Pure config apart from the spine (already in `index.spines` if swapped). Rebuilt sparse so an
@@ -554,12 +595,15 @@ async function main() {
 					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
 				},
 				names,
+				symbolSounds,
 				highlight,
 				boardGlow,
 				winLine,
 				winCycle,
+				winExplode,
 				bookVfx,
 				transition,
+				tumblePattern,
 				anticipation,
 				stacked,
 			};

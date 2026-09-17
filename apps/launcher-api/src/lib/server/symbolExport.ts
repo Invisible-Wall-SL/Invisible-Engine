@@ -175,6 +175,10 @@ export interface SymbolExportResult {
 	/** The resting-board win-SYMBOL replay config, passed through VERBATIM (no asset work).
 	 *  Absent → the game keeps its coded defaults (replay on, 0.4s between passes). */
 	winCycle?: SymbolsDoc['winCycle'];
+	/** "A winning symbol POPS at the end of its win" — assetless config, so a verbatim pass-through
+	 *  like `winCycle`. `normalizeSymbolsDoc` drops it entirely when OFF, which is what keeps an
+	 *  untouched project's bundle byte-identical. */
+	winExplode?: SymbolsDoc['winExplode'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -187,6 +191,11 @@ export interface SymbolExportResult {
 	 *  fx's effect via the effects export (kept reachable at bake). Absent → the intro cuts in the
 	 *  moment the explosion ends, exactly as before the field existed. */
 	transition?: SymbolsDoc['transition'];
+	/** The cascade EXPLOSION PATTERN — the order the winning seats pop in and the gap between two
+	 *  waves of them. Pure config, no asset of any kind, so it is a verbatim pass-through like
+	 *  `winCycle`. Absent → the whole board explodes in one frame, exactly as before the field
+	 *  existed. */
+	tumblePattern?: SymbolsDoc['tumblePattern'];
 	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
 	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
@@ -602,6 +611,11 @@ export async function exportEditorSymbols(
 	// `winLine` on purpose: the replay never draws the line, so the two are independent switches.
 	const winCycle = doc.winCycle;
 
+	// The end-of-win pop. Assetless (a single switch — the art it plays is the symbol's existing
+	// Explosion cell, which already ships through the map), so a verbatim pass-through of the
+	// already-pruned field: absent for every project that left the switch off.
+	const winExplode = doc.winExplode;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -617,6 +631,11 @@ export async function exportEditorSymbols(
 	// export), so this is a verbatim pass-through of the sparse authored binding + delay, exactly like
 	// `bookVfx`. Absent → the seam stays a hard cut.
 	const transition = doc.transition;
+
+	// The cascade explosion pattern. Assetless (a pattern name + a millisecond gap), so a verbatim
+	// pass-through of the already-pruned doc field — `normalizeSymbolsDoc` has dropped it entirely
+	// for a project left on "all at once", which is what keeps that project's bundle byte-identical.
+	const tumblePattern = doc.tumblePattern;
 
 	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
@@ -666,8 +685,10 @@ export async function exportEditorSymbols(
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
+		...(winExplode ? { winExplode } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
+		...(tumblePattern ? { tumblePattern } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
 	};

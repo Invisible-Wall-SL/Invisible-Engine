@@ -14,7 +14,7 @@
  * here, then hand the resolved manifest key back to the client as `assetKey`.
  */
 import { pickManifestKey } from '../pickSheets';
-import { pickDeployedPage } from './deployedPage';
+import { isDeployedPageStale, pickDeployedPage } from './deployedPage';
 import { SUB } from './projectPaths';
 import {
 	getObjectText,
@@ -170,11 +170,11 @@ export async function resolveManifestKey(sheet: string): Promise<string | null> 
  * or re-pack a region), while `deploy/` only updates on an explicit deploy — so a
  * re-pack without a re-deploy leaves the deployed page a packing behind. Pairing
  * fresh rects with that stale page crops empty/wrong pixels (the "new region shows
- * up but the image is blank" bug). Guard against it: if the manifest was written
- * AFTER the newest matching deployed page, treat the deploy as stale and return
- * null so the caller falls back to the manifest's own source page (which IS in the
- * manifest's current coordinate space). `manifestModified` is the manifest object's
- * mtime (epoch ms; 0 = unknown → no guard, legacy behaviour).
+ * up but the image is blank" bug). `isDeployedPageStale` decides that — and it needs
+ * the SOURCE page's mtime, not just the manifest's, because a manifest re-save is not
+ * evidence that any rect moved (read its comment before touching this; the mtime-only
+ * version served an older page of a DIFFERENT SIZE and no reload could fix it).
+ * `manifestModified` is the manifest object's mtime (epoch ms; 0 = unknown → no guard).
  */
 async function findDeployedPage(
 	man: RawManifest,
@@ -206,16 +206,24 @@ async function findDeployedPage(
 	const picked = pickDeployedPage(objs, stems, deployPrefix);
 	if (!picked) return null;
 
-	// Stale-deploy guard: if the manifest (source of the region rects) is newer than
-	// the deployed page, the page predates the current packing — fall back to the
-	// source page so rects + pixels stay in the same coordinate space.
-	if (manifestModified > 0) {
-		const pickedObj = objs.find((o) => o.key === picked);
-		if (pickedObj && pickedObj.lastModified > 0 && pickedObj.lastModified < manifestModified) {
-			return null;
+	// Stale-deploy guard — fall back to the source page only when it is the BETTER page
+	// (see `isDeployedPageStale`). The manifest-newer-than-deploy test below is just the
+	// cheap half of that rule, used to decide whether the extra HEAD is worth paying for
+	// on this hot path; the predicate re-tests it and stays the single source of truth.
+	const deployedModified = objs.find((o) => o.key === picked)?.lastModified ?? 0;
+	if (manifestModified <= 0 || deployedModified <= 0 || deployedModified >= manifestModified) {
+		return picked;
+	}
+	const sourceKey = str(man.atlas?.source_image_path);
+	let sourceModified = 0;
+	if (sourceKey) {
+		try {
+			sourceModified = (await headObject(sourceKey))?.lastModified ?? 0;
+		} catch {
+			sourceModified = 0;
 		}
 	}
-	return picked;
+	return isDeployedPageStale(deployedModified, sourceModified, manifestModified) ? null : picked;
 }
 
 async function resolvePageKey(
@@ -225,9 +233,9 @@ async function resolvePageKey(
 	project: string,
 	manifestModified: number,
 ): Promise<string | null> {
-	// Prefer the deployed page so the editor reflects the latest deploy — unless the
-	// deploy is older than the manifest (a re-pack that hasn't shipped yet), in which
-	// case `findDeployedPage` returns null and we fall through to the source page.
+	// Prefer the deployed page so the editor reflects the latest deploy — unless a NEWER
+	// source page proves a re-pack hasn't shipped yet, in which case `findDeployedPage`
+	// returns null and we fall through to that source page.
 	const deployed = await findDeployedPage(man, manifestKey, client, project, manifestModified);
 	if (deployed) return deployed;
 

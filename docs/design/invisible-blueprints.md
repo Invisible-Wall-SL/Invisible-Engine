@@ -159,6 +159,68 @@ that aren't catalogued still need a manual drop (see §9 download-auth).
 Both `install_model` and `reboot` require Manager's security level to be **"middle" or
 below** (else 403 / refused). That's a documented prerequisite for auto-install to work.
 
+> **Spike, 2026-09-09 — settled, do not re-run.** Against the installed source
+> (`ComfyUI-Manager 3.39.3-178-g4f7f26da`). The question was whether a LOWER security level
+> lets `install_model` accept an arbitrary URL, which would let us hand Manager a presigned
+> R2 URL over the existing tunnel and retire the companion agent below.
+>
+> **It does not, and no level does.** `install_model` (`:1589`) runs the security gate and
+> the whitelist as two independent checks, and `check_whitelist_for_model` contains no
+> security-level branch at all — dropping to `weak` only clears the 403 at `:1592`; the 400
+> at `:1597` still stands. **Security level is not a way past the catalog.**
+>
+> **What the spike DID find — the whitelist is a permission check, not the download source.**
+> It matches on *(`save_path`, `base`, `filename`)* and never looks at the URL, and
+> `do_install_model` then downloads `model_url = json_data['url']` **from the request body**
+> (`:639`). So a catalog row grants permission for a *name*, and we choose the bytes. A row
+> in the catalog Manager reads — either the remote channel or the on-disk
+> `ComfyUI-Manager/model-list.json`, `check_whitelist_for_model` accepts either — is
+> therefore enough to make Manager fetch a URL of ours.
+>
+> **And it still doesn't get us a companion-free mirror pull, for a second reason.**
+> `download_url_with_agent` (`manager_downloader.py:116`) does `data = response.read()` —
+> the whole file into memory. Manager only *streams* (torchvision / aria2) when the URL
+> starts with `github.com`, `huggingface.co` or `heibox.uni-heidelberg.de`; an R2 presigned
+> URL never matches, so a 1.6 GB checkpoint is a 1.6 GB RAM spike and a 12 GB one is an OOM
+> on the artist's desktop. **Manager can be told to accept our URL but cannot carry the file
+> at these sizes**, so §10's mirror→desktop arc still needs the launcher's own resumable
+> downloader (or the companion), not this route.
+>
+> The one thing this DOES unlock is enrichment: see "Catalog enrichment" below.
+
+### Catalog enrichment — making auto-install reachable at all
+
+Auto-install had **never fired for an uploaded blueprint**, and could not have.
+`derive_models_from_graph` returns `{field, filename, save_path}` — the graph knows nothing
+about a download URL or a catalog `base` — so `_is_installable` was false at the first gate
+for every derived model and Manager was never contacted. The feature was live code on a
+list that structurally could not satisfy it.
+
+`blueprint_models.enrich_from_catalog` closes that: at prepare time (never at import — the
+catalog belongs to the TARGET, not to a blueprint shared across targets) it reads the
+target's own catalog via `GET /externalmodel/getlist?mode=cache` and fills in `url` /
+`base` for a derived model whose filename it can match unambiguously. Three rules keep it
+from doing harm, all of them about the folder the bytes land in:
+
+- **A match must be folder-compatible.** ComfyUI scans several physical dirs under one
+  loader key (`diffusion_models` → `models/unet` *and* `models/diffusion_models`;
+  `text_encoders` → `text_encoders` + `clip`; `controlnet` → `controlnet` + `t2i_adapter`),
+  so `unet` ≡ `diffusion_models` is a real equivalence and is honoured. Anything else is not.
+- **A catalog row whose install dir carries a SUBFOLDER is rejected**, even on the right
+  branch. `controlnet/SDXL` installs to `models/controlnet/SDXL/x.safetensors`, which
+  ComfyUI enumerates as `SDXL/x.safetensors` — so the graph's bare `x.safetensors` still
+  would not resolve, and we would have spent the download to move the failure later. This is
+  most of the catalog (376 of 527 rows) and excluding it is the point, not a limitation.
+- **An ambiguous filename adopts nothing.** 20 rows share `diffusion_pytorch_model.safetensors`.
+  Where the surviving rows disagree on `(save_path, base, url)`, the model stays on the
+  manual checklist — the same coin-flip rule `model_mirror.resolve` already applies.
+
+The adopted row's `save_path` is written to a SEPARATE `catalog_save_path`, never over the
+derived one: the whitelist compares Manager's spelling (`default`, or a `type`-resolved
+dir) while `model_mirror.resolve` builds `comfyui-models/<save_path>/<filename>` from ours
+and documents that it "deliberately carries the legacy `unet`/`clip` aliases". Collapsing
+the two would break the mirror lookup for exactly the models enrichment just fixed.
+
 ### "Prepare blueprint" step (runs before generate time)
 
 Implemented in `services/atlas-tool/blueprint_models.py`

@@ -49,7 +49,7 @@ export const awaitSymbolBeat = (arm: (resolve: () => void) => void, capMs: numbe
 	Promise.race([waitForResolve(arm), waitForTimeout(capMs)]);
 
 /**
- * A beat that is a STEP ON THE WAY somewhere: the cascade's `tumbleExplosion` and `land`
+ * A beat that is a STEP ON THE WAY somewhere: the cascade's `clearReel` and `land`
  * (`TumbleBoard`) and the multiplier collect's `win` (`MultiplierBoard`).
  *
  * Short, because the sequence has somewhere to be and the guard doubles as the pace a project that

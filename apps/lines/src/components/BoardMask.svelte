@@ -1,3 +1,8 @@
+<script lang="ts" module>
+	/** The "no spill" pair, shared so a mask that never asks for one allocates nothing per render. */
+	const NO_OVERFLOW = Object.freeze({ x: 0, y: 0 });
+</script>
+
 <script lang="ts">
 	import { Graphics, Rectangle } from 'pixi-svelte';
 
@@ -5,10 +10,27 @@
 	import { SYMBOL_SIZE } from 'engine-game';
 	import { boardDimensions } from '../game/gameConfig';
 
-	type Props = { debug?: boolean };
+	type Props = {
+		debug?: boolean;
+		/**
+		 * Let a `reelGrid` node's authored SYMBOL OVERFLOW grow this mask once the board settles, so
+		 * art drawn bigger than its cell is not cut off at the window edge (`boardOverflow`).
+		 *
+		 * Opt-in per mount, because only the resting reel board can afford it. The cascade overlay
+		 * mounts this component too, and its symbols fall THROUGH the window edge — the same boundary
+		 * a rolling strip crosses — so it keeps the tight window and passes nothing.
+		 */
+		allowOverflow?: boolean;
+	};
 
 	const props: Props = $props();
 	const context = getContext();
+
+	/** `{ x: 0, y: 0 }` for every board that authored no overflow, that is mid-spin, or that did not
+	 *  ask for it — and that zero is what keeps every existing board's mask byte-identical. */
+	const overflow = $derived(
+		props.allowOverflow ? context.stateGameDerived.boardOverflow() : NO_OVERFLOW,
+	);
 
 	// Visible window height comes from the engine's ONE definition of it — `boardWindowHeight()`,
 	// which `SymbolWrap`'s in-frame cull reads too. The two used to compute the same expression
@@ -43,7 +65,7 @@
 	 * the two modes stop being mutually exclusive and the child list stays exactly as flat as it is
 	 * today.
 	 */
-	const maskColumns = $derived(context.stateGameDerived.boardMaskColumns());
+	const maskColumns = $derived(context.stateGameDerived.boardMaskColumns(overflow.x, overflow.y));
 </script>
 
 {#if props.debug}
@@ -64,5 +86,14 @@
 		}}
 	/>
 {:else}
-	<Rectangle isMask x={-SYMBOL_SIZE} width={windowWidth + SYMBOL_SIZE * 2} height={windowHeight} />
+	<!-- The window, grown by the settled board's symbol overflow — `0` on both axes for every board
+	     that authored none and for every frame a reel is still moving, which is what keeps this the
+	     same rectangle it has always been. -->
+	<Rectangle
+		isMask
+		x={-SYMBOL_SIZE - overflow.x}
+		y={overflow.y === 0 ? undefined : -overflow.y}
+		width={windowWidth + SYMBOL_SIZE * 2 + overflow.x * 2}
+		height={windowHeight + overflow.y * 2}
+	/>
 {/if}
