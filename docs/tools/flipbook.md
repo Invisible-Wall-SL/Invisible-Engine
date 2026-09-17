@@ -577,6 +577,12 @@ so if your atlas size and cell size don't leave room for every frame, Create Atl
 nothing and tells you the capacity and the count. Raise the atlas size, lower the cell size,
 or re-export with a bigger **Every**.
 
+**The export itself never refuses over page size — only Create Atlas does.** This step writes
+loose reference images and builds no page, so a seed that is too small is something to fix
+later, not a reason to withhold your images. When the frames can't all fit under a 4096px side,
+you still get every one of them; the receipt carries an amber note saying how many the seeded
+page holds and which two fields to change before you press Create Atlas.
+
 Two more things to expect:
 
 - **It does not select the atlas for you.** Which atlas the Atlas Maker has open is shared by

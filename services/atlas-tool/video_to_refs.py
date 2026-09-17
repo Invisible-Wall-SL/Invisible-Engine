@@ -20,8 +20,11 @@ Four rules hold this path together; each is a decision, not a default:
    What this DOES write is the four geometry fields that layout reads —
    `atlas.width`, `atlas.height`, `atlas.cell_width`, `atlas.cell_height` — plus
    `layout: "grid"`. They are a STARTING POINT, sized to hold the frames at
-   their native size, and they are meant to be retyped: the author opens
-   ⚙ Settings, changes the cell, presses Create Atlas, and the grid re-flows.
+   their native size where a loadable page can, and they are meant to be
+   retyped: the author opens ⚙ Settings, changes the cell, presses Create Atlas,
+   and the grid re-flows. Because the seed has no lasting authority, it is never
+   a reason to refuse an export: frames that need more than MAX_PAGE_SIDE get
+   the largest usable page and a `note` naming the shortfall.
 
    `layout: "grid"` and not `"pack"`, and that is the whole point of this shape.
    `auto_pack_layout` packs at a hardcoded 2048 page width and then OVERWRITES
@@ -95,11 +98,14 @@ REF_SUBDIR = "refs/video"
 FIT_MODES = ("contain", "cover", "fill")
 DEFAULT_FIT = "contain"
 
-# Ceiling on a seeded page's side. Not a GPU or R2 limit — a texture one: 4096
-# is the side every target this art ships to can sample, and a page past it
-# silently fails to upload on the weakest of them. The seed refuses rather than
-# exceeding it, because a page nobody can load is worse than an export that
-# tells you to raise the stride.
+# A SEED CEILING, NOT A GATE. 4096 is the side every target this art ships to
+# can sample, so it is the largest page worth GUESSING at — but this export
+# composes no page (rule 1): it writes loose full-resolution refs, and the four
+# geometry fields are a starting point the author retypes. Nothing here is too
+# big for anything yet, so frames that need more than this are seeded at the
+# largest usable page (or, for a single cell past the ceiling, at that one cell)
+# and SAID OUT LOUD in the response `note` — never refused. The texture limit is
+# real, but it binds at Create Atlas, on the page the author ends up with.
 MAX_PAGE_SIDE = 4096
 
 
@@ -170,24 +176,27 @@ def _normalize_fit(fit: str) -> str:
 
 
 def _grid_page(count: int, cell_w: int, cell_h: int) -> tuple[int, int]:
-    """The smallest page that holds `count` cells of `cell_w` x `cell_h`.
+    """A page to SEED `atlas.width/height` with, for `count` cells of
+    `cell_w` x `cell_h`. NEVER RAISES — it always returns a seed.
 
-    Smallest by AREA, tie-broken on the shorter long side then the fewer
-    columns, so the seed is a compact near-square rather than one long strip —
-    an 8-frame export becomes 4x2, not 8x1. Exact multiples of the cell (no
-    power-of-two rounding): `grid_layout` divides the page by the cell, so any
-    slack is page area that can never hold a whole cell.
+    When they all fit: the smallest page by AREA, tie-broken on the shorter long
+    side then the fewer columns, so the seed is a compact near-square rather than
+    one long strip — an 8-frame export becomes 4x2, not 8x1. Exact multiples of
+    the cell (no power-of-two rounding): `grid_layout` divides the page by the
+    cell, so any slack is page area that can never hold a whole cell.
 
-    Raises when nothing fits under MAX_PAGE_SIDE. The caller's fix is upstream
-    of this function (fewer or smaller frames), so the message names both the
-    arithmetic and the knob."""
+    When they do NOT all fit under MAX_PAGE_SIDE: the LARGEST USABLE page, i.e.
+    the most whole cells the ceiling allows. And when a single cell is already
+    past the ceiling: that one cell, ceiling or not. Both are guesses nobody
+    keeps — the author retypes all four fields before Create Atlas — and this
+    used to refuse on them, which withheld the full-resolution reference images
+    the whole export exists to deliver over a number that has not been read yet.
+    The caller states the shortfall in `note` instead."""
+    cell_w, cell_h = max(1, int(cell_w)), max(1, int(cell_h))
     max_cols = MAX_PAGE_SIDE // cell_w
     max_rows = MAX_PAGE_SIDE // cell_h
     if max_cols < 1 or max_rows < 1:
-        raise ValueError(
-            f"Each frame is {cell_w}x{cell_h}, which is larger than the "
-            f"{MAX_PAGE_SIDE}px atlas page this can seed — not even one frame "
-            f"fits. Render the variation at a smaller size, then export again.")
+        return cell_w, cell_h
     best: tuple[tuple[int, int, int], tuple[int, int]] | None = None
     # More columns than frames can only ever waste area (rows is already 1), so
     # the search stops there.
@@ -200,13 +209,40 @@ def _grid_page(count: int, cell_w: int, cell_h: int) -> tuple[int, int]:
         if best is None or key < best[0]:
             best = (key, (w, h))
     if best is None:
-        raise ValueError(
-            f"{count} frames of {cell_w}x{cell_h} need more than a "
-            f"{MAX_PAGE_SIDE}x{MAX_PAGE_SIDE} atlas page "
-            f"(at most {max_cols * max_rows} of them fit). Raise the stride or "
-            f"narrow the range, then export again — or export fewer frames and "
-            f"lower the cell size in the Atlas Maker's ⚙ Settings afterwards.")
+        return max_cols * cell_w, max_rows * cell_h
     return best[1]
+
+
+def _seed_note(count: int, cell: tuple[int, int],
+               page: tuple[int, int]) -> str:
+    """What the seeded page CANNOT do — or "" when it can do everything.
+
+    Set when the seed does not hold every exported frame, or when it is past
+    MAX_PAGE_SIDE (a cell bigger than the ceiling). The export succeeds either
+    way and every frame is written, so this string is the only warning the
+    author gets before `grid_layout` refuses to lay the atlas out — which makes
+    naming the arithmetic AND the two fields that fix it the whole job."""
+    # Clamped exactly as `_grid_page` clamps, so the arithmetic quoted here is
+    # the arithmetic that produced the page — and so neither can divide by zero.
+    cell_w, cell_h = max(1, int(cell[0])), max(1, int(cell[1]))
+    page_w, page_h = page
+    cols, rows = max(1, page_w // cell_w), max(1, page_h // cell_h)
+    capacity = cols * rows
+    bits: list[str] = []
+    if capacity < count:
+        bits.append(f"{count - capacity} of them would not fit")
+    if max(page_w, page_h) > MAX_PAGE_SIDE:
+        bits.append(f"a single cell is already past the {MAX_PAGE_SIDE}px side "
+                    f"most targets can load")
+    if not bits:
+        return ""
+    return (f"⚠ Every frame was exported ({count} of them), but the "
+            f"{page_w}×{page_h} page seeded here holds {cols}×{rows} = "
+            f"{capacity} cell(s) of {cell_w}×{cell_h} — "
+            f"{' and '.join(bits)}. Raise Atlas width/height or lower Default "
+            f"cell width/height in 🧩 Atlas settings before you press Create "
+            f"Atlas; nothing is packed yet, so every reference image is already "
+            f"in the Atlas Maker either way.")
 
 
 def _gen_settings() -> dict:
@@ -288,6 +324,10 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     and `<r2>/manifests/`. Raises `ValueError` with a user-readable message on
     anything the caller can fix; the route renders it verbatim.
 
+    On success: `{atlas_name, manifest, regions, frames, width, height}`, plus a
+    `note` ONLY when the seeded page cannot hold every frame — a caveat, not a
+    failure. Every frame is exported in that case too.
+
     `fit` is how each REGENERATED frame will sit in its grid cell — see
     FIT_MODES. It is stamped on every region and is editable afterwards."""
     fname_src = video_to_clip._variation_file(session_id, variation)
@@ -314,10 +354,13 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     im = video_to_clip._open_variation(session_id, fname_src)
     picked = _pick_frames(im, start, end, stride)
     width, height = im.width, im.height
-    # Sized BEFORE a single byte is written, like every other refusal here: a
-    # page that cannot be seeded is the caller's to fix upstream (stride/range),
-    # and half an export on disk is the state this whole module avoids.
+    # A SEED, never a verdict. The refusals above are about data loss — an atlas
+    # overwritten, a manifest short of frames. This is not one of them: no page
+    # is packed or composed here, so a seed that cannot hold every frame costs
+    # the author one edit in 🧩 Atlas settings, and refusing on it would withhold
+    # the images that are the entire point of the export. `note` says so.
     page = _grid_page(len(picked), width, height)
+    note = _seed_note(len(picked), (width, height), page)
 
     # Pillow fills a WEBP frame's `info["duration"]` only after an explicit
     # seek()+load(); reading it off `ImageSequence.Iterator` yields None and the
@@ -368,7 +411,7 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     # `regions` and `frames` are the same number by construction — one region per
     # exported frame — and are both reported because the caller describes two
     # things with them: what the manifest holds and what was extracted.
-    return {
+    out = {
         "atlas_name": slug,
         "manifest": man_name,
         "regions": len(regions),
@@ -376,3 +419,8 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
         "width": int(width),
         "height": int(height),
     }
+    # ABSENT when everything fits, rather than an empty string: the caller
+    # renders whatever `note` it is given, and "" is a caveat-shaped nothing.
+    if note:
+        out["note"] = note
+    return out
