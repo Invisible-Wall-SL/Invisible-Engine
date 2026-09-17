@@ -34,6 +34,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_DELIVERY_PROFILE } from './src/types.ts';
+// Imported straight from the build validator's own leaf module, so the two field lists are
+// compared for real rather than scraped out of a vite config we cannot load here.
+import { KNOWN_PROFILE_FIELDS, deliveryProfileProblems } from '../config-vite/deliveryProfile.js';
 import {
 	DELIVERY_PROFILE_FIELDS,
 	mergeDeliveryProfile,
@@ -150,27 +153,95 @@ check('anything else is refused', merge({ session: { source: 'postMessage' } }, 
 check('...and named', merge({ session: { source: 'postMessage' } }, DELIVERY).warnings, ['session.source must be "param" or "host" — ignored']); // prettier-ignore
 check('omitting it keeps what the build was cut with', merge({ session: {} }, DELIVERY).profile.session.source, DELIVERY.session.source); // prettier-ignore
 
+console.log('\n7d. rgs.source is bake-only, and only two values mean anything');
+{
+	const base = DEFAULT_DELIVERY_PROFILE;
+	check(
+		'a baked profile may declare the operator page as the RGS origin',
+		mergeDeliveryProfile(base, { rgs: { source: 'host' } }, 'baked').profile.rgs.source,
+		'host',
+	);
+	// The reason it is bake-only: `config.json` lives on the operator's own server and may repoint a
+	// build between THEIR hosts. Letting it switch the build to "whatever your page says" is a
+	// different power, and it is the same one `allowUrlOverride: false` was added to deny.
+	const overridden = mergeDeliveryProfile(base, { rgs: { source: 'host' } }, 'override');
+	check('an operator config.json may not', overridden.profile.rgs.source, 'profile');
+	check(
+		'...and says why',
+		overridden.warnings.some((w) => w.startsWith('rgs.source is set when the build is cut')),
+		true,
+	);
+	const nonsense = mergeDeliveryProfile(base, { rgs: { source: 'wherever' } }, 'baked');
+	check('an unknown value is ignored', nonsense.profile.rgs.source, 'profile');
+	check('...loudly', nonsense.warnings.length > 0, true);
+}
+
 console.log('\n7c. the BUILD validator knows every field the runtime does');
 {
 	// These two lists are one fact in two places — `config-vite` fails the build on an unknown
 	// field, this package degrades at runtime — and they have drifted TWICE: once for
 	// `rgs.simpleRequest`, once for `session.source`. Each time the symptom was the same and
-	// mystifying: a profile using the brand-new field could not be built at all. Compare them here,
-	// so a third drift fails a fixture rather than a delivery.
-	const viteConfig = readFileSync(
-		fileURLToPath(new URL('../config-vite/index.js', import.meta.url)),
-		'utf8',
-	);
-	const fromKnown = viteConfig.slice(viteConfig.indexOf('const KNOWN = {'));
-	const block = fromKnown.slice(0, fromKnown.indexOf('};'));
+	// mystifying: a profile using the brand-new field could not be built at all.
+	//
+	// Compared by IMPORTING the list, not by scraping the file for it, which is only possible now
+	// that the check lives in its own leaf module — see the note there. The scrape this replaces
+	// asked whether the string `'simpleRequest'` appeared anywhere in a block of source, which is a
+	// weaker claim than it looks: it would have passed on a field mentioned in a comment.
 	for (const [section, fields] of Object.entries(DELIVERY_PROFILE_FIELDS)) {
+		const known = KNOWN_PROFILE_FIELDS[section] ?? [];
 		for (const field of fields) {
 			check(
 				`config-vite knows ${section ? `${section}.` : ''}${field}`,
-				block.includes(`'${field}'`),
+				known.includes(field),
 				true,
 			);
 		}
+	}
+	// And the other direction, which the scrape could not ask at all: a field the BUILD accepts and
+	// the runtime would discard as unknown.
+	for (const [section, fields] of Object.entries(KNOWN_PROFILE_FIELDS)) {
+		for (const field of fields) {
+			check(
+				`the runtime knows ${section ? `${section}.` : ''}${field}`,
+				(DELIVERY_PROFILE_FIELDS[section] ?? []).includes(field),
+				true,
+			);
+		}
+	}
+}
+
+console.log('\n7e. the BUILD refuses a delivery that names no RGS at all');
+{
+	const problems = (profile: unknown) => deliveryProfileProblems(profile);
+	const session = { source: 'host', param: 'sid', required: true };
+	const names = (list: string[]) => list.some((p) => p.startsWith('rgs.baseUrl'));
+
+	// The operator delivery: nothing here names a host, because the operator's page IS the origin.
+	check(
+		'source:host stands in for a base URL',
+		names(problems({ id: 'x', rgs: { source: 'host', endpoint: '/webnode/engine' }, session })),
+		false,
+	);
+	// The accident the check exists to stop. An omitted base and an empty one are the same mistake,
+	// and neither is a declaration that the page is the RGS.
+	check('a missing base is still fatal', names(problems({ id: 'x', rgs: {}, session })), true);
+	check(
+		'an empty base is still fatal',
+		names(problems({ id: 'x', rgs: { baseUrl: '   ' }, session })),
+		true,
+	);
+	check(
+		'a source we do not know is refused',
+		problems({ id: 'x', rgs: { source: 'somewhere', baseUrl: 'h.example' }, session }),
+		['rgs.source must be "profile" or "host"'],
+	);
+	// The shipped profiles must both survive their own validator — the check that would have caught
+	// each of the two drifts on its own.
+	for (const name of ['2complex', 'operator-embed']) {
+		const json = JSON.parse(
+			readFileSync(fileURLToPath(new URL(`./profiles/${name}.json`, import.meta.url)), 'utf8'),
+		);
+		check(`profiles/${name}.json builds`, problems(json), []);
 	}
 }
 
@@ -185,6 +256,27 @@ check('uncredentialed, so the partner can answer CORS with a wildcard', resolved
 check('the host page cannot repoint the wallet', resolved.profile.rgs.allowUrlOverride, false);
 check('a missing token is fatal, not a demo wallet', resolved.profile.session.required, true);
 check('posts as a CORS simple request (the node sends no Access-Control-Allow-Headers)', resolved.profile.rgs.simpleRequest, true); // prettier-ignore
+
+console.log('\n9. the operator-embed profile reaches the RGS without naming a host');
+{
+	const embed = merge(
+		JSON.parse(
+			readFileSync(
+				fileURLToPath(new URL('./profiles/operator-embed.json', import.meta.url)),
+				'utf8',
+			),
+		),
+	);
+	check('parses and merges cleanly', embed.warnings, []);
+	// The whole point: no host anywhere in the artifact. The operator's own infrastructure decides
+	// it, which is the only party that knows it — and same-origin means no CORS at all.
+	check('the page is the origin', embed.profile.rgs.source, 'host');
+	check('...so nothing names a host', embed.profile.rgs.baseUrl, '');
+	check('no simple-request dodge needed', embed.profile.rgs.simpleRequest, false);
+	check('the host page cannot repoint the wallet', embed.profile.rgs.allowUrlOverride, false);
+	check('the token comes from the page, not the URL', embed.profile.session.source, 'host');
+	check('a missing token is fatal, not a demo wallet', embed.profile.session.required, true);
+}
 
 console.log(
 	failures === 0 ? '\nAll delivery-profile claims hold.\n' : `\n${failures} FAILED claim(s).\n`,

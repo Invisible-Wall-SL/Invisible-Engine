@@ -21,6 +21,26 @@
  */
 
 export interface DeliveryProfileRgs {
+	/**
+	 * Where the RGS's LOCATION comes from.
+	 *
+	 * `profile` — `baseUrl` + `endpoint` below. Every build we launch ourselves.
+	 * `host` — the operator's page IS the RGS's origin, and the path is its
+	 * `params.GameSettings.service`. This is how the partner's own embed works: their template
+	 * builds the game API as `'/' + RequestController.getBaseUrl() + '/engine'` — a relative path,
+	 * resolved against the page.
+	 *
+	 * It is worth a field of its own because it removes a whole class of problem rather than
+	 * configuring one. Same-origin means no CORS: no preflight, no `Access-Control-Allow-Origin`
+	 * for an open-ended set of client and aggregator domains, no `simpleRequest` content-type dodge,
+	 * and no absolute host baked into an artifact that several operators receive. The RGS host stops
+	 * being something the build knows and goes back to being something the operator's own
+	 * infrastructure decides — which is the only party that actually knows it.
+	 *
+	 * `host` falls back to `endpoint` below when the page states no `service`, which keeps our own
+	 * QA links working against a delivery build. `baseUrl` is ignored entirely.
+	 */
+	source: 'profile' | 'host';
 	/** Origin of the partner's RGS (`https://gs.2-complex.science`). A bare host is accepted and
 	 *  gets `https://` (`localhost`/`127.0.0.1` get `http://`) by the transport's own `buildBaseUrl`.
 	 *  May carry a path prefix — our test server's per-game proxy is `<host>/api/<key>`. Empty means
@@ -104,6 +124,7 @@ export const DEFAULT_DELIVERY_PROFILE: DeliveryProfile = {
 	// Frozen because this exact object is what `getDeliveryProfile()` hands out when nothing is
 	// baked: a consumer that wrote through it would move the default for every other reader.
 	rgs: Object.freeze({
+		source: 'profile' as const,
 		baseUrl: '',
 		endpoint: '/rgs/engine',
 		withCredentials: true,

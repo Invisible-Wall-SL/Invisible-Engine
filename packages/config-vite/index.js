@@ -5,73 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { lingui } from '@lingui/vite-plugin';
 import { defineConfig } from 'vite';
+// The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
+// see the note there. Importing this file instead would run sveltekit()/lingui() first.
+import { deliveryProfileProblems } from './deliveryProfile.js';
 
 const NODE_ENV = process.env.NODE_ENV;
 let dev = NODE_ENV === 'development';
-
-/**
- * SHAPE check on a baked profile, run at build time so a broken one FAILS THE BUILD.
- *
- * Deliberately not the runtime merge (`mergeDeliveryProfile`), and not a duplicate of it: that one
- * is the semantic authority and is built to DEGRADE, because it also parses an operator's
- * `config.json` on a live site where a typo must not black-screen the game. Here the opposite is
- * right — nothing is running yet, and a profile that merged down to internal defaults would ship a
- * delivery pointing at no RGS at all. So: the structural mistakes a person actually makes
- * (typo'd key, wrong type, missing the two fields a delivery cannot work without), and nothing more.
- */
-const deliveryProfileProblems = (profile) => {
-	// KEEP IN SYNC with `DELIVERY_PROFILE_FIELDS` in packages/delivery-profile/src/normalize.ts.
-	// The two checks are deliberately separate (this one fails the build, that one degrades at
-	// runtime) but the FIELD LIST is one fact in two places, and it has drifted twice — each time
-	// making a profile that used the new field fail the build. `profile.fixture.ts` now asserts they
-	// agree, so a third drift fails a fixture instead of a delivery.
-	const KNOWN = {
-		'': ['id', 'rgs', 'session'],
-		rgs: ['baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
-		session: ['param', 'source', 'required'],
-	};
-	const problems = [];
-	const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-	if (!isObject(profile)) return ['the file must contain a JSON object'];
-
-	for (const [section, keys] of Object.entries(KNOWN)) {
-		const target = section ? profile[section] : profile;
-		if (target === undefined) continue;
-		if (!isObject(target)) {
-			problems.push(`${section} must be an object`);
-			continue;
-		}
-		for (const key of Object.keys(target)) {
-			if (key.startsWith('_') || keys.includes(key)) continue;
-			problems.push(`unknown field ${section ? `${section}.${key}` : key}`);
-		}
-	}
-
-	// The two a delivery is useless without: where the RGS is, and how the host page names the token.
-	const baseUrl = isObject(profile.rgs) ? profile.rgs.baseUrl : undefined;
-	if (typeof baseUrl !== 'string' || baseUrl.trim() === '') {
-		problems.push('rgs.baseUrl must be a non-empty string (the partner RGS host)');
-	}
-	const param = isObject(profile.session) ? profile.session.param : undefined;
-	if (typeof param !== 'string' || param.trim() === '') {
-		problems.push('session.param must be a non-empty string (the query param carrying the token)');
-	}
-
-	for (const [section, key] of [
-		['rgs', 'withCredentials'],
-		['rgs', 'simpleRequest'],
-		['rgs', 'allowUrlOverride'],
-		['session', 'required'],
-	]) {
-		const value = isObject(profile[section]) ? profile[section][key] : undefined;
-		if (value !== undefined && typeof value !== 'boolean') {
-			problems.push(`${section}.${key} must be true or false`);
-		}
-	}
-
-	return problems;
-};
 
 const PROFILES_DIR = fileURLToPath(new URL('../delivery-profile/profiles/', import.meta.url));
 
