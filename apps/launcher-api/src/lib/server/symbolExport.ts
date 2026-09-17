@@ -244,6 +244,12 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	};
 	for (const states of Object.values(doc.symbols)) {
 		for (const cell of Object.values(states)) {
+			// A cell's own LAYERS first, and BEFORE the `continue`s below: a flipbook cell bails out
+			// two lines down, so a layer authored on one would never have its spine bundle / sprite
+			// sheet shipped — the art would show in the tool and be missing in the game (rule 8).
+			// They are the same kind-tagged object the book VFX and the transition carry, so they
+			// route through the same `addLayerRefs`.
+			for (const layer of cell?.layers ?? []) addLayerRefs(layer, refs);
 			if (!cell?.assetKey) continue;
 			// A FLIPBOOK cell owns no frame of its own: its art is the clip's, and every clip's
 			// sheets already ship via `editorArtExport`'s clip walk. Its `assetKey` is the clip's
@@ -340,7 +346,8 @@ function addCellRefs(cell: SymbolCell | undefined, refs: SymbolRefs): void {
 	}
 }
 
-/** Route one kind-tagged LAYER's asset (a Book-VFX layer, the explosion transition) into the shared
+/** Route one kind-tagged LAYER's asset (a Book-VFX layer, the explosion transition, a symbol cell's
+ *  own extra layer) into the shared
  *  `refs` — spine bundle or sprite sheet frame, the same split `collectSymbolRefs` applies to a
  *  per-cell sprite/spine binding. Flipbook + fx layers ship no asset through this exporter (clip art
  *  via editor-art; effect via the effects export). */

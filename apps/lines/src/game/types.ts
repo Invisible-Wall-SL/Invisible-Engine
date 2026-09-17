@@ -11,6 +11,7 @@ export {
 	type RawSymbol,
 	type SymbolState,
 	type SymbolCellInfo,
+	type SymbolLayerSpec,
 	type SymbolInfoMap,
 	type Position,
 } from 'engine-game';

@@ -64,6 +64,22 @@ export function canBlendKind(kind: string | undefined): boolean {
 	return (BLENDABLE_KINDS as readonly string[]).includes(kind ?? '');
 }
 
+/**
+ * The same question for a SYMBOL-DOC layer, whose kind vocabulary says `fx` where the editor's
+ * node vocabulary says `effect` (`kind: 'sprite' | 'spine' | 'flipbook' | 'fx'` — the shape the
+ * Invisible Symbols State Machine's book VFX, explosion transition and per-cell layers all share).
+ *
+ * The translation lives HERE, next to {@link BLENDABLE_KINDS}, so the `/symbols` tool (which
+ * decides whether to offer the control) and the game's `SymbolLayer.svelte` (which decides whether
+ * to honour a stored one) cannot disagree — the same one-definition rule the editor's
+ * `supportsBlend` follows. `spine` is excluded here for exactly the reason it is there: a Pixi
+ * blend cannot reach skeleton geometry, so a blended spine layer would render identically to an
+ * unblended one and the control would be a lie.
+ */
+export function canBlendLayerKind(kind: string | undefined): boolean {
+	return canBlendKind(kind === 'fx' ? 'effect' : kind);
+}
+
 /** Narrow an unknown doc value to a {@link BlendMode} (an unknown string ⇒ `undefined`). */
 export function isBlendMode(value: unknown): value is BlendMode {
 	return (BLEND_MODES as readonly string[]).includes(value as string);

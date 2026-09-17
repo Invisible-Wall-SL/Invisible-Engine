@@ -27,6 +27,8 @@
 		"check:symbol-state-parity": "tsx scripts/check-symbol-state-parity.ts",
 		"precheck:clear-reel": "node scripts/ensure-svelte-kit.mjs",
 		"check:clear-reel": "tsx --tsconfig tsconfig.scripts.json scripts/check-clear-reel-and-win-explode.ts",
+		"precheck:symbol-layers": "node scripts/ensure-svelte-kit.mjs",
+		"check:symbol-layers": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbol-layers.ts",
 		"precheck:symbol-transition": "node scripts/ensure-svelte-kit.mjs",
 		"check:symbol-transition": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbol-transition.ts",
 		"precheck:tumble-pattern": "node scripts/ensure-svelte-kit.mjs",

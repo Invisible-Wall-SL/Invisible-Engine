@@ -42,7 +42,7 @@ import {
 	FREE_SPIN_OVERLAY_INSTANCES,
 	WIN_INSTANCE,
 } from './game/editorFlags';
-import type { SymbolInfoMap } from './game/types';
+import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
 
 /**
  * One authored free-spin BOOK VFX layer (Invisible Symbols State Machine output). A decorative
@@ -57,29 +57,27 @@ import type { SymbolInfoMap } from './game/types';
  * `sizeRatios` (× cell, default {1,1}) and `offset` (× cell, default {0,0}) place + scale the layer
  * against the matching cell's live geometry. Any sprite/spine/flipbook asset it introduces travels
  * via `symbols.index` exactly like a per-cell binding, so {@link bakedBookVfxAssets} registers it.
+ *
+ * An ALIAS of the engine's {@link SymbolLayerSpec}, not a second declaration of it: a symbol CELL's
+ * own `layers` are the same object, and one shape is what lets `SymbolLayer.svelte` render all
+ * three callers. `behind` is meaningless here (a book-VFX slot says which side it is on by being
+ * the `background` or the `foreground`) and is simply not read.
  */
-export type BookVfxLayer = {
-	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
-	assetKey?: string;
-	animationName?: string;
-	clipId?: string;
-	effectId?: string;
-	sizeRatios?: { width: number; height: number };
-	offset?: { x: number; y: number };
-};
+export type BookVfxLayer = SymbolLayerSpec;
 
 /**
  * The explosion → intro TRANSITION (Invisible Symbols State Machine output). Structurally a
  * {@link BookVfxLayer} without the `sprite` kind (a transition has a duration; a frozen frame has
  * none) and without fit hints, plus `delayMs`: how long after a seat's `clearReel` starts before
- * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE.
+ * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE
+ * — so it carries a `blendMode` on the same terms (honoured for `flipbook`/`fx`, ignored on a
+ * spine, which cannot blend).
  */
-export type SymbolTransition = {
+export type SymbolTransition = Pick<
+	SymbolLayerSpec,
+	'assetKey' | 'animationName' | 'clipId' | 'effectId' | 'blendMode'
+> & {
 	kind: 'spine' | 'flipbook' | 'fx';
-	assetKey?: string;
-	animationName?: string;
-	clipId?: string;
-	effectId?: string;
 	delayMs?: number;
 };
 

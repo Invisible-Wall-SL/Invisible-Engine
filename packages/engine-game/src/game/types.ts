@@ -1,4 +1,4 @@
-import { SYMBOL_STATES } from 'engine-layout';
+import { SYMBOL_STATES, type BlendMode } from 'engine-layout';
 import { type SpinningReelSymbolState } from 'utils-slots';
 
 export { SYMBOL_STATES };
@@ -24,6 +24,41 @@ export type RawSymbol = {
 };
 
 export type SymbolState = SpinningReelSymbolState | (typeof SYMBOL_STATES)[number];
+
+/**
+ * ONE authored presentation LAYER — the shape every layer in the Invisible Symbols State Machine
+ * doc shares: the free-spin book VFX (`bookVfx.background`/`foreground`), the explosion → intro
+ * transition, and a symbol cell's own {@link SymbolCellInfo.layers}. Kind-tagged, each kind
+ * carrying only the field it needs (`sprite`/`spine` ⇒ `assetKey`, `flipbook` ⇒ `clipId`, `fx` ⇒
+ * `effectId`), and rendered by the ONE component that knows all four — `SymbolLayer.svelte`.
+ *
+ * `sizeRatios` (× cell, default 1×1) and `offset` (× cell, default 0) place it against the live
+ * cell; for an `fx` layer `sizeRatios` is a SCALE on the authored effect instead (it has no
+ * intrinsic size to fit).
+ *
+ * `blendMode` is how the layer's pixels combine with what is already drawn beneath it. It is
+ * honoured for `sprite`/`flipbook`/`fx` ONLY — `engine-layout`'s `canBlendLayerKind()` is the one
+ * definition, and `spine` is absent from it because a Pixi blend cannot reach skeleton geometry
+ * (`SpinePipe.addRenderable` batches each slot with the SLOT's own blend and never reads
+ * `groupBlendMode`). A stored mode on a spine layer is IGNORED rather than honoured, so a doc that
+ * somehow carries one renders exactly as the game does.
+ *
+ * `behind` is read only where a layer has something of its own to sit behind — a symbol cell's
+ * layers, where absent/false draws OVER the cell's art and `true` draws UNDER it. The book-VFX
+ * slots already say which side they are on by WHICH slot they are, and the transition has nothing
+ * beneath it, so both ignore it.
+ */
+export type SymbolLayerSpec = {
+	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+	sizeRatios?: { width: number; height: number };
+	offset?: { x: number; y: number };
+	blendMode?: BlendMode;
+	behind?: boolean;
+};
 
 /** A single symbol×state binding: the sprite frame or spine animation that renders it.
  * Structural twin of a `SYMBOL_INFO_MAP` cell — authored by the Invisible Symbols State
@@ -76,6 +111,24 @@ export type SymbolCellInfo = {
 	direction?: 'forward' | 'reverse' | 'pingpong';
 	flipX?: boolean;
 	flipY?: boolean;
+	/**
+	 * EXTRA ART drawn with this state, in ADDITION to the cell's own — a symbol composed of more
+	 * than one picture, each able to carry its own blend mode. Array order IS draw order; a layer
+	 * with `behind` sits under the cell's art, the rest over it. Absent/empty ⇒ nothing extra is
+	 * mounted, byte-identical to before this existed.
+	 *
+	 * A layer DECORATES a bound cell — it never replaces one. A cell with no usable art draws
+	 * nothing at all, layers included (`Symbol.svelte`'s `hasArt` gate, the same rule the win frame
+	 * follows): a lone decoration floating where the symbol should be reads as a rendering fault
+	 * rather than as the missing binding it is, and `isUsableCell` would have inherited `static`'s
+	 * art underneath it anyway.
+	 *
+	 * A layer NEVER reports beat completion. The base cell owns the round's beat (`ReelSymbol`'s
+	 * `oncomplete` → `symbolBeat.ts`); if N animated layers all reported, the wrong one would
+	 * settle the state and the round would sit out the runaway cap. Same rule the explosion
+	 * transition follows.
+	 */
+	layers?: SymbolLayerSpec[];
 };
 
 /** Symbol name → state → binding. The coded `SYMBOL_INFO_MAP` IS one of these (the

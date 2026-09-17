@@ -1078,6 +1078,25 @@ async function main() {
 		) {
 			symbolDocBound.add(transitionLayer.effectId);
 		}
+		// …and a per-cell LAYER of kind 'fx' (Invisible Symbols → the cell editor's "Layers"). Same
+		// reason, third source: an effect bound ONLY as a symbol layer is otherwise pruned as an
+		// orphan and the layer ships empty. Defensive about shape, like everything else this script
+		// reads off the export response.
+		for (const states of Object.values(symbols.map ?? {})) {
+			for (const cell of Object.values(states ?? {})) {
+				if (!cell || !Array.isArray(cell.layers)) continue;
+				for (const layer of cell.layers) {
+					if (
+						layer &&
+						layer.kind === 'fx' &&
+						typeof layer.effectId === 'string' &&
+						layer.effectId
+					) {
+						symbolDocBound.add(layer.effectId);
+					}
+				}
+			}
+		}
 		const isEventReachable = (d) =>
 			Array.isArray(d.layers) &&
 			d.layers.some((l) => l.trigger?.on === 'event' && !!l.trigger?.eventType);

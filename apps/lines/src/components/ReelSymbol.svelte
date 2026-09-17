@@ -39,6 +39,15 @@
 	 * one-cell merge exists to remove (`docs/design/board-cell-continuity.md`).
 	 *
 	 * A game that never cascades never reaches either state, so its layer assignment is unchanged.
+	 *
+	 * The vote is the BASE cell's `type` alone — a cell's authored `layers` (Invisible Symbols State
+	 * Machine → the cell editor's "Layers") never get one. The cell is ONE unit, mounted on exactly
+	 * one of the two `BoardContext`s, so extra art rides whichever layer the base picked; letting a
+	 * layer change the answer would re-create every symbol the moment a layer changed, which is the
+	 * bug this file's one-cell merge exists to remove. The consequence to know while authoring: a
+	 * spine LAYER on a sprite/flipbook-based cell draws on the MASKED layer and is clipped at the
+	 * board window if it overflows its cell, where the same rig bound as the cell's own art would not
+	 * be.
 	 */
 	const ANIMATING_SYMBOL_STATES: readonly SymbolState[] = [
 		'land',

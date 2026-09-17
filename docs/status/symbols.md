@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-15)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (branch `engine/arrival-release`, not yet on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-17)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **cell LAYERS** — a symbol can be made of MORE THAN ONE picture, each layer with its own **blend mode** (`lighten`/`overlay` included) and an optional `behind`, array order = draw order; it reuses the EXISTING layer object (`bookVfxLayerSchema`), mounts at the ONE choke point (`Symbol.svelte`), never reports a beat, and hides the blend control on a `spine` layer because a Pixi blend cannot reach skeleton geometry (branch `symbols/cell-layers`, not yet on `main`). Before it, **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (branch `engine/arrival-release`, not yet on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -296,6 +296,64 @@ Working on `main`:
   checks — new part 10: sparsity, the ON round-trip, the `.strict`/non-boolean rejections, that a
   non-emerge project still keeps the flag it saved, the client setter + dirty signature, and both
   bundle paths). ⏳ owner visual-verify.
+- **Cell LAYERS — a symbol made of more than one picture** (2026-09-17, absent by default ⇒
+  byte-parity; branch `symbols/cell-layers`, not yet on `main`). A symbol CELL gained
+  `layers?: SymbolLayer[]`: extra art drawn together with that state's own, **array order IS draw
+  order**, each layer carrying its own **`blendMode`** and an optional **`behind`** (draw under the
+  cell's art; absent ⇒ over it). The owner's art is sprite/flipbook and the ask was specifically
+  `lighten` + `overlay`, both of which already exist as Pixi ADVANCED blend modes registered by
+  `<InitialiseApplication>`.
+  **Reuses the EXISTING layer object rather than inventing one** — `bookVfxLayerSchema` (the four
+  kinds `sprite`/`spine`/`flipbook`/`fx` + `assetKey`/`animationName`/`clipId`/`effectId` +
+  `sizeRatios`/`offset`) moved above `symbolCellSchema` and gained `blendMode`/`behind`, so ONE
+  shape means one renderer (`SymbolLayer.svelte`), one export rule (`addLayerRefs`) and one effect
+  keep-set. The book VFX and the explosion transition therefore get a blend mode for free (data +
+  schema; **no UI for those two yet** — see open items). The engine type is
+  `engine-game`'s new `SymbolLayerSpec`, which `editor-scenes`' `BookVfxLayer` now ALIASES.
+  **Mounted at the ONE choke point** — `Symbol.svelte` — so the board, cascade, stacked mode, debug
+  grid, Book expand/reveal riders and the inline message symbol all inherit it. Draw order is
+  MARKUP order (behind-layers before the base arm, the rest after), not `zIndex`: the parent
+  container varies by mount site, so nothing may depend on `sortableChildren`. The win frame and the
+  multiplier stamp deliberately stay last.
+  **Four constraints held, each measured or reasoned rather than assumed:**
+  (1) **A spine layer CANNOT blend** — `SpinePipe.addRenderable` batches every slot with the SLOT's
+  own blend and never reads `groupBlendMode`, so `multiply` on a spine is pixel-identical to
+  `normal`. `engine-layout` gained `canBlendLayerKind()` (the symbol-doc `fx` ⇄ editor `effect`
+  translation over `BLENDABLE_KINDS`) as the ONE definition the tool's control and the renderer both
+  read; the tool replaces the Blend select with a note pointing at the Rigger's per-slot blend, and
+  the renderer ignores a stored mode. (2) **Layers NEVER report beat completion** — no `once`, no
+  `oncomplete`, so the base cell alone owns the round (the transition's rule). (3) **A layer
+  decorates a bound cell** — `assetKey` stays required, so there is no layers-only cell for
+  `isUsableCell` to resolve to `static` underneath; a cell with no art draws nothing, layers
+  included (`Symbol.svelte`'s `hasArt`, the win-frame rule). (4) **The masked vs unmasked layer is
+  still the BASE cell's `type`** — letting a layer vote would re-create every symbol on a layer
+  edit, the one-cell-merge bug; consequence documented in `ReelSymbol.svelte` (an overflowing spine
+  LAYER clips against the board mask).
+  **Ships the full chain (rule 8):** `.strict` Zod + shared `.refine` + `max(8)` + an
+  empty-array prune in `normalizeSymbolsDoc` → client `SymbolCell.layers`/`SYMBOL_LAYER_MAX` →
+  `applyDraft`'s whitelist (`reduceLayer`, now shared with `applyBookVfx`) → the spread PUT →
+  `collectSymbolRefs` walks cell layers **before** the flipbook `continue` (a layer on a flipbook
+  cell would otherwise never ship) → the map rides both bundle paths verbatim →
+  the fx REACHABILITY keep-set in **both** `runtimeBundle.ts` and `bake-editor-doc.mjs`.
+  `bakedSymbolAssets()` already registers the whole index, so no new `baked*Assets` function.
+  `canonicalizeSymbolsDocForExport` now repairs a sprite LAYER's scoped `<prefix>::<region>` key on
+  the same terms as a cell's — a layer's frame resolves in-game through the identical flat key, so
+  a layer authored off a Sheet-Maker output prefix would otherwise miss `loadedAssets` and render
+  blank for exactly the reason the cell path was repaired.
+  The page's dirty signature needed no new field: cells go into `docSignature` WHOLE (now commented
+  as load-bearing) — asserted rather than assumed.
+  **Preview is deliberately scoped and the tool SAYS so:** the grid draws the base binding only and
+  adds a `+N layers` badge (hover = the list); the panel previews each layer ON ITS OWN. Nothing
+  composites layers over the symbol and **no blend mode is previewed anywhere** — one shared WebGL
+  canvas serves every spine cell, so a faithful composite is not available, and a lie would be worse
+  than the note under the list. Offline gate: `pnpm --filter launcher-api check:symbol-layers`
+  (46 checks — parity/sparsity, draw order + the `behind` split, the spine-blend ignore + version
+  skew, 10 rejections, shipping through `collectSymbolRefs`, the dirty signature on add/reorder/
+  re-blend, the fx keep-set on both bundle paths over the real `pruneUnreachableEffects`, and the
+  scoped-ref repair's layer walk). The repair's ACTUAL rewrite needs an R2 listing, so like the cell
+  path before it, it is asserted structurally rather than executed.
+  ⏳ **Owner visual-verify** — nothing about the blend result is provable offline. **Book of Borut
+  needs an `engine` submodule bump** + a runtime release to receive it.
 - **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
   `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
   waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
@@ -513,6 +571,19 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
    chips regardless — only a rebind stores a full bundle prefix that previews.
 4. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
    (see the four-surfaces model in `docs/status/README.md`).
+5. **`bookVfx` + `transition` can carry a `blendMode` but no control offers one.** Cell layers
+   put the field on the SHARED layer schema (deliberately — one shape, one renderer), so the two
+   older layer consumers accept, persist, sign and render a mode today; only their panels never ask
+   for one. Adding two `<select>`s gated on `canBlendLayerKind` is the whole job.
+6. **Cell layers are not composited in any preview.** The grid says `+N layers`; the panel previews
+   each layer alone; no blend result is shown anywhere. The blocker is the grid's ONE shared WebGL
+   canvas (a context-count limit) — a faithful composite of a spine base with a blended sprite over
+   it is not available there. A panel-only DOM composite (sprite/flipbook layers over a sprite base,
+   CSS `mix-blend-mode`) IS achievable and is the obvious next increment; it would still not cover a
+   spine base.
+7. **A stacked picture's `art`/`winArt` reuses `symbolCellSchema`, so it now ACCEPTS `layers`** —
+   but nothing authors them there and `stackedArt()` strips them at export, so they would not ship.
+   Either wire them through or narrow that schema; today it is a silent no-op, not a bug.
 
 ## Blocked (owner / external)
 
@@ -520,6 +591,19 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-17 — **A layer's blend rides the RENDERABLE, not the wrapping container.** Review change
+  on top of the `layers[]` build. `SymbolLayer` originally set `blendMode` on the one `<Container>`
+  wrapping every arm. That is equivalent for Pixi's GPU-native modes, which inherit down the subtree
+  via `groupBlendMode` — measured: a container at `multiply` visibly darkens its child. It is NOT
+  known to be equivalent for the ADVANCED modes (`overlay`, `lighten`), which are backdrop-reading
+  filters; a renderable carrying one is the path verified to draw in a running game, a container
+  carrying one is not. Since `overlay`/`lighten` are the two modes the feature exists for, the prop
+  moved to `<Sprite>` and `<Flipbook>`. The `fx` arm keeps container-level blending because an
+  `<EffectPlayer>` owns its own particle containers and has no single renderable to carry it — the
+  same shape `<LayoutNodeView>`'s placed-effect branch already ships, and the same open question
+  rides with it. Pinned by 5 new assertions in `check:symbol-layers` (51 total), proven non-vacuous
+  by hoisting the prop back and watching the guard fail.
 
 - 2026-09-16 — **A parked win now releases on the MOUSE, not just Space.** Owner report: with
   `waitForPress` on, the space bar skipped the win but the left mouse button did nothing — "these 2

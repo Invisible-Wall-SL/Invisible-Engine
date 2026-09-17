@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+	BLEND_MODES,
 	isManifestAssetKey,
 	SYMBOL_STATES,
 	TUMBLE_PATTERNS,
@@ -35,6 +36,84 @@ const sizeRatiosSchema = z.object({
 	width: z.number(),
 	height: z.number(),
 });
+
+const offsetSchema = z.object({
+	x: z.number(),
+	y: z.number(),
+});
+
+/**
+ * ONE authored presentation LAYER — the shape shared by the free-spin book VFX (`bookVfx`), the
+ * explosion → intro transition, and a symbol CELL's own `layers`. It lives up here, above
+ * {@link symbolCellSchema}, because the cell references it; it was written for the book VFX first,
+ * which is why the name still says so.
+ *
+ * A layer is one of four kinds, each carrying only the field it needs — a `.refine()` enforces that
+ * required field is present so a half-authored layer can never round-trip:
+ *   sprite   → `assetKey` (a sheet frame key)
+ *   spine    → `assetKey` (bundle prefix) + `animationName`
+ *   flipbook → `clipId` (the Invisible Flipbook clip; `assetKey` optionally holds its primary sheet)
+ *   fx       → `effectId` (an Invisible FX effect)
+ * `sizeRatios`/`offset` are OPTIONAL fit hints (× cell), like `boardGlow.sizeRatios`.
+ *
+ * `blendMode` — how the layer's pixels combine with what is drawn beneath it. Stored for ANY kind
+ * and honoured by the renderer for `sprite`/`flipbook`/`fx` only: a Pixi blend cannot reach
+ * skeleton geometry, so a spine layer's mode is IGNORED rather than obeyed (`engine-layout`'s
+ * `canBlendLayerKind()` is the one definition, and the tool hides the control there for the same
+ * reason). Not rejected at save, deliberately — an author who switches a bound layer from flipbook
+ * to spine and back should not lose the mode, and a `.refine()` that 400s a whole doc over a field
+ * the engine simply ignores is the publish double-fail this schema keeps being bitten by.
+ *
+ * `behind` — draw the layer UNDER the thing it decorates. Only a symbol CELL's layers have
+ * something of their own to sit behind, so only `Symbol.svelte` reads it; a book-VFX slot already
+ * says which side it is on by being the `background` or the `foreground`, and the transition has
+ * nothing beneath it. Sparse: only `true` is ever written.
+ */
+function layerHasKindField(l: {
+	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+}): boolean {
+	switch (l.kind) {
+		case 'spine':
+			return !!l.assetKey && !!l.animationName;
+		case 'flipbook':
+			return !!l.clipId;
+		case 'sprite':
+			return !!l.assetKey;
+		case 'fx':
+			return !!l.effectId;
+		default:
+			return false;
+	}
+}
+
+const bookVfxLayerSchema = z
+	.object({
+		kind: z.enum(['sprite', 'spine', 'flipbook', 'fx']),
+		assetKey: z.string().min(1).optional(),
+		animationName: z.string().min(1).optional(),
+		clipId: z.string().min(1).optional(),
+		effectId: z.string().min(1).optional(),
+		sizeRatios: sizeRatiosSchema.optional(),
+		offset: offsetSchema.optional(),
+		blendMode: z.enum(BLEND_MODES).optional(),
+		behind: z.boolean().optional(),
+	})
+	.strict()
+	.refine(layerHasKindField, {
+		message: 'a layer is missing the field its kind requires',
+	});
+
+/**
+ * How many extra layers ONE symbol state may carry. A ceiling, not a design target: the feature is
+ * "a symbol can be more than one picture", and a state that needs nine of them is a rig, not a
+ * stack of cells. Rejected LOUDLY at save (the `winBeat` rule — a value the engine could not
+ * sensibly honour is a typo, and a typo must fail at save rather than be silently dropped at play).
+ */
+const SYMBOL_LAYER_MAX = 8;
 
 /** A single symbol×state binding — a static sprite frame, a spine animation, or an Invisible
  *  Flipbook clip. `sizeRatios` is OPTIONAL on an override cell: absent means the cell inherits
@@ -77,6 +156,23 @@ const symbolCellSchema = z
 		direction: z.enum(['forward', 'reverse', 'pingpong']).optional(),
 		flipX: z.boolean().optional(),
 		flipY: z.boolean().optional(),
+		/**
+		 * EXTRA ART drawn WITH this state's own — a symbol composed of more than one picture, each
+		 * layer carrying its own {@link bookVfxLayerSchema} binding and its own `blendMode`. ARRAY
+		 * ORDER IS DRAW ORDER; a layer with `behind: true` goes under the cell's art, the rest over
+		 * it. Optional and pruned when empty (`normalizeSymbolsDoc`), so a cell that has never had a
+		 * layer persists no key and ships byte-identical to before this existed.
+		 *
+		 * The SAME layer object the book VFX and the transition use, not a new one: one shape means
+		 * one renderer (`SymbolLayer.svelte`), one export rule (`addLayerRefs`) and one effect
+		 * keep-set, which is what stops a fourth asset channel from being stranded (rule 8).
+		 *
+		 * Layers DECORATE a bound cell. `assetKey` stays required above, so there is no such thing as
+		 * a layers-only cell — and that is deliberate: `isUsableCell` (the engine's
+		 * `symbolCell.ts`) judges a cell by its `assetKey`, so an art-less one would resolve to the
+		 * symbol's `static` binding and quietly draw the wrong picture under the layers.
+		 */
+		layers: z.array(bookVfxLayerSchema).max(SYMBOL_LAYER_MAX).optional(),
 	})
 	.strict()
 	.refine((c) => c.type !== 'flipbook' || !!c.clipId, {
@@ -346,58 +442,9 @@ const winCycleSchema = z
  * to a game with no book VFX. Passed through VERBATIM to `bundle.symbols.bookVfx` (same as
  * `boardGlow`/`winLine`); the engine render half consumes it.
  *
- * A layer is one of four kinds, each carrying only the field it needs — a `.refine()` enforces that
- * required field is present so a half-authored layer can never round-trip:
- *   sprite   → `assetKey` (a sheet frame key)
- *   spine    → `assetKey` (bundle prefix) + `animationName`
- *   flipbook → `clipId` (the Invisible Flipbook clip; `assetKey` optionally holds its primary sheet)
- *   fx       → `effectId` (an Invisible FX effect)
- * `sizeRatios`/`offset` are OPTIONAL fit hints (× cell), like `boardGlow.sizeRatios`.
+ * Each slot is a {@link bookVfxLayerSchema} — defined above `symbolCellSchema`, because a symbol
+ * cell's own `layers` are the same object.
  */
-const offsetSchema = z.object({
-	x: z.number(),
-	y: z.number(),
-});
-
-/** Does a kind-tagged layer carry the ONE field its kind needs? Shared by every `.refine()` below so
- *  the book-VFX layers and the explosion transition can never disagree about what "half-authored"
- *  means. */
-function layerHasKindField(l: {
-	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
-	assetKey?: string;
-	animationName?: string;
-	clipId?: string;
-	effectId?: string;
-}): boolean {
-	switch (l.kind) {
-		case 'spine':
-			return !!l.assetKey && !!l.animationName;
-		case 'flipbook':
-			return !!l.clipId;
-		case 'sprite':
-			return !!l.assetKey;
-		case 'fx':
-			return !!l.effectId;
-		default:
-			return false;
-	}
-}
-
-const bookVfxLayerSchema = z
-	.object({
-		kind: z.enum(['sprite', 'spine', 'flipbook', 'fx']),
-		assetKey: z.string().min(1).optional(),
-		animationName: z.string().min(1).optional(),
-		clipId: z.string().min(1).optional(),
-		effectId: z.string().min(1).optional(),
-		sizeRatios: sizeRatiosSchema.optional(),
-		offset: offsetSchema.optional(),
-	})
-	.strict()
-	.refine(layerHasKindField, {
-		message: 'a book-vfx layer is missing the field its kind requires',
-	});
-
 const bookVfxSchema = z
 	.object({
 		background: bookVfxLayerSchema.optional(),
@@ -427,6 +474,10 @@ const transitionSchema = z
 		animationName: z.string().min(1).optional(),
 		clipId: z.string().min(1).optional(),
 		effectId: z.string().min(1).optional(),
+		/** Same terms as any other layer's — honoured for `flipbook`/`fx`, ignored on a `spine`
+		 *  (see {@link bookVfxLayerSchema}). The transition renders through the same
+		 *  `SymbolLayer.svelte`, so it blends or does not blend for exactly the same reasons. */
+		blendMode: z.enum(BLEND_MODES).optional(),
 		delayMs: z.number().int().min(0).optional(),
 	})
 	.strict()
@@ -725,11 +776,34 @@ export function migrateLegacySymbolStates(input: unknown): unknown {
  * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
  * PUT endpoint maps that to a 400.
  */
+/**
+ * Drop an EMPTY `layers: []` from every cell of one symbol's state map — the last authored layer
+ * removed has to round-trip to no key at all, or the cell keeps shipping an empty array that reads
+ * as "this cell has layers" forever and, worse, signs differently from the untouched doc the page
+ * started with (permanently dirty). Returns the SAME object when nothing needed pruning, so the
+ * overwhelmingly common path allocates nothing and stays byte-identical.
+ */
+function pruneEmptyCellLayers(
+	states: SymbolsDoc['symbols'][string],
+): SymbolsDoc['symbols'][string] {
+	const entries = Object.entries(states) as [string, SymbolCell][];
+	if (!entries.some(([, cell]) => cell?.layers && cell.layers.length === 0)) return states;
+	const next = { ...states } as Record<string, SymbolCell>;
+	for (const [state, cell] of entries) {
+		if (!cell?.layers || cell.layers.length > 0) continue;
+		const stripped = { ...cell };
+		delete stripped.layers;
+		next[state] = stripped;
+	}
+	return next as SymbolsDoc['symbols'][string];
+}
+
 export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	const doc = symbolsDocSchema.parse(migrateLegacySymbolStates(input) ?? {});
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, states] of Object.entries(doc.symbols)) {
-		if (states && Object.keys(states).length > 0) symbols[name] = states;
+		if (!states || Object.keys(states).length === 0) continue;
+		symbols[name] = pruneEmptyCellLayers(states);
 	}
 	// Names: drop a blank/whitespace form and then a now-empty entry, so clearing the boxes leaves
 	// no key and the symbol falls back to its id (the same sparse-round-trip rule as `symbols`).
@@ -928,6 +1002,10 @@ function splitNonManifestScopedRef(assetKey: string): { prefix: string; region: 
  * path uses, and the same the region picker used to preview the sheet). A BARE (unscoped) ref
  * carries no atlas and is left as-is. Gated: a doc with only full-`.json` (or bare) refs pays
  * nothing. Non-sprite cells untouched.
+ *
+ * A cell's sprite LAYERS are repaired on exactly the same terms, and must be: a layer's frame is
+ * resolved in-game through the identical flat key, so leaving them out would reproduce the blank
+ * sprite this function exists to prevent, one level down.
  */
 export async function canonicalizeSymbolsDocForExport(
 	doc: SymbolsDoc,
@@ -937,9 +1015,19 @@ export async function canonicalizeSymbolsDocForExport(
 	const prefixes = new Set<string>();
 	for (const states of Object.values(doc.symbols)) {
 		for (const cell of Object.values(states)) {
-			if (cell?.type !== 'sprite') continue;
-			const split = splitNonManifestScopedRef(cell.assetKey);
-			if (split) prefixes.add(split.prefix);
+			// The cell's own sprite binding…
+			if (cell?.type === 'sprite') {
+				const split = splitNonManifestScopedRef(cell.assetKey);
+				if (split) prefixes.add(split.prefix);
+			}
+			// …and every sprite LAYER on it. A layer's frame is looked up by exactly the same flat key
+			// the cell's is, so a layer authored off a Sheet-Maker output prefix would miss
+			// `loadedAssets` and render blank for precisely the reason the cell path was repaired.
+			for (const layer of cell?.layers ?? []) {
+				if (layer.kind !== 'sprite' || !layer.assetKey) continue;
+				const split = splitNonManifestScopedRef(layer.assetKey);
+				if (split) prefixes.add(split.prefix);
+			}
 		}
 	}
 	if (prefixes.size === 0) return doc;
@@ -960,11 +1048,27 @@ export async function canonicalizeSymbolsDocForExport(
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		const nextStates = { ...states } as Record<string, SymbolCell>;
 		for (const [state, cell] of Object.entries(nextStates)) {
-			if (cell.type !== 'sprite') continue;
-			const split = splitNonManifestScopedRef(cell.assetKey);
-			const manifest = split && resolved.get(split.prefix);
-			if (split && manifest)
-				nextStates[state] = { ...cell, assetKey: `${manifest}::${split.region}` };
+			let next = cell;
+			if (next.type === 'sprite') {
+				const split = splitNonManifestScopedRef(next.assetKey);
+				const manifest = split && resolved.get(split.prefix);
+				if (split && manifest) next = { ...next, assetKey: `${manifest}::${split.region}` };
+			}
+			// Rewritten only when a layer actually moved, so a cell whose layers are all fine keeps its
+			// identity and the doc stays byte-identical (the gate the whole function is built on).
+			if (next.layers?.length) {
+				let touched = false;
+				const layers = next.layers.map((layer) => {
+					if (layer.kind !== 'sprite' || !layer.assetKey) return layer;
+					const split = splitNonManifestScopedRef(layer.assetKey);
+					const manifest = split && resolved.get(split.prefix);
+					if (!split || !manifest) return layer;
+					touched = true;
+					return { ...layer, assetKey: `${manifest}::${split.region}` };
+				});
+				if (touched) next = { ...next, layers };
+			}
+			if (next !== cell) nextStates[state] = next;
 		}
 		symbols[name] = nextStates as SymbolsDoc['symbols'][string];
 	}

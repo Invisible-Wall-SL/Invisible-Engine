@@ -31,7 +31,13 @@
 		SpineProvider,
 		SpineTrack,
 	} from 'pixi-svelte';
-	import { flipbookPlaybackFrameCount, resolveFlipbook } from 'engine-layout';
+	import {
+		canBlendLayerKind,
+		flipbookPlaybackFrameCount,
+		isBlendMode,
+		pixiBlendMode,
+		resolveFlipbook,
+	} from 'engine-layout';
 	import { emitterSecondsToWallMs } from 'engine-fx';
 
 	import { getContext } from '../game/context';
@@ -65,6 +71,36 @@
 	const offsetX = $derived((props.layer.offset?.x ?? 0) * geometry.cellWidthLocal);
 	const offsetY = $derived((props.layer.offset?.y ?? 0) * geometry.cellHeightLocal);
 	const scale = $derived(props.scale === undefined || props.scale === 1 ? undefined : props.scale);
+
+	/**
+	 * How this layer's pixels combine with what is already drawn beneath it. Handed to the
+	 * RENDERABLE of each arm (`<Sprite>` / `<Flipbook>`), and only for the `fx` arm to a container —
+	 * see the note above the markup for why that distinction is load-bearing for `overlay`/`lighten`.
+	 *
+	 * THREE gates, and each one is load-bearing:
+	 *  - `canBlendLayerKind` — a `spine` layer CANNOT blend. `SpinePipe.addRenderable` batches every
+	 *    slot with the SLOT's own blend and never calls `renderPipes.blendMode` nor reads
+	 *    `groupBlendMode`, so neither the skeleton's own `blendMode` nor a blended wrapper container
+	 *    does anything (measured: `multiply` on a spine renders pixel-identical to `normal`). The
+	 *    tool hides the control for a spine layer for the same reason; this is the half that makes a
+	 *    doc which somehow carries one render the way the game actually draws it.
+	 *  - `isBlendMode` — VERSION SKEW. The launcher deploys from `main` while a shipped game pins the
+	 *    engine submodule, so a mode added to the tool tomorrow can reach this engine today. An
+	 *    unknown string must degrade to `normal`, never be handed to Pixi.
+	 *  - `pixiBlendMode` — `normal` becomes `undefined`, which `propsSyncEffect` skips entirely, so an
+	 *    unblended layer leaves the container untouched (the parity path).
+	 *
+	 * `overlay`/`lighten` are Pixi ADVANCED blend modes and need `pixi.js/advanced-blend-modes`
+	 * imported — `<InitialiseApplication>` does it, the same registration the editor's placed nodes
+	 * rely on. Without it Pixi silently renders them as `normal`.
+	 */
+	const blendMode = $derived(
+		pixiBlendMode(
+			canBlendLayerKind(props.layer.kind) && isBlendMode(props.layer.blendMode)
+				? props.layer.blendMode
+				: undefined,
+		),
+	);
 
 	const clip = $derived(
 		props.layer.kind === 'flipbook' && props.layer.clipId
@@ -146,9 +182,22 @@
 	});
 </script>
 
+<!--
+	The blend rides the RENDERABLE (`<Sprite>` / `<Flipbook>`), not this wrapping container.
+	Both are equivalent for Pixi's GPU-native modes, which inherit down the subtree via
+	`groupBlendMode` — measured: a container set to `multiply` visibly darkens its child. They are
+	NOT known to be equivalent for the ADVANCED modes (`overlay`, `lighten`), which are filters that
+	read the backdrop; a renderable carrying one is the path proven to draw (verified in a running
+	game), a container carrying one is not. Since `overlay`/`lighten` are the two modes this feature
+	exists for, the blend goes where it is proven.
+
+	The `fx` arm is the exception and keeps container-level blending, because an `<EffectPlayer>`
+	owns its own particle containers and has no single renderable to carry it — the same shape the
+	placed-effect branch of `<LayoutNodeView>` already ships.
+-->
 <Container x={props.x + offsetX} y={props.y + offsetY} zIndex={props.zIndex} {scale}>
 	{#if props.layer.kind === 'sprite' && props.layer.assetKey}
-		<Sprite anchor={0.5} key={props.layer.assetKey} {width} {height} contain />
+		<Sprite anchor={0.5} key={props.layer.assetKey} {width} {height} contain {blendMode} />
 	{:else if props.layer.kind === 'spine' && props.layer.assetKey}
 		<SpineProvider key={props.layer.assetKey} anchor={0.5} {width} {height}>
 			<SpineTrack
@@ -159,10 +208,18 @@
 			/>
 		</SpineProvider>
 	{:else if clip}
-		<Flipbook {clip} anchor={0.5} {width} {height} loop={props.once ? false : undefined} />
+		<Flipbook
+			{clip}
+			anchor={0.5}
+			{width}
+			{height}
+			loop={props.once ? false : undefined}
+			{blendMode}
+		/>
 	{:else if effectDoc}
 		<Container
 			scale={{ x: props.layer.sizeRatios?.width ?? 1, y: props.layer.sizeRatios?.height ?? 1 }}
+			{blendMode}
 		>
 			<EffectPlayer
 				doc={effectDoc}
