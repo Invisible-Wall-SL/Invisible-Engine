@@ -168,6 +168,14 @@
 	 * `{}` when no component is open.
 	 */
 	let projectDefaults = $state<Record<string, unknown>>({});
+	/**
+	 * PAINT-ONLY seed so re-opening a component doesn't flash empty while its GET is in flight.
+	 * Starts from the page load and is refreshed by every successful load AND save — the page
+	 * `data` is never re-fetched, so the load's map goes stale the moment this tab saves, and
+	 * using it as a save BASE would then force-write pre-save values over the author's own work.
+	 * The ETag, never this map, is what a save CASes against.
+	 */
+	const seededDefaults: Record<string, Record<string, unknown>> = { ...data.componentDefaults };
 	/** Signature of the defaults as last loaded/saved — the dirty baseline. */
 	let projectDefaultsBaseline = $state('[]');
 	/** Order-independent signature, so clearing a key then re-setting it doesn't read as dirty. */
@@ -220,6 +228,9 @@
 			}
 			const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
 			projectDefaultsBaseline = defaultsSignature(params);
+			// Keep the paint-only seed in step, so re-opening this component in the same tab shows
+			// what we just saved rather than the (never-refetched) page-load values.
+			seededDefaults[componentDraft.id] = { ...params };
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -230,28 +241,43 @@
 	});
 
 	/**
-	 * Load `id`'s stored defaults + the ETag its next save must CAS against. Always adopts the
-	 * etag (it is the version we just read) but only ADOPTS THE VALUES when the author hasn't
-	 * touched the panel since the seed — so a keystroke during the round-trip is never discarded.
+	 * Load `id`'s stored defaults + the ETag its next save must CAS against.
+	 *
+	 * The etag is adopted ONLY on the branch that also adopts the VALUES. A save replaces the map
+	 * WHOLESALE (`saveComponentDefaults` writes `{ id, params }` over the key), so adopting
+	 * someone else's version marker while keeping our own values would let that write sail through
+	 * `If-Match` and delete every key we never saw — a silent lost update with no 409 and no
+	 * banner. Holding the `null` etag instead makes the save assert create, which 412s and
+	 * surfaces a real conflict the author can resolve. `adoptEtag` also resets the status machine
+	 * to `idle`, so calling it here would additionally clear an already-raised conflict.
+	 *
 	 * `replace` forces the values in regardless (the conflict banner's "reload theirs").
 	 */
 	async function loadProjectDefaults(id: string, replace = false): Promise<void> {
 		const params = new URLSearchParams({ project: data.projectKey, id });
 		try {
 			const res = await fetch(`/api/editor/component-defaults?${params.toString()}`);
-			if (!res.ok) return;
+			if (!res.ok) {
+				// Never silent: from "reload theirs" a swallowed failure leaves the sticky conflict
+				// pill with nothing to clear it, so the button reads as a no-op.
+				saveStatus = {
+					kind: 'error',
+					message: `Could not read this game’s defaults (${res.status})`,
+				};
+				return;
+			}
 			const body = (await res.json()) as {
 				params?: Record<string, unknown>;
 				etag?: string | null;
 			};
 			if (componentDraft?.id !== id) return; // a different component was opened meanwhile
-			defaultsSave.adoptEtag(body.etag ?? null);
 			if (!replace && defaultsDirty) return;
+			defaultsSave.adoptEtag(body.etag ?? null);
 			projectDefaults = { ...(body.params ?? {}) };
 			projectDefaultsBaseline = defaultsSignature(projectDefaults);
+			seededDefaults[id] = { ...projectDefaults };
 		} catch {
-			// Leave the seeded values + a `null` etag: the first save then asserts create and a
-			// genuine collision still surfaces as a 409.
+			saveStatus = { kind: 'error', message: 'Could not read this game’s defaults.' };
 		}
 	}
 
@@ -386,6 +412,19 @@
 	 * a reactive proxy (a `components` list entry), which `structuredClone` rejects
 	 * with DataCloneError — snapshot returns a plain, detached deep copy. */
 	function openComponent(def: ComponentDef): void {
+		// Switching components in the sidebar is the MOST common way to leave one, and it bypasses
+		// every other guard (`beforeNavigate` sees no navigation, `closeComponent` isn't called).
+		// The defaults panel is a second, separately-saved store, so it needs asking about here.
+		if (
+			defaultsDirty &&
+			componentDraft?.id !== def.id &&
+			!window.confirm(
+				'You have unsaved changes to this game’s defaults for the open component. ' +
+					'Opening another component discards them. Continue?',
+			)
+		) {
+			return;
+		}
 		componentDraft = $state.snapshot(def) as ComponentDef;
 		// The save precondition for this def's scope key. An entry absent from the map (a
 		// never-saved draft, or a built-in with no stored object) ⇒ `null` ⇒ the first save
@@ -406,7 +445,7 @@
 		leftTab = 'outline';
 		// Seed this project's defaults from the page load so the panel + canvas paint without a
 		// flash, then re-read for the ETag the save must CAS against (the load carries no etags).
-		projectDefaults = { ...(data.componentDefaults[def.id] ?? {}) };
+		projectDefaults = { ...(seededDefaults[def.id] ?? {}) };
 		projectDefaultsBaseline = defaultsSignature(projectDefaults);
 		defaultsSave.adoptEtag(null);
 		void loadProjectDefaults(def.id);
@@ -456,13 +495,21 @@
 		// unsaved changes — inspecting one snapshot then another discards nothing of value.
 		if (
 			!isInspecting &&
-			draftDirty &&
+			(draftDirty || defaultsDirty) &&
 			!window.confirm(
 				'Inspecting an older version replaces the canvas with that read-only snapshot — ' +
 					'your unsaved edits to the current version will be lost. Continue?',
 			)
 		) {
 			return;
+		}
+		// Inspecting HIDES the defaults panel (its label gates on `!isInspecting`), and the
+		// "Save for this game" button lives inside it — so dirty defaults carried in would be
+		// unsavable AND unreachable, with only the leave-guards left nagging. The confirm above
+		// covers them, so drop them back to the last loaded values here.
+		if (!isInspecting && defaultsDirty) {
+			projectDefaults = { ...(seededDefaults[componentDraft.id] ?? {}) };
+			projectDefaultsBaseline = defaultsSignature(projectDefaults);
 		}
 		versionBusy = true;
 		saveStatus = null;
