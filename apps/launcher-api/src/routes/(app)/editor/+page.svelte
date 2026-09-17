@@ -3171,6 +3171,7 @@
 											onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
 										>
 											<option value="">centre</option>
+											<option value="top">top</option>
 											<option value="bottom">bottom</option>
 										</select>
 									</label>
