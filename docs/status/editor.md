@@ -63,8 +63,15 @@ Shipped capabilities on `main`:
   - `launcher-api` + `apps/lines` build clean; Prettier clean; the 36 eslint errors in the touched
     editor files are pre-existing `prefer-svelte-reactivity` Map/Set findings, none in the changed
     ranges. The tool guide already says "with optional vertical/horizontal alignment" without
-    enumerating the values, so it stays accurate unchanged. ⏳ **NOT browser-verified** (auth-gated
-    editor) — owner to confirm the top-pinned box live.
+    enumerating the values, so it stays accurate unchanged.
+  - **Released to the online games** — the merge touched `packages/**` so the auto `Runtime release`
+    fired and went green, and the LIVE `test_server/_runtime/lines/release.json` in R2 is stamped
+    `commit faa176ed … status 'released'` (read from R2 rather than trusted from the tick). The
+    launcher/editor half rides Railway's auto-deploy from `main`. **Standalone Book of Borut still
+    needs the engine submodule bump** — the auto-release does not reach it.
+  - ⏳ **NOT browser-verified** (auth-gated editor) — owner to confirm the top-pinned box live. The
+    path worth a click is the SAVE one: pick `top`, reload, confirm it survives (that is the
+    `normalizeAlign` whitelist above, the surface that would fail silently).
 
 - 2026-09-17 — **The blend control is withdrawn from `spine` nodes: it never worked in game.**
   Shipped 2026-09-16 offering blend on sprite/spine/flipbook/effect. The spine case was never
