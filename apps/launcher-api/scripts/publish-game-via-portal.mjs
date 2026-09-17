@@ -3,7 +3,7 @@
 //
 //   node apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <buildDir> \
 //     [--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] \
-//     [--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--dry-run]
+//     [--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run]
 //
 // WHY THIS EXISTS, and when to reach for it instead of the desktop launcher's own Build & publish:
 // Spanish ISPs null-route whole Cloudflare anycast ranges under the LaLiga anti-piracy orders, and
@@ -42,7 +42,7 @@ if (!gameKey || !buildDir) {
 	console.error(
 		'Usage: node publish-game-via-portal.mjs <gameKey> <buildDir> ' +
 			'[--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] ' +
-			'[--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--dry-run]',
+			'[--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run]',
 	);
 	process.exit(1);
 }
@@ -69,6 +69,10 @@ const projectKey = flag('project');
 const launcherOrigin = (flag('launcher') ?? 'https://app.invisiblewall.org').replace(/\/+$/, '');
 const gamesOrigin = (flag('games') ?? 'https://games.invisiblewall.org').replace(/\/+$/, '');
 const register = !has('no-register');
+// Re-register the portal card WITHOUT re-sending the bundle: the repair path for a card whose
+// stored launch URL is wrong, on a line where re-uploading 137 MB to fix a query string is absurd.
+// It still refreshes and proves what is live, because that check is the point of the card.
+const registerOnly = has('register-only');
 const dryRun = has('dry-run');
 
 if (register && !projectKey) {
@@ -212,7 +216,7 @@ const uploadUrl = (rel) =>
 
 let uploaded = 0;
 let sentBytes = 0;
-for (const [i, rel] of rels.entries()) {
+for (const [i, rel] of registerOnly ? [] : rels.entries()) {
 	const body = await readFile(absFiles[i]);
 	await send(
 		uploadUrl(rel),
@@ -228,30 +232,113 @@ for (const [i, rel] of rels.entries()) {
 		);
 	}
 }
-console.info(`Uploaded ${uploaded} file(s), ${(sentBytes / 1024 / 1024).toFixed(1)} MB.`);
+console.info(
+	registerOnly
+		? '--register-only: skipped the upload and the manifest merge.'
+		: `Uploaded ${uploaded} file(s), ${(sentBytes / 1024 / 1024).toFixed(1)} MB.`,
+);
 
 // ── Commit: verify + prune + merge games.json ─────────────────────────────────
-const commit = await (
-	await send(
-		`${launcherOrigin}/api/launcher/game-upload?key=${encodeURIComponent(gameKey)}`,
-		{
-			method: 'POST',
-			headers: { ...auth, 'content-type': 'application/json' },
-			body: JSON.stringify({ name, protocol, files: rels }),
-		},
-		{ label: 'commit' },
-	)
-).json();
-console.info(
-	`Registered '${gameKey}' in test_server/games.json ` +
-		`(${commit.files} file(s)${commit.pruned ? `, pruned ${commit.pruned} stale` : ''}).`,
-);
+const commit = registerOnly
+	? null
+	: await (
+			await send(
+				`${launcherOrigin}/api/launcher/game-upload?key=${encodeURIComponent(gameKey)}`,
+				{
+					method: 'POST',
+					headers: { ...auth, 'content-type': 'application/json' },
+					body: JSON.stringify({ name, protocol, files: rels }),
+				},
+				{ label: 'commit' },
+			)
+		).json();
+if (commit) {
+	console.info(
+		`Registered '${gameKey}' in test_server/games.json ` +
+			`(${commit.files} file(s)${commit.pruned ? `, pruned ${commit.pruned} stale` : ''}).`,
+	);
+}
+
+// ── Make it LIVE, then PROVE it ───────────────────────────────────────────────
+// Uploading is not publishing. The test server loads every game's files into memory on boot and on
+// `POST /refresh` (`services/test-server/server.mjs` — `hydrate()`), so until it re-hydrates it
+// keeps serving its previous in-memory bundle and 404s every newly uploaded file. Skipping this is
+// how a completed publish still shows the OLD build: R2 was right, the server had not looked again.
+//
+// `/refresh` is a fire-and-forget 202 that hydrates in the BACKGROUND and coalesces, so a 202 is
+// not evidence of anything. We match the served `index.html` against this build's content-hashed
+// bundle marker — unique per build, so a match proves THIS build is live rather than "a" build.
+// Deliberately the same contract as `verify_deploy_live()` in `Invisible_Launcher.py`.
+//
+// Do NOT lean on `register-game` for the refresh: it only pokes `/refresh` when its project pin
+// actually CHANGED something, so a re-publish of an already-pinned game pokes nothing at all.
+const localIndex = await readFile(join(root, 'index.html'), 'utf8');
+const marker =
+	/bundle\.[A-Za-z0-9_-]+\.js/.exec(localIndex)?.[0] ??
+	/_app\/immutable\/[^"']+?\.js/.exec(localIndex)?.[0];
+
+async function pokeRefresh() {
+	const secret = flag('refresh-secret') ?? process.env.TEST_SERVER_SECRET;
+	const url = `${gamesOrigin}/refresh${secret ? `?secret=${encodeURIComponent(secret)}` : ''}`;
+	try {
+		const res = await fetch(url, { method: 'POST' });
+		if (!res.ok)
+			console.warn(`  ⚠ /refresh answered ${res.status} — the hydrate may not have started.`);
+		return res.ok;
+	} catch (e) {
+		console.warn(`  ⚠ /refresh unreachable (${e.message}).`);
+		return false;
+	}
+}
+
+const LIVE_TIMEOUT_MS = 240_000;
+let live = false;
+if (!marker) {
+	console.warn('No content-hashed marker in the local index.html — cannot prove what is live.');
+	await pokeRefresh();
+} else {
+	console.info(`Refreshing the test server and waiting for ${marker} to go live…`);
+	await pokeRefresh();
+	const deadline = Date.now() + LIVE_TIMEOUT_MS;
+	let nudgedAt = Date.now();
+	while (Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 5000));
+		let served = '';
+		try {
+			served = await (await fetch(`${gamesOrigin}/${gameKey}/index.html?cb=${Date.now()}`)).text();
+		} catch {
+			/* transient — keep polling */
+		}
+		if (served.includes(marker)) {
+			live = true;
+			break;
+		}
+		// A hydrate that started before our last file landed can finish without it; nudge again.
+		if (Date.now() - nudgedAt > 45_000) {
+			nudgedAt = Date.now();
+			await pokeRefresh();
+		}
+	}
+	console.info(
+		live
+			? `LIVE — the test server is serving this build (${marker}).`
+			: `⚠ Uploaded, but after ${LIVE_TIMEOUT_MS / 1000}s the test server is still serving an ` +
+					`older build. The files ARE in R2; it just has not re-hydrated. Re-run ` +
+					`\`curl -X POST ${gamesOrigin}/refresh\` and reload in a minute.`,
+	);
+}
 
 // ── Portal card + project pin + edge purge ────────────────────────────────────
 // Exactly what the desktop launcher does after its own upload: this is what makes the game appear
 // in the portal's Games section, re-stamps the project pointer onto the manifest entry (so the
 // mock deals THIS project's math and not its default board) and purges the game's edge cache.
-const host = gamesOrigin.split('://', 1).pop();
+// `new URL().host`, NOT a hand-rolled split. The Python this mirrors uses
+// `base.split("://", 1)[-1]`, where the 2nd argument is a MAXSPLIT — so it yields the host. The
+// same expression in JS takes a LIMIT on the returned elements, so `split('://', 1)` is `['https']`
+// and `.pop()` is the string "https". That shipped once: every game registered with
+// `rgs_url=https/api/<key>`, so the bundle loaded and then died on `TypeError: Failed to fetch`
+// the moment it called its RGS — a broken URL stored in the portal's games row, not a broken build.
+const host = new URL(gamesOrigin).host;
 const playUrl =
 	`${gamesOrigin}/${gameKey}/?sessionID=demo&rgs_url=${host}/api/${gameKey}` +
 	`&lang=en&currency=USD&device=desktop`;
