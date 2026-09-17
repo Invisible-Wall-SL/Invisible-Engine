@@ -193,14 +193,27 @@ On boot, if `config.actions` is non-empty and `config.resume` (or `replay`) is s
 
 So the server holds the round; the client replays its way back to the present and carries on.
 
-**Why this matters more than it looks.** `seq` is a position. A client that boots fresh against a
-server with an open round will post its first `bet` at a position the server already has filled —
-which is not an error, it is the **replay** path. The player would watch an old spin and wonder
-where their money went. Closing a tab mid-free-spins is not an exotic case on mobile, and a delivery
-is all mobile.
+**What we actually do, measured 2026-09-17** against the live partner node (Book of Borut on
+`gs.2-complex.science`, the third launcher card): we ignore all of it. A reload mid-session sends
+`config` + a balance probe and starts a new game — no `resume` check, no queue.
 
-We currently have neither the resume queue nor a check for `config.resume`. At minimum the facade
-should notice an open round at boot and refuse to start a new one, rather than silently replaying.
+That is less dangerous than reasoning from `seq`-as-position alone suggests, and the live run is
+worth recording because it **contradicts the obvious inference**. Leaving a round open and reloading,
+the next spin posted `[bet, play]` at `seq=0` and the server issued a **fresh round id** rather than
+replaying the open one. So this node tolerates abandoning a round; a fresh boot does not silently
+replay a spin. The replay path is reached by re-posting to an occupied position WITHIN a round the
+client is still tracking, not by starting over.
+
+What we did observe costs the player nothing but looks wrong: the HUD sat €1.00 below the server's
+own figure while the round stayed open (our two-step balance returns the interim from `requestBet`
+and the final from `requestEndRound`, and that round never got its `requestEndRound`). The reload
+revealed the true balance. A player who abandons a round therefore sees a stale number until they
+come back.
+
+So the work here is smaller than "implement resume", and it is still worth doing: read
+`config.resume` / `config.actions` at boot and either continue that round or close it, so the wallet
+the player sees is the wallet the server has. The full replay queue only matters once we support the
+features that leave a round open for several actions — free spins and pickups.
 
 ## Where the host glue lives (and why we did not find it)
 
