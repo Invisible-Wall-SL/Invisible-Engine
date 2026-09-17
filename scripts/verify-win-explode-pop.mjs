@@ -1026,6 +1026,15 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 	// THE FORWARD GATE, evaluated: `ReelSymbol.svelte` hands a renderer's completion to the cell ONLY
 	// while the state that armed the beat is still on it. That is the whole reason a beat something
 	// else has taken over never reports — and therefore the reason both bounded races exist.
+	//
+	// KEYED ON THE STATE, never on who is holding the cell. One component draws the board now,
+	// whoever is driving it (docs/design/board-cell-continuity.md), and the first cut of that merge
+	// asked whether a cascade seat was attached — which is a question about where a cell IS, not
+	// about who is waiting on it. The two come apart on one real path: with "let the next spin start
+	// as soon as the symbols are back" on, the appear does not await its intro beats, so the settle
+	// adopts the cells and detaches every seat while those intros are still playing. Gated on the
+	// seat, those completions were swallowed and every arriving symbol sat frozen on its intro for
+	// the whole `INTRO_BEAT_CAP_MS`.
 	const forward = sliceBetween(
 		reelSymbolSource,
 		'the oncomplete forward',
@@ -1033,34 +1042,35 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 		'\t\t\t}}',
 	);
 	const body = forward.slice(forward.indexOf('=> {') + 4, forward.lastIndexOf('}}'));
-	// `cascade` is the second argument because ONE cell component draws the board now, whoever is
-	// driving it (docs/design/board-cell-continuity.md). `null` is the resting board, which is what
-	// every claim here is about; the cascade's own contract is asserted straight after.
+	// The one claim here that cannot be written as a behaviour: a body that consults the seat passes
+	// every behavioural claim below, because the seat is attached for all of them.
+	// Against the CODE, not the prose: the comment above the forward explains the seat at length,
+	// and a guard a paragraph can trip is a guard nobody keeps.
+	const forwardCode = body.replace(/\/\/[^\n]*/g, '');
+	check('the forward does not ask who is holding the cell', /\bcascade\b/.test(forwardCode), false);
 	const gate = new Function(
 		'state',
-		'cascade',
 		`let forwarded = 0;
 const props = { reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
-// The body RETURNS EARLY on the cascade branch, so it runs as its own function rather than inline.
+// The body RETURNS EARLY once it has forwarded, so it runs as its own function rather than inline.
 (() => { ${body} })();
 return { forwarded, state: props.reelSymbol.symbolState };`,
 	);
-	const resting = (state) => gate(state, null);
-	const cascading = (state) => gate(state, { y: { current: 0 } });
-	check('a `win` cell reports its beat', resting('win').forwarded, 1);
-	check('an `explosion` cell reports its beat', resting('explosion').forwarded, 1);
-	check('a cell that has moved on to `postWinStatic` reports nothing', resting('postWinStatic').forwarded, 0); // prettier-ignore
-	check('…nor one the board clear took over', resting('clearReel').forwarded, 0);
-	check('a `land` cell reports nothing and settles itself', resting('land').forwarded, 0);
-	check('…to `static`', resting('land').state, 'static');
-
-	// A CASCADE STEP arms the cell itself, beat by beat — explode, land, intro — so every completion
-	// is reported straight through and the cell settles nothing on its own. That is what the step's
-	// own cell component used to do, and it has to keep doing it now that there is only one.
-	for (const state of ['clearReel', 'land', 'intro', 'static']) {
-		check(`a cascading \`${state}\` cell reports straight through`, cascading(state).forwarded, 1);
+	// EVERY STATE A BEAT DRIVES reports, whoever armed it — `win` and `explosion` are the reel
+	// board's, `clearReel` and `intro` are a cascade step's, and one cell answers for both.
+	for (const state of ['win', 'explosion', 'clearReel', 'intro']) {
+		check(`a \`${state}\` cell reports its beat`, gate(state).forwarded, 1);
 	}
-	check('…and the cell settles nothing behind the step’s back', cascading('land').state, 'land');
+	// …and a state that is NOBODY's beat reports nothing, which is what keeps a settled win beat
+	// from being re-fired by a looping clip on a cell that has since moved on.
+	for (const state of ['postWinStatic', 'static', 'spin']) {
+		check(`a cell that has moved on to \`${state}\` reports nothing`, gate(state).forwarded, 0);
+	}
+	// `land` is the one state BOTH owners arm: a step's callback settles the cell and resolves its
+	// beat; the reel board arms nothing, so its `oncomplete` is the cell's default no-op and the
+	// settle IS the behaviour. Doing both is what lets one cell answer for either owner.
+	check('a `land` cell reports its beat', gate('land').forwarded, 1);
+	check('…and settles itself to `static`', gate('land').state, 'static');
 
 	// AND THE FIXTURE AGREES WITH IT. The harness's cell is what every timing above is measured
 	// through, so a cell that reported a beat something else had taken over would make the slam case

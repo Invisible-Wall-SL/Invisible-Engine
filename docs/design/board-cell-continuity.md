@@ -83,7 +83,7 @@ nothing.
 ### 1. One cell component
 
 `TumbleSymbol.svelte` is gone; `ReelSymbol.svelte` draws the board whoever is driving it. The two
-differed in only three ways:
+differed in only four ways:
 
 - **`y`.** The reel cell reads the strip (`symbolY()`, or the seat under perspective at rest); a
   cascading cell reads a Tween. The cell now takes the Tween when one is attached
@@ -98,6 +98,22 @@ differed in only three ways:
   `BoardContext`s — so one predicate has to hold throughout. It is the reel's, widened to the
   cascade's own two states: `land | win | explosion | clearReel | intro`. A game that never cascades
   never reaches the new ones, so its layer assignment is unchanged.
+
+- **Who a completion belongs to.** The overlay forwarded every renderer completion to its cell; the
+  reel cell forwarded only the states it had armed. The merged cell keys the forward on the STATE —
+  `win` / `explosion` (the reel board's), `clearReel` / `intro` (a step's), and `land`, the one both
+  arm — and on nothing else, so a settled win beat is never re-fired by a looping clip on a cell that
+  has since moved on.
+
+  **The first cut of this asked whether a cascade seat was attached, and that was a bug** (fixed
+  2026-09-17). A seat says where a cell IS, not who is waiting on it, and the two come apart on one
+  real path: with "let the next spin start as soon as the symbols are back" turned on,
+  `tumbleBoardAppear` does not await its intro beats, so `boardSettle` adopts the cells — detaching
+  every seat — while those intros are still playing. Gated on the seat, the completions were
+  swallowed and every arriving symbol sat frozen on its intro for the whole `INTRO_BEAT_CAP_MS` (2 s)
+  before the cap settled it. The overlay never showed this, because it DESTROYED the cell at
+  `tumbleBoardHide` and the reel board mounted a fresh resting one — the restart this merge removes
+  was hiding the freeze behind it.
 
 The reel-board-only presentation stands down while a step is driving a cell: the win dim and the
 stacked-picture cover are both keyed by the RESTING board's rows, which a cascade is in the middle of
@@ -197,7 +213,100 @@ Paste into the game's console, `__p.reset()`, spin once, let it settle, `copy(__
 correct. Keyed on the cell's own container, so the two draw layers cannot be confused for each other.
 
 ```js
-window.__p = (() => { const app = window.__PIXI_APP__; const cells = new Map(), lastAt = new Map(), log = []; let t0 = performance.now(); const key = (x, y) => `${Math.round(x / 45) * 45},${Math.round(y / 45) * 45}`; const collect = (n, d, out, parent) => { if (!n || d > 30) return out; if (typeof n.gotoAndPlay === 'function' && 'textures' in n) { out.push({ o: n, kind: 'as', parent }); return out; } if (n.state && n.skeleton && typeof n.state.setAnimation === 'function') { out.push({ o: n, kind: 'spine', parent }); return out; } for (const c of n.children || []) collect(c, d + 1, out, n); return out; }; const sig = (e) => { if (e.kind === 'as') { const t = e.o.textures || []; const f = t[0]; return String((f && (f.label || (f.source && f.source.label))) || '?').replace(/_?\d{4}$/, ''); } const tr = e.o.state && e.o.state.tracks && e.o.state.tracks[0]; return `sp:${(tr && tr.animation && tr.animation.name) || '-'}`; }; const tick = () => { try { const t = Math.round(performance.now() - t0), seen = new Set(); for (const e of collect(app.stage, 0, [], null)) { const cell = e.parent || e.o; seen.add(cell); const s = sig(e); let x = 0, y = 0; try { const g = e.o.getGlobalPosition(); x = g.x; y = g.y; } catch {} const pos = key(x, y); let rec = cells.get(cell); if (!rec) { const prev = lastAt.get(pos); log.push(`${t} ${pos} MOUNT ${prev === undefined ? 'FIRST' : (prev === s ? 'SAME-ART' : 'NEW-ART')} ${s}`); cells.set(cell, { sig: s, pos, sprite: e.o }); lastAt.set(pos, s); continue; } if (rec.sprite !== e.o) { log.push(`${t} ${pos} RESTATE ${rec.sig}>${s}`); rec.sprite = e.o; rec.sig = s; } rec.pos = pos; lastAt.set(pos, s); } for (const [cell, rec] of cells) if (!seen.has(cell)) { log.push(`${t} ${rec.pos} UNMOUNT ${rec.sig}`); cells.delete(cell); } } catch (err) { log.push('ERR ' + err); } }; app.ticker.add(tick); return { tick, reset: () => { log.length = 0; t0 = performance.now(); }, dump: () => log.join('\n'), counts: () => { const c = {}; for (const l of log) { const p = l.split(' '); const w = p[2] === 'MOUNT' ? 'MOUNT:' + p[3] : p[2]; c[w] = (c[w] || 0) + 1; } return c; } }; })();
+window.__p = (() => {
+	const app = window.__PIXI_APP__;
+	const cells = new Map(),
+		lastAt = new Map(),
+		log = [];
+	let t0 = performance.now();
+	const key = (x, y) => `${Math.round(x / 45) * 45},${Math.round(y / 45) * 45}`;
+	const collect = (n, d, out, parent) => {
+		if (!n || d > 30) return out;
+		if (typeof n.gotoAndPlay === 'function' && 'textures' in n) {
+			out.push({ o: n, kind: 'as', parent });
+			return out;
+		}
+		if (n.state && n.skeleton && typeof n.state.setAnimation === 'function') {
+			out.push({ o: n, kind: 'spine', parent });
+			return out;
+		}
+		for (const c of n.children || []) collect(c, d + 1, out, n);
+		return out;
+	};
+	const sig = (e) => {
+		if (e.kind === 'as') {
+			const t = e.o.textures || [];
+			const f = t[0];
+			return String((f && (f.label || (f.source && f.source.label))) || '?').replace(
+				/_?\d{4}$/,
+				'',
+			);
+		}
+		const tr = e.o.state && e.o.state.tracks && e.o.state.tracks[0];
+		return `sp:${(tr && tr.animation && tr.animation.name) || '-'}`;
+	};
+	const tick = () => {
+		try {
+			const t = Math.round(performance.now() - t0),
+				seen = new Set();
+			for (const e of collect(app.stage, 0, [], null)) {
+				const cell = e.parent || e.o;
+				seen.add(cell);
+				const s = sig(e);
+				let x = 0,
+					y = 0;
+				try {
+					const g = e.o.getGlobalPosition();
+					x = g.x;
+					y = g.y;
+				} catch {}
+				const pos = key(x, y);
+				let rec = cells.get(cell);
+				if (!rec) {
+					const prev = lastAt.get(pos);
+					log.push(
+						`${t} ${pos} MOUNT ${prev === undefined ? 'FIRST' : prev === s ? 'SAME-ART' : 'NEW-ART'} ${s}`,
+					);
+					cells.set(cell, { sig: s, pos, sprite: e.o });
+					lastAt.set(pos, s);
+					continue;
+				}
+				if (rec.sprite !== e.o) {
+					log.push(`${t} ${pos} RESTATE ${rec.sig}>${s}`);
+					rec.sprite = e.o;
+					rec.sig = s;
+				}
+				rec.pos = pos;
+				lastAt.set(pos, s);
+			}
+			for (const [cell, rec] of cells)
+				if (!seen.has(cell)) {
+					log.push(`${t} ${rec.pos} UNMOUNT ${rec.sig}`);
+					cells.delete(cell);
+				}
+		} catch (err) {
+			log.push('ERR ' + err);
+		}
+	};
+	app.ticker.add(tick);
+	return {
+		tick,
+		reset: () => {
+			log.length = 0;
+			t0 = performance.now();
+		},
+		dump: () => log.join('\n'),
+		counts: () => {
+			const c = {};
+			for (const l of log) {
+				const p = l.split(' ');
+				const w = p[2] === 'MOUNT' ? 'MOUNT:' + p[3] : p[2];
+				c[w] = (c[w] || 0) + 1;
+			}
+			return c;
+		},
+	};
+})();
 ```
 
 Two notes if you drive it from a headless or hidden pane rather than by hand: `requestAnimationFrame`
