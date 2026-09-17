@@ -7,6 +7,40 @@
 ## Current state
 Works today on `main` / live:
 
+- **The Atlas settings panel follows the layout — a field that does nothing is no longer on
+  screen** _(2026-09-17)_. Owner: *"all options that are not used when the Layout dropdown is set
+  to pack the art should be hidden from the UI and viceversa."* This is the trap that cost three
+  rounds: an editable Atlas width/height on a `pack` atlas looked like an input and was silently
+  overwritten. Measured split, held to the source by a fixture that greps `ui_server.py`:
+  `pack_trim_mode` is read once, inside `auto_pack_layout`; `grid_layout` reads `cell_width` and
+  never writes `atlas["width"]`; `auto_pack_layout` does the reverse.
+  - **`pack`:** cell width/height hidden (nothing reads them); Frame trim shown; Atlas
+    width/height shown **read-only** with a note. Kept visible deliberately — they are the only
+    readout of the page the packer produced, which is how `1028×25652` was spotted in the first
+    place. **`grid`:** cell fields shown and editable, Frame trim hidden, width/height editable.
+  - **Reuses the Pipeline selector's show/hide mechanism** one layer down — `data-layout` +
+    `layoutVisible(g,L)` + `applyAtlasLayout()`, mirroring `data-pipe`/`pipeVisible`/`applyPipe`
+    — rather than inventing a second one. `data-ro-layout` carries the readonly flip, which
+    `data-pipe` had no equivalent for.
+  - **The server ALSO emits the initial hidden/readonly state**, so there is no flash of wrong
+    fields before the JS runs. `layout_row_visible` is the Python twin of the JS `layoutVisible`,
+    and a fixture runs both and compares — they cannot drift.
+  - **Rows are hidden, never omitted.** `cfgData()` reads `[data-cfg]` values, and a
+    `display:none` control still has one, so a hidden field round-trips its stored value and
+    `grid → pack → grid` returns the cell size. The `_ATLAS_GEOM_KEYS` blank-skip is now the
+    second net rather than the first, so a never-set hidden row cannot invent `cell_width: 0`.
+  - **`readonly`, not `disabled`** — a disabled input posts nothing, and the value would depend
+    on the blank-skip to survive. Pinned by a mutation.
+  - **The `.atlas`-bound panel is unchanged**, verified by rendering `origin/main`'s loop and the
+    new helper over the same bound manifest and diffing: structure byte-identical, only the
+    deliberate tooltip rewrites differ.
+  - Fixtures: `py test_layout_aware_panel.py` (144 checks), including one that runs the
+    **shipped** `applyAtlasLayout` under node against the markup the server really emits and
+    requires the repainted panel to equal what the server would have rendered for that layout,
+    both directions. 13 mutations tried, 13 caught.
+  - **Not verified:** never rendered in a real browser — the toggle runs against a hand-written
+    DOM shim, so the CSS (dimming, the note) is unverified by anything but reading.
+
 - **`Layout` — switching an existing atlas between `pack` and `grid`** _(2026-09-17)_. The `grid`
   bullet below shipped a layout nothing could reach: `layout` was written only at atlas-CREATION
   time, so the owner's existing atlas stayed `pack` and behaved exactly as before the fix — *"I am

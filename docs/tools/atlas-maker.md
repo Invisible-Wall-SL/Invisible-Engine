@@ -172,6 +172,23 @@ prompt, seed and reference on its regions:
 It also tells you what the atlas *currently is* — worth a look if you are not sure which
 layout an atlas was created with.
 
+**The panel follows the layout, so a field that does nothing is not on screen.** Switching
+the dropdown repaints it immediately, before you save:
+
+| | `pack` | `grid` |
+|---|---|---|
+| **Atlas width / height** | shown **read-only** — the packer sets them from the art | yours to set |
+| **Default cell width / height** | hidden — nothing reads them | shown; this *is* the layout |
+| **Frame trim** | shown — it is the packer's measurement | hidden — not read here |
+
+Atlas width/height stay visible on `pack` rather than being hidden, because they are the
+only readout of the page the packer actually produced. They are just not an input there —
+which is why they are dimmed instead of editable. Typing a size into them on a `pack`
+atlas is exactly what used to be silently discarded.
+
+Nothing you set is lost by being hidden: a hidden field keeps its stored value, so
+`grid` → `pack` → `grid` returns the cell size you had.
+
 Two deliberate behaviours:
 
 - **It is offered only on a from-scratch atlas.** An atlas whose geometry comes from a

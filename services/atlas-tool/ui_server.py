@@ -600,6 +600,35 @@ ATLAS_LAYOUT_MODES = {
 # anyway: it is the layout every from-scratch atlas had before `grid` existed.
 ATLAS_LAYOUT_DEFAULT = "pack"
 
+# Which layout each geometry row is ALIVE in — the exact parallel of PIPE_GROUP,
+# and driven client-side by the same mechanism (`data-layout`/`applyAtlasLayout`
+# is `data-pipe`/`applyPipe`, reused).
+#   both        -> the row means something under either layout (the default)
+#   pack | grid -> ONLY under that one; under the other NOTHING reads it
+# Measured, not guessed:
+#   · `cell_width`/`cell_height` ARE the grid. Under `pack` nothing reads them:
+#     the packer stamps an explicit w/h onto every region, so `region_box`'s
+#     cell fallback never fires.
+#   · `pack_trim` is read at exactly one place — inside `auto_pack_layout`.
+# A dead field that looks live is what cost the owner an atlas: 2048x2048 typed
+# into Atlas width/height on a `pack` atlas, saved, then overwritten by the
+# packer's 1028x25652 on the next Create Atlas.
+ATLAS_GEOM_LAYOUT_GROUP = {
+    "atlas_cell_width": "grid",
+    "atlas_cell_height": "grid",
+    "atlas_pack_trim": "pack",
+}
+ATLAS_GEOM_LAYOUT_BOTH = "both"
+
+# The rows the layout OWNS rather than reads: under this layout the field is
+# derived OUTPUT (`auto_pack_layout` writes `atlas.width/height` from the art),
+# so it renders read-only instead of accepting input it would discard. The page
+# size stays on screen because it is genuinely diagnostic — only the editable
+# box goes. READONLY, NEVER DISABLED: a readonly input still posts its value,
+# so `cfgData()` round-trips it and a hidden/locked field can never be wiped.
+ATLAS_GEOM_READONLY_IN = {"atlas_width": "pack", "atlas_height": "pack"}
+ATLAS_GEOM_READONLY_NOTE = "set by the packer from your art"
+
 
 def atlas_geom_fields_for(m: dict) -> list[tuple[str, str, str, str]]:
     """The geometry rows 🧩 Atlas settings renders for THIS manifest.
@@ -620,6 +649,77 @@ def atlas_geom_fields_for(m: dict) -> list[tuple[str, str, str, str]]:
     Module-level and pure so the fixtures exercise the gate that ships."""
     return [f for f in ATLAS_GEOM_FIELDS
             if f[0] != "atlas_layout" or batch_atlas.is_from_scratch(m)]
+
+
+def layout_row_visible(group: str, layout: str) -> bool:
+    """Is a geometry row with this `data-layout` group shown under `layout`?
+
+    The Python twin of the page's `layoutVisible(g,L)` — the server renders the
+    first state and the browser re-applies it on every dropdown change, so the
+    two must agree or the panel changes shape the moment JS runs."""
+    return group in ("", ATLAS_GEOM_LAYOUT_BOTH) or group == layout
+
+
+def atlas_geom_rows_html(m: dict, cfg: dict,
+                         cache: dict | None = None) -> list[str]:
+    """The 🧩 Atlas settings geometry rows for THIS manifest — one <label> each.
+
+    A from-scratch atlas gets its rows LAYOUT-AWARE (see
+    ATLAS_GEOM_LAYOUT_GROUP / ATLAS_GEOM_READONLY_IN): the rows that are dead
+    under the chosen layout are hidden, and Atlas width/height render read-only
+    under `pack`, where the packer writes them.
+
+    Rendered hidden, NOT omitted. `cfgData()` walks `[data-cfg]` and reads
+    `.value`, which a `display:none` input still has — so the panel keeps
+    posting a hidden row's stored value and pack→grid→pack cannot lose the cell
+    size or the trim choice the author set. Omitting the markup would also make
+    the live toggle impossible: switching to Grid must REVEAL the cell fields
+    you then have to fill, and there is nothing to reveal if the server left
+    them out.
+
+    A `.atlas`-bound / legacy cell-grid manifest has no layout to be aware of
+    (`atlas_geom_fields_for` gives it no Layout row) and its cell size is live —
+    `batch_atlas.region_box` really does fall back to it — so it gets none of
+    this and renders exactly as before.
+
+    Module-level and pure so the fixtures render what ships."""
+    cache = {} if cache is None else cache
+    matlas = m.get("atlas") or {}
+    aware = batch_atlas.is_from_scratch(m)
+    layout = batch_atlas.atlas_layout(m) if aware else ""
+    rows: list[str] = []
+    for ui_key, label, typ, mk in atlas_geom_fields_for(m):
+        step = " step=any" if typ == "number" else ""
+        tip = help_for(ui_key, cfg)
+        tip_esc = html.escape(tip, quote=True)
+        qm = (f'<span class="qm" title="{tip_esc}">&#9432;</span>'
+              if tip else "")
+        group = ATLAS_GEOM_LAYOUT_GROUP.get(
+            ui_key, ATLAS_GEOM_LAYOUT_BOTH) if aware else ""
+        ro_in = ATLAS_GEOM_READONLY_IN.get(ui_key, "") if aware else ""
+        # Through _control_html so these get the same treatment as every
+        # other setting: atlas_format becomes its enum <select>, the two
+        # path fields keep their 📁 browse button.
+        ctl = _control_html(ui_key, typ, matlas.get(mk, ""), cache,
+                            title=tip_esc, step=step,
+                            readonly=bool(ro_in) and ro_in == layout)
+        attrs = ""
+        if group:
+            attrs += f' data-layout="{group}"'
+            if not layout_row_visible(group, layout):
+                attrs += ' style="display:none"'
+        note = ""
+        if ro_in:
+            attrs += f' data-ro-layout="{ro_in}"'
+            hide = "" if ro_in == layout else ' style="display:none"'
+            note = (f'<span class="rohint"{hide}>· '
+                    f'{html.escape(ATLAS_GEOM_READONLY_NOTE)}</span>')
+        rows.append(
+            f'<label{attrs}><span class="lblrow">{html.escape(label)} '
+            f'<span style="color:#888;font-size:10px">· this atlas</span>'
+            f'{qm}</span>{ctl}{note}</label>'
+        )
+    return rows
 
 
 # Plain-language explanation for every Settings field. {lora}/{ckpt}/{cn}/
@@ -701,37 +801,56 @@ SETTING_HELP = {
         "Pixel height SDXL renders at before the result is fitted to the "
         "slot. 1024 is SDXL's sweet spot; smaller is faster but softer.",
     "atlas_width":
-        "Full atlas canvas width in pixels. When a .atlas is bound this is "
-        "read from it and ignored here.",
+        "Full atlas canvas width in pixels. Layout = Grid of cells: yours — "
+        "read as you set it and never overwritten. Layout = Pack the art: the "
+        "packer's OUTPUT, so it is shown read-only — Create Atlas measures "
+        "your art and writes the page size it chose. When a .atlas is bound "
+        "this is read from that file and ignored here.",
     "atlas_height":
-        "Full atlas canvas height in pixels. When a .atlas is bound this is "
-        "read from it and ignored here.",
+        "Full atlas canvas height in pixels. Layout = Grid of cells: yours — "
+        "read as you set it and never overwritten. Layout = Pack the art: the "
+        "packer's OUTPUT, so it is shown read-only — Create Atlas measures "
+        "your art and writes the page size it chose. When a .atlas is bound "
+        "this is read from that file and ignored here.",
     "atlas_cell_width":
-        "Fallback slot width for regions with no explicit geometry — only "
-        "used in the legacy cell-grid mode (no .atlas bound).",
+        "The width of the cell every region is laid into under Layout = Grid "
+        "of cells — the grid IS this size, so changing it re-flows the whole "
+        "page on the next Create Atlas. Hidden under Layout = Pack the art, "
+        "where nothing reads it: packing gives every region its own explicit "
+        "size. Also the fallback slot width for a legacy cell-grid manifest "
+        "(no .atlas bound) whose regions carry no geometry.",
     "atlas_cell_height":
-        "Fallback slot height for regions with no explicit geometry — only "
-        "used in the legacy cell-grid mode (no .atlas bound).",
+        "The height of the cell every region is laid into under Layout = Grid "
+        "of cells — the grid IS this size, so changing it re-flows the whole "
+        "page on the next Create Atlas. Hidden under Layout = Pack the art, "
+        "where nothing reads it: packing gives every region its own explicit "
+        "size. Also the fallback slot height for a legacy cell-grid manifest "
+        "(no .atlas bound) whose regions carry no geometry.",
     "atlas_format":
         "Pixel format tag stored in the manifest (e.g. RGBA). Informational; "
         "does not change generation.",
     "atlas_layout":
-        "Who decides where every region sits — and whether the four size "
-        "fields below are yours or the tool's. Pack the art = the tool "
-        "measures what you generated, packs it as tightly as it can, and "
+        "Who decides where every region sits — and which size fields below are "
+        "yours. The other fields follow this choice the moment you change it: "
+        "anything the chosen layout does not read is hidden or locked, so no "
+        "box here can take a number and quietly discard it. Pack the art = the "
+        "tool measures what you generated, packs it as tightly as it can, and "
         "OVERWRITES Atlas "
-        "width/height with the page it chose (typing a size there does "
-        "nothing). Grid of cells = your Atlas width/height and Default cell "
-        "width/height are READ and never overwritten; the regions flow through "
-        "that grid in manifest order (left to right, then down), and it "
+        "width/height with the page it chose — so those two show read-only, "
+        "and Default cell width/height disappear (packing gives every region "
+        "its own size). Grid of cells = your Atlas width/height and Default "
+        "cell width/height are READ and never overwritten; the regions flow "
+        "through that grid in manifest order (left to right, then down), and it "
         "re-flows on every Create Atlas — change a cell size, press Create "
-        "Atlas, every frame moves. Grid is the one for a flipbook/animation, "
+        "Atlas, every frame moves; Frame trim disappears, since only the packer "
+        "measures with it. Grid is the one for a flipbook/animation, "
         "where the frames must share one cell. Switching CLEARS every region's "
         "current rect (it belongs to the layout you are leaving); the next "
         "Create Atlas lays them all out again. Only shown for an atlas this "
         "tool builds itself — one bound to a .atlas keeps that file's geometry.",
     "atlas_pack_trim":
-        "Only for a from-scratch atlas (the Atlas Maker packs the page). "
+        "Only for Layout = Pack the art — it is the measurement the packer "
+        "takes, so it is hidden under Grid of cells, where nothing reads it. "
         "Trim = each frame is cut down to its own visible pixels, giving the "
         "smallest page — right for symbols, which are placed one at a time. "
         "Keep the full frame = each frame keeps the whole canvas it was drawn "
@@ -1110,11 +1229,17 @@ def _model_status_html(target: str = "local") -> str:
 def _control_html(key: str, typ: str, value, cache: dict, *,
                    allow_blank: bool = False, blank_label: str = "",
                    placeholder: str = "", title: str = "",
-                   step: str = "", target: str = "local") -> str:
+                   step: str = "", target: str = "local",
+                   readonly: bool = False) -> str:
     """Inner form element for a settings field: a <select> for the pipeline
     and for model-file fields (populated live from ComfyUI, current value
     always kept), else the plain <input>. All carry data-cfg so the existing
-    save logic and cfgData() pick them up unchanged."""
+    save logic and cfgData() pick them up unchanged.
+
+    `readonly` applies to the plain <input> only — it exists for the geometry
+    fields a layout OWNS (`ATLAS_GEOM_READONLY_IN`), which are numbers and
+    never dropdowns. Readonly and not disabled on purpose: the value still
+    posts, so locking a field can never wipe it."""
     cur = "" if value is None else str(value)
     common = f' data-cfg="{key}" title="{title}"'
     if key == "pipeline":
@@ -1182,7 +1307,8 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
                 f'{_opt_html(avail, cur, bl, marker)}</select>')
     inp = (f'<input{common} type="{typ}" '
            f'value="{html.escape(cur, quote=True)}" '
-           f'placeholder="{html.escape(placeholder, quote=True)}"{step}>')
+           f'placeholder="{html.escape(placeholder, quote=True)}"{step}'
+           f'{" readonly" if readonly else ""}>')
     if key in FILE_FIELDS:
         return (f'<span class="filefld">{inp}'
                 f'<button type="button" class="fbtn" title="Browse for a '
@@ -4887,6 +5013,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .cfggrid .qm{{cursor:help;color:#6fb0c8;font-weight:700;margin-left:5px;border:1px solid #3a5b66;border-radius:50%;padding:0 5px;font-size:11px}}
  .cfggrid .lblrow{{display:flex;align-items:center}}
  .cfggrid input,.cfggrid select{{background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:6px;font-size:13px}}
+ .cfggrid input[readonly]{{background:#141416;color:#8f8f96;border-style:dashed;cursor:default}}
+ .cfggrid .rohint{{color:#8a8a95;font-size:10px;font-style:italic}}
  .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}}
  .card{{background:#27272d;border:1px solid #36363d;border-radius:8px;padding:12px}}
  .card h3{{margin:0 0 8px;font-size:15px}} .card .role{{color:#999;font-size:12px;margin-bottom:8px}}
@@ -5389,6 +5517,32 @@ function applyPipe(){{                 // Settings panel (global + per-atlas)
  renderBpParams(p);  // exposed-param controls for the active blueprint
  applyCardPipes();   // a card inheriting the global pipeline follows it
 }}
+// The SAME rule as data-pipe, for the geometry rows of 🧩 Atlas settings: a row
+// shows when its data-layout group is 'both' or matches the chosen Layout.
+// Client-side and immediate, BEFORE any save — picking Grid has to reveal the
+// very cell fields you then need to fill, and waiting for a save+reload would
+// hide them at exactly the moment they matter. Server-rendered state matches
+// (`layout_row_visible`), so the panel does not change shape when this runs.
+function layoutVisible(g,L){{ return !g||g==='both'||g===L; }}
+function atlasLayoutNow(){{
+ let s=document.querySelector('[data-cfg="atlas_layout"]');
+ return (s&&s.value)||'';
+}}
+function applyAtlasLayout(){{
+ // No Layout control = a .atlas-bound / legacy cell-grid atlas. It has no
+ // layout to be aware of and its cell size is live, so touch nothing.
+ let L=atlasLayoutNow(); if(!L) return;
+ document.querySelectorAll('.cfggrid [data-layout]').forEach(l=>{{
+  l.style.display=layoutVisible(l.getAttribute('data-layout'),L)?'':'none';
+ }});
+ // Atlas width/height under 'pack' are the packer's OUTPUT. readOnly, never
+ // disabled: a readonly input still posts, so cfgData() cannot drop its value.
+ document.querySelectorAll('.cfggrid [data-ro-layout]').forEach(l=>{{
+  let ro=l.getAttribute('data-ro-layout')===L;
+  l.querySelectorAll('input').forEach(i=>{{ i.readOnly=ro; }});
+  let n=l.querySelector('.rohint'); if(n) n.style.display=ro?'':'none';
+ }});
+}}
 // Render the active blueprint's exposed-param controls into the Blueprint
 // settings panel. Hidden unless the active pipeline is a blueprint with params.
 // Pre-filled from this manifest's saved overrides, else each param's default.
@@ -5612,6 +5766,9 @@ document.addEventListener('DOMContentLoaded',function(){{
  let p=document.querySelector('[data-cfg="pipeline"]');
  if(p)p.addEventListener('change',applyPipe);
  applyPipe();
+ let al=document.querySelector('[data-cfg="atlas_layout"]');
+ if(al)al.addEventListener('change',applyAtlasLayout);
+ applyAtlasLayout();
  // What the manifest holds right now: these textareas were rendered from it.
  _styleSaved=_styleNow();
  _STYLE_IDS.forEach(id=>{{
@@ -9935,7 +10092,6 @@ class Handler(BaseHTTPRequestHandler):
                     '</button>' if is_pack else ""),
             ))
         msettings = m.get("settings") or {}
-        matlas = m.get("atlas") or {}
         global_fields = []   # atlas_config.json shared defaults
         atlas_fields = []    # per-atlas overrides + this atlas's geometry
         model_cache: dict = {}  # (node,field) -> list, fetched once per page
@@ -9979,23 +10135,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
         # NOT ATLAS_GEOM_FIELDS directly: `atlas_layout` is shown only for an
         # atlas this tool already lays out itself, so a `.atlas`-bound one can
-        # never be handed to the packer. See `atlas_geom_fields_for`.
-        for ui_key, label, typ, mk in atlas_geom_fields_for(m):
-            step = " step=any" if typ == "number" else ""
-            tip = help_for(ui_key, cfg)
-            tip_esc = html.escape(tip, quote=True)
-            qm = (f'<span class="qm" title="{tip_esc}">&#9432;</span>'
-                  if tip else "")
-            # Through _control_html so these get the same treatment as every
-            # other setting: atlas_format becomes its enum <select>, the two
-            # path fields keep their 📁 browse button.
-            ctl = _control_html(ui_key, typ, matlas.get(mk, ""), model_cache,
-                                title=tip_esc, step=step)
-            atlas_fields.append(
-                f'<label><span class="lblrow">{html.escape(label)} '
-                f'<span style="color:#888;font-size:10px">· this atlas</span>'
-                f'{qm}</span>{ctl}</label>'
-            )
+        # never be handed to the packer. See `atlas_geom_fields_for`, and
+        # `atlas_geom_rows_html` for the layout-awareness of the rows.
+        atlas_fields.extend(atlas_geom_rows_html(m, cfg, model_cache))
         # Both field loops are done, so model_cache now holds every list this
         # render read. Persist them only if a LIVE probe found something the
         # stored catalog doesn't already have — commit_live is content-gated and
