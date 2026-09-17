@@ -579,7 +579,7 @@ ATLAS_GEOM_FIELDS = [
     ("atlas_cell_height", "Default cell height", "number", "cell_height"),
     ("atlas_format", "Atlas format", "text", "format"),
     ("atlas_source_image", "Atlas source image", "text", "source_image"),
-    ("atlas_pack_trim", "Frame trim (from-scratch layout)", "text", "pack_trim"),
+    ("atlas_pack_trim", "Frame trim", "text", "pack_trim"),
 ]
 _ATLAS_GEOM_KEYS = {ui: mk for ui, _, _, mk in ATLAS_GEOM_FIELDS}
 _ATLAS_GEOM_NUMERIC = {"atlas_width", "atlas_height",
@@ -621,14 +621,21 @@ ATLAS_LAYOUT_AUTHORED_LABEL = "Authored geometry (leave as is)"
 #   · `cell_width`/`cell_height` ARE the grid. Under `pack` nothing reads them:
 #     the packer stamps an explicit w/h onto every region, so `region_box`'s
 #     cell fallback never fires.
-#   · `pack_trim` is read at exactly one place — inside `auto_pack_layout`.
+#   · `pack_trim` is NOT IN HERE, and used to be (#719, wrongly: `grid`). It is
+#     read twice — `auto_pack_layout` measures with it, and
+#     `batch_atlas.fit_to_region` PLACES with it on every from-scratch atlas,
+#     which is both layouts. Hiding it under `grid` took away the author's only
+#     say over cropping while the cropping went on happening, one function
+#     along: a grid cell whose aspect differs from the art's, or which is bigger
+#     than it, re-centres every frame on its own ink. "Only `auto_pack_layout`
+#     calls `pack_trim_mode`" was true and was not the question.
 # A dead field that looks live is what cost the owner an atlas: 2048x2048 typed
 # into Atlas width/height on a `pack` atlas, saved, then overwritten by the
-# packer's 1028x25652 on the next Create Atlas.
+# packer's 1028x25652 on the next Create Atlas. A LIVE field that was hidden for
+# looking dead is the same fault from the other side, and cost him the control.
 ATLAS_GEOM_LAYOUT_GROUP = {
     "atlas_cell_width": "grid",
     "atlas_cell_height": "grid",
-    "atlas_pack_trim": "pack",
 }
 ATLAS_GEOM_LAYOUT_BOTH = "both"
 
@@ -863,8 +870,9 @@ SETTING_HELP = {
         "cell width/height are READ and never overwritten; the regions flow "
         "through that grid in manifest order (left to right, then down), and it "
         "re-flows on every Create Atlas — change a cell size, press Create "
-        "Atlas, every frame moves; Frame trim disappears, since only the packer "
-        "measures with it. Grid is the one for a flipbook/animation, "
+        "Atlas, every frame moves. Frame trim stays on screen: it decides "
+        "whether your art is cropped to its ink before it goes in the cell, "
+        "under this layout too. Grid is the one for a flipbook/animation, "
         "where the frames must share one cell. Switching CLEARS every region's "
         "current rect (it belongs to the layout you are leaving); the next "
         "Create Atlas lays them all out again. Authored geometry (leave as is) "
@@ -876,14 +884,18 @@ SETTING_HELP = {
         "of them. Not shown at all for an atlas bound to a .atlas — that file "
         "is its geometry, and it keeps it.",
     "atlas_pack_trim":
-        "Only for Layout = Pack the art — it is the measurement the packer "
-        "takes, so it is hidden under Grid of cells, where nothing reads it. "
-        "Trim = each frame is cut down to its own visible pixels, giving the "
-        "smallest page — right for symbols, which are placed one at a time. "
-        "Keep the full frame = each frame keeps the whole canvas it was drawn "
-        "on, so every frame in an ANIMATION shares one centre and the "
-        "character stops drifting up/down/left/right between frames. Costs "
-        "page area. Changing this takes effect on the next Create Atlas.",
+        "Whether Create Atlas cuts the transparent edges off your art before "
+        "placing it. Works under BOTH layouts. Keep the whole frame (the "
+        "default) = the image goes in exactly as you made it, edges and all, "
+        "so every frame drawn on the same canvas is scaled and positioned the "
+        "same way — that is what keeps an ANIMATION registered, with the "
+        "character moving the way it was drawn instead of drifting "
+        "up/down/left/right. Crop each frame to its visible pixels = each "
+        "frame is cut down to its own ink first, then placed on its own. Under "
+        "Pack the art that gives the smallest page, which is what you want for "
+        "symbols, placed one at a time. Under Grid of cells it makes each "
+        "frame fill its cell on its own terms, so the art jumps between "
+        "frames. Changing this takes effect on the next Create Atlas.",
     "atlas_file":
         "Optional Spine/libGDX .atlas that owns region geometry (x/y/w/h). "
         "Browse to or paste an absolute path, or a name next to the manifests. "
@@ -3210,28 +3222,26 @@ _REPACK_CLEARED_KEYS = ("off_x", "off_y", "orig_w", "orig_h",
                         "offX", "offY", "origW", "origH",
                         "fit_mode", "bounds", "offsets")
 
-# How a from-scratch re-pack treats each frame's transparent border. Stored
-# per-manifest at `atlas.pack_trim`; absent = "alpha" = what this tool has
-# always done.
-#   alpha - pack each frame at its own ALPHA bbox. Smallest page. Every frame
-#           becomes its own tight crop, so the frames only line up again if the
-#           trim recording where that crop sat is KEPT (see _carried_trim).
-#   keep  - pack each frame at its full canvas. Frames authored on one canvas
-#           then share one centre with no trim record at all, which is what an
-#           animation needs; it costs page area to get.
+# What 🧩 Atlas settings' Frame trim dropdown offers. The KEYS are
+# `batch_atlas.PACK_TRIM_MODES` and the meaning is stated THERE, beside the code
+# that acts on it — same split as ATLAS_LAYOUT_MODES / FROM_SCRATCH_LAYOUTS, and
+# pinned by a fixture so a mode added there cannot become unofferable here.
+#
+# The labels say what the choice DOES and stop. They used to also promise what
+# it buys you ("smallest page", "all frames share one centre") — both of which
+# were claims about `pack` alone, and the second is one this tool can only make
+# when every region's art is on one canvas (`auto_pack_layout` warns when it is
+# not). The consequences belong in the tooltip, where they can be conditional.
 PACK_TRIM_MODES = {
-    "alpha": "Trim each frame to its alpha (smallest page)",
-    "keep": "Keep the full frame (all frames share one centre)",
+    "alpha": "Crop each frame to its visible pixels",
+    "keep": "Keep the whole frame, transparent edges included",
 }
-PACK_TRIM_DEFAULT = "alpha"
+PACK_TRIM_DEFAULT = batch_atlas.PACK_TRIM_DEFAULT
 
-
-def pack_trim_mode(m: dict) -> str:
-    """The `atlas.pack_trim` choice for this manifest, normalized. Anything
-    unrecognised (including absent) reads as the historical default, so an
-    atlas authored before this setting existed re-packs exactly as it did."""
-    v = str((m.get("atlas") or {}).get("pack_trim", "")).strip().lower()
-    return v if v in PACK_TRIM_MODES else PACK_TRIM_DEFAULT
+# ONE implementation, in the module that reads it at compose time. A second
+# normalizer here is how the panel and the page come to disagree about what an
+# unset manifest does — and `batch_atlas` cannot import this module.
+pack_trim_mode = batch_atlas.pack_trim_mode
 
 
 # The four trim fields, snake_case -> the camelCase a producer may have used.
@@ -3490,9 +3500,10 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
     For each region, measure its committed variant / override at its ALPHA-
     trimmed footprint (the same crop compose's default `contain` path uses), pack
     all of them into an auto-sized page, then stamp `x/y/w/h(/rotated)` back onto
-    each region plus `atlas.width/height`. `atlas.pack_trim: "keep"` measures the
-    whole canvas instead, so frames authored on one canvas keep one common centre
-    (see PACK_TRIM_MODES); absent = "alpha" = the historical behaviour.
+    each region plus `atlas.width/height`. `atlas.pack_trim: "keep"` — THE
+    DEFAULT — measures the whole canvas instead, so frames authored on one
+    canvas keep one common centre (see `batch_atlas.PACK_TRIM_MODES`); an
+    explicit `"alpha"` asks for the tight crop.
     Either way a trim the region ALREADY recorded is preserved, re-based onto the
     new crop — see `_carried_trim`. Compose then places each region via
     the default contain path — rect == trimmed bbox ⇒ 1:1, no scaling — and
@@ -3608,12 +3619,14 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
             r.pop(k, None)
         r.update(carried.get(pr["name"]) or {})
         if keep_full:
-            # The rect IS the whole canvas, so the art must be pasted verbatim.
-            # Without an explicit `contain`, `fit_to_region` falls to its legacy
-            # path, which alpha-crops the art and re-centres it in the rect —
-            # re-introducing the per-frame centre this mode exists to remove.
-            # Explicit `contain` runs `_packer_compose_tile`, and rect == image
-            # size makes that a pass-through.
+            # The rect IS the whole canvas, so the art is pasted verbatim: with
+            # `contain` the scale comes out at exactly 1.0 and the paste at
+            # (0, 0). Stamped rather than left to the default because the
+            # default is read from the region — `_carried_trim` may have just
+            # put an `orig_w`/`orig_h` back on it, which `fit_to_region` reads
+            # as `spine_slot` and answers with `fill`. Same pixels here (a 1:1
+            # stretch), but only by arithmetic: name the placement instead of
+            # relying on it.
             r["fit_mode"] = "contain"
     # Everything the packer did NOT just place is off this page — including a
     # measured item the packer somehow returned nothing for. Its old rect now
@@ -4387,9 +4400,11 @@ IW_TOOLBAR_CSS = """
 #
 # 2. PLACEMENT MODE — which branch of `batch_atlas.fit_to_region` this region
 #    will take on the NEXT compose (see `_placement_mode`, which mirrors that
-#    dispatch). This is read from the manifest, not the pixels, and answers
-#    "will the sheet-parity path (912e8f5) do anything for this page?" — only
-#    an EXPLICIT `fit_mode:"contain"` reaches it, and only sheet-tool's
+#    dispatch — including the manifest's Frame trim, which decides whether the
+#    art is cropped to its ink first and is passed in). This is read from the
+#    manifest, not the pixels, and answers "will the sheet-parity path
+#    (912e8f5) do anything for this page?" — only an EXPLICIT
+#    `fit_mode:"contain"` reaches it, and only sheet-tool's
 #    `atlas_writers.build_manifest` writes that field. A manifest imported from
 #    a `.atlas` (`_tp_frame_to_region`) carries trim but no `fit_mode`, so its
 #    regions default to `fill` and the parity fix is a no-op for them.
@@ -4419,21 +4434,33 @@ def _js_json(value) -> str:
     return json.dumps(value).replace("<", "\\u003c")
 
 
-def _placement_mode(r: dict) -> dict:
+def _placement_mode(r: dict, keep_full: bool = False) -> dict:
     """Which branch of `batch_atlas.fit_to_region` this region will take.
 
     MIRRORS that function's dispatch exactly — keep the two in lockstep. The
     order matters and is not re-derivable by eye:
-      1. an EXPLICIT `fit_mode == "contain"` short-circuits to the sheet-parity
-         path (`_packer_compose_tile`, a verbatim replay of packer.compose);
+      0. `keep_full` (`batch_atlas.keep_full_frame` — `atlas.pack_trim: "keep"`
+         on a from-scratch atlas) removes the alpha from the dispatch
+         ENTIRELY: the sheet-parity short-circuit is skipped, nothing is
+         cropped and nothing is padded, and the whole canvas is what `mode`
+         then maps;
+      1. otherwise an EXPLICIT `fit_mode == "contain"` short-circuits to the
+         sheet-parity path (`_packer_compose_tile`, a verbatim replay of
+         packer.compose);
       2. otherwise `mode = explicit or ("fill" if spine_slot else "contain")`,
          where `spine_slot = "orig_w" in region and "orig_h" in region`;
       3. that `mode` selects fill / cover / (else) the alpha-crop + letterbox
          "contain" — so an UNKNOWN explicit value silently lands on letterbox,
          which is why it gets its own label rather than being called "contain".
 
-    Only sheet-tool's `atlas_writers.build_manifest` stamps `fit_mode:"contain"`
-    on every cell it writes; the `.atlas`/TexturePacker import path
+    `keep_full` is a property of the MANIFEST, not of the region, so it is
+    passed in — `_view_region`'s caller has the manifest. Defaulting it to False
+    keeps the answer right for every caller holding a region alone: the modes
+    that ignore it (`.atlas`-bound, Sheet-Maker, legacy) are exactly the ones
+    `keep_full_frame` gates out.
+
+    Only sheet-tool's `atlas_writers.build_manifest` and the 🖼 To Atlas Maker
+    export stamp `fit_mode:"contain"`; the `.atlas`/TexturePacker import path
     (`_tp_frame_to_region`) writes trim geometry but NO `fit_mode`. So this is
     the field that decides whether the sheet-parity path is reachable at all
     for a given manifest — hence the inspector reports it per region.
@@ -4442,28 +4469,32 @@ def _placement_mode(r: dict) -> dict:
     Module-level + pure so it can be exercised offline."""
     explicit = str(r.get("fit_mode", "")).strip().lower()
     spine_slot = "orig_w" in r and "orig_h" in r
-    if explicit == "contain":
+    if explicit == "contain" and not keep_full:
         return {"key": "parity", "label": "contain (explicit) → sheet parity",
                 "note": "replays packer.compose verbatim — a Sheet-Maker cell "
                         "recomposes byte-identically to its sheet"}
+    src = "the whole frame" if keep_full else "the alpha bbox"
+    crop = ("no crop (Frame trim = keep the whole frame)" if keep_full
+            else "crop to the alpha bbox")
     mode = explicit or ("fill" if spine_slot else "contain")
     if mode == "fill":
         return {"key": "fill",
                 "label": "fill (explicit)" if explicit
                          else "fill (spine-slot default)",
-                "note": "crop to the alpha bbox, then stretch to the slot exactly"}
+                "note": f"{crop}, then stretch {src} to the slot exactly"}
     if mode == "cover":
         return {"key": "cover", "label": "cover (explicit)",
-                "note": "crop to the alpha bbox, scale to cover the slot, "
-                        "crop the overflow"}
+                "note": f"{crop}, scale {src} to cover the slot, "
+                        f"crop the overflow"}
     return {"key": "contain",
             "label": ("contain (cell-grid default)" if not explicit
+                      else "contain (explicit)" if explicit == "contain"
                       else "contain (fallback from \"%s\")" % explicit),
-            "note": "crop to the alpha bbox, uniform-scale to fit, letterbox "
-                    "with transparent margin"}
+            "note": f"{crop}, uniform-scale {src} to fit, letterbox "
+                    f"with transparent margin"}
 
 
-def _view_region(r: dict) -> dict | None:
+def _view_region(r: dict, keep_full: bool = False) -> dict | None:
     """Normalize ONE region for the Region Overlay Inspector's payload.
     Returns None for a region with no usable rect (nothing to outline).
     Module-level + pure so the overlay math can be exercised offline."""
@@ -4471,7 +4502,7 @@ def _view_region(r: dict) -> dict | None:
         w, h = int(r["w"]), int(r["h"])
     except (KeyError, TypeError, ValueError):
         return None
-    pm = _placement_mode(r)
+    pm = _placement_mode(r, keep_full)
     ox = int(r.get("off_x", 0) or 0)
     oy = int(r.get("off_y", 0) or 0)
     ow = int(r.get("orig_w", w) or w)
@@ -8493,7 +8524,9 @@ class Handler(BaseHTTPRequestHandler):
         composed page. The page bytes come from the existing `/atlasimg` route
         — this page never re-serves them."""
         m = load_manifest()
-        regions = [v for v in (_view_region(r) for r in all_regions(m)) if v]
+        keep_full = batch_atlas.keep_full_frame(m)
+        regions = [v for v in (_view_region(r, keep_full)
+                               for r in all_regions(m)) if v]
         af = atlas_file()
         # Cache-bust the page bytes: "Create Atlas" rewrites the same filename,
         # so a re-opened inspector must not measure the previous compose.
@@ -9792,7 +9825,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"do NOT share a common centre. For a symbol sheet that is "
                 f"fine. For an ANIMATION it is the up/down/left/right jitter. "
                 f"Fix it BEFORE the art is cropped: set this atlas's 'Frame "
-                f"trim' to keep the full frame and re-run Create Atlas, while "
+                f"trim' to keep the whole frame and re-run Create Atlas, while "
                 f"each region's committed art still has its margins. Once a "
                 f"page of tight crops is all that is left there is nothing to "
                 f"restore from — what was cut off is recorded nowhere — and a "

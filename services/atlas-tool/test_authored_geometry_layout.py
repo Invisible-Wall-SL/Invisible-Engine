@@ -368,7 +368,9 @@ def test_choosing_it_stores_nothing_and_clears_nothing() -> None:
           {k: out["atlas"][k] for k in before["atlas"]}, before["atlas"])
     # The ONE addition, and it is not this change's: the Frame trim row
     # normalises an absent value to PACK_TRIM_DEFAULT and posts it, so any save
-    # of this panel writes `pack_trim: alpha`. Verified against a real run of
+    # of this panel writes that default in (`keep` since 2026-09-17 -- inert
+    # here either way, since `keep_full_frame` is gated on `is_from_scratch`
+    # and an authored-geometry atlas is not). Verified against a real run of
     # origin/main (13879105), which produces the identical atlas block -- and it
     # is inert here, since only `auto_pack_layout` ever reads it.
     check("...and the only key gained is main's pre-existing trim default",

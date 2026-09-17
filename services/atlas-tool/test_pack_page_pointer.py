@@ -532,8 +532,15 @@ def test_the_deploy_refuses_a_page_that_contradicts_the_manifest() -> None:
     before = dict(bucket.objects)
     m = _read(mp)
     w, h = int(m["atlas"]["width"]), int(m["atlas"]["height"])
+    # Wider and shorter than the page the manifest declares -- the live shape.
+    # Derived FROM the packed page, never a hardcoded ±px: which way round the
+    # packer lays 25 equal tiles out is its business (`atlas.pack_trim`'s
+    # default flipping to `keep` turned this fixture's 68x1652 column into a
+    # 1980x174 band, and a literal `h - 439` then asked PIL for a negative
+    # height), and this test is about the size DISAGREEING, not about its value.
+    bad_w, bad_h = w + 113, max(1, h // 3)
     for ext in ("png", "webp"):
-        Image.new("RGBA", (w + 113, h - 439), (0, 0, 0, 255)).save(
+        Image.new("RGBA", (bad_w, bad_h), (0, 0, 0, 255)).save(
             Path(u.ATLAS_DIR) / f"SquidIdle_new.{ext}")
 
     note = _deploy()
@@ -541,7 +548,7 @@ def test_the_deploy_refuses_a_page_that_contradicts_the_manifest() -> None:
     check("the deploy is refused outright", note.startswith("⚠ REFUSED to deploy"),
           True)
     check("...naming the page size and the packed size",
-          f"{w + 113}×{h - 439}" in note and f"{w}×{h}" in note, True)
+          f"{bad_w}×{bad_h}" in note and f"{w}×{h}" in note, True)
     check("nothing was uploaded -- the previous deploy still stands",
           bucket.objects, before)
 

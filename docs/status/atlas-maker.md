@@ -7,6 +7,61 @@
 ## Current state
 Works today on `main` / live:
 
+- **Frame trim is back, it works on a `grid` atlas, and it no longer crops by default**
+  _(2026-09-17)_. Owner: *"the old drop down, where I could select if the image was full or cropped
+  to the alpha is now gone and I need it back asap!"* — plus *"its default should be not to crop
+  the image!"*
+  - **#719's measurement was true and beside the point.** `pack_trim_mode` really was called only
+    inside `auto_pack_layout`, so hiding the row on `grid` looked justified — but the CROPPING it
+    governs still happened there, in `fit_to_region`, which crops the element to its alpha content
+    on the way into the cell. The control vanished while the behaviour stayed. **Hiding a live
+    control is the same fault as showing a dead one**, which is what #719 existed to fix.
+  - `pack_trim` now lives in `batch_atlas` (`pack_trim_mode`, `keep_full_frame`) because
+    `fit_to_region` reads it and `batch_atlas` cannot import `ui_server`; `ui_server` delegates, so
+    there is ONE normalizer. Read through the same `ATLAS_META` channel `region_box` already uses.
+  - **Gated on `is_from_scratch AND NOT is_atlas_bound`**, so a `.atlas`-bound rig slot, a
+    Sheet-Maker cell and a legacy cell-grid region never read it — the Sheet-Maker parity contract
+    is untouched, and removing the gate breaks `test_sheet_handoff`, i.e. the pre-existing suite
+    proves it. `is_atlas_bound` is not redundant: the Source `.atlas` row renders on every panel,
+    so a manifest can carry `layout: pack` AND `atlas_file`.
+  - **Precedence:** `pack_trim` answers WHAT is placed (ink bbox vs authored canvas), `fit_mode`
+    answers HOW it maps into the rect. Orthogonal, except at the explicit-`contain` short-circuit,
+    which maps the whole canvas but centres it BY THE INK — bypassed under `keep`, because being
+    ink-blind is the entire content of the setting.
+  - **The proof it had to come back, measured:** the flipbook export stamps `fit_mode: "contain"`
+    on every grid region, so grid composes through `_packer_compose_tile`. Three frames of one 60px
+    square walked across a 320 canvas into a 400 cell compose **byte-identical** under `alpha` (ink
+    pinned at 170,170,230,230 — the animation is gone) and step 49 → 124 → 199 under `keep`.
+  - **`PACK_TRIM_DEFAULT` is now `keep`, and the blast radius is real.** Every manifest with no
+    explicit `atlas.pack_trim` changes on its next Create Atlas. On `grid` only the composed pixels
+    change. **On `pack` the page is re-measured at full canvas, so it GROWS and every rect moves** —
+    measured 2012×2512 (5.1 Mpx) → 1028×25652 (26.4 Mpx), ~5× the area, and there is no page-size
+    ceiling in the packer or the deploy. Tight symbol packing must now be asked for explicitly.
+    Nothing rewrites a stored manifest and the default is never written into one.
+  - Fixtures: `test_pack_trim` 39 → 87 (incl. the different-pixels proof at three cell sizes),
+    `test_layout_aware_panel` 144 → 169. 7 mutations tried, 7 caught.
+  - **Known gap, deliberately not fixed:** `/parityscan`'s SHEET PARITY verdict recomposes through
+    `_packer_compose_tile` by design, so a correctly composed `keep` page reads `DIFFERS`. Mirroring
+    `fit_to_region` there means installing `ATLAS_META` inside a request thread of a threaded
+    server — the global-state hazard this codebase warns about.
+
+- **Create Atlas no longer writes an EMPTY page over a good one** _(2026-09-17, #728)_. Owner:
+  *"my atlas is always empty now… it was working before!"* `grid_layout` correctly refuses when
+  there is no cell size, but its note only reached `pre_note` and **compose ran anyway** — and
+  compose skips every region with no rect on a from-scratch atlas (the `_unplaced` gate #712
+  widened to grid), so it drew ZERO regions, wrote a blank page, and `publish_pack_page` repointed
+  the manifest at it. A correct refusal upstream became a destroyed page downstream. `pack` had the
+  same hole via "nothing generated yet".
+  - `nothing_is_placed(m)` stops the compose subprocess and the post-hook, leaving `source_image` /
+    `source_image_path` untouched, and reports the layout function's OWN note verbatim.
+  - **A partially laid-out atlas still composes** — some rects and some blanks is the normal
+    working state, so the guard fires only on ZERO. Pinned hard; that is the regression risk.
+  - `run_compose` now sets `running=True` BEFORE the slow prepare steps, or the fix was reachable
+    but invisible: `poll()` ends on the first `running:false` and would show the previous run's log.
+  - Fixture: `test_no_empty_compose.py` (69 checks) with a fake bucket seeded with the good page, so
+    "the page was destroyed" is measurable in pixels; against pristine `main` it reproduces the bug.
+    6 mutations tried, 6 caught.
+
 - **A variant pick is spent by the next render — as a fact of the manifest, not a cleanup**
   _(2026-09-17)_. Owner report: *"when I generate a new variation it is not automatically
   getting added to my grid, and I will have to go and select it from the variations on each
@@ -45,8 +100,11 @@ Works today on `main` / live:
   to pack the art should be hidden from the UI and viceversa."* This is the trap that cost three
   rounds: an editable Atlas width/height on a `pack` atlas looked like an input and was silently
   overwritten. Measured split, held to the source by a fixture that greps `ui_server.py`:
-  `pack_trim_mode` is read once, inside `auto_pack_layout`; `grid_layout` reads `cell_width` and
-  never writes `atlas["width"]`; `auto_pack_layout` does the reverse.
+  `grid_layout` reads `cell_width` and never writes `atlas["width"]`; `auto_pack_layout` does the
+  reverse. **The Frame trim half of that split was WRONG and was reverted the same day** — see the
+  bullet above: `pack_trim_mode` was indeed called only inside `auto_pack_layout`, but the CROPPING
+  it names still happened on a grid atlas through `fit_to_region`, so hiding the row removed a
+  control over live behaviour. Frame trim is shown on both layouts again.
   - **`pack`:** cell width/height hidden (nothing reads them); Frame trim shown; Atlas
     width/height shown **read-only** with a note. Kept visible deliberately — they are the only
     readout of the page the packer produced, which is how `1028×25652` was spotted in the first
