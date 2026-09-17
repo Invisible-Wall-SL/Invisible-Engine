@@ -42,7 +42,7 @@ import {
 	type WinTextDoc,
 } from 'engine-layout';
 import { betModeCardIds, type GameConfigDoc } from 'game-config';
-import { listComponentDefaults } from './componentDefaultsStorage';
+import { keyComponentDefaultsById, listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportBootSplashes } from './bootSplashExport';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
@@ -352,7 +352,7 @@ async function assembleRuntimeBundle(
 	// card at RUNTIME, so the def must be folded into the exported set here or it never ships (the
 	// static scene walk can't see a runtime-chosen id). `loadGameConfigDoc` returns null for a
 	// never-authored project ⇒ no card ids ⇒ byte-identical to before (parity).
-	const [componentDefaults, gameConfig] = await Promise.all([
+	const [storedComponentDefaults, gameConfig] = await Promise.all([
 		step('componentDefaults', timings, () => listComponentDefaults(projectKey)),
 		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
@@ -375,6 +375,15 @@ async function assembleRuntimeBundle(
 		[...Object.values(componentDefs), ...componentVersions],
 		clientKey,
 		projectKey,
+	);
+	// The sidecar LISTING is keyed by `r2Slug(id)` — the filename — while the runtime looks a
+	// component up by its real `ComponentDef.id` (`getComponentDefaults(node.componentId)`). A
+	// camelCase id (`hudReadout` → `hudreadout.json`) therefore never matches, and the defaults
+	// would silently no-op in the published bundle while working in both editors. `componentDefs`
+	// is the resolved closure, keyed by real id, so it is exactly the alias set.
+	const componentDefaults = keyComponentDefaultsById(
+		storedComponentDefaults,
+		Object.keys(componentDefs),
 	);
 
 	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then

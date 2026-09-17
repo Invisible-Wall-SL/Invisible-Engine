@@ -124,6 +124,11 @@
 		 * tree and render spines nested inside it — the same `componentMap` the 2D canvas +
 		 * text overlay use. Without it, only directly-placed spines render. */
 		componentMap?: Map<string, ComponentDef>;
+		/** Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
+		 * layer applied UNDER a placed instance's own params, so an instance whose rig comes
+		 * from this project's defaults renders the right bundle. Empty (the default) ⇒ every
+		 * resolve passes `undefined` — parity. */
+		componentDefaults?: Record<string, Record<string, unknown>>;
 		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
 		 * so a nested spine's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
@@ -186,6 +191,7 @@
 		sceneFilter = null,
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
+		componentDefaults = {},
 		nodeFilter = null,
 		blend = 'normal',
 		worldTransformOf,
@@ -532,7 +538,7 @@
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
 					if (def) {
-						const params = resolveComponentParams(def, n.params, undefined);
+						const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
 						// EDITOR-PREVIEW ONLY: when the author is focusing a spine param on THIS instance,
 						// show the focused tier's bundle + animation instead of the default preview bundle
 						// (see `spinePreview`). Only this instance is affected; every other renders normally.
@@ -633,7 +639,7 @@
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				const params = resolveComponentParams(def, n.params, undefined);
+				const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
 				const spineBundle = instancePreviewSpineBundle(def, params);
 				collectNestedSpines(
 					def.root.children,

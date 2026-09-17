@@ -1,4 +1,8 @@
-import { projectComponentDefaultsKey, projectComponentDefaultsPrefix } from './projectPaths';
+import {
+	projectComponentDefaultsKey,
+	projectComponentDefaultsPrefix,
+	r2Slug,
+} from './projectPaths';
 import {
 	ConflictError,
 	getObjectText,
@@ -112,6 +116,28 @@ export async function listComponentDefaults(
 		const params = await readDefaults(key);
 		const id = basename(key);
 		if (id) out[id] = params;
+	}
+	return out;
+}
+
+/**
+ * Alias every {@link listComponentDefaults} entry under the REAL `ComponentDef.id` it belongs to.
+ *
+ * The sidecar's filename is `r2Slug(componentId)`, so a camelCase id stores as
+ * `hudreadout.json` and the listed map is keyed `hudreadout` — which `defaults[def.id]`
+ * (`'hudReadout'`) never matches. The per-id GET/POST never hit this because they build the key
+ * from the id; only the LIST path is slugged. Callers that hold the component list pass their ids
+ * here so a lookup by def id resolves. Additive: the original basename keys are kept, so an orphan
+ * sidecar (its component deleted) is never dropped from the map.
+ */
+export function keyComponentDefaultsById(
+	defaults: Record<string, Record<string, unknown>>,
+	ids: string[],
+): Record<string, Record<string, unknown>> {
+	const out = { ...defaults };
+	for (const id of ids) {
+		const params = defaults[r2Slug(id)];
+		if (params) out[id] = params;
 	}
 	return out;
 }

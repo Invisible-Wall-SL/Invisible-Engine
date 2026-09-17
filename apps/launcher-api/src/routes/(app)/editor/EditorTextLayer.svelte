@@ -90,6 +90,10 @@
 		 * a `preview.textParam` shows that param's value (caption/number) instead of its
 		 * label. Empty/undefined in scene mode ⇒ the label fallback (parity). */
 		componentParams?: Record<string, unknown>;
+		/** Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
+		 * layer applied UNDER a placed instance's own params, so bound text resolves to what
+		 * the game renders. Empty (the default) ⇒ every resolve passes `undefined` — parity. */
+		componentDefaults?: Record<string, Record<string, unknown>>;
 		/** Loaded project component defs, so the overlay can EXPAND a `componentInstance`'s
 		 * tree (resolve its params + recurse into `def.root.children`) and own the text it
 		 * draws — the same `componentMap` the 2D canvas uses. */
@@ -120,6 +124,7 @@
 		onMeasuredChange,
 		projectGameName = null,
 		componentParams,
+		componentDefaults = {},
 		componentMap = new Map<string, ComponentDef>(),
 		repeaterSources = null,
 		frameWidth,
@@ -404,13 +409,13 @@
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				// Resolve THIS instance's params (def defaults ◁ instance overrides, with the
-				// active layoutType's per-ratio param override merged onto the base) — the scene
-				// editor threads no per-project defaults, matching `drawComponentInstance`.
+				// Resolve THIS instance's params (def defaults ◁ per-project defaults ◁ instance
+				// overrides, with the active layoutType's per-ratio param override merged onto the
+				// base) — the same three layers `drawComponentInstance` + the runtime resolve.
 				const instanceParams = resolveComponentParams(
 					def,
 					resolveLayoutInstanceParams(n, layoutType),
-					undefined,
+					componentDefaults[def.id],
 				);
 				collectTextTargets(def.root.children, sc, out, nextChain, instanceParams, depth + 1, [
 					...stack,
@@ -433,6 +438,7 @@
 					src?.items ?? [],
 					rt.anchor?.x ?? 0,
 					rt.anchor?.y ?? 0,
+					componentDefaults[def.id],
 				);
 				for (const box of boxes) {
 					collectTextTargets(
@@ -733,6 +739,7 @@
 		void panY;
 		void zoom;
 		void componentParams;
+		void componentDefaults;
 		void componentMap;
 		void frameWidth;
 		void frameHeight;

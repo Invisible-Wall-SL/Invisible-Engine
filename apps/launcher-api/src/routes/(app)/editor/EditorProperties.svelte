@@ -52,7 +52,7 @@
 		type SpineRestOverride,
 		type TextStyle,
 	} from 'engine-layout';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 	import { DEFAULT_CLIP_FPS, fetchClips, type EditorClip } from './editorFlipbooks.client';
@@ -177,6 +177,23 @@
 		onUnexposeImageParam?: (node: LayoutNode) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
+		/**
+		 * Per-project param DEFAULTS for the OPEN component (component mode, §13.3) — the
+		 * `component-defaults` sidecar's `params` map. A key PRESENT here overrides the def's own
+		 * default for this project only; a key ABSENT inherits it. Never store `undefined`/`''`
+		 * for "inherit" — the panel's `×` removes the key (see {@link onSetProjectParamDefault}).
+		 */
+		projectParamDefaults?: Record<string, unknown>;
+		/** Set / clear one per-project default (component mode). `undefined` = back to inherit,
+		 * which the parent must apply by DELETING the key, not by writing `undefined`. */
+		onSetProjectParamDefault?: (key: string, value: unknown) => void;
+		/** Display name of the project the defaults belong to — the panel's subtitle AND its
+		 * GATE: `null` hides the whole panel (no active project ⇒ no sidecar to key). */
+		projectLabel?: string | null;
+		/** Save control + status badge for the defaults panel, rendered in its header. Passed as a
+		 * child snippet by the page, which owns the sidecar's own `SaveState` + CAS transport —
+		 * so this panel stays a pure editor of the map. */
+		projectDefaultsActions?: Snippet;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
 		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a spine / spineAnimation param on the
@@ -248,6 +265,10 @@
 		onExposeImageParam,
 		onUnexposeImageParam,
 		onToggleSignal,
+		projectParamDefaults = {},
+		onSetProjectParamDefault,
+		projectLabel = null,
+		projectDefaultsActions,
 		onSetInstanceParam,
 		onPreviewSpine,
 		onSetInstanceStateAnim,
@@ -596,19 +617,50 @@
 	const isImageExposed = $derived(componentMode && !!exposedImageParamKey);
 	/** Flat (ungrouped) author params — rendered above the grouped sections. */
 	const ungroupedAuthorParams = $derived(authorParams.filter((p) => !p.group));
+	/** Bucket params by their `group`, insertion order preserved. Pairs in an array rather than a
+	 * `Map` because `svelte/prefer-svelte-reactivity` bans a mutable `Map` inside a component and
+	 * this is a throwaway local, never reactive state. Group counts are single digits. */
+	function groupParams(params: ComponentParam[]): [string, ComponentParam[]][] {
+		const out: [string, ComponentParam[]][] = [];
+		for (const p of params) {
+			if (!p.group) continue;
+			const bucket = out.find(([g]) => g === p.group);
+			if (bucket) bucket[1].push(p);
+			else out.push([p.group, [p]]);
+		}
+		return out;
+	}
 	/** Author params bucketed by their `group` (e.g. a text node's name) — each renders
 	 * as a collapsible section so a component with several text objects edits each
-	 * independently. Insertion order preserved. */
-	const authorParamGroups = $derived.by(() => {
-		const map = new Map<string, ComponentParam[]>();
-		for (const p of authorParams) {
-			if (!p.group) continue;
-			const arr = map.get(p.group);
-			if (arr) arr.push(p);
-			else map.set(p.group, [p]);
-		}
-		return [...map.entries()];
-	});
+	 * independently. */
+	const authorParamGroups = $derived(groupParams(authorParams));
+	// ---- Per-project component defaults (component mode, §13.3) ----------------------------------
+	/**
+	 * The params the "This game's defaults" panel offers. The SAME set the Scene Editor's instance
+	 * panel offers ({@link authorParams}) — every non-`engineProvided` param — not the narrower
+	 * `variableRows`, which lists only engine-catalog subscriptions + `author: true` params and so
+	 * would hide most of a saved built-in's settable params (the HUD Readout: 1 of 20).
+	 */
+	const projectDefaultParams = $derived(componentParams.filter((p) => !p.engineProvided));
+	/** Flat (ungrouped) defaults rows — rendered above the grouped sections. */
+	const projectDefaultUngrouped = $derived(projectDefaultParams.filter((p) => !p.group));
+	/** Defaults rows bucketed by `group`, mirroring the instance panel's collapsible sections. */
+	const projectDefaultGroups = $derived(groupParams(projectDefaultParams));
+	/** This project's stored value for `key`, or `undefined` when the key inherits. */
+	function projectDefaultOf(key: string): unknown {
+		return projectParamDefaults[key];
+	}
+	/** True when this project stores an explicit value for `key` (⇒ show its `×` reset). */
+	function hasProjectDefault(key: string): boolean {
+		return Object.prototype.hasOwnProperty.call(projectParamDefaults, key);
+	}
+	/** The def's own default, as the "(inherit …)" hint a control shows when unset. */
+	function inheritHint(p: ComponentParam): string {
+		return p.default === undefined
+			? '(inherit default)'
+			: `(inherit default: ${String(p.default)})`;
+	}
+
 	/** The open component's value-source binding — the `source` param (a value feed picked
 	 * from a closed `options` enum, e.g. the readout / free-spin counter). When present the
 	 * component is engine-fed THROUGH it, so the literal engine-param checklist is inert and
@@ -2069,6 +2121,161 @@
 			</ul>
 		{/if}
 	</section>
+
+	{#if projectLabel}
+		<!-- §13.3 per-project component DEFAULTS: this game's values for the OPEN def, stored in a
+		     sidecar (`editor/<project>/component-defaults/<id>.json`) instead of forking a SHARED
+		     def. A key PRESENT in the map overrides the def's own default for this project only; a
+		     key ABSENT inherits it — so `×` must DELETE the key, never write an empty value. -->
+		<section class="cmp-defaults">
+			<div class="vars-head">
+				<h3>This game's defaults</h3>
+				{#if projectDefaultsActions}{@render projectDefaultsActions()}{/if}
+			</div>
+			<p class="muted small">
+				Applies to <strong>{projectLabel}</strong> only — every placement in this game inherits
+				these, other games keep the component's own defaults, and a placed instance can still
+				override any of them. Leave a field on <em>inherit</em> to follow the component.
+			</p>
+
+			{#snippet projectDefaultField(p: ComponentParam)}
+				<label class="field wide">
+					<span>{p.label ?? p.key}</span>
+					{#if p.key === 'action'}
+						<!-- Like the instance panel: ALWAYS the live action catalog + labels, never the
+						     param's baked `options` (an old def froze a stale list). -->
+						<select
+							value={(projectDefaultOf(p.key) as string) ?? ''}
+							onchange={(e) =>
+								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						>
+							<option value="">{inheritHint(p)}</option>
+							{#each actionOptions(projectDefaultOf(p.key)) as a (a)}
+								<option value={a}>{ENGINE_ACTION_LABELS[a] ?? a}</option>
+							{/each}
+						</select>
+					{:else if p.options && p.options.length > 0}
+						<select
+							value={(projectDefaultOf(p.key) as string) ?? ''}
+							onchange={(e) =>
+								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						>
+							<option value="">{inheritHint(p)}</option>
+							{#each p.options as opt (opt)}
+								<option value={opt}>{opt}</option>
+							{/each}
+						</select>
+					{:else if p.kind === 'boolean'}
+						<!-- A checkbox cannot express "inherit", so it shows the EFFECTIVE value (this
+						     project's, else the def's) and ticking writes an explicit boolean. The `×`
+						     below is the only way back to inherit. -->
+						<input
+							type="checkbox"
+							checked={(projectDefaultOf(p.key) ?? p.default) === true}
+							onchange={(e) => onSetProjectParamDefault?.(p.key, e.currentTarget.checked)}
+						/>
+					{:else if p.kind === 'number'}
+						<input
+							type="number"
+							value={typeof projectDefaultOf(p.key) === 'number' ? projectDefaultOf(p.key) : ''}
+							placeholder={p.default !== undefined ? String(p.default) : 'inherit'}
+							oninput={(e) =>
+								onSetProjectParamDefault?.(
+									p.key,
+									e.currentTarget.value === '' ? undefined : e.currentTarget.valueAsNumber,
+								)}
+						/>
+					{:else if p.kind === 'color'}
+						<ColorField
+							value={typeof projectDefaultOf(p.key) === 'number'
+								? hexFrom(projectDefaultOf(p.key) as number)
+								: hexFrom(typeof p.default === 'number' ? p.default : undefined)}
+							oninput={(hex) => onSetProjectParamDefault?.(p.key, parseHex(hex))}
+						/>
+					{:else if p.kind === 'image'}
+						<RegionPicker
+							sheets={pickSheets}
+							value={(projectDefaultOf(p.key) as string) ?? ''}
+							scoped
+							onSelect={(region) => onSetProjectParamDefault?.(p.key, region || undefined)}
+						/>
+					{:else if p.kind === 'spine'}
+						{@const cur = (projectDefaultOf(p.key) as string) ?? ''}
+						<select
+							value={cur}
+							onchange={(e) =>
+								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						>
+							<option value="">{inheritHint(p)}</option>
+							{#each spines as s (s.key)}
+								<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
+							{/each}
+							{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+								<option value={n}>{n} [coded]</option>
+							{/each}
+							{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+								<option value={cur}>{cur} (custom)</option>
+							{/if}
+						</select>
+					{:else if p.kind === 'string' && fontParamKeys.has(p.key)}
+						{@const cur = (projectDefaultOf(p.key) as string) ?? ''}
+						<select
+							value={cur}
+							onchange={(e) =>
+								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						>
+							<option value="">{inheritHint(p)}</option>
+							{#each fontList as f (f.id)}
+								<option value={f.id}>{fontOptionLabel(f)}</option>
+							{/each}
+							{#if cur && !resolveFont(cur)}
+								<option value={cur}>{cur} (custom)</option>
+							{/if}
+						</select>
+					{:else}
+						<input
+							type="text"
+							value={(projectDefaultOf(p.key) as string) ?? ''}
+							placeholder={p.default !== undefined ? String(p.default) : 'inherit'}
+							oninput={(e) => onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						/>
+					{/if}
+					{#if hasProjectDefault(p.key)}
+						<button
+							type="button"
+							class="reset"
+							title="Inherit the component's own default (removes this game's value)"
+							onclick={() => onSetProjectParamDefault?.(p.key, undefined)}>×</button
+						>
+					{/if}
+				</label>
+			{/snippet}
+
+			{#if projectDefaultParams.length === 0}
+				<p class="muted small">
+					This component declares no settable params — add one under
+					<strong>Variables in use</strong> and its value for this game appears here.
+				</p>
+			{:else}
+				{#each projectDefaultUngrouped as p (p.key)}
+					<div class="row">{@render projectDefaultField(p)}</div>
+				{/each}
+				{#each projectDefaultGroups as [groupName, groupParams] (groupName)}
+					{@const groupKey = `defaults:${groupName}`}
+					<details
+						class="param-group"
+						open={isParamGroupOpen(groupKey)}
+						ontoggle={(e) => setParamGroupOpen(groupKey, e.currentTarget.open)}
+					>
+						<summary>{groupName}</summary>
+						{#each groupParams as p (p.key)}
+							<div class="row">{@render projectDefaultField(p)}</div>
+						{/each}
+					</details>
+				{/each}
+			{/if}
+		</section>
+	{/if}
 {/if}
 
 {#if !node}
@@ -5241,12 +5448,28 @@
 		font-size: 11px;
 		color: #777;
 	}
-	.cmp-vars {
+	.cmp-vars,
+	.cmp-defaults {
 		padding: 10px;
 		border: 1px solid #2a2433;
 		border-radius: 8px;
 		background: #16131c;
 		margin-bottom: 14px;
+	}
+	/* Teal, not the violet of `.cmp-vars` — this block writes a DIFFERENT store (the
+	   per-project sidecar) with its own save, so it must not read as part of the def. */
+	.cmp-defaults {
+		border-color: #234038;
+	}
+	.cmp-defaults h3 {
+		color: #7ee0c0;
+	}
+	.cmp-defaults .vars-head {
+		margin: 0 0 4px;
+		flex-wrap: wrap;
+	}
+	.cmp-defaults .vars-head h3 {
+		margin: 0;
 	}
 	.cmp-vars h3 {
 		color: #c8a3ff;

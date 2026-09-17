@@ -242,6 +242,15 @@
 		 * default, and every scene-editor caller) ⇒ identical to today's draw — parity.
 		 */
 		componentParams?: Record<string, unknown>;
+		/**
+		 * Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
+		 * layer `resolveComponentParams` applies UNDER each placed instance's own params, so
+		 * a shared def carrying this project's appearance previews as the game renders it.
+		 * Distinct from `componentParams` above (that is the Component Editor's already-resolved
+		 * params for its ONE open def). Empty (the default) ⇒ every resolve passes `undefined`
+		 * exactly as before — parity.
+		 */
+		componentDefaults?: Record<string, Record<string, unknown>>;
 		/** Bubbles the merged `assetKey → {animations,skins}` map for every ready spine
 		 * bundle (union across the per-scene sublayers) up to the page, so the Properties
 		 * panel can offer animation/skin dropdowns instead of free-text. */
@@ -287,6 +296,7 @@
 		hiddenSceneIds = new Set<string>(),
 		projectGameName = null,
 		componentParams = {},
+		componentDefaults = {},
 		onSpineMeta,
 		canUndo = false,
 		canRedo = false,
@@ -1766,7 +1776,7 @@
 				const params = resolveComponentParams(
 					def,
 					resolveLayoutInstanceParams(n, layoutType),
-					undefined,
+					componentDefaults[def.id],
 				);
 				const spineBundle = instancePreviewSpineBundle(def, params);
 				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id], spineBundle))
@@ -2657,6 +2667,7 @@
 			layoutType,
 			spineBundle,
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
+			componentDefaults,
 		);
 	}
 
@@ -2696,10 +2707,18 @@
 			// def's own params (the per-item values feed no spine param), like `drawComponentInstance`.
 			const spineBundle = instancePreviewSpineBundle(
 				def,
-				resolveComponentParams(def, undefined, undefined),
+				resolveComponentParams(def, undefined, componentDefaults[def.id]),
 			);
 			const stack = [...componentStack, def.id];
-			for (const box of repeaterBoxes(node, def, g, repeaterItemValues(node), anchorX, anchorY)) {
+			for (const box of repeaterBoxes(
+				node,
+				def,
+				g,
+				repeaterItemValues(node),
+				anchorX,
+				anchorY,
+				componentDefaults[def.id],
+			)) {
 				drawNode(
 					ctx,
 					box.container,
@@ -2971,16 +2990,18 @@
 		// Resolve THIS instance's effective params (def defaults ◁ instance overrides) and
 		// thread them into the expanded children so a mounted `bind` chip shows the
 		// instance's `label`/`fill`/`fontSize` (e.g. "BALANCE"), not the def's component
-		// name. No per-project defaults here: the SCENE editor resolves each instance from
-		// def defaults + node.params (the `componentParams` prop is the Component Editor's
-		// open-component preview, a different concern), so pass `undefined`.
+		// name. The per-project DEFAULTS sidecar (§13.3) sits under the instance's own params,
+		// exactly as the runtime `<ComponentInstance>` resolves it — so a shared def carrying
+		// this project's appearance previews as the game draws it. (The `componentParams` prop
+		// is the Component Editor's open-component preview, a different concern.) No sidecar ⇒
+		// `undefined` ⇒ parity.
 		// Per-ratio param overrides (`node.overrides[layoutType].params`) merged onto the base
 		// instance params for the active device layout, so the canvas previews e.g. a smaller
 		// portrait font exactly as the game will resolve it. No override ⇒ `node.params` verbatim.
 		const params = resolveComponentParams(
 			def,
 			resolveLayoutInstanceParams(node, layoutType),
-			undefined,
+			componentDefaults[def.id],
 		);
 		// A nested bound-component that previews a SPINE (the win / free-spin VISUAL) renders the
 		// instance's AUTHORED rig (its first `spine`-kind param value, else the catalog bundle), so
@@ -4446,6 +4467,7 @@
 					{zoom}
 					{assets}
 					{componentMap}
+					{componentDefaults}
 					{spinePreview}
 					{spinePreviewNodeId}
 					{symbolStatics}
@@ -4487,6 +4509,7 @@
 					sceneFilter={sceneFilterFor(s.id)}
 					{projectGameName}
 					{componentParams}
+					{componentDefaults}
 					{componentMap}
 					{repeaterSources}
 					{frameWidth}
@@ -4596,6 +4619,7 @@
 				{zoom}
 				{assets}
 				{componentMap}
+				{componentDefaults}
 				{spinePreview}
 				{spinePreviewNodeId}
 				worldTransformOf={nodeTransform}
@@ -4639,6 +4663,7 @@
 				sceneFilter={hudTextSceneFilter()}
 				{projectGameName}
 				{componentParams}
+				{componentDefaults}
 				{componentMap}
 				{repeaterSources}
 				{frameWidth}

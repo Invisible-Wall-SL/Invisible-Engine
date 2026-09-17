@@ -137,7 +137,7 @@
       "count": 1
     },
     "svelte/prefer-svelte-reactivity": {
-      "count": 4
+      "count": 3
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/EditorSpineLayer.svelte": {

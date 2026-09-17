@@ -10,6 +10,10 @@ import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } fr
 import type { RepeaterSourceMap } from './editorCanvas.helpers';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import {
+	keyComponentDefaultsById,
+	listComponentDefaults,
+} from '$lib/server/componentDefaultsStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
@@ -94,25 +98,38 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// canvas-box seed (a never-saved project gets the game's REAL main box) and the
 	// template/symbol-default resolution below (the doc's own `gameType` wins when set).
 	const resolvedProjectGameType = await projectGameType(projectKey);
-	const [loaded, assets, components, customKinds, symbolsDoc, publishedSymbolDefaults] =
-		await Promise.all([
-			loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
-			listProjectAssets(clientKey, projectKey),
-			// Components the project can use (shared + project, project shadowing shared,
-			// §8.3). Drives the scene-mode component picker AND the editor canvas's
-			// `componentInstance` resolution (passed down so the canvas renders an
-			// instance's `root` without calling the engine registry).
-			listComponents({ projectKey }),
-			// Author-created custom game KINDS (§21): shared, engine-skeleton `LayoutDoc`s
-			// that join the built-in kinds in the "New game from kind" picker so a new kind
-			// needs no code change. The picker fetches a chosen custom kind's doc on demand.
-			listKinds(),
-			// The Symbols State Machine override doc + the project's PUBLISHED coded symbol
-			// defaults — so the canvas can draw the REAL static symbol art in each reel cell
-			// (mirrors symbols/+page.server.ts). Both degrade gracefully to a fallback.
-			loadSymbolsDoc(clientKey, projectKey),
-			loadPublishedSymbolDefaults(clientKey, projectKey),
-		]);
+	const [
+		loaded,
+		assets,
+		components,
+		storedComponentDefaults,
+		customKinds,
+		symbolsDoc,
+		publishedSymbolDefaults,
+	] = await Promise.all([
+		loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
+		listProjectAssets(clientKey, projectKey),
+		// Components the project can use (shared + project, project shadowing shared,
+		// §8.3). Drives the scene-mode component picker AND the editor canvas's
+		// `componentInstance` resolution (passed down so the canvas renders an
+		// instance's `root` without calling the engine registry).
+		listComponents({ projectKey }),
+		// Per-project component DEFAULTS (§13.3) — the `projectDefaults` layer
+		// `resolveComponentParams` applies under each placed instance's own params. The
+		// canvas needs it to preview what the GAME renders (the runtime registers the same
+		// map via `/api/editor/doc`); without it a shared def's per-project appearance is
+		// invisible here. Re-keyed onto the real def ids below.
+		listComponentDefaults(projectKey),
+		// Author-created custom game KINDS (§21): shared, engine-skeleton `LayoutDoc`s
+		// that join the built-in kinds in the "New game from kind" picker so a new kind
+		// needs no code change. The picker fetches a chosen custom kind's doc on demand.
+		listKinds(),
+		// The Symbols State Machine override doc + the project's PUBLISHED coded symbol
+		// defaults — so the canvas can draw the REAL static symbol art in each reel cell
+		// (mirrors symbols/+page.server.ts). Both degrade gracefully to a fallback.
+		loadSymbolsDoc(clientKey, projectKey),
+		loadPublishedSymbolDefaults(clientKey, projectKey),
+	]);
 	// `docEtag` is what the client must send back on save so a concurrent author can't
 	// be clobbered; `null` means the doc does not exist yet (a create). It is carried
 	// separately from `doc` because a corrupt-but-present doc still HAS an etag — see
@@ -199,6 +216,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		warnings,
 		gameName,
 		components,
+		// Re-keyed onto the real def ids: a sidecar's filename is `r2Slug(id)`, so the raw
+		// listing keys `hudReadout` as `hudreadout` and `componentDefaults[def.id]` would miss.
+		componentDefaults: keyComponentDefaultsById(
+			storedComponentDefaults,
+			components.map((c) => c.id),
+		),
 		customKinds,
 		symbolDefaults,
 		symbolsDoc,
