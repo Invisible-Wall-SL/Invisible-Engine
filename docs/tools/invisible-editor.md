@@ -262,7 +262,7 @@ and **Edit as component** (materialise a container into the Component Editor).
 
 #### Blend — how an item mixes with the art behind it
 
-Select a **sprite, spine, flipbook clip or FX effect** and Transform shows a **blend**
+Select a **sprite, flipbook clip or FX effect** and Transform shows a **blend**
 dropdown. It is the Photoshop control: instead of simply covering what is behind it, the
 item's pixels are combined with them.
 
@@ -297,7 +297,15 @@ Blend is **per device layout** like the rest of Transform: switch the layoutType
 the override and clears it). Useful, because an additive glow tuned over a wide desktop
 backdrop often has to fall back to Normal over a portrait crop.
 
-> Text, rects and containers deliberately have no blend control.
+> Text, rects and containers deliberately have no blend control — the editor draws them on
+> surfaces its blend model does not cover, so the preview could not keep the promise.
+>
+> **Neither do spines, and that one is worth knowing.** A blend can't reach skeleton geometry
+> at all — the Spine runtime batches every slot carrying that *slot's* own blend and never
+> consults the engine's blend setting, so a blend on a spine node would preview in the editor
+> and do nothing in the game. Spine art blends **per slot, in the Rigger**: give each layer its
+> own slot, set the draw order, and pick its blend there. Spine's format offers
+> normal / additive / multiply / screen only — no Overlay or Lighten.
 
 #### Plays on signal — a spine or flipbook that changes what it plays
 

@@ -9,6 +9,7 @@
 		boundComponentTileImage,
 		builtinSheetIdForRegion,
 		builtinSheetKey,
+		canBlendKind,
 		canvasCompositeOp,
 		cssBlendMode,
 		computeOverlayPlacement,
@@ -1944,6 +1945,11 @@
 	/** Effective blend mode of a top-level node for the ACTIVE layoutType (per-ratio overrides
 	 * included) — `'normal'` when unset, which is every node that predates this feature. */
 	function nodeBlendMode(n: LayoutNode): BlendMode {
+		// A kind that cannot blend in the GAME resolves to `normal` here, so an older doc that
+		// stored a mode on one (a spine, while the control was briefly offered there) previews
+		// exactly as the game draws it — and, just as importantly, is NOT filtered off the base
+		// overlay into a blended layer that would never be mounted for it.
+		if (!canBlendKind(n.kind)) return 'normal';
 		return resolveTransform(n, layoutType).blendMode ?? 'normal';
 	}
 
@@ -4522,54 +4528,17 @@
 					}}
 				/>
 			{/if}
-			<!-- BLENDED rigs / effects: one extra overlay per blend mode the scene uses, each
-			     carrying the mode as CSS `mix-blend-mode` on its own element. They render nothing
-			     when the scene blends nothing (`blendOverlayGroups` is empty), so the common scene
-			     mounts exactly the surfaces it always has. Reports go under the group's synthetic
-			     key, which `forgetScene` purges with the scene. -->
+			<!-- BLENDED effects: one extra FX overlay per blend mode the scene uses, carrying the
+			     mode as CSS `mix-blend-mode` on its own element. Renders nothing when the scene
+			     blends nothing (`blendOverlayGroups` is empty), so the common scene mounts exactly
+			     the surfaces it always has. Reports go under the group's synthetic key, which
+			     `forgetScene` purges with the scene.
+
+			     No blended SPINE layer: a Pixi blend cannot reach skeleton geometry (see
+			     `canBlendKind`), so `nodeBlendMode` resolves every spine to `normal` and such a
+			     layer could only ever be empty — while still costing a WebGL context, which the
+			     shared-canvas budget cannot spare. -->
 			{#each blendOverlayGroups(s) as g (g.key)}
-				{#if sceneHasSpine(s)}
-					<EditorSpineLayer
-						{scenes}
-						{mainSizesMap}
-						{layoutType}
-						{frameWidth}
-						{frameHeight}
-						{panX}
-						{panY}
-						{zoom}
-						{assets}
-						{componentMap}
-						{spinePreview}
-						{spinePreviewNodeId}
-						{symbolStatics}
-						{gridDimensions}
-						worldTransformOf={nodeTransform}
-						reloadToken={spineReload}
-						{hiddenSceneIds}
-						sceneFilter={sceneFilterFor(s.id)}
-						nodeFilter={g.ids}
-						blend={g.css}
-						activeSceneId={scene.id}
-						playing={playingSpines}
-						{boneRiders}
-						onReadyKeysChange={(keys) => {
-							mergeSpineReady(g.key, keys);
-							schedule();
-						}}
-						onNaturalSizesChange={(sizes) => {
-							mergeSpineNatural(g.key, sizes);
-							schedule();
-						}}
-						onSpineMetaChange={(meta) => {
-							mergeSpineMeta(g.key, meta);
-							schedule();
-						}}
-						onLoadingChange={(c) => {
-							mergeSpineLoading(g.key, c);
-						}}
-					/>
-				{/if}
 				{#if sceneHasEffect(s)}
 					<EditorEffectLayer
 						{scenes}

@@ -40,6 +40,30 @@ export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
 	overlay: 'Overlay',
 };
 
+/**
+ * The node kinds a blend mode actually applies to — the ONE definition, shared by the editor's
+ * properties panel (which offers the control) and its canvas (which resolves the mode), so the
+ * two can't disagree about what blends.
+ *
+ * `spine` is absent deliberately. A Pixi blend cannot reach skeleton geometry:
+ * `SpinePipe.addRenderable` batches every slot carrying the SLOT's own blend and never calls
+ * `renderPipes.blendMode`, nor reads `groupBlendMode` — so neither `spine.blendMode` nor a blended
+ * wrapper container does anything. Verified in a running game: `multiply` on a spine node renders
+ * pixel-identical to `normal`. Spine art blends PER SLOT, authored in the Rigger (Spine's format
+ * offers normal/additive/multiply/screen only — no `overlay`, no `lighten`).
+ *
+ * `text`, `rect` and `container` are absent because the editor renders them on surfaces its blend
+ * model does not cover, so the preview could not keep the promise.
+ */
+export const BLENDABLE_KINDS = ['sprite', 'flipbook', 'effect'] as const;
+
+/** True when a node of this kind blends in the GAME — see {@link BLENDABLE_KINDS}. A stored
+ * `blendMode` on any other kind is ignored rather than honoured, so an old doc that saved one
+ * (e.g. on a spine, when the control was briefly offered there) renders exactly as the game does. */
+export function canBlendKind(kind: string | undefined): boolean {
+	return (BLENDABLE_KINDS as readonly string[]).includes(kind ?? '');
+}
+
 /** Narrow an unknown doc value to a {@link BlendMode} (an unknown string ⇒ `undefined`). */
 export function isBlendMode(value: unknown): value is BlendMode {
 	return (BLEND_MODES as readonly string[]).includes(value as string);
