@@ -274,6 +274,9 @@ export function repeaterBoxes(
 	items: Array<Record<string, unknown>>,
 	anchorX: number,
 	anchorY: number,
+	/** THIS def's per-project param defaults (§13.3) — the layer between the def's own
+	 * defaults and the per-item values. Undefined (no sidecar) ⇒ resolved exactly as before. */
+	projectDefaults?: Record<string, unknown>,
 ): RepeaterBox[] {
 	const footprint = componentDefFootprint(def);
 	const offX = footprint?.minX ?? 0;
@@ -296,7 +299,7 @@ export function repeaterBoxes(
 				anchor: { x: 0, y: 0 },
 				children: def.root.children,
 			},
-			params: resolveComponentParams(def, itemValues, undefined),
+			params: resolveComponentParams(def, itemValues, projectDefaults),
 		});
 	}
 	return boxes;
@@ -319,6 +322,10 @@ export function nodeBox(
 	 * e.g. `featureCards` → the non-default bet modes), so the selection rect frames the SAME grid
 	 * {@link repeaterPlaceholderGrid} lays out in the draw. Undefined ⇒ the fixed fallback count. */
 	repeaterCount?: number,
+	/** Per-project component DEFAULTS by component id (§13.3), threaded into
+	 * {@link componentInstanceContentBox} so an instance's selection box frames the art the
+	 * project's defaults actually draw. Undefined / empty ⇒ resolved exactly as before. */
+	componentDefaults?: Record<string, Record<string, unknown>>,
 ): NodeBox {
 	// A repeater defaults its unset anchor to 0 (extend-right) like a sprite, so the selection rect
 	// frames the same footprint the runtime <Repeater> lays out (parity). A flipbook is atlas art
@@ -335,7 +342,15 @@ export function nodeBox(
 	// child's own box, offset by its local x/y + anchored). For the single-mount
 	// `HudReadout` this is the mount's `preview` box (240×135) at the instance anchor.
 	if (node.kind === 'componentInstance' && componentMap && layoutType !== undefined) {
-		const content = componentInstanceContentBox(node, naturalSize, componentMap, layoutType, 0, []);
+		const content = componentInstanceContentBox(
+			node,
+			naturalSize,
+			componentMap,
+			layoutType,
+			0,
+			[],
+			componentDefaults,
+		);
 		if (content) return content;
 	}
 	// A nested SPINE bind (the win / free-spin VISUAL inside a spine-param componentInstance): frame
@@ -478,6 +493,7 @@ function componentInstanceContentBox(
 	layoutType: LayoutType,
 	depth: number,
 	stack: string[],
+	componentDefaults?: Record<string, Record<string, unknown>>,
 ): NodeBox | null {
 	const def = componentMap.get(node.componentId);
 	if (!def) return null;
@@ -486,7 +502,7 @@ function componentInstanceContentBox(
 	// This instance's AUTHORED preview spine bundle (its first `spine`-kind param value), resolved
 	// EXACTLY like the spine layer's `collectNestedSpines`, so a nested spine bind's box tracks the
 	// authored rig's natural bounds (matching what the spine layer renders). Undefined ⇒ parity.
-	const params = resolveComponentParams(def, node.params, undefined);
+	const params = resolveComponentParams(def, node.params, componentDefaults?.[def.id]);
 	const spineBundle = instancePreviewSpineBundle(def, params);
 
 	let minX = Infinity;
@@ -513,8 +529,28 @@ function componentInstanceContentBox(
 						layoutType,
 						depth + 1,
 						childStack,
-					) ?? nodeBox(child, ct, naturalSize, componentMap, layoutType, spineBundle))
-				: nodeBox(child, ct, naturalSize, componentMap, layoutType, spineBundle);
+						componentDefaults,
+					) ??
+					nodeBox(
+						child,
+						ct,
+						naturalSize,
+						componentMap,
+						layoutType,
+						spineBundle,
+						undefined,
+						componentDefaults,
+					))
+				: nodeBox(
+						child,
+						ct,
+						naturalSize,
+						componentMap,
+						layoutType,
+						spineBundle,
+						undefined,
+						componentDefaults,
+					);
 		// The child's box (already including its anchor) is placed at its local x/y and
 		// scaled by its own scale — match drawNode's transform so the union frames the
 		// drawn art. Rotation is ignored here (HUD content is axis-aligned); the union is

@@ -2,6 +2,7 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
@@ -28,6 +29,7 @@
 		Scene,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 	// Reuse the editor's child components across routes (only `+page`/`+layout`/
 	// `+server` are route-special in SvelteKit; these `.svelte`/`.ts` modules are
 	// plain imports). `/editor` keeps owning them — this tool is the standalone
@@ -157,6 +159,113 @@
 	/** Union of the draft-save and promote spinners — every shared `disabled`/pill uses it. */
 	const busy = $derived(saveState.busy || promoting);
 
+	// ---- Per-project component DEFAULTS (§13.3 sidecar) ------------------------------------------
+	/**
+	 * The open component's per-project defaults — the `params` map of
+	 * `editor/<projectKey>/component-defaults/<id>.json`. A key PRESENT overrides the def's own
+	 * default for THIS project only; a key ABSENT inherits it, so a cleared field must delete the
+	 * key rather than store `undefined`/`''` (the sidecar is a sparse overlay, not a full copy).
+	 * `{}` when no component is open.
+	 */
+	let projectDefaults = $state<Record<string, unknown>>({});
+	/** Signature of the defaults as last loaded/saved — the dirty baseline. */
+	let projectDefaultsBaseline = $state('[]');
+	/** Order-independent signature, so clearing a key then re-setting it doesn't read as dirty. */
+	function defaultsSignature(map: Record<string, unknown>): string {
+		return JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+	}
+	const defaultsDirty = $derived(
+		defaultsSignature($state.snapshot(projectDefaults)) !== projectDefaultsBaseline,
+	);
+
+	/**
+	 * The defaults sidecar's OWN save machine — deliberately not folded into the draft's
+	 * `saveState`. It writes a different R2 key with its own ETag, and its conflict UX is the
+	 * ORDINARY shared badge (the draft's is a bespoke versioned `confirm()`, since components are
+	 * versioned and this sidecar is not). Same reasoning as promote-to-shared keeping its own
+	 * state. Manual save; NOT gated on the component `lease` — that lease covers the def object,
+	 * and this is a separate key whose `If-Match` CAS is its own floor (as promote-to-shared is).
+	 */
+	const defaultsSave = new SaveState({
+		initialEtag: null,
+		conflictMessage: 'Someone else saved this game’s defaults while you were editing them.',
+		save: async ({ baseEtag, force }) => {
+			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
+			// Snapshot BEFORE the request: an edit landing mid-flight must stay dirty, not be
+			// silently adopted as saved by the baseline below.
+			const params = $state.snapshot(projectDefaults);
+			const res = await fetch('/api/editor/component-defaults', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					project: data.projectKey,
+					id: componentDraft.id,
+					params,
+					...(force ? { force: true } : { baseEtag }),
+				}),
+			});
+			if (res.status === 409) {
+				const b = (await res.json().catch(() => ({}))) as { message?: string };
+				return { ok: false, reason: 'conflict', message: b.message };
+			}
+			if (!res.ok) {
+				let message = 'Saving this game’s defaults failed';
+				try {
+					const b = (await res.json()) as { message?: string };
+					if (b?.message) message = b.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				return { ok: false, reason: 'error', message };
+			}
+			const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
+			projectDefaultsBaseline = defaultsSignature(params);
+			return { ok: true, etag: out.etag ?? null };
+		},
+	});
+	// The sidecar's dirty flag is a signature compare, so push it in (the helper's own
+	// `markDirty` edge-tracking is for edit-driven tools).
+	$effect(() => {
+		defaultsSave.setDirty(defaultsDirty);
+	});
+
+	/**
+	 * Load `id`'s stored defaults + the ETag its next save must CAS against. Always adopts the
+	 * etag (it is the version we just read) but only ADOPTS THE VALUES when the author hasn't
+	 * touched the panel since the seed — so a keystroke during the round-trip is never discarded.
+	 * `replace` forces the values in regardless (the conflict banner's "reload theirs").
+	 */
+	async function loadProjectDefaults(id: string, replace = false): Promise<void> {
+		const params = new URLSearchParams({ project: data.projectKey, id });
+		try {
+			const res = await fetch(`/api/editor/component-defaults?${params.toString()}`);
+			if (!res.ok) return;
+			const body = (await res.json()) as {
+				params?: Record<string, unknown>;
+				etag?: string | null;
+			};
+			if (componentDraft?.id !== id) return; // a different component was opened meanwhile
+			defaultsSave.adoptEtag(body.etag ?? null);
+			if (!replace && defaultsDirty) return;
+			projectDefaults = { ...(body.params ?? {}) };
+			projectDefaultsBaseline = defaultsSignature(projectDefaults);
+		} catch {
+			// Leave the seeded values + a `null` etag: the first save then asserts create and a
+			// genuine collision still surfaces as a 409.
+		}
+	}
+
+	/** Set (or clear) one per-project default. `undefined` REMOVES the key — an inherited param
+	 * must be absent from the saved map, never a stored `undefined`/`''`. */
+	function setProjectParamDefault(key: string, value: unknown): void {
+		const next: Record<string, unknown> = { ...projectDefaults };
+		if (value === undefined || value === '') delete next[key];
+		else next[key] = value;
+		projectDefaults = next;
+		// The canvas repaints off a field whitelist + this nonce, so a param change needs it.
+		editNonce += 1;
+	}
+
 	/**
 	 * Version browser (§8.9 v2). `versionList` = the retained `<id>.v<N>.json` snapshots
 	 * + the latest version, fetched read-only when a component opens. `inspectingVersion`
@@ -173,6 +282,13 @@
 
 	/** True while a historical version is loaded read-only — gates editing + save. */
 	const isInspecting = $derived(inspectingVersion !== null);
+
+	/** The defaults panel's subtitle — and its GATE (`null` hides the panel). Null with no active
+	 * project (nothing to key a sidecar by) and while INSPECTING a historical version (the canvas
+	 * is a read-only snapshot; editing the project's live defaults from it would mislead). */
+	const defaultsPanelLabel = $derived(
+		data.projectKey && !isInspecting ? (data.gameName ?? data.projectKey) : null,
+	);
 
 	/**
 	 * The versions the browser dropdown offers, newest first: every retained snapshot
@@ -244,14 +360,17 @@
 	const projectMainSizes = $derived(data.mainSizesMap ?? STANDARD_MAIN_SIZES_MAP);
 
 	/**
-	 * Resolved params fed to the canvas preview (§13.4): just the def's own param
-	 * defaults (`def.param.default`). No instance override here — the Component
-	 * Editor edits the def itself; an instance's per-placement overrides are the
-	 * scene editor's job. Reused, Svelte-free helper from `engine-layout`. Empty
-	 * when no component is open.
+	 * Resolved params fed to the canvas preview (§13.4): the def's own param defaults
+	 * (`def.param.default`) with THIS project's defaults sidecar (§13.3) layered on top, so the
+	 * preview is WYSIWYG with the game the author is working on and updates live as they type in
+	 * the "This game's defaults" panel. No instance override here — the Component Editor edits the
+	 * def itself; an instance's per-placement overrides are the scene editor's job. Reused,
+	 * Svelte-free helper from `engine-layout`. Empty when no component is open.
 	 */
 	const resolvedParams = $derived<Record<string, unknown>>(
-		componentDraft ? resolveComponentParams(componentDraft) : {},
+		componentDraft
+			? resolveComponentParams(componentDraft, undefined, $state.snapshot(projectDefaults))
+			: {},
 	);
 
 	/** Param keys of the draft that drive a FONT — so the Properties panel renders their
@@ -285,6 +404,12 @@
 		selectedIds = [];
 		saveStatus = null;
 		leftTab = 'outline';
+		// Seed this project's defaults from the page load so the panel + canvas paint without a
+		// flash, then re-read for the ETag the save must CAS against (the load carries no etags).
+		projectDefaults = { ...(data.componentDefaults[def.id] ?? {}) };
+		projectDefaultsBaseline = defaultsSignature(projectDefaults);
+		defaultsSave.adoptEtag(null);
+		void loadProjectDefaults(def.id);
 		// Reset + (re)load the version history for the newly opened component. A
 		// never-saved draft (no stored def) has no history; skip the fetch.
 		inspectingVersion = null;
@@ -393,15 +518,33 @@
 	const draftDirty = $derived(
 		componentDraft !== null && JSON.stringify($state.snapshot(componentDraft)) !== savedSnapshot,
 	);
-	// An unsaved draft is ONLY in memory — warn before a full-page navigation
-	// ("← Editor" is a reload link) or a tab close discards it silently.
+	/** Unsaved work of EITHER store — the draft def, or this game's defaults sidecar (its own
+	 * save, so it needs its own place in every leave guard). */
+	const unsavedWork = $derived(draftDirty || defaultsDirty);
+	// Unsaved work is ONLY in memory — warn before a full-page navigation ("← Editor" is a
+	// reload link) or a tab close discards it silently.
 	$effect(() => {
-		if (!draftDirty) return;
+		if (!unsavedWork) return;
 		const warn = (e: BeforeUnloadEvent) => {
 			e.preventDefault();
 		};
 		window.addEventListener('beforeunload', warn);
 		return () => window.removeEventListener('beforeunload', warn);
+	});
+	// `beforeunload` never fires for a CLIENT-SIDE navigation, and every tool-bar entry is an
+	// `<a href>` SvelteKit intercepts as one — so without this, clicking Editor / Flow / the
+	// emblem silently discarded the draft and the defaults. `willUnload` navigations are left to
+	// the handler above (cancelling one only re-triggers the browser's own dialog).
+	beforeNavigate((navigation) => {
+		if (!unsavedWork || navigation.willUnload) return;
+		const what = draftDirty
+			? defaultsDirty
+				? 'this component and this game’s defaults for it'
+				: 'this component'
+			: 'this game’s defaults for this component';
+		if (!window.confirm(`You have unsaved changes to ${what}.\n\nLeave anyway?`)) {
+			navigation.cancel();
+		}
 	});
 
 	let newName = $state('');
@@ -495,21 +638,27 @@
 		newName = '';
 	}
 
-	/** Close the open component, back to the sidebar home. Confirms first when the
-	 * draft has unsaved edits (a never-saved component would vanish entirely). */
+	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
+	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
+	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
 	function closeComponent(): void {
 		if (
-			draftDirty &&
+			(draftDirty || defaultsDirty) &&
 			!window.confirm(
-				savedSnapshot === null
+				draftDirty && savedSnapshot === null
 					? 'This component has never been saved — closing discards it entirely. Close anyway?'
-					: 'Discard the unsaved changes to this component?',
+					: draftDirty
+						? 'Discard the unsaved changes to this component?'
+						: 'Discard the unsaved changes to this game’s defaults for this component?',
 			)
 		) {
 			return;
 		}
 		componentDraft = null;
 		savedSnapshot = null;
+		projectDefaults = {};
+		projectDefaultsBaseline = defaultsSignature({});
+		defaultsSave.adoptEtag(null);
 		selectedIds = [];
 		saveStatus = null;
 		inspectingVersion = null;
@@ -1434,6 +1583,9 @@
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
 						onToggleSignal={toggleComponentSignal}
+						projectParamDefaults={projectDefaults}
+						onSetProjectParamDefault={setProjectParamDefault}
+						projectLabel={defaultsPanelLabel}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 							const params = { ...(selectedNode.params ?? {}) };
@@ -1442,7 +1594,38 @@
 							selectedNode.params = Object.keys(params).length ? params : undefined;
 							editNonce += 1;
 						}}
-					/>
+					>
+						<!-- Save control + status for the per-project defaults SIDECAR (its own R2 key +
+						     ETag, hence its own SaveState), rendered by the panel that edits it. Declared
+						     here so the page keeps owning the transport — and its style scope. -->
+						{#snippet projectDefaultsActions()}
+							<span class="defaults-actions">
+								<SaveStatusBadge
+									state={defaultsSave}
+									savedLabel="Saved"
+									dirtyLabel="Unsaved"
+									titles={{
+										dirty: 'These values are not written to this game yet',
+										saved: 'This game’s defaults for this component are up to date',
+									}}
+									overwritable
+									onReloadTheirs={() => {
+										if (componentDraft) void loadProjectDefaults(componentDraft.id, true);
+									}}
+									onOverwrite={() => void defaultsSave.save({ force: true })}
+								/>
+								<button
+									class="save-btn"
+									type="button"
+									disabled={defaultsSave.busy || defaultsSave.blocked || !defaultsDirty}
+									title="Write these values to this game's defaults for the open component"
+									onclick={() => void defaultsSave.save()}
+								>
+									Save for this game
+								</button>
+							</span>
+						{/snippet}
+					</EditorProperties>
 				{/if}
 			</div>
 
@@ -1551,6 +1734,13 @@
 	.save-btn:disabled {
 		opacity: 0.4;
 		cursor: default;
+	}
+	/* Badge + "Save for this game", rendered inside EditorProperties' defaults panel. */
+	.defaults-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 	.save-btn {
 		background: #14141a;

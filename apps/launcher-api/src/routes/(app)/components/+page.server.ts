@@ -1,10 +1,14 @@
 import { error, redirect } from '@sveltejs/kit';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
-import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
+import {
+	keyComponentDefaultsById,
+	listComponentDefaults,
+} from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
+import { projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -46,7 +50,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		roleOverrides,
 		overrides,
 	);
-	const [componentEntries, assets, componentDefaults, doc] = await Promise.all([
+	const [componentEntries, assets, storedDefaults, doc, gameName] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3),
 		// each carrying the ETag of the object it was read from — the save's precondition (Phase 1).
 		listComponentsWithEtags({ projectKey }),
@@ -59,6 +63,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		// components through this box (same as the Scene Editor), so what's authored
 		// matches the game instead of a neutral 1920×1080 frame.
 		loadDoc(clientKey, projectKey),
+		// Display name of the active project — the "This game's defaults" panel's subtitle
+		// (null for a row with no name ⇒ the page falls back to the project key).
+		projectName(projectKey),
 	]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
 	// `/editor`'s "Open in Component Editor" sends `&project=` too — that param is now
@@ -76,7 +83,13 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		components,
 		componentEtags,
 		assets,
-		componentDefaults,
+		// Re-keyed onto the real def ids: a sidecar's filename is `r2Slug(id)`, so the raw
+		// listing keys `hudReadout` as `hudreadout` and `componentDefaults[def.id]` would miss.
+		componentDefaults: keyComponentDefaultsById(
+			storedDefaults,
+			components.map((c) => c.id),
+		),
+		gameName,
 		openId,
 		mainSizesMap: doc.mainSizesMap,
 		canPublishShared,

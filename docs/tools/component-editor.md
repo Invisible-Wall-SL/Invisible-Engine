@@ -129,7 +129,44 @@ adds them to every saved copy of a built-in — but nothing in *your* copy reads
 them until you bind a node to one. Expose or bind the node and the control comes
 alive.
 
-### 4. Save
+### 4. Set this game's defaults
+
+A **shared** component is one design used by several games, and a game usually needs
+its own art and copy in it. **This game's defaults** — the teal block under
+*Component variables* — is how you do that **without forking the def**: it stores the
+open component's param values for the **active project only**, in a small sidecar
+beside the component (`editor/<project>/component-defaults/<id>.json`), so the shared
+def itself is untouched and every other game keeps its own look.
+
+The panel lists **every settable param** of the open component (everything the engine
+does not feed itself), grouped exactly like the instance panel in the Scene Editor —
+images get the region picker, colours the colour field, fonts the font dropdown, a
+param with a fixed option list its dropdown, booleans a checkbox, and everything else
+a text or number box. It is hidden when no project is active, and while you are
+inspecting a historical version (that canvas is a read-only snapshot).
+
+**Inherit is the empty state.** A field you have not set reads *(inherit default: …)*
+or shows the component's own default as its placeholder, and that key is simply
+**absent** from the sidecar. Set one and a **×** appears next to it — click it to drop
+back to inherit. Clearing a text box does the same thing. So the sidecar only ever
+contains the handful of values this game actually overrides.
+
+The canvas updates as you type, because the preview resolves the same three layers the
+game does:
+
+> component's own default ◁ **this game's defaults** ◁ the placed instance's override
+
+so a placement in a scene can still override anything you set here.
+
+**Saving is separate from the component.** The panel has its own **Saved / Unsaved**
+badge and its own **Save for this game** button — the defaults are a different file
+with its own version, so *Save component* does not write them and this does not write
+the component. If someone else changed this game's defaults for the same component
+while you had the panel open, the badge turns into a conflict with **Reload theirs**
+and **Overwrite with mine** rather than quietly clobbering their values. Leaving the
+tool (closing the component, or navigating away) warns while either store is unsaved.
+
+### 5. Save
 
 Click **Save component** in the top bar. It POSTs the draft to
 `/api/editor/component` scoped to the active project; the header pill shows
@@ -142,7 +179,7 @@ differs from the stored one (a re-save with no change keeps the version; a brand
 component keeps its starting version). This is by design (§8.9, pin-by-default):
 existing scene instances keep the version they pinned and are never silently moved
 to your edit — they stay on their pinned version until you explicitly **update each
-one to latest** from its Properties panel in the Scene Editor (see §5). Every save
+one to latest** from its Properties panel in the Scene Editor (see §6). Every save
 also **retains the superseded def**: the server keeps each historical version (a
 `<id>.v<N>.json` snapshot beside the `<id>.json` latest pointer), so a pinned instance
 resolves the EXACT def it was authored against — in the editor preview, in the bake,
@@ -160,7 +197,7 @@ shared copy wherever it loads — promoting does not move or delete your project
 Users without the capability never see the button (the API enforces the same gate
 server-side, so there is no button that would 403).
 
-### 5. Use it in the Scene Editor
+### 6. Use it in the Scene Editor
 
 Open the Scene Editor and find the component in its **Components** panel (grouped by
 the same categories). From there you can:
@@ -236,7 +273,7 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   engine still renders the latest def and surfaces a `versionMismatch` warning rather
   than silently passing it off as the pin — the pin is never mutated or auto-upgraded.
   Outdated instances are **flagged** in the Scene Editor's Properties panel and can be
-  **updated to latest** per instance (§5). A **version browser** lives in the top bar
+  **updated to latest** per instance (§6). A **version browser** lives in the top bar
   while a component is open: a `Version` dropdown lists every retained snapshot (the
   latest is marked), and **Inspect** loads the selected version **read-only** onto the
   canvas (an amber `Inspecting vN (read-only)` pill shows; Save / Promote / editing are
@@ -254,7 +291,12 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   that, expansion stops rather than recursing.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
   open draft; closing the tool or navigating away discards it (you are warned
-  first). There is no autosave.
+  first). There is no autosave — and **This game's defaults** (§4) is a second,
+  separate manual save, warned about the same way.
+- **A shipped game only picks up new defaults on its next publish.** Both editor
+  canvases resolve the sidecar live, but a built game reads the defaults baked into
+  its bundle — so re-publish (or re-bake) the game after changing them, and a game
+  vendoring the engine as a submodule also needs its usual bump.
 - **Save writes a project component; promote-to-shared is now exposed.** The primary
   **Save component** always writes a **project** component (which shadows a shared one
   of the same id). A separate **Promote to shared** button — gated on the

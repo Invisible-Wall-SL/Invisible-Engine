@@ -4,7 +4,10 @@ import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
 import { repairComponentDefsAtlasRefs } from '$lib/server/atlasRefRepair';
 import { loadComponent } from '$lib/server/componentStorage';
-import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
+import {
+	keyComponentDefaultsById,
+	listComponentDefaults,
+} from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import {
@@ -156,7 +159,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		// Per-project component param defaults (§14.2 B4.5) so the game's
 		// `registerComponentDefaults` can apply author-set appearance defaults to
 		// `componentInstance`s (e.g. the HUD readouts). Empty map ⇒ def defaults apply.
-		const componentDefaults = await listComponentDefaults(projectKey);
+		const storedComponentDefaults = await listComponentDefaults(projectKey);
 		// `&components=1` (build-time bake): also bundle the referenced ComponentDefs so a
 		// shipped game can register the custom/edited ones (R2-only otherwise). Omitted by
 		// default so the runtime boot fetch stays lean. `componentVersions` carries the
@@ -177,6 +180,15 @@ export const GET: RequestHandler = async ({ url }) => {
 				projectKey,
 			);
 		}
+		// The sidecar LISTING is keyed by `r2Slug(id)` — the filename — while the runtime looks a
+		// component up by its real `ComponentDef.id` (`getComponentDefaults(node.componentId)`). A
+		// camelCase id (`hudReadout` → `hudreadout.json`) therefore never matches, and the defaults
+		// would silently no-op in the shipped game while working in both editors. Alias by the ids
+		// this doc actually references (plus the resolved closure, which includes nested defs).
+		const componentDefaults = keyComponentDefaultsById(storedComponentDefaults, [
+			...collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes)),
+			...(resolved ? Object.keys(resolved.defs) : []),
+		]);
 		return json(
 			{
 				clientKey,

@@ -2955,6 +2955,7 @@
 					symbolsDoc={data.symbolsDoc}
 					gridDimensions={data.gridDimensions}
 					repeaterSources={data.repeaterSources}
+					componentDefaults={data.componentDefaults}
 					{componentMap}
 					{spinePreview}
 					{spinePreviewNodeId}
