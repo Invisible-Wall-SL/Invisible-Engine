@@ -926,6 +926,105 @@ ${endScript}</body></html>`;
 		}
 	}
 
+	// --- send a render's frames to the Atlas Maker as reference images ----------
+	// The OTHER export of the same frames, and the difference IS the reason to pick
+	// it: `toclip` downscales, alpha-trims and packs into a sheet, which is the right
+	// shape for a clip and the wrong shape for anything else. This one writes every
+	// selected frame at full resolution, untrimmed, as a reference image with its own
+	// region in an UNPACKED manifest — so the author regenerates those regions in the
+	// Atlas Maker, from the render, and builds a new atlas with the flipbook out of
+	// the loop entirely. No zip to download, no ref to hand-pick per region.
+	//
+	// **It deliberately does not land the author in /atlas.** The video endpoints are
+	// stateless by design (design doc, "Deliberately NOT reusing the Atlas Maker's
+	// active-manifest state") and the tool's active manifest is PROCESS-GLOBAL — a
+	// known multi-user hazard. Switching it from here would yank another user's open
+	// atlas out from under them, so the panel points at /atlas and lets the author
+	// pick the new one themselves.
+	interface RefsResult {
+		atlas_name: string;
+		/** Where the manifest landed. Declared because it is part of the response and the next
+		 * reader should know it exists; not shown, because the author picks the atlas in /atlas
+		 * by NAME and an R2 key is not something they can act on. */
+		manifest: string;
+		regions: number;
+		frames: number;
+		width: number;
+		height: number;
+	}
+	let refsFor = $state<Variation | null>(null);
+	let refsProbe = $state<Probe | null>(null);
+	let atlasName = $state('');
+	let refsStart = $state(0);
+	let refsEnd = $state(0);
+	let refsStride = $state(1);
+	let refsBusy = $state(false);
+	let refsErr = $state('');
+	let refsDone = $state<RefsResult | null>(null);
+
+	/** The twin of `willPack` over this panel's own range/stride — same arithmetic, because
+	 * the tool slices both exports the same way, but its own state so opening one panel can
+	 * never move the other's numbers. */
+	const willExport = $derived.by(() => {
+		if (!refsProbe) return 0;
+		const to = refsEnd > 0 ? Math.min(refsEnd, refsProbe.frames) : refsProbe.frames;
+		const from = Math.max(0, Math.min(refsStart, refsProbe.frames - 1));
+		return Math.max(0, Math.ceil((to - from) / Math.max(1, refsStride)));
+	});
+
+	async function openRefs(v: Variation): Promise<void> {
+		refsFor = v;
+		refsProbe = null;
+		refsErr = '';
+		refsDone = null;
+		refsBusy = false;
+		atlasName = `${(session?.blueprint_name ?? 'video').replace(/[^A-Za-z0-9]+/g, '_')}_${String(v.index).padStart(3, '0')}`;
+		refsStart = 0;
+		refsStride = 1;
+		try {
+			const p = await getJson<Probe>(
+				'probe',
+				`session=${encodeURIComponent(session!.id)}&v=${v.index}`,
+			);
+			if (p.error) {
+				refsErr = p.error;
+				return;
+			}
+			refsProbe = p;
+			refsEnd = p.frames;
+		} catch (e) {
+			refsErr = (e as Error).message;
+		}
+	}
+
+	async function sendToRefs(): Promise<void> {
+		if (!refsFor || !session) return;
+		refsBusy = true;
+		refsErr = '';
+		try {
+			const out = await postJson<RefsResult & { error?: string }>('torefs', {
+				session: session.id,
+				variation: refsFor.index,
+				name: atlasName,
+				start: refsStart,
+				end: refsEnd,
+				stride: refsStride,
+			});
+			if (out.error) {
+				refsErr = out.error;
+				return;
+			}
+			// No navigation on purpose — see the note above. The panel turns into a receipt
+			// instead, because "which atlas did that just become?" is the only question the
+			// author is left holding.
+			refsDone = out;
+		} catch (e) {
+			refsErr = (e as Error).message;
+		} finally {
+			refsBusy = false;
+		}
+	}
+
 	// --- download one render ----------------------------------------------------
 	// Two artifacts, and the difference decides how each is fetched. The animated
 	// WEBP is the stored file verbatim, same-origin, so a plain `<a download>` is
@@ -2383,6 +2482,14 @@ Overwrite it?`)
 									🎞 Make flipbook
 								</button>
 								<button
+									class="make"
+									disabled={v.status !== 'done'}
+									title="Send this render's frames to the Atlas Maker as full-resolution reference images"
+									onclick={() => openRefs(v)}
+								>
+									🖼 To Atlas Maker
+								</button>
+								<button
 									class="tico"
 									disabled={v.status !== 'done' || tileBusy === v.index}
 									title={v.status === 'done'
@@ -2643,6 +2750,118 @@ Overwrite it?`)
 				<div class="actions">
 					<button class="go" disabled={packing || !willPack || !clipName.trim()} onclick={makeClip}>
 						{packing ? 'Packing…' : `🎞 Pack ${willPack} frames & create clip`}
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	{#if refsFor}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div class="backdrop" onclick={() => (refsFor = null)}></div>
+		<div class="picker wide">
+			<header>
+				<strong>Send #{String(refsFor.index).padStart(3, '0')} to the Atlas Maker</strong>
+				<button onclick={() => (refsFor = null)}>✕</button>
+			</header>
+
+			{#if refsErr}
+				<p class="pill err">{refsErr}</p>
+			{/if}
+
+			{#if refsDone}
+				<!-- A receipt, not a redirect. Naming the atlas is the whole job here: nothing on the
+				     Atlas Maker's own screen will point at what this just wrote. -->
+				<p class="hint">
+					<b>{refsDone.frames}</b>
+					frame{refsDone.frames === 1 ? '' : 's'} exported at
+					<b>{refsDone.width}×{refsDone.height}</b>
+					into the atlas <b>{refsDone.atlas_name}</b>, as
+					<b>{refsDone.regions}</b>
+					region{refsDone.regions === 1 ? '' : 's'} — one per frame, each already pointing at its own
+					reference image.
+				</p>
+				<p class="hint">
+					Nothing was packed: what exists now is those loose full-resolution PNGs plus an unpacked
+					manifest whose regions point at them. Open the Atlas Maker, pick
+					<b>{refsDone.atlas_name}</b>
+					from its atlas list, regenerate the regions against those references, then Create Atlas. It
+					will not already be selected there — which atlas the tool has open is shared by everyone using
+					it, so this export deliberately leaves that choice to you.
+				</p>
+
+				<div class="actions">
+					<!-- The rule wants `resolve()` from `$app/paths`, which arrived in SvelteKit 2.26;
+					     this repo pins 2.17.3, whose `$app/paths` exports only `resolveRoute`. `{base}`
+					     does not satisfy it either. Disabled inline rather than parked in
+					     eslint-suppressions.json — that baseline is for burning DOWN existing debt,
+					     not for adding new lines to it (same call as comfyui/+page.svelte). -->
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a class="dl" href="/atlas">🖼 Open the Atlas Maker</a>
+				</div>
+			{:else if !refsProbe}
+				<p class="empty">Reading the animation…</p>
+			{:else}
+				<p class="hint">
+					{refsProbe.frames} frames · {refsProbe.width}×{refsProbe.height} · {refsProbe.fps} fps
+				</p>
+
+				<label class="fld">
+					<span>Atlas name</span>
+					<input bind:value={atlasName} disabled={refsBusy} />
+				</label>
+
+				<div class="row">
+					<label class="fld sm"
+						><span>From</span>
+						<input
+							type="number"
+							min="0"
+							max={refsProbe.frames - 1}
+							bind:value={refsStart}
+							disabled={refsBusy}
+						/></label
+					>
+					<label class="fld sm"
+						><span>To</span>
+						<input
+							type="number"
+							min="1"
+							max={refsProbe.frames}
+							bind:value={refsEnd}
+							disabled={refsBusy}
+						/></label
+					>
+					<label class="fld sm"
+						><span>Every</span>
+						<input
+							type="number"
+							min="1"
+							max="8"
+							bind:value={refsStride}
+							disabled={refsBusy}
+						/></label
+					>
+				</div>
+
+				<p class="hint">
+					<b>{willExport}</b>
+					frame{willExport === 1 ? '' : 's'} will be exported at
+					<b>full resolution ({refsProbe.width}×{refsProbe.height}), untrimmed</b> — no downscale, no
+					alpha crop, nothing packed. That is the whole difference from 🎞 Make flipbook, and the reason
+					to come here: each frame lands as a reference image already wired to its own region, ready
+					to be regenerated in the Atlas Maker.
+				</p>
+
+				<div class="actions">
+					<button
+						class="go"
+						disabled={refsBusy || !willExport || !atlasName.trim()}
+						onclick={sendToRefs}
+					>
+						{refsBusy
+							? 'Exporting…'
+							: `🖼 Export ${willExport} reference image${willExport === 1 ? '' : 's'}`}
 					</button>
 				</div>
 			{/if}
@@ -3612,11 +3831,10 @@ Overwrite it?`)
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* The action row is the one that can run out of width — a label plus THREE icon buttons.
-	   It wraps rather than shrinking the label to nothing: at the grid's 220px minimum the four
-	   fit side by side with room over, and narrower than that the icons fold onto their own line
-	   instead of being pushed out of the card (which is what happened when they were one
-	   unwrapped row). */
+	/* The action row is the one that can run out of width — TWO labelled exports plus four icon
+	   buttons. It wraps rather than shrinking a label to nothing: at the grid's 220px minimum the
+	   two labels sit side by side and the icons fold onto the next line, instead of a button being
+	   pushed out of the card (which is what happened when they were one unwrapped row). */
 	.crow.acts {
 		flex-wrap: wrap;
 		row-gap: 4px;
@@ -3624,9 +3842,9 @@ Overwrite it?`)
 	.make {
 		font-size: 10px;
 		padding: 2px 6px;
-		/* Takes the row; the icon buttons keep their natural width beside it. The floor is what
-		   makes wrapping possible at all — with `min-width: 0` the label would ellipse away to
-		   nothing before the row ever wrapped, and "🎞 M…" is not a button anyone can read. */
+		/* The two labels share the row; the icon buttons keep their natural width beside them. The
+		   floor is what makes wrapping possible at all — with `min-width: 0` a label would ellipse
+		   away to nothing before the row ever wrapped, and "🎞 M…" is not a button anyone can read. */
 		flex: 1 1 auto;
 		min-width: 88px;
 		overflow: hidden;

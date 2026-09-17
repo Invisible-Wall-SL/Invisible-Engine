@@ -2,7 +2,17 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-09-08)_ **A video render can be taken off the tool.** ⤓ on a finished
+**One-line state:** _(2026-09-17)_ **A video render can become Atlas Maker source art, not just a
+flipbook.** 🖼 To Atlas Maker on a finished tile writes every selected frame as a full-resolution,
+untrimmed reference image and creates an atlas with one region per frame, each already wired to its
+own ref — so the frames can be REGENERATED into a new atlas with the flipbook out of the loop
+(owner: *"this way I can then create a new atlas when regenerating this images without having to
+pass trough the flipbook"*). Nothing is packed at export, and that is the load-bearing part: a
+region with no generated image stays UNPLACED, so the full-size refs are loose input files and the
+page is built later from the GENERATED art at the generation size — which is why a large reference
+cannot inflate the atlas. **On a branch, not yet merged, and not live-verified on a GPU** — the same
+unproven chain as the rest of 🎬 mode. Was _(2026-09-08)_ **A video render can be taken off the
+tool.** ⤓ on a finished
 tile downloads it two ways — the animated WEBP verbatim, or every frame as a full-resolution,
 untrimmed PNG sequence in a zip with an `info.json` carrying the fps. The interchange export, so an
 author can take a generation into After Effects instead of only into a packed sheet. Was
@@ -23,7 +33,48 @@ preview with the Rigger's drag handles; the same box exists for a plain sprite r
 export). Every placement can override direction/mirror as well as fps/loop. Was _(2026-08-26)_ **A video mode is being built** ([design](../design/invisible-flipbook-video.md)) — generate N video variations from a ComfyUI blueprint, pick one, turn its frames into a clip. Steps 0–3 are code-complete — the serverless-safe `wan22_i2v_flipbook` blueprint, the session runner, the 🎬 mode UI, and video→packed sheet→clip; **nothing is live-verified on a GPU yet** — the blueprint still has to be seeded and one real job run. Was _(2026-08-25)_ **The Scene Editor can place a clip** — a `flipbook` node in the `LayoutNode` union, dragged from the Library's new Flipbooks section, playing live on the editor canvas and mounted as `<Flipbook>` by `LayoutNodeView` in the game. Was _(2026-07-24)_: First consumer LIVE + the atlas-ref collision is closed for BOTH storable forms — a flipbook symbol plays its OWN clip, not the last-loaded sheet's. Was _(2026-07-21)_: First consumer LIVE — a flipbook clip binds as a symbol state and renders in the runtime. Was: Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
 
 ## Current state
-Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is optional — see Open items):
+Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is optional — see Open items),
+except the first bullet below, which is on a branch:
+
+- **🖼 To Atlas Maker — the second video export, and the inverse of the first.** 🎞 Make flipbook
+  answers *"turn this render into an animation I can play"* (downscale · alpha-trim · pack); this
+  answers *"let me make a better version of these pictures"*, so it does the opposite of all three.
+  `services/atlas-tool/video_to_refs.py` + `POST /video/torefs`, `torefs` in the launcher proxy's
+  allow-list, and a second panel in `VideoMode.svelte` reusing the same probe + range/stride with no
+  Max px.
+  - **The owner's objection is what the design answers.** They did not want the export to create an
+    atlas, because "this atlas could be very big otherwise since the source ref images will be of
+    1024x1024". It cannot: `auto_pack_layout` leaves a region with no committed image UNPLACED, so
+    a manifest carrying only `style_ref`s produces **no page at all**. The refs are loose files
+    under `input/refs/video/<slug>/`; the page appears on Create Atlas, from the generated art at
+    `GEN_WIDTH`/`GEN_HEIGHT`. "An atlas" is a manifest here, not a sheet — the two were one word.
+  - **`style_ref`, never `shape_ref`.** `normalize_shape_ref` grayscales, thresholds and rescales
+    onto a 1024² canvas; bound as a shape ref these frames would stop being pictures. Pinned by a
+    fixture assertion that no region carries a `shape_ref`.
+  - **The ref leaf carries the export slug (`<slug>_0000.png`), not a bare `frame_0000.png`.**
+    Nested under `refs/video/<slug>/` resolves fine (`batch_atlas.py:1745` direct, and the cold-
+    container re-fetch rebuilds the same nested path) — but two fallbacks key on BASENAME alone:
+    `rglob(base)` takes the first sorted match anywhere under `refs/`, and
+    `_serverless_workflow_images` dedupes RunPod's `images[]` by basename into one flat input dir.
+    A generic leaf would silently cross two exports. Same family as the atlas-scoped frame-ref bug.
+  - **The active manifest is NOT switched.** No `save_config`, so the author picks the new atlas in
+    `/atlas` themselves — `manifest_path` is process-global and shared, and moving it from here
+    would yank another user's open atlas. The panel is a receipt naming what it wrote, not a
+    redirect. Same stance the rest of 🎬 mode takes by design.
+  - **An existing atlas name is REFUSED, not overwritten** (`_newatlas`'s "switch to it instead" is
+    unavailable here, since that is exactly the `save_config` call above). The UI's default name is
+    deterministic, so re-exporting one variation at a different range hits this until renamed.
+  - **Over-budget selections and short decodes RAISE** (`MAX_REF_FRAMES = 120`). A truncated export
+    looks exactly like a complete one inside a manifest whose whole job is to say which frames
+    exist — the same reasoning as the zip download's ceiling.
+  - Fixture: `py test_video_to_refs.py` (53 checks; real animated WEBP, R2/paths stubbed) — asserts
+    frames are the source **pixel for pixel**, that no region carries packer geometry and the
+    manifest no `atlas.width/height`, that the `style_ref` survives the real resolver
+    (`_locate_ref_in_staging`) including after staging is deleted, and that the route's failure
+    path is a 200 carrying `{error}`. Proven non-vacuous by four reverted mutations.
+  - **Not verified:** no R2 credentials and no GPU here, so no ref has been regenerated into an
+    atlas end to end, the Atlas Maker's region cards were not rendered against a nested `style_ref`,
+    and the cost of ~80 sequential inline `storage.put`s on a real render is unmeasured.
 
 - **The preview grew in Y without limit until the tool was unusable — it is now a real pan/zoom
   viewport** (owner report, within a day of the resize shipping: *“the canvas is growing in Y size
