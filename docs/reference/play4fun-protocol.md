@@ -178,6 +178,24 @@ Alongside `context`, the `config` EVENT itself carries the resume contract:
 
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
 
+### Most of it reaches nothing (audited 2026-09-17)
+
+The facade bridges exactly three fields to the engine — `__IE_SERVER_CONFIG__` carries
+`availablePayLines`, `symbols` and `window` — plus `betOptions` and `gameCost` consumed separately by
+`betOptions.ts`. Everything else the server declares is read by nothing:
+
+| Declared, unread | Why it matters |
+| --- | --- |
+| `paytable` | **The divergence risk.** It is in `Play4FunConfigContext` and mentioned in comments, but never read: the game's paytable screen comes from the AUTHORED config. So a delivery can show a player one paytable while the operator's server pays another, and nothing anywhere would notice. |
+| `symbolsPay.scatter` | Which symbols are scatters — currently a client-side assumption. |
+| `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way. |
+| `maxWays` | Ways count; we take the payline count instead. |
+
+None of this is urgent for Book-of, whose authored config and the server's declaration agree today.
+It matters the moment a partner changes a paytable on their side, which is precisely the kind of
+change nobody tells the client team about. Reading `paytable` and comparing it to the authored one at
+boot — warn on mismatch, do not "fix" it — would be cheap and would catch that class of drift.
+
 ## Resume — smaller than it looks, and here is the measurement
 
 Their client keeps a `resumeData` queue and, before every request, replays any stored actions the
@@ -218,6 +236,18 @@ the client never finishing the animation. Nothing was lost and there was nothing
   `requestEndRound` lands. A reload revealed the true number.
 - **`seq` is right at scale.** That 13-position round is the strongest test this implementation has
   had — a per-request counter would have mis-numbered every free spin after the first.
+
+### One round we cannot account for
+
+Across the first live session, **one spin in four sent no `collect`**. The other three each closed
+cleanly at `seq=2` with their own `gid`, the balance reconciled at the end, and a later session of
+four more rounds (including the buy) collected every time. It has not reproduced.
+
+Recorded rather than dismissed because the failure it would represent — a round left open that the
+client thinks is finished — is exactly the one that pays a player nothing while the HUD says
+otherwise, and the earlier collect bug in `requestEndRound` was in this same code path. If a partner
+ever reports an uncredited win, start here. Reading the response bodies rather than the request URLs
+would settle it; the browser pane only captured the latter.
 
 ### So what is still worth building
 
