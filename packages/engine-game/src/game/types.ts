@@ -47,6 +47,15 @@ export type SymbolState = SpinningReelSymbolState | (typeof SYMBOL_STATES)[numbe
  * layers, where absent/false draws OVER the cell's art and `true` draws UNDER it. The book-VFX
  * slots already say which side they are on by WHICH slot they are, and the transition has nothing
  * beneath it, so both ignore it.
+ *
+ * `dimWithSymbol` is the win-celebration DIM's per-layer opt-out and, like `behind`, is read only
+ * where a layer decorates something — a symbol cell's layers. Absent (or `true`) ⇒ the layer
+ * darkens with the symbol it sits on, which is what every layer did before this field existed;
+ * `false` ⇒ it keeps full brightness while the rest of the cell dims (a glow that must stay lit).
+ * It cannot be expressed as a tint on the layer itself: Pixi v8 computes
+ * `groupColor = localColor × parent.groupColor`, so a child under a dimmed container can only
+ * darken further, never brighten back — which is why the dim is applied per drawn PIECE inside
+ * `Symbol.svelte` instead of once on the wrapper above them all.
  */
 export type SymbolLayerSpec = {
 	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
@@ -58,6 +67,7 @@ export type SymbolLayerSpec = {
 	offset?: { x: number; y: number };
 	blendMode?: BlendMode;
 	behind?: boolean;
+	dimWithSymbol?: boolean;
 };
 
 /** A single symbol×state binding: the sprite frame or spine animation that renders it.

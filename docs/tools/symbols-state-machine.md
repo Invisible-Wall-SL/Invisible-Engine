@@ -180,12 +180,18 @@ flipbook under it, a sparks effect on top of a spine — and each layer can carr
 **blend mode**.
 
 **Add layer** appends a row. Each row is a collapsed chip (its thumbnail, its binding, and
-badges for `behind` and its blend mode); click it to open its editor:
+badges for `behind`, `no dim` and its blend mode); click it to open its editor:
 
 - **Type** — Sprite / Spine / Flipbook / FX, the same four kinds and the same pickers the
   Book-symbol VFX slots use. Retyping clears the fields the new kind does not use.
 - **Draw → Behind the symbol** — off (the default) draws the layer _over_ the cell's art;
   on draws it _under_.
+- **Win dim → Dim with symbol** — **ticked by default**. With
+  [Darken the non-winning symbols](#winning-symbols-after-the-spin) on, a cell that is not part of
+  the paying line is drawn darkened; a ticked layer darkens with it. Untick it and _this_ layer
+  keeps full brightness while the rest of the symbol goes dark — for a glow or a rim light that
+  should stay lit. It changes nothing when that switch is off, and it is **not previewed here**:
+  the dim only happens during a win.
 - **Blend** — how the layer's pixels combine with what is already drawn beneath it:
   Normal, Add, Multiply, Screen, Lighten, Overlay.
 - **Size × cell** and **Offset × cell** — the same fit hints a Book-VFX layer carries.
@@ -608,6 +614,14 @@ it and already waits for a press, and autoplay/space-hold skips the wait. Indepe
 replay toggle: with the replay off it still holds, on a static board. Stored as
 `winCycle.holdAfterBigWin` (only the on-state persists); the hold itself is
 `apps/lines/src/game/freeSpinHold.ts`.
+
+**Darken the non-winning symbols** (**off** by default) darkens every cell that is _not_ part of
+the round's paying lines, from the win celebration until the next spin, so the winning line stands
+out. It is a property of the whole board rather than of the replay, so it applies even with the
+replay above turned off; a losing spin's board is never dimmed. Individual **layers** of a symbol
+can step out of it — see **Win dim → Dim with symbol** under
+[Layers](#layers-a-symbol-made-of-more-than-one-picture) — so a glow layer can stay lit while the
+art it sits on darkens.
 
 Stored sparsely as
 `winCycle: { enabled?, delay?, showLine?, showText?, showMessage?, dimNonWinning?, holdAfterBigWin? }`

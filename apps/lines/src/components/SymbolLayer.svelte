@@ -57,6 +57,20 @@
 		 *  all: `1` is not a no-op in Pixi v8 (it swaps the shared default point for an owned one and
 		 *  dirties the transform), and `pixi-svelte` skips an undefined prop — `SymbolWrap`'s rule. */
 		scale?: number;
+		/**
+		 * Win-celebration DIM for THIS layer, as a Pixi tint on the wrapper below — the dim colour for
+		 * a layer that darkens with its symbol, `0xffffff` for one that opts out
+		 * (`dimWithSymbol: false`). It is applied HERE rather than on an ancestor because Pixi's
+		 * cascade is multiplicative (`groupColor = localColor × parent.groupColor`): a child under a
+		 * dimmed container can only darken further, never brighten back, so an exempt layer has to sit
+		 * outside every tinted node.
+		 *
+		 * Absent on every caller that is not a board cell (the book VFX, the explosion transition):
+		 * `propsSyncEffect` skips an undefined prop, so the container is left exactly as it was before
+		 * this prop existed. The board path always passes a NUMBER — never `undefined` — because a
+		 * prop that went number → undefined would be skipped and leave the last tint stuck on.
+		 */
+		tint?: number;
 		/** Play once and report `oncomplete` (see above). Absent ⇒ loop, the book-VFX behaviour. */
 		once?: boolean;
 		oncomplete?: () => void;
@@ -195,7 +209,13 @@
 	owns its own particle containers and has no single renderable to carry it — the same shape the
 	placed-effect branch of `<LayoutNodeView>` already ships.
 -->
-<Container x={props.x + offsetX} y={props.y + offsetY} zIndex={props.zIndex} {scale}>
+<Container
+	x={props.x + offsetX}
+	y={props.y + offsetY}
+	zIndex={props.zIndex}
+	{scale}
+	tint={props.tint}
+>
 	{#if props.layer.kind === 'sprite' && props.layer.assetKey}
 		<Sprite anchor={0.5} key={props.layer.assetKey} {width} {height} contain {blendMode} />
 	{:else if props.layer.kind === 'spine' && props.layer.assetKey}

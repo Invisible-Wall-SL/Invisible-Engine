@@ -254,6 +254,13 @@ export interface BookVfxLayer {
 	 * and the transition has nothing beneath it. Sparse: only `true` is written.
 	 */
 	behind?: boolean;
+	/**
+	 * Does this layer darken with its symbol while "Darken the non-winning symbols"
+	 * (`winCycle.dimNonWinning`) is on? Absent ⇒ YES, which is what every layer did before this
+	 * existed, so only the opt-out (`false`) is ever written and an untouched doc round-trips to the
+	 * bytes it arrived with. Read only for a symbol CELL's layers, like {@link BookVfxLayer.behind}.
+	 */
+	dimWithSymbol?: boolean;
 }
 
 /** The Book-symbol VFX doc-global — background + foreground layers, both sparse. Mirrors the server

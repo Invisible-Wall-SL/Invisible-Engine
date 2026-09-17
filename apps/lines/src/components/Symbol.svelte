@@ -7,7 +7,7 @@
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
-	import { BitmapText } from 'pixi-svelte';
+	import { BitmapText, Container } from 'pixi-svelte';
 
 	type Props = {
 		x?: number;
@@ -28,6 +28,29 @@
 		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
 		 * the sentence it illustrates. */
 		frozen?: boolean;
+		/**
+		 * The win-celebration DIM for this cell (`winCycle.dimNonWinning`) — a Pixi tint, applied to
+		 * each drawn PIECE below rather than once on a container above them all.
+		 *
+		 * That split is what a per-layer opt-out costs. Pixi v8 computes
+		 * `groupColor = localColor × parent.groupColor`, so a child under a dimmed container can only
+		 * darken further and can NEVER brighten back (measured against the real
+		 * `updateRenderGroupTransforms`): a layer that must stay lit has to be outside every tinted
+		 * node, not merely carry a brighter tint of its own. The dim therefore moved down here from
+		 * `SymbolWrap`, which used to tint the whole cell in one go.
+		 *
+		 * Parity is exact, and by construction rather than by inspection: the cascade multiplies, so
+		 * moving the SAME factor from an ancestor onto every one of its descendants leaves each leaf's
+		 * `groupColor` identical. Every piece that the wrapper used to reach — the base art, the
+		 * layers, the win frame and the multiplier stamp — is still under exactly one tinted node.
+		 *
+		 * Only the reel board passes it, and it always passes a NUMBER (`0xffffff` when undimmed),
+		 * never `undefined`: `propsSyncEffect` SKIPS an undefined prop, so a tint that went
+		 * number → undefined would leave the last value stuck on the container. Every other mount site
+		 * (cascade, stacked, debug grid, Book riders, message symbol) passes nothing at all, which
+		 * touches no container property and is byte-identical to before this prop existed.
+		 */
+		tint?: number;
 	};
 
 	const props: Props = $props();
@@ -88,6 +111,17 @@
 	const behindLayers = $derived(layers.filter((layer) => layer.behind === true));
 	const overLayers = $derived(layers.filter((layer) => layer.behind !== true));
 
+	/**
+	 * The dim as it reaches ONE layer. `dimWithSymbol: false` is the opt-out — the layer is drawn at
+	 * full brightness while the rest of the cell darkens, which is the whole point of doing this per
+	 * piece. Absent/`true` ⇒ it takes the cell's tint, exactly as every layer did before the field
+	 * existed. No tint in ⇒ no tint out, so a non-board mount site still sets nothing.
+	 */
+	const layerTint = (layer: SymbolLayerSpec): number | undefined => {
+		if (props.tint === undefined) return undefined;
+		return layer.dimWithSymbol === false ? 0xffffff : props.tint;
+	};
+
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
 	 *  spine/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
 	 *  change updates in place. Position alone would reuse a spine renderer for a sprite layer. */
@@ -95,56 +129,71 @@
 		`${i}:${layer.kind}:${layer.assetKey ?? layer.clipId ?? layer.effectId ?? ''}`;
 </script>
 
+<!--
+	THE DIM IS APPLIED PER PIECE, and the two `<Container>`s below exist only to carry it (see the
+	`tint` prop). They are UNCONDITIONAL on purpose: wrapping only while dimmed would remount the art
+	every time the celebration started or ended — a spine would restart its animation mid-win — where
+	an always-mounted container with no tint set is a transform-free no-op.
+
+	Draw order is unchanged and is still MARKUP order: behind-layers, the cell's art, over-layers,
+	then the win frame and the multiplier stamp. The frame and the stamp share the second container
+	because they are contiguous; nothing may be re-ordered to share one, since array order IS draw
+	order for the layers between them.
+-->
 {#each behindLayers as layer, i (layerKey(layer, i))}
-	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} />
+	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} />
 {/each}
 
-{#if !hasArt}
-	<!-- nothing to draw -->
-{:else if isFlipbook}
-	<SymbolFlipbook
-		{symbolInfo}
-		{loop}
-		frozen={props.frozen}
-		x={props.x}
-		y={props.y}
-		oncomplete={props.oncomplete}
-	/>
-{:else if isSprite}
-	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
-{:else}
-	<SymbolSpineMain
-		{loop}
-		{symbolInfo}
-		frozen={props.frozen}
-		x={props.x}
-		y={props.y}
-		listener={{
-			complete: props.oncomplete,
-			event: (_, event) => {
-				if (event.data?.name === 'wildExplode') playWildExplodeSound();
-			},
-		}}
-	/>
-{/if}
+<Container tint={props.tint}>
+	{#if !hasArt}
+		<!-- nothing to draw -->
+	{:else if isFlipbook}
+		<SymbolFlipbook
+			{symbolInfo}
+			{loop}
+			frozen={props.frozen}
+			x={props.x}
+			y={props.y}
+			oncomplete={props.oncomplete}
+		/>
+	{:else if isSprite}
+		<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
+	{:else}
+		<SymbolSpineMain
+			{loop}
+			{symbolInfo}
+			frozen={props.frozen}
+			x={props.x}
+			y={props.y}
+			listener={{
+				complete: props.oncomplete,
+				event: (_, event) => {
+					if (event.data?.name === 'wildExplode') playWildExplodeSound();
+				},
+			}}
+		/>
+	{/if}
+</Container>
 
 {#each overLayers as layer, i (layerKey(layer, i))}
-	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} />
+	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} />
 {/each}
 
-{#if showWinFrame}
-	<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
-{/if}
+<Container tint={props.tint}>
+	{#if showWinFrame}
+		<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
+	{/if}
 
-{#if props.rawSymbol.multiplier}
-	<BitmapText
-		anchor={0.5}
-		x={props.x}
-		y={props.y}
-		text={`${props.rawSymbol.multiplier}X`}
-		style={{
-			fontFamily: 'gold',
-			fontSize: 50,
-		}}
-	/>
-{/if}
+	{#if props.rawSymbol.multiplier}
+		<BitmapText
+			anchor={0.5}
+			x={props.x}
+			y={props.y}
+			text={`${props.rawSymbol.multiplier}X`}
+			style={{
+				fontFamily: 'gold',
+				fontSize: 50,
+			}}
+		/>
+	{/if}
+</Container>

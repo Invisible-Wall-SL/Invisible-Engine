@@ -2,7 +2,7 @@
  * Contract check for a symbol cell's LAYERS (Invisible Symbols State Machine → the cell editor's
  * "Layers"): a symbol composed of more than one picture, each layer carrying its own blend mode.
  *
- * Five things, each over the REAL implementation rather than a re-typed copy of it:
+ * Seven things, each over the REAL implementation rather than a re-typed copy of it:
  *   1. PARITY — a doc with no `layers` anywhere is BYTE-IDENTICAL through `normalizeSymbolsDoc` to
  *      the same doc before the field existed, and an empty `layers: []` (the last layer removed) is
  *      pruned back to no key at all, so the page's dirty signature and the server agree on
@@ -25,6 +25,11 @@
  *   6. BOTH BUNDLE PATHS — an `fx` layer's effect is neither placed, rig-bound nor event-triggered,
  *      so the orphan pruner would strip it: the runtime bundle keeps it through the real
  *      `pruneUnreachableEffects`, and the bake script's own inline keep-set walks cell layers too.
+ *   7. THE WIN DIM + a layer's opt-out from it (`dimWithSymbol`) — absent ⇒ byte-identical, the
+ *      default darkens with the symbol, the opt-out does not, and the dim is applied WHERE it has to
+ *      be: per drawn piece inside `Symbol.svelte`, never on the `SymbolWrap` container above them
+ *      (a child cannot cancel a parent's tint — Pixi multiplies — so hoisting it back would silently
+ *      re-dim every exempt layer).
  *
  * Run:  pnpm --filter launcher-api check:symbol-layers
  *
@@ -461,10 +466,18 @@ check(
 // Since `overlay`/`lighten` are the modes this feature exists for, a refactor that hoisted the prop
 // back onto the wrapper would silently stop them blending — with the tool still previewing it.
 const layerSrc = read(`${here}../../../apps/lines/src/components/SymbolLayer.svelte`);
-const outerWrapper = /<Container x=\{props\.x \+ offsetX\}[^>]*>/.exec(layerSrc)?.[0] ?? '';
+const outerWrapper = /<Container\s+x=\{props\.x \+ offsetX\}[\s\S]*?>/.exec(layerSrc)?.[0] ?? '';
 check('SymbolLayer: the outer wrapper exists', outerWrapper !== '', true);
-check('SymbolLayer: the outer wrapper does NOT carry the blend', /\{blendMode\}/.test(outerWrapper), false);
-check('SymbolLayer: the sprite arm carries the blend', /<Sprite[^>]*\{blendMode\}[^>]*\/>/.test(layerSrc), true);
+check(
+	'SymbolLayer: the outer wrapper does NOT carry the blend',
+	/\{blendMode\}/.test(outerWrapper),
+	false,
+);
+check(
+	'SymbolLayer: the sprite arm carries the blend',
+	/<Sprite[^>]*\{blendMode\}[^>]*\/>/.test(layerSrc),
+	true,
+);
 check(
 	'SymbolLayer: the flipbook arm carries the blend',
 	/<Flipbook[\s\S]{0,240}\{blendMode\}[\s\S]{0,60}\/>/.test(layerSrc),
@@ -474,6 +487,211 @@ check(
 	'SymbolLayer: the spine arm never carries a blend (a Pixi blend cannot reach skeleton geometry)',
 	/<SpineProvider[^>]*\{blendMode\}/.test(layerSrc),
 	false,
+);
+
+// ── 7. The win dim, and a layer's opt-out from it ────────────────────────────────────────────
+// "Darken the non-winning symbols" (`winCycle.dimNonWinning`) draws every non-paying cell through a
+// Pixi tint. A layer can now step out of that (`dimWithSymbol: false`) — which is only expressible
+// because the tint moved OFF the one container above the whole cell and onto each drawn piece: Pixi
+// computes `groupColor = localColor × parent.groupColor`, so a child under a dimmed container can
+// only darken further and can never brighten back (verified against the real
+// `updateRenderGroupTransforms`).
+
+// Parity first: a doc that never mentions the field must survive untouched.
+const noDim = normalizeSymbolsDoc({
+	version: 1,
+	symbols: {
+		H1: {
+			win: {
+				...base,
+				layers: [
+					{ kind: 'sprite', assetKey: `${SHEET}::glow.webp` },
+					{ kind: 'spine', assetKey: SPINE, animationName: 'glow', behind: true },
+				],
+			},
+		},
+	},
+});
+check(
+	'dim — a layer with no `dimWithSymbol` round-trips byte-identically (no key grows)',
+	noDim.symbols.H1.win!.layers!.map((l) => Object.keys(l).sort()),
+	[
+		['assetKey', 'kind'],
+		['animationName', 'assetKey', 'behind', 'kind'],
+	],
+);
+
+const optedOut = normalizeSymbolsDoc({
+	version: 1,
+	symbols: {
+		H1: {
+			win: {
+				...base,
+				layers: [{ kind: 'sprite', assetKey: `${SHEET}::glow.webp`, dimWithSymbol: false }],
+			},
+		},
+	},
+});
+check('dim — the opt-out survives the schema verbatim', optedOut.symbols.H1.win!.layers, [
+	{ kind: 'sprite', assetKey: `${SHEET}::glow.webp`, dimWithSymbol: false },
+]);
+rejects(
+	'rejects a non-boolean `dimWithSymbol`',
+	withLayers([{ kind: 'sprite', assetKey: 'x', dimWithSymbol: 'no' }]),
+);
+
+// Sparsity is the CLIENT's rule (`reduceLayer`), the same way `behind`'s is: only the non-default is
+// written, so a layer the author merely opened does not start claiming a default out loud.
+const persistedDim = (layer: BookVfxLayer) => (layer.dimWithSymbol === false ? false : undefined);
+check(
+	'dim — the default (dims with the symbol) persists as NOTHING',
+	persistedDim({ kind: 'sprite', assetKey: 'x', dimWithSymbol: true }),
+	undefined,
+);
+check(
+	'dim — an untouched layer persists nothing either',
+	persistedDim({ kind: 'sprite', assetKey: 'x' }),
+	undefined,
+);
+check(
+	'dim — the OPT-OUT is what gets written',
+	persistedDim({ kind: 'sprite', assetKey: 'x', dimWithSymbol: false }),
+	false,
+);
+
+/** `Symbol.svelte`'s `layerTint`, re-stated: what tint ONE layer is drawn with. */
+const DIM_TINT = 0x666666;
+const layerTint = (tint: number | undefined, layer: BookVfxLayer): number | undefined => {
+	if (tint === undefined) return undefined;
+	return layer.dimWithSymbol === false ? 0xffffff : tint;
+};
+check(
+	'dim — by default a layer darkens with its symbol',
+	layerTint(DIM_TINT, { kind: 'sprite', assetKey: 'x' }),
+	DIM_TINT,
+);
+check(
+	'dim — an explicit `true` darkens too (same as absent)',
+	layerTint(DIM_TINT, { kind: 'sprite', assetKey: 'x', dimWithSymbol: true }),
+	DIM_TINT,
+);
+check(
+	'dim — the opt-out is drawn at FULL brightness while the cell darkens',
+	layerTint(DIM_TINT, { kind: 'sprite', assetKey: 'x', dimWithSymbol: false }),
+	0xffffff,
+);
+check(
+	'dim — an undimmed board passes white, and an exempt layer is white too (no visible difference)',
+	[
+		layerTint(0xffffff, { kind: 'sprite', assetKey: 'x' }),
+		layerTint(0xffffff, { kind: 'sprite', assetKey: 'x', dimWithSymbol: false }),
+	],
+	[0xffffff, 0xffffff],
+);
+check(
+	'dim — a non-board mount site (no tint at all) sets no container property, exempt or not',
+	[
+		layerTint(undefined, { kind: 'sprite', assetKey: 'x' }),
+		layerTint(undefined, { kind: 'sprite', assetKey: 'x', dimWithSymbol: false }),
+	],
+	[undefined, undefined],
+);
+
+const dimmedSig = normalizeSymbolsDoc({
+	version: 1,
+	symbols: { H1: { win: { ...base, layers: [{ kind: 'sprite', assetKey: 'x' }] } } },
+}) as SymbolsDoc;
+const exemptSig = normalizeSymbolsDoc({
+	version: 1,
+	symbols: {
+		H1: { win: { ...base, layers: [{ kind: 'sprite', assetKey: 'x', dimWithSymbol: false }] } },
+	},
+}) as SymbolsDoc;
+checks += 1;
+if (docSignature(dimmedSig) === docSignature(exemptSig)) {
+	failures += 1;
+	console.log(
+		'FAIL  opting a layer out of the dim must move the dirty signature (or Save never lights up)',
+	);
+}
+
+// --- WHERE the dim is applied ------------------------------------------------------------------
+// The whole feature rests on the tint NOT sitting on one container above the cell. These pin it.
+const symbolSrc = read(`${here}../../../apps/lines/src/components/Symbol.svelte`);
+const wrapSrc = read(`${here}../../../apps/lines/src/components/SymbolWrap.svelte`);
+const reelSrc = read(`${here}../../../apps/lines/src/components/ReelSymbol.svelte`);
+
+check(
+	'dim — `SymbolWrap` no longer tints the whole cell (hoisting it back re-dims every exempt layer)',
+	/<Container[^>]*\btint=/.test(wrapSrc),
+	false,
+);
+check(
+	'dim — the board hands the dim to `<Symbol>`, not to the wrapper',
+	/<Symbol\b[\s\S]*?tint=\{dimmed \? SYMBOL_DIM_TINT : 0xffffff\}/.test(reelSrc),
+	true,
+);
+check(
+	"dim — `SymbolLayer`'s own wrapper carries the per-layer tint",
+	/\btint=\{props\.tint\}/.test(outerWrapper),
+	true,
+);
+check(
+	'dim — both `SymbolLayer` mounts (behind + over) are handed `layerTint(layer)`',
+	(symbolSrc.match(/<SymbolLayer\b[^>]*tint=\{layerTint\(layer\)\}/g) ?? []).length,
+	2,
+);
+check(
+	'dim — the opt-out resolves to full brightness in the engine, not to a brighter tint under the dim',
+	/dimWithSymbol === false \? 0xffffff : props\.tint/.test(symbolSrc),
+	true,
+);
+
+/** The pieces each tinted container of `Symbol.svelte` actually wraps. */
+const tintedBlocks = [
+	...symbolSrc.matchAll(/<Container tint=\{props\.tint\}>([\s\S]*?)<\/Container>/g),
+].map((m) => m[1]);
+check('dim — there are exactly two tinted containers', tintedBlocks.length, 2);
+// PARITY: everything the one container above used to darken must still be under a tinted node. The
+// base art, the win frame and the multiplier stamp all dimmed before this moved; if any of them
+// slipped outside, a shipped game would quietly stop darkening part of a losing cell.
+for (const [label, needle] of [
+	['the flipbook arm', '<SymbolFlipbook'],
+	['the sprite arm', '<SymbolSprite'],
+	['the spine arm', '<SymbolSpineMain'],
+	['the win frame', '<SymbolWinFrame'],
+	['the multiplier stamp', '<BitmapText'],
+] as const) {
+	check(
+		`dim — ${label} is still inside a tinted container (it dimmed before the move)`,
+		tintedBlocks.some((block) => block.includes(needle)),
+		true,
+	);
+}
+// …and the containers are UNCONDITIONAL — a conditional wrapper would remount the art whenever the
+// celebration started or ended, restarting a spine mid-win.
+check(
+	'dim — the tinted containers are not behind an `{#if}`',
+	/\{#if [^}]*\}\s*<Container tint=\{props\.tint\}>/.test(symbolSrc),
+	false,
+);
+
+// The tool half: the control exists, and it writes only the opt-out.
+const page = read(`${here}../src/routes/(app)/symbols/+page.svelte`);
+check(
+	'the tool offers a "Dim with symbol" toggle, ticked by default',
+	/checked=\{layer\.dimWithSymbol !== false\}/.test(page) && /Dim with symbol/.test(page),
+	true,
+);
+check(
+	'the tool persists ONLY the opt-out (the default costs an untouched doc nothing)',
+	/if \(l\.dimWithSymbol === false\) layer\.dimWithSymbol = false;/.test(page),
+	true,
+);
+check(
+	'retyping a layer keeps its dim choice',
+	/dimWithSymbol: current\.dimWithSymbol/.test(page),
+	true,
 );
 
 if (failures) {

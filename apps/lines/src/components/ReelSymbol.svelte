@@ -144,7 +144,6 @@
 		{y}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}
-		tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 		animating={symbolInfo.type === 'spine' &&
 			ANIMATING_SYMBOL_STATES.includes(props.reelSymbol.symbolState)}
 	>
@@ -152,6 +151,7 @@
 			state={props.reelSymbol.symbolState}
 			rawSymbol={props.reelSymbol.rawSymbol}
 			winLineColor={props.reelSymbol.winLineColor}
+			tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 			oncomplete={() => {
 				const state = props.reelSymbol.symbolState;
 				// EVERY STATE A BEAT DRIVES reports straight through, whoever armed it — and WITHOUT
