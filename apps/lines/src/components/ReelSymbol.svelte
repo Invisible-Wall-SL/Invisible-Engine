@@ -144,15 +144,41 @@
 			rawSymbol={props.reelSymbol.rawSymbol}
 			winLineColor={props.reelSymbol.winLineColor}
 			oncomplete={() => {
-				// A cascade ARMS the cell per beat (explode, land, intro): every completion is reported
-				// straight through, which is what the overlay's own cell did.
-				if (cascade) {
+				const state = props.reelSymbol.symbolState;
+				// EVERY STATE A BEAT DRIVES reports straight through, whoever armed it — and WITHOUT
+				// asking whether a cascade is still holding the cell.
+				//
+				// It used to ask, and that was a bug. A cascade seat says where a cell IS, not who is
+				// waiting on it, and the two come apart on exactly one path: with "let the next spin
+				// start as soon as the symbols are back" turned on, `tumbleBoardAppear` does not await
+				// the intro beat, so `boardSettle` adopts the cells — detaching every seat — while the
+				// intros are still playing. Gated on the seat, those completions were swallowed, and
+				// every arriving symbol sat frozen on its intro for the whole `INTRO_BEAT_CAP_MS`
+				// before the cap settled it. The overlay never showed this because it DESTROYED the
+				// cell at `tumbleBoardHide` and the reel board mounted a fresh, resting one in its
+				// place — the restart this merge removed was hiding the freeze behind it.
+				//
+				// Keyed on the state instead, which is what a beat actually owns. `static`,
+				// `postWinStatic` and `spin` are nobody's beat, so a looping clip in one of them
+				// reports nothing — the guard that keeps a settled win beat from being re-fired by a
+				// cell that has since moved on.
+				if (
+					state === 'win' ||
+					state === 'explosion' ||
+					state === 'clearReel' ||
+					state === 'intro'
+				) {
 					props.reelSymbol.oncomplete();
 					return;
 				}
-				if (props.reelSymbol.symbolState === 'win') props.reelSymbol.oncomplete();
-				if (props.reelSymbol.symbolState === 'explosion') props.reelSymbol.oncomplete();
-				if (props.reelSymbol.symbolState === 'land') props.reelSymbol.symbolState = 'static';
+				// `land` is the one state BOTH owners arm. A cascade's own callback settles the cell
+				// and resolves its beat; the reel board arms nothing, so its `oncomplete` is the cell's
+				// default no-op and the settle below is the whole behaviour. Doing both is what lets
+				// one cell answer for either owner.
+				if (state === 'land') {
+					props.reelSymbol.oncomplete();
+					props.reelSymbol.symbolState = 'static';
+				}
 			}}
 		/>
 	</SymbolWrap>
