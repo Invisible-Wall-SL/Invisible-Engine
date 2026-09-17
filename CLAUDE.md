@@ -171,34 +171,37 @@ Plug-and-play translator package. Maps the Invisible Engine internal request sha
 
 > **Naming note:** the package is currently named `rgs-translator-eagaming` because the discovery target was `eagaming.com`. We've since confirmed the actual protocol belongs to **Play4Fun** (the EAGaming brand wrapper proxies to a Play4Fun RGS host, e.g. `www.best00qpin.com`). Will likely rename to `rgs-translator-play4fun` once we've verified the same protocol on another brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` back-compat aliases.
 
-### Wire format (verified from Hot Fruits)
-```
-POST {origin}/rgs/engine?sid={sid}&seq={n}[&gid={gameRoundId}]
-Body: [{action, context}, …]
-```
+### Wire format → **`docs/reference/play4fun-protocol.md`**
 
-**Actions:**
-- `bet` — `context: [a, betPerLine]` — total stake = `a * betPerLine`
-- `play` — `context: null` (round stays open, requires separate `collect`) or `''` (auto-collect)
-- `collect` — closes a round; needs `gid` query param
-- `[]` (empty body) — heartbeat, returns `{events:[], platform:{balance}}`
+The full contract — transport, every action, every event, the boot `config` fields and what we do
+NOT implement — now lives in that reference, read off the partner's own client rather than inferred
+from traffic. Read it before touching the translator. The essentials:
 
-**Response:**
-```ts
-{
-  events: [
-    { event: 'bet'|'gameStart'|'spinStart'|'spinWin'|'playedSpin'|'gameEnd'|'gameRoundOver', context: {…} },
-    …
-  ],
-  platform: { balance, gameRound?: { updating: true, id: 'G…' } }
-}
+```
+POST {gameAPI}&seq={n}[&gid={gameRoundId}]      # gameAPI already carries ?sid=, hence &
+Body: [{action, context}, …]                    # [] alone = balance heartbeat
 ```
 
-The `events` array IS the Invisible Engine book-event sequence — translation is mostly pass-through.
+- **Actions:** `config` · `bet` `[x, betPoint]` · `play` (null, or a forced-outcome string) ·
+  `collect` (needs `gid`) · `gamble` · `pickRandomly`.
+- **`bet`'s first argument is not one thing:** a `betOptions` game sends the OPTION INDEX, a
+  line/way/dynaways game sends the BET MULTIPLIER.
+- **`seq` is a POSITION, not a counter** — the 0-based index in the round's stored action array. A
+  request carrying `[bet, play]` advances it by **two**; `config` and the empty-body probe are not
+  stored and consume none. Writing to an occupied position is how the server exposes **replay**, so a
+  per-request counter would silently replay a round rather than merely mis-number it. Confirmed
+  against their client, which builds the URL from the counter and only then advances it by the number
+  of stored actions posted. Owned by `sessionState.ts` (`startRound()` / `takeSeq(storedActions)` /
+  `bindRound(gid)` / `endRound()`); `seqOverride` on the fetcher is the replay seam.
+- **Events are processed in TWO passes:** `bet` and `playedSpin` first, everything else second — the
+  stake and the board must be settled before any win event is read.
+- The `events` array IS the Invisible Engine book-event sequence — translation is mostly pass-through.
 
-**`seq` is a POSITION, not a counter:** it is the 0-based index in the round's stored action array at which the posted action(s) are placed. The server appends every stored action it receives, so a request carrying `[bet, play]` advances the array by **two** and the next action belongs at `seq=2`; omitting `seq` appends. Writing to an **already-occupied** position is how the engine exposes **replay** — re-posting `play` at an earlier free spin's slot shows that spin again instead of advancing — so a counter that advanced once per request would silently replay the round rather than merely mis-number it. `config` and the empty-body balance probe are NOT stored and consume no position. Owned by the session state (`startRound()` / `takeSeq(storedActions)` / `bindRound(gid)` / `endRound()`); `seqOverride` on the fetcher is the replay seam.
+**Cloudflare:** the EAGaming edge is behind Cloudflare managed challenge. Server-side fetches (Node,
+curl) get bounced. Probing must run inside a real browser tab on the game origin. (Does not apply to
+a delivery, where the RGS is same-origin with the operator's page — see
+`docs/design/delivery-builds.md`.)
 
-**Cloudflare:** the EAGaming edge is behind Cloudflare managed challenge. Server-side fetches (Node, curl) get bounced. Probing must run inside a real browser tab on the game origin.
 
 ### Files
 - `src/types.ts` — wire types + sample payloads in comments
