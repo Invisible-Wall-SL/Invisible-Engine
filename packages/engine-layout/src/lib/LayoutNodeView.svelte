@@ -703,9 +703,15 @@
 	/**
 	 * The node's PixiJS blend mode (`undefined` for `normal`, so `propsSyncEffect` skips the prop
 	 * entirely and an un-blended node takes the byte-identical parity path). Passed alongside
-	 * `alpha` on every renderable branch — sprite, spine, flipbook, and the effect's wrapper
+	 * `alpha` on the branches that can actually blend — sprite, flipbook, and the effect's wrapper
 	 * container, which is what makes a whole particle effect blend as ONE (pixi inherits
 	 * `groupBlendMode` down the subtree) rather than per particle sprite.
+	 *
+	 * NOT the spine branch. A Pixi blend cannot reach skeleton geometry: `SpinePipe.addRenderable`
+	 * batches every slot with the SLOT's own blend and never calls `renderPipes.blendMode`, nor
+	 * reads `groupBlendMode` — so `spine.blendMode` and a blended wrapper are both no-ops. Verified
+	 * in a running game (`multiply` pixel-identical to `normal`). Spine art blends per slot,
+	 * authored in the Rigger; the editor drops the control for `spine` to match.
 	 */
 	const blendMode = $derived(pixiBlendMode(transform.blendMode));
 
@@ -1026,7 +1032,6 @@
 			fit={bgSpineBox ? bgFit : undefined}
 			skin={effSkin}
 			visible={spineVisible}
-			{blendMode}
 			rebroadcastEvents
 		>
 			<!--

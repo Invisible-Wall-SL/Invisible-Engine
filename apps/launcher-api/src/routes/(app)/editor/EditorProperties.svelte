@@ -7,6 +7,7 @@
 		backgroundFit,
 		builtinSpineMeta,
 		BLEND_MODE_LABELS,
+		canBlendKind,
 		BLEND_MODES,
 		BUILTIN_SPINE_NAMES,
 		BUTTON_STATE_PARAMS,
@@ -1189,15 +1190,23 @@
 		markDirty();
 	}
 
-	/** The kinds the blend control is offered on — the ART kinds whose preview honours it
-	 * (`EditorCanvas`'s blend runs for the 2D pair, its blended WebGL overlays for the other two).
-	 * Text/rect/container are deliberately out: they render on surfaces the preview does not blend,
-	 * so offering the control there would promise a preview the editor can't keep. */
+	/**
+	 * The kinds the blend control is offered on — the ART kinds that blend in the GAME, which is
+	 * the only bar that matters. Text/rect/container render on surfaces the preview does not blend,
+	 * so offering the control there would promise a preview the editor can't keep.
+	 *
+	 * `spine` is deliberately OUT, and it is the non-obvious one. A Pixi blend cannot reach
+	 * skeleton geometry at all: `SpinePipe.addRenderable` pushes every slot straight into the
+	 * batcher carrying the SLOT's own blend and never calls `renderPipes.blendMode`, so neither
+	 * `spine.blendMode` nor a blended wrapper container has any effect (`groupBlendMode` is not
+	 * read either). Verified in a running game — `multiply` on a spine node renders pixel-identical
+	 * to `normal`, while the editor's overlay happily previewed it via CSS `mix-blend-mode`. That
+	 * divergence is exactly what `blendMode.ts` exists to prevent, so the control goes rather than
+	 * the promise. Spine art blends PER SLOT, authored in the Rigger (normal/additive/multiply/
+	 * screen — Spine's format has no `overlay` or `lighten`).
+	 */
 	function supportsBlend(n: LayoutNode | null): boolean {
-		return (
-			!!n &&
-			(n.kind === 'sprite' || n.kind === 'spine' || n.kind === 'flipbook' || n.kind === 'effect')
-		);
+		return !!n && canBlendKind(n.kind);
 	}
 
 	function setSpriteSize(n: LayoutNode, axis: 'width' | 'height', value: number): void {

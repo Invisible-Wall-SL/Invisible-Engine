@@ -39,6 +39,35 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-17 — **The blend control is withdrawn from `spine` nodes: it never worked in game.**
+  Shipped 2026-09-16 offering blend on sprite/spine/flipbook/effect. The spine case was never
+  probed in a running game — the verification used a sprite — and it is a **no-op**.
+  - **Why.** A Pixi blend cannot reach skeleton geometry. `SpinePipe.addRenderable` pushes every
+    slot straight into the batcher carrying the SLOT's own blend and never calls
+    `renderPipes.blendMode`; it does not read `groupBlendMode` either. So neither
+    `spine.blendMode` nor a blended wrapper `<Container>` does anything.
+  - **Measured, not deduced:** in a running game a spine node at `multiply` renders
+    pixel-identical to `normal`; wrapping its parent in `blendMode: 'multiply'` also changes
+    nothing, and the spine's `groupBlendMode` stays `normal`. The same forced-render screenshot
+    method detected Screen-vs-Lighten on a sprite minutes earlier, so the method was not at fault.
+  - **The bad part was the divergence**, not the missing feature: the editor DID preview it (its
+    spine overlay blends via CSS `mix-blend-mode` on the element), so an author would have styled
+    a rig in the editor and shipped something that drew normally. That is precisely what
+    `blendMode.ts` exists to prevent.
+  - **Fix.** New `BLENDABLE_KINDS` + `canBlendKind()` in `blendMode.ts` — ONE definition, consumed
+    by `EditorProperties.supportsBlend` (offers the control) and `EditorCanvas.nodeBlendMode`
+    (resolves it), so the two cannot drift. A non-blendable kind resolves to `normal`, which also
+    means an older doc that stored a mode on a spine previews as the game draws it AND is not
+    filtered off the base overlay into a blended layer that no longer exists. `LayoutNodeView`
+    stops handing `blendMode` to `<SpineProvider>`. The blended SPINE overlay in `EditorCanvas` is
+    removed: it could only ever be empty now, while still costing a WebGL context the shared-canvas
+    budget cannot spare.
+  - **Where spine blending actually lives:** per SLOT, in the Rigger — shipped 2026-06-30, honoured
+    by `spine-pixi-v8` and by all three preview surfaces. Spine's format has four values
+    (normal/additive/multiply/screen) and no `overlay` or `lighten`.
+  - Gates: `pnpm lint`, `check:undefined-names`, both builds green; `svelte-check` at the
+    `origin/main` baseline.
+
 - 2026-09-17 — **`lighten` joins the blend modes — the one Screen was supposed to be.**
   Owner-reported against real art (warm light shafts over blue water): `screen` washed the colour
   out. It does, by construction — `1-(1-b)(1-s)` pushes bright areas toward white, so a warm shaft
