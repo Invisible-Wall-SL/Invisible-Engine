@@ -74,6 +74,39 @@ Works today on `main` / live:
   - **Not verified:** never rendered in a real browser — the toggle runs against a hand-written
     DOM shim, so the CSS (dimming, the note) is unverified by anything but reading.
 
+- **The Layout gate keyed off the wrong thing, and locked out the atlases that needed it most**
+  _(2026-09-17, fixing the #717 gate the same day)_. #717 gated the Layout row on
+  `is_from_scratch(m)` — "the manifest already has a `layout`" — reasoning that a `.atlas`-bound
+  atlas must be protected. That conflated two different shapes, and the owner hit it immediately:
+  *"that option is gone, and before it was there and everything worked!"*
+  - **Measured against the owner's real bucket** (`invisible_wall/test6/manifests/`) rather than
+    inferred — the fourth inference this thread that turned out wrong, so it was read directly.
+    **Genuinely bound** (carry `atlas.atlas_file`): `S_CaughtSymbols`, `S_UI`, both `Whaler`
+    atlases — correctly refused. **Authored-geometry but bound to nothing** (no `layout`, no
+    `atlas_file`, but real rects + `texturepacker_json`): `S_New_Boot_Sink` (1934×968, 13 regions),
+    `S_New_Boot`, `S_New_Lobster_Idle` — **these could never reach the grid.** The catch-22: the
+    dropdown that assigns a layout was withheld from exactly the atlases with no layout.
+  - **New `can_choose_layout(m)` = `not is_atlas_bound(m)`**, beside an UNCHANGED
+    `is_from_scratch` — compose, slice, the page pointer and the deploy all read that one and still
+    mean what they meant. The two ask different questions: "does the tool already lay this out"
+    versus "would handing it the layout destroy something that only exists outside it".
+  - **A third option, and it had to exist before the row could appear.** `_control_html` normalised
+    an unrecognised value to `pack`, so simply showing the row would have displayed "Pack the art"
+    for an authored atlas and one save would have fed 13 real rects to the packer — a worse bug
+    than the one being fixed. `Authored geometry (leave as is)` maps to a BLANK value, which
+    `_ATLAS_GEOM_KEYS` already skips on save, so it is a structural no-op. **This reverses #717's
+    no-blank rule for this case only, and for the opposite reason:** there blank would have looked
+    changeable while doing nothing; here "does nothing" is the honest meaning. The ordering (blank
+    skip above the switch) can only be pinned by reading the source, and is.
+  - **Leaving authored geometry is the one destructive switch, and the reply says what is given
+    up** — naming the region count, that the trim goes with it, and that nothing can put it back.
+  - One deliberate difference from `main`: a manifest carrying BOTH `atlas_file` and a
+    `layout` no longer gets the row. Strictly safer, and pinned as such.
+  - Fixtures: `py test_authored_geometry_layout.py` (141 assertions) using the real bucket shapes;
+    `test_layout_switch.py` updated where it had encoded the old gate as a fact.
+    `test_layout_aware_panel.py` needed no edit — its byte-for-byte bound-panel golden still
+    passes. 8 mutations tried, 8 caught.
+
 - **`Layout` — switching an existing atlas between `pack` and `grid`** _(2026-09-17)_. The `grid`
   bullet below shipped a layout nothing could reach: `layout` was written only at atlas-CREATION
   time, so the owner's existing atlas stayed `pack` and behaved exactly as before the fix — *"I am

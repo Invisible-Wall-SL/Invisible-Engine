@@ -594,11 +594,23 @@ ATLAS_LAYOUT_MODES = {
     "pack": "Pack the art (the tool sizes the page)",
     "grid": "Grid of cells (your atlas + cell size are used as they are)",
 }
-# What an unrecognised stored value falls back to in the dropdown. Barely
-# reachable — the control renders only for an atlas that is ALREADY from-scratch,
-# so its value is normally one of the two above — but `pack` is the right answer
-# anyway: it is the layout every from-scratch atlas had before `grid` existed.
-ATLAS_LAYOUT_DEFAULT = "pack"
+
+# The THIRD choice, offered only to an atlas whose geometry was authored outside
+# this tool — no `layout` and no `.atlas`, but real rects from an exporter or by
+# hand (`batch_atlas.can_choose_layout`). It is neither `pack` nor `grid`, and
+# the dropdown must not pretend otherwise: without it the row would open showing
+# "Pack the art" for such an atlas, and one Save would hand its authored rects to
+# the packer to re-measure. That is worse than having no row at all.
+#
+# ITS VALUE IS BLANK, ON PURPOSE. `_ATLAS_GEOM_KEYS` SKIPS a blank value on save
+# ("never wipe required atlas geometry"), so picking it writes nothing and clears
+# nothing — a true no-op. This DELIBERATELY reverses the "no blank option" rule
+# that `atlas_pack_trim` and the two real layouts follow, and for the opposite
+# reason: there a blank would LOOK changeable while doing nothing, here "does
+# nothing" is exactly the honest meaning of "leave the authored geometry alone".
+# Do not "fix" this back to a named value.
+ATLAS_LAYOUT_AUTHORED = ""
+ATLAS_LAYOUT_AUTHORED_LABEL = "Authored geometry (leave as is)"
 
 # Which layout each geometry row is ALIVE in — the exact parallel of PIPE_GROUP,
 # and driven client-side by the same mechanism (`data-layout`/`applyAtlasLayout`
@@ -633,22 +645,26 @@ ATLAS_GEOM_READONLY_NOTE = "set by the packer from your art"
 def atlas_geom_fields_for(m: dict) -> list[tuple[str, str, str, str]]:
     """The geometry rows 🧩 Atlas settings renders for THIS manifest.
 
-    All of ATLAS_GEOM_FIELDS except `atlas_layout`, which is offered ONLY on an
-    atlas that is ALREADY from-scratch. THAT GATE IS THE SAFETY PROPERTY OF THE
-    WHOLE SWITCH. A manifest with no `layout` is the `.atlas`-bound / explicit-
-    geometry kind: its rects were authored elsewhere (a Spine/libGDX `.atlas`,
-    the Sheet Maker, or by hand) and nothing in this tool re-derives them.
-    Offering `pack` there would let one dropdown hand that geometry to the
-    packer, which measures the ART, re-packs it and OVERWRITES
-    `atlas.width/height` — the authored rects are gone, the `.atlas` they came
-    from no longer describes the page, and there is no undo. Between `pack` and
-    `grid` nothing is lost that was not already derived output: both re-stamp
-    every rect on every Create Atlas. So a bound atlas keeps no `layout` field
-    at all, and the row simply is not there.
+    All of ATLAS_GEOM_FIELDS except `atlas_layout`, which is withheld from an
+    atlas BOUND to a `.atlas` (`batch_atlas.can_choose_layout`). THAT GATE IS
+    THE SAFETY PROPERTY OF THE WHOLE SWITCH: the bound file is the authoritative
+    region map, so handing it to the packer would re-measure the ART, re-pack it
+    and OVERWRITE `atlas.width/height` — the `.atlas` on disk would no longer
+    describe the page, and there is no undo.
+
+    IT IS NOT GATED ON `is_from_scratch`, which is what #717 shipped and what
+    blocked the owner. "No `layout`" is not "bound": the legacy /
+    authored-geometry manifests (real rects, an `offX/offY/origW/origH` trim, a
+    `texturepacker_json`, and no `.atlas` anywhere) also have no `layout`, so
+    that gate withheld the dropdown from precisely the atlases that had no
+    layout to show in it — the only ones that needed it. They get the row, with
+    a third `ATLAS_LAYOUT_AUTHORED` choice selected so it opens saying what they
+    actually are rather than "Pack the art"; moving off it is destructive and
+    `switch_atlas_layout`'s reply says so.
 
     Module-level and pure so the fixtures exercise the gate that ships."""
     return [f for f in ATLAS_GEOM_FIELDS
-            if f[0] != "atlas_layout" or batch_atlas.is_from_scratch(m)]
+            if f[0] != "atlas_layout" or batch_atlas.can_choose_layout(m)]
 
 
 def layout_row_visible(group: str, layout: str) -> bool:
@@ -677,10 +693,15 @@ def atlas_geom_rows_html(m: dict, cfg: dict,
     you then have to fill, and there is nothing to reveal if the server left
     them out.
 
-    A `.atlas`-bound / legacy cell-grid manifest has no layout to be aware of
-    (`atlas_geom_fields_for` gives it no Layout row) and its cell size is live —
+    A `.atlas`-bound / legacy cell-grid manifest has no layout to be aware OF
+    (`is_from_scratch` is False) and its cell size is live —
     `batch_atlas.region_box` really does fall back to it — so it gets none of
-    this and renders exactly as before.
+    this and renders exactly as before. That is decided by `is_from_scratch`,
+    NOT by whether the Layout row is offered: a legacy atlas now gets the row
+    (`atlas_geom_fields_for`) while still rendering every other row plain, which
+    is right — until it has a layout there is nothing to hide or lock, and the
+    page's `applyAtlasLayout` finds no `data-layout` rows to toggle. The rows
+    become aware on the reload after the switch is saved.
 
     Module-level and pure so the fixtures render what ships."""
     cache = {} if cache is None else cache
@@ -846,8 +867,14 @@ SETTING_HELP = {
         "measures with it. Grid is the one for a flipbook/animation, "
         "where the frames must share one cell. Switching CLEARS every region's "
         "current rect (it belongs to the layout you are leaving); the next "
-        "Create Atlas lays them all out again. Only shown for an atlas this "
-        "tool builds itself — one bound to a .atlas keeps that file's geometry.",
+        "Create Atlas lays them all out again. Authored geometry (leave as is) "
+        "= this atlas's rects were made somewhere else — an export, or by hand "
+        "— and nothing here touches them; it is what an atlas with no layout "
+        "already is, so choosing it saves nothing and changes nothing. Moving "
+        "OFF it is the one switch you cannot undo: those rects and their trim "
+        "are discarded and re-derived from your art, and this tool has no copy "
+        "of them. Not shown at all for an atlas bound to a .atlas — that file "
+        "is its geometry, and it keeps it.",
     "atlas_pack_trim":
         "Only for Layout = Pack the art — it is the measurement the packer "
         "takes, so it is hidden under Grid of cells, where nothing reads it. "
@@ -1263,18 +1290,28 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm)}</select>')
     if key == "atlas_layout":
-        # Two named choices, no blank, for the same reason as `atlas_pack_trim`
-        # below — a blank _ATLAS_GEOM_KEYS value is SKIPPED on save, so a blank
-        # option would look changeable and silently do nothing. Rendered only
-        # for an already-from-scratch atlas (`atlas_geom_fields_for`), so the
-        # stored value is normally already one of these two.
+        # An atlas this tool ALREADY lays out gets exactly the two named
+        # choices and no blank — same reason as `atlas_pack_trim` below: a blank
+        # _ATLAS_GEOM_KEYS value is SKIPPED on save, so a blank option there
+        # would look changeable and silently do nothing.
+        #
+        # Anything else is the authored-geometry kind (`atlas_geom_fields_for`
+        # withholds this row only from a BOUND atlas, so an unrecognised or
+        # absent value reaching here means "no layout", not "pack"). It gets a
+        # THIRD choice, selected, whose value is blank precisely BECAUSE a blank
+        # is skipped on save — see ATLAS_LAYOUT_AUTHORED. Falling back to `pack`
+        # here, as this used to, would open the row on "Pack the art" for an
+        # atlas whose rects were authored elsewhere and let one Save hand them to
+        # the packer.
         norm = cur.strip().lower()
+        choices = list(ATLAS_LAYOUT_MODES.items())
         if norm not in ATLAS_LAYOUT_MODES:
-            norm = ATLAS_LAYOUT_DEFAULT
+            norm = ATLAS_LAYOUT_AUTHORED
+            choices.insert(0, (ATLAS_LAYOUT_AUTHORED,
+                               ATLAS_LAYOUT_AUTHORED_LABEL))
         opts = "".join(
             f'<option value="{v}"{" selected" if v == norm else ""}>'
-            f'{html.escape(lbl)}</option>'
-            for v, lbl in ATLAS_LAYOUT_MODES.items())
+            f'{html.escape(lbl)}</option>' for v, lbl in choices)
         return f'<select{common}>{opts}</select>'
     if key == "atlas_pack_trim":
         # Two named choices, no blank: a blank _ATLAS_GEOM_KEYS value is SKIPPED
@@ -3340,8 +3377,8 @@ _LAYOUT_SWITCH_CLEARED_KEYS = tuple(k for k in _PACK_GEOM_KEYS
 
 
 def switch_atlas_layout(m: dict, want: str) -> tuple[bool, list[str]]:
-    """Move an atlas BETWEEN the from-scratch layouts, clearing the geometry the
-    layout it is leaving owned.
+    """Give an atlas a from-scratch layout, clearing the geometry the state it
+    is leaving owned.
 
     Why the clear. A `pack` rect describes a page the packer sized from the art;
     a `grid` rect describes a cell the author sized. Neither survives the move,
@@ -3358,11 +3395,22 @@ def switch_atlas_layout(m: dict, want: str) -> tuple[bool, list[str]]:
     frame for it). What is NOT cleared is the author's `fit_mode` — see
     `_LAYOUT_SWITCH_CLEARED_KEYS`.
 
-    Refuses anything that is not a move between `FROM_SCRATCH_LAYOUTS`, and any
-    manifest that is not ALREADY from-scratch — see `atlas_geom_fields_for` for
-    why a `.atlas`-bound atlas must never be handed to the packer. The same
-    layout again is not a move, so an ordinary Save (the panel posts every field
-    every time) never costs a region its rect.
+    THE THIRD STARTING STATE, and the one that costs the most. An authored-
+    geometry manifest (no `layout`, no `.atlas`, but real rects with their trim)
+    is allowed through — `batch_atlas.can_choose_layout`, not `is_from_scratch`,
+    is the gate, because otherwise the atlases with no layout are the only ones
+    that can never be given one. The clear is the same clear, but what it costs
+    is NOT the same: between `pack` and `grid` only derived output is dropped
+    and the next Create Atlas re-stamps it, whereas here the rects came from an
+    exporter or a person and nothing in this tool can put them back. So the
+    caller's reply names that explicitly (`_saveconfig`); this is the one route
+    into the switch where "press Create Atlas again" is not the whole story.
+
+    Refuses anything that is not one of `FROM_SCRATCH_LAYOUTS`, and any manifest
+    BOUND to a `.atlas` — see `atlas_geom_fields_for` for why that one must
+    never be handed to the packer. The same layout again is not a move, so an
+    ordinary Save (the panel posts every field every time) never costs a region
+    its rect.
 
     Returns `(changed, lost)` — whether `m` was mutated (the caller's save
     signal) and the names that actually lost a rect. Mutates `m`; the CALLER
@@ -3370,7 +3418,7 @@ def switch_atlas_layout(m: dict, want: str) -> tuple[bool, list[str]]:
     new = str(want).strip().lower()
     if new not in batch_atlas.FROM_SCRATCH_LAYOUTS:
         return False, []
-    if not batch_atlas.is_from_scratch(m):
+    if not batch_atlas.can_choose_layout(m):
         return False, []
     if batch_atlas.atlas_layout(m) == new:
         return False, []
@@ -5545,8 +5593,10 @@ function atlasLayoutNow(){{
  return (s&&s.value)||'';
 }}
 function applyAtlasLayout(){{
- // No Layout control = a .atlas-bound / legacy cell-grid atlas. It has no
- // layout to be aware of and its cell size is live, so touch nothing.
+ // Blank = no Layout control (a .atlas-bound atlas) or the authored-geometry
+ // choice. Either way there is no layout to be aware of and the cell size is
+ // live, so touch nothing. Such a panel also carries no data-layout rows to
+ // toggle — they become aware on the reload after a layout is actually saved.
  let L=atlasLayoutNow(); if(!L) return;
  document.querySelectorAll('.cfggrid [data-layout]').forEach(l=>{{
   l.style.display=layoutVisible(l.getAttribute('data-layout'),L)?'':'none';
@@ -10164,10 +10214,10 @@ class Handler(BaseHTTPRequestHandler):
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
                 )
-        # NOT ATLAS_GEOM_FIELDS directly: `atlas_layout` is shown only for an
-        # atlas this tool already lays out itself, so a `.atlas`-bound one can
-        # never be handed to the packer. See `atlas_geom_fields_for`, and
-        # `atlas_geom_rows_html` for the layout-awareness of the rows.
+        # NOT ATLAS_GEOM_FIELDS directly: `atlas_layout` is withheld from a
+        # `.atlas`-bound atlas, which can therefore never be handed to the
+        # packer. See `atlas_geom_fields_for`, and `atlas_geom_rows_html` for
+        # the layout-awareness of the rows.
         atlas_fields.extend(atlas_geom_rows_html(m, cfg, model_cache))
         # Both field loops are done, so model_cache now holds every list this
         # render read. Persist them only if a LIVE probe found something the
@@ -10898,6 +10948,7 @@ class Handler(BaseHTTPRequestHandler):
         # its job rather than the atlas breaking.
         _layout_switch = ""
         _layout_lost = 0
+        _layout_was_authored = False
         _num = cfg_num
 
         for k, v in edits.items():
@@ -10944,18 +10995,28 @@ class Handler(BaseHTTPRequestHandler):
             elif k in _ATLAS_GEOM_KEYS:
                 sv = str(v).strip()
                 if sv == "":
-                    continue  # never wipe required atlas geometry
+                    # Never wipe required atlas geometry. This is also what
+                    # makes ATLAS_LAYOUT_AUTHORED a genuine no-op: that choice
+                    # posts a blank and is dropped here, before the switch below
+                    # is even reached, so "leave the authored geometry alone"
+                    # writes nothing and clears nothing.
+                    continue
                 if k == "atlas_layout":
                     # Not a plain field write: changing the layout also clears
-                    # the rects the previous one owned, and the helper decides
-                    # whether this even IS a change (the panel posts every
-                    # field on every save). It refuses a manifest that is not
-                    # already from-scratch, so a stale tab or a hand-made POST
-                    # cannot hand a .atlas-bound atlas to the packer either.
+                    # the rects the state being left owned, and the helper
+                    # decides whether this even IS a change (the panel posts
+                    # every field on every save). It refuses a `.atlas`-BOUND
+                    # manifest, so a stale tab or a hand-made POST cannot hand
+                    # one to the packer either.
+                    _was_authored = not batch_atlas.is_from_scratch(m)
                     switched, lost = switch_atlas_layout(m, sv)
                     if switched:
                         _layout_switch = batch_atlas.atlas_layout(m)
                         _layout_lost = len(lost)
+                        # Read BEFORE the switch: afterwards the manifest is
+                        # from-scratch either way, and the reply has to say
+                        # which kind of geometry was just given up.
+                        _layout_was_authored = _was_authored
                         manifest_dirty = True
                     # ALWAYS, switched or not: an unrecognised value must not
                     # fall through to the generic `atlas[mk] = sv` below and
@@ -11027,12 +11088,28 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001 — a seed hiccup must not 500 a save
                 pass
         if _layout_switch:
+            # What was given up, and it is not the same thing on both routes.
+            # pack <-> grid drops derived output the next Create Atlas re-stamps;
+            # leaving AUTHORED geometry drops rects (and their trim) that an
+            # exporter or a person made and that nothing here can rebuild. Say
+            # which, in the reply — the only channel there is, and the reason the
+            # 5s status hold exists.
+            if _layout_was_authored:
+                cost = (("This atlas's geometry was authored outside this tool, "
+                         "and that is what you just gave up: %d region(s) lost "
+                         "the rect and trim they were authored with, and "
+                         "nothing here can put those back — the next Create "
+                         "Atlas lays every region out from scratch."
+                         % _layout_lost) if _layout_lost else
+                        "Its geometry was authored outside this tool, but no "
+                        "region actually had a rect, so nothing was given up.")
+            else:
+                cost = (("%d region(s) lost the rect the previous layout gave "
+                         "them." % _layout_lost) if _layout_lost else
+                        "No region had a rect from the previous layout.")
             return ("Settings saved — layout is now '%s'. %s%s Press "
                     "🧩 Create Atlas to lay the regions out again."
-                    % (_layout_switch,
-                       ("%d region(s) lost the rect the previous layout gave "
-                        "them." % _layout_lost) if _layout_lost else
-                       "No region had a rect from the previous layout.",
+                    % (_layout_switch, cost,
                        " Set Default cell width/height first."
                        if _layout_switch == "grid" else ""))
         return "Settings saved (per-atlas overrides + globals)"

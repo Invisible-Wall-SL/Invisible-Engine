@@ -17,14 +17,20 @@ an IN-PLACE switch.
 
 THE THREE THINGS THAT MAKE IT SAFE, all pinned below.
 
-1. THE GATE. The dropdown is offered ONLY on an atlas that is ALREADY
-   from-scratch. No `layout` means the `.atlas`-bound / explicit-geometry kind,
-   whose rects were authored elsewhere and which nothing in this tool
-   re-derives; handing one to the packer would re-measure the ART, re-pack it
-   and OVERWRITE `atlas.width/height`, destroying geometry with no undo. This is
-   THE load-bearing property -- `test_the_gate_*` below pins it at both layers
-   (the render AND the save, so a stale tab or a hand-made POST cannot get
-   through either).
+1. THE GATE. The dropdown is withheld from an atlas BOUND to a `.atlas`
+   (`batch_atlas.can_choose_layout`). That file is the authoritative region map
+   and nothing in this tool re-derives it; handing one to the packer would
+   re-measure the ART, re-pack it and OVERWRITE `atlas.width/height`, destroying
+   geometry with no undo. This is THE load-bearing property -- `test_the_gate_*`
+   below pins it at both layers (the render AND the save, so a stale tab or a
+   hand-made POST cannot get through either).
+
+   #717 gated on `is_from_scratch` instead, which conflated "no `layout`" with
+   "bound" and so withheld the dropdown from the LEGACY / authored-geometry
+   manifests too -- the atlases with no layout were the only ones that could
+   never be given one. `test_authored_geometry_layout.py` owns that half, the
+   third dropdown choice it needs, and the destructive-switch reply; what this
+   file still pins is that a BOUND atlas is refused at both layers.
 
 2. THE CLEAR. A `pack` rect describes a page the packer sized from the art; a
    `grid` rect describes a cell the author sized. Neither survives the move, so
@@ -36,9 +42,13 @@ THE THREE THINGS THAT MAKE IT SAFE, all pinned below.
    Without the clear the old pack rects would survive that refusal and deploy as
    if they were the grid.
 
-3. NO BLANK OPTION. A blank `_ATLAS_GEOM_KEYS` value is SKIPPED on save ("never
-   wipe required atlas geometry"), so a blank choice would look changeable and
-   silently do nothing -- the `atlas_pack_trim` precedent, followed exactly.
+3. NO BLANK OPTION ON AN ATLAS THAT ALREADY HAS A LAYOUT. A blank
+   `_ATLAS_GEOM_KEYS` value is SKIPPED on save ("never wipe required atlas
+   geometry"), so on a `pack`/`grid` atlas a blank choice would look changeable
+   and silently do nothing -- the `atlas_pack_trim` precedent, followed exactly.
+   (The authored-geometry atlas is the deliberate exception, for the opposite
+   reason: there "does nothing" IS the meaning. See
+   `test_authored_geometry_layout.py`.)
 
 Sibling guards, do not break them: `test_grid_layout.py` owns the grid maths and
 the refusals, `test_auto_pack_clear.py` / `test_stale_pack_rects.py` /
@@ -110,8 +120,9 @@ def _packed(n: int = 3, **atlas) -> dict:
 
 
 def _bound(**atlas) -> dict:
-    """The kind that must NEVER be offered the dropdown: geometry authored
-    elsewhere (a Spine/libGDX `.atlas`), so no `layout` key at all."""
+    """The kind that must NEVER be offered the dropdown: BOUND to a Spine/libGDX
+    `.atlas`, which is its authoritative region map. The binding is the
+    `atlas_file` key -- not the absent `layout`, which it also has."""
     a = {"atlas_file": "symbols.atlas", "width": 2048, "height": 2048}
     a.update(atlas)
     return {
@@ -133,7 +144,7 @@ def _snap(m: dict) -> str:
 # --------------------------------------------------------------------------
 # 1. THE GATE, at the render layer. The safety property -- pinned hard.
 # --------------------------------------------------------------------------
-def test_the_gate_offers_the_row_only_to_a_from_scratch_atlas() -> None:
+def test_the_gate_withholds_the_row_from_a_bound_atlas() -> None:
     check_true("a pack atlas is offered the Layout row",
                "atlas_layout" in _keys(_packed()))
     check_true("a grid atlas is offered it too",
@@ -141,12 +152,26 @@ def test_the_gate_offers_the_row_only_to_a_from_scratch_atlas() -> None:
     check_true("case and whitespace do not hide it",
                "atlas_layout" in _keys({"atlas": {"layout": " Grid "}}))
 
-    # THE ONE THAT MATTERS. Every shape that reads as ".atlas-bound / explicit
-    # geometry" -- absent, blank, whitespace, unrecognised, no atlas block at
-    # all -- must not see the control, because `pack` would re-measure the art
-    # and overwrite the authored page.
+    # THE ONE THAT MATTERS. A BOUND atlas -- `atlas_file` set, however it is
+    # spelled -- must not see the control, because `pack` would re-measure the
+    # art and overwrite the page the .atlas describes.
     for label, man in (
         ("an .atlas-bound atlas", _bound()),
+        ("...bound AND already pack (contradictory, still bound)",
+         _bound(layout="pack")),
+        ("...bound AND already grid", _bound(layout="grid")),
+        ("...bound with a path", _bound(atlas_file="assets/symbols.atlas")),
+        ("...bound with surrounding whitespace",
+         _bound(atlas_file="  symbols.atlas  ")),
+    ):
+        check(f"{label} is NOT offered the Layout row",
+              "atlas_layout" in _keys(man), False)
+
+    # NOT bound: no `.atlas` to protect, so the row is there. This is the #717
+    # regression -- these shapes used to be refused it, which meant the atlases
+    # with no layout were the only ones that could never be given one. Their
+    # behaviour once they have it is `test_authored_geometry_layout.py`'s.
+    for label, man in (
         ("an atlas block with no layout key", {"atlas": {"width": 512}}),
         ("an empty atlas block", {"atlas": {}}),
         ("no atlas block at all", {}),
@@ -154,9 +179,11 @@ def test_the_gate_offers_the_row_only_to_a_from_scratch_atlas() -> None:
         ("a whitespace layout", {"atlas": {"layout": "   "}}),
         ("an unrecognised layout", {"atlas": {"layout": "freeform"}}),
         ("a null atlas block", {"atlas": None}),
+        ("a blank atlas_file", {"atlas": {"atlas_file": ""}}),
+        ("a whitespace atlas_file", {"atlas": {"atlas_file": "   "}}),
     ):
-        check(f"{label} is NOT offered the Layout row",
-              "atlas_layout" in _keys(man), False)
+        check(f"{label} IS offered the Layout row",
+              "atlas_layout" in _keys(man), True)
 
 
 def test_the_gate_hides_nothing_else() -> None:
@@ -195,26 +222,35 @@ def test_the_choices_are_the_from_scratch_layouts() -> None:
     UI -- exactly the dead end this whole file exists to close."""
     check("the dropdown offers every from-scratch layout, and only those",
           set(u.ATLAS_LAYOUT_MODES), set(batch_atlas.FROM_SCRATCH_LAYOUTS))
-    check("the fallback is itself a real layout",
-          u.ATLAS_LAYOUT_DEFAULT in batch_atlas.FROM_SCRATCH_LAYOUTS, True)
     check_true("every choice has a label that says who sizes the page",
                all(lbl.strip() for lbl in u.ATLAS_LAYOUT_MODES.values()))
+    # The authored-geometry sentinel is NOT a layout -- it is the absence of
+    # one, and it must never leak into the set the tool lays out.
+    check("the authored-geometry choice is not a from-scratch layout",
+          u.ATLAS_LAYOUT_AUTHORED in batch_atlas.FROM_SCRATCH_LAYOUTS, False)
+    check("...nor a key of the modes table",
+          u.ATLAS_LAYOUT_AUTHORED in u.ATLAS_LAYOUT_MODES, False)
 
 
 def test_the_control_is_a_named_dropdown_with_no_blank() -> None:
-    h = _ctl("pack")
-    check("it is a <select>, not a free-text input",
-          h.startswith("<select") and "<input" not in h, True)
-    check("it carries data-cfg so cfgData() posts it",
-          'data-cfg="atlas_layout"' in h, True)
-    check("exactly one option per layout", h.count("<option"), 2)
-    # THE PRECEDENT. A blank _ATLAS_GEOM_KEYS value is SKIPPED on save, so a
-    # blank option would look changeable and silently do nothing.
-    check("there is NO blank option", '<option value=""' in h, False)
-    check_true("the values are the manifest values, not the labels",
-               '<option value="pack"' in h and '<option value="grid"' in h)
-    check_true("the labels are the human sentences",
-               u.ATLAS_LAYOUT_MODES["grid"] in h)
+    """On an atlas that ALREADY has a layout. The authored-geometry atlas is the
+    deliberate exception -- see `test_authored_geometry_layout.py`."""
+    for stored in ("pack", "grid"):
+        h = _ctl(stored)
+        check(f"{stored}: it is a <select>, not a free-text input",
+              h.startswith("<select") and "<input" not in h, True)
+        check(f"{stored}: it carries data-cfg so cfgData() posts it",
+              'data-cfg="atlas_layout"' in h, True)
+        check(f"{stored}: exactly one option per layout", h.count("<option"), 2)
+        # THE PRECEDENT. A blank _ATLAS_GEOM_KEYS value is SKIPPED on save, so
+        # here a blank option would look changeable and silently do nothing.
+        check(f"{stored}: there is NO blank option", '<option value=""' in h,
+              False)
+        check_true(f"{stored}: the values are the manifest values, not the "
+                   f"labels",
+                   '<option value="pack"' in h and '<option value="grid"' in h)
+        check_true(f"{stored}: the labels are the human sentences",
+                   u.ATLAS_LAYOUT_MODES["grid"] in h)
 
 
 def test_the_stored_value_is_the_selected_one() -> None:
@@ -222,11 +258,20 @@ def test_the_stored_value_is_the_selected_one() -> None:
     check_true("grid selects grid", '<option value="grid" selected' in _ctl("grid"))
     check_true("case and whitespace normalize",
                '<option value="grid" selected' in _ctl("  GRID "))
+    # An unusable stored value is NOT `pack`. It used to fall back to one, which
+    # opened the row on "Pack the art" for an atlas whose rects were authored
+    # elsewhere; now it reads as what it is -- no layout -- and selects the
+    # authored-geometry choice, which writes nothing.
     for junk in ("", "freeform", "None", "2048"):
-        check(f"an unusable stored value {junk!r} falls back to pack, not to a "
-              f"blank", '<option value="pack" selected' in _ctl(junk), True)
+        check(f"an unusable stored value {junk!r} never selects pack",
+              '<option value="pack" selected' in _ctl(junk), False)
+        check(f"...{junk!r} selects the authored-geometry choice instead",
+              '<option value="" selected' in _ctl(junk), True)
         check(f"...and {junk!r} is never echoed back as a choice",
-              _ctl(junk).count("<option"), 2)
+              _ctl(junk).count("<option"), 3)
+        if junk:  # "" IS the authored-geometry value, so it is there by design
+            check(f"...{junk!r} is not echoed into an option value",
+                  f'value="{junk}"' in _ctl(junk), False)
 
 
 def test_the_pack_trim_control_is_unaffected() -> None:
@@ -267,7 +312,7 @@ def test_the_help_says_who_owns_the_size_fields() -> None:
     check_true("the clear is announced before it happens",
                "CLEARS every region" in tip)
     check_true("and so is the gate",
-               ".atlas" in tip and "Only shown" in tip)
+               ".atlas" in tip and "Not shown at all" in tip)
 
 
 # --------------------------------------------------------------------------
@@ -355,16 +400,17 @@ def test_an_unusable_value_changes_nothing() -> None:
 
 def test_the_gate_holds_in_the_switch_itself() -> None:
     """Defence in depth: the render filter hides the row, and the helper
-    refuses it anyway. Only the second one survives a stale tab."""
-    for label, man in (("an .atlas-bound atlas", _bound()),
-                       ("no layout key", {"atlas": {"width": 512},
-                                          "regions": [{"name": "a", "x": 1,
-                                                       "y": 2, "w": 3,
-                                                       "h": 4}]}),
-                       ("no atlas block", {"regions": []}),
-                       ("an unrecognised layout", {"atlas":
-                                                   {"layout": "freeform"},
-                                                   "regions": []})):
+    refuses it anyway. Only the second one survives a stale tab. The refusal is
+    keyed on the BINDING, so every spelling of a set `atlas_file` is refused --
+    including the contradictory bound-and-already-from-scratch shapes, where the
+    `.atlas` still outranks whatever `layout` says."""
+    for label, man in (
+        ("an .atlas-bound atlas", _bound()),
+        ("bound and already pack", _bound(layout="pack")),
+        ("bound and already grid", _bound(layout="grid")),
+        ("bound with a path", _bound(atlas_file="assets/symbols.atlas")),
+        ("bound with whitespace", _bound(atlas_file="  symbols.atlas  ")),
+    ):
         before = _snap(man)
         check(f"{label} cannot be handed to the packer",
               u.switch_atlas_layout(man, "pack"), (False, []))
@@ -694,7 +740,7 @@ if __name__ == "__main__":
     storage.push_file = lambda p, key, **kw: None       # type: ignore[assignment]
     storage.put = lambda key, data, **kw: None          # type: ignore[assignment]
 
-    for fn in (test_the_gate_offers_the_row_only_to_a_from_scratch_atlas,
+    for fn in (test_the_gate_withholds_the_row_from_a_bound_atlas,
                test_the_gate_hides_nothing_else,
                test_the_panel_renders_through_the_filter_not_the_raw_list,
                test_the_choices_are_the_from_scratch_layouts,
