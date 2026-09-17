@@ -2,10 +2,36 @@
 
 > Design: [docs/design/atlas-per-user-session.md](../design/atlas-per-user-session.md) · Guide: [docs/tools/atlas-maker.md](../tools/atlas-maker.md) · Agent: `.claude/agents/atlas-python-tools.md`
 
-**One-line state:** _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
+**One-line state:** _(2026-09-17)_ **The layout is switchable in place, so an atlas born `pack` can become `grid` without losing its prompts** — `Layout` in 🧩 Atlas settings, offered only on a from-scratch atlas, clearing the old layout's rects as it goes. Shipped because the `grid` work below fixed nothing for the atlas the owner actually had: layout was written at creation and nothing migrated it, so they set 2048×2048, saved, hard-refreshed (values intact) and Create Atlas still returned **1028×25652**. Was _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
 
 ## Current state
 Works today on `main` / live:
+
+- **`Layout` — switching an existing atlas between `pack` and `grid`** _(2026-09-17)_. The `grid`
+  bullet below shipped a layout nothing could reach: `layout` was written only at atlas-CREATION
+  time, so the owner's existing atlas stayed `pack` and behaved exactly as before the fix — *"I am
+  generating with the new code, but the results are the same, how is it possible?"* Re-exporting
+  would have produced a grid atlas but discarded every prompt, seed and ref already on its regions.
+  - **Offered ONLY on an atlas that is already from-scratch** (`is_from_scratch`). An atlas whose
+    geometry comes from a bound `.atlas` has no layout, and converting it to `pack` would re-pack
+    and destroy that geometry. The render gate is a module-level filter (`atlas_geom_fields_for`)
+    with no bypass — nothing else iterates `ATLAS_GEOM_FIELDS`.
+  - **Switching CLEARS the previous layout's rects** (`_LAYOUT_SWITCH_CLEARED_KEYS` =
+    `_PACK_GEOM_KEYS` minus `fit_mode` — the fit is the author's choice, not a measurement). It
+    matters most in the over-capacity case, where `grid_layout` deliberately changes nothing:
+    stale pack rects would otherwise be deployed as if they were the grid. The reply COUNTS what
+    it cleared rather than claiming it unconditionally — an ungenerated atlas loses nothing.
+  - **The unconditional `continue` in the save path is load-bearing.** Without it, posting
+    `atlas_layout: "freeform"` falls through to the generic `atlas[mk] = sv` and writes an
+    unrecognised layout — which reads as ".atlas-bound" and silently disables **every**
+    from-scratch gate in the tool. Pinned by a mutation.
+  - **The status line had to survive its own page reload.** `saveCfg` reloads after 900 ms, which
+    wiped the one warning that the region cards are about to come back unplaced on purpose (and
+    the reload is what brings them back, so it can't be dropped). Long replies now hold for 5 s.
+  - Fixtures: `py test_layout_switch.py` (173 assertions — the settings/save path; `test_grid_layout.py`
+    keeps the grid maths). 13 mutations tried, 13 caught.
+  - **Not verified:** no browser and no live service — everything is asserted at the rendered-HTML,
+    helper and `/saveconfig` levels, never against the owner's real atlas.
 
 - **A third layout: `grid` — an atlas whose page size is the AUTHOR'S, not the packer's**
   _(2026-09-17)_. Owner report against the new Flipbook ref export: *"i do not get the correct
