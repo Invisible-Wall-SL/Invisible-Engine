@@ -2,18 +2,23 @@
  * Photoshop-style BLEND MODE for a placed node — how its pixels combine with what is
  * already drawn beneath them, instead of simply covering it.
  *
- * Deliberately four modes, not PixiJS's thirty-odd. These four are the ones that exist
- * NATIVELY on all three surfaces the engine has to agree on — the game (PixiJS 8), the
- * editor's 2D canvas (`globalCompositeOperation`) and the editor's WebGL overlays (CSS
- * `mix-blend-mode`) — so every mode an author can pick renders IDENTICALLY in the editor
- * preview and in the shipped game. Pixi's advanced modes (`overlay`, `soft-light`, the
- * `*-light` family, …) are filter-backed backdrop reads with no `mix-blend-mode`
- * equivalent for the overlay path, so offering them would mean a preview that lies.
+ * Every mode here exists on all three surfaces the engine has to agree on — the game
+ * (PixiJS 8), the editor's 2D canvas (`globalCompositeOperation`) and the editor's WebGL
+ * overlays (CSS `mix-blend-mode`) — so what an author picks renders IDENTICALLY in the
+ * editor preview and in the shipped game. That, not mode count, is the bar: the three-way
+ * intersection is 16 modes wide and this list grows into it on demand.
+ *
+ * `normal`/`add`/`multiply`/`screen` are GPU-native in Pixi. `overlay` is one of Pixi's
+ * ADVANCED blend modes — a filter that reads the backdrop — and it works ONLY once
+ * `pixi.js/advanced-blend-modes` has been imported, which `<InitialiseApplication>` does.
+ * Without that import Pixi silently renders it as `normal`, so adding another advanced
+ * mode means checking that registration, not just this table. The editor pays none of
+ * that: it blends through Canvas2D and CSS, which both support `overlay` outright.
  *
  * `normal` is the absent value everywhere — a node without `blendMode` is byte-identical
  * to before this existed.
  */
-export type BlendMode = 'normal' | 'add' | 'multiply' | 'screen';
+export type BlendMode = 'normal' | 'add' | 'multiply' | 'screen' | 'overlay';
 
 /** Every blend mode, in the order the editor's dropdown lists them. */
 export const BLEND_MODES = [
@@ -21,6 +26,7 @@ export const BLEND_MODES = [
 	'add',
 	'multiply',
 	'screen',
+	'overlay',
 ] as const satisfies readonly BlendMode[];
 
 /** Author-facing label per mode (the Photoshop names, plus what each is FOR). */
@@ -29,6 +35,7 @@ export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
 	add: 'Add (Linear Dodge)',
 	multiply: 'Multiply',
 	screen: 'Screen',
+	overlay: 'Overlay',
 };
 
 /** Narrow an unknown doc value to a {@link BlendMode} (an unknown string ⇒ `undefined`). */
@@ -49,6 +56,8 @@ export function canvasCompositeOp(mode: BlendMode | undefined): GlobalCompositeO
 			return 'multiply';
 		case 'screen':
 			return 'screen';
+		case 'overlay':
+			return 'overlay';
 		default:
 			return 'source-over';
 	}
@@ -69,6 +78,8 @@ export function cssBlendMode(mode: BlendMode | undefined): string {
 			return 'multiply';
 		case 'screen':
 			return 'screen';
+		case 'overlay':
+			return 'overlay';
 		default:
 			return 'normal';
 	}
@@ -80,6 +91,6 @@ export function cssBlendMode(mode: BlendMode | undefined): string {
  */
 export function pixiBlendMode(
 	mode: BlendMode | undefined,
-): 'add' | 'multiply' | 'screen' | undefined {
+): 'add' | 'multiply' | 'screen' | 'overlay' | undefined {
 	return mode && mode !== 'normal' ? mode : undefined;
 }

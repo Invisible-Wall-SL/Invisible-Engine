@@ -39,6 +39,32 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-17 — **`overlay` joins the blend modes, and the registration that makes it real.**
+  Added to `engine-layout/blendMode.ts` (type + list + label + all three surface readers), so the
+  editor dropdown, the 2D canvas and the WebGL overlays pick it up with no further wiring —
+  Canvas2D `globalCompositeOperation` and CSS `mix-blend-mode` both support `overlay` natively.
+  - **The game needed one more thing.** `overlay` is one of Pixi's ADVANCED blend modes: a filter
+    that reads the backdrop, registered only by `import 'pixi.js/advanced-blend-modes'`. Without
+    that import Pixi accepts `blendMode = 'overlay'` on the node and silently renders it as
+    `normal` — no warning, no error. `<InitialiseApplication>` now does the import beside the
+    existing `pixi.js/ktx2` one.
+  - **Proven by A/B, both sides with a forced render** (the browser pane freezes rAF, so a reading
+    taken without `renderer.render()` is meaningless — two earlier readings were, and looked like
+    evidence): registration OFF ⇒ the pipe's `_filterHash` is `[]` and the node does not blend,
+    while still reporting `blendMode: 'overlay'`; registration ON ⇒ `['overlay']`. Each side ran on
+    a freshly restarted dev server, because a side-effect import stays registered across an HMR
+    reload and made the first A/B look like a no-op.
+  - **Correction to the 2026-09-16 entry's rationale:** it said the advanced modes have "no
+    `mix-blend-mode` equivalent". That was wrong — CSS and Canvas2D support `overlay`,
+    `soft-light`, `hard-light`, `color-dodge`, `color-burn`, `difference`, `exclusion`,
+    `saturation`, `color` and `luminosity`. The real constraint was always the Pixi-side
+    registration, which is now paid: the remaining ten are a dropdown-list change away, and the
+    three-way intersection is 16 modes wide.
+  - **Cost:** the import registers all 22 advanced blends (~92 KB of unminified source). Filters
+    are constructed on demand, so a game that places none pays the bundle and nothing else.
+  - Gates: `pnpm lint`, `check:undefined-names`, `apps/lines` build all green; `svelte-check`
+    unchanged against the same-worktree baseline. ⏳ `/editor` still not browser-verified.
+
 - 2026-09-16 — **Photoshop-style blend modes on placed art (sprite / spine / flipbook / FX),
   previewed exactly.** `BaseNode.blendMode` + `NodeOverride.blendMode` (so it is per-layoutType like
   `tint`), resolved by `resolveTransform` into `ResolvedTransform.blendMode` and passed by

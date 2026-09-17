@@ -276,6 +276,12 @@ item's pixels are combined with them.
   **shadows, dirt passes, vignettes and colour washes**; white pixels vanish.
 - **Screen** — the inverse of Multiply, always lighter. A softer lift than Add, which is
   usually what you want over an already-bright backdrop where Add would blow out to white.
+- **Overlay** — Multiply where the backdrop is dark, Screen where it is light, so it
+  *boosts contrast* instead of pushing one direction. The mode for a texture or colour pass
+  that should sit **into** the art rather than on top of it: grime over a panel, a light wash
+  across a backdrop, a gradient that tints the shadows and the highlights differently. It
+  keys off what is behind it, so the same layer reads differently over a dark screen than a
+  bright one — place it, then look.
 
 The canvas shows the real result, not an approximation: a blended item composites against
 everything drawn beneath it — **including the art on the screens below it in the list**,

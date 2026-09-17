@@ -5,6 +5,13 @@
 	// to the device-native GPU format (ASTC/ETC2/BC), staying compressed in VRAM. Inert for a
 	// game that ships no `.ktx2` assets — the loader is simply never dispatched (parity).
 	import 'pixi.js/ktx2';
+	// Side-effect import: registers Pixi's ADVANCED blend modes (`overlay` and its family) as
+	// filter extensions. Without it `blendMode = 'overlay'` is silently rendered as `normal` —
+	// no warning, no error, just a node that does not blend — so the authored mode would work in
+	// the editor preview (Canvas2D/CSS support overlay natively) and quietly do nothing in game.
+	// Registration only; the filters are constructed on demand, so a game placing no advanced
+	// blend pays the bundle and nothing else.
+	import 'pixi.js/advanced-blend-modes';
 	// Self-hosted KTX2 transcoder, bundled INTO the engine via Vite `?url` so it is emitted
 	// into every consuming build's own asset output (`_app/immutable/...`) with a correct,
 	// base-aware URL — standalone game builds AND the shared runtime bundle alike. (An earlier
