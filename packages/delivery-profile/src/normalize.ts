@@ -21,7 +21,10 @@ export type DeliveryProfileScope = 'baked' | 'override';
 
 const BAKE_ONLY_FIELDS = ['rgs.withCredentials', 'rgs.allowUrlOverride', 'session.required'];
 
-const KNOWN_KEYS: Record<string, string[]> = {
+/** Every field a profile may carry, by section. Exported because the BUILD-time validator in
+ *  `packages/config-vite` keeps its own copy — see the note there — and `profile.fixture.ts`
+ *  asserts the two agree. */
+export const DELIVERY_PROFILE_FIELDS: Record<string, string[]> = {
 	'': ['id', 'rgs', 'session'],
 	rgs: ['baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
 	session: ['param', 'source', 'required'],
@@ -87,7 +90,7 @@ const warnUnknownKeys = (
 	section: string,
 	warnings: string[],
 ): void => {
-	const known = KNOWN_KEYS[section] ?? [];
+	const known = DELIVERY_PROFILE_FIELDS[section] ?? [];
 	for (const key of Object.keys(source)) {
 		if (key.startsWith('_') || known.includes(key)) continue;
 		warnings.push(`unknown field ${section ? `${section}.${key}` : key} — ignored`);

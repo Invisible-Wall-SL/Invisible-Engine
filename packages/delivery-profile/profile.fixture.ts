@@ -34,7 +34,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_DELIVERY_PROFILE } from './src/types.ts';
-import { mergeDeliveryProfile, type DeliveryProfileScope } from './src/normalize.ts';
+import {
+	DELIVERY_PROFILE_FIELDS,
+	mergeDeliveryProfile,
+	type DeliveryProfileScope,
+} from './src/normalize.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -145,6 +149,30 @@ check('...and back again', merge({ session: { source: 'param' } }, DELIVERY).pro
 check('anything else is refused', merge({ session: { source: 'postMessage' } }, DELIVERY).profile.session.source, DELIVERY.session.source); // prettier-ignore
 check('...and named', merge({ session: { source: 'postMessage' } }, DELIVERY).warnings, ['session.source must be "param" or "host" — ignored']); // prettier-ignore
 check('omitting it keeps what the build was cut with', merge({ session: {} }, DELIVERY).profile.session.source, DELIVERY.session.source); // prettier-ignore
+
+console.log('\n7c. the BUILD validator knows every field the runtime does');
+{
+	// These two lists are one fact in two places — `config-vite` fails the build on an unknown
+	// field, this package degrades at runtime — and they have drifted TWICE: once for
+	// `rgs.simpleRequest`, once for `session.source`. Each time the symptom was the same and
+	// mystifying: a profile using the brand-new field could not be built at all. Compare them here,
+	// so a third drift fails a fixture rather than a delivery.
+	const viteConfig = readFileSync(
+		fileURLToPath(new URL('../config-vite/index.js', import.meta.url)),
+		'utf8',
+	);
+	const fromKnown = viteConfig.slice(viteConfig.indexOf('const KNOWN = {'));
+	const block = fromKnown.slice(0, fromKnown.indexOf('};'));
+	for (const [section, fields] of Object.entries(DELIVERY_PROFILE_FIELDS)) {
+		for (const field of fields) {
+			check(
+				`config-vite knows ${section ? `${section}.` : ''}${field}`,
+				block.includes(`'${field}'`),
+				true,
+			);
+		}
+	}
+}
 
 console.log('\n8. the shipped partner profile resolves to the transport we intend');
 const shipped = JSON.parse(

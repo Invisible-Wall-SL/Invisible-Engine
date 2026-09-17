@@ -113,14 +113,41 @@ const prettify = (key: string) =>
 	key.charAt(0).toUpperCase() + key.slice(1).toLowerCase().replace(/_/g, ' ');
 
 /**
+ * Is an option a base spin, an ANTE, or a BUY?
+ *
+ * The cost says how much, never which: a 1.25× option is almost certainly an ante and a 100× almost
+ * certainly a buy, but "almost certainly" is not a contract, and the two are materially different
+ * player actions — an ante modifies the bet and spins normally, a buy jumps straight into the
+ * feature.
+ *
+ * The server's `betOptionsName` looked like the answer, and it is not: the RGS author confirmed it
+ * is a **backoffice** field from their game config, not a client-facing declaration, so a client
+ * that switched behaviour on it would be reading someone else's admin data as a contract.
+ *
+ * So the AUTHORED config decides. That is the same split the rest of this function makes — the
+ * server owns the list and the prices, the game owns what each option IS and how it looks — and it
+ * is the right owner anyway, because ante-versus-buy is a UI behaviour the game implements. The
+ * name heuristic survives only for an option no authored mode matched, where a guess beats nothing.
+ */
+function resolveOptionKind(
+	index: number,
+	key: string,
+	matched: BetModeKind | undefined,
+): BetModeKind {
+	if (index === 0) return 'base';
+	if (matched && matched !== 'base') return matched;
+	return /ante/.test(normalise(key)) ? 'ante' : 'buy';
+}
+
+/**
  * Fold the SERVER's option table together with the game's authored presentation.
  *
  * The server owns the LIST and the PRICES: one menu entry per declared option, and nothing the math
  * did not declare. Book of Borut authors three buy cards (25× / 50× / 100×) while game 2 declares
  * one buy option — so it must show one, because the other two are prices the wallet would refuse.
  *
- * The config owns the LOOK: title, copy and art come from the authored mode that corresponds to the
- * option. Correspondence is by NAME first, then by equal cost — the cost fallback is what lets a
+ * The config owns the LOOK — title, copy and art — and the KIND (see {@link resolveOptionKind}),
+ * from the authored mode that corresponds to the option. Correspondence is by NAME first, then by equal cost — the cost fallback is what lets a
  * server that sends no `betOptionsName` still light up the right card (Borut's 100× BONUS art
  * against the server's 100× buy option), and it is presentation-only, so a wrong guess costs a
  * label, never a charge.
@@ -139,8 +166,7 @@ function mergeServerOptions(
 				(mode) =>
 					mode.kind !== 'base' && Math.abs(mode.costMultiplier - option.costMultiplier) < 0.001,
 			);
-		const kind: BetModeKind =
-			option.index === 0 ? 'base' : /ante/.test(normalise(option.key)) ? 'ante' : 'buy';
+		const kind = resolveOptionKind(option.index, option.key, match?.kind);
 		const presentation = match ?? (kind === 'base' ? base : undefined);
 
 		return {
