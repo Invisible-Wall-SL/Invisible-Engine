@@ -1,8 +1,9 @@
 # The Play4Fun / HyperGaming RGS protocol
 
 **What this is.** The wire contract our `rgs-translator-eagaming` package implements, read off the
-partner's OWN reference client (`server-handler/hyper-gaming/`, shared 2026-09-17) rather than
-inferred from traffic. Everything below is the CONTRACT — request shapes, action names, event names,
+partner's OWN reference client — their slot layer (`server-handler/hyper-gaming/`) and the
+`p4f-game-core` / `p4f-slotty-core` libraries under it, shared 2026-09-17 — rather than inferred
+from traffic. Everything below is the CONTRACT — request shapes, action names, event names,
 config fields. None of their code is reproduced or vendored: it is their proprietary client, and we
 implement the same protocol in our own engine.
 
@@ -31,6 +32,39 @@ request.
 
 Sibling endpoints are the SAME url with the last path segment swapped — `engine` → `freerounds`,
 `engine` → `batchengine` (fast play, plus `&num=`). So the endpoint is a family, not one path.
+
+### Requests are CORS simple requests, and always were
+
+Their `XhrRequest.Post` calls `xhr.open()` then `xhr.send(jsonString)` and **never sets a
+`Content-Type` header**, so the browser applies its default for a string body:
+`text/plain;charset=UTF-8`. That is a CORS **simple request** — no preflight, ever.
+
+This confirms `rgs.simpleRequest` from the other side. We added it defensively, after the 2-complex
+node answered `Access-Control-Allow-Origin: *` with no `Access-Control-Allow-Headers` and refused a
+JSON content type at the preflight. The reason is now plain: nothing on their platform has ever sent
+a preflight, so nothing on their platform has ever had to answer one. A JSON content type is not
+"stricter" here, it is unprecedented.
+
+(Their Node path sends `application/x-www-form-urlencoded` — also simple. There is no code path in
+their client that would trigger a preflight.)
+
+### Failures arrive as HTTP 200
+
+`onSuccessed` is only called when `response.error == null`; a body carrying `error` is routed to
+`onFailed` despite the 200. This is what `partnerErrorText()` handles in `partnerRgs.ts`, and it is
+worth restating because a transport that only checks `res.ok` will treat every refusal as a success.
+
+An `error.action === 'continue'` means the error is non-fatal and the game should keep going.
+
+### Their resilience model, which we do not have
+
+Worth knowing before judging our own behaviour on a flaky connection:
+
+- A network error or an **empty response body** triggers a resend, every 1s, effectively forever
+  (`MAX_RESEND_HTTP_REQUEST = Number.MAX_SAFE_INTEGER`). Request timeout is 30s.
+- While reconnecting, a global gate holds every other request until the first one succeeds, so a
+  retry storm cannot reorder actions — which matters a great deal when `seq` is a position.
+- Reconnect start/success/failure are published as events, so the UI can say so.
 
 ### `seq` is a position, and this is now confirmed
 
@@ -134,16 +168,113 @@ was an open question in the delivery plan. It does:
 | `paytable` | `{symbol: [{on: {of, occurs}, pay: [...]}]}` — `occurs[i]` pays `pay[i]`. |
 | `symbolsPay.scatter` | Which symbols are scatters. |
 
+Alongside `context`, the `config` EVENT itself carries the resume contract:
+
+| Field | Meaning |
+| --- | --- |
+| `actions` | The stored action array of an unfinished round. |
+| `resume` | `true` ⇒ that round is still open; continue it. |
+| `replay` | `true` ⇒ replay mode over those actions. |
+
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
+
+### Most of it reaches nothing (audited 2026-09-17)
+
+The facade bridges exactly three fields to the engine — `__IE_SERVER_CONFIG__` carries
+`availablePayLines`, `symbols` and `window` — plus `betOptions` and `gameCost` consumed separately by
+`betOptions.ts`. Everything else the server declares is read by nothing:
+
+| Declared, unread | Why it matters |
+| --- | --- |
+| `paytable` | **The divergence risk.** It is in `Play4FunConfigContext` and mentioned in comments, but never read: the game's paytable screen comes from the AUTHORED config. So a delivery can show a player one paytable while the operator's server pays another, and nothing anywhere would notice. |
+| `symbolsPay.scatter` | Which symbols are scatters — currently a client-side assumption. |
+| `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way. |
+| `maxWays` | Ways count; we take the payline count instead. |
+
+None of this is urgent for Book-of, whose authored config and the server's declaration agree today.
+It matters the moment a partner changes a paytable on their side, which is precisely the kind of
+change nobody tells the client team about. Reading `paytable` and comparing it to the authored one at
+boot — warn on mismatch, do not "fix" it — would be cheap and would catch that class of drift.
+
+## Resume — smaller than it looks, and here is the measurement
+
+Their client keeps a `resumeData` queue and, before every request, replays any stored actions the
+server still expects (`getResumeActions(untilAction)`), recovering the stake from the stored `bet`
+and the round from `platform.gameRound.id`. We implement none of it.
+
+**That reads like the most dangerous gap in this document. Measured against the live node, it is
+not**, and the reason is worth stating because it is not obvious from the protocol alone.
+
+### A round settles in about a second; the rest is animation
+
+Buying the feature on Book of Borut (`gs.2-complex.science`, 2026-09-17) produced **sixteen
+requests in 918 ms**:
+
+| `seq` | What |
+| --- | --- |
+| 0 | `[bet, play]` — the buy, bet-option index 1 |
+| 2 … 11 | ten free spins, one request each, ~70 ms apart |
+| 12 | `collect` |
+
+The free-spin INTRO screen had not even appeared yet. By the time the player sees "you win 10 free
+spins", the server has already played all ten, closed the round and paid. Everything after that
+first second is presentation over a settled outcome.
+
+So the window in which a round is open is roughly one second per spin, not the ~60 s a feature takes
+to play out. **Verified the hard way:** reloading the tab in the middle of the free-spin
+presentation, the balance came back `€10,168.50` — the full `€177.50` feature win, banked, despite
+the client never finishing the animation. Nothing was lost and there was nothing to resume.
+
+### What the live runs actually showed
+
+- **A fresh boot against an open round does not replay.** Reasoning from `seq`-as-position, the
+  obvious inference is that starting over re-posts `bet` at an occupied position and triggers the
+  replay path. It does not: the server issued a **fresh round id** and a real spin. Replay is reached
+  by re-posting within a round the client is still tracking, not by starting over.
+- **The one real cost is a stale wallet.** With a round left open, the HUD sat €1.00 below the
+  server's own figure, because our two-step balance leaves it on the interim from `requestBet` until
+  `requestEndRound` lands. A reload revealed the true number.
+- **`seq` is right at scale.** That 13-position round is the strongest test this implementation has
+  had — a per-request counter would have mis-numbered every free spin after the first.
+
+### One round we cannot account for
+
+Across the first live session, **one spin in four sent no `collect`**. The other three each closed
+cleanly at `seq=2` with their own `gid`, the balance reconciled at the end, and a later session of
+four more rounds (including the buy) collected every time. It has not reproduced.
+
+Recorded rather than dismissed because the failure it would represent — a round left open that the
+client thinks is finished — is exactly the one that pays a player nothing while the HUD says
+otherwise, and the earlier collect bug in `requestEndRound` was in this same code path. If a partner
+ever reports an uncredited win, start here. Reading the response bodies rather than the request URLs
+would settle it; the browser pane only captured the latter.
+
+### So what is still worth building
+
+Not the replay queue. Read `config.resume` / `config.actions` at boot and either continue that round
+or close it, so the wallet the player sees is the wallet the server has. That is the whole remaining
+exposure, and it is cosmetic rather than financial.
+
+The full queue only earns its keep if a future game keeps a round open across actions the player has
+to drive — a pickup, or a gamble — where the server genuinely waits on input. Book-of does not.
+
+## Where the host glue lives (and why we did not find it)
+
+Neither `p4f-game-core` nor `p4f-slotty-core` reads `window.params` or `GameSettings` anywhere. The
+cores take an already-built `serverConfig` (`gameAPI`, `urlHistory`, `outcomes`,
+`balanceUpdateInterval`, …); assembling it from the embed page is each GAME PROJECT's own bootstrap,
+which neither drop includes.
+
+Nothing turns on it. We build the request URL from `GameSettings.service` + `.token` via
+`host.ts`, where they consume the page's pre-assembled `params.GameAPI`; the two produce the same
+request against the same origin.
 
 ## Things we have no equivalent for
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:
 
-- **Resume.** Their client keeps a `resumeData` action list and, before every request, replays any
-  stored actions the server still expects (`getResumeActions(untilAction)`). This is what makes a
-  reconnect mid-round recover rather than desync — the other half of `seq`-as-position. We have
-  nothing here, and a delivery on a flaky mobile connection is where it would show.
+- **Resume** — see its own section above. The biggest gap.
+- **The retry/reconnect model** — see "Their resilience model" above.
 - **Gamble** (double-up on a finished round).
 - **Free rounds** — a separate `freerounds` endpoint with `&action=choose&frid=&betid=`, plus
   `gameRound.freeRound.totalWin` on the platform object.
