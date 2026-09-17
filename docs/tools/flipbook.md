@@ -380,8 +380,9 @@ can keep it beside the grid, or open a second variation next to the first and co
 the same tile again reuses that variation's window instead of stacking another copy.
 
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
-**🎞 Make flipbook** starts the conversion, **⤓** downloads it, **↻** re-rolls just that one,
-**⧉** duplicates it with new settings, and **🗑** deletes it.
+**🎞 Make flipbook** starts the conversion, **🖼 To Atlas Maker** exports the same frames the
+other way (as reference images to regenerate), **⤓** downloads it, **↻** re-rolls just that
+one, **⧉** duplicates it with new settings, and **🗑** deletes it.
 
 **⤓ downloads one render to your computer**, in either of two forms — the panel names the
 shape of what you are taking first (`frames · W×H · fps`, and whether it has transparency):
@@ -532,6 +533,47 @@ Press **🎞 Pack N frames & create clip**. The tool then:
 
 The clip's frame rate comes from the generated animation itself, divided by your **Every**
 setting — so what you saw in the grid is what the clip plays.
+
+### 4. Send a variation's frames to the Atlas Maker
+
+**🖼 To Atlas Maker** is the other export, and it answers a different question. 🎞 Make
+flipbook asks *"turn this render into an animation I can play"*, so it downscales each frame,
+crops it to its ink and packs the result. This one asks *"let me make a better version of
+these pictures"* — so it does the opposite of all three.
+
+Every selected frame is written out as a **full-resolution, untrimmed PNG reference image**,
+and an atlas is created beside them with **one region per frame, each already pointing at its
+own reference**. Nothing is generated and nothing is packed. You then open the Atlas Maker,
+regenerate those regions against their references, and Create Atlas — a new atlas built from
+the video, with the flipbook nowhere in the loop.
+
+| Field | What it does |
+|---|---|
+| **Atlas name** | The atlas that gets created, and the prefix of every region and reference file in it. |
+| **From** / **To** | The slice of the animation to export, same as the flipbook panel. |
+| **Every** | Take every Nth frame. There is no fps here — reference images carry no timing. |
+
+There is deliberately **no Max px**: downscaling is the thing you came here to avoid. The
+panel shows how many frames will go out, and at what size, before you commit.
+
+**The atlas it creates has no pixels in it, and that is the point.** A region stays *unplaced*
+until it has a generated image, so a freshly exported atlas has no page at all — the
+full-size references sit beside it as loose input files and never enter a sheet. The page
+appears only when you regenerate and Create Atlas, and it is built from the *generated* art at
+the generation size, not from the references. So large references cannot inflate the atlas.
+
+Two things to expect:
+
+- **It does not select the atlas for you.** Which atlas the Atlas Maker has open is shared by
+  everyone using the tool, so switching it from here would pull the atlas out from under
+  someone else mid-edit. The panel names what it wrote; pick it from the atlas list yourself.
+- **An existing atlas name is refused, not overwritten.** The name is pre-filled from the
+  blueprint and the variation number, so exporting the same variation twice lands on it —
+  rename it. Refusing is the safe half of that trade: the alternative is replacing an atlas you
+  have already written prompts into with blank regions.
+
+Long selections are refused rather than quietly shortened (**120 frames**, each one a
+full-size PNG *and* a region to regenerate). Use **Every** to bring a long render under it.
 
 ### Things worth knowing
 

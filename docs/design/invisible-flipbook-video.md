@@ -339,6 +339,26 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
      first draft had exactly that bug and the fixture caught it.
 4. **Docs (rules 6 + 9).** `docs/tools/flipbook.md` gains the mode; `docs/status/flipbook.md` gains
    the state. No registry entry changes — this is a mode, not a tool.
+5. **Video → Atlas Maker reference images** (owner direction 2026-09-17). `video_to_refs.py` +
+   `POST /video/torefs`: the selected frames written full-resolution and untrimmed into
+   `input/refs/video/<slug>/`, plus an atlas of one `style_ref`-bearing region per frame. State in
+   [status/flipbook.md](../status/flipbook.md).
+   - **Why a SECOND export rather than options on the first.** The two answer different questions
+     and every knob points the opposite way: `toclip` downscales, alpha-trims and packs because it
+     is making something that must *play cheaply*; this one preserves resolution, preserves the
+     canvas and packs nothing because its output is *input to another generation*. Folding them
+     together would mean a panel whose every control means "unless you ticked the other box", and
+     a `max_size` that is load-bearing in one mode and a bug in the other.
+   - **Why it belongs in Flipbook and not the Atlas Maker**, given §"Why this belongs in Flipbook":
+     the unit being exported is *a chosen variation of a session* — a thing only this mode has a
+     handle on. The Atlas Maker receives regions and refs, which it already understands; it gains
+     no new concept, which is the test.
+   - **The export creates a manifest, never a page.** A region with no committed image is left
+     unplaced by `auto_pack_layout`, so a reference atlas is pixel-free until it is generated. This
+     is what makes full-resolution refs affordable, and it is the answer to the owner's objection
+     that 1024² references would make the atlas enormous — they never enter a sheet.
+   - **It does not touch `manifest_path`.** The stateless rule above is not relaxed for this route;
+     the author selects the new atlas in `/atlas` themselves.
 
 ## Open questions
 

@@ -46,6 +46,7 @@ import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlas
 import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
 import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> animated WEBP)
 import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
+import video_to_refs  # noqa: E402  (Flipbook video -> Atlas Maker reference images)
 import model_mirror  # noqa: E402  (R2 model mirror — where a declared model file lives)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
@@ -7607,8 +7608,8 @@ class Handler(BaseHTTPRequestHandler):
             # which scopes a route to one session, and never a ref-mutating route.
             self._send(200, "application/json", self._video_nodespecs(raw))
         elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
-                           "/video/toclip", "/video/regen", "/video/discard",
-                           "/video/add", "/video/duplicate"):
+                           "/video/toclip", "/video/torefs", "/video/regen",
+                           "/video/discard", "/video/add", "/video/duplicate"):
             self._send(200, "application/json", self._video(post_path, raw))
         else:
             self._send(404, "text/plain", b"not found")
@@ -7671,6 +7672,21 @@ class Handler(BaseHTTPRequestHandler):
                     end=int(payload.get("end") or 0),
                     stride=int(payload.get("stride") or 1),
                     max_size=int(payload.get("max_size") or 0),
+                )).encode()
+            if route == "/video/torefs":
+                # The other export: the same frames as Atlas Maker REFERENCE
+                # images (full size, untrimmed, unpacked) + an empty `pack`
+                # manifest pointing at them. Inline for the same reason toclip
+                # is — Pillow seconds, not GPU minutes. NOT in
+                # `_REF_MUTATING_ROUTES`: that mirror re-pushes the WHOLE input
+                # tree, and this route has already put every file it wrote.
+                return json.dumps(video_to_refs.build_ref_set(
+                    sid,
+                    int(payload.get("variation") or 0),
+                    name=str(payload.get("name") or ""),
+                    start=int(payload.get("start") or 0),
+                    end=int(payload.get("end") or 0),
+                    stride=int(payload.get("stride") or 1),
                 )).encode()
             return json.dumps(video_runner.delete_session(sid)).encode()
         except ValueError as e:

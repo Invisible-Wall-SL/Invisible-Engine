@@ -60,6 +60,11 @@ const POST_ROUTES: Record<string, string> = {
 	// Extract → trim → pack → write sheet(s). Runs inline in the tool (seconds of
 	// Pillow work), so this request is slow-ish but synchronous.
 	toclip: '/video/toclip',
+	// The same frames, exported the OTHER way: extract at FULL resolution and write
+	// them as reference images plus a region-per-frame manifest into the project's
+	// Atlas Maker area. Nothing is packed and nothing is trimmed — the author
+	// regenerates those regions in /atlas and builds the page from there.
+	torefs: '/video/torefs',
 	// Publish a blueprint to the SHARED library. Gated twice over — see `forward`.
 	publish: '/uploadblueprint',
 	// A node's REAL input contract from ComfyUI's `/object_info` — the ranges and option
