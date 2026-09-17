@@ -365,9 +365,12 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
      [status/atlas-maker.md](../status/atlas-maker.md).
    - **Fit is per export, not per atlas.** `fit_mode` (contain / cover / fill) rides with the
      export because it is a property of the SEQUENCE being regenerated, not of the tool: `contain`
-     scales every frame uniformly inside an identical cell and centres it, which is what keeps a
-     regenerated animation registered. It is the grid's answer to what `pack_trim: "keep"` does for
-     a packed atlas — and `pack_trim` is not read in grid mode, so the two never overlap.
+     scales every frame uniformly inside an identical cell. **It is not on its own enough to keep a
+     sequence registered** — that also needs Frame trim on *Keep the whole frame*, or each frame is
+     cropped to its own ink first and `contain` then centres that, which composes every frame
+     identically and erases the motion. `fit_mode` answers HOW the art maps into the rect;
+     `pack_trim` answers WHAT is being mapped. Both are read on a grid atlas (corrected
+     2026-09-17 — the first draft of this line claimed `pack_trim` was not).
    - **It does not touch `manifest_path`.** The stateless rule above is not relaxed for this route;
      the author selects the new atlas in `/atlas` themselves.
 

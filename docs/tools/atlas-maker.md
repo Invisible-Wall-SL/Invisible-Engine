@@ -118,18 +118,32 @@ Three collapsible panels sit above the region grid:
 
 ### Frame trim — why an animation drifts and how to stop it
 
-**Frame trim (from-scratch layout)** in **🧩 Atlas settings** decides how
-`Create Atlas` measures each region on a **`pack`** atlas. It does nothing for an
-atlas whose geometry comes from a bound `.atlas`, and nothing on a **`grid`** atlas
-either — there, the cell is the size (see "Grid layout" below).
+**Frame trim** in **🧩 Atlas settings** decides *what* is placed into each region —
+the art's visible ink, or the whole canvas it was drawn on. It applies on **both**
+from-scratch layouts, `pack` and `grid`. It does nothing for an atlas whose geometry
+comes from a bound `.atlas`, or for a legacy cell-grid one, where the placement is
+the Sheet Maker's and is deliberately left alone.
 
 | Choice | What happens |
 |---|---|
-| **Trim each frame to its alpha** (default) | every frame is cut down to its own visible pixels, so the page is as small as it can be. Right for symbols — each one is placed on its own, so its canvas does not matter. |
-| **Keep the full frame** | every frame keeps the whole canvas its art is on, so all the frames of an **animation** share one centre. Costs page area. |
+| **Keep the whole frame, transparent edges included** (default) | the art keeps the canvas it was drawn on, so every frame of an animation shares one centre. Costs page area on `pack`. |
+| **Crop each frame to its visible pixels** | the art is cut down to its own ink, so a `pack` page is as small as it can be. Right for symbols — each is placed on its own, so its canvas does not matter. |
 
-The default is what this tool has always done, so every existing atlas keeps its
-behaviour until you change this. It takes effect on the next **Create Atlas**.
+**The default changed on 2026-09-17**, from cropping to keeping. Any atlas that
+never chose explicitly now keeps the whole frame on its next **Create Atlas**. On a
+`grid` atlas that only changes the composed pixels; **on a `pack` atlas the page is
+re-measured at full canvas, so it grows and every rect moves** — around 5× the area
+in a measured 25-frame case. If an atlas relies on tight symbol packing, set it to
+**Crop each frame to its visible pixels** explicitly.
+
+It takes effect on the next **Create Atlas**.
+
+**Why it is not just a `pack` setting.** It governs the alpha crop in
+`fit_to_region`, which every from-scratch compose goes through — so on a `grid`
+atlas it decides whether each frame is cropped to its ink on the way into its cell.
+Measured: three frames of one square walked across a canvas compose **byte-identical**
+under *Crop* (the motion is gone, every frame re-centred on its own ink) and step
+correctly under *Keep*.
 
 **The symptom it exists for:** an animation whose character moves up and down
 and left and right between frames that should be still. Each frame is being
@@ -186,7 +200,7 @@ the dropdown repaints it immediately, before you save:
 |---|---|---|
 | **Atlas width / height** | shown **read-only** — the packer sets them from the art | yours to set |
 | **Default cell width / height** | hidden — nothing reads them | shown; this *is* the layout |
-| **Frame trim** | shown — it is the packer's measurement | hidden — not read here |
+| **Frame trim** | shown | shown — it governs the alpha crop on both layouts |
 
 Atlas width/height stay visible on `pack` rather than being hidden, because they are the
 only readout of the page the packer actually produced. They are just not an input there —
@@ -237,8 +251,10 @@ the cells do not leave room for every region, Create Atlas changes **nothing** a
 names the capacity, the count and the overflow. Raise the atlas size, lower the cell
 size, or export fewer frames. A half-laid-out grid would look like a successful run.
 
-**Frame trim does not apply here.** It is a `pack` measurement; a grid cell's size is
-the cell.
+**Frame trim applies here too.** It does not change the cell — the cell is the cell —
+but it decides whether each frame is cropped to its ink on the way into it. For a
+regenerated sequence you almost always want **Keep the whole frame** (the default),
+or every frame is re-centred on its own ink and the motion disappears.
 
 ### Run generation on — RunPod or my computer
 
