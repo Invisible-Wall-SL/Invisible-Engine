@@ -63,6 +63,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
+- [play4fun-protocol](reference/play4fun-protocol.md) — **the RGS wire contract** (transport, actions, events, the boot `config`), read off the partner's own reference client. Read it before touching `rgs-translator-eagaming`.
 
 ## Cross-cutting roadmap — genuinely UNBUILT, prioritized
 
@@ -71,12 +72,14 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
 2. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-3. **Delivery builds, Phases 2–3** ([design](design/delivery-builds.md)) — the profile + `config.json`
-   (Phase 1) shipped 2026-09-14. Still unbuilt: the **protocol deltas** against a partner RGS (bet-mode
-   enum `0|1|2` in `context[0]`, server-supplied bet levels + jurisdiction instead of the ladder the
-   facade currently invents, and the real cascade event vocabulary), then **packaging** (a
-   package-for-delivery mode on `publish-game-bundle.mjs`). Blocked in part on answers from the
-   partner — see the design doc's open questions.
+3. **Delivery builds, Phase 2** ([design](design/delivery-builds.md)) — Phase 1 (profile +
+   `config.json`) shipped 2026-09-14; Phase 3 (the embeddable `game.js` a partner's page includes,
+   plus same-origin `rgs.source: 'host'`) shipped 2026-09-17. Still unbuilt: **server-supplied bet
+   levels + jurisdiction** instead of the ladder `requestAuthenticate` invents — the answer now exists
+   on both sides (`config`'s `betOptions`/`gameCost`, the host's `betMultipliers`), so this is ours to
+   wire, not theirs to answer — and a **package-for-delivery mode** on `publish-game-bundle.mjs`. The
+   bet-mode enum this item used to name does not exist; see the design doc. Also open: about a dozen
+   host settings the operator already declares and we still answer ourselves.
 4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
    passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
    **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);

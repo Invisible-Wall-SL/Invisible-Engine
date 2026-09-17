@@ -123,17 +123,28 @@ before.
 
 ## Phase 2 — the protocol deltas (NEXT)
 
-Against the 2-complex node (`gs.2-complex.science`), which speaks the protocol we already implemented:
+Against the 2-complex node (`gs.2-complex.science`), which speaks the protocol we already implemented.
+**The full contract is now `docs/reference/play4fun-protocol.md`**, read off the partner's own
+reference client rather than inferred — which settled two of these three and corrected the first.
 
-1. **Bet encoding.** `context[0]` is now a mode enum (`0` base · `1` ante · `2` buy), not a lines
-   count. We send `[5, betPerLine]` (lines) or `[costMultiplier, betPerLine]` (book). Add
-   `bet.encoding` + a bet-mode → enum map to the profile and wire it in `engineFacade.requestBet`.
+1. ~~**Bet encoding.** `context[0]` is a mode enum (`0` base · `1` ante · `2` buy).~~ **WRONG, and
+   the reference client says why it looked right.** `context[0]` depends on the game's bet-config
+   TYPE: a `betOptions` game sends the **index into `betOptions`**, a line/way/dynaways game sends
+   the **bet multiplier**. Game 2 declares `betOptions: [10, 1000]`, so its only two legal values are
+   `0` and `1` — which reads exactly like "0 base, 1 ante" if you only ever see that game. It is not
+   an enum, there is no third value, and a mode→enum map in the profile would have been a wrong
+   abstraction built on a two-element coincidence. We already send the index (`betOptionIndexFor`),
+   so the remaining work is only the line/way branch.
 2. **Server-supplied bet levels.** `requestAuthenticate` currently INVENTS the ladder ($0.10–$100)
    and `disabledBuyFeature: true`, because the mock never supplied them. For an operator build the
-   limits must match what the RGS accepts, and jurisdiction flags are regulatory. Either the partner
-   adds them to the `config` event or they go per-operator in the profile — but we stop guessing.
+   limits must match what the RGS accepts, and jurisdiction flags are regulatory. **Both halves of
+   the answer now exist and neither is ours to invent:** the `config` event carries `betOptions` /
+   `gameCost` / `oneCreditBuysLines` / `costPerReel`, and the host page carries `betMultipliers` +
+   `initialBetMultiplierIndex` + `minNormalBet` / `maxNormalBet`. See the host-settings table above.
 3. **Cascade vocabulary.** `tumbleStep`/`multiplierCollect` in the facade are OUR mock's invention,
-   not a capture. Stargate is Gates-of-Olympus math, so the real names and shapes must replace them.
+   not a capture — and the reference client is the strongest evidence yet: it covers gamble, pickups,
+   free rounds and fast play, and has **no cascade vocabulary at all**. Whatever Stargate's tumbles
+   are called, it is not these. Replace them when we have a capture, not before.
 
 ## The embed — how the partner's page loads us (SETTLED 2026-09-17)
 
@@ -351,8 +362,9 @@ other's cards.
 4. ~~Bet units: is `context[1]` per-line or total, and in cents?~~ **ANSWERED** — total stake is
    `betOptions[x] × M` in credits, `denom` 0.01, so 1 credit = 1 cent. The `M` ladder is the host's
    `betMultipliers`.
-5. Does the server emit a boot `config` event (symbols, window, `availablePayLines`, paytable)? The
-   facade derives the symbol whitelist, grid and paylines from it.
+5. ~~Does the server emit a boot `config` event (symbols, window, `availablePayLines`, paytable)?~~
+   **ANSWERED** — yes, and a missing one is fatal in their own client. Full field list in
+   `docs/reference/play4fun-protocol.md`.
 6. Does the RGS bind a session to the operator it was minted for and validate that per call? A
    delivery build is public and copyable.
 
