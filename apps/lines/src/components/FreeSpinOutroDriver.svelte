@@ -81,6 +81,10 @@
 		},
 		freeSpinOutroHide: () => (show = false),
 		freeSpinOutroCountUp: async (emitterEvent) => {
+			console.log('[FSREPRO] driver freeSpinOutroCountUp', {
+				amount: emitterEvent.amount,
+				winLevelData: emitterEvent.winLevelData,
+			});
 			amount = emitterEvent.amount;
 			winLevelData = emitterEvent.winLevelData;
 			freeSpinOutroState.winLevelData = emitterEvent.winLevelData;
@@ -108,7 +112,11 @@
 			{#snippet children({ countUpAmount, startCountUp, countUpCompleted })}
 				<OnMount
 					onmount={async () => {
+						console.log('[FSREPRO] driver OnMount before startCountUp', { amount });
 						await startCountUp();
+						console.log('[FSREPRO] driver OnMount after startCountUp -> latch+broadcast', {
+							amount,
+						});
 						// CHANGE 2 — the count-up has finished (natural, slammed, or hold-fast-forwarded:
 						// completion is completion). Fire the component-scoped `freeSpinOutroCountUpComplete`
 						// signal ONCE per outro, so an authored `tapToContinue` / prompt with

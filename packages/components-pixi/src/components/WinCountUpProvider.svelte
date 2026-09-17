@@ -75,14 +75,27 @@
 	// Own completion: settle the moment the value reaches the target (the tween lands exactly on it).
 	$effect(() => {
 		if (!running) return;
+		console.log('[FSREPRO] completion effect', {
+			running,
+			current: countUpAmount.current,
+			amount: props.amount,
+			hasOnSettle: !!onSettle,
+		});
 		if (countUpAmount.current >= props.amount) onSettle?.();
 	});
 
 	const startCountUp = async () => {
+		console.log('[FSREPRO] startCountUp ENTER', {
+			acceleratable,
+			amount: props.amount,
+			duration: props.duration,
+			speedScale: props.speedScale,
+		});
 		if (!acceleratable) {
 			await interruptible.add(countUp);
 		} else {
 			running = true;
+			console.log('[FSREPRO] startCountUp accel: running=true, onSettle set?', !!onSettle);
 			await interruptible.add(() => new Promise<void>((resolve) => (onSettle = resolve)));
 			running = false;
 			onSettle = undefined;
@@ -91,6 +104,7 @@
 		countUpCompleted = true;
 		props.oncomplete?.();
 		interruptible.clear();
+		console.log('[FSREPRO] startCountUp RESOLVED', { amount: props.amount });
 	};
 
 	// Slam stop = exactly what the press-to-continue does, without the press: cut the tween and

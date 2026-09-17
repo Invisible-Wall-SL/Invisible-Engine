@@ -79,7 +79,16 @@ const SPECIAL_WEIGHTS = {
 	JACK: 0.14,
 	TEN: 0.195,
 };
-const TOTAL_FS = 10;
+// TEMP-REPRO(zero-win free spins): guaranteed a whole free-spin round nets 0 → outro amount:0.
+const ZERO_FS = process.env.ZERO_FS === '1';
+const LOSING_BOARD = [
+	['JACK', 'JACK', 'JACK'],
+	['QUEEN', 'QUEEN', 'QUEEN'],
+	['JACK', 'JACK', 'JACK'],
+	['QUEEN', 'QUEEN', 'QUEEN'],
+	['JACK', 'JACK', 'JACK'],
+];
+const TOTAL_FS = Number(process.env.FS_COUNT ?? 10);
 /** Extra free spins awarded when 3+ SCAT land during a free spin (retrigger). */
 const RETRIGGER_FS = 10;
 
@@ -507,6 +516,20 @@ export function createMockRgs(opts = {}) {
 
 					// ----- FREE SPIN (round already in bonus) -----
 					if (round.bonus?.active) {
+						if (ZERO_FS) {
+							// Guaranteed zero free spin: no wins, no retrigger, regardless of the drawn special.
+							events.push(spinStartEvent(round));
+							events.push({ event: 'playedSpin', context: LOSING_BOARD.map((r) => [...r]) });
+							round.bonus.played += 1;
+							round.bonus.left -= 1;
+							events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round) });
+							if (round.bonus.left <= 0) {
+								round.bonus.active = false;
+								events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round) });
+								events.push({ event: 'gameEnd', context: { win: round.win } });
+							}
+							break;
+						}
 						const reels = spinReels();
 						events.push(spinStartEvent(round));
 						// Book mechanic: the chosen special is an expanding symbol. If it
@@ -573,7 +596,9 @@ export function createMockRgs(opts = {}) {
 					// bigWin: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
 					// a MEGA-tier win, enough to show the big-win banner without hitting
 					// the MAX special-case.
-					const reels = trigger
+					const reels = ZERO_FS
+						? LOSING_BOARD.map((r) => [...r])
+						: trigger
 						? spinReelsWithScatters(4)
 						: bigWin
 							? [

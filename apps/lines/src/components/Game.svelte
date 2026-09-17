@@ -1194,8 +1194,17 @@
 		// Seeding a late subscriber from the latch makes arming order-independent; a real win's long
 		// count-up keeps the latch false until well after the screen subscribes, so it is unaffected.
 		freeSpinOutroCountUpComplete: eventSignal((run) => {
-			if (freeSpinOutroState.countUpComplete) run();
-			return context.eventEmitter.subscribe({ freeSpinOutroCountUpComplete: () => run() });
+			console.log('[FSREPRO] signal subscribe, latch=', freeSpinOutroState.countUpComplete);
+			if (freeSpinOutroState.countUpComplete) {
+				console.log('[FSREPRO] signal SEED run()');
+				run();
+			}
+			return context.eventEmitter.subscribe({
+				freeSpinOutroCountUpComplete: () => {
+					console.log('[FSREPRO] signal FIRE run()');
+					run();
+				},
+			});
 		}),
 		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
 		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
