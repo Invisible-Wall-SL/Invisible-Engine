@@ -2,10 +2,44 @@
 
 > Design: [docs/design/atlas-per-user-session.md](../design/atlas-per-user-session.md) · Guide: [docs/tools/atlas-maker.md](../tools/atlas-maker.md) · Agent: `.claude/agents/atlas-python-tools.md`
 
-**One-line state:** _(2026-09-17)_ **The layout is switchable in place, so an atlas born `pack` can become `grid` without losing its prompts** — `Layout` in 🧩 Atlas settings, offered only on a from-scratch atlas, clearing the old layout's rects as it goes. Shipped because the `grid` work below fixed nothing for the atlas the owner actually had: layout was written at creation and nothing migrated it, so they set 2048×2048, saved, hard-refreshed (values intact) and Create Atlas still returned **1028×25652**. Was _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
+**One-line state:** _(2026-09-17)_ **Every unlocked card is back on its latest variant the moment a render finishes** — a variant pick now stores WHICH batch it was made from (`variant_at`), so "has this slot rendered since?" is read off the manifest instead of reconstructed by a post-render hook that had to survive a background job, a browser poll and every blanket save. Measured on the owner's live bucket: 3 unlocked pins named art 3–4 renders old, so those cards — and the atlas composed from them — showed a file the owner had long re-rendered past. Was _(2026-09-17)_ **The layout is switchable in place, so an atlas born `pack` can become `grid` without losing its prompts** — `Layout` in 🧩 Atlas settings, offered only on a from-scratch atlas, clearing the old layout's rects as it goes. Shipped because the `grid` work below fixed nothing for the atlas the owner actually had: layout was written at creation and nothing migrated it, so they set 2048×2048, saved, hard-refreshed (values intact) and Create Atlas still returned **1028×25652**. Was _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
 
 ## Current state
 Works today on `main` / live:
+
+- **A variant pick is spent by the next render — as a fact of the manifest, not a cleanup**
+  _(2026-09-17)_. Owner report: *"when I generate a new variation it is not automatically
+  getting added to my grid, and I will have to go and select it from the variations on each
+  card."* The behaviour was already designed, documented and unit-tested; what was missing was
+  anywhere durable to keep it.
+  - **`variant_at` — the newest variant id that existed when the pick was made.** Stamped by
+    `apply_region_edits` **only when the pick actually changes**, and read by the single shared
+    predicate `batch_atlas.effective_variant(region, newest_id)`: a pick is live while nothing
+    newer than its own batch exists, spent once something is, and never spent while LOCKED.
+    Picking #3 of 5 still keeps #3 — the other four were there when it was picked.
+  - **It replaces an in-memory snapshot.** `_drop_superseded_picks` used to compare each slot's
+    newest id against one taken before the subprocess started, so a correct card depended on the
+    post-render hook completing, the browser's poll loop reaching `refreshCards()`, and no
+    blanket `saveAll()` posting the card's stale id back in between — `collect()` sends every
+    card's pick on every save. Any one of those missing pinned the slot to old art permanently,
+    with nothing on screen to say so. The sweep is now housekeeping over the whole manifest
+    (it keeps a stored pin meaning "this is the file in use", and reports what it cleared);
+    the card and Create Atlas no longer depend on it having run.
+  - **`output_view` returns the pick it resolved**, and the page build + `/cardsdata` both take
+    it from there. The card's image and its `data-variant` came from two different reads before,
+    which is how a card could display one file while re-asserting another on the next save.
+  - **Legacy pins date themselves to their own id**, so an old pin with newer art beside it reads
+    as spent — which is what repairs the owner's stuck cards without them re-picking anything.
+  - Measured before theorising: a read-only sweep of all 203
+    manifests in the bucket found 211 pins, **3** of them unlocked-and-stale (2 in
+    `s_whalerscreamrestest`, 1 in `S_New_Boot` — both atlases the owner was working in that day),
+    and 0 stale locked pins. All three verified fixed against their exact stored shape.
+  - Fixtures: `py test_variant_pick.py` (**64** checks, was 44) — added the no-cleanup-ever-runs
+    case, the blanket-save revival, curating #3 of 5, a deleted newest (ids can go DOWN, so the
+    comparison is strictly-greater and never `!=`), legacy pins and non-numeric ids. Also driven
+    through the real `run_render` with only the ComfyUI subprocess faked.
+  - **Not verified live:** no R2, no GPU, no browser — everything is asserted offline, including
+    against the owner's real region shapes copied out of the bucket.
 
 - **`Layout` — switching an existing atlas between `pack` and `grid`** _(2026-09-17)_. The `grid`
   bullet below shipped a layout nothing could reach: `layout` was written only at atlas-CREATION
