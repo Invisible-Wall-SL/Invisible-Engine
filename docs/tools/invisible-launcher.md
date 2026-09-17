@@ -90,6 +90,17 @@ press — fetch + hard-reset to `origin/main`, advance the engine submodule to i
 branch tip, `pnpm install && pnpm build` (assets pull live from R2), upload the
 bundle, register the game card, verify it's live.
 
+**If your connection can't reach R2, ☁ Publish re-routes itself.** Spanish ISPs
+null-route whole Cloudflare address ranges during LaLiga matches, and R2's storage
+endpoint sits inside them — so on those lines a publish used to die instantly with
+`ConnectTimeoutError` and upload nothing, while everything else (the portal, the test
+server, the games themselves) kept working. From **v1.0.53** the launcher notices that
+specific failure and uploads through the portal instead, which is not behind the block;
+you'll see *"R2 is unreachable from this connection … publishing through the portal
+instead"* in the progress log, and the publish finishes normally. Nothing is rebuilt and
+nothing else changes. It re-routes **only** for a connection failure: a wrong credential
+or a key the online Game Maker owns still stops the publish, as they should.
+
 **Every publish builds the latest engine.** A game repo holds no game code of its
 own: the game layer is compiled straight from the engine submodule that the step
 above just advanced to `main`, so there is no engine version to choose and no way
