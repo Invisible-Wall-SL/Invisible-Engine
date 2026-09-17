@@ -198,6 +198,17 @@ const files = {
 					'publish:storybook': `node ./engine/apps/launcher-api/scripts/publish-storybook.mjs --project ${client}/${slug} --dir storybook-static`,
 					build:
 						'pnpm build:engine && pnpm bake:doc --optional && pnpm pull:assets --optional && pnpm publish:symbols --optional && vite build',
+					// A build for a PARTNER to host (docs/design/delivery-builds.md). Both of these are
+					// thin aliases for engine scripts, deliberately: a repo scaffolded today keeps
+					// whatever these lines said today, so any real logic here would be frozen at
+					// scaffold time. Living in the engine, they reach every game the moment its
+					// submodule advances — and a repo scaffolded BEFORE they existed can run the same
+					// scripts by path, with no package.json change at all.
+					'build:delivery': 'node ./engine/scripts/build-delivery.mjs',
+					// Play that delivery build the way the partner's page will load it — there is no
+					// other way to open one, since it reads its session from `window.params`. Pass
+					// --sid <token> --rgs <origin> to play against a real node.
+					'serve:delivery': 'node ./engine/scripts/serve-embed.mjs build',
 					preview: 'vite preview',
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
 				},

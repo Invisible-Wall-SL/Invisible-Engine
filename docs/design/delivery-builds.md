@@ -285,10 +285,51 @@ file for it (the scrape would have passed on a field mentioned in a comment), co
 ways**, and asserts every shipped profile survives its own validator.
 ## Phase 3 — the embeddable build ✅ BUILT
 
-`pnpm --filter lines build:embed` (`PUBLIC_DELIVERY_EMBED=1` + `scripts/build-embed.mjs`) produces
-the folder the partner's page loads: `game.js` at its root, `_app/` and `assets/` beside it. Drop it
-at `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without the
-flag nothing changes — the default build is still the single droppable `index.html`.
+### Producing one
+
+From a GAME REPO — Book of Borut and anything else that vendors the engine at `engine/`:
+
+```bash
+node engine/scripts/build-delivery.mjs [--profile operator-embed] [--out delivery]
+```
+
+That runs the game's own `pnpm build` (editor bake, R2 asset pull, symbol publish — all unchanged)
+with the three env vars a delivery needs, then writes `game.js`. `--out` copies the result somewhere
+`pnpm build` will not overwrite, which matters for a folder you are about to hand over.
+
+It lives in the ENGINE and takes no per-repo setup on purpose. `new-game.mjs` writes a repo's scripts
+once at scaffold time and nothing refreshes them — the snapshot problem that had every scaffolded
+game building a months-old `src/`. A delivery script added only to the scaffold would work for games
+created after today and for none that exist. Scaffolded repos get `build:delivery` /
+`serve:delivery` as thin aliases; older repos run the same script by path, with no package.json
+change at all.
+
+From the MONOREPO, for the reference game: `pnpm --filter lines build:embed`.
+
+### Playing one before it ships
+
+A delivery build **cannot be opened**. There is no `index.html`, and it reads its session and RGS
+path from `window.params.GameSettings`, which only the partner's page provides — so it refuses to
+boot anywhere else, correctly. Without a harness the only way to find out whether a delivery works is
+to hand it over and wait.
+
+```bash
+node engine/scripts/serve-embed.mjs <build-dir> --sid <token> --rgs https://gs.2-complex.science
+```
+
+It plays both halves of an operator: a fake server-rendered page at `/operator/`, the game at a
+CDN-shaped path that shares nothing with it, and a proxy that answers the game's same-origin RGS
+calls by forwarding them to a real node. The two paths share nothing deliberately — a
+document-relative URL, the failure this build mode exists to prevent, cannot pass by accident when
+"relative to the page" and "relative to the bundle" resolve somewhere different. That is how both
+non-script-relative asset paths were caught, and it is why any 404 it logs is worth reading.
+
+### The artifact
+
+`game.js` at the root, `_app/` and `assets/` beside it. Drop it at
+`{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
+`PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
+`index.html`.
 
 **Verified 2026-09-17** against a harness that serves the page at `/partner/` and the game at
 `/cdn/eanew/games/v1.0/BookOfBetOptions/`, i.e. paths that share nothing, so a document-relative URL
