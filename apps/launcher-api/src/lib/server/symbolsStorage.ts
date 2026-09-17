@@ -68,6 +68,14 @@ const offsetSchema = z.object({
  * something of their own to sit behind, so only `Symbol.svelte` reads it; a book-VFX slot already
  * says which side it is on by being the `background` or the `foreground`, and the transition has
  * nothing beneath it. Sparse: only `true` is ever written.
+ *
+ * `dimWithSymbol` — does this layer darken with the symbol it decorates when "Darken the
+ * non-winning symbols" (`winCycle.dimNonWinning`) is on? Absent means YES, which is what every
+ * layer did before the field existed, so ONLY the opt-out (`false`) is ever written and a doc
+ * authored before this ships byte-identical. Read only for a symbol CELL's layers, like `behind`:
+ * the book VFX and the transition are not drawn inside a dimmable symbol at all. The engine cannot
+ * honour it with a tint of the layer's own — Pixi's colour cascade only multiplies — so
+ * `Symbol.svelte` applies the dim per drawn PIECE and simply leaves an exempt layer untinted.
  */
 function layerHasKindField(l: {
 	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
@@ -101,6 +109,7 @@ const bookVfxLayerSchema = z
 		offset: offsetSchema.optional(),
 		blendMode: z.enum(BLEND_MODES).optional(),
 		behind: z.boolean().optional(),
+		dimWithSymbol: z.boolean().optional(),
 	})
 	.strict()
 	.refine(layerHasKindField, {

@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-17)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **cell LAYERS** — a symbol can be made of MORE THAN ONE picture, each layer with its own **blend mode** (`lighten`/`overlay` included) and an optional `behind`, array order = draw order; it reuses the EXISTING layer object (`bookVfxLayerSchema`), mounts at the ONE choke point (`Symbol.svelte`), never reports a beat, and hides the blend control on a `spine` layer because a Pixi blend cannot reach skeleton geometry (branch `symbols/cell-layers`, not yet on `main`). Before it, **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (branch `engine/arrival-release`, not yet on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-17)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **a layer can opt OUT of the win dim** — `dimWithSymbol` (default ticked ⇒ byte-parity), which cost moving the dim's tint off the `SymbolWrap` container and onto each drawn piece inside `Symbol.svelte`, because Pixi's colour cascade only ever multiplies (branch `symbols/layer-dim-opt-out`, not yet on `main`). Before it, **cell LAYERS** — a symbol can be made of MORE THAN ONE picture, each layer with its own **blend mode** (`lighten`/`overlay` included) and an optional `behind`, array order = draw order; it reuses the EXISTING layer object (`bookVfxLayerSchema`), mounts at the ONE choke point (`Symbol.svelte`), never reports a beat, and hides the blend control on a `spine` layer because a Pixi blend cannot reach skeleton geometry (branch `symbols/cell-layers`, not yet on `main`). Before it, **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (branch `engine/arrival-release`, not yet on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (branch `engine/win-beat-pace`, not yet on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (branch `symbols/win-explode-removes`, not yet on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -353,6 +353,54 @@ Working on `main`:
   scoped-ref repair's layer walk). The repair's ACTUAL rewrite needs an R2 listing, so like the cell
   path before it, it is asserted structurally rather than executed.
   ⏳ **Owner visual-verify** — nothing about the blend result is provable offline. **Book of Borut
+  needs an `engine` submodule bump** + a runtime release to receive it.
+- **A LAYER can opt out of the win dim** (2026-09-17, default = dims ⇒ byte-parity; branch
+  `symbols/layer-dim-opt-out`, not yet on `main`). The shared layer object gained
+  `dimWithSymbol?: boolean` — absent/`true` ⇒ the layer darkens with its symbol under "Darken the
+  non-winning symbols" (`winCycle.dimNonWinning`), exactly as every layer did; `false` ⇒ it is drawn
+  at full brightness while the rest of the cell darkens (a glow that must stay lit). Sparse: ONLY the
+  opt-out is written, so a doc authored before this ships byte-identical.
+  **The constraint that shaped it, measured rather than assumed:** the dim is a Pixi tint and Pixi v8
+  computes `groupColor = localColor × parent.groupColor` (`updateRenderGroupTransforms`), so a child
+  under a dimmed container can only darken FURTHER — there is no tint that brightens back. Run against
+  the real colour pass: a child of a `0x666666` container set to `0xffffff` still resolves to
+  `0x666666`. An exempt layer therefore has to be OUTSIDE every tinted node; a per-layer prop on top
+  of the existing wrapper tint could not have worked.
+  **So the tint MOVED DOWN, one level, and that is the whole engine change.** `SymbolWrap` no longer
+  tints its container; `ReelSymbol` hands the same `dimmed ? SYMBOL_DIM_TINT : 0xffffff` to
+  `<Symbol>`, which applies it per drawn PIECE: two unconditional `<Container tint>`s (one around the
+  cell's art, one around the win frame + the multiplier stamp) and, for a layer, the existing wrapper
+  `SymbolLayer` already had — so a layer costs no new node and an exempt one simply gets `0xffffff`.
+  **Parity is by construction, not by inspection:** the cascade MULTIPLIES, so moving the same factor
+  from an ancestor onto every one of its descendants leaves each leaf's `groupColor` identical —
+  proven over the real pass — and every piece the wrapper used to reach is still under exactly one
+  tinted node. Three decisions behind that shape: the containers are UNCONDITIONAL (wrapping only
+  while dimmed would remount the art each time the celebration started or ended, restarting a spine
+  mid-win); the frame and the stamp share the second container because they are contiguous, since the
+  over-layers between them may not be re-ordered (array order IS draw order); and the renderers' own
+  tint props are deliberately NOT used — a spine is tinted through `skeleton.color`, a different
+  mechanism from the container cascade, and parity here is worth more than a saved node.
+  Every non-board mount site (cascade, stacked, debug grid, Book expand/reveal riders, message
+  symbol) passes NO tint at all, which `propsSyncEffect` skips ⇒ no container property is ever
+  assigned ⇒ byte-identical. The board path always passes a NUMBER, never `undefined`, because a prop
+  going number → undefined would be skipped and leave the last tint stuck on.
+  Full chain: `.strict` Zod on the shared `bookVfxLayerSchema` → client `BookVfxLayer` →
+  `reduceLayer`'s whitelist (opt-out only) + `setLayerKind` carry-over → the spread PUT → the symbol
+  map rides both bundle paths verbatim → `SymbolLayerSpec` in `engine-game`. The page's dirty
+  signature needed nothing new (cells go into `docSignature` WHOLE) — asserted, not assumed. The
+  field is on the SHARED layer object, so the book VFX and the transition carry it in data and ignore
+  it in render (neither is drawn inside a dimmable symbol) and neither gets a control, exactly as
+  `behind` does.
+  Tool: a **"Dim with symbol"** checkbox, ticked by default, in the cell editor's Layers section
+  between **Draw** and **Blend**, plus a `no dim` chip on the collapsed row. The panel says the dim
+  is **not previewed** — it only happens during a win.
+  Offline gate: `pnpm --filter launcher-api check:symbol-layers` (46 → **78** checks — new part 7:
+  parity/sparsity, the default dims and the opt-out does not, the rejection, the dirty signature, and
+  SOURCE assertions pinning where the dim is applied — that `SymbolWrap` no longer tints, that both
+  `SymbolLayer` mounts get `layerTint(layer)`, that the base art, the win frame and the multiplier
+  stamp are all still inside a tinted container, and that the containers are unconditional). Each of
+  those was proven NON-VACUOUS by breaking the source and watching the guard fail (7/7 caught).
+  ⏳ **Owner visual-verify** — nothing about how the dim LOOKS is provable offline. **Book of Borut
   needs an `engine` submodule bump** + a runtime release to receive it.
 - **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
   `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two

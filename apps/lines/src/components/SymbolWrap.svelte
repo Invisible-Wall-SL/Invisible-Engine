@@ -12,9 +12,6 @@
 		x: number;
 		y: number;
 		animating: boolean;
-		/** Multiplied down to every child (sprite / spine / flipbook) by Pixi v8's cascading
-		 *  `Container.tint`. Drives the win-celebration dim; `0xffffff` (the default) is untouched. */
-		tint?: number;
 		/** The SEAT's row scale (`getSymbolSeat`). Perspective gives each row its own size; a flat
 		 *  board gives every row `1`. Applied to the container the symbol art already sizes itself
 		 *  inside, so the art's own contain-fit is untouched and the scale multiplies once. */
@@ -67,7 +64,12 @@
 </script>
 
 {#if props.debug || (show && inFrame)}
-	<Container x={props.x} y={props.y} {scale} tint={props.tint ?? 0xffffff}>
+	<!-- NO tint here. The win-celebration dim used to be one `tint` on this container, cascading to
+	     everything inside; it now rides each drawn piece inside `Symbol.svelte` instead, because
+	     Pixi's cascade only ever multiplies and a layer that opts out of the dim therefore has to be
+	     outside every tinted node. Same factor, applied one level lower — the leaf colours are
+	     identical either way. -->
+	<Container x={props.x} y={props.y} {scale}>
 		{@render props.children()}
 	</Container>
 {/if}

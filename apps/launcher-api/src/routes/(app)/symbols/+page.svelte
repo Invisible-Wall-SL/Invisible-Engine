@@ -699,8 +699,9 @@
 	 * persists. The shared schema is `.strict()` with a per-kind `.refine()`, so a stale
 	 * `animationName` on a retyped layer is not a cosmetic leftover: it 400s the save.
 	 *
-	 * Sparse throughout — a `normal` blend, a `behind` of false and a zeroed size/offset all persist
-	 * as NOTHING, so a layer the author only looked at round-trips to the bytes it arrived with.
+	 * Sparse throughout — a `normal` blend, a `behind` of false, a `dimWithSymbol` of true and a
+	 * zeroed size/offset all persist as NOTHING, so a layer the author only looked at round-trips to
+	 * the bytes it arrived with.
 	 * `blendMode` is dropped for a kind that cannot blend (`spine`), because storing a mode the game
 	 * ignores would make the doc claim something the render never does.
 	 */
@@ -729,6 +730,9 @@
 			layer.blendMode = l.blendMode;
 		}
 		if (l.behind === true) layer.behind = true;
+		// Default is "dims with the symbol", so only the OPT-OUT is written — that is what keeps a doc
+		// authored before this field existed byte-identical through a save that touched the layer.
+		if (l.dimWithSymbol === false) layer.dimWithSymbol = false;
 		return layer;
 	}
 
@@ -795,6 +799,7 @@
 		draft.layers[index] = {
 			kind,
 			behind: current.behind,
+			dimWithSymbol: current.dimWithSymbol,
 			blendMode: canBlendLayerKind(kind) ? current.blendMode : undefined,
 			sizeRatios: current.sizeRatios,
 			offset: current.offset,
@@ -4230,6 +4235,7 @@
 												<span class="layer-thumb">{@render layerThumb(layer, 30)}</span>
 												<span class="layer-name">{layerLabel(layer)}</span>
 												{#if layer.behind}<span class="chip">behind</span>{/if}
+												{#if layer.dimWithSymbol === false}<span class="chip">no dim</span>{/if}
 												{#if layer.blendMode && layer.blendMode !== 'normal'}
 													<span class="chip">{BLEND_MODE_LABELS[layer.blendMode]}</span>
 												{/if}
@@ -4403,6 +4409,25 @@
 														/>
 														<span>Behind the symbol</span>
 													</label>
+												</div>
+
+												<div class="field">
+													<span class="label">Win dim</span>
+													<label class="loop-toggle">
+														<input
+															type="checkbox"
+															checked={layer.dimWithSymbol !== false}
+															onchange={(e) =>
+																(layer.dimWithSymbol = e.currentTarget.checked ? undefined : false)}
+														/>
+														<span>Dim with symbol</span>
+													</label>
+													<span class="hint">
+														With <strong>Darken the non-winning symbols</strong> on, a losing cell
+														is drawn darkened. Untick to keep THIS layer at full brightness while
+														the rest of the symbol darkens — for a glow that should stay lit.
+														<strong>Not previewed here</strong> — the dim only happens during a win.
+													</span>
 												</div>
 
 												<div class="field">
