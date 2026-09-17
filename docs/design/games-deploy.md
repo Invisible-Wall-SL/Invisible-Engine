@@ -32,28 +32,41 @@ remove, and it's why the old engine/launcher/pipeline split was retired. We are
 A shipped game is different from engine-dev code:
 
 - it ships to a client and deploys on **its own cadence**;
-- it must pin a **specific, known-good engine version** — an engine change on
-  `main` must never silently alter a shipped game;
+- it can pin a **specific engine commit** for a hand-over, so a delivered build is
+  reproducible;
 - it has its own deploy target.
 
 So each standalone game lives in **its own repo**, with this engine vendored as a
-**git submodule** pinned to a commit on `main`. This pattern already exists and
-works: **Book of Borut** (`Projects/iGaming/Borut/Book of Borut`).
+**git submodule**.
 
 ```
-book-of-borut/                 ← the game's own repo + own deploy
-├── engine/                     ← git submodule → Invisible-Engine @ <pinned sha>
-├── src/                        ← the game (components, game logic, assets)
+book-of-foo/                   ← the game's own repo + own deploy
+├── engine/                     ← git submodule → Invisible-Engine (branch main)
+├── static/                     ← boot assets; pull:assets mirrors R2 over them
 ├── pnpm-workspace.yaml         ← packages: ["engine/packages/*", "."]
 ├── package.json                ← engine packages via workspace:*
 ├── svelte.config.js            ← extends engine's config-svelte
 └── vite.config.js              ← extends config-vite; fs.allow opened to engine/
 ```
 
+**There is no `src/`, and that is the design.** The game layer is compiled from
+`engine/apps/lines/src` — `config-svelte` points SvelteKit's `kit.files` there
+(`packages/config-svelte/appSrc.js`) — which is the *same source*
+`runtime-release.yml` builds the shared online bundle from. A game repo owns its
+identity, its `static/` and its lockfile; the game itself is authored online
+(scenes, flow, symbols, sounds, config) and baked in at build time.
+
+Repos used to carry a scaffold-time COPY of `apps/lines/src`, and it went stale
+immediately — the desktop launcher advances the submodule to `origin/main` before
+every build, so `packages/*` were current while the game layer was frozen at
+scaffold day, and 53 of the last 60 engine commits touch `apps/lines/src`. See
+the 2026-09-17 entry in [status/engine](../status/engine.md). A leftover `src/` in
+an older repo is ignored, with a build-log notice naming `git rm -r src`.
+
 | Repo | Contains | Deploys as |
 |---|---|---|
 | `Invisible-Engine` (this one) | engine + packages + launcher + pipeline tools; `apps/{lines,…}` as **dev/reference** games | launcher-api on Railway; tools on Railway |
-| `book-of-borut` (+ each future game) | one game, engine as submodule | its own frontend deploy, **pinned** engine version |
+| each shipped game | one game's identity + assets, engine as submodule (no `src/`) | its own frontend deploy |
 
 **The `apps/{lines,cluster,…}` here are reference/template games for engine
 development — not the shipped artifacts.** Shipped games are separate repos.
@@ -65,19 +78,23 @@ node scripts/new-game.mjs --name "Book of Foo" --port 3003
 ```
 
 This bootstraps the repo + engine submodule + the engine-consumption wiring
-(workspace, configs, Vite `fs.allow`) to match Book of Borut, then prints the
-push/deploy steps. Start from the placeholder route it writes, or copy `src/`
-from an existing game.
+(workspace, configs, Vite `fs.allow`) and seeds `static/`, then prints the
+push/deploy steps. It writes no application source — there is none to write.
 
-### Bump the engine in a game (deliberate, never automatic)
+### Which engine a build gets
+
+A **desktop-launcher publish** advances the submodule to `origin/main` first, so a
+published build is always on the latest engine. That is the normal path and needs
+no action.
+
+The **committed pin** is what a plain `git clone` + `pnpm build` gets, and it is
+what a hand-over should be cut from. Move it deliberately — the pin and the
+lockfile must travel together, or the launcher's frozen install fails with
+`ERR_PNPM_OUTDATED_LOCKFILE`:
 
 ```bash
-cd engine && git fetch && git checkout main && git pull && cd ..
-git add engine && git commit -m "games: bump engine to <short-sha>"
+node engine/scripts/bump-game-engine.mjs      # advances engine + lockfile, one commit
 ```
-
-The game takes new engine work only when you choose to — that's the whole point
-of pinning.
 
 ## History hygiene (fixes the "messy commits" feeling without splitting)
 

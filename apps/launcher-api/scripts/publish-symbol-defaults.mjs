@@ -51,6 +51,10 @@ import { register } from 'node:module';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Relative path, NOT the package name — a standalone game repo never installs the engine
+// submodule's own node_modules. See the note in `bake-editor-doc.mjs`.
+import { appSrcDir } from '../../../packages/config-svelte/appSrc.js';
+
 // Resolve TypeScript-style relative imports that Node's ESM resolver leaves
 // unresolved. A game's `constants.ts` (the symbol map we import below) routinely
 // pulls in siblings with NO file extension — `import config from './config'` —
@@ -100,9 +104,12 @@ const getFlag = (name) => {
 const hasFlag = (name) => args.includes(`--${name}`);
 
 const DEFAULT_BASE = 'https://app.invisiblewall.org';
-const DEFAULT_SYMBOLS = './src/game/constants.ts';
+// Printed in the usage text. These paths are relative to the app source the build compiles,
+// which `resolveModule` resolves via `appSrcDir()` — `<repo>/src` for an engine app,
+// `engine/apps/lines/src` for a standalone game repo.
+const DEFAULT_SYMBOLS = '<appSrc>/game/constants.ts';
 const DEFAULT_EXPORT = 'SYMBOL_INFO_MAP';
-const DEFAULT_CONFIG = './src/game/config.ts';
+const DEFAULT_CONFIG = '<appSrc>/game/config.ts';
 
 const USAGE =
 	'Usage: node --experimental-strip-types publish-symbol-defaults.mjs --project <projectKey> \\\n' +
@@ -113,7 +120,7 @@ const USAGE =
 	'                                (NOT <client>/<project>). Required.\n' +
 	`  --symbols <path>              the game's symbol-map module (default ${DEFAULT_SYMBOLS})\n` +
 	'  --assets <path>               the game asset registry for spine previewKeys\n' +
-	'                                (default ./src/game/assets.ts)\n' +
+	'                                (default <appSrc>/game/assets.ts)\n' +
 	`  --export <name>               named export to read (default ${DEFAULT_EXPORT})\n` +
 	`  --config <path>               FALLBACK game config module, used only when the\n` +
 	`                                project has authored no config in the launcher;\n` +
@@ -140,12 +147,22 @@ if (!project) {
 	process.exit(1);
 }
 
-const symbolsArg = getFlag('symbols') || DEFAULT_SYMBOLS;
-const symbolsPath = isAbsolute(symbolsArg) ? symbolsArg : resolve(process.cwd(), symbolsArg);
-const assetsArg = getFlag('assets') || './src/game/assets.ts';
-const assetsPath = isAbsolute(assetsArg) ? assetsArg : resolve(process.cwd(), assetsArg);
-const configArg = getFlag('config') || DEFAULT_CONFIG;
-const configPath = isAbsolute(configArg) ? configArg : resolve(process.cwd(), configArg);
+/**
+ * An EXPLICIT `--symbols`/`--assets`/`--config` is a file the caller is pointing at in their own
+ * working directory, so it resolves against the cwd as it always has. The DEFAULTS name the game
+ * app's own modules, so they resolve against the source the build actually compiles — which for a
+ * standalone game repo is the engine submodule's `apps/lines/src`, not the game's `src/`
+ * (`config-svelte/appSrc.js`). In the monorepo `appSrcDir()` IS `<cwd>/src`, so an engine app
+ * resolves exactly as before.
+ */
+const resolveModule = (explicit, defaultWithinSrc) => {
+	if (!explicit) return resolve(appSrcDir(), defaultWithinSrc);
+	return isAbsolute(explicit) ? explicit : resolve(process.cwd(), explicit);
+};
+
+const symbolsPath = resolveModule(getFlag('symbols'), 'game/constants.ts');
+const assetsPath = resolveModule(getFlag('assets'), 'game/assets.ts');
+const configPath = resolveModule(getFlag('config'), 'game/config.ts');
 const configFilter = !hasFlag('no-config-filter');
 const exportName = getFlag('export') || DEFAULT_EXPORT;
 const gameType = getFlag('game-type') || project;
