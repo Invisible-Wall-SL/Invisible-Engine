@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { Position, RawSymbol, SymbolState } from 'engine-game';
+	import type { Position, RawSymbol } from 'engine-game';
 
 	type AddingBoard = RawSymbol[][];
 	type ExplodingPositions = Position[];
@@ -138,7 +138,6 @@
 
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Tween } from 'svelte/motion';
 	import { backOut, cubicIn } from 'svelte/easing';
 
 	import { BoardContext } from 'components-shared';
@@ -147,9 +146,6 @@
 	import { tumbleExplosionDelays } from 'engine-layout';
 	import { waitForTimeout } from 'utils-shared/wait';
 
-	import TumbleBoardBase from './TumbleBoardBase.svelte';
-	import BoardTiles from './BoardTiles.svelte';
-	import BoardMask from './BoardMask.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
 	import {
 		bakedArrivalReleaseEnabled,
@@ -159,13 +155,15 @@
 	} from '../editor-scenes';
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
-	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
+	import { getSymbolSeat, stateGame, stateGameDerived } from '../game/stateGame.svelte';
 	import { hasAuthoredSymbolState } from '../game/utils';
 	import {
 		stateTumble,
 		tumbleBoardCombined,
 		resetTumbleBoard,
-		type TumbleSymbol,
+		attachCascadeSeat,
+		releaseCascadeCells,
+		type CascadingCell,
 	} from '../game/stateTumble.svelte';
 	import { PAD_ROWS_ABOVE } from '../game/tumbleBoardLayout';
 	import {
@@ -196,53 +194,27 @@
 	let show = $state(false);
 
 	/**
-	 * How many symbol MOVEMENTS are in flight on this overlay — the overlay's own answer to the one
-	 * question the board mask needs before it may let art spill past the reel window.
-	 *
-	 * It needs its own, because the reel board's answer is meaningless here: `reelState.motion` and
-	 * `rolling` are written only by a reel's spin loop, and a swap-in-place board never spins, so
-	 * every reel reads "settled" for this overlay's entire life — mid-fall included.
-	 *
-	 * A COUNTER, not a boolean, because the beats overlap by design: `columnCascade` runs one drain +
-	 * slide per column on independent staggered timers, so two columns are routinely moving at once
-	 * and a boolean would be cleared by whichever finished first.
+	 * Run one movement, counted on {@link stateTumble.transiting} — the board mask reads it to decide
+	 * whether art may spill past the reel window, because the reel-motion gate it normally uses is
+	 * blind to a board that never spins.
 	 *
 	 * Only the three beats where a symbol actually TRAVELS are counted — drain, slide-down, and the
 	 * appear's survivor-vacate phase. The beats the owner reported clipped are deliberately NOT
 	 * counted, because nothing travels in them: `clearReel` is set on symbols already resting on
-	 * their seats, and `intro` is set immediately before a `symbolY.set(…, { duration: 0 })` whose own
-	 * comment is "Nothing travels; the arrival is the animation, not the movement."
+	 * their seats, and `intro` is set immediately before a `set(…, { duration: 0 })` whose own comment
+	 * is "Nothing travels; the arrival is the animation, not the movement."
+	 *
+	 * `finally` so a thrown or interrupted beat cannot leave the board permanently "in transit" and
+	 * silently withhold the overflow for the rest of the session.
 	 */
-	let transiting = $state(0);
-
-	/** Run one movement, counted. `finally` so a thrown/interrupted beat cannot leave the overlay
-	 *  permanently "in transit" and silently withhold the overflow for the rest of the session. */
 	const inTransit = async (run: () => Promise<unknown>) => {
-		transiting += 1;
+		stateTumble.transiting += 1;
 		try {
 			await run();
 		} finally {
-			transiting = Math.max(0, transiting - 1);
+			stateTumble.transiting = Math.max(0, stateTumble.transiting - 1);
 		}
 	};
-
-	/** Every symbol is resting on its seat, so authored `intro` / `explosion` art may spill exactly as
-	 *  a landed reel symbol's does. Gated on `show` too, so a hidden overlay never widens anything. */
-	const overlaySettled = $derived(show && transiting === 0);
-
-	/**
-	 * Is the REEL board on screen? Tracked here — off the same `boardShow`/`boardHide` cues
-	 * `Board.svelte` binds, which the emitter delivers to every subscriber — purely so the ground
-	 * tile layer below can never draw twice. Initialised `true` because that is what `Board.svelte`
-	 * initialises its own `show` to, and the two components mount together.
-	 *
-	 * The alternative, "the cues are always broadcast in the same synchronous batch so Svelte flushes
-	 * one mount and one unmount together", is an argument rather than a guarantee: `boardHide` /
-	 * `tumbleBoardShow` are both authorable Broadcast cues in the flow-v2 standard vocabulary, so a
-	 * doc CAN show this overlay without hiding the reels and hold both on screen for as long as it
-	 * likes. Two coplanar tile layers with alpha in the art would then darken the ground.
-	 */
-	let reelBoardShown = $state(true);
 
 	/** Row index of the padding row above the visible board — where a falling symbol starts. Derived
 	 *  from `PAD_ROWS_ABOVE` so the seat offset and the layer stacking read the same fact. */
@@ -261,7 +233,7 @@
 
 	/**
 	 * ONE SEAT'S POP: await it, and take the symbol off the screen the moment its own animation
-	 * reports — see {@link TumbleSymbol.exploded} for why undrawn and removed are two different
+	 * reports — see {@link CascadingCell.removed} for why undrawn and removed are two different
 	 * things here.
 	 *
 	 * The flag is set INSIDE the armed callback rather than after the `await`, and that placement is
@@ -278,50 +250,35 @@
 	 * skeleton) never sets it, and simply stays until the board-wide removal, exactly as it did
 	 * before this existed.
 	 */
-	const awaitExplosion = (tumbleSymbol: TumbleSymbol) =>
+	const awaitExplosion = (tumbleSymbol: CascadingCell) =>
 		awaitBeat(
 			(resolve) =>
 				(tumbleSymbol.oncomplete = () => {
-					tumbleSymbol.exploded = true;
+					tumbleSymbol.removed = true;
 					resolve();
 				}),
 		);
 
-	const createTumbleSymbol = ({
-		initY,
-		rawSymbol,
-		removed = false,
-	}: {
-		initY: number;
-		rawSymbol: RawSymbol;
-		/**
-		 * This seat's REEL cell was already taken off the board by the win-explosion pop (Invisible
-		 * Symbols → "Winning symbols explode"). The overlay's survivor layer is built from the resting
-		 * board, so without this the symbols that blew up at the end of the round would come BACK for
-		 * the length of the next spin's clear — the one moment the reel board is hidden and this layer
-		 * is the board.
-		 *
-		 * It is born UNDRAWN (`exploded`, which is what `TumbleSymbol.svelte` gates its cell on) but
-		 * in the ORDINARY `static` state, and the difference between those two is load-bearing.
-		 * `tumbleBoardRemoveExploded` filters `base` by `symbolState === 'clearReel'`, i.e. by what
-		 * THIS step popped — so a seat born `clearReel` would be swept by a step that never named it,
-		 * and a cascade (whose exploding set is the BOOK's, sized against `newSymbols`) would settle a
-		 * column short and hand every later step of the chain the wrong rows. Born `static` it is
-		 * swept only when the step's own exploding set covers it, which is exactly what the board
-		 * CLEAR does (see the explode handler, which marks an already-gone seat and returns).
-		 */
-		removed?: boolean;
-	}): TumbleSymbol => {
-		const symbolY = new Tween(initY);
-		const tumbleSymbol = $state({
-			symbolY,
-			rawSymbol,
-			symbolState: 'static' as SymbolState,
-			oncomplete: () => {},
-			exploded: removed,
-		});
-		return tumbleSymbol;
-	};
+	/**
+	 * Mint the cells for the symbols this step brings IN, through the REEL's OWN factory.
+	 *
+	 * Through the reel's factory rather than a shape of this component's own, because these objects
+	 * are what the board is SETTLED with: `boardSettle` hands them straight back to the strips
+	 * (`setSymbolsWithReelSymbols`) instead of rebuilding the board from raw symbols. So the cell a
+	 * player watched fall in is the same cell, drawn by the same component, once the reels take over
+	 * again — where a clone restarted its clip at frame one (`docs/design/board-cell-continuity.md`).
+	 *
+	 * They are born in the ORDINARY `static` state (`INITIAL_SYMBOL_STATE`), which each beat then
+	 * drives; the step's own states are set by its handler, never at birth.
+	 */
+	const createArrivingCells = (
+		reelIndex: number,
+		rawSymbols: RawSymbol[],
+		initY: (symbolIndex: number) => number,
+	): CascadingCell[] =>
+		(stateGame.board[reelIndex]?.createSymbols(rawSymbols) ?? []).map((reelSymbol, symbolIndex) =>
+			attachCascadeSeat(reelSymbol, initY(symbolIndex)),
+		);
 
 	/**
 	 * How long a drained column takes to fall out of the window.
@@ -334,11 +291,10 @@
 
 	/** ONE column's replacements, stacked ABOVE the board in the order they will fall in. */
 	const initTumbleBoardAddingReel = (reelIndex: number, addingReel: RawSymbol[]) =>
-		addingReel.map((rawSymbol, symbolIndex) =>
-			createTumbleSymbol({
-				initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW - addingReel.length).y,
-				rawSymbol,
-			}),
+		createArrivingCells(
+			reelIndex,
+			addingReel,
+			(symbolIndex) => getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW - addingReel.length).y,
 		);
 
 	/** The replacements, stacked ABOVE the board in the order they will fall in. */
@@ -355,56 +311,31 @@
 	 * `tumbleBoardCombined` maps over `base` and would otherwise combine to nothing. Shaped from the
 	 * live board so the reel COUNT is the real one, exactly like the two initialisers beside it.
 	 */
-	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
-
-	/** ONE column as it stands right now, seated exactly where the reels left it — the seats the
-	 *  win-explosion pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
-	const initTumbleBoardBaseReel = (reelIndex: number) => {
-		const removed = stateGameDerived.boardRemoved()[reelIndex] ?? [];
-		return (stateGameDerived.boardRaw()[reelIndex] ?? []).map((rawSymbol, symbolIndex) =>
-			createTumbleSymbol({
-				initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
-				rawSymbol,
-				removed: removed[symbolIndex],
-			}),
-		);
-	};
-
-	/** The board as it stands right now, seated exactly where the reels left it — the seats the
-	 *  win-explosion pop emptied included, born already UNDRAWN (see `createTumbleSymbol`). */
-	const initTumbleBoardBase = () => {
-		const removed = stateGameDerived.boardRemoved();
-		return stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
-			rawSymbolReel.map((rawSymbol, symbolIndex) =>
-				createTumbleSymbol({
-					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
-					rawSymbol,
-					removed: removed[reelIndex]?.[symbolIndex],
-				}),
-			),
-		);
-	};
+	const initTumbleBoardNoBase = (): CascadingCell[][] => stateGameDerived.boardRaw().map(() => []);
 
 	/**
-	 * The GROUND TILE art the OVERLAY should draw — or `undefined`, which is every board that has
-	 * none and every moment the reel board is the one on screen.
+	 * ONE column as it stands right now — the board's OWN cells, handed to the cascade where they sit.
 	 *
-	 * The tiles live on the reel board (`Board.svelte`), and a swap hides it for the duration
-	 * (`boardHide` → overlay → `boardShow`), so without this the ground blinked out on every cascade.
-	 * That was mild on a rolling game and unacceptable on a swap-in-place one, where EVERY round is a
-	 * cascade. Tiles are static ground: they do not drain and they do not fall, they simply stay put
-	 * while the symbols move over them, so the overlay draws the same layer from the same lattice.
+	 * ADOPTED, not copied. The overlay used to build its survivor layer by cloning the resting board,
+	 * and a clone is a different component, so the whole board restarted its animation the instant a
+	 * step began (`docs/design/board-cell-continuity.md`). Sharing the objects means the cell keeps
+	 * the component that has been drawing it.
 	 *
-	 * The `!reelBoardShown` term is the anti-double-draw guard — one tile layer on screen at a time,
-	 * whichever board owns it. It cannot render two, and it cannot render none while a board is up.
-	 *
-	 * A board with NO authored `tileRegion` gets `undefined` from `boardTileArt()` and mounts nothing
-	 * at all, exactly as on the reel board: byte-parity, which is not optional in the shared
-	 * `_runtime/lines` bundle.
+	 * Two things that used to need rebuilding come along for free, because they are properties OF the
+	 * cell: the seats the win-explosion pop emptied are already `removed` (without which the symbols
+	 * that blew up at the end of the round came BACK for the length of the next spin's clear), and a
+	 * cell is seated where it is actually drawn — the SEAT, which is the strip's own y on a flat board
+	 * and the row-compressed one under perspective, so attaching the cascade's Tween moves nothing.
 	 */
-	const overlayTileArt = () =>
-		show && !reelBoardShown ? stateGameDerived.boardTileArt() : undefined;
-	const tileArt = $derived(overlayTileArt());
+	const initTumbleBoardBaseReel = (reelIndex: number): CascadingCell[] =>
+		(stateGame.board[reelIndex]?.reelState.symbols ?? []).map((reelSymbol, symbolIndex) =>
+			attachCascadeSeat(reelSymbol, getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y),
+		);
+
+	/** The board as it stands right now, adopted column by column — see the single-column initialiser
+	 *  above for why adoption rather than a copy. */
+	const initTumbleBoardBase = (): CascadingCell[][] =>
+		stateGame.board.map((_reel, reelIndex) => initTumbleBoardBaseReel(reelIndex));
 
 	/**
 	 * The explosion → intro TRANSITIONS in flight — one per exploding seat (Invisible Symbols State
@@ -503,9 +434,9 @@
 	const scheduleTransition = (
 		layer: SymbolTransition,
 		position: Position,
-		tumbleSymbol: TumbleSymbol,
+		tumbleSymbol: CascadingCell,
 	) => {
-		// The row the symbol is DRAWN at, not `position.row` (its index in `base`): `TumbleSymbol`
+		// The row the symbol is DRAWN at, not `position.row` (its index in `base`): `CascadingCell`
 		// seats it by its COMBINED index, and the cascade splices the refills into the column before
 		// the pop. Under perspective x and scale contract per row, so the base row would put the
 		// cover beside the pop instead of over it. Looked up by identity so the two can never drift.
@@ -517,7 +448,7 @@
 		const entry: SeatTransition = {
 			key: `${position.reel}:${position.row}`,
 			x: seat.x,
-			y: tumbleSymbol.symbolY.current,
+			y: tumbleSymbol.cascade.y.current,
 			scale: seat.scale,
 			layer,
 		};
@@ -547,16 +478,15 @@
 	context.eventEmitter.subscribeOnMount({
 		tumbleBoardShow: () => (show = true),
 		tumbleBoardHide: () => (show = false),
-		// Read-only mirrors of the REEL board's own visibility, for the tile layer's double-draw
-		// guard (see `overlayTileArt`). `Board.svelte` owns these cues; subscribing to them a second
-		// time observes, it does not take them over — the emitter delivers to every subscriber.
-		boardShow: () => (reelBoardShown = true),
-		boardHide: () => (reelBoardShown = false),
 		tumbleBoardInit: ({ addingBoard, keepBase, reelIndex }) => {
 			if (reelIndex === undefined) {
 				stateTumble.adding = initTumbleBoardAdding({ addingBoard });
 				// Absent ⇒ the cascade's survivor layer, byte-identical to before the flag existed.
 				stateTumble.base = keepBase === false ? initTumbleBoardNoBase() : initTumbleBoardBase();
+				// The cascade is DRIVING the board from here until the reset — `BoardBase` reads these
+				// two layers instead of the reel strips. Set after the layers, never before: a frame
+				// rendered between the two would find them empty and draw no board at all.
+				stateTumble.active = true;
 				return;
 			}
 			// SCOPED to one column — a refinement of a full init, so the column must already exist
@@ -567,6 +497,10 @@
 				reelIndex,
 				addingBoard[reelIndex] ?? [],
 			);
+			// `keepBase: false` declares this column's survivors gone, so they go back to their strip
+			// — they are the board's own cells, and one left holding a Tween nothing drives any more
+			// would be pinned where the drain left it.
+			if (keepBase === false) releaseCascadeCells(stateTumble.base[reelIndex]);
 			stateTumble.base[reelIndex] = keepBase === false ? [] : initTumbleBoardBaseReel(reelIndex);
 		},
 		tumbleBoardReset: () => {
@@ -638,7 +572,7 @@
 					// it sweeps what this step named. That is what lets the board CLEAR — which explodes
 					// every visible seat — take the emptied ones away with the rest, while a CASCADE, whose
 					// exploding set is the BOOK's, leaves a seat it never named exactly where it is.
-					if (tumbleSymbol.exploded) {
+					if (tumbleSymbol.removed) {
 						tumbleSymbol.symbolState = 'clearReel';
 						return;
 					}
@@ -673,17 +607,22 @@
 		tumbleBoardRemoveExploded: ({ reelIndex }) => {
 			// Absent ⇒ every column, reached by the same expression as before the field existed
 			// (parity by early return, not by a generalised path that happens to include everything).
-			if (reelIndex === undefined) {
-				stateTumble.base = stateTumble.base.map((tumbleReel) =>
-					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'clearReel'),
+			// SWEPT cells go back to their strips on the way out — see `releaseCascadeCells`. The
+			// filter is what takes them off the board; the release is what stops the Tween this step
+			// attached from outliving it.
+			const sweep = (tumbleReel: CascadingCell[]) => {
+				releaseCascadeCells(
+					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState === 'clearReel'),
 				);
+				return tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'clearReel');
+			};
+			if (reelIndex === undefined) {
+				stateTumble.base = stateTumble.base.map(sweep);
 				return;
 			}
 			const tumbleReel = stateTumble.base[reelIndex];
 			if (!tumbleReel) return;
-			stateTumble.base[reelIndex] = tumbleReel.filter(
-				(tumbleSymbol) => tumbleSymbol.symbolState !== 'clearReel',
-			);
+			stateTumble.base[reelIndex] = sweep(tumbleReel);
 		},
 		/**
 		 * DRAIN one column — the resting symbols fall out of the bottom of the window and are gone.
@@ -710,13 +649,14 @@
 			await inTransit(() =>
 				Promise.all(
 					draining.map((tumbleSymbol, symbolIndex) =>
-						tumbleSymbol.symbolY.set(
+						tumbleSymbol.cascade.y.set(
 							getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW + dropRows).y,
 							{ duration: COLUMN_DRAIN_MS, easing: cubicIn },
 						),
 					),
 				),
 			);
+			releaseCascadeCells(draining);
 			stateTumble.base[reelIndex] = [];
 		},
 		tumbleBoardSlideDown: async ({ reelIndex: onlyReel }) => {
@@ -729,13 +669,13 @@
 						? []
 						: tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
 								const targetY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
-								if (targetY === tumbleSymbol.symbolY.current) return;
+								if (targetY === tumbleSymbol.cascade.y.current) return;
 
 								// Counted: this is the fall itself. The land beat below stays OUTSIDE the count, so a
 								// cascade symbol that has arrived spends the overflow for its landing animation
 								// exactly as a landed reel symbol does.
 								await inTransit(() =>
-									tumbleSymbol.symbolY.set(targetY, { duration: 200, easing: backOut }),
+									tumbleSymbol.cascade.y.set(targetY, { duration: 200, easing: backOut }),
 								);
 
 								// Only the VISIBLE rows play their land state — the padding rows top and bottom are
@@ -803,7 +743,7 @@
 						arriving: arriving.has(tumbleSymbol),
 						// The padding rows top and bottom are off-screen buffer: seated, never sounded.
 						visible: symbolIndex > 0 && symbolIndex < tumbleReel.length - 1,
-						moved: !arriving.has(tumbleSymbol) && seatY !== tumbleSymbol.symbolY.current,
+						moved: !arriving.has(tumbleSymbol) && seatY !== tumbleSymbol.cascade.y.current,
 					};
 				});
 			});
@@ -824,7 +764,7 @@
 					cells
 						.filter((cell) => cell.moved)
 						.map((cell) =>
-							cell.tumbleSymbol.symbolY.set(cell.seatY, { duration: 200, easing: backOut }),
+							cell.tumbleSymbol.cascade.y.set(cell.seatY, { duration: 200, easing: backOut }),
 						),
 				),
 			);
@@ -860,7 +800,7 @@
 					if (visible) tumbleSymbol.symbolState = 'intro';
 					// `duration: 0` rather than a short tween, and that IS the definition of the style.
 					// Nothing travels; the arrival is the animation, not the movement.
-					tumbleSymbol.symbolY.set(seatY, { duration: 0 });
+					tumbleSymbol.cascade.y.set(seatY, { duration: 0 });
 					if (!visible) return;
 					// The scatter counter and the class land cue — the SAME hook the cascade's refill
 					// calls, because an emerge IS the arrival however little it moved, and a board that
@@ -910,40 +850,23 @@
 </script>
 
 {#if show}
-	<!-- Two layers for the same reason the reel board has them: sprite symbols draw masked and
-	     flat, spine symbols draw on the animating layer so they can overflow their cell. -->
-	<BoardContext animate={false}>
-		<BoardContainer>
-			<!-- `overlaySettled`, not `allowOverflow`: the reel-motion gate is blind to this overlay (a
-			     swap-in-place board never spins, so every reel reads settled even mid-fall), so it
-			     answers for itself with its own transit counter. Nothing authored ⇒ no spill either
-			     way. -->
-			<BoardMask {overlaySettled} />
-			<!--
-				GROUND TILES — the SAME layer, in the same place in the same container, as
-				`Board.svelte` mounts: first painted child after the mask, so the whole ground sits
-				behind every symbol and is clipped by the board window identically. The overlay draws
-				it because the reel board is hidden for the length of a swap and the ground must not
-				blink out with it (docs/design/perspective-board-mode.md §"The tiles").
+	<!--
+		THE CELLS ARE NOT HERE. They are drawn by `Board.svelte` throughout, over the board's own
+		cells, whoever is driving them — this component only tells them what to do
+		(`docs/design/board-cell-continuity.md`). What is left is the one layer that is genuinely the
+		step's own: the explosion → intro transitions, on the unmasked animating layer above the
+		symbols so a splash can overflow its seat the way a spine symbol can.
 
-				`tileArt` is `undefined` while the reel board is on screen, so exactly one of the two
-				layers ever exists; and it is `undefined` for a board with no authored `tileRegion`, so
-				such a board's scene graph is byte-identical to before this existed. See
-				`overlayTileArt`.
-			-->
-			{#if tileArt}
-				<BoardTiles art={tileArt} />
-			{/if}
-			<TumbleBoardBase />
-		</BoardContainer>
-	</BoardContext>
+		That also retires the overlay's copies of the ground tiles and the board mask. With one board
+		on screen there is one of each, and it is the reel board's — which is what the tile layer's
+		double-draw guard was working around, and where the mask now reads this step's transit
+		counter (`stateTumble.transiting`).
 
+		Empty — and byte-identical — unless a transition is authored AND the board emerges; see
+		`transitions`.
+	-->
 	<BoardContext animate={true}>
 		<BoardContainer>
-			<TumbleBoardBase />
-			<!-- The explosion → intro transitions, above the symbols on the unmasked layer so a splash
-			     can overflow its cell the way a spine symbol can. Empty — and byte-identical — unless a
-			     transition is authored AND the board emerges; see `transitions`. -->
 			{#each transitions as transition (transition.key)}
 				<SymbolLayer
 					layer={transition.layer}

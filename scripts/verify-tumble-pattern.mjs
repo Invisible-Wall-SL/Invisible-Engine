@@ -587,30 +587,31 @@ const runExplode = async ({
 	beatMs = BEAT_MS,
 	// Seats (`"reel:row"`) the WIN-EXPLOSION POP already took off the board before this step began
 	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer holding their
-	// index, born UNDRAWN (`exploded`) but in the ORDINARY `static` state — the board-wide removal
-	// filters `base` by what THIS step popped, so a seat born `clearReel` would be swept by a step
-	// that never named it. See `createTumbleSymbol`, whose birth is pinned below.
+	// index, already UNDRAWN (`removed`) but in the ORDINARY `static` state — the board-wide removal
+	// filters `base` by what THIS step popped, so a seat marked `clearReel` would be swept by a step
+	// that never named it. The layer ADOPTS the reels' own cells, so both come along for free;
+	// the claims at the end of part 6 pin that.
 	preExploded = [],
 }) => {
 	const clock = createClock();
 	const pops = [];
-	// When each seat stopped being DRAWN — `TumbleSymbol.exploded` going true, which in the game is
-	// the moment `TumbleSymbol.svelte` unmounts the cell. Recorded through a setter rather than read
-	// at the end, because the whole question is WHEN it happens relative to the seat's own pop.
+	// When each seat stopped being DRAWN — the cell's `removed` going true, which in the game is the
+	// moment `ReelSymbol.svelte` stops drawing it. Recorded through a setter rather than read at the
+	// end, because the whole question is WHEN it happens relative to the seat's own pop.
 	const vanished = [];
 	// One symbol object per seat, keyed the way the board keys them: `base[reel][row]`.
 	const base = Array.from({ length: REELS }, (_reelUnused, reel) =>
 		Array.from({ length: ROWS }, (_rowUnused, row) => {
 			const gone = preExploded.includes(`${reel}:${row}`);
-			let exploded = gone;
+			let removed = gone;
 			return {
 				symbolState: 'static',
 				rawSymbol: { name: 'H1' },
-				get exploded() {
-					return exploded;
+				get removed() {
+					return removed;
 				},
-				set exploded(next) {
-					exploded = next;
+				set removed(next) {
+					removed = next;
 					if (next) vanished.push({ reel, row, at: clock.at() });
 				},
 			};
@@ -938,13 +939,17 @@ console.log('--- 5. a seat stops being drawn when its OWN explosion ends ---');
 	check('...and the step still ends on the cap', silent.settledAt, TRANSIT_BEAT_CAP_MS);
 
 	// THE LAST LINK, asserted against the MARKUP because nothing here renders Svelte. Everything above
-	// proves the flag is set at the right moment; only `TumbleSymbol.svelte` turns that into a symbol
+	// proves the flag is set at the right moment; only the cell component turns that into a symbol
 	// the player stops seeing, and a flag nothing reads is worth exactly nothing. Deleting the gate
 	// leaves all of the checks above green, which is precisely why this one is here.
-	const tumbleSymbolMarkup = read('apps/lines/src/components/TumbleSymbol.svelte');
+	//
+	// ONE cell component draws the board now, whether the reels or a cascade step are driving it
+	// (docs/design/board-cell-continuity.md) — so this is the same gate the win-explosion pop uses,
+	// which is what makes the two pops one picture rather than two flags that happen to agree.
+	const cellMarkup = read('apps/lines/src/components/ReelSymbol.svelte');
 	check(
 		'the renderer gates the cell on the flag — a spent symbol is not drawn',
-		/\{#if\s+!\s*props\.tumbleSymbol\.exploded\s*\}\s*<SymbolWrap/.test(tumbleSymbolMarkup),
+		/\{#if\s+!covered\s*&&\s*!removed\s*\}\s*<SymbolWrap/.test(cellMarkup),
 		true,
 	);
 
@@ -961,16 +966,25 @@ console.log('--- 5. a seat stops being drawn when its OWN explosion ends ---');
 console.log('--- 6. a seat the win already blew up is not blown up again ---');
 
 {
-	// THE BIRTH IS THE CONTRACT, so it is read off the shipped factory rather than trusted: a seat
-	// the pop emptied is born UNDRAWN but ORDINARY. The two halves are separate on purpose — undrawn
-	// is what stops the symbol coming back on screen, ordinary is what stops a step that never named
-	// the seat from sweeping it out of `base`.
+	// THE CONTRACT IS ADOPTION, so it is read off the shipped initialiser rather than trusted: the
+	// survivor layer takes the REELS' OWN CELLS where they sit, which is what carries both halves of
+	// a popped seat across untouched. Undrawn (`removed`) is what stops the symbol coming back on
+	// screen; ORDINARY (`static`, not `clearReel`) is what stops a step that never named the seat
+	// from sweeping it out of `base`. Neither is re-derived, so neither can be re-derived wrongly —
+	// which is exactly how the old clone got it wrong until it was taught to read `boardRemoved()`.
 	const tumbleBoard = read('apps/lines/src/components/TumbleBoard.svelte');
-	check('a removed seat is born undrawn', tumbleBoard.includes('exploded: removed,'), true);
+	const adoption = tumbleBoard.slice(
+		tumbleBoard.indexOf('const initTumbleBoardBaseReel'),
+		tumbleBoard.indexOf('const initTumbleBoardBase ='),
+	);
 	check(
-		"...and in the ORDINARY state, not in the one the step's removal is keyed on",
-		tumbleBoard.includes("symbolState: 'static' as SymbolState,") &&
-			!tumbleBoard.includes("symbolState: (removed ? 'clearReel' : 'static')"),
+		'the survivor layer adopts the board’s own cells',
+		adoption.includes('reelState.symbols') && adoption.includes('attachCascadeSeat('),
+		true,
+	);
+	check(
+		'...and rewrites neither the removal flag nor the state on the way in',
+		!adoption.includes('removed') && !adoption.includes('symbolState'),
 		true,
 	);
 }

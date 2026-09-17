@@ -364,16 +364,14 @@ const dealOnce = async (opts) => {
 		if (re.test(read(rel))) fail(`wiring :: ${label}`, `${rel} unexpectedly matches ${re}`);
 	};
 
-	// Both symbol renderers must hand `SymbolWrap` the column, or the unmasked animate layer culls
+	// The cell renderer must hand `SymbolWrap` the column, or the unmasked animate layer culls
 	// board-wide — and a short column's padding row is INSIDE the board-wide window, so it would draw.
+	// ONE renderer answers for both now: the cascade drives the board's own cells rather than
+	// drawing a second set of its own (docs/design/board-cell-continuity.md), so this is the claim
+	// for a resting board and a cascading one alike.
 	has(
 		'ReelSymbol passes reelIndex to SymbolWrap',
 		'apps/lines/src/components/ReelSymbol.svelte',
-		/<SymbolWrap[\s\S]{0,200}?reelIndex=\{props\.reelIndex\}/,
-	);
-	has(
-		'TumbleSymbol passes reelIndex to SymbolWrap',
-		'apps/lines/src/components/TumbleSymbol.svelte',
 		/<SymbolWrap[\s\S]{0,200}?reelIndex=\{props\.reelIndex\}/,
 	);
 	// SymbolWrap must GATE the per-column window on `stepped`, or a uniform board starts allocating a
@@ -416,14 +414,13 @@ const dealOnce = async (opts) => {
 		/slice\(1, 1 \+ y\)/,
 	);
 
-	// THE PARITY CLAIM THAT MATTERS MOST: neither board groups its children per column any more, so
-	// the scene graph — and therefore the paint order both modes depend on — is untouched.
-	for (const rel of [
+	// THE PARITY CLAIM THAT MATTERS MOST: the board does not group its children per column, so the
+	// scene graph — and therefore the paint order both modes depend on — is untouched.
+	hasNot(
+		'BoardBase does not group children per column',
 		'apps/lines/src/components/BoardBase.svelte',
-		'apps/lines/src/components/TumbleBoardBase.svelte',
-	]) {
-		hasNot(`${rel} does not group children per column`, rel, /ReelColumn/);
-	}
+		/ReelColumn/,
+	);
 }
 
 console.log(`\n${checks} assertions`);

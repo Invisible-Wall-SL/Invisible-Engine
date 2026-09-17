@@ -1,10 +1,10 @@
 # Board cell continuity — a symbol keeps playing when nothing about it changed
 
-> Status: **stage 1 shipped, stage 2 designed** (2026-09-17). Owner report on `invisible_wall/test6`:
-> "from each column that gets cleared, the symbol animation for each of the other columns gets reset
-> and played again from the beginning — on the first column nothing, on the third column twice, on
-> the fifth column four times." Only ever seen on a tumble/swap game, which is the clue: those are
-> the only boards that change hands mid-round.
+> Status: **shipped** (2026-09-17), in two stages on one branch. Owner report on
+> `invisible_wall/test6`: "from each column that gets cleared, the symbol animation for each of the
+> other columns gets reset and played again from the beginning — on the first column nothing, on the
+> third column twice, on the fifth column four times." Only ever seen on a tumble/swap game, which is
+> the clue: those are the only boards that change hands mid-round.
 
 ## The measurement (live board, `ie_authoring=1`)
 
@@ -35,10 +35,10 @@ correct), 54 `UNMOUNT`.
 
 Two things this settles:
 
-1. **The per-column beats are already correctly scoped.** Every timestamp between the two clusters
+1. **The per-column beats were already correctly scoped.** Every timestamp between the two clusters
    touches ONE column. The clear, the removal and the refill do exactly what they say.
 2. **The restarts are the board changing hands, and there are exactly two of them per board change.**
-   `t=628` is `boardHide` → the cascade overlay mounts a clone of the standing board. `t=1936` is
+   `t=628` is `boardHide` → the cascade overlay mounting a clone of the standing board. `t=1936` is
    `tumbleBoardReset` → `tumbleBoardHide` → `boardShow`, the reel board mounting its own symbols
    again. Both are board-WIDE, which is why the player sees every column restart at once.
 
@@ -47,121 +47,148 @@ those board-wide restarts counted per column: a column that has not had its own 
 showing its ORIGINAL symbols, so it visibly restarts once per board change it sits through before
 finally submerging. The columns to the right sit through more of them.
 
-## Why a hand-over rebuilds everything
+## Why a hand-over rebuilt everything
 
-The board is drawn by **two component trees that never coexist**:
+The board used to be drawn by **two component trees that never coexisted**:
 
 - `Board.svelte` → `BoardBase` → `ReelSymbol` → `SymbolWrap` → `Symbol`, over the reel strips.
 - `TumbleBoard.svelte` → `TumbleBoardBase` → `TumbleSymbol` → `SymbolWrap` → `Symbol`, over
   `stateTumble`'s `base` + `adding`.
 
-`boardHide` unmounted the first; `tumbleBoardShow` mounted the second, whose survivor layer is built
-by **cloning** the standing board (`initTumbleBoardBase` reads `boardRaw()` and makes fresh
-`TumbleSymbol`s). Then the reverse on the way back. A new component starts its clip at frame one.
+`boardHide` unmounted the first; `tumbleBoardShow` mounted the second, whose survivor layer was built
+by **cloning** the standing board. Then the reverse on the way back. A new component starts its clip
+at frame one.
 
-Note what is NOT the cause: replacing a cell's *data* is already safe. `setSymbolsWithRawSymbols`
-builds fresh cell objects, but both `{#each}`s over a strip are index-keyed, so Svelte reuses the
-component and `getSymbolInfo`'s memo keeps the resolved art referentially stable
-([#628](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/628)). An unchanged symbol
-survives a settle. What it cannot survive is its component being unmounted.
+Note what was NOT the cause: replacing a cell's _data_ was already safe. A board replacement builds
+fresh cell objects, but Svelte reuses the component and `getSymbolInfo`'s memo keeps the resolved art
+referentially stable ([#628](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/628)). An
+unchanged symbol survives a settle. What it cannot survive is its component being unmounted.
 
-## Stage 1 — the reel board is hidden, not dismantled (shipped)
+## Stage 1 — the reel board is hidden, not dismantled
 
-`Board.svelte` now stays MOUNTED while the overlay holds the screen and simply stops drawing:
+`Board.svelte` stays MOUNTED while a cascade step runs, instead of being taken apart and rebuilt. It
+mirrors the step's own `tumbleBoardShow` / `tumbleBoardHide` cues (subscribing a second time observes
+a cue, it does not take it over) and mounts on `show || overlayShown`.
 
-- `BoardContainer` takes an optional `visible`. Absent ⇒ the prop is never assigned
-  (`propsSyncEffect` skips `undefined`) ⇒ every other caller keeps the scene graph it had.
-- `Board.svelte` mirrors the overlay's own `tumbleBoardShow` / `tumbleBoardHide` (the same trick
-  `TumbleBoard` already uses to watch `boardShow` / `boardHide` for its ground tiles) and mounts on
-  `show || overlayShown`, drawing on `show`.
+This removed the `t=1936` cluster — the hand-over BACK — and nothing else. It shipped with an
+optional `visible` prop on `BoardContainer` so the board could be hidden without being dismantled;
+stage 2 made that unnecessary and the prop was reverted, because the board now DRAWS throughout.
 
-**Gated on the overlay on purpose.** `boardHide` is also an authorable Broadcast cue — a doc may hide
-the board for a cinematic, a transition, a bonus screen — and those have no reason to keep a board of
-spines and flipbooks ticking behind the curtain. Without the overlay this is `{#if show}` exactly as
-it was, so a game that never cascades is byte-identical.
+## Stage 2 — one layer draws the cells
 
-This removes the `t=1936` cluster: the hand-over BACK. It does not touch `t=628`, the hand-over OUT,
-which is the larger of the two (16 same-art rebuilds against 6).
-
-## Stage 2 — one layer draws the cells (designed, not implemented)
-
-The remaining half cannot be fixed by keeping data stable, because the cell is drawn by a *different
-component* before and after. Three things have to be true together, and any one alone buys nothing.
+The remaining half could not be fixed by keeping data stable, because the cell was drawn by a
+_different component_ before and after. Three things had to be true together, and any one alone buys
+nothing.
 
 ### 1. One cell component
 
-`ReelSymbol.svelte` and `TumbleSymbol.svelte` collapse into one cell. They already differ in only
-three ways, and each has an answer:
+`TumbleSymbol.svelte` is gone; `ReelSymbol.svelte` draws the board whoever is driving it. The two
+differed in only three ways:
 
-- **`y`.** The reel cell reads the strip (`symbolY()`, or the seat under perspective at rest); the
-  cascade cell reads a Tween. The merged cell takes an optional per-cell **y override** and uses it
-  when present. `null` on every game that never cascades.
+- **`y`.** The reel cell reads the strip (`symbolY()`, or the seat under perspective at rest); a
+  cascading cell reads a Tween. The cell now takes the Tween when one is attached
+  (`ReelSymbolCascadeSeat`, `null` on every game that never cascades) and the strip otherwise.
 - **The undrawn gate.** `removed` (the reel's win-explosion pop) and `exploded` (the cascade's
-  played-out pop) are the same picture — a cell that holds its slot but draws nothing. They merge
-  into `removed`.
-- **Which LAYER draws it.** The reel cell puts a spine on the unmasked animating layer only in
-  `land` / `win` / `explosion`; the overlay puts EVERY spine there. That difference is itself a
-  remount — a symbol that changes layer is re-created — so the merged cell must use one predicate
-  throughout. The reel's, widened to the cascade's own states: `land | win | explosion | clearReel |
-  intro`. A non-cascading game never reaches the two new ones, so it is byte-identical; a cascading
-  one gains masking on a resting spine symbol, which is what the board shows either side of the
-  cascade anyway.
+  played-out pop) were the same picture — a cell that holds its row but draws nothing — and are now
+  one flag. The win beat's "refuse a removed cell" guard and the cascade's "already gone, mark it and
+  return" branch read the same field.
+- **Which LAYER draws it.** The reel cell put a spine on the unmasked animating layer only in `land`
+  / `win` / `explosion`; the overlay put EVERY spine there. That difference is itself a remount — a
+  symbol that changes layer is re-created, because `SymbolWrap` mounts on exactly one of the two
+  `BoardContext`s — so one predicate has to hold throughout. It is the reel's, widened to the
+  cascade's own two states: `land | win | explosion | clearReel | intro`. A game that never cascades
+  never reaches the new ones, so its layer assignment is unchanged.
+
+The reel-board-only presentation stands down while a step is driving a cell: the win dim and the
+stacked-picture cover are both keyed by the RESTING board's rows, which a cascade is in the middle of
+rearranging, and the overlay never applied either.
 
 ### 2. One mount site
 
-`TumbleBoardBase` stops rendering cells; the persistent `BoardBase` renders whichever source owns the
-board. `TumbleBoard` keeps its handlers and its transition layer and loses its cells, its ground
-tiles and its mask — with the reel board drawing throughout, the overlay's copies of those would be
-a second draw of the same thing. Which means:
+`TumbleBoardBase.svelte` is gone. `BoardBase` reads `stateTumble.active` and renders either the
+cascade's combined columns or the reel strips. `TumbleBoard.svelte` keeps its cue handlers and its
+transition layer, and loses its cells, its ground tiles and its board mask — with one board on screen
+there is one of each, and it is the board's.
 
-- `Board.svelte` must DRAW while the overlay is up, not merely stay mounted, so stage 1's
-  `visible={show}` becomes unconditional and `BoardContainer`'s new prop is no longer needed.
-- The board mask's overflow policy has to follow the owner. `allowOverflow` is gated on reel motion,
-  which a swap-in-place board can never answer (it never spins), so the mask takes the overlay's
-  transit counter — `overlaySettled`, which already exists — whenever the cascade owns the board.
-  The counter moves from `TumbleBoard` into `stateTumble` so both can read it.
+That also retires the tile layer's double-draw guard (`overlayTileArt` / `reelBoardShown`), which
+existed only because two boards took turns owning the ground.
 
-### 3. One cell object, KEYED BY IDENTITY
+`Board.svelte` therefore DRAWS while a step runs rather than merely staying mounted: the step IS the
+board, so honouring a `boardHide` broadcast by a cascading reveal would black the screen for the
+length of every cascade. Outside a step it is `{#if show}` exactly as it always was, so an authored
+`boardHide` for a cinematic still hides the board.
 
-This is the part the first draft of this document got wrong, and the reason it is worth writing down.
+The mask's overflow policy follows the owner. `allowOverflow` is gated on reel motion, which a
+swap-in-place board can never answer (it never spins, so every reel reads settled mid-fall and the
+spill would be granted 100% of the time), so `BoardMask` takes `allowOverflow={!stateTumble.active}`
+and the step's own transit counter otherwise. The counter moved from `TumbleBoard` to `stateTumble`
+so both sides can read it.
 
-The overlay must ADOPT the reel cells rather than clone them — otherwise the `{#each}`'s keys change
-at the hand-over and the components are rebuilt anyway. But adoption alone is not enough, because the
-cascade also REORDERS cells: refills splice in above the survivors (`combineTumbleReel`), so a
-survivor's index moves. Under the index keying `BoardBase` uses today, a cell that changes index is
-handed to a different component — which is the same tear-down by another name. `TumbleBoardBase` keys
-by object identity for exactly this reason, and that property must survive the merge.
+Under PERSPECTIVE, `BoardBase` emits ONE FLAT LIST ordered back-to-front rather than nested row/reel
+loops. That is not cosmetic: a cell whose row shifts — a step filters survivors and splices refills
+above them — would MOVE BETWEEN nested row blocks, which destroys and rebuilds it.
 
-So `BoardBase` keys by the cell object, and every seam that replaces the strip has to preserve
-identity or it becomes a board-wide rebuild of its own:
+### 3. One cell object, keyed by identity
 
-- **The settle** (`boardSettle` → `setSymbolsWithRawSymbols`) currently mints fresh cells. During a
-  cascade the reel must instead ADOPT the cells the cascade is already drawing — they are the same
-  symbols on the same seats. That needs the cascade to mint its `adding` cells through the reel's own
-  factory, so the two sides trade one shape of object. `createReelForSpinning` exports the factory
-  and an adopt entry point; `enhancedBoard` grows `adopt(cells)` beside `settle(board)`.
-- **The spin** (`prepareToSpin`) mints a fresh strip, and that one is fine: every symbol goes to the
+The step ADOPTS the board's cells rather than cloning them, and `BoardBase` keys the `{#each}` by the
+cell itself. Both halves are needed: adoption alone still loses the component when a survivor's index
+shifts, and identity keying alone has nothing stable to key on across the seam.
+
+That makes every seam that replaces a strip a place identity has to survive:
+
+- **Into a step.** `initTumbleBoardBaseReel` takes `reelState.symbols` where they sit and attaches a
+  seat. Two properties come along for free because they are properties OF the cell: a seat the
+  end-of-win pop emptied is already `removed`, and it is still in the ORDINARY `static` state. The
+  clone had to re-derive both from `boardRemoved()`, and got the first one wrong until it was taught
+  to.
+- **Out of a step.** Every cascading reveal settles on `tumbleBoardCombined()` — the cells on screen —
+  so the reels ADOPT those objects (`setSymbolsWithReelSymbols`, which detaches the seats and
+  renumbers them) instead of minting a fresh strip. The match is CHECKED, not assumed: `boardSettle`
+  is an authorable cue, and a board that is not cell-for-cell the one the step is holding settles from
+  raw symbols exactly as before.
+- **Mid-step.** A cell the step drops — drained, swept, or declared gone by a scoped init — is
+  released back to its strip (`releaseCascadeCells`). A Tween left attached would pin the symbol
+  wherever the step abandoned it for the rest of the round.
+- **Into a spin.** `prepareToSpin` mints a fresh strip, and that one is fine: every symbol goes to the
   `spin` state in the same breath, so the art changes anyway. The settle at the END of a spin
   actually improves — `targetSymbols` are the same objects the spin strip carried, so identity keying
   MOVES them where index keying re-created them.
 
-### What stage 2 does not change
+### What did not change
 
-`stateTumble` keeps both layers. The reel strip, the roll and the pre-spin are untouched — this
-shares the **settled** cell, which is the only thing both presenters ever draw. The y override is
-`null` and the cascade state is empty on every game that never cascades.
+`stateTumble` keeps both layers and keeps filtering `base`; the reel strip, the roll and the pre-spin
+are untouched. What is shared is the **settled cell**, which is the only thing both presenters ever
+drew. `perspective-board-mode.md` warned against "teaching [the reel model] to delete cells
+mid-flight, which is exactly the coupling that would put the cascade's risk onto every game that
+never tumbles" — the strip is still never shortened mid-flight. What a step filters is its own `base`
+array; the cell it drops goes back to the strip unchanged.
 
-**The risk to weigh.** `perspective-board-mode.md` deliberately kept the two models apart: "reusing
-the reel model would mean teaching it to delete cells mid-flight, which is exactly the coupling that
-would put the cascade's risk onto every game that never tumbles." What removal becomes here is a
-per-cell MARK, not a splice of the strip — the cascade's own `base` array is what gets filtered, and
-the strip is never shortened mid-flight. The coupling that warning is about stays out.
+## What the offline gates now pin
 
-**Verification this needs.** Offline fixtures can pin the cue order and the settle contract, and
-`verify-swap-in-place-mode.mjs` already drives the real reveal functions on a virtual clock. What
-they cannot check is the picture: whether a survivor's slide still reads, whether the mask still
-clips a cascading symbol, whether paint order survives under perspective. Stage 2 must not land
-without a browser pass on a cascading board, and the probe below is how to take it.
+`verify-swap-in-place-mode.mjs` (644 checks) drives the real cue handlers on a virtual clock against
+a stand-in for the reels — it has to mint reel-shaped cells now, because the step adopts them. Its
+part 6 changed from "exactly one tile layer at a time" to the claims that keep one board on screen:
+one mount site, identity keying, adoption at the settle, and the step drawing no second copy of the
+cells, the tiles or the mask. `verify-tumble-pattern.mjs` (97) and
+`check-clear-reel-and-win-explode.ts` (111) follow the same rename and assert adoption in place of
+the clone's re-derivation.
+
+Three fixtures had to learn about the cascade gate rather than change meaning:
+`verify-board-tiles.mjs`, `verify-stepped-grid.mjs` and `verify-symbol-overflow.mjs`.
+
+**Two fixtures were repaired along the way; both were red on `main` before any of this.**
+`verify-swap-in-place-mode.mjs` threw `bakedArrivalReleaseEnabled is not defined` before a single
+part-9 claim could run, so parts 9–12 were unreachable. `verify-win-explode-pop.mjs` threw
+`resolveWinBeatBudget is not defined` and was dead in its entirety; behind the crash, four of its
+claims had also gone stale against the authored win-beat ceiling (the pop removes at two exits now,
+not one, and it is bounded by `budget.capMs` rather than the literal cap). Both are green. This is the
+third time a new free identifier in a handler has silently taken one of these files out — the slice
+throws before any claim runs, and a fixture that cannot start looks exactly like one that passes if
+nobody reads the output.
+
+**What a fixture still cannot check is the picture.** Whether a survivor's slide reads, whether the
+mask clips a cascading symbol, whether paint order survives under perspective — those need a browser
+pass on a cascading board, and this change is not done until one has been taken.
 
 ## How to re-measure
 
@@ -173,7 +200,7 @@ correct. Keyed on the cell's own container, so the two draw layers cannot be con
 window.__p = (() => { const app = window.__PIXI_APP__; const cells = new Map(), lastAt = new Map(), log = []; let t0 = performance.now(); const key = (x, y) => `${Math.round(x / 45) * 45},${Math.round(y / 45) * 45}`; const collect = (n, d, out, parent) => { if (!n || d > 30) return out; if (typeof n.gotoAndPlay === 'function' && 'textures' in n) { out.push({ o: n, kind: 'as', parent }); return out; } if (n.state && n.skeleton && typeof n.state.setAnimation === 'function') { out.push({ o: n, kind: 'spine', parent }); return out; } for (const c of n.children || []) collect(c, d + 1, out, n); return out; }; const sig = (e) => { if (e.kind === 'as') { const t = e.o.textures || []; const f = t[0]; return String((f && (f.label || (f.source && f.source.label))) || '?').replace(/_?\d{4}$/, ''); } const tr = e.o.state && e.o.state.tracks && e.o.state.tracks[0]; return `sp:${(tr && tr.animation && tr.animation.name) || '-'}`; }; const tick = () => { try { const t = Math.round(performance.now() - t0), seen = new Set(); for (const e of collect(app.stage, 0, [], null)) { const cell = e.parent || e.o; seen.add(cell); const s = sig(e); let x = 0, y = 0; try { const g = e.o.getGlobalPosition(); x = g.x; y = g.y; } catch {} const pos = key(x, y); let rec = cells.get(cell); if (!rec) { const prev = lastAt.get(pos); log.push(`${t} ${pos} MOUNT ${prev === undefined ? 'FIRST' : (prev === s ? 'SAME-ART' : 'NEW-ART')} ${s}`); cells.set(cell, { sig: s, pos, sprite: e.o }); lastAt.set(pos, s); continue; } if (rec.sprite !== e.o) { log.push(`${t} ${pos} RESTATE ${rec.sig}>${s}`); rec.sprite = e.o; rec.sig = s; } rec.pos = pos; lastAt.set(pos, s); } for (const [cell, rec] of cells) if (!seen.has(cell)) { log.push(`${t} ${rec.pos} UNMOUNT ${rec.sig}`); cells.delete(cell); } } catch (err) { log.push('ERR ' + err); } }; app.ticker.add(tick); return { tick, reset: () => { log.length = 0; t0 = performance.now(); }, dump: () => log.join('\n'), counts: () => { const c = {}; for (const l of log) { const p = l.split(' '); const w = p[2] === 'MOUNT' ? 'MOUNT:' + p[3] : p[2]; c[w] = (c[w] || 0) + 1; } return c; } }; })();
 ```
 
-Two notes if you drive it from a headless/hidden pane rather than by hand: `requestAnimationFrame`
+Two notes if you drive it from a headless or hidden pane rather than by hand: `requestAnimationFrame`
 callbacks registered from an injected context never fire there, which is why the probe rides
-`app.ticker` instead — and the ticker itself only advances while something forces a frame, so
-sample with `app.ticker.update(performance.now())` in a loop, or take screenshots.
+`app.ticker` — and the ticker itself only advances while something forces a frame, so sample with
+`app.ticker.update(performance.now())` in a loop, or take screenshots.

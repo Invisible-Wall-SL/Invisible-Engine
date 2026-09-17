@@ -42,6 +42,7 @@
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
+	import { stateTumble, tumbleBoardCombined } from '../game/stateTumble.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
 	import BoardTiles from './BoardTiles.svelte';
@@ -63,38 +64,69 @@
 	let show = $state(true);
 
 	/**
-	 * Is the CASCADE OVERLAY on screen? Tracked off its own `tumbleBoardShow`/`tumbleBoardHide` cues —
-	 * the mirror image of `TumbleBoard` watching this board's `boardShow`/`boardHide` for its ground
-	 * tiles, and read for one purpose only: to keep this board's cells ALIVE while the overlay has the
-	 * screen (see {@link mounted}).
+	 * Is a CASCADE STEP running? Tracked off the overlay's own `tumbleBoardShow`/`tumbleBoardHide`
+	 * cues, and read for one purpose: this board keeps drawing through one (see {@link mounted}).
 	 */
 	let overlayShown = $state(false);
 
 	/**
-	 * Is this board's scene graph BUILT? — which is not the same question as whether it is DRAWN
-	 * ({@link show}).
+	 * IS THIS BOARD ON SCREEN — and during a cascade step the answer is yes, whatever `boardHide` said.
 	 *
-	 * A round hands the board to the cascade overlay and takes it back: `boardHide` → overlay →
-	 * `boardSettle` → `boardShow`. Unmounting for that hand-over destroys every symbol cell and builds
-	 * a new one on the way back, and a new cell starts its clip at frame one — so a symbol that did
-	 * not change still restarts. Measured on a live swap-in-place board, one paying round rebuilt each
-	 * seat's art EIGHT times; the player sees every standing symbol snap back to its first frame at
-	 * each of the round's beats.
+	 * A round used to hand the board OVER to the cascade overlay and take it back: `boardHide` →
+	 * overlay → `boardSettle` → `boardShow`. Each hand-over destroyed one component tree and built the
+	 * other, and a new component starts its clip at frame one — so every standing symbol restarted,
+	 * board-wide, however little about it had changed. Measured on a live swap-in-place board: 23
+	 * cells per spin rebuilt around art that had not changed, in two board-wide clusters — the two
+	 * hand-overs (`docs/design/board-cell-continuity.md`).
 	 *
-	 * So while the overlay holds the screen this board is HIDDEN, not dismantled: the cells live
-	 * across the hand-over, and the ones whose symbol and state are unchanged keep playing.
+	 * There is no hand-over now. This board draws the cells throughout and the cascade drives them
+	 * (`stateTumble`), so `boardHide` during a step is not a request to stop drawing the board — the
+	 * step IS the board — and honouring it would black the screen for the length of every cascade.
 	 *
-	 * It is gated on the overlay rather than made unconditional on purpose. `boardHide` is also an
-	 * authorable Broadcast cue — a doc may hide the board for a cinematic, a transition, a bonus
-	 * screen — and those have no reason to keep a board's worth of spines and flipbooks ticking behind
-	 * the curtain. Without the overlay this is `{#if show}` exactly as it always was, so a game that
-	 * never cascades is byte-identical.
+	 * Outside a step this is `{#if show}` exactly as it always was: `boardHide` is an authorable
+	 * Broadcast cue, a doc may hide the board for a cinematic or a bonus screen, and a game that never
+	 * cascades never sees `overlayShown` turn true at all.
 	 */
 	const mounted = $derived(show || overlayShown);
 
+	/**
+	 * Settle the reels on a board — by ADOPTING the cascade's cells when the cascade is the thing that
+	 * produced it.
+	 *
+	 * Every cascading reveal broadcasts its settled board as `tumbleBoardCombined().map(rawSymbol)`,
+	 * i.e. the very cells on screen. Rebuilding the strip from those raw symbols mints a fresh set of
+	 * objects, and with cells keyed by identity that is a board-wide tear-down on the last beat of the
+	 * step — the second of the two restart clusters this whole change exists to remove. Handed the
+	 * objects instead, every cell keeps the component that has been drawing it, and the reels take
+	 * over without a single frame of difference (`setSymbolsWithReelSymbols` detaches the cascade's
+	 * seats and renumbers them, so the strip's own y takes back over at the same position).
+	 *
+	 * The match is CHECKED rather than assumed. `boardSettle` is an authorable cue and a doc may
+	 * broadcast a board of its own while a step is up; anything that is not cell-for-cell the board
+	 * the cascade is holding settles from raw symbols exactly as it always did.
+	 */
+	const settleBoard = (board: RawSymbol[][]) => {
+		const cells = stateTumble.active ? tumbleBoardCombined() : undefined;
+		const adoptable =
+			cells !== undefined &&
+			cells.length === board.length &&
+			cells.every(
+				(reel, reelIndex) =>
+					reel.length === board[reelIndex]?.length &&
+					reel.every((cell, row) => cell.rawSymbol === board[reelIndex]?.[row]),
+			);
+		if (!adoptable) {
+			context.stateGameDerived.enhancedBoard.settle(board);
+			return;
+		}
+		context.stateGame.board.forEach((reel, reelIndex) =>
+			reel.setSymbolsWithReelSymbols(cells[reelIndex] ?? []),
+		);
+	};
+
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => context.stateGameDerived.enhancedBoard.stop(),
-		boardSettle: ({ board }) => context.stateGameDerived.enhancedBoard.settle(board),
+		boardSettle: ({ board }) => settleBoard(board),
 		boardShow: () => (show = true),
 		boardHide: () => (show = false),
 		// Read-only mirrors of the overlay's own visibility — subscribing a second time observes the
@@ -298,7 +330,7 @@
 
 {#if mounted}
 	<BoardContext animate={false}>
-		<BoardContainer visible={show}>
+		<BoardContainer>
 			<!-- `allowOverflow`: once no reel's strip is moving, the window may grow by the `reelGrid`
 			     node's authored symbol overflow, so a landed symbol drawn bigger than its cell is not
 			     cut off at the board edge. Nothing authored / any reel still rolling ⇒ the same window
@@ -306,8 +338,14 @@
 
 			     "Rolling", not `motion === 'stopped'`: the pre-spin slides a whole reel-length through
 			     the window before `motion` ever says 'spinning'. The cascade overlay cannot use this
-			     gate at all and passes its own — see `TumbleBoard`. -->
-			<BoardMask allowOverflow />
+			     gate at all and answers with its own transit counter instead — `stateTumble.transiting`,
+			     which counts the beats where a symbol actually travels (drain, slide, vacate). The two
+			     are alternatives, never combined: the board is driven either by its reels or by a
+			     cascade step, never both. Nothing authored ⇒ no spill either way. -->
+			<BoardMask
+				allowOverflow={!stateTumble.active}
+				overlaySettled={stateTumble.active && stateTumble.transiting === 0}
+			/>
 			<!--
 				GROUND TILES (docs/design/perspective-board-mode.md §"The tiles") — the FIRST painted
 				child, so the whole layer sits behind every symbol. Two reasons it is one flat layer
@@ -335,7 +373,7 @@
 	</BoardContext>
 
 	<BoardContext animate={true}>
-		<BoardContainer visible={show}>
+		<BoardContainer>
 			<BoardBase />
 		</BoardContainer>
 	</BoardContext>

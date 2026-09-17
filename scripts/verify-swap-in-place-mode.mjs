@@ -58,7 +58,7 @@
 //
 //   5. THE GROUND TILES SURVIVE THE SWAP. The tiles live on the reel board, which a swap hides for
 //      its whole duration, so the overlay draws the same layer while it stands in. Asserted as
-//      "exactly one tile layer at a time": the overlay's own `overlayTileArt` is sampled after every
+//      "exactly one tile layer at a time": there is one board on screen now, so the tiles are
 //      cue, and must be the art whenever the overlay owns the screen, `undefined` whenever the reel
 //      board does — and `undefined` throughout for a board with no authored `tileRegion`.
 //
@@ -689,20 +689,11 @@ const helpers = stripTypes(
 		beatHelpers +
 		sliceBetween(
 			componentScript,
-			'the overlay transit counter',
-			'\tlet transiting =',
-			'\tconst overlaySettled =',
-		) +
-		sliceBetween(componentScript, 'PADDING_ROW', '\tconst PADDING_ROW =', ';\n') +
-		sliceBetween(
-			componentScript,
 			'the TumbleBoard helpers',
-			'\tconst awaitBeat =',
+			'\tconst inTransit =',
 			'\tcontext.eventEmitter.subscribeOnMount({',
 		)
-	)
-		.replace('\tconst overlaySettled =', '')
-		.replace('\tcontext.eventEmitter.subscribeOnMount({', ''),
+	).replace('\tcontext.eventEmitter.subscribeOnMount({', ''),
 );
 for (const name of [
 	'PAD_ROWS_ABOVE',
@@ -716,7 +707,7 @@ for (const name of [
 	'initTumbleBoardNoBase',
 	'initTumbleBoardBaseReel',
 	'initTumbleBoardBase',
-	'overlayTileArt',
+	'createArrivingCells',
 ]) {
 	if (!helpers.includes(`const ${name} = `)) {
 		throw new Error(`the TumbleBoard slice no longer declares ${name}`);
@@ -750,6 +741,8 @@ const handlersDecl = stripTypes(
 const tumbleState = read('apps/lines/src/game/stateTumble.svelte.ts');
 const tumbleStateRaw = [
 	sliceBetween(tumbleState, 'stateTumble', 'export const stateTumble = ', '});\n'),
+	sliceBetween(tumbleState, 'attachCascadeSeat', 'export const attachCascadeSeat = ', '\n};\n'),
+	sliceBetween(tumbleState, 'releaseCascadeCells', 'export const releaseCascadeCells = ', '\n};\n'),
 	sliceBetween(tumbleState, 'tumbleBoardCombined', 'export const tumbleBoardCombined = ', ';\n'),
 	sliceBetween(tumbleState, 'resetTumbleBoard', 'export const resetTumbleBoard = ', '\n};\n'),
 ]
@@ -970,6 +963,39 @@ const tweenClass = (clock, moves) =>
 	};
 
 const rawSymbol = (name) => ({ name });
+
+/**
+ * ONE REEL CELL, the shape `createReelForSpinning` mints — because the cascade no longer builds a
+ * parallel set of its own. It ADOPTS the board's cells and mints the step's arrivals through the
+ * reel's own factory (`docs/design/board-cell-continuity.md`), so a fixture standing in for the
+ * reels has to hand it objects of that shape or the handlers under test are not the shipped ones.
+ *
+ * `symbolY` closes over the CELL rather than over the index it was built at, because a strip
+ * renumbers a cell when it adopts one — reading the live field is what the real one does.
+ */
+const makeReelCell = (raw, symbolIndex, removed) => {
+	const cell = {
+		id: {},
+		rawSymbol: raw,
+		symbolIndex,
+		symbolState: 'static',
+		symbolY: () => (cell.symbolIndex + 0.5) * 120,
+		oncomplete: () => {},
+		winLineColor: undefined,
+		removed,
+		cascade: null,
+	};
+	return cell;
+};
+
+/** The reel API the cascade actually touches: the settled strip it adopts, and the factory it
+ *  mints the step's arrivals through. */
+const makeReel = (strip, removedStrip) => ({
+	reelState: {
+		symbols: strip.map((raw, row) => makeReelCell(raw, row, Boolean(removedStrip?.[row]))),
+	},
+	createSymbols: (raws) => raws.map((raw, row) => makeReelCell(raw, row, false)),
+});
 /** A padded strip: one buffer row, `ROWS` visible rows, one buffer row. */
 const stripOf = (prefix) =>
 	Array.from({ length: STRIP }, (_unused, row) => rawSymbol(`${prefix}${row}`));
@@ -1001,6 +1027,11 @@ const buildTumbleRuntime = ({
 	authoredIntro,
 	swapStyle,
 }) => {
+	// The REELS this cascade drives. Their settled cells are what it adopts, and their factory is
+	// what it mints the step's arrivals through — see `makeReel`.
+	const stateGame = {
+		board: previousBoard.map((strip, reelIndex) => makeReel(strip, previousRemoved[reelIndex])),
+	};
 	const build = new Function(
 		'Tween',
 		'backOut',
@@ -1008,6 +1039,10 @@ const buildTumbleRuntime = ({
 		'waitForResolve',
 		'waitForTimeout',
 		'getSymbolSeat',
+		// THE REELS THEMSELVES, not only the derived view of them. The cascade adopts their settled
+		// cells and mints its arrivals through their factory, so a stub that answered only
+		// `boardRaw()` would leave the helpers under test unreachable.
+		'stateGame',
 		'stateGameDerived',
 		// The overlay's handlers PLAY things now (the cascade pop, a symbol's own pop, a symbol's own
 		// emerge voice). Stubbed rather than ignored, and RECORDED rather than no-op'd: what a beat
@@ -1048,7 +1083,6 @@ const buildTumbleRuntime = ({
 		'tumbleExplosionDelays',
 		`${tumbleStateSource}
 let show = false;
-let reelBoardShown = true;
 // Svelte's, and the helper slice hands it the transition sweep. Nothing unmounts a component in a
 // fixture, so the callback never runs — what has to hold is that registering it does not throw.
 const onDestroy = () => {};
@@ -1058,9 +1092,8 @@ return {
 	handlers,
 	stateTumble,
 	tumbleBoardCombined,
-	overlayTileArt,
+	stateGame,
 	showing: () => show,
-	reelsShowing: () => reelBoardShown,
 };`,
 	);
 	return build(
@@ -1076,6 +1109,7 @@ return {
 		// which seat each symbol is AIMED at, not what that seat evaluates to. With `ROWS = 3` the
 		// board window bottom is 360, so anything a drain leaves below that is out of the window.
 		(reel, row) => ({ x: reel * 120, y: (row + 0.5) * 120, scale: 1 }),
+		stateGame,
 		{
 			boardRaw: () => previousBoard,
 			// WHICH seats the end-of-win pop already emptied — all-`false` for every run but the one
@@ -1190,21 +1224,25 @@ const runReveal = async ({
 			// seat the end-of-win pop already emptied must arrive already undrawn, or the symbols the
 			// win blew up come back for the length of the clear (the reel board is hidden throughout).
 			entry.baseUndrawnBefore = runtime.stateTumble.base.map((column) =>
-				column.map((tumbleSymbol) => tumbleSymbol.exploded),
+				column.map((tumbleSymbol) => tumbleSymbol.removed),
 			);
 			const reels = new Set(event.explodingPositions.map((position) => position.reel));
 			if (reels.size === 1) entry.reelIndex = [...reels][0];
 		}
 		if (event.type === 'tumbleBoardDrain') {
+			// The TWEENS the drain is about to run, not the cells that carry them: a drained column is
+			// handed straight back to its strip when the fall ends (`releaseCascadeCells`), so by the
+			// time the final y can be read the cell no longer has a seat to read it from.
 			entry.draining = [...(runtime.stateTumble.base[event.reelIndex] ?? [])];
+			entry.drainingTweens = entry.draining.map((cell) => cell.cascade.y);
 		}
 		log.push(entry);
 		return entry;
 	};
 	const sample = (entry) => {
-		entry.overlayTile = runtime.overlayTileArt()?.key ?? null;
-		entry.reelsShowing = runtime.reelsShowing();
-		if (entry.draining) entry.drainedY = entry.draining.map((symbol) => symbol.symbolY.current);
+		if (entry.draining) {
+			entry.drainedY = entry.drainingTweens.map((tween) => tween.current);
+		}
 		if (entry.baseLengthsBefore) {
 			entry.baseLengthsAfter = runtime.stateTumble.base.map((column) => column.length);
 		}
@@ -1667,117 +1705,135 @@ const columnSpan = (run, reelIndex) =>
 }
 
 // ---------------------------------------------------------------------------
-// 6 — the ground tiles survive the swap.
+// 6 — one board on screen, and it draws the cells throughout.
 // ---------------------------------------------------------------------------
 
-console.log('--- 6. the ground tiles survive the swap ---');
+console.log('--- 6. one board on screen, drawing the cells throughout ---');
 
 const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 
+// The cascade used to be an OVERLAY: `boardHide` took the reel board off, the overlay mounted a
+// clone of the standing board, and `boardShow` put the reels back. Both hand-overs destroyed one
+// component tree and built the other, and a new component starts its clip at frame one — so every
+// standing symbol restarted, board-wide, twice per board change, however little about it had
+// changed. Measured live: 23 cells per spin rebuilt around art that had not changed
+// (docs/design/board-cell-continuity.md).
+//
+// There is one board now. `Board.svelte` draws the cells whoever is driving them, and this
+// component drives them. These are the markup claims that keep it that way — the ground tiles and
+// the board mask come along for the ride, because there is no longer a second board to own a
+// second copy of either.
+{
+	const boardComponent = read('apps/lines/src/components/Board.svelte');
+	const overlayMarkup = tumbleComponent.slice(tumbleComponent.indexOf('{#if show}'));
+
+	check(
+		'the reel board mounts the one tile layer, behind its own guard',
+		boardComponent.includes('{#if tileArt}') &&
+			boardComponent.includes('<BoardTiles art={tileArt} />'),
+		true,
+	);
+	// The overlay draws NOTHING the board already draws. Each of these was a second copy of a layer
+	// that only existed because the reel board was hidden for the length of a swap.
+	for (const [what, token] of [
+		['the ground tiles', 'BoardTiles'],
+		['the board mask', 'BoardMask'],
+		['the cells', 'BoardBase'],
+	]) {
+		// The TAG, in the markup — the components are still named in this file's prose, which is where
+		// the reason they went lives.
+		check(
+			`the cascade step draws no second copy of ${what}`,
+			overlayMarkup.includes(`<${token}`),
+			false,
+		);
+	}
+	check(
+		'...what it does still draw is its own transition layer',
+		overlayMarkup.includes('<SymbolLayer'),
+		true,
+	);
+
+	// The reel board keeps DRAWING through a step, not merely mounted: the step is the board, so a
+	// `boardHide` broadcast by a cascading reveal must not black the screen for its duration.
+	check(
+		'the board is on screen while a cascade step runs',
+		boardComponent.includes('const mounted = $derived(show || overlayShown);'),
+		true,
+	);
+	check(
+		'...and nothing hides it behind that guard',
+		boardComponent.includes('<BoardContainer visible='),
+		false,
+	);
+
+	// ONE MOUNT SITE, and cells keyed by IDENTITY — the two halves of the fix. `BoardBase` reads the
+	// cascade's layers when it is driving and the strips otherwise, and a cell that changes row (a
+	// step filters survivors and splices refills above them) is MOVED rather than re-created.
+	const baseComponent = read('apps/lines/src/components/BoardBase.svelte');
+	check(
+		'the cells have one mount site, which reads whoever is driving them',
+		baseComponent.includes('stateTumble.active') && baseComponent.includes('tumbleBoardCombined()'),
+		true,
+	);
+	check(
+		'...keyed by the cell itself, flat and under perspective alike',
+		baseComponent.includes('{#each column as reelSymbol, row (reelSymbol)}') &&
+			baseComponent.includes('{#each rowOrder as seat (seat.reelSymbol)}'),
+		true,
+	);
+
+	// THE SEAM BACK. Every cascading reveal settles on `tumbleBoardCombined()` — the cells on screen
+	// — so the reels ADOPT those objects instead of minting a fresh strip from their raw symbols.
+	// Rebuilding there would tear the board down on the last beat of the step, which is the second of
+	// the two restart clusters this change removes.
+	check(
+		'the reels adopt the cells the step settles on',
+		boardComponent.includes('reel.setSymbolsWithReelSymbols(cells[reelIndex] ?? [])'),
+		true,
+	);
+	check(
+		'...and fall back to a raw settle for a board the step is not holding',
+		boardComponent.includes('context.stateGameDerived.enhancedBoard.settle(board);'),
+		true,
+	);
+
+	// The step's own cells are the BOARD's cells: adopted where they sit, minted through the reel's
+	// factory when they are genuinely new.
+	check(
+		'the survivor layer adopts the reels’ own cells',
+		componentScript.includes('attachCascadeSeat(reelSymbol, getSymbolSeat('),
+		true,
+	);
+	check(
+		'...and the arrivals are minted through the reel’s own factory',
+		componentScript.includes('stateGame.board[reelIndex]?.createSymbols(rawSymbols)'),
+		true,
+	);
+}
+
+// The ground still reaches the screen for a board that authors one, and still mounts nothing at
+// all for a board that does not — the parity claim, which is not optional: `apps/lines` is the
+// shared `_runtime/lines` bundle every online game runs.
 {
 	const tiled = await runReveal({
 		name: 'columnCascadeRevealBoard',
 		source: columnCascadePresentation,
 		tileArt: TILE,
 	});
-	// The invariant, checked at EVERY step rather than at a chosen moment: the overlay draws the
-	// ground exactly when it owns the screen, and never while the reel board is up.
 	check(
-		'the overlay never draws the ground while the reel board is showing',
-		tiled.log.every((entry) => !(entry.reelsShowing && entry.overlayTile)),
+		'a tiled board still runs the swap cue for cue',
+		tiled.types.includes('tumbleBoardShow') && tiled.types.includes('tumbleBoardHide'),
 		true,
 	);
-	const afterShow = tiled.log.findIndex((entry) => entry.type === 'tumbleBoardShow');
-	const atHide = tiled.log.findIndex((entry) => entry.type === 'tumbleBoardHide');
-	check('the overlay picks the ground up as it mounts', tiled.log[afterShow].overlayTile, TILE.key);
-	check(
-		'and holds it for every beat of the swap — the ground never blinks out',
-		tiled.log.slice(afterShow, atHide).every((entry) => entry.overlayTile === TILE.key),
-		true,
-	);
-	check('the overlay drops the ground as it unmounts', tiled.log[atHide].overlayTile, null);
-	check(
-		'and the reel board has it back at the end',
-		tiled.log[tiled.log.length - 1].reelsShowing,
-		true,
-	);
-	check(
-		'the overlay draws no ground once it is hidden',
-		tiled.log[tiled.log.length - 1].overlayTile,
-		null,
-	);
-
-	// The drop-in gets the identical treatment — the tile fix is the OVERLAY's, not the cascade's.
-	const tiledDropIn = await runReveal({
-		name: 'dropInRevealBoard',
-		source: dropInPresentation,
-		tileArt: TILE,
-	});
-	check(
-		'the drop-in overlay carries the ground too',
-		tiledDropIn.log
-			.slice(
-				tiledDropIn.log.findIndex((entry) => entry.type === 'tumbleBoardShow'),
-				tiledDropIn.log.findIndex((entry) => entry.type === 'tumbleBoardHide'),
-			)
-			.every((entry) => entry.overlayTile === TILE.key),
-		true,
-	);
-
-	// NO AUTHORED `tileRegion` ⇒ no tile layer anywhere, at any point. This is the parity claim, and
-	// it is not optional: `apps/lines` is the shared `_runtime/lines` bundle every online game runs.
 	const untiled = await runReveal({
 		name: 'columnCascadeRevealBoard',
 		source: columnCascadePresentation,
 	});
 	check(
-		'a board with no tileRegion mounts no tile layer at any point of the swap',
-		untiled.log.every((entry) => entry.overlayTile === null),
-		true,
-	);
-
-	// The double-draw guard, exercised DIRECTLY: an authored flow can broadcast `tumbleBoardShow`
-	// without `boardHide` (both are standard-vocabulary Broadcast cues), which holds both boards on
-	// screen for as long as it likes. The overlay must still refuse the ground.
-	const runtime = buildTumbleRuntime({
-		clock: createClock(),
-		previousBoard: boardOf('old'),
-		tileArt: TILE,
-	});
-	check('before anything, the reel board owns the ground', runtime.overlayTileArt(), undefined);
-	runtime.handlers.tumbleBoardShow({ type: 'tumbleBoardShow' });
-	check(
-		'the overlay shown WITHOUT hiding the reels still draws no ground — one layer, never two',
-		runtime.overlayTileArt(),
-		undefined,
-	);
-	runtime.handlers.boardHide({ type: 'boardHide' });
-	check('once the reels are hidden it takes the ground over', runtime.overlayTileArt(), TILE);
-	runtime.handlers.boardShow({ type: 'boardShow' });
-	check('and hands it straight back when they return', runtime.overlayTileArt(), undefined);
-}
-
-// The markup side of the same claim — the answer above is only worth anything if it is what mounts.
-{
-	const markup = tumbleComponent.slice(tumbleComponent.indexOf('{#if show}'));
-	check(
-		'the overlay mounts BoardTiles behind its guard',
-		markup.includes('{#if tileArt}') && markup.includes('<BoardTiles art={tileArt} />'),
-		true,
-	);
-	check(
-		'and the guard is the overlay’s own answer, not a second policy',
-		componentScript.includes('const tileArt = $derived(overlayTileArt());'),
-		true,
-	);
-	// The reel board's own layer is untouched — the fix ADDS a layer to the overlay, it does not move
-	// the existing one, so a board that never swaps is byte-identical.
-	const boardComponent = read('apps/lines/src/components/Board.svelte');
-	check(
-		'the reel board still mounts its own tile layer',
-		boardComponent.includes('{#if tileArt}') &&
-			boardComponent.includes('<BoardTiles art={tileArt} />'),
-		true,
+		'...and an untiled one broadcasts exactly the same sequence',
+		untiled.types.join(' → '),
+		tiled.types.join(' → '),
 	);
 }
 
@@ -2091,7 +2147,7 @@ check(
 // BEFORE the placement, or the symbol's resting art paints for one frame on its final seat.
 /** The APPEAR handler alone, with its whitespace collapsed.
  *
- *  SCOPED deliberately: `tumbleBoardDrain` also calls `tumbleSymbol.symbolY.set(` and sits earlier
+ *  SCOPED deliberately: `tumbleBoardDrain` also calls `tumbleSymbol.cascade.y.set(` and sits earlier
  *  in the file, so an `indexOf` over the whole handler block would compare the intro assignment
  *  against the DRAIN's placement and pass by accident.
  *
@@ -2103,12 +2159,12 @@ const appearHandlerSource = handlersSource
 	.replace(/\s+/g, ' ');
 /** The one placement that DEFINES the style: the arriving symbol, seated instantly.
  *
- *  Matched exactly rather than by "the first `symbolY.set` in the handler", because the handler now
+ *  Matched exactly rather than by "the first `cascade.y.set` in the handler", because the handler now
  *  has two branches and the OTHER one — the survivor's 200 ms slide — sits first. A loose pattern
  *  here compared the intro assignment against the survivor's placement and failed for the wrong
  *  reason; a non-greedy `.*?` one would have spanned the two branches and passed for the wrong
  *  reason, which is worse. */
-const INSTANT_PLACEMENT = 'tumbleSymbol.symbolY.set(seatY, { duration: 0 });';
+const INSTANT_PLACEMENT = 'tumbleSymbol.cascade.y.set(seatY, { duration: 0 });';
 check(
 	'the appear handler seats the arriving symbol instantly',
 	appearHandlerSource.includes(INSTANT_PLACEMENT),
@@ -2124,7 +2180,7 @@ check(
 // but this says out loud that the two branches are different on purpose.
 check(
 	'...while a survivor is given the slide duration, not placed',
-	/symbolY\.set\(cell\.seatY, \{ duration: 200, easing: backOut \}\)/.test(appearHandlerSource),
+	/cascade\.y\.set\(cell\.seatY, \{ duration: 200, easing: backOut \}\)/.test(appearHandlerSource),
 	true,
 );
 
@@ -2413,7 +2469,7 @@ console.log('--- 10. the cascade arrives the same way the spin does ---');
 	const seatOf = (index) => (index - 1 + 0.5) * 120;
 	check(
 		'...and every cell comes to rest on its own seat',
-		combined.every((reel) => reel.every((sym, index) => sym.symbolY.current === seatOf(index))),
+		combined.every((reel) => reel.every((sym, index) => sym.cascade.y.current === seatOf(index))),
 		true,
 	);
 	check(

@@ -586,30 +586,40 @@ for (const [gridLabel, grid] of GRIDS) {
 // 5. THE WIRING. Which board asks for the overflow is the difference between "landed art spills"
 //    and "a falling symbol is drawn outside the board", so it is pinned in the markup.
 // ---------------------------------------------------------------------------------------------
+// ONE BOARD, ONE MASK. The cascade used to mount a second one on an overlay of its own; it drives
+// the board's own cells now (docs/design/board-cell-continuity.md), so the reel board's mask is
+// the only one — and it has to answer BOTH questions, because the two gates are about different
+// things and neither can answer for the other.
 ok(
-	'Board.svelte mounts the resting board mask WITH allowOverflow',
-	/<BoardMask\s+allowOverflow\s*\/>/.test(BOARD_SRC),
+	// The reel-motion gate, for a board its reels are driving…
+	'Board.svelte gates allowOverflow on no cascade step running',
+	/<BoardMask\s+allowOverflow=\{!stateTumble\.active\}/.test(BOARD_SRC),
 );
 ok(
-	// The overlay must NOT take the reel-motion gate — it is blind to a swap board, which never spins.
-	// It answers for itself, with its own transit counter.
-	'TumbleBoard.svelte mounts its mask with overlaySettled, never allowOverflow',
-	/<BoardMask\s+\{overlaySettled\}\s*\/>/.test(TUMBLE_SRC) &&
-		!/<BoardMask[^/]*allowOverflow/.test(TUMBLE_SRC),
+	// …and the step's own transit counter for a board a cascade is driving. The reel-motion gate is
+	// blind to that case — a swap-in-place board never spins, so every reel reads settled mid-fall
+	// and the overflow would be spent 100% of the time, uncovering falling and queued symbols.
+	'…and takes the step’s transit counter while one is',
+	/overlaySettled=\{stateTumble\.active && stateTumble\.transiting === 0\}/.test(BOARD_SRC),
+);
+ok(
+	// The step no longer mounts a mask of its own — a second one on a second container was how the
+	// two boards used to take turns.
+	'TumbleBoard.svelte mounts no mask at all',
+	!/<BoardMask/.test(TUMBLE_SRC),
 );
 ok(
 	// Exactly THREE call sites — drain, the slide-down fall, and the appear's survivor-vacate phase.
 	// A fourth would mean an in-place beat got counted (and so kept its art clipped); a missing one
 	// would mean a travelling symbol is drawn outside the window.
-	'the overlay counts the three travelling beats, no more and no fewer',
-	/const overlaySettled = \$derived\(show && transiting === 0\)/.test(TUMBLE_SRC) &&
-		(TUMBLE_SRC.match(/\bawait inTransit\(/g) ?? []).length === 3,
+	'the step counts the three travelling beats, no more and no fewer',
+	(TUMBLE_SRC.match(/\bawait inTransit\(/g) ?? []).length === 3,
 );
 ok(
 	// The counter must be released on a throw, or one interrupted cascade withholds the overflow for
 	// the rest of the session.
 	'the transit counter is released in a finally',
-	/const inTransit = async[\s\S]{0,400}?finally \{[\s\S]{0,120}?transiting = Math\.max\(0, transiting - 1\)/.test(
+	/const inTransit = async[\s\S]{0,700}?finally \{[\s\S]{0,200}?stateTumble\.transiting = Math\.max\(0, stateTumble\.transiting - 1\)/.test(
 		TUMBLE_SRC,
 	),
 );
