@@ -54,12 +54,34 @@ except the first bullet below, which is on a branch:
     effect. The new `grid` layout reads them instead and re-flows on every Create Atlas. The layout
     is an Atlas Maker feature and its detail lives in [status/atlas-maker](atlas-maker.md); here it
     means the export seeds a cell the size of a video frame, the smallest page that holds the
-    frames (capped at 4096 a side), a `settings` block stating the generation size explicitly
+    frames (or, when they cannot fit under 4096 a side, the largest usable page plus a `note` —
+    see the bullet below), a `settings` block stating the generation size explicitly
     rather than inheriting a global that may change, and a per-region `fit_mode` chosen in the
     panel (**Fit**: contain / cover / fill, default `contain` — uniform scale, centred, which is
     what keeps a regenerated sequence registered).
   - **One page: an over-capacity grid refuses rather than laying out a partial one.** Multi-page
     does not exist anywhere in `batch_atlas.py` — see atlas-maker's open item 12.
+  - **The EXPORT never refuses over a page size — only Create Atlas does** _(fixed 2026-09-17,
+    same day)_. The first cut had `_grid_page` RAISE when no arrangement fit under
+    `MAX_PAGE_SIDE`, which aborted the whole export. Owner, blocked: *"I now can't export full
+    size images cause they say they would never fit in a 2k res atlas! but this is wrong as I am
+    not actually creating any atlas yet at this point! I just want the images in the atlas
+    maker!"* They were right, and the distinction is the point of the whole feature: **this export
+    writes loose reference PNGs and composes no page at all.** The `atlas.width/height` it writes
+    is a SEED the author edits in Settings, and the grid re-flows on every Create Atlas, so the
+    seed has no lasting authority — blocking on it traded the one thing the feature exists to do
+    against a guess.
+    - Overflow now seeds the **largest usable page** (a single oversized cell seeds one cell) and
+      reports a `note` naming the arithmetic and the two fields that fix it. The launcher renders
+      it as an amber pill on the success receipt, never as an error.
+    - **The other refusals stay** — `MAX_REF_FRAMES`, the duplicate atlas name, the truncated
+      decode. Those are about real data loss; this one was about a guess. That distinction is
+      written into the module docstring so the raise is not reinstated for symmetry.
+    - Fixture: `test_full_size_frames_export_at_the_real_ceiling` runs the owner's shape at the
+      REAL 4096 ceiling (10 × 1080×1920), asserts every ref lands full-size, pins the note whole,
+      then runs the real `grid_layout` to prove the note is not crying wolf — Create Atlas genuinely
+      would refuse on the same arithmetic, and the note's own advice lays it out. 8 mutations
+      caught, including restoring either raise.
   - **`style_ref`, never `shape_ref`.** `normalize_shape_ref` grayscales, thresholds and rescales
     onto a 1024² canvas; bound as a shape ref these frames would stop being pictures. Pinned by a
     fixture assertion that no region carries a `shape_ref`.

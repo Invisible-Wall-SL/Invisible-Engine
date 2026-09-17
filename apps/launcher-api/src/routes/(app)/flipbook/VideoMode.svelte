@@ -951,6 +951,11 @@ ${endScript}</body></html>`;
 		frames: number;
 		width: number;
 		height: number;
+		/** Set only when the seeded page cannot hold every frame at its own size. The export
+		 * still wrote every reference image — the seed is a starting point the Atlas Maker
+		 * recomputes, so a page that is too small is a thing to fix before Create Atlas, never
+		 * a reason to withhold the images. Absent when everything fits. */
+		note?: string;
 	}
 	/** How each frame's art maps into its cell once the atlas is built. The cell is not decided
 	 * here — the exported manifest is a grid whose geometry the Atlas Maker recomputes from its
@@ -2791,6 +2796,12 @@ Overwrite it?`)
 					region{refsDone.regions === 1 ? '' : 's'} — one per frame, each already pointing at its own
 					reference image.
 				</p>
+				{#if refsDone.note}
+					<!-- A caveat about the SEEDED page, never a failure: every reference image is
+					     already written. Shown as a warning pill rather than a hint so it is not
+					     read as part of the success line above. -->
+					<p class="pill warn">{refsDone.note}</p>
+				{/if}
 				<p class="hint">
 					Nothing was packed: what exists now is those loose full-resolution PNGs plus an unpacked
 					manifest whose regions point at them. Open the Atlas Maker, pick
@@ -3353,6 +3364,15 @@ Overwrite it?`)
 	}
 	.pill.err {
 		color: #fca5a5;
+		display: block;
+		margin-top: 8px;
+		padding: 6px 8px;
+		line-height: 1.4;
+	}
+	/* The seeded page is too small for every frame — a caveat on a SUCCESSFUL export, so it
+	   reads as amber rather than as the red of a failure. Same block shape as .err. */
+	.pill.warn {
+		color: #fcd34d;
 		display: block;
 		margin-top: 8px;
 		padding: 6px 8px;
