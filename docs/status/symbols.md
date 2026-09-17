@@ -358,10 +358,12 @@ Working on `main`:
   - Also: the header's `Run:` line said `npx tsx …`, which picks up a global tsx that cannot resolve
     `engine-layout` — it is the working `pnpm --filter launcher-api …` form now.
   - The other five launcher checks in this set pass too — four of them only after a `svelte-kit
-    sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). The sixth,
-    `check:game-config-defaults`, still fails — untouched here, already recorded in
-    `docs/status/game-config.md`, and **not** a stale-file refresh: regenerating strips the authored
-    `winLevels` block from `lines/ways/scatter.json`. Do not blind-regenerate.
+    sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). ⚠️ **Correction to
+    what this entry first said:** the sixth, `check:game-config-defaults`, was reported here as
+    failing on `main` with the committed JSON at fault. It is not. Those three files are correct and
+    the check is green on a complete install — it had been run in a worktree installed with `pnpm
+    install --filter launcher-api...`, which leaves the other games without `constants-shared` and
+    makes the generator derive a tier-less doc. Root cause and fix in `docs/status/game-config.md`.
 - 2026-08-27 — **A spine symbol state played once and froze; now every state has an authorable
   Loop, and looping is the default.** Reported as *"the idle spine I place in the symbol state
   machine only plays 2 times, and then it stops."*

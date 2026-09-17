@@ -22,7 +22,7 @@
 // the real `apps/lines` config and compares), so drift fails a fixture run even if nobody thinks to
 // run `--check`. That redundancy is deliberate: a generator nobody runs is a generator that lies.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -152,7 +152,11 @@ for (const [gameType, configPath] of targets) {
 		resolve(HERE, '../../../packages/engine-game/src/game/winLevelMap.ts'),
 	];
 	let tiersFrom: string | undefined;
+	let tiersUnreadable = false;
 	for (const candidate of winLevelMapCandidates) {
+		// Absent is legitimate — it just means this game does not keep its table here. Only a file that
+		// EXISTS and will not load is a problem, and the two must not share one silent catch.
+		if (!existsSync(candidate)) continue;
 		try {
 			const wl = (await import(pathToFileURL(candidate).href)) as {
 				winLevelMap?: Record<string | number, CodedWinLevelEntry>;
@@ -167,9 +171,25 @@ for (const [gameType, configPath] of targets) {
 				tiersFrom = candidate;
 			}
 			break;
-		} catch {
-			// Try the next candidate.
+		} catch (e) {
+			// The table is RIGHT THERE and would not import. Never legitimate — and the mode that bites is
+			// a partial workspace install: `pnpm install --filter launcher-api...` leaves the other games
+			// and `engine-game` without `constants-shared`, which every `winLevelMap.ts` imports for
+			// `SECOND`. Swallowed, that derived a TIER-LESS doc and reported the committed, correct JSON as
+			// `stale` — which reads as drift in the data and sends you to diff the wrong thing.
+			console.error(`✗ ${gameType}: ${candidate} exists but could not be imported:`);
+			console.error(`    ${(e as Error).message.split('\n')[0]}`);
+			console.error(
+				'    a partial `pnpm install --filter …` causes this — run a full `pnpm install`.',
+			);
+			tiersUnreadable = true;
+			break;
 		}
+	}
+	// Refuse to write rather than quietly shipping a default stripped of every tier.
+	if (tiersUnreadable) {
+		failures++;
+		continue;
 	}
 	// Loud, because a silently tier-less default is a real degradation that still validates clean.
 	if (!tiersFrom) {
