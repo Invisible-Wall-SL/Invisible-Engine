@@ -69,6 +69,28 @@ export const readHostGameSettings = (): HostGameSettings | null => {
 	return null;
 };
 
+/**
+ * The RGS path the operator's page declared (`GameSettings.service`), as a same-origin path.
+ *
+ * Their wrapper spells it without a leading slash (`"webnode/engine"`) and builds the request URL
+ * as `'/' + … + '/engine'`, so a leading slash is added here and the value is used against the
+ * page's own origin.
+ *
+ * REFUSED rather than repaired: anything carrying a scheme, a protocol-relative `//host`, or the
+ * unsafe characters below. The page is the operator's, so this is not a trust boundary in the usual
+ * sense — but a `service` that resolves off-origin turns "same-origin, no CORS" into an absolute
+ * URL nobody declared, and the whole point of {@link DeliveryProfileRgs.source} `'host'` is that
+ * the RGS is reached without one. Null falls back to the profile's own endpoint.
+ */
+export const hostServicePath = (): string | null => {
+	const service = readHostGameSettings()?.service?.trim();
+	if (!service) return null;
+	// eslint-disable-next-line no-control-regex
+	if (/[\s\\]|[\u0000-\u001f\u007f]/.test(service)) return null;
+	if (/^[a-z][a-z0-9+.-]*:/i.test(service) || service.startsWith('//')) return null;
+	return service.startsWith('/') ? service : `/${service}`;
+};
+
 /** A positive finite number from the host config, or null. */
 export const hostNumber = (key: string): number | null => {
 	const value = readHostGameSettings()?.config[key];

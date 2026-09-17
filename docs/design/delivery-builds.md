@@ -226,18 +226,52 @@ Each is an operator's declaration about a REGULATED or contractual surface, so e
 ourselves is a place a delivery can be wrong for a jurisdiction. Work through them by how much they
 cost to get wrong — the bet ladder first, then currency, then autoplay.
 
-### `service` is read and then ignored
+### A real delivery names no RGS host at all (`rgs.source: 'host'`) ✅ BUILT
 
-`readHostGameSettings()` already returns `service` (`"webnode/engine"`) and nothing consumes it: the
-profile's baked `rgs.endpoint` wins. Worth closing, and it may close something bigger with it — in
-their own template the game API is built as a **relative** path (`'/' + RequestController.getBaseUrl()
+**Confirmed 2026-09-17:** their embed reaches the RGS through `RequestController.getBaseUrl()` — a
+relative path on the page's own origin, with `GameSettings.service` naming it. So a delivery's RGS
+is **same-origin**, and the whole CORS apparatus is moot for exactly the case it was built for: no
+preflight per spin, no `Access-Control-Allow-Origin` for an open-ended set of client and aggregator
+domains, no `simpleRequest` content-type dodge, and no absolute host baked into an artifact several
+operators receive. The RGS host stops being something the build knows and goes back to being
+something the operator's own infrastructure decides — the only party that actually knows it.
 
-- '/engine'`), i.e. same-origin with the page. If that is how a real operator deployment is wired,
-then a delivery's RGS is same-origin, and the CORS work (`simpleRequest`, the `text/plain`dodge, the
-preflight question) is moot for exactly the case it was built for. Confirm before assuming either
-way:`allowUrlOverride: false` already stops the URL being repointed, and a relative endpoint is a
-  strictly smaller attack surface than an absolute one.
+We could not express that. `rgsUrl()` already returned an empty (same-origin) base for a pinned
+profile, but `config-vite` **required a non-empty `rgs.baseUrl`**, so a same-origin delivery could
+not be built; and `service` was read and then ignored, because the baked `rgs.endpoint` won.
 
+`rgs.source` closes both:
+
+| | `profile` (default) | `host` |
+| --- | --- | --- |
+| Origin | `rgs.baseUrl` | the page's own |
+| Path | `rgs.endpoint` | `GameSettings.service`, falling back to `rgs.endpoint` |
+
+It is **bake-only**, like `allowUrlOverride`: an operator's `config.json` may repoint a build between
+their own hosts, but changing it from "the RGS we shipped you" to "whatever your page says" is a
+different power. And it has to be an explicit declaration — an omitted or empty `baseUrl` on its own
+still fails the build, because a delivery shipped pointing at no RGS at all is the accident that
+check exists to stop.
+
+`hostServicePath()` refuses anything carrying a scheme, a protocol-relative `//host`, or unsafe
+characters. The page is the operator's, so this is not a trust boundary in the usual sense — but a
+`service` that resolved off-origin would quietly turn "same-origin, no CORS" back into an absolute
+URL nobody declared, which is the one thing this mode promises cannot happen.
+
+`profiles/operator-embed.json` is the shape; `profiles/2complex.json` stays absolute because the test
+node is reached cross-origin from our own machines. **Verified end-to-end**: built with the profile,
+loaded through the embed harness, and the game posted to `{page origin}/webnode/engine?sid=…` with
+the token from `GameSettings.token`.
+
+### The build validator is now testable, which it never was
+
+`deliveryProfileProblems()` moved to `packages/config-vite/deliveryProfile.js`, a dependency-free
+leaf. In `index.js` it could not be driven by a fixture at all: that module's factory builds a real
+vite config, so `sveltekit()` and `lingui()` run — and throw — before the check is reached, and a
+fixture calling it reports whatever those plugins did instead. **That is the direct cause of the
+`KNOWN` list drifting twice.** `profile.fixture.ts` now imports the list rather than scraping the
+file for it (the scrape would have passed on a field mentioned in a comment), compares it **both
+ways**, and asserts every shipped profile survives its own validator.
 ## Phase 3 — the embeddable build ✅ BUILT
 
 `pnpm --filter lines build:embed` (`PUBLIC_DELIVERY_EMBED=1` + `scripts/build-embed.mjs`) produces

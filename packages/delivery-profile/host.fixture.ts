@@ -6,7 +6,7 @@
  * server-side and hands the browser one `params.GameSettings` object. Three unrelated consumers
  * read it — the session token, the bet ladder, the jurisdiction flags — so it has ONE reader here.
  *
- * FIVE claims:
+ * SIX claims:
  *
  *  1. NO EMBED PAGE, NO BEHAVIOUR. Every game we run today launches from a URL we generate, with no
  *     `params` anywhere. That must read as "nothing to say", not as an empty config that overrides
@@ -18,12 +18,15 @@
  *  4. A CROSS-ORIGIN PARENT IS NOT AN ERROR. Touching one throws, and that throw is precisely the
  *     case where we have no business reading it — so it means "no host settings", not a crash on
  *     someone else's site.
+ *  6. `hostServicePath` TAKES A PATH AND ONLY A PATH. When the profile says the operator's page
+ *     is the RGS origin, this is the whole address — so a `service` that resolves OFF-origin would
+ *     quietly turn "same-origin, no CORS" into an absolute URL nobody declared.
  *  5. `hostBoolean` TELLS "STATED FALSE" FROM "NOT STATED". This is the whole point for jurisdiction:
  *     overriding a default because the operator was SILENT is how a game ends up disabling turbo
  *     nobody disabled.
  */
 
-import { hostBoolean, hostNumber, readHostGameSettings } from './src/host.ts';
+import { hostBoolean, hostNumber, hostServicePath, readHostGameSettings } from './src/host.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -126,6 +129,29 @@ const main = () => {
 		// The distinction that matters: `false` and `null` are different answers, and only one of
 		// them may override a default.
 		check('false is not null', hostBoolean('enableTurbo') === null, false);
+	}
+
+	console.log('\n6. hostServicePath takes a path and only a path');
+	{
+		const service = (value: unknown) => {
+			page({ own: { GameSettings: { service: value } } });
+			return hostServicePath();
+		};
+		// The partner spells it without a leading slash and adds one when building the request.
+		check('their spelling', service('webnode/engine'), '/webnode/engine');
+		check('already rooted', service('/webnode/engine'), '/webnode/engine');
+		check('no service at all', service(undefined), null);
+		check('empty', service('   '), null);
+		// Each of these reaches a DIFFERENT origin than the page, which is the one thing
+		// `rgs.source: 'host'` promises cannot happen.
+		check('absolute url', service('https://evil.example/engine'), null);
+		check('protocol-relative', service('//evil.example/engine'), null);
+		check('a scheme we do not expect', service('javascript:alert(1)'), null);
+		// A backslash is folded into a path separator by the WHATWG parser, so it hides structure.
+		check('backslash', service('webnode\\..\\engine'), null);
+		check('whitespace', service('webnode /engine'), null);
+		// Falling back is the point: a page that says nothing leaves the profile's endpoint standing.
+		check('null is the fallback signal, not an empty path', service(''), null);
 	}
 
 	console.log(failures === 0 ? '\nAll host-page claims hold.\n' : `\n${failures} FAILED.\n`);

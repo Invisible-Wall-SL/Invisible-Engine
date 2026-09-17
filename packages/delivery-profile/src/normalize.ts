@@ -19,14 +19,19 @@ export interface DeliveryProfileMerge {
  */
 export type DeliveryProfileScope = 'baked' | 'override';
 
-const BAKE_ONLY_FIELDS = ['rgs.withCredentials', 'rgs.allowUrlOverride', 'session.required'];
+const BAKE_ONLY_FIELDS = [
+	'rgs.source',
+	'rgs.withCredentials',
+	'rgs.allowUrlOverride',
+	'session.required',
+];
 
 /** Every field a profile may carry, by section. Exported because the BUILD-time validator in
  *  `packages/config-vite` keeps its own copy — see the note there — and `profile.fixture.ts`
  *  asserts the two agree. */
 export const DELIVERY_PROFILE_FIELDS: Record<string, string[]> = {
 	'': ['id', 'rgs', 'session'],
-	rgs: ['baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
+	rgs: ['source', 'baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
 	session: ['param', 'source', 'required'],
 };
 
@@ -177,6 +182,21 @@ export const mergeDeliveryProfile = (
 		}
 	}
 
+	// Bake-only, like the three booleans below it and for the same reason: it decides WHERE the
+	// wallet call goes. An operator's `config.json` may repoint a build between their own hosts; it
+	// may not change the build from "the RGS we shipped you" to "whatever your page says".
+	let rgsSource = base.rgs.source;
+	const rgsSourcePatch = readString(rgsPatch, 'source', 'rgs.source', warnings)?.trim() ?? null;
+	if (rgsSourcePatch !== null) {
+		if (scope === 'override') {
+			warnings.push('rgs.source is set when the build is cut and cannot be overridden — ignored');
+		} else if (rgsSourcePatch === 'profile' || rgsSourcePatch === 'host') {
+			rgsSource = rgsSourcePatch;
+		} else {
+			warnings.push('rgs.source must be "profile" or "host" — ignored');
+		}
+	}
+
 	let endpoint = base.rgs.endpoint;
 	const endpointPatch = readString(rgsPatch, 'endpoint', 'rgs.endpoint', warnings)?.trim() ?? null;
 	if (endpointPatch !== null) {
@@ -213,6 +233,7 @@ export const mergeDeliveryProfile = (
 		profile: {
 			id: id === null || id === '' ? base.id : id,
 			rgs: {
+				source: rgsSource,
 				baseUrl,
 				endpoint,
 				withCredentials:
