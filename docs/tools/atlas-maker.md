@@ -99,6 +99,13 @@ it, it ships. A pick lasts until you pick again, delete that file, or
 to it and the pin goes with it. Lock the pick if you want it to outlive future
 renders. Nothing is lost to a render you stopped or that failed.
 
+**A pick belongs to the batch you made it from.** Picking #3 out of five keeps
+#3 — the other four were already there, so they supersede nothing. Render that
+slot again and the new file wins: every unlocked card is back on its latest
+variant the moment the run finishes, with nothing to click. That is decided
+from the manifest each time the page is drawn, so it holds however the render
+ended — stopped, crashed, tab closed, or refreshed from another machine.
+
 ## ⚙ Settings — and where the dropdowns get their values
 
 Three collapsible panels sit above the region grid:

@@ -2282,16 +2282,23 @@ def newest_variant_id(name: str) -> str:
     return variant_id(files[-1]) if files else ""
 
 
-def output_view(name: str, region: dict) -> tuple[str, str, str, int | None]:
-    """The output figure for a region: (thumb url, full url, caption, seed).
+def output_view(name: str, region: dict
+                ) -> tuple[str, str, str, int | None, str]:
+    """The output figure for a region: (thumb, full, caption, seed, pick).
 
     Shared by the page build and /cardsdata so a post-render refresh shows
     exactly what a reload would — the card used to keep a stale `?id=` after a
     render superseded the pick, and to caption a picked variant with the
     LATEST file's seed instead of the picked file's.
 
+    It returns the pick it resolved as well as the image built from it, because
+    the card carries that id in `data-variant` and posts it back on every save:
+    recomputing it at the call site is how the two drift, and a card that
+    re-asserts a spent pick writes it straight back into the manifest.
+
     Priority matches batch_atlas._pick_variant_png: a committed user image
-    wins, then the picked variant, then the newest generated file.
+    wins, then the LIVE picked variant (see batch_atlas.effective_variant —
+    a pick the slot has re-rendered past is spent), then the newest file.
 
     Each url's cache-bust `?t=` is the SOURCE file's mtime+size — not a
     per-page-load timestamp. So a plain reload stays fully cacheable (no
@@ -2301,19 +2308,23 @@ def output_view(name: str, region: dict) -> tuple[str, str, str, int | None]:
     if override_p is not None:
         t = imgcache.thumb_token(override_p)
         return (f"/outthumb/{name}?t={t}", f"/outfull/{name}?t={t}",
-                "★ your image · NOT processed", None)
-    picked = str(region.get("variant", "")).strip()
-    p = variant_path(name, picked) if picked else None
+                "★ your image · NOT processed", None, "")
+    files = variant_files(name)
+    picked = batch_atlas.effective_variant(
+        region, variant_id(files[-1]) if files else "")
+    p = next((q for q in files if variant_id(q) == picked), None) if picked else None
     if p is not None:
         t = imgcache.thumb_token(p)
         thumb = f"/vthumb/{name}?id={picked}&t={t}"
         full = f"/vfull/{name}?id={picked}&t={t}"
     else:
-        p = latest_output(name)
+        picked = ""
+        p = files[-1] if files else None
         t = imgcache.thumb_token(p) if p else "0"
         thumb, full = f"/thumb/{name}?t={t}", f"/full/{name}?t={t}"
     us = seed_of(p) if p else None
-    return thumb, full, f"output · seed {us if us is not None else '—'}", us
+    return (thumb, full, f"output · seed {us if us is not None else '—'}",
+            us, picked)
 
 
 def seed_of(path: Path) -> int | None:
@@ -2840,6 +2851,7 @@ def _drop_dangling_pick(name: str) -> bool:
                     continue
                 if variant_path(name, vid) is None:
                     r.pop("variant", None)
+                    r.pop("variant_at", None)
                     dropped = True
         if dropped:
             save_manifest(m)
@@ -2996,28 +3008,32 @@ def _fx_skip_note(skipped: list[str]) -> str:
             % (len(skipped), ", ".join(skipped)))
 
 
-def _drop_superseded_picks(m: dict, before: dict[str, str]) -> list[str]:
-    """A fresh render supersedes an UNLOCKED variant pick. Mutates `m`.
+def _drop_superseded_picks(m: dict) -> list[str]:
+    """Clear every variant pick a render has already spent. Mutates `m`.
 
-    The pick decides which generated file the card shows and Create Atlas
-    composes. Once the user renders that same slot again, the newest file is
-    what the card shows — so leaving the pin in place would compose art the
-    page no longer displays. A LOCKED slot keeps its pick (that is what the
-    lock is for, and the render skipped it anyway), and only slots that
-    actually produced a new file are touched, so a stopped or failed render
-    costs nobody their pick."""
+    Housekeeping, not the rule: `batch_atlas.effective_variant` decides what
+    the card shows and what Create Atlas composes, and it ignores a spent pick
+    whether or not this ever runs. Dropping the field keeps the manifest
+    legible — a stored pin means "this is the file in use" — and is what lets
+    the render report how many slots moved on.
+
+    It used to BE the rule, comparing against a snapshot of each slot's newest
+    id taken before the subprocess started. That made the correct card depend
+    on a background hook completing, so a stopped, crashed or exception-ing
+    post-render step left the slot pinned to old art for good. A slot that
+    produced no new file is still untouched here — its newest id has not moved
+    past the pick's — so nothing is lost to a render that failed."""
     dropped: list[str] = []
     for bucket in ("regions", "rotated_regions"):
         for r in m.get(bucket, []):
             name = r.get("name")
-            if name not in before or not str(r.get("variant", "")).strip():
+            if not name or not str(r.get("variant", "")).strip():
                 continue
-            if batch_atlas.region_locked(r):
+            if batch_atlas.effective_variant(r, newest_variant_id(name)):
                 continue
-            newest = newest_variant_id(name)
-            if newest and newest != before[name]:
-                r.pop("variant", None)
-                dropped.append(name)
+            r.pop("variant", None)
+            r.pop("variant_at", None)
+            dropped.append(name)
     return dropped
 
 
@@ -3083,10 +3099,6 @@ def run_render(names: list[str], variants: int = 1,
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
     project_paths.ensure_lazy("batch/")
-    # Newest variant per slot BEFORE the subprocess runs. _post compares against
-    # it to tell "this slot produced new art" from "nothing happened", so a
-    # stopped or failed render never drops anyone's pick.
-    picks_before = {n: newest_variant_id(n) for n in names}
     # The manifest THIS render is for. _post must write back to it by path: the
     # active manifest can be switched from another tab while a render runs, and
     # region names collide across atlases.
@@ -3112,14 +3124,18 @@ def run_render(names: list[str], variants: int = 1,
             m = _read_manifest_at(mp)
             if m is None:
                 return "\n".join(notes) or None
-            dropped = _drop_superseded_picks(m, picks_before)
+            dropped = _drop_superseded_picks(m)
             if dropped:
                 _write_manifest_at(mp, m)
         if dropped:
-            notes.append("Dropped %d superseded variant pick(s) — %s now show "
-                         "the fresh render: %s"
+            # Not "…now show the fresh render": the sweep covers every region,
+            # not just this run's, so it also clears picks an EARLIER render
+            # already spent. Those slots have been showing their latest all
+            # along — this is the manifest catching up, not the card moving.
+            notes.append("Cleared %d variant pick(s) that newer art had "
+                         "superseded — %s on the latest render: %s"
                          % (len(dropped),
-                            "they" if len(dropped) > 1 else "it",
+                            "they are" if len(dropped) > 1 else "it is",
                             ", ".join(dropped)))
         return "\n".join(notes) or None
 
@@ -7474,12 +7490,27 @@ def apply_region_edits(edits: list[dict]) -> str:
             # kept showing it while Create Atlas silently composed the
             # newest file instead. Persist the pick on its own.
             vid = str(e.get("variant", "")).strip()
-            if vid != str(r.get("variant", "")):
+            new_pick = vid != str(r.get("variant", ""))
+            if new_pick:
                 picks += 1
             if vid:
                 r["variant"] = vid
+                # Which generation the pick belongs to: the newest file that
+                # existed when it was made. That is what says whether a later
+                # render has spent it (batch_atlas.effective_variant).
+                # Stamped ONLY when the pick actually changes — saveAll()
+                # re-posts every card's current pick on every save, and
+                # re-stamping there would silently un-spend a pick the last
+                # render had already superseded, which is the whole bug.
+                if new_pick:
+                    at = newest_variant_id(r["name"])
+                    if at:
+                        r["variant_at"] = at
+                    else:
+                        r.pop("variant_at", None)
             else:
                 r.pop("variant", None)
+                r.pop("variant_at", None)
             # Store the lock EXPLICITLY (both ways). It used to be inferred
             # from a stored seed, or — for GPT, which has no embedded seed —
             # from a stored pick; with the pick now saved unlocked too, that
@@ -9984,9 +10015,8 @@ class Handler(BaseHTTPRequestHandler):
         out = []
         for r in all_regions(load_manifest()):
             name = r["name"]
-            thumb, full, cap, us = output_view(name, r)
-            out.append({"name": name, "seed_used": us,
-                        "variant": str(r.get("variant", "")),
+            thumb, full, cap, us, picked = output_view(name, r)
+            out.append({"name": name, "seed_used": us, "variant": picked,
                         "thumb": thumb, "full": full, "cap": cap})
         return json.dumps(out).encode()
 
@@ -10023,9 +10053,10 @@ class Handler(BaseHTTPRequestHandler):
             committed_lock = batch_atlas.region_locked(r)
             # If a specific variant was picked, show THAT file (its embedded
             # seed may be shared with other variants, so the file id — not the
-            # seed — is the source of truth for the pick).
-            picked = str(r.get("variant", ""))
-            bigthumb, biglink, out_cap, us = output_view(name, r)
+            # seed — is the source of truth for the pick). output_view owns
+            # that decision and hands back the pick it resolved, so the card's
+            # image and its data-variant can never disagree.
+            bigthumb, biglink, out_cap, us, picked = output_view(name, r)
             ref_token = imgcache.thumb_token(self._refpath(f"/ref/{name}"))
             rneg = str(r.get("negative", ""))
             rneg_replace = bool(r.get("negative_replace", False))
@@ -10640,8 +10671,8 @@ class Handler(BaseHTTPRequestHandler):
     # per-region bits that must stay original — style_ref (each region's own
     # reference image) and seed (the locked seed / lock state is per-result).
     _COPY_BLOCK = {"name", "x", "y", "w", "h", "rotated", "bounds", "offsets",
-                   "rotate", "output_override", "variant", "fruit", "role",
-                   "style_ref", "seed", "lock"}
+                   "rotate", "output_override", "variant", "variant_at",
+                   "fruit", "role", "style_ref", "seed", "lock"}
 
     def _copyfrom(self, payload: dict) -> str:
         """Copy tuning settings (prompt, negatives, replace flags, every
