@@ -135,22 +135,23 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		// / win / bet can each carry their own art without forking the def (the tile knobs —
 		// texture key / outline / corner radius — style the DEF, hence every instance of it).
 		// Unset ⇒ the coded tile renders exactly as before (parity). `backgroundTint` multiplies
-		// whichever of the two draws; the size pair resizes the box (blank ⇒ the coded
-		// `HUD_TILE_WIDTH` × `HUD_TILE_HEIGHT`), since a custom background is rarely 326:73 —
-		// the same reason `alignWidth` exists.
+		// whichever of the two draws. The size pair OVERRIDES the box; left blank, a picked frame
+		// draws at its own natural size and only the coded tile falls back to
+		// `HUD_TILE_WIDTH` × `HUD_TILE_HEIGHT` — forcing custom art into that 326:73 ratio
+		// squashed whatever the author picked, which is also why `alignWidth` exists.
 		{ key: 'backgroundImage', kind: 'image', group: 'Background', label: 'image' },
 		{ key: 'backgroundTint', kind: 'color', group: 'Background', label: 'tint' },
 		{
 			key: 'backgroundWidth',
 			kind: 'number',
 			group: 'Background',
-			label: 'width (blank = default)',
+			label: 'width (blank = image size)',
 		},
 		{
 			key: 'backgroundHeight',
 			kind: 'number',
 			group: 'Background',
-			label: 'height (blank = default)',
+			label: 'height (blank = image size)',
 		},
 		// PER-TEXT overrides (v2) — the readout draws two texts (Caption + Value) as
 		// separate coded parts (`HudCaption`/`HudValue`); these let each be styled on its
