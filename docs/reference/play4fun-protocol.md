@@ -178,42 +178,55 @@ Alongside `context`, the `config` EVENT itself carries the resume contract:
 
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
 
-## Resume — what happens when a player comes back
+## Resume — smaller than it looks, and here is the measurement
 
-This is the part of the protocol we have no answer for, and the one most likely to bite a delivery.
+Their client keeps a `resumeData` queue and, before every request, replays any stored actions the
+server still expects (`getResumeActions(untilAction)`), recovering the stake from the stored `bet`
+and the round from `platform.gameRound.id`. We implement none of it.
 
-On boot, if `config.actions` is non-empty and `config.resume` (or `replay`) is set, their client:
+**That reads like the most dangerous gap in this document. Measured against the live node, it is
+not**, and the reason is worth stating because it is not obvious from the protocol alone.
 
-1. reads the stored `bet` action to recover the stake — `context[0]` is the bet param, `context[1]`
-   the bet point — so the UI comes back showing what the player actually staked;
-2. takes `platform.gameRound.id` as the round to continue;
-3. queues the actions, and from then on **every request prepends the pending stored actions** up to
-   the one it wants (`getResumeActions('play')`, `getResumeActions('collect')`), shifting them off as
-   they are sent.
+### A round settles in about a second; the rest is animation
 
-So the server holds the round; the client replays its way back to the present and carries on.
+Buying the feature on Book of Borut (`gs.2-complex.science`, 2026-09-17) produced **sixteen
+requests in 918 ms**:
 
-**What we actually do, measured 2026-09-17** against the live partner node (Book of Borut on
-`gs.2-complex.science`, the third launcher card): we ignore all of it. A reload mid-session sends
-`config` + a balance probe and starts a new game — no `resume` check, no queue.
+| `seq` | What |
+| --- | --- |
+| 0 | `[bet, play]` — the buy, bet-option index 1 |
+| 2 … 11 | ten free spins, one request each, ~70 ms apart |
+| 12 | `collect` |
 
-That is less dangerous than reasoning from `seq`-as-position alone suggests, and the live run is
-worth recording because it **contradicts the obvious inference**. Leaving a round open and reloading,
-the next spin posted `[bet, play]` at `seq=0` and the server issued a **fresh round id** rather than
-replaying the open one. So this node tolerates abandoning a round; a fresh boot does not silently
-replay a spin. The replay path is reached by re-posting to an occupied position WITHIN a round the
-client is still tracking, not by starting over.
+The free-spin INTRO screen had not even appeared yet. By the time the player sees "you win 10 free
+spins", the server has already played all ten, closed the round and paid. Everything after that
+first second is presentation over a settled outcome.
 
-What we did observe costs the player nothing but looks wrong: the HUD sat €1.00 below the server's
-own figure while the round stayed open (our two-step balance returns the interim from `requestBet`
-and the final from `requestEndRound`, and that round never got its `requestEndRound`). The reload
-revealed the true balance. A player who abandons a round therefore sees a stale number until they
-come back.
+So the window in which a round is open is roughly one second per spin, not the ~60 s a feature takes
+to play out. **Verified the hard way:** reloading the tab in the middle of the free-spin
+presentation, the balance came back `€10,168.50` — the full `€177.50` feature win, banked, despite
+the client never finishing the animation. Nothing was lost and there was nothing to resume.
 
-So the work here is smaller than "implement resume", and it is still worth doing: read
-`config.resume` / `config.actions` at boot and either continue that round or close it, so the wallet
-the player sees is the wallet the server has. The full replay queue only matters once we support the
-features that leave a round open for several actions — free spins and pickups.
+### What the live runs actually showed
+
+- **A fresh boot against an open round does not replay.** Reasoning from `seq`-as-position, the
+  obvious inference is that starting over re-posts `bet` at an occupied position and triggers the
+  replay path. It does not: the server issued a **fresh round id** and a real spin. Replay is reached
+  by re-posting within a round the client is still tracking, not by starting over.
+- **The one real cost is a stale wallet.** With a round left open, the HUD sat €1.00 below the
+  server's own figure, because our two-step balance leaves it on the interim from `requestBet` until
+  `requestEndRound` lands. A reload revealed the true number.
+- **`seq` is right at scale.** That 13-position round is the strongest test this implementation has
+  had — a per-request counter would have mis-numbered every free spin after the first.
+
+### So what is still worth building
+
+Not the replay queue. Read `config.resume` / `config.actions` at boot and either continue that round
+or close it, so the wallet the player sees is the wallet the server has. That is the whole remaining
+exposure, and it is cosmetic rather than financial.
+
+The full queue only earns its keep if a future game keeps a round open across actions the player has
+to drive — a pickup, or a gamble — where the server genuinely waits on input. Book-of does not.
 
 ## Where the host glue lives (and why we did not find it)
 
