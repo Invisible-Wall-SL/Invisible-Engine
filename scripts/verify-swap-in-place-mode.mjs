@@ -1038,6 +1038,13 @@ const buildTumbleRuntime = ({
 		// the real one rather than a stub, so if the un-authored path ever stopped resolving to
 		// all-zero, every order asserted below would move and say so.
 		'bakedTumblePattern',
+		// ARRIVAL RELEASE — read by the appear handler to decide whether the round is let go as soon
+		// as the symbols are seated, or only once every intro has played out. Another free identifier
+		// in the slice, and the third time a new one has quietly taken this fixture out: it threw
+		// before a single part-9 claim ran, on `main`, green on the branch that added it. It answers
+		// OFF here for the same reason the two above answer unauthored — that is the state every project
+		// is in until someone turns it on, and it is the behaviour every claim below was written for.
+		'bakedArrivalReleaseEnabled',
 		'tumbleExplosionDelays',
 		`${tumbleStateSource}
 let show = false;
@@ -1092,6 +1099,7 @@ return {
 		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
 		() => undefined,
 		() => undefined,
+		() => false,
 		tumbleExplosionDelays,
 	);
 };

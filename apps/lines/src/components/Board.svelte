@@ -62,11 +62,45 @@
 
 	let show = $state(true);
 
+	/**
+	 * Is the CASCADE OVERLAY on screen? Tracked off its own `tumbleBoardShow`/`tumbleBoardHide` cues —
+	 * the mirror image of `TumbleBoard` watching this board's `boardShow`/`boardHide` for its ground
+	 * tiles, and read for one purpose only: to keep this board's cells ALIVE while the overlay has the
+	 * screen (see {@link mounted}).
+	 */
+	let overlayShown = $state(false);
+
+	/**
+	 * Is this board's scene graph BUILT? — which is not the same question as whether it is DRAWN
+	 * ({@link show}).
+	 *
+	 * A round hands the board to the cascade overlay and takes it back: `boardHide` → overlay →
+	 * `boardSettle` → `boardShow`. Unmounting for that hand-over destroys every symbol cell and builds
+	 * a new one on the way back, and a new cell starts its clip at frame one — so a symbol that did
+	 * not change still restarts. Measured on a live swap-in-place board, one paying round rebuilt each
+	 * seat's art EIGHT times; the player sees every standing symbol snap back to its first frame at
+	 * each of the round's beats.
+	 *
+	 * So while the overlay holds the screen this board is HIDDEN, not dismantled: the cells live
+	 * across the hand-over, and the ones whose symbol and state are unchanged keep playing.
+	 *
+	 * It is gated on the overlay rather than made unconditional on purpose. `boardHide` is also an
+	 * authorable Broadcast cue — a doc may hide the board for a cinematic, a transition, a bonus
+	 * screen — and those have no reason to keep a board's worth of spines and flipbooks ticking behind
+	 * the curtain. Without the overlay this is `{#if show}` exactly as it always was, so a game that
+	 * never cascades is byte-identical.
+	 */
+	const mounted = $derived(show || overlayShown);
+
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => context.stateGameDerived.enhancedBoard.stop(),
 		boardSettle: ({ board }) => context.stateGameDerived.enhancedBoard.settle(board),
 		boardShow: () => (show = true),
 		boardHide: () => (show = false),
+		// Read-only mirrors of the overlay's own visibility — subscribing a second time observes the
+		// cue, it does not take it over (the emitter delivers to every subscriber).
+		tumbleBoardShow: () => (overlayShown = true),
+		tumbleBoardHide: () => (overlayShown = false),
 		boardWithAnimateSymbols: async ({ symbolPositions, winLineColor }) => {
 			// The tint colour normally rides the broadcast; when a raw FlowDoc node omits it (the first
 			// presentation on a flow-driven game wires only `symbolPositions`), fall back to the recorded
@@ -262,9 +296,9 @@
 	context.stateGameDerived.enhancedBoard.readyToSpinEffect();
 </script>
 
-{#if show}
+{#if mounted}
 	<BoardContext animate={false}>
-		<BoardContainer>
+		<BoardContainer visible={show}>
 			<!-- `allowOverflow`: once no reel's strip is moving, the window may grow by the `reelGrid`
 			     node's authored symbol overflow, so a landed symbol drawn bigger than its cell is not
 			     cut off at the board edge. Nothing authored / any reel still rolling ⇒ the same window
@@ -301,7 +335,7 @@
 	</BoardContext>
 
 	<BoardContext animate={true}>
-		<BoardContainer>
+		<BoardContainer visible={show}>
 			<BoardBase />
 		</BoardContainer>
 	</BoardContext>
