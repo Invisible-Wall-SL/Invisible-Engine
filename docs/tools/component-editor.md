@@ -143,7 +143,13 @@ does not feed itself), grouped exactly like the instance panel in the Scene Edit
 images get the region picker, colours the colour field, fonts the font dropdown, a
 param with a fixed option list its dropdown, booleans a checkbox, and everything else
 a text or number box. It is hidden when no project is active, and while you are
-inspecting a historical version (that canvas is a read-only snapshot).
+inspecting a historical version (that canvas is a read-only snapshot) — entering an
+inspect drops any unsaved default back to its last saved value, after warning you.
+
+One gap to know about: the **spine animation / slot / bone** and **symbol state**
+params fall back to a free-text box here, while the same param on a placed instance
+in the Scene Editor gets a validated dropdown. Type those carefully, or set them per
+instance instead.
 
 **Inherit is the empty state.** A field you have not set reads *(inherit default: …)*
 or shows the component's own default as its placeholder, and that key is simply

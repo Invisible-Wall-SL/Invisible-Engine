@@ -184,6 +184,14 @@
 		 * for "inherit" — the panel's `×` removes the key (see {@link onSetProjectParamDefault}).
 		 */
 		projectParamDefaults?: Record<string, unknown>;
+		/**
+		 * SCENE mode: the project's per-component defaults by component id (§13.3). The canvas
+		 * draws a placed instance through this layer, so the panel has to read it too — an unset
+		 * control that falls back to the def's own default would otherwise state the opposite of
+		 * what the canvas and the game render (the `instanceParamEffective` trap, see its note).
+		 * Empty ⇒ resolved exactly as before.
+		 */
+		componentDefaults?: Record<string, Record<string, unknown>>;
 		/** Set / clear one per-project default (component mode). `undefined` = back to inherit,
 		 * which the parent must apply by DELETING the key, not by writing `undefined`. */
 		onSetProjectParamDefault?: (key: string, value: unknown) => void;
@@ -266,6 +274,7 @@
 		onUnexposeImageParam,
 		onToggleSignal,
 		projectParamDefaults = {},
+		componentDefaults = {},
 		onSetProjectParamDefault,
 		projectLabel = null,
 		projectDefaultsActions,
@@ -1115,6 +1124,14 @@
 	function instanceParamEffective(n: LayoutNode | null, p: ComponentParam): unknown {
 		const raw = instanceParamValue(n, p.key);
 		if (raw !== undefined) return raw;
+		// Mirror `resolveComponentParams`' layering EXACTLY — p.default ◁ defaultInstanceParams ◁
+		// project defaults ◁ instance. Skipping the project layer here is how the panel ends up
+		// stating the opposite of the canvas (a boolean the project defaults to `true` drew ticked
+		// but read unticked, and ticking it wrote a redundant explicit override).
+		const fromProject = instanceComponent
+			? componentDefaults[instanceComponent.id]?.[p.key]
+			: undefined;
+		if (fromProject !== undefined) return fromProject;
 		const seed = instanceComponent?.defaultInstanceParams?.[p.key];
 		return seed !== undefined ? seed : p.default;
 	}

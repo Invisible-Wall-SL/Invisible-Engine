@@ -3193,6 +3193,7 @@
 					{/if}
 					<EditorProperties
 						node={selectedNode}
+						componentDefaults={data.componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}
 						layoutTypeIds={layoutTypes}

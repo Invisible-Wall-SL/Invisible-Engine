@@ -84,9 +84,12 @@ export async function saveComponentDefaults(
 		throw new Error('Component defaults `params` must be a plain object.');
 	}
 	const key = projectComponentDefaultsKey(projectKey, componentId);
+	// Stamp the REAL component id beside the params. The filename is `r2Slug(componentId)`, which
+	// is lossy (`hudReadout` → `hudreadout.json`), so without this the listing can only key by the
+	// slug and every lookup by `ComponentDef.id` misses.
 	const etag = await putObjectText(
 		key,
-		JSON.stringify({ params }, null, 2),
+		JSON.stringify({ id: componentId, params }, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
@@ -111,11 +114,20 @@ export async function listComponentDefaults(
 		return {};
 	}
 	const out: Record<string, Record<string, unknown>> = {};
-	for (const key of keys) {
-		if (!key.endsWith('.json')) continue;
-		const params = await readDefaults(key);
-		const id = basename(key);
-		if (id) out[id] = params;
+	// Read the sidecars CONCURRENTLY — this loop sits on the Scene Editor's page-load critical
+	// path, so a project with many sidecars would otherwise pay one serial R2 round-trip each.
+	const entries = await Promise.all(
+		keys
+			.filter((key) => key.endsWith('.json'))
+			.map(async (key) => ({ key, doc: await readDefaults(key) })),
+	);
+	for (const { key, doc } of entries) {
+		// Prefer the id STAMPED in the sidecar over the filename. The filename is
+		// `r2Slug(componentId)`, so a camelCase id (`hudReadout`) lands as `hudreadout` and a
+		// lookup by the real `ComponentDef.id` misses — see {@link keyComponentDefaultsById},
+		// which stays as the fallback for sidecars written before the stamp existed.
+		const id = doc.id || basename(key);
+		if (id) out[id] = doc.params;
 	}
 	return out;
 }
@@ -142,22 +154,28 @@ export function keyComponentDefaultsById(
 	return out;
 }
 
-/** Read + unwrap one defaults key's `params`, swallowing any read/parse failure. */
-async function readDefaults(key: string): Promise<Record<string, unknown>> {
+/** Read + unwrap one defaults key's `params` plus the `id` stamped beside them (absent on a
+ * sidecar written before the stamp), swallowing any read/parse failure. */
+async function readDefaults(key: string): Promise<{ id?: string; params: Record<string, unknown> }> {
 	let raw: string | null;
 	try {
 		raw = await getObjectText(key);
 	} catch {
-		return {};
+		return { params: {} };
 	}
-	if (!raw) return {};
+	if (!raw) return { params: {} };
 	try {
 		const parsed: unknown = JSON.parse(raw);
-		if (isRecord(parsed) && isRecord(parsed.params)) return parsed.params;
+		if (isRecord(parsed) && isRecord(parsed.params)) {
+			return {
+				id: typeof parsed.id === 'string' && parsed.id ? parsed.id : undefined,
+				params: parsed.params,
+			};
+		}
 	} catch {
-		return {};
+		return { params: {} };
 	}
-	return {};
+	return { params: {} };
 }
 
 /** The `<id>` of a `…/component-defaults/<id>.json` key (filename without suffix). */
