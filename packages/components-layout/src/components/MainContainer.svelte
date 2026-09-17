@@ -5,7 +5,7 @@
 	type Props = Omit<ContainerProps, 'x' | 'y' | 'scale' | 'pivot'> & {
 		debug?: boolean;
 		standard?: boolean;
-		alignVertical?: 'center' | 'bottom';
+		alignVertical?: 'center' | 'top' | 'bottom';
 		alignHorizontal?: 'center' | 'left' | 'right';
 	};
 
@@ -20,8 +20,11 @@
 	);
 	const canvasSizes = $derived.by(context.stateLayoutDerived.canvasSizes);
 	const getY = () => {
-		const bottomY = canvasSizes.height * 0.5 - mainLayout.height * mainLayout.scale * 0.5;
-		return alignVertical === 'bottom' ? bottomY : 0;
+		if (alignVertical === 'top')
+			return -canvasSizes.height * 0.5 + mainLayout.height * mainLayout.scale * 0.5;
+		if (alignVertical === 'bottom')
+			return canvasSizes.height * 0.5 - mainLayout.height * mainLayout.scale * 0.5;
+		return 0;
 	};
 	const getX = () => {
 		if (alignHorizontal === 'left')

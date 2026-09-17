@@ -2075,20 +2075,23 @@
 		ctx.translate(panX, panY);
 		ctx.scale(zoom, zoom);
 
-		// `standard` + bottom-align: show the window extent ABOVE the standard box so
-		// the author sees the box is pinned to the bottom of the screen (matching
-		// `<MainContainer standard alignVertical="bottom">`). The box itself frames at
-		// 0..frameHeight; the dimmed region above is a context cue only (the live
+		// `standard` + edge-align: show the window extent on the side the box is NOT
+		// pinned to, so the author sees where the rest of the screen sits (matching
+		// `<MainContainer standard alignVertical="bottom">` / `"top"`). The box itself
+		// frames at 0..frameHeight; the dimmed region is a context cue only (the live
 		// window height varies — this uses a representative 16:9 window).
-		if (scene.space === 'standard' && scene.align?.vertical === 'bottom') {
+		const edgeAlign = scene.space === 'standard' ? scene.align?.vertical : undefined;
+		if (edgeAlign === 'top' || edgeAlign === 'bottom') {
 			const windowH = Math.max(frameWidth * (9 / 16), frameHeight);
-			const top = frameHeight - windowH;
+			// bottom-pinned ⇒ the window runs UP from the box; top-pinned ⇒ DOWN from it.
+			const windowTop = edgeAlign === 'bottom' ? frameHeight - windowH : 0;
+			const dimTop = edgeAlign === 'bottom' ? windowTop : frameHeight;
 			ctx.fillStyle = 'rgba(20,20,28,0.35)';
-			ctx.fillRect(0, top, frameWidth, windowH - frameHeight);
+			ctx.fillRect(0, dimTop, frameWidth, windowH - frameHeight);
 			ctx.lineWidth = 1.5 / zoom;
 			ctx.strokeStyle = '#2a2a36';
 			ctx.setLineDash([10 / zoom, 8 / zoom]);
-			ctx.strokeRect(0, top, frameWidth, windowH);
+			ctx.strokeRect(0, windowTop, frameWidth, windowH);
 			ctx.setLineDash([]);
 		}
 

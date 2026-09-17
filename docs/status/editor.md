@@ -39,6 +39,33 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-17 — **A `standard` (HUD box) screen can finally be pinned to the TOP of the window**
+  (owner: *"I am missing the Top vertical alignment option in the V align for Standard hud box"*).
+  Not hidden or gated — `top` had simply never been written. `standard` space was built for the HUD
+  **bottom bar**, so its v-axis only ever grew the one value it needed; the h-axis got both `left`
+  and `right` because it was symmetric from the start. Five surfaces had to learn the value, and
+  **the server one is the trap**: `normalizeAlign` in `editorStorage.ts` whitelists the align
+  values, so without it a `top` picked in the UI renders locally and is **silently dropped on
+  save** — the same class of bug `Scene.role` / `alwaysOnTop` / `behindReels` each hit before it
+  (that whitelist is the single most-missed surface in this file). The other four: the `Scene.align`
+  type, `MainContainer`'s `getY()`, the Properties select, and `EditorCanvas`'s window-extent cue
+  (the dimmed region is now drawn on the side the box is NOT pinned to, so a top-pinned box shows
+  the window running DOWN from it). `scene.align?.vertical` was already in the canvas repaint
+  whitelist, so the cue re-draws on switch with no change there.
+  - **Parity.** `getY()` was restructured into the same shape as its `getX()` sibling; the
+    `bottom` and centred branches keep their EXACT original expressions, so every existing
+    `<MainContainer standard alignVertical="bottom">` in `components-ui-pixi` (LayoutDesktop /
+    Portrait / Landscape / Tablet / Editable / UIReplay — every coded HUD bar) is unchanged.
+    Verified offline over 25 canvas×box combinations: 75/75 parity assertions (old ≡ new for
+    unset/`center`/`bottom`), `top` the exact mirror of `bottom`, and both pinned edges landing
+    on the window edge. Note the mirror is `-0` when the box exactly fills the canvas height —
+    equal numerically, so it is a test-assertion detail, not a render one.
+  - `launcher-api` + `apps/lines` build clean; Prettier clean; the 36 eslint errors in the touched
+    editor files are pre-existing `prefer-svelte-reactivity` Map/Set findings, none in the changed
+    ranges. The tool guide already says "with optional vertical/horizontal alignment" without
+    enumerating the values, so it stays accurate unchanged. ⏳ **NOT browser-verified** (auth-gated
+    editor) — owner to confirm the top-pinned box live.
+
 - 2026-09-17 — **The blend control is withdrawn from `spine` nodes: it never worked in game.**
   Shipped 2026-09-16 offering blend on sprite/spine/flipbook/effect. The spine case was never
   probed in a running game — the verification used a sprite — and it is a **no-op**.

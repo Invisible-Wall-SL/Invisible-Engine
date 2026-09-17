@@ -1014,10 +1014,11 @@ export interface Scene {
 	/**
 	 * Alignment of a `space: 'standard'` scene within the canvas — forwarded to
 	 * `<MainContainer standard alignVertical alignHorizontal>`. The HUD bottom bar
-	 * is `{ vertical: 'bottom' }`. Ignored for other spaces. Absent = centred.
+	 * is `{ vertical: 'bottom' }`; `'top'` is its mirror, pinning the box to the
+	 * window's top edge (a top HUD strip). Ignored for other spaces. Absent = centred.
 	 */
 	align?: {
-		vertical?: 'center' | 'bottom';
+		vertical?: 'center' | 'top' | 'bottom';
 		horizontal?: 'center' | 'left' | 'right';
 	};
 	/**

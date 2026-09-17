@@ -339,7 +339,9 @@ function normalizeScene(input: unknown): Scene | null {
 function normalizeAlign(input: unknown): Scene['align'] | undefined {
 	if (!isRecord(input)) return undefined;
 	const out: NonNullable<Scene['align']> = {};
-	if (input.vertical === 'center' || input.vertical === 'bottom') out.vertical = input.vertical;
+	if (input.vertical === 'center' || input.vertical === 'top' || input.vertical === 'bottom') {
+		out.vertical = input.vertical;
+	}
 	if (
 		input.horizontal === 'center' ||
 		input.horizontal === 'left' ||
