@@ -3537,15 +3537,17 @@ def override_image_path(region: dict) -> Path | None:
 
 def _pick_variant_png(batch_dir: Path, region: dict) -> Path | None:
     """Pick the variant PNG to compose, in priority order:
-    1. the exact file the user picked & committed ("variant" id) — this is
-       authoritative because a locked seed is reused across renders, so many
-       variants share one seed and seed-matching can't tell them apart;
+    1. the exact file the user picked & committed ("variant" id), while that
+       pick is still live — authoritative because a locked seed is reused
+       across renders, so many variants share one seed and seed-matching can't
+       tell them apart. A pick the slot has since re-rendered past is spent
+       (see effective_variant), so this composes what the card displays;
     2. else the file whose embedded seed matches a locked "seed";
     3. else the most recent variant."""
     files = variant_files(batch_dir, region["name"])
     if not files:
         return None
-    picked = str(region.get("variant", "")).strip()
+    picked = effective_variant(region, _variant_id(files[-1]))
     if picked:
         for p in files:
             if _variant_id(p) == picked:
@@ -3632,6 +3634,47 @@ def region_locked(region: dict) -> bool:
     if "lock" in region:
         return bool(region["lock"])
     return "seed" in region or bool(str(region.get("variant", "")).strip())
+
+
+def _variant_newer(a: str, b: str) -> bool:
+    """Is variant id `a` newer than `b`? The ids are ComfyUI's zero-padded
+    per-region counter, so compare them as numbers when they parse. Strictly
+    greater, never `!=`: deleting the newest file frees its id, and an id that
+    went DOWN means art was removed, not added."""
+    try:
+        return int(a) > int(b)
+    except (TypeError, ValueError):
+        return bool(a) and bool(b) and a != b
+
+
+def effective_variant(region: dict, newest_id: str) -> str:
+    """The picked file id this region should actually use, or "" for "the newest".
+
+    A pick says WHICH of the files that existed when you clicked it to compose.
+    It is SPENT the moment the slot renders again: the fresh art is what the
+    card shows, so it must also be what Create Atlas composes — otherwise the
+    page quietly ships a file the page is no longer displaying.
+
+    `variant_at` records the newest id that existed when the pick was made, so
+    "has this slot rendered since?" is a fact of the stored manifest. It used
+    to be reconstructed after each run instead, from an in-memory snapshot
+    taken before the subprocess started — which held only while the post-render
+    hook ran, the browser's poll loop reached its refresh, and no blanket save
+    posted the card's stale id back in between. Any one of those missing left
+    the slot pinned to old art with nothing on screen to say so.
+
+    Legacy pins (written before the field existed) date themselves to their own
+    id: the newest file we can prove existed at pick time is the picked one.
+
+    A LOCKED pick is never spent — outliving future renders is precisely what
+    the lock promises."""
+    picked = str(region.get("variant", "")).strip()
+    if not picked:
+        return ""
+    if region_locked(region):
+        return picked
+    at = str(region.get("variant_at", "")).strip() or picked
+    return "" if _variant_newer(newest_id, at) else picked
 
 
 def already_generated(batch_dir: Path, region: dict) -> Path | None:
