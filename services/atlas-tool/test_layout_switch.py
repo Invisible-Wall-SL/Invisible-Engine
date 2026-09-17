@@ -252,8 +252,14 @@ def test_the_help_says_who_owns_the_size_fields() -> None:
     check_true("it is rendered, not swallowed", len(tip) > 200)
     check_true("pack: the tool sizes the page from the art",
                "OVERWRITES Atlas" in tip)
-    check_true("pack: and typing a size there does nothing",
-               "typing a size there does nothing" in tip)
+    # Was "typing a size there does nothing", which described the panel BEFORE
+    # the fields were made layout-aware. There is no longer a box to type into
+    # under pack -- Atlas width/height render read-only and the cell size is
+    # hidden -- so the tip has to promise that instead. See
+    # test_layout_aware_panel.py for the panel itself.
+    check_true("pack: so there is nothing there to type into",
+               "show read-only" in tip
+               and "Default cell width/height disappear" in tip)
     check_true("grid: your sizes are read and never overwritten",
                "READ and never overwritten" in tip)
     check_true("grid: it re-flows on every Create Atlas",
