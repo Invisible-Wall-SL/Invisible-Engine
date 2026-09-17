@@ -231,6 +231,14 @@ const makeMock = (protocol, label, grid, gameKey, cascade) => {
 		cascade: tumble.on,
 		// …and whether it is the game's MECHANIC or the demo override, which only this side knows.
 		cascadeDemo: tumble.demo,
+		// The scatter-triggered FREE-SPIN feature. ON for every game this mock serves, and explicitly
+		// so: it defaults OFF in the mock because a feature round stays open across a `play` per free
+		// spin, which a single-shot harness cannot drive. This server's games are driven by the
+		// FACADE, which has driven exactly that shape since Book of Borut — the feature simply had no
+		// server outside the book mock to drive it against, which is why free spins appeared to work
+		// in Borut and nowhere else. A project with no SCAT on its strips still gets none: the mock
+		// gates the feature on the symbol actually being in play.
+		freeSpins: true,
 		...(grid ?? linesGrid ?? {}),
 	});
 };
