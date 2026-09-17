@@ -111,7 +111,7 @@ Shipped capabilities on `main`:
   - **Cost:** the import registers all 22 advanced blends (~92 KB of unminified source). Filters
     are constructed on demand, so a game that places none pays the bundle and nothing else.
   - Gates: `pnpm lint`, `check:undefined-names`, `apps/lines` build all green; `svelte-check`
-    unchanged against the same-worktree baseline. ⏳ `/editor` still not browser-verified.
+    unchanged against the same-worktree baseline. ✅ Owner-confirmed live in `/editor` 2026-09-17.
 
 - 2026-09-16 — **Photoshop-style blend modes on placed art (sprite / spine / flipbook / FX),
   previewed exactly.** `BaseNode.blendMode` + `NodeOverride.blendMode` (so it is per-layoutType like
@@ -157,9 +157,9 @@ Shipped capabilities on `main`:
     stack, A/B against the old `z-index` stack: blended layers composite against the scene beneath
     in the new stack and render flat/opaque in the old one. `svelte-check` clean for the changed
     files (the repo's pre-existing errors are untouched); `apps/launcher-api` and `apps/lines` both
-    build. ⏳ **the `/editor` page itself is not browser-verified** (auth-gated; needs an owner
-    sign-in) — the dropdown, the run splitting on a real doc, and the per-layoutType override are
-    code-only so far.
+    build. ✅ **Owner-confirmed live in `/editor` 2026-09-17** — the dropdown, the blend-run
+    splitting on a real doc and the per-layoutType override all work as authored. (The blend
+    control was withdrawn from `spine` nodes the same day; see the entry above.)
 - 2026-09-16 — **A correctly deployed atlas was served as the OLD art in `/editor`, `/symbols` AND
   `/flipbook` — the stale-deploy guard rejected the right page.** Owner flow: generate an atlas in
   Flipbook 🎬 video mode → re-pack it in the Atlas Maker → deploy. The deployed atlas is correct;

@@ -153,9 +153,14 @@ tool top bar). Switch projects from the launcher before opening the tool.
      renamed later has to be repaired in both, and the two drift the moment the art is
      re-packed.
 
+   - **Layers** — see [Layers: a symbol made of more than one picture](#layers-a-symbol-made-of-more-than-one-picture)
+     below. Extra art drawn together with this state's own, each piece able to carry its own
+     blend mode.
+
 5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
-   an asset to be chosen). The cell updates immediately and is marked **edited**. The
-   panel also has a **Reset to default** action for an overridden cell.
+   an asset to be chosen — and, if you added any layers, art for every one of them). The
+   cell updates immediately and is marked **edited**. The panel also has a **Reset to
+   default** action for an overridden cell.
 6. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
@@ -166,6 +171,65 @@ tool top bar). Switch projects from the launcher before opening the tool.
    files are HTTP-cached. Reloading drops those caches (previews refresh with the new art +
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
    the spine pickers). Your unsaved cell edits are preserved.
+
+### Layers: a symbol made of more than one picture
+
+A symbol state does not have to be one picture. The cell editor's **Layers** section adds
+extra art drawn _together with_ the cell's own — a glow sheet over a sprite symbol, a dust
+flipbook under it, a sparks effect on top of a spine — and each layer can carry its own
+**blend mode**.
+
+**Add layer** appends a row. Each row is a collapsed chip (its thumbnail, its binding, and
+badges for `behind` and its blend mode); click it to open its editor:
+
+- **Type** — Sprite / Spine / Flipbook / FX, the same four kinds and the same pickers the
+  Book-symbol VFX slots use. Retyping clears the fields the new kind does not use.
+- **Draw → Behind the symbol** — off (the default) draws the layer _over_ the cell's art;
+  on draws it _under_.
+- **Blend** — how the layer's pixels combine with what is already drawn beneath it:
+  Normal, Add, Multiply, Screen, Lighten, Overlay.
+- **Size × cell** and **Offset × cell** — the same fit hints a Book-VFX layer carries.
+  Absent means "fit the cell". For an **FX** layer, Size is a _scale multiplier_ on the
+  effect's authored size (1 = as authored), not a cell fit.
+- **↑ / ↓ / ✕** — reorder and remove.
+
+**Order in the list IS draw order.** Top of the list is drawn first (furthest back), bottom
+last (closest to the front). `Behind` layers go under the symbol's own art in their listed
+order; everything else goes over it, also in order. The win frame and the multiplier stamp
+stay above all of them — they are readouts of the round, not art you are composing.
+
+A cell may carry up to **8** layers.
+
+Things worth knowing before you author:
+
+- **A layer decorates a bound cell; it never replaces one.** The cell still needs its own
+  art. A cell with nothing bound draws nothing at all — layers included.
+- **A Spine layer cannot blend**, and the Blend control is replaced by a note saying so. A
+  Pixi blend never reaches skeleton geometry, so the mode would be stored and then ignored.
+  Spine art blends **per slot**, authored in the [Invisible Rigger](./rigger.md).
+  Use a Sprite, Flipbook or FX layer for a blend, or a rig whose own slots carry it.
+- **Layers never end a beat.** The round waits for the _cell's own_ art to finish its Win /
+  Land / Explosion animation; a layer loops alongside and is never asked. So put the timing
+  in the base binding, not in a layer.
+- **The masked/unmasked decision is the base cell's.** A cell is drawn on one board layer,
+  chosen by the base binding's type. A **spine layer authored bigger than its cell** on a
+  sprite- or flipbook-based cell is therefore clipped at the board window, where the same
+  rig bound as the cell's own art would not be.
+- **Apply is disabled while any layer is unbound**, with a note saying how many need art.
+  That is deliberate: dropping a half-finished layer silently would lose your work, and
+  sending it would 400 the save and lose the whole doc's edits.
+
+**What the preview does and does not show.** The grid shows each cell's **base binding
+only** and adds a **+N layers** badge (hover it for the list) — it cannot composite, because
+every spine cell in the grid shares one WebGL canvas. In the panel, each layer previews **on
+its own**. Nothing in the tool stacks the layers over the symbol, and **blend modes are not
+previewed anywhere** — the composition is only real in the game. The panel says so under the
+list rather than showing you something that isn't true.
+
+Layers ship like any other binding: a layer's spine bundle / sheet travels the
+export → bake → pull chain under the same key, and an FX layer's effect is kept out of the
+orphan sweep on both bundle paths. See
+[Saving is not the last step](#saving-is-not-the-last-step--shipping-a-rebind).
 
 ### Naming a symbol (what the game calls it out loud)
 

@@ -1,10 +1,11 @@
 <script lang="ts">
 	import SymbolFlipbook from './SymbolFlipbook.svelte';
+	import SymbolLayer from './SymbolLayer.svelte';
 	import SymbolSpineMain from './SymbolSpineMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
 	import { getSymbolInfo } from '../game/utils';
-	import type { SymbolState, RawSymbol } from '../game/types';
+	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText } from 'pixi-svelte';
 
@@ -58,7 +59,45 @@
 	 * reads as a rendering fault rather than as the missing binding it is.
 	 */
 	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
+
+	/**
+	 * EXTRA ART for this state — a symbol composed of more than one picture (Invisible Symbols State
+	 * Machine → the cell editor's "Layers"). Mounted HERE, and that is the point of the choke point:
+	 * every symbol mount site in the game flows through this component — the reel board, the
+	 * cascade, the stacked mode, the debug grid, the Book expand/reveal riders, the inline message
+	 * symbol — so one seam reaches all of them.
+	 *
+	 * DRAW ORDER IS MARKUP ORDER, not `zIndex`: a `behind` layer is rendered before the cell's art
+	 * and the rest after it, and within each group the authored array order is kept. Pixi draws
+	 * children in order, so this needs no `sortableChildren` on whatever container happens to be the
+	 * parent — which varies by mount site (`SymbolWrap`, the cascade's animating layer, a text line).
+	 * The win frame and the multiplier stamp stay last of all: both are readouts of the round, not
+	 * art the author is composing, and a layer drawn over the frame would hide the win.
+	 *
+	 * A layer is passed NO `oncomplete` and no `once`, so it loops and never reports: the base cell
+	 * alone owns the beat (`ReelSymbol` → `symbolBeat.ts`). If N layers reported, whichever finished
+	 * first would settle the state — and picking wrong costs the round a multi-second freeze behind
+	 * `WIN_BEAT_CAP_MS`. Same rule the explosion transition follows.
+	 *
+	 * `hasArt` gates them exactly as it gates the win frame: a cell with nothing bound draws nothing
+	 * at all. Layers DECORATE a bound cell; they never stand in for one.
+	 */
+	const layers: SymbolLayerSpec[] = $derived(
+		symbolInfo.missingArt ? [] : (symbolInfo.layers ?? []),
+	);
+	const behindLayers = $derived(layers.filter((layer) => layer.behind === true));
+	const overLayers = $derived(layers.filter((layer) => layer.behind !== true));
+
+	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
+	 *  spine/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
+	 *  change updates in place. Position alone would reuse a spine renderer for a sprite layer. */
+	const layerKey = (layer: SymbolLayerSpec, i: number): string =>
+		`${i}:${layer.kind}:${layer.assetKey ?? layer.clipId ?? layer.effectId ?? ''}`;
 </script>
+
+{#each behindLayers as layer, i (layerKey(layer, i))}
+	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} />
+{/each}
 
 {#if !hasArt}
 	<!-- nothing to draw -->
@@ -88,6 +127,10 @@
 		}}
 	/>
 {/if}
+
+{#each overLayers as layer, i (layerKey(layer, i))}
+	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} />
+{/each}
 
 {#if showWinFrame}
 	<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />

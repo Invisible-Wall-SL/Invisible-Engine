@@ -424,6 +424,16 @@ async function assembleRuntimeBundle(
 	if (symbols.transition?.kind === 'fx' && symbols.transition.effectId) {
 		symbolDocEffectIds.add(symbols.transition.effectId);
 	}
+	// …and a per-cell LAYER of kind 'fx' (Invisible Symbols → the cell editor's "Layers"), the third
+	// symbol-doc source of the same kind. Without this an effect bound ONLY as a symbol layer is
+	// pruned as an orphan and the layer renders nothing in the shipped game while showing in the tool.
+	for (const states of Object.values(symbols.map ?? {})) {
+		for (const cell of Object.values(states ?? {})) {
+			for (const layer of cell?.layers ?? []) {
+				if (layer?.kind === 'fx' && layer.effectId) symbolDocEffectIds.add(layer.effectId);
+			}
+		}
+	}
 	// Ship only REACHABLE effects (placed / rig-bound / event-triggered / symbols-doc-referenced) — an
 	// orphan/scratch effect that nothing mounts must not reach the game (it would otherwise ride the
 	// bundle dead weight). The editor still reads ALL effects straight from R2, so authors keep managing

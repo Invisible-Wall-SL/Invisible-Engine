@@ -8,7 +8,10 @@
  */
 
 import {
+	BLEND_MODE_LABELS,
+	BLEND_MODES,
 	BOOK_SYMBOL_STATES,
+	canBlendLayerKind,
 	CASCADE_SYMBOL_STATES,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
@@ -21,13 +24,20 @@ import {
 	TUMBLE_STEP_MS_MAX,
 	isTumblePattern,
 	tumbleExplosionDelays,
+	type BlendMode,
 	type SymbolNameEntry,
 	type SymbolStateName,
 	type TumblePatternConfig,
 	type TumblePatternName,
 } from 'engine-layout';
 
-export type { SymbolNameEntry };
+export type { SymbolNameEntry, BlendMode };
+
+/** The blend-mode vocabulary, re-exported from its ONE home in `engine-layout` for the same reason
+ *  `SYMBOL_STATES` is: the tool's dropdown and the game's renderer must offer the same list, and a
+ *  hand-copied one drifts silently here (the launcher build transpiles TS without checking it).
+ *  `canBlendLayerKind` is the gate that keeps the control off a `spine` layer, which cannot blend. */
+export { BLEND_MODES, BLEND_MODE_LABELS, canBlendLayerKind };
 
 export { SYMBOL_STATES };
 export type SymbolState = SymbolStateName;
@@ -167,7 +177,20 @@ export interface SymbolCell {
 	direction?: 'forward' | 'reverse' | 'pingpong';
 	flipX?: boolean;
 	flipY?: boolean;
+	/**
+	 * EXTRA ART drawn WITH this state's own — the cell editor's "Layers". Array order IS draw order;
+	 * a layer with `behind` sits under the cell's art, the rest over it. Each entry is the SAME
+	 * {@link BookVfxLayer} object the Book-symbol VFX and the explosion transition use, plus its own
+	 * `blendMode`. Sparse: absent (never `[]`) when the cell has none — `applyDraft` writes the key
+	 * only when at least one layer is bound and the server prunes an empty array, so a cell that
+	 * never had one signs and ships exactly as it did before this existed.
+	 */
+	layers?: BookVfxLayer[];
 }
+
+/** The ceiling on how many layers one cell may carry — mirrors `SYMBOL_LAYER_MAX` on the server,
+ *  which REJECTS a longer array at save. The tool simply stops offering "Add layer" at the cap. */
+export const SYMBOL_LAYER_MAX = 8;
 
 /** Symbol name → state → binding (sparse for the override doc, dense for defaults). */
 export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
@@ -218,6 +241,19 @@ export interface BookVfxLayer {
 	effectId?: string;
 	sizeRatios?: SizeRatios;
 	offset?: { x: number; y: number };
+	/**
+	 * How this layer's pixels combine with what is drawn beneath it. Sparse — `normal` is never
+	 * written. Honoured for `sprite`/`flipbook`/`fx` only: a Pixi blend cannot reach skeleton
+	 * geometry, so a `spine` layer's mode does nothing in the game and the tool hides the control
+	 * there ({@link canBlendLayerKind} is the one definition both halves read).
+	 */
+	blendMode?: BlendMode;
+	/**
+	 * Draw this layer UNDER the art it decorates. Read only for a symbol CELL's `layers` — a
+	 * Book-VFX slot already says which side it is on by being the `background` or the `foreground`,
+	 * and the transition has nothing beneath it. Sparse: only `true` is written.
+	 */
+	behind?: boolean;
 }
 
 /** The Book-symbol VFX doc-global — background + foreground layers, both sparse. Mirrors the server
@@ -256,6 +292,10 @@ export interface SymbolTransition {
 	animationName?: string;
 	clipId?: string;
 	effectId?: string;
+	/** Same terms as any other layer's {@link BookVfxLayer.blendMode} — the transition renders
+	 *  through the same component, so it blends (flipbook/fx) or does not (spine) for the same
+	 *  reasons. */
+	blendMode?: BlendMode;
 	delayMs?: number;
 }
 
@@ -1395,6 +1435,12 @@ export function clearWinLineTextStyle(doc: SymbolsDoc): SymbolsDoc {
 
 /** Stable JSON for dirty-tracking (key order is fixed by `SYMBOL_STATES`). */
 export function docSignature(doc: SymbolsDoc): string {
+	// The cell goes in WHOLE — unlike every doc-global below, which is enumerated field by field.
+	// That is what makes a new CELL field (`layers`, and `fps`/`direction`/`flipX`/`flipY` before it)
+	// move this signature for free, so the page reads as dirty and Save lights up. Enumerating cells
+	// here would re-open the "the tool shows the choice, the PUT never carries it" trap on every
+	// future field; the state key order is fixed by `SYMBOL_STATES`, and within a cell by the order
+	// `applyDraft` writes the fields, so it is still stable.
 	const symbols: Record<string, SymbolStateMap> = {};
 	for (const name of Object.keys(doc.symbols).sort()) {
 		const states = doc.symbols[name];
@@ -1485,6 +1531,7 @@ export function docSignature(doc: SymbolsDoc): string {
 					effectId: l.effectId ?? null,
 					sizeRatios: sortKeys(l.sizeRatios),
 					offset: sortKeys(l.offset),
+					blendMode: l.blendMode ?? null,
 				}
 			: null;
 	const bookVfx = doc.bookVfx
@@ -1502,6 +1549,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				animationName: doc.transition.animationName ?? null,
 				clipId: doc.transition.clipId ?? null,
 				effectId: doc.transition.effectId ?? null,
+				blendMode: doc.transition.blendMode ?? null,
 				delayMs: doc.transition.delayMs ?? null,
 			}
 		: null;

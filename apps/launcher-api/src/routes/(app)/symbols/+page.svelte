@@ -100,6 +100,10 @@
 		SYMBOL_CELL_TYPE_LABELS,
 		BOOK_VFX_KINDS,
 		BOOK_VFX_KIND_LABELS,
+		BLEND_MODES,
+		BLEND_MODE_LABELS,
+		canBlendLayerKind,
+		SYMBOL_LAYER_MAX,
 		TRANSITION_KINDS,
 		TRANSITION_KIND_LABELS,
 		setTransition,
@@ -121,6 +125,7 @@
 		type BoardGlowConfig,
 		type HighlightCell,
 		type HighlightTintMode,
+		type BlendMode,
 		type BookVfxKind,
 		type BookVfxLayer,
 		type BookVfxSlot,
@@ -605,12 +610,16 @@
 		// size by default (no `sizeRatios`).
 		draft = eff.cell ? ($state.snapshot(eff.cell) as SymbolCell) : { type: 'sprite', assetKey: '' };
 		draftAnimations = [];
+		layerEditing = null;
+		layerAnimations = [];
 	}
 
 	function closeCell(): void {
 		focus = null;
 		draft = null;
 		draftAnimations = [];
+		layerEditing = null;
+		layerAnimations = [];
 	}
 
 	function setDraftType(type: SymbolCellType): void {
@@ -636,6 +645,10 @@
 			direction: undefined,
 			flipX: undefined,
 			flipY: undefined,
+			// Survive a kind switch for the same reason `loop` does: a layer is extra art drawn WITH
+			// the cell, and nothing about it depends on which renderer draws the cell's own picture.
+			// Dropping them would silently discard the author's composition on a retype.
+			layers: draft.layers,
 		};
 		draftAnimations = [];
 	}
@@ -650,11 +663,197 @@
 		draft.assetKey = clip?.assetKey ?? '';
 	}
 
-	/** A draft is bindable once it has an asset — and, for a flipbook, a clip (the server
-	 *  `.refine()` rejects a clip-less flipbook cell, so the button gates on it too). */
+	// ── The focused cell's LAYERS ─────────────────────────────────────────────────────────────
+	// Extra art drawn WITH the cell's own, each layer carrying its own blend mode. Edited straight
+	// on `draft.layers` (a deep `$state`), so nothing reaches the doc until Apply — the same
+	// contract every other control in this panel has.
+
+	/** Which layer's editor is expanded (an index into `draft.layers`), or `null` for none. Only one
+	 *  at a time, so the spine-animation list below can be a single value. */
+	let layerEditing = $state<number | null>(null);
+	/** Animation names of the open layer's spine bundle (filled by its preview load), mirroring
+	 *  `draftAnimations` for the cell's own binding. */
+	let layerAnimations = $state<string[]>([]);
+
+	/** A layer is bindable once it carries the ONE field its kind needs — the same rule the server's
+	 *  shared `.refine()` applies, mirrored here so Apply is disabled instead of the save 400ing and
+	 *  taking the whole doc with it (the publish double-fail). */
+	function layerBindable(layer: BookVfxLayer): boolean {
+		switch (layer.kind) {
+			case 'spine':
+				return !!layer.assetKey && !!layer.animationName;
+			case 'flipbook':
+				return !!layer.clipId;
+			case 'sprite':
+				return !!layer.assetKey;
+			case 'fx':
+				return !!layer.effectId;
+			default:
+				return false;
+		}
+	}
+
+	/**
+	 * Reduce ONE authored layer to the fields its kind actually uses — the whitelist, shared by the
+	 * cell's `layers` and the two Book-VFX slots so the two can never disagree about what a layer
+	 * persists. The shared schema is `.strict()` with a per-kind `.refine()`, so a stale
+	 * `animationName` on a retyped layer is not a cosmetic leftover: it 400s the save.
+	 *
+	 * Sparse throughout — a `normal` blend, a `behind` of false and a zeroed size/offset all persist
+	 * as NOTHING, so a layer the author only looked at round-trips to the bytes it arrived with.
+	 * `blendMode` is dropped for a kind that cannot blend (`spine`), because storing a mode the game
+	 * ignores would make the doc claim something the render never does.
+	 */
+	function reduceLayer(l: BookVfxLayer): BookVfxLayer {
+		const layer: BookVfxLayer = { kind: l.kind };
+		if (l.kind === 'sprite') {
+			layer.assetKey = l.assetKey;
+		} else if (l.kind === 'spine') {
+			layer.assetKey = l.assetKey;
+			layer.animationName = l.animationName;
+		} else if (l.kind === 'flipbook') {
+			layer.clipId = l.clipId;
+			if (l.assetKey) layer.assetKey = l.assetKey;
+		} else if (l.kind === 'fx') {
+			layer.effectId = l.effectId;
+		}
+		const sr = l.sizeRatios;
+		if (sr && Number(sr.width) > 0 && Number(sr.height) > 0) {
+			layer.sizeRatios = { width: Number(sr.width), height: Number(sr.height) };
+		}
+		const off = l.offset;
+		if (off && (Number(off.x) || Number(off.y))) {
+			layer.offset = { x: Number(off.x) || 0, y: Number(off.y) || 0 };
+		}
+		if (l.blendMode && l.blendMode !== 'normal' && canBlendLayerKind(l.kind)) {
+			layer.blendMode = l.blendMode;
+		}
+		if (l.behind === true) layer.behind = true;
+		return layer;
+	}
+
+	/** Short "kind · what it is bound to" label for a collapsed layer row. */
+	function layerLabel(layer: BookVfxLayer): string {
+		const bound =
+			layer.kind === 'flipbook'
+				? clipLabel(layer.clipId)
+				: layer.kind === 'fx'
+					? (effects.find((fx) => fx.id === layer.effectId)?.name ?? 'unset')
+					: layer.kind === 'spine'
+						? [layer.assetKey?.replace(/\/$/, '').split('/').pop(), layer.animationName]
+								.filter(Boolean)
+								.join(' · ') || 'unset'
+						: parseScopedFrameRef(layer.assetKey ?? '').region || 'unset';
+		return `${BOOK_VFX_KIND_LABELS[layer.kind]} · ${bound}`;
+	}
+
+	/** Append a new, UNBOUND sprite layer and open its editor. Unbound is deliberate: the author
+	 *  picks the art next, and `draftBindable` keeps Apply disabled until they have. */
+	function addLayer(): void {
+		if (!draft) return;
+		const layers = [...(draft.layers ?? [])];
+		if (layers.length >= SYMBOL_LAYER_MAX) return;
+		layers.push({ kind: 'sprite' });
+		draft.layers = layers;
+		layerEditing = layers.length - 1;
+		layerAnimations = [];
+	}
+
+	function removeLayer(index: number): void {
+		if (!draft?.layers) return;
+		const layers = draft.layers.filter((_, i) => i !== index);
+		// Sparse: the LAST layer removed leaves no `layers` key at all, so the cell round-trips to
+		// exactly the bytes it had before anyone opened this section.
+		draft.layers = layers.length ? layers : undefined;
+		layerEditing = null;
+		layerAnimations = [];
+	}
+
+	/** Move a layer one place up or down. ARRAY ORDER IS DRAW ORDER, so this is the whole "which one
+	 *  is on top" control — there is no separate z field to disagree with it. */
+	function moveLayer(index: number, delta: number): void {
+		if (!draft?.layers) return;
+		const target = index + delta;
+		if (target < 0 || target >= draft.layers.length) return;
+		const layers = [...draft.layers];
+		const [moved] = layers.splice(index, 1);
+		layers.splice(target, 0, moved);
+		draft.layers = layers;
+		if (layerEditing === index) layerEditing = target;
+		else if (layerEditing === target) layerEditing = index;
+	}
+
+	/** Retype a layer, clearing every field the new kind does not use — the same reason
+	 *  `setDraftType` does it for the cell: the server schema is `.strict()` with a per-kind
+	 *  `.refine()`, so a leftover `animationName` on an `fx` layer would 400 an otherwise valid save.
+	 *  `blendMode` is dropped when the new kind cannot blend, so a doc never stores a mode the game
+	 *  would ignore. */
+	function setLayerKind(index: number, kind: BookVfxKind): void {
+		if (!draft?.layers) return;
+		const current = draft.layers[index];
+		if (!current || current.kind === kind) return;
+		draft.layers[index] = {
+			kind,
+			behind: current.behind,
+			blendMode: canBlendLayerKind(kind) ? current.blendMode : undefined,
+			sizeRatios: current.sizeRatios,
+			offset: current.offset,
+		};
+		layerAnimations = [];
+	}
+
+	/** Bind a layer to a clip — the clip supplies BOTH `clipId` and `assetKey` (its primary sheet),
+	 *  exactly as `setDraftClip` does for the cell. */
+	function setLayerClip(index: number, clipId: string): void {
+		if (!draft?.layers) return;
+		const layer = draft.layers[index];
+		if (!layer) return;
+		layer.clipId = clipId || undefined;
+		layer.assetKey = clipId ? (clipsById.get(clipId)?.assetKey ?? undefined) : undefined;
+	}
+
+	/** Write one axis of a layer's size hint, dropping the pair when either box is emptied (sparse —
+	 *  absent means "fit the cell"). Mirrors `setBookVfxSize`. */
+	function setLayerSize(index: number, axis: 'width' | 'height', raw: string): void {
+		if (!draft?.layers) return;
+		const layer = draft.layers[index];
+		if (!layer) return;
+		const other = axis === 'width' ? layer.sizeRatios?.height : layer.sizeRatios?.width;
+		const n = Number(raw);
+		if (raw.trim() === '' || !(n > 0)) {
+			layer.sizeRatios = undefined;
+			return;
+		}
+		layer.sizeRatios =
+			axis === 'width'
+				? { width: n, height: other && other > 0 ? other : n }
+				: { width: other && other > 0 ? other : n, height: n };
+	}
+
+	/** Write one axis of a layer's offset, dropping a pair that is back at 0,0 (sparse). */
+	function setLayerOffset(index: number, axis: 'x' | 'y', raw: string): void {
+		if (!draft?.layers) return;
+		const layer = draft.layers[index];
+		if (!layer) return;
+		const next = { x: layer.offset?.x ?? 0, y: layer.offset?.y ?? 0, [axis]: Number(raw) || 0 };
+		layer.offset = next.x === 0 && next.y === 0 ? undefined : { x: next.x, y: next.y };
+	}
+
+	/**
+	 * A draft is bindable once it has an asset — and, for a flipbook, a clip (the server `.refine()`
+	 * rejects a clip-less flipbook cell, so the button gates on it too).
+	 *
+	 * EVERY LAYER has to be bound too, and loudly: dropping a half-authored layer at Apply would let
+	 * the author add one, not finish it, hit Apply, and watch it vanish with no explanation — while
+	 * SENDING it would 400 the save and lose the whole doc's edit (the publish double-fail this tool
+	 * has already been bitten by). Disabled-with-a-reason is the only honest third option.
+	 */
 	const draftBindable = $derived(
-		!!draft?.assetKey && (draft.type !== 'flipbook' || !!draft.clipId),
+		!!draft?.assetKey &&
+			(draft.type !== 'flipbook' || !!draft.clipId) &&
+			(draft.layers ?? []).every(layerBindable),
 	);
+	const unboundLayers = $derived((draft?.layers ?? []).filter((l) => !layerBindable(l)).length);
 
 	function applyDraft(): void {
 		if (!focus || !draft || !draftBindable) return;
@@ -687,6 +886,13 @@
 			if (draft.flipX !== undefined) cell.flipX = draft.flipX;
 			if (draft.flipY !== undefined) cell.flipY = draft.flipY;
 		}
+		// The cell's own LAYERS, each rebuilt field-by-field through the same whitelist `applyBookVfx`
+		// uses — the shared layer schema is `.strict()` too, so a stale `animationName` left on a
+		// retyped layer would 400 the save. `draftBindable` has already refused a half-authored one.
+		// Sparse: no layers ⇒ NO key (never `[]`), so a cell that never had one signs and ships
+		// byte-identical to before this section existed.
+		const layers = (draft.layers ?? []).map(reduceLayer);
+		if (layers.length) cell.layers = layers;
 		doc = setOverride(doc, focus.symbol, focus.state, cell);
 		closeCell();
 	}
@@ -997,31 +1203,11 @@
 	});
 
 	/** Rebuild the layer field-by-field (a whitelist, like `applyDraft`): only the kind's own fields
-	 *  plus the optional size/offset hints reach the saved doc. */
+	 *  plus the optional size/offset hints reach the saved doc. Shares `reduceLayer` with the cell's
+	 *  own layers — same object, same rules. */
 	function applyBookVfx(): void {
 		if (!bookVfxEditing || !bookVfxDraft || !bookVfxBindable) return;
-		const l = bookVfxDraft;
-		const layer: BookVfxLayer = { kind: l.kind };
-		if (l.kind === 'sprite') {
-			layer.assetKey = l.assetKey;
-		} else if (l.kind === 'spine') {
-			layer.assetKey = l.assetKey;
-			layer.animationName = l.animationName;
-		} else if (l.kind === 'flipbook') {
-			layer.clipId = l.clipId;
-			if (l.assetKey) layer.assetKey = l.assetKey;
-		} else if (l.kind === 'fx') {
-			layer.effectId = l.effectId;
-		}
-		const sr = l.sizeRatios;
-		if (sr && Number(sr.width) > 0 && Number(sr.height) > 0) {
-			layer.sizeRatios = { width: Number(sr.width), height: Number(sr.height) };
-		}
-		const off = l.offset;
-		if (off && (Number(off.x) || Number(off.y))) {
-			layer.offset = { x: Number(off.x) || 0, y: Number(off.y) || 0 };
-		}
-		doc = setBookVfxLayer(doc, bookVfxEditing, layer);
+		doc = setBookVfxLayer(doc, bookVfxEditing, reduceLayer(bookVfxDraft));
 		closeBookVfx();
 	}
 
@@ -3815,6 +4001,19 @@
 												</div>
 												<div class="cell-foot">
 													{#if eff.overridden}<span class="badge">edited</span>{/if}
+													<!-- The grid cannot COMPOSITE a cell's layers over its base art (one shared
+													     WebGL canvas for every spine cell), so it says how many there are
+													     instead — the one thing about them a thumbnail could otherwise hide
+													     completely. -->
+													{#if eff.cell?.layers?.length}
+														<span
+															class="badge layers"
+															title={eff.cell.layers.map(layerLabel).join('\n')}
+														>
+															+{eff.cell.layers.length}
+															{eff.cell.layers.length === 1 ? 'layer' : 'layers'}
+														</span>
+													{/if}
 													{#if eff.inheritedFrom}
 														<span class="badge inherits">
 															inherits {STATE_LABELS[eff.inheritedFrom] ?? eff.inheritedFrom}
@@ -4001,7 +4200,319 @@
 					{/if}
 				{/if}
 
+				{#if !stackedEdit}
+					<!-- LAYERS — extra art drawn WITH this state's own, each with its own blend mode.
+					     A layer decorates the cell; it never replaces it, which is why this section sits
+					     under the binding above rather than beside it. -->
+					<div class="field layers">
+						<span class="label">Layers</span>
+						<p class="hint">
+							Extra art drawn with this state's own picture. Top of the list is drawn first —
+							<strong>Behind</strong> puts a layer under the symbol, everything else goes over it.
+						</p>
+						{#if draft.layers?.length}
+							<div class="layer-list">
+								{#each draft.layers as layer, i (i)}
+									{@const open = layerEditing === i}
+									{@const bound = layerBindable(layer)}
+									{@const blendable = canBlendLayerKind(layer.kind)}
+									<div class="layer" class:open>
+										<div class="layer-row">
+											<button
+												type="button"
+												class="layer-head"
+												class:unbound={!bound}
+												onclick={() => {
+													layerEditing = open ? null : i;
+													layerAnimations = [];
+												}}
+											>
+												<span class="layer-thumb">{@render layerThumb(layer, 30)}</span>
+												<span class="layer-name">{layerLabel(layer)}</span>
+												{#if layer.behind}<span class="chip">behind</span>{/if}
+												{#if layer.blendMode && layer.blendMode !== 'normal'}
+													<span class="chip">{BLEND_MODE_LABELS[layer.blendMode]}</span>
+												{/if}
+												{#if !bound}<span class="chip warn">unbound</span>{/if}
+											</button>
+											<div class="layer-ops">
+												<button
+													type="button"
+													title="Move down (drawn later — closer to the front)"
+													disabled={i === draft.layers.length - 1}
+													onclick={() => moveLayer(i, 1)}>↓</button
+												>
+												<button
+													type="button"
+													title="Move up (drawn earlier — further back)"
+													disabled={i === 0}
+													onclick={() => moveLayer(i, -1)}>↑</button
+												>
+												<button
+													type="button"
+													title="Remove this layer"
+													onclick={() => removeLayer(i)}>✕</button
+												>
+											</div>
+										</div>
+										{#if open}
+											<div class="layer-edit">
+												<div class="field">
+													<span class="label">Type</span>
+													<div class="seg">
+														{#each BOOK_VFX_KINDS as kind (kind)}
+															{@const noClips = kind === 'flipbook' && clips.length === 0}
+															{@const noFx = kind === 'fx' && effects.length === 0}
+															<button
+																type="button"
+																class:active={layer.kind === kind}
+																disabled={noClips || noFx}
+																onclick={() => setLayerKind(i, kind)}
+																>{BOOK_VFX_KIND_LABELS[kind]}</button
+															>
+														{/each}
+													</div>
+												</div>
+
+												{#if layer.kind === 'sprite'}
+													<div class="field">
+														<span class="label">Frame</span>
+														<RegionPicker
+															scoped
+															sheets={pickSheets}
+															value={layer.assetKey ?? ''}
+															onSelect={(region) => (layer.assetKey = region || undefined)}
+														/>
+													</div>
+												{:else if layer.kind === 'spine'}
+													<div class="field">
+														<span class="label">Spine bundle</span>
+														<select
+															value={layer.assetKey ?? ''}
+															onchange={(e) => {
+																layer.assetKey = e.currentTarget.value || undefined;
+																layer.animationName = undefined;
+																layerAnimations = [];
+															}}
+														>
+															<option value="">Pick a bundle…</option>
+															{#each spineBundles as b (b.key)}
+																<option value={b.key}>{b.name}</option>
+															{/each}
+														</select>
+													</div>
+													{#if layer.assetKey}
+														<div class="field">
+															<span class="label">Animation</span>
+															{#if layerAnimations.length}
+																<select
+																	value={layer.animationName ?? ''}
+																	onchange={(e) =>
+																		(layer.animationName = e.currentTarget.value || undefined)}
+																>
+																	<option value="">Pick an animation…</option>
+																	{#each layerAnimations as anim (anim)}
+																		<option value={anim}>{anim}</option>
+																	{/each}
+																</select>
+															{:else}
+																<input
+																	type="text"
+																	placeholder="animation name"
+																	value={layer.animationName ?? ''}
+																	oninput={(e) =>
+																		(layer.animationName = e.currentTarget.value || undefined)}
+																/>
+															{/if}
+														</div>
+														<div class="field">
+															<span class="label">Preview</span>
+															<div class="panel-preview">
+																<SymbolSpinePreview
+																	assetKey={layer.assetKey}
+																	animationName={layer.animationName}
+																	size={110}
+																	{reloadToken}
+																	onAnimations={(names) => (layerAnimations = names)}
+																/>
+															</div>
+														</div>
+													{/if}
+												{:else if layer.kind === 'flipbook'}
+													<div class="field">
+														<span class="label">Clip</span>
+														<select
+															value={layer.clipId ?? ''}
+															onchange={(e) => setLayerClip(i, e.currentTarget.value)}
+														>
+															<option value="">Pick a clip…</option>
+															{#each clips as c (c.id)}
+																<option value={c.id}>{clipLabel(c.id)}</option>
+															{/each}
+														</select>
+													</div>
+													{#if layer.clipId}
+														{@const frame = clipFirstFrame(layer.clipId)}
+														<div class="field">
+															<span class="label">Preview</span>
+															<div class="panel-preview">
+																{#if frame}
+																	<SymbolSpritePreview {frame} index={spriteIndex} size={110} />
+																{:else}
+																	<span class="chip">no frames</span>
+																{/if}
+															</div>
+														</div>
+													{/if}
+												{:else}
+													<div class="field">
+														<span class="label">Effect</span>
+														<select
+															value={layer.effectId ?? ''}
+															onchange={(e) =>
+																(layer.effectId = e.currentTarget.value || undefined)}
+														>
+															<option value="">Pick an effect…</option>
+															{#each effects as fx (fx.id)}
+																<option value={fx.id}>{fx.name}</option>
+															{/each}
+														</select>
+														<p class="hint">
+															For an FX layer <strong>Size</strong> is a scale multiplier on the effect's
+															authored size (1 = as authored), not a cell fit.
+														</p>
+													</div>
+													{#if layer.effectId}
+														<div class="field">
+															<span class="label">Preview</span>
+															<div class="panel-preview">
+																<SymbolFxPreview effectId={layer.effectId} size={140} />
+															</div>
+														</div>
+													{/if}
+												{/if}
+
+												<div class="field">
+													<span class="label">Draw</span>
+													<label class="loop-toggle">
+														<input
+															type="checkbox"
+															checked={layer.behind === true}
+															onchange={(e) =>
+																(layer.behind = e.currentTarget.checked ? true : undefined)}
+														/>
+														<span>Behind the symbol</span>
+													</label>
+												</div>
+
+												<div class="field">
+													<span class="label">Blend</span>
+													{#if blendable}
+														<select
+															value={layer.blendMode ?? 'normal'}
+															onchange={(e) => {
+																const next = e.currentTarget.value as BlendMode;
+																layer.blendMode = next === 'normal' ? undefined : next;
+															}}
+														>
+															{#each BLEND_MODES as mode (mode)}
+																<option value={mode}>{BLEND_MODE_LABELS[mode]}</option>
+															{/each}
+														</select>
+														<span class="hint">
+															How this layer's pixels combine with what is drawn beneath it.
+															<strong>Not previewed here</strong> — check it in the game.
+														</span>
+													{:else}
+														<span class="hint">
+															A <strong>Spine</strong> layer cannot blend. A Pixi blend never reaches
+															skeleton geometry, so the mode would do nothing in the game — Spine art
+															blends per SLOT, authored in the Invisible Rigger. Use a Sprite, Flipbook
+															or FX layer, or a spine whose own slots carry the blend.
+														</span>
+													{/if}
+												</div>
+
+												<div class="bv-fit">
+													<div class="field">
+														<span class="label">Size × cell (w × h)</span>
+														<div class="bv-pair">
+															<input
+																type="number"
+																step="0.05"
+																min="0"
+																placeholder="auto"
+																value={layer.sizeRatios?.width ?? ''}
+																oninput={(e) => setLayerSize(i, 'width', e.currentTarget.value)}
+															/>
+															<input
+																type="number"
+																step="0.05"
+																min="0"
+																placeholder="auto"
+																value={layer.sizeRatios?.height ?? ''}
+																oninput={(e) => setLayerSize(i, 'height', e.currentTarget.value)}
+															/>
+														</div>
+													</div>
+													<div class="field">
+														<span class="label">Offset × cell (x, y)</span>
+														<div class="bv-pair">
+															<input
+																type="number"
+																step="0.05"
+																placeholder="0"
+																value={layer.offset?.x ?? ''}
+																oninput={(e) => setLayerOffset(i, 'x', e.currentTarget.value)}
+															/>
+															<input
+																type="number"
+																step="0.05"
+																placeholder="0"
+																value={layer.offset?.y ?? ''}
+																oninput={(e) => setLayerOffset(i, 'y', e.currentTarget.value)}
+															/>
+														</div>
+													</div>
+												</div>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+						<button
+							type="button"
+							class="ghost add-layer"
+							disabled={(draft.layers?.length ?? 0) >= SYMBOL_LAYER_MAX}
+							onclick={addLayer}
+						>
+							+ Add layer
+						</button>
+						{#if (draft.layers?.length ?? 0) >= SYMBOL_LAYER_MAX}
+							<span class="hint">{SYMBOL_LAYER_MAX} layers is the limit for one state.</span>
+						{/if}
+						{#if draft.layers?.length}
+							<!-- The honest statement of what this tool CAN'T show. The grid draws each cell's
+							     base binding on one shared WebGL canvas (a context-count limit), so it cannot
+							     composite layers over it, and the blend result is therefore not previewable
+							     here at all. Saying so beats drawing a lie. -->
+							<p class="hint">
+								The grid and the previews above show each binding <strong>on its own</strong>.
+								Layers are not composited over the symbol and blend modes are not previewed — the
+								composition is only real in the game.
+							</p>
+						{/if}
+					</div>
+				{/if}
+
 				<div class="panel-actions">
+					{#if unboundLayers > 0}
+						<span class="hint unbound-note">
+							{unboundLayers}
+							{unboundLayers === 1 ? 'layer needs' : 'layers need'} art before this cell can be applied.
+						</span>
+					{/if}
 					{#if !stackedEdit && focus && focusCell?.overridden}
 						<button
 							type="button"
@@ -4439,6 +4950,7 @@
 	}
 	.panel-actions {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 8px;
 		margin-top: auto;
 		padding-top: 8px;
@@ -4682,6 +5194,105 @@
 	}
 	.bv-pair input {
 		width: 72px;
+	}
+
+	/* ── Cell LAYERS ──────────────────────────────────────────────────────────────────────── */
+	.layers .layer-list {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.layer {
+		border: 1px solid #1d1d26;
+		border-radius: 6px;
+		background: #0e0e13;
+	}
+	.layer.open {
+		border-color: #2f3550;
+	}
+	.layer-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px;
+	}
+	.layer-head {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		padding: 2px;
+		border: 0;
+		background: transparent;
+		color: #d8d8e0;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.layer-head.unbound {
+		color: #d9b48a;
+	}
+	.layer-thumb {
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		flex: none;
+		border-radius: 4px;
+		background: #0b0b10;
+	}
+	.layer-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 11px;
+	}
+	.chip.warn {
+		color: #d9b48a;
+		background: #2a2118;
+	}
+	.layer-ops {
+		display: flex;
+		gap: 2px;
+		flex: none;
+	}
+	.layer-ops button {
+		width: 22px;
+		height: 22px;
+		border-radius: 4px;
+		border: 1px solid #2a2a33;
+		background: #14141a;
+		color: #b9b9c4;
+		font-size: 11px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.layer-ops button:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.layer-edit {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 8px;
+		border-top: 1px solid #1d1d26;
+	}
+	.add-layer {
+		align-self: flex-start;
+		font-size: 11px;
+		padding: 5px 10px;
+	}
+	.badge.layers {
+		color: #c8a8ff;
+		background: #241c38;
+	}
+	.unbound-note {
+		flex-basis: 100%;
+		color: #d9b48a;
 	}
 
 	.winline {
