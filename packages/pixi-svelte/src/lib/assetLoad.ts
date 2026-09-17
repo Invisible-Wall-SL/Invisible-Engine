@@ -37,8 +37,25 @@ const PROCESS_METHOD_MAP = {
 	spriteSheet: ({ key, rawAsset }: { key: string; rawAsset: RawSprites }) => ({
 		[key]: Object.values(rawAsset.textures),
 	}),
-	audio: ({ key, rawAsset }: { key: string; rawAsset: RawAudio }) => {
-		return { [key]: rawAsset };
+	audio: ({ key, rawAsset, src }: { key: string; rawAsset: RawAudio; src: string }) => {
+		// An audiosprite JSON names its own media (one entry per container) as paths written from the
+		// DEPLOY ROOT — `./assets/audio/sounds.ogg` — and howler resolves those against the DOCUMENT.
+		// That is the same folder only while we host the page ourselves. In a delivery the document
+		// belongs to the operator and the bundle is served from a CDN, so every entry 404s and the
+		// game just runs silently.
+		//
+		// Re-anchor them on the sprite JSON, which arrived by the same route as the media and is the
+		// one url here that is certainly right. Only the FILENAME is taken, because the deploy-root
+		// prefix is exactly what is wrong — and because it makes both spellings work, so a game repo
+		// carrying its own older `sounds.json` needs no change. An audiosprite's media always sits
+		// beside its JSON (`audiosprite` emits them together), so there is nothing else to preserve.
+		// Absolute entries are somebody's deliberate url and pass through untouched.
+		const beside = (entry: string) => {
+			if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(entry)) return entry;
+			return new URL(entry.split('/').pop() ?? entry, src).href;
+		};
+		const srcList = Array.isArray(rawAsset.src) ? rawAsset.src : [rawAsset.src];
+		return { [key]: { ...rawAsset, src: srcList.map(beside) } };
 	},
 } as const;
 

@@ -58,12 +58,33 @@ const warnAboutDeadSrc = () => {
  * `files.assets` is deliberately NOT redirected: `static/` is the game's own, mirrored from R2 by
  * `pull:assets` (`docs/design/live-assets.md`).
  */
+/**
+ * EMBED mode — the build a partner's page loads with a `<script src>`, instead of the single
+ * droppable `index.html`.
+ *
+ * Default ('inline') copies the whole bundle INTO the HTML, which is what makes an ordinary build a
+ * folder you can drop on any static host. It is also what makes it un-embeddable: a partner's page
+ * is server-rendered and already inside iframes they do not control, so they include our bundle and
+ * give us a container div — there is no HTML of ours for them to serve.
+ *
+ * 'single' emits that same bundle as ONE file and leaves the HTML a shell. Nothing else has to
+ * change for the assets to follow it: the game builds its asset URLs with `import.meta.url`, which
+ * Vite compiles for a classic script to `document.currentScript.src`, so a bundle loaded from
+ * `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` resolves `assets/` under that same folder. That
+ * is what makes their `versionPath` cache-buster work — the folder moves and the whole game moves
+ * with it — and it is exactly what inlining breaks, because an inline script has no `src` and falls
+ * back to `document.baseURI`.
+ *
+ * See `docs/design/delivery-builds.md`.
+ */
+const embedBuild = () => process.env.PUBLIC_DELIVERY_EMBED === '1';
+
 export default () => {
 	const kit = {
 		// See https://kit.svelte.dev/docs/adapters for more information about adapters.
 		adapter: adapter(),
 		output: {
-			bundleStrategy: 'inline',
+			bundleStrategy: embedBuild() ? 'single' : 'inline',
 		},
 	};
 

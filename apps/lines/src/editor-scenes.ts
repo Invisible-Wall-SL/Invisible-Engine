@@ -34,6 +34,7 @@ import type { SoundEffectName } from './game/sound';
 import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
+import { gameAssetsBase } from './game/assets';
 import { defaultLayout } from './game/defaultLayout';
 import {
 	HUD_BUTTON_INSTANCES,
@@ -519,14 +520,14 @@ export function isRuntimeBundleActive(): boolean {
 }
 
 /** Asset URL prefix: the launcher's absolute `/api/deploy/f/<token>/<client>/<project>/` base in
- * runtime mode (so cross-origin deploy files resolve), else the page-relative `assets/` (the deploy
- * mirror) used by the baked path. Keeps every registration KEY identical across the two modes —
+ * runtime mode (so cross-origin deploy files resolve), else the deploy mirror's own `assets/`
+ * ({@link gameAssetsBase}, resolved against the BUNDLE — see there for why not the page). Keeps every registration KEY identical across the two modes —
  * only the resolved `src` URL differs. The runtime form is a PATH, not `?…&rel=`, and deliberately
  * so: a sub-file named inside a parent (a spine atlas page, a bitmap-font page) is loaded RELATIVE
  * to its parent's URL, and the query form would drop the token and project on that resolution. See
  * `/api/editor/runtime`. */
 function srcBase(): string {
-	return hasRuntimeBundle() ? runtimeBundle!.assetBase : 'assets/';
+	return hasRuntimeBundle() ? runtimeBundle!.assetBase : gameAssetsBase();
 }
 
 function hasBakedDoc(): boolean {
