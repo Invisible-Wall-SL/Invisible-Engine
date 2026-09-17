@@ -676,6 +676,60 @@ def is_atlas_bound(m: dict) -> bool:
     return bool(str((m.get("atlas") or {}).get("atlas_file", "")).strip())
 
 
+# Whether the ART's transparent border takes part in placing it. Stored
+# per-manifest at `atlas.pack_trim`; the labels the dropdown shows live in
+# `ui_server.PACK_TRIM_MODES`, keyed by these, the same split FROM_SCRATCH_LAYOUTS
+# / ATLAS_LAYOUT_MODES already uses.
+#   alpha - the element is the art's ALPHA BBOX: it is cropped to its own ink
+#           before anything else happens, so where the ink sat on its canvas is
+#           discarded and each frame is re-placed on its own.
+#   keep  - the element is the WHOLE AUTHORED CANVAS, transparent edges
+#           included. Nothing reads the alpha, so every frame drawn on one
+#           canvas gets the identical canvas->rect transform and the animation
+#           keeps the registration it was drawn with.
+PACK_TRIM_MODES = frozenset({"alpha", "keep"})
+
+# NOT CROPPING IS THE DEFAULT (owner direction 2026-09-17). It was `alpha` while
+# the setting only reached the packer; cropping art the author did not ask to
+# have cropped is the surprising half, so the un-set manifest now gets the
+# faithful one. Stored manifests are NOT rewritten: an atlas with an explicit
+# `pack_trim` keeps exactly what it says.
+PACK_TRIM_DEFAULT = "keep"
+
+
+def pack_trim_mode(m: dict) -> str:
+    """The `atlas.pack_trim` choice for this manifest, normalized. Anything
+    unrecognised — including absent and blank — reads as PACK_TRIM_DEFAULT."""
+    v = str((m.get("atlas") or {}).get("pack_trim", "")).strip().lower()
+    return v if v in PACK_TRIM_MODES else PACK_TRIM_DEFAULT
+
+
+def keep_full_frame(m: dict) -> bool:
+    """Does compose place this manifest's art WITHOUT cropping it to its ink?
+
+    GATED ON `is_from_scratch`, and that gate is the whole safety property. On a
+    `.atlas`-bound manifest the packed (w, h) is the rig's authored footprint and
+    filling it from the alpha bbox is the verified-correct behaviour
+    (`fit_to_region`); the same is true of a Sheet-Maker cell, whose explicit
+    `fit_mode:"contain"` is a byte-for-byte parity contract with
+    `packer.compose`. Neither of those rects was derived from the art, so
+    neither may be re-interpreted by a setting the author last touched on some
+    other atlas. Only `pack`/`grid` — where THIS tool derived every rect in the
+    same run that composes them — read it.
+
+    `is_atlas_bound` is asked TOO, and it is not redundant. A manifest can hold
+    both: the Source .atlas row renders on every panel, so typing a path onto a
+    `pack` atlas leaves `layout` and `atlas_file` set at once, and compose then
+    takes its geometry from the `.atlas` (`main` overwrites width/height from
+    the page and the regions come from `merge_atlas_regions`) while
+    `is_from_scratch` still answers True. Those rects are a rig's authored
+    footprints; filling them from the alpha bbox is the verified-correct
+    behaviour and a re-offset rig is the worst failure this tool has. The
+    `.atlas` wins."""
+    return (is_from_scratch(m) and not is_atlas_bound(m)
+            and pack_trim_mode(m) == "keep")
+
+
 def can_choose_layout(m: dict) -> bool:
     """May the author CHOOSE this manifest's layout in 🧩 Atlas settings?
 
@@ -3433,14 +3487,26 @@ def fit_to_region(img: Image.Image, region: dict,
     projects (manifest regions with no bound `.atlas`, hence no orig_*
     geometry) keep the old aspect-pad behaviour so they don't regress.
 
-    An EXPLICIT `fit_mode: "contain"` (only the Sheet Maker writes it — see
-    atlas_writers.build_manifest) marks a cell that packer.compose packed and
-    the rig was authored against, so it takes a separate sheet-parity path that
-    replays packer.compose verbatim (no alpha-crop, no padding, never upscale,
-    centre the visible bbox). That is NOT the same `contain` the default
-    fallback picks for a legacy cell-grid region, which keeps its alpha-crop +
-    letterbox behaviour unchanged.
+    An EXPLICIT `fit_mode: "contain"` (the Sheet Maker writes it on every cell,
+    and the 🖼 To Atlas Maker export stamps the author's `fit` choice) marks a
+    cell that packer.compose packed and the rig was authored against, so it
+    takes a separate sheet-parity path that replays packer.compose verbatim (no
+    alpha-crop, no padding, never upscale, centre the visible bbox). That is NOT
+    the same `contain` the default fallback picks for a legacy cell-grid region,
+    which keeps its alpha-crop + letterbox behaviour unchanged.
+
+    `atlas.pack_trim` (see `keep_full_frame`) decides WHAT is being placed;
+    `fit_mode` decides HOW it maps into the rect. The two are orthogonal
+    everywhere except the sheet-parity short-circuit above, which is neither:
+    it maps the whole canvas but CENTRES IT BY THE INK, so on any rect the
+    scaled canvas does not exactly fill — a cell of a different aspect, or one
+    bigger than the canvas, which is the ordinary `grid` case — it re-centres
+    every frame on its own ink and the animation stops moving as drawn. Under
+    `keep` that short-circuit is therefore bypassed: ink-blind wins, because
+    being ink-blind is the entire content of the setting. Under `alpha` nothing
+    here changes at all.
     """
+    keep_full = keep_full_frame({"atlas": ATLAS_META})
     # target is the region's UNROTATED size (w, h). For a rotated region we
     # fit the upright art to (w, h) and rotate(+90) at the very end so it
     # lands as the (h x w) packed footprint the .atlas expects.
@@ -3459,30 +3525,45 @@ def fit_to_region(img: Image.Image, region: dict,
     # regions, which must keep their alpha-crop behaviour. `crop_box` is
     # deliberately unused here: there is no alpha-crop to override, and packer
     # centres the visible bbox for base and FX cells alike.
-    if str(region.get("fit_mode", "")).strip().lower() == "contain":
+    if not keep_full and (
+            str(region.get("fit_mode", "")).strip().lower() == "contain"):
         return _packer_compose_tile(img, target_w, target_h,
                                     bool(region.get("rotated")))
 
-    # 1) Crop to actual visible content — ALPHA bbox, not RGBA. An FX layer
-    #    passes its base-derived box instead (see above); PIL pads an
-    #    out-of-canvas box with transparent, which is what keeps the halo's
-    #    room symmetric rather than clamped.
-    alpha_bbox = crop_box or img.getchannel("A").getbbox()
-    if alpha_bbox:
-        img = img.crop(alpha_bbox)
+    if not keep_full:
+        # 1) Crop to actual visible content — ALPHA bbox, not RGBA. An FX layer
+        #    passes its base-derived box instead (see above); PIL pads an
+        #    out-of-canvas box with transparent, which is what keeps the halo's
+        #    room symmetric rather than clamped.
+        alpha_bbox = crop_box or img.getchannel("A").getbbox()
+        if alpha_bbox:
+            img = img.crop(alpha_bbox)
 
-    # 2) Uniform padding (floor 0, so padding_pct = 0 is edge-to-edge).
-    pad_w = max(0, int(round(img.width * PADDING_PCT)))
-    pad_h = max(0, int(round(img.height * PADDING_PCT)))
-    if pad_w or pad_h:
-        padded = Image.new(
-            "RGBA", (img.width + 2 * pad_w, img.height + 2 * pad_h), (0, 0, 0, 0))
-        padded.paste(img, (pad_w, pad_h), img)
-        img = padded
+        # 2) Uniform padding (floor 0, so padding_pct = 0 is edge-to-edge).
+        pad_w = max(0, int(round(img.width * PADDING_PCT)))
+        pad_h = max(0, int(round(img.height * PADDING_PCT)))
+        if pad_w or pad_h:
+            padded = Image.new(
+                "RGBA", (img.width + 2 * pad_w, img.height + 2 * pad_h),
+                (0, 0, 0, 0))
+            padded.paste(img, (pad_w, pad_h), img)
+            img = padded
+    # …and under `keep` neither step runs. Not just the crop: `crop_box` is an
+    # alpha box too (`fx_registration_crop` derives it from the BASE's bbox,
+    # to re-register a halo against a glyph that WAS cropped), and it is moot
+    # here — an FX layer is rendered on its base's canvas, so leaving both of
+    # them whole registers them by construction. The padding goes with it
+    # because it is margin for a tight crop: the authored canvas already
+    # carries whatever margin the art has, and re-padding it would shrink the
+    # frame inside its own rect — on `pack`, where the rect IS the canvas,
+    # measurably so.
 
-    # How the element maps into the slot. Per-region 'fit_mode' wins; the
+    # How the element maps into the slot — the element being the alpha crop
+    # above, or, under `keep`, the whole canvas. Per-region 'fit_mode' wins; the
     # default keeps the verified-correct behaviour (Spine slot = fill exactly;
-    # legacy cell-grid = contain, == the old pad-to-aspect path):
+    # legacy cell-grid = contain, == the old pad-to-aspect path). All three are
+    # a pure function of the element's SIZE, so under `keep` all three give
+    # every frame on one canvas the identical transform:
     #   fill    - stretch to the slot exactly (no margins; distorts if the
     #             element's aspect != the slot's authored aspect)
     #   contain - uniform scale to fit inside the slot, transparent margins

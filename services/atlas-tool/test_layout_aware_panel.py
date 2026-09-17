@@ -18,13 +18,22 @@ THE SPLIT, measured against the shipping code rather than guessed:
                            w/h onto every region it places, so `region_box`'s
                            cell fallback never fires.
                            grid: it IS the layout (`grid_layout` reads it).
-  atlas_pack_trim          pack: the measurement the packer takes.
-                           grid: DEAD -- `pack_trim_mode` is called at exactly
-                           one place, inside `auto_pack_layout`.
+  atlas_pack_trim          BOTH. It is the measurement the packer takes AND
+                           the one compose places with: `fit_to_region` crops
+                           the art to its alpha unless this says otherwise, on
+                           `grid` as much as on `pack`. #719 called it DEAD
+                           under grid because `pack_trim_mode` is called at
+                           exactly one place, inside `auto_pack_layout` -- true,
+                           and not the question. Hiding it took the owner's only
+                           say over cropping away while the cropping went on
+                           happening one function along. It is back, and it is
+                           back because it WORKS there: `test_pack_trim.py` §5
+                           composes a grid atlas both ways and compares pixels.
   atlas_width/height       pack: OUTPUT. `auto_pack_layout` writes them.
                            grid: INPUT. `grid_layout` reads, never writes.
-`test_the_split_is_still_true_of_the_code` pins the last two by reading
-ui_server.py, so the table cannot drift away from the source it describes.
+`test_the_split_is_still_true_of_the_code` pins the rest by reading
+ui_server.py and batch_atlas.py, so the table cannot drift away from the source
+it describes.
 
 THE THREE PROPERTIES, all pinned below.
 
@@ -179,10 +188,13 @@ def cfg_data(m: dict) -> dict:
 # 1. The split, and that it still describes the code.
 # --------------------------------------------------------------------------
 def test_the_table_is_the_measured_one() -> None:
-    check("only the three measured rows are layout-specific",
+    check("only the two measured rows are layout-specific",
           u.ATLAS_GEOM_LAYOUT_GROUP,
-          {"atlas_cell_width": "grid", "atlas_cell_height": "grid",
-           "atlas_pack_trim": "pack"})
+          {"atlas_cell_width": "grid", "atlas_cell_height": "grid"})
+    check("Frame trim is not one of them -- it is live under both",
+          u.ATLAS_GEOM_LAYOUT_GROUP.get("atlas_pack_trim",
+                                        u.ATLAS_GEOM_LAYOUT_BOTH),
+          u.ATLAS_GEOM_LAYOUT_BOTH)
     check("only the two the packer writes are locked",
           u.ATLAS_GEOM_READONLY_IN,
           {"atlas_width": "pack", "atlas_height": "pack"})
@@ -214,7 +226,8 @@ def test_the_split_is_still_true_of_the_code() -> None:
 
     pack, grid = body("auto_pack_layout"), body("grid_layout")
     check("the packer reads the trim mode", "pack_trim_mode(m)" in pack, True)
-    check("the grid pass reads no trim mode", "pack_trim_mode" in grid, False)
+    check("the grid pass does not -- it has no art to measure",
+          "pack_trim_mode" in grid, False)
     check("the grid pass reads the cell size", 'cell_width' in grid, True)
     check("the packer reads no cell size", "cell_width" in pack, False)
     check("the packer WRITES the page size",
@@ -222,13 +235,54 @@ def test_the_split_is_still_true_of_the_code() -> None:
     check("the grid pass never writes the page size",
           'atlas["width"]' in grid or 'atlas["height"]' in grid, False)
     whole = "\n".join(src)
-    check("the trim mode is still read at exactly one place",
+    check("the LAYOUT passes read the trim mode at exactly one place",
           whole.count("pack_trim_mode(m)"), 1)
+    # ...and the SECOND reader, which is why the row is no longer grid-hidden:
+    # compose places every from-scratch region through `fit_to_region`, and it
+    # asks the same question there, under either layout.
+    ba = Path(batch_atlas.__file__).read_text(encoding="utf-8")
+    fit = ba.split("def fit_to_region(")[1].split("\ndef ")[0]
+    check("compose reads it too", "keep_full_frame(" in fit, True)
+    check("...and that gate is what makes the alpha crop conditional",
+          "if not keep_full:" in fit, True)
+    check("...as is the sheet-parity short-circuit",
+          "if not keep_full and (" in fit, True)
+    check("the normalizer lives in ONE module, and the panel borrows it",
+          (u.pack_trim_mode is batch_atlas.pack_trim_mode,
+           "def pack_trim_mode(" in whole), (True, False))
 
 
 # --------------------------------------------------------------------------
 # 2. What each layout shows. THE ASK, stated twice.
 # --------------------------------------------------------------------------
+def test_frame_trim_is_offered_under_every_layout() -> None:
+    """The owner's ask in one place, over every shape the panel takes: "the old
+    drop down, where I could select if the image was full or cropped to the
+    alpha is now gone and I need it back asap". Rendered, visible, editable,
+    both choices, under pack AND grid -- and tagged `both`, so the browser's
+    `applyAtlasLayout` keeps it visible on every switch rather than only on the
+    first paint."""
+    for layout in ("pack", "grid"):
+        row = row_for(_scratch(layout), "atlas_pack_trim")
+        check(f"{layout}: the Frame trim row is rendered", bool(row), True)
+        if not row:
+            continue
+        check(f"{layout}: ...and visible", is_hidden(row), False)
+        check(f"{layout}: ...offering both choices",
+              re.findall(r'<option value="([a-z]+)"', row), ["alpha", "keep"])
+        check(f"{layout}: ...and editable", is_readonly(row), False)
+        check(f"{layout}: ...tagged live under both layouts",
+              group_of(row), u.ATLAS_GEOM_LAYOUT_BOTH)
+        check(f"{layout}: ...so the browser keeps it on screen too",
+              u.layout_row_visible(group_of(row), layout), True)
+    check("an unset atlas opens on the new default, not cropped",
+          f'<option value="{u.PACK_TRIM_DEFAULT}" selected'
+          in row_for(_scratch("grid", pack_trim=""), "atlas_pack_trim"), True)
+    check("...which is 'keep the whole frame'", u.PACK_TRIM_DEFAULT, "keep")
+    check("and a bound atlas still gets the row it always had",
+          bool(row_for(_bound(), "atlas_pack_trim")), True)
+
+
 def test_pack_hides_the_cell_size_and_locks_the_page_size() -> None:
     m = _scratch("pack")
     check("the cell fields are gone from the visible panel",
@@ -250,12 +304,15 @@ def test_pack_hides_the_cell_size_and_locks_the_page_size() -> None:
           "atlas_layout" in visible_keys(m), True)
 
 
-def test_grid_hides_the_trim_and_hands_the_page_size_back() -> None:
+def test_grid_shows_the_trim_and_hands_the_page_size_back() -> None:
+    """THE REGRESSION, stated as the ask: "the old drop down, where I could
+    select if the image was full or cropped to the alpha is now gone and I need
+    it back asap". It is on screen under grid, and it is on screen because it
+    WORKS there -- `test_pack_trim.py` §5 composes the pixels both ways."""
     m = _scratch("grid")
-    check("Frame trim is gone from the visible panel",
-          "atlas_pack_trim" in visible_keys(m), False)
-    check("...and it is the ONLY row hidden", hidden_keys(m),
-          ["atlas_pack_trim"])
+    check("Frame trim is on the visible panel",
+          "atlas_pack_trim" in visible_keys(m), True)
+    check("...and nothing at all is hidden under grid", hidden_keys(m), [])
     for k in ("atlas_cell_width", "atlas_cell_height"):
         check(f"{k} is on screen -- under grid it IS the layout",
               k in visible_keys(m), True)
@@ -272,10 +329,10 @@ def test_the_rows_and_the_dropdown_read_the_same_stored_value() -> None:
     the row filter (`batch_atlas.atlas_layout`). If they ever disagreed, the
     page would paint one layout's rows next to the other layout's selection and
     then jump the moment `applyAtlasLayout` ran on load."""
-    for stored, want_hidden in ((" GRID ", ["atlas_pack_trim"]),
+    for stored, want_hidden in ((" GRID ", []),
                                 ("Pack", ["atlas_cell_width",
                                           "atlas_cell_height"]),
-                                ("grid", ["atlas_pack_trim"])):
+                                ("grid", [])):
         m = _scratch(stored)
         sel = re.search(r'<option value="([a-z]+)" selected',
                         row_for(m, "atlas_layout"))
@@ -308,7 +365,7 @@ def test_a_hidden_row_still_carries_its_stored_value() -> None:
     check_true("the hidden cell height still holds 444",
                'value="444"' in row_for(pack, "atlas_cell_height"))
     grid = _scratch("grid", pack_trim="keep")
-    check_true("the hidden Frame trim still has 'keep' selected",
+    check_true("the Frame trim row shows the stored 'keep' under grid too",
                '<option value="keep" selected' in row_for(grid, "atlas_pack_trim"))
     check("a read-only box still carries its value, so it still posts",
           cfg_data(_scratch("pack"))["atlas_width"], "1028")
@@ -351,7 +408,12 @@ _BOUND_ROWS_ON_MAIN = (
     '<label><span class="lblrow">Default cell height <span style="color:#888;font-size:10px">· this atlas</span><span class="qm" title=TIP>&#9432;</span></span><input data-cfg="atlas_cell_height" title=TIP type="number" value="256" placeholder="" step=any></label>',
     '<label><span class="lblrow">Atlas format <span style="color:#888;font-size:10px">· this atlas</span><span class="qm" title=TIP>&#9432;</span></span><select data-cfg="atlas_format" title=TIP><option value="">(blank — none)</option><option value="RGBA8888" selected>RGBA8888</option><option value="RGBA4444">RGBA4444</option><option value="RGB888">RGB888</option><option value="RGB565">RGB565</option></select></label>',
     '<label><span class="lblrow">Atlas source image <span style="color:#888;font-size:10px">· this atlas</span><span class="qm" title=TIP>&#9432;</span></span><span class="filefld"><input data-cfg="atlas_source_image" title=TIP type="text" value="symbols.png" placeholder=""><button type="button" class="fbtn" title=TIP onclick="openFs(\'atlas_source_image\')">📁</button></span></label>',
-    '<label><span class="lblrow">Frame trim (from-scratch layout) <span style="color:#888;font-size:10px">· this atlas</span><span class="qm" title=TIP>&#9432;</span></span><select data-cfg="atlas_pack_trim" title=TIP><option value="alpha">Trim each frame to its alpha (smallest page)</option><option value="keep" selected>Keep the full frame (all frames share one centre)</option></select></label>',
+    # The one row whose LABELS this change rewrote (the old ones said
+    # "(from-scratch layout)" and promised a smallest page / a common centre --
+    # claims about `pack` alone). STRUCTURE is what this golden is for, and the
+    # structure is still main's: same position, same control, same two values,
+    # same `selected`, no data-layout, no readonly, no display:none.
+    '<label><span class="lblrow">Frame trim <span style="color:#888;font-size:10px">· this atlas</span><span class="qm" title=TIP>&#9432;</span></span><select data-cfg="atlas_pack_trim" title=TIP><option value="alpha">Crop each frame to its visible pixels</option><option value="keep" selected>Keep the whole frame, transparent edges included</option></select></label>',
 )
 
 
@@ -701,10 +763,20 @@ def test_the_help_matches_what_each_field_now_does() -> None:
     check_true("...and still covers the legacy cell-grid fallback",
                "legacy cell-grid manifest" in cw)
     tr = u.help_for("atlas_pack_trim", {})
-    check_true("Frame trim says it is the packer's measurement",
-               "Only for Layout = Pack the art" in tr)
-    check_true("...and that grid hides it",
-               "hidden under Grid of cells" in tr)
+    check_true("Frame trim says what it does",
+               "cuts the transparent edges" in tr)
+    check_true("...and that it applies to both layouts",
+               "Works under BOTH layouts" in tr)
+    check_true("...and which way round the default is",
+               "Keep the whole frame (the default)" in tr)
+    check_true("...and what each choice costs, under each layout",
+               "smallest page" in tr and "jumps between frames" in tr)
+    check("...and it no longer claims grid ignores it",
+          "hidden under Grid of cells" in tr, False)
+    lay0 = u.help_for("atlas_layout", {})
+    check("Layout no longer says Frame trim disappears",
+          "Frame trim disappears" in lay0, False)
+    check_true("...it says the opposite", "Frame trim stays on screen" in lay0)
     lay = u.help_for("atlas_layout", {})
     check_true("Layout promises the panel follows the dropdown",
                "hidden or locked" in lay)
@@ -727,8 +799,9 @@ if __name__ == "__main__":
 
     tests = [test_the_table_is_the_measured_one,
              test_the_split_is_still_true_of_the_code,
+             test_frame_trim_is_offered_under_every_layout,
              test_pack_hides_the_cell_size_and_locks_the_page_size,
-             test_grid_hides_the_trim_and_hands_the_page_size_back,
+             test_grid_shows_the_trim_and_hands_the_page_size_back,
              test_the_rows_and_the_dropdown_read_the_same_stored_value,
              test_no_row_is_ever_dropped_from_the_markup,
              test_a_hidden_row_still_carries_its_stored_value,

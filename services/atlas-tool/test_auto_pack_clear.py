@@ -87,9 +87,15 @@ def _manifest(tmp: Path) -> dict:
     """One pack atlas whose region carries trim in BOTH spellings -- the shape a
     camelCase-writing producer would hand this tool if it declared `pack`, plus
     this tool's own snake_case. No shipping producer is in that state today; the
-    clear has to hold for the one that next is."""
+    clear has to hold for the one that next is.
+
+    `pack_trim: "alpha"` is EXPLICIT because this suite is about the tight-crop
+    re-pack: the rect it stamps is the art's own alpha bbox, which is what makes
+    the carried-over trim stale. It is not the default any more (that is now
+    `keep`), and an atlas that says `alpha` keeps getting exactly this -- which
+    is the other thing these two lines pin."""
     return {
-        "atlas": {"layout": "pack"},
+        "atlas": {"layout": "pack", "pack_trim": "alpha"},
         "regions": [{
             "name": "Coin",
             "output_override": _art(tmp),
