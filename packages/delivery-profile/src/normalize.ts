@@ -24,7 +24,7 @@ const BAKE_ONLY_FIELDS = ['rgs.withCredentials', 'rgs.allowUrlOverride', 'sessio
 const KNOWN_KEYS: Record<string, string[]> = {
 	'': ['id', 'rgs', 'session'],
 	rgs: ['baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
-	session: ['param', 'required'],
+	session: ['param', 'source', 'required'],
 };
 
 /** Characters that must never reach a URL we will fetch: whitespace, backslashes (WHATWG folds them
@@ -184,6 +184,17 @@ export const mergeDeliveryProfile = (
 		}
 	}
 
+	let sessionSource = base.session.source;
+	const sourcePatch =
+		readString(sessionPatch, 'source', 'session.source', warnings)?.trim() ?? null;
+	if (sourcePatch !== null) {
+		if (sourcePatch === 'param' || sourcePatch === 'host') {
+			sessionSource = sourcePatch;
+		} else {
+			warnings.push(`session.source must be "param" or "host" — ignored`);
+		}
+	}
+
 	let sessionParam = base.session.param;
 	const sessionParamPatch =
 		readString(sessionPatch, 'param', 'session.param', warnings)?.trim() ?? null;
@@ -213,6 +224,7 @@ export const mergeDeliveryProfile = (
 			},
 			session: {
 				param: sessionParam,
+				source: sessionSource,
 				required:
 					readBoolean(sessionPatch, 'required', 'session.required', scope, warnings) ??
 					base.session.required,

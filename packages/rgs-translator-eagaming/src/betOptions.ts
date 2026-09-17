@@ -23,6 +23,8 @@
  * consumer on the pre-existing path, so this is inert until a real server switches it on.
  */
 
+import { readHostGameSettings } from 'delivery-profile';
+
 import { PLAY4FUN_AMOUNT_MULTIPLIER, play4FunToEngine } from './gameMappings';
 
 export interface ServerBetOptions {
@@ -77,40 +79,24 @@ export const readServerBetOptions = (config: unknown): ServerBetOptions | null =
 /**
  * Read the multiplier list the operator's embed page published.
  *
- * Their page builds `params.GameSettings = JSON.parse('…')` with a `config` block holding
- * `betMultipliers` + `initialBetMultiplierIndex`. We read it defensively and from the TOP window as
- * well as our own, because the delivered client may run in an iframe the embed page hosts.
+ * The page itself is read by `delivery-profile`'s `readHostGameSettings()` — ONE reader for the
+ * three consumers of that object (this ladder, the session token, and the jurisdiction flags), so a
+ * second copy cannot drift from it. This function only decides what a bet ladder means.
  */
 export const readHostBetSettings = (): HostBetSettings | null => {
-	if (typeof window === 'undefined') return null;
+	const config = readHostGameSettings()?.config;
+	if (!config) return null;
 
-	const candidates: unknown[] = [];
-	const collect = (scope: unknown) => {
-		const params = (scope as { params?: { GameSettings?: { config?: unknown } } } | undefined)
-			?.params;
-		if (params?.GameSettings?.config) candidates.push(params.GameSettings.config);
+	const betMultipliers = positiveNumbers(config.betMultipliers);
+	if (!betMultipliers) return null;
+
+	const index = config.initialBetMultiplierIndex;
+	return {
+		betMultipliers,
+		...(typeof index === 'number' && index >= 0 && index < betMultipliers.length
+			? { initialBetMultiplierIndex: index }
+			: {}),
 	};
-	collect(window);
-	try {
-		// Cross-origin parents throw on property access; an operator hosting us same-origin does not.
-		if (window.parent && window.parent !== window) collect(window.parent);
-	} catch {
-		/* cross-origin parent — nothing to read */
-	}
-
-	for (const candidate of candidates) {
-		const source = candidate as Record<string, unknown>;
-		const betMultipliers = positiveNumbers(source.betMultipliers);
-		if (!betMultipliers) continue;
-		const index = source.initialBetMultiplierIndex;
-		return {
-			betMultipliers,
-			...(typeof index === 'number' && index >= 0 && index < betMultipliers.length
-				? { initialBetMultiplierIndex: index }
-				: {}),
-		};
-	}
-	return null;
 };
 
 export interface BetLadder {

@@ -25,7 +25,7 @@
  * is preserved across calls within the same playing session.
  */
 
-import { getDeliveryProfile } from 'delivery-profile';
+import { getDeliveryProfile, hostBoolean } from 'delivery-profile';
 
 import {
 	betOptionCostRatios,
@@ -198,6 +198,27 @@ const warnUnexpressibleMode = (sid: string, mode: string): void => {
 			`encoding for it. The server's table cannot price this mode; either the math needs an ` +
 			`option for it or the game should not offer it.`,
 	);
+};
+
+/**
+ * The jurisdiction flags the operator's embed page declared, in the engine's vocabulary.
+ *
+ * Until now this block was INVENTED — a hardcoded set the client chose for itself, which is wrong
+ * twice over against a real operator: turbo, autoplay and the buy feature are things a licence
+ * decides, not a game. Their `GameSettings.config` states them, so read them.
+ *
+ * Only keys the operator actually stated are returned, so a launch outside an embed page (every
+ * game we run today) is untouched.
+ */
+const hostJurisdiction = (): Record<string, boolean> => {
+	const out: Record<string, boolean> = {};
+	const enableTurbo = hostBoolean('enableTurbo');
+	if (enableTurbo !== null) out.disabledTurbo = !enableTurbo;
+	const allowOutcomeBuy = hostBoolean('allowOutcomeBuy');
+	if (allowOutcomeBuy !== null) out.disabledBuyFeature = !allowOutcomeBuy;
+	const showTheoreticalPayback = hostBoolean('showTheoreticalPayback');
+	if (showTheoreticalPayback !== null) out.displayRTP = showTheoreticalPayback;
+	return out;
 };
 
 /** The server's bet options in the engine's `betModes` shape. `feature` marks anything that costs
@@ -1022,6 +1043,11 @@ export const requestAuthenticate = async (options: {
 				: { BASE: { mode: 'BASE', costMultiplier: 1, feature: false } },
 			defaultBetLevel: ladder?.defaultBetLevel ?? 1_000_000,
 			jurisdiction: {
+				// The operator's embed page states what this launch may do; anything it does NOT state
+				// keeps the value below. `hostBoolean` returns null for an absent key precisely so
+				// "the operator said no" can be told from "the operator said nothing" — overriding a
+				// default on silence is how a game ends up disabling turbo nobody disabled.
+				...hostJurisdiction(),
 				socialCasino: false,
 				disabledFullscreen: false,
 				disabledTurbo: false,
@@ -1180,8 +1206,16 @@ export const requestBet = async (options: {
 	const winCents =
 		(allEvents.find((e) => e.event === 'gameEnd')?.context as { win?: number } | undefined)?.win ??
 		0;
-	const interimCents = finalCents - winCents;
-	pendingFinalBalance.set(options.sessionID, finalCents);
+	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
+	//
+	// Auto-collecting server: `gameRoundOver` is in the events, the balance is final, and the interim
+	// the engine wants (bet debited, win not yet credited) is that minus the win.
+	// Partner server: the round is still open, so the reported balance IS the interim — subtracting
+	// the win again would show a balance lower than the player ever had, and stashing it as "final"
+	// would credit a win that the missing `collect` never paid.
+	const roundClosed = allEvents.some((e) => e.event === 'gameRoundOver');
+	const interimCents = roundClosed ? finalCents - winCents : finalCents;
+	if (roundClosed) pendingFinalBalance.set(options.sessionID, finalCents);
 
 	if (translated.balance) {
 		translated.balance = { ...translated.balance, amount: play4FunToEngine(interimCents) };
@@ -1204,29 +1238,74 @@ export const requestBet = async (options: {
 	return translated;
 };
 
+/**
+ * The player's balance, without touching the round.
+ *
+ * Posts the empty-body probe — the one call the server does not store — so a cashier deposit made
+ * while the game is open can reach the HUD. Returns undefined rather than a number in the two cases
+ * where asking is wrong:
+ *
+ *  - A round is OPEN (`session.gid`). The partner answers `not authorized` (code 118) to an
+ *    out-of-band call mid-round, and a poll has no business interrupting a spin anyway.
+ *  - The request failed. A poll that cannot reach the server must leave the last known balance
+ *    alone; blanking the HUD on a dropped packet is worse than a slightly stale number.
+ */
+export const requestBalance = async (options: { sessionID: string; rgsUrl: string }) => {
+	const session = sessionFor(options.sessionID);
+	if (session.gid) return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+
+	try {
+		const result = await fetcherFor(options.sessionID, options.rgsUrl).post({
+			body: buildHeartbeat(),
+		});
+		if (isPlay4FunError(result.response)) {
+			return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+		}
+		const balance = balanceOf(result.response);
+		return {
+			status: { statusCode: 'SUCCESS' as const },
+			balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
+		};
+	} catch {
+		return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+	}
+};
+
 export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 
-	// If we have a stashed final balance from the most recent winning bet,
-	// return it now (this is the moment the engine wants to credit the win
-	// to the player's displayed balance, after the count-up animation).
+	// An OPEN round is closed FIRST, and its `collect` is what credits the win.
+	//
+	// This ordering is load-bearing, and it used to be the other way round. Our mock auto-collects on
+	// `play.context: ''`, so a bet's response already carried `gameRoundOver` and a stashed balance
+	// was the whole answer. The partner RGS does NOT: the round stays `updating` and the win is
+	// credited only by an explicit `collect`. Measured first (balance 999760 after bet+play, 999780
+	// after collect, win 20) and then CONFIRMED by the RGS author as the intended flow, with no case
+	// in which the collect should be withheld — worth recording, because this is a money path and a
+	// later reader should not have to re-derive it from two captures.
+	// With the stash checked first, that collect was unreachable, so every round
+	// was left open and every win went uncredited while the HUD showed one anyway, computed by us.
+	if (session.gid) {
+		const collectResult = await fetcher.post({ body: buildCollectAction() });
+		if (responseClosedRound(collectResult.response)) session.endRound();
+		pendingFinalBalance.delete(options.sessionID);
+		const balance = balanceOf(collectResult.response);
+		return {
+			status: { statusCode: 'SUCCESS' as const },
+			balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
+		};
+	}
+
+	// No open round ⇒ the bet's own response already closed it (an auto-collecting server), and the
+	// balance it reported is the final one. This is the moment the engine credits the win on screen,
+	// after the count-up.
 	const stashed = pendingFinalBalance.get(options.sessionID);
 	if (stashed !== undefined) {
 		pendingFinalBalance.delete(options.sessionID);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
 			balance: { amount: play4FunToEngine(stashed), currency: 'USD' },
-		};
-	}
-
-	if (session.gid) {
-		const collectResult = await fetcher.post({ body: buildCollectAction() });
-		if (responseClosedRound(collectResult.response)) session.endRound();
-		const balance = balanceOf(collectResult.response);
-		return {
-			status: { statusCode: 'SUCCESS' as const },
-			balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
 		};
 	}
 

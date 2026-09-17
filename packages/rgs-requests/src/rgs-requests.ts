@@ -20,10 +20,17 @@ export const requestAuthenticate = async (options: {
 	return data;
 };
 
-export const requestEndRound = async (options: {
-	sessionID: string;
-	rgsUrl: string;
-}) => {
+/**
+ * The stock RGS protocol has no balance endpoint — balance only ever arrives alongside a wallet
+ * call. Declared so the poller can be written once against one surface; returning undefined is what
+ * makes it stand down for this transport rather than inventing a request.
+ */
+export const requestBalance = async (_options: { sessionID: string; rgsUrl: string }) => {
+	void _options;
+	return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+};
+
+export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
 	const data = await rgsFetcher.post({
 		rgsUrl: options.rgsUrl,
 		url: '/wallet/end-round',
@@ -87,4 +94,4 @@ export const requestReplay = async (options: {
 	});
 
 	return data;
-}
+};
