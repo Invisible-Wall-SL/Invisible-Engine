@@ -1,8 +1,9 @@
 # The Play4Fun / HyperGaming RGS protocol
 
 **What this is.** The wire contract our `rgs-translator-eagaming` package implements, read off the
-partner's OWN reference client (`server-handler/hyper-gaming/`, shared 2026-09-17) rather than
-inferred from traffic. Everything below is the CONTRACT — request shapes, action names, event names,
+partner's OWN reference client — their slot layer (`server-handler/hyper-gaming/`) and the
+`p4f-game-core` / `p4f-slotty-core` libraries under it, shared 2026-09-17 — rather than inferred
+from traffic. Everything below is the CONTRACT — request shapes, action names, event names,
 config fields. None of their code is reproduced or vendored: it is their proprietary client, and we
 implement the same protocol in our own engine.
 
@@ -31,6 +32,39 @@ request.
 
 Sibling endpoints are the SAME url with the last path segment swapped — `engine` → `freerounds`,
 `engine` → `batchengine` (fast play, plus `&num=`). So the endpoint is a family, not one path.
+
+### Requests are CORS simple requests, and always were
+
+Their `XhrRequest.Post` calls `xhr.open()` then `xhr.send(jsonString)` and **never sets a
+`Content-Type` header**, so the browser applies its default for a string body:
+`text/plain;charset=UTF-8`. That is a CORS **simple request** — no preflight, ever.
+
+This confirms `rgs.simpleRequest` from the other side. We added it defensively, after the 2-complex
+node answered `Access-Control-Allow-Origin: *` with no `Access-Control-Allow-Headers` and refused a
+JSON content type at the preflight. The reason is now plain: nothing on their platform has ever sent
+a preflight, so nothing on their platform has ever had to answer one. A JSON content type is not
+"stricter" here, it is unprecedented.
+
+(Their Node path sends `application/x-www-form-urlencoded` — also simple. There is no code path in
+their client that would trigger a preflight.)
+
+### Failures arrive as HTTP 200
+
+`onSuccessed` is only called when `response.error == null`; a body carrying `error` is routed to
+`onFailed` despite the 200. This is what `partnerErrorText()` handles in `partnerRgs.ts`, and it is
+worth restating because a transport that only checks `res.ok` will treat every refusal as a success.
+
+An `error.action === 'continue'` means the error is non-fatal and the game should keep going.
+
+### Their resilience model, which we do not have
+
+Worth knowing before judging our own behaviour on a flaky connection:
+
+- A network error or an **empty response body** triggers a resend, every 1s, effectively forever
+  (`MAX_RESEND_HTTP_REQUEST = Number.MAX_SAFE_INTEGER`). Request timeout is 30s.
+- While reconnecting, a global gate holds every other request until the first one succeeds, so a
+  retry storm cannot reorder actions — which matters a great deal when `seq` is a position.
+- Reconnect start/success/failure are published as events, so the UI can say so.
 
 ### `seq` is a position, and this is now confirmed
 
@@ -134,16 +168,57 @@ was an open question in the delivery plan. It does:
 | `paytable` | `{symbol: [{on: {of, occurs}, pay: [...]}]}` — `occurs[i]` pays `pay[i]`. |
 | `symbolsPay.scatter` | Which symbols are scatters. |
 
+Alongside `context`, the `config` EVENT itself carries the resume contract:
+
+| Field | Meaning |
+| --- | --- |
+| `actions` | The stored action array of an unfinished round. |
+| `resume` | `true` ⇒ that round is still open; continue it. |
+| `replay` | `true` ⇒ replay mode over those actions. |
+
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
+
+## Resume — what happens when a player comes back
+
+This is the part of the protocol we have no answer for, and the one most likely to bite a delivery.
+
+On boot, if `config.actions` is non-empty and `config.resume` (or `replay`) is set, their client:
+
+1. reads the stored `bet` action to recover the stake — `context[0]` is the bet param, `context[1]`
+   the bet point — so the UI comes back showing what the player actually staked;
+2. takes `platform.gameRound.id` as the round to continue;
+3. queues the actions, and from then on **every request prepends the pending stored actions** up to
+   the one it wants (`getResumeActions('play')`, `getResumeActions('collect')`), shifting them off as
+   they are sent.
+
+So the server holds the round; the client replays its way back to the present and carries on.
+
+**Why this matters more than it looks.** `seq` is a position. A client that boots fresh against a
+server with an open round will post its first `bet` at a position the server already has filled —
+which is not an error, it is the **replay** path. The player would watch an old spin and wonder
+where their money went. Closing a tab mid-free-spins is not an exotic case on mobile, and a delivery
+is all mobile.
+
+We currently have neither the resume queue nor a check for `config.resume`. At minimum the facade
+should notice an open round at boot and refuse to start a new one, rather than silently replaying.
+
+## Where the host glue lives (and why we did not find it)
+
+Neither `p4f-game-core` nor `p4f-slotty-core` reads `window.params` or `GameSettings` anywhere. The
+cores take an already-built `serverConfig` (`gameAPI`, `urlHistory`, `outcomes`,
+`balanceUpdateInterval`, …); assembling it from the embed page is each GAME PROJECT's own bootstrap,
+which neither drop includes.
+
+Nothing turns on it. We build the request URL from `GameSettings.service` + `.token` via
+`host.ts`, where they consume the page's pre-assembled `params.GameAPI`; the two produce the same
+request against the same origin.
 
 ## Things we have no equivalent for
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:
 
-- **Resume.** Their client keeps a `resumeData` action list and, before every request, replays any
-  stored actions the server still expects (`getResumeActions(untilAction)`). This is what makes a
-  reconnect mid-round recover rather than desync — the other half of `seq`-as-position. We have
-  nothing here, and a delivery on a flaky mobile connection is where it would show.
+- **Resume** — see its own section above. The biggest gap.
+- **The retry/reconnect model** — see "Their resilience model" above.
 - **Gamble** (double-up on a finished round).
 - **Free rounds** — a separate `freerounds` endpoint with `&action=choose&frid=&betid=`, plus
   `gameRound.freeRound.totalWin` on the platform object.
