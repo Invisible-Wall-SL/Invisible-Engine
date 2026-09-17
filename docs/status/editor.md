@@ -39,6 +39,25 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-09-17 — **`lighten` joins the blend modes — the one Screen was supposed to be.**
+  Owner-reported against real art (warm light shafts over blue water): `screen` washed the colour
+  out. It does, by construction — `1-(1-b)(1-s)` pushes bright areas toward white, so a warm shaft
+  `(240,200,120)` over water `(20,80,160)` lands at `(241,216,205)`, near-white. `lighten` is a
+  per-channel `max`, so the same pair lands at `(240,200,160)` and stays warm. Dark areas still
+  disappear, which was the part Screen got right.
+  - Free to add: the Pixi advanced-blend registration shipped with `overlay` (2026-09-17), and
+    `lighten` is in that same set, so this is the type, the list, the label, the three surface
+    readers and a docs line.
+  - **Verified in-game** the same way `overlay` was — probe node, forced render (the browser pane
+    freezes rAF), pipe `_filterHash` reports `['lighten']`, so the filter really resolves rather
+    than silently falling back to `normal`. Screen-vs-Lighten screenshots on the same node show
+    the washed-out/preserved-colour difference directly.
+  - Gates: `pnpm lint`, `check:undefined-names`, both app builds green.
+  - **Not a bug report to chase:** `overlay` was working; it is keyed on the BACKDROP (multiply
+    where what is behind is dark, screen where it is light), so over a dark game background it
+    darkens — the opposite of "dark parts of my art disappear". That is a source-keyed ask, which
+    is `screen`/`lighten` territory.
+
 - 2026-09-17 — **`overlay` joins the blend modes, and the registration that makes it real.**
   Added to `engine-layout/blendMode.ts` (type + list + label + all three surface readers), so the
   editor dropdown, the 2D canvas and the WebGL overlays pick it up with no further wiring —

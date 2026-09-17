@@ -276,6 +276,10 @@ item's pixels are combined with them.
   **shadows, dirt passes, vignettes and colour washes**; white pixels vanish.
 - **Screen** — the inverse of Multiply, always lighter. A softer lift than Add, which is
   usually what you want over an already-bright backdrop where Add would blow out to white.
+- **Lighten** — keeps whichever is brighter, channel by channel. Like Screen in that dark
+  areas of your art disappear, but it **keeps your art's own colour** instead of pushing it
+  toward white — warm light shafts stay warm over blue water, where Screen would wash them
+  pale. Reach for it when Screen is right in principle but is bleaching the colour out.
 - **Overlay** — Multiply where the backdrop is dark, Screen where it is light, so it
   *boosts contrast* instead of pushing one direction. The mode for a texture or colour pass
   that should sit **into** the art rather than on top of it: grime over a panel, a light wash
