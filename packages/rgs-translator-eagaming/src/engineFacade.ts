@@ -25,7 +25,7 @@
  * is preserved across calls within the same playing session.
  */
 
-import { getDeliveryProfile, hostBoolean } from 'delivery-profile';
+import { getDeliveryProfile, hostBoolean, hostServicePath } from 'delivery-profile';
 
 import {
 	betOptionCostRatios,
@@ -949,12 +949,29 @@ const buildBaseUrl = (rgsUrl: string): string => {
  *  `delivery-profile` is a zero-dependency leaf describing the TRANSPORT, not the engine — so it
  *  costs none of the portability the no-engine-deps rule in `gameMappings.ts` is protecting, and a
  *  real import cannot be read before it is written the way a global can. */
+/**
+ * Where to POST, when the operator's page is the RGS's own origin (`rgs.source: 'host'`).
+ *
+ * Their wrapper resolves this server-side and hands it over as `GameSettings.service`, then builds
+ * a RELATIVE request URL from it — so the game reaches the RGS without ever naming a host, and
+ * without CORS. An empty base here is exactly that: fetch against the page.
+ *
+ * The profile's `endpoint` stays as the fallback for a page that states no `service`, which is what
+ * keeps our own QA links working against a delivery build.
+ */
+const rgsLocation = (rgsUrl: string): { baseUrl: string; endpoint: string } => {
+	const profile = getDeliveryProfile();
+	if (profile.rgs.source === 'host') {
+		return { baseUrl: '', endpoint: hostServicePath() ?? profile.rgs.endpoint };
+	}
+	return { baseUrl: buildBaseUrl(rgsUrl), endpoint: profile.rgs.endpoint };
+};
+
 const fetcherFor = (sid: string, rgsUrl: string) => {
 	const profile = getDeliveryProfile();
 	return createPlay4FunFetcher(
 		{
-			baseUrl: buildBaseUrl(rgsUrl),
-			endpoint: profile.rgs.endpoint,
+			...rgsLocation(rgsUrl),
 			withCredentials: profile.rgs.withCredentials,
 			...(profile.rgs.simpleRequest ? { contentType: 'text/plain;charset=UTF-8' } : {}),
 			sid,

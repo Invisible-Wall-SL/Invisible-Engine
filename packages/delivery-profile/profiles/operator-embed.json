@@ -1,0 +1,16 @@
+{
+	"_comment": "The shape a REAL operator delivery takes, confirmed by the RGS author 2026-09-17: their embed page reaches the RGS through RequestController.getBaseUrl(), i.e. a relative path on the page's own origin. Nothing here names a host, which is the point — the operator's infrastructure decides that, and it is the only party that knows it. No host means no CORS: no preflight per spin, no Access-Control-Allow-Origin for an open-ended set of client and aggregator domains, and one artifact that several operators can receive unchanged. Bake this rather than 2complex.json for a delivery; 2complex.json stays absolute because the test node is reached cross-origin from our own dev machines.",
+	"id": "operator-embed",
+	"rgs": {
+		"source": "host",
+		"endpoint": "/webnode/engine",
+		"withCredentials": false,
+		"simpleRequest": false,
+		"allowUrlOverride": false
+	},
+	"session": {
+		"source": "host",
+		"param": "sid",
+		"required": true
+	}
+}
