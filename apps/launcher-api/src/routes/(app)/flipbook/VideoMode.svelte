@@ -952,12 +952,20 @@ ${endScript}</body></html>`;
 		width: number;
 		height: number;
 	}
+	/** How each frame's art maps into its cell once the atlas is built. The cell is not decided
+	 * here — the exported manifest is a grid whose geometry the Atlas Maker recomputes from its
+	 * own atlas size and cell size at Create Atlas — so this only says what happens to art whose
+	 * aspect does not match that cell. It rides with the export because it is a property of the
+	 * SEQUENCE: every frame has to land the same way or they stop lining up, which is why
+	 * `contain` (uniform scale, centred, transparent margins) is the default. */
+	type RefFit = 'contain' | 'cover' | 'fill';
 	let refsFor = $state<Variation | null>(null);
 	let refsProbe = $state<Probe | null>(null);
 	let atlasName = $state('');
 	let refsStart = $state(0);
 	let refsEnd = $state(0);
 	let refsStride = $state(1);
+	let refsFit = $state<RefFit>('contain');
 	let refsBusy = $state(false);
 	let refsErr = $state('');
 	let refsDone = $state<RefsResult | null>(null);
@@ -981,6 +989,7 @@ ${endScript}</body></html>`;
 		atlasName = `${(session?.blueprint_name ?? 'video').replace(/[^A-Za-z0-9]+/g, '_')}_${String(v.index).padStart(3, '0')}`;
 		refsStart = 0;
 		refsStride = 1;
+		refsFit = 'contain';
 		try {
 			const p = await getJson<Probe>(
 				'probe',
@@ -1009,6 +1018,7 @@ ${endScript}</body></html>`;
 				start: refsStart,
 				end: refsEnd,
 				stride: refsStride,
+				fit: refsFit,
 			});
 			if (out.error) {
 				refsErr = out.error;
@@ -2843,6 +2853,28 @@ Overwrite it?`)
 						/></label
 					>
 				</div>
+
+				<!-- A full-width `.fld`, deliberately not `.fld.sm` like the three boxes above: that
+				     class pins its select to 90px, which truncates every one of these labels to
+				     "contain — Fi". -->
+				<label class="fld">
+					<span>Fit</span>
+					<select bind:value={refsFit} disabled={refsBusy}>
+						<option value="contain">contain — Fit inside the cell (recommended)</option>
+						<option value="cover">cover — Fill the cell, crop the overflow</option>
+						<option value="fill">fill — Stretch to the cell exactly</option>
+					</select>
+				</label>
+
+				<p class="hint">
+					<b>Fit</b> is how each frame maps into the cell the Atlas Maker builds for its region:
+					<b>contain</b>
+					scales it uniformly inside the cell and leaves transparent margins — the one that keeps a sequence
+					lined up, since every frame ends up at the same scale in an identical cell;
+					<b>cover</b>
+					fills the cell and crops the overflow; <b>fill</b> stretches to the cell exactly, distorting
+					any frame whose shape differs from it.
+				</p>
 
 				<p class="hint">
 					<b>{willExport}</b>

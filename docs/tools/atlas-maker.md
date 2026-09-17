@@ -112,8 +112,9 @@ Three collapsible panels sit above the region grid:
 ### Frame trim — why an animation drifts and how to stop it
 
 **Frame trim (from-scratch layout)** in **🧩 Atlas settings** decides how
-`Create Atlas` measures each region on a from-scratch (`pack`) atlas. It does
-nothing for an atlas whose geometry comes from a bound `.atlas`.
+`Create Atlas` measures each region on a **`pack`** atlas. It does nothing for an
+atlas whose geometry comes from a bound `.atlas`, and nothing on a **`grid`** atlas
+either — there, the cell is the size (see "Grid layout" below).
 
 | Choice | What happens |
 |---|---|
@@ -145,6 +146,36 @@ been cut down to tight crops, and what was cut off was never recorded — not in
 the manifest, not in the page, and not in the Flipbook's own descriptor, which
 records the frames as untrimmed. Re-run the Flipbook video session that authored
 it.
+
+### Grid layout — an atlas whose size you decide
+
+There are two from-scratch layouts, and they answer opposite questions.
+
+| Layout | Who decides the page |
+|---|---|
+| **pack** (＋ New atlas) | **The tool.** `Create Atlas` measures each region's art, packs it as tightly as it can, and *writes the result into* Atlas width/height. Best page for the art; you do not choose it. |
+| **grid** | **You.** `Create Atlas` reads **Atlas width / height** and **Default cell width / height** from 🧩 Atlas settings and lays every region out in equal cells, row by row, in manifest order. Your numbers are input, never overwritten. |
+
+Grid is what the Flipbook's [🖼 To Atlas Maker export](flipbook.md) creates, because
+a regenerated frame sequence wants uniform cells and a page size you control.
+
+**The geometry is recomputed on every Create Atlas, never frozen.** Change the cell
+size in Settings, run Create Atlas again, and the whole grid re-flows. That is the
+point of the mode: on a `pack` atlas the same edit is silently discarded, because
+packing overwrites the very fields you typed.
+
+**How each frame sits in its cell** is the region's **Fit mode**: `contain` (uniform
+scale, centred, transparent margins — the one that keeps a sequence registered),
+`cover` (fills and crops), `fill` (stretches). Unlike `pack`, a grid atlas never
+rewrites this — it is your choice, not a measurement.
+
+**One page, and it refuses rather than truncates.** An atlas has exactly one page. If
+the cells do not leave room for every region, Create Atlas changes **nothing** and
+names the capacity, the count and the overflow. Raise the atlas size, lower the cell
+size, or export fewer frames. A half-laid-out grid would look like a successful run.
+
+**Frame trim does not apply here.** It is a `pack` measurement; a grid cell's size is
+the cell.
 
 ### Run generation on — RunPod or my computer
 

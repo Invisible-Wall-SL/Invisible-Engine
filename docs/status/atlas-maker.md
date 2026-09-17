@@ -2,10 +2,50 @@
 
 > Design: [docs/design/atlas-per-user-session.md](../design/atlas-per-user-session.md) · Guide: [docs/tools/atlas-maker.md](../tools/atlas-maker.md) · Agent: `.claude/agents/atlas-python-tools.md`
 
-**One-line state:** Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
+**One-line state:** _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
 
 ## Current state
 Works today on `main` / live:
+
+- **A third layout: `grid` — an atlas whose page size is the AUTHOR'S, not the packer's**
+  _(2026-09-17)_. Owner report against the new Flipbook ref export: *"i do not get the correct
+  resize and atlas size I set in the atlas settings"*. Measured cause, not guessed: the export
+  wrote `layout: "pack"`, and `auto_pack_layout` packs at a hardcoded `AUTO_PACK_MAX_WIDTH = 2048`
+  with `height=0`, never reads `cell_width`/`cell_height`, and then **overwrites**
+  `atlas["width"]`/`["height"]` with its own result (`ui_server.py`). Since `ATLAS_GEOM_FIELDS` are
+  per-manifest with no global fallback, the four fields the owner typed existed only on that
+  manifest — and the packer discarded them every run.
+  - **`grid_layout(m)` sits beside `auto_pack_layout(m)`, with the contract inverted.** It READS
+    `atlas.width/height/cell_width/cell_height` and never writes them; `cols = width // cell_width`,
+    region `i` → `((i % cols) * cw, (i // cols) * ch, cw, ch)`, in **manifest order** across
+    `regions` then `rotated_regions` — the export writes frames in frame order and that order IS
+    the animation, so it is never sorted.
+  - **Recomputed on every Create Atlas, never frozen at authoring time.** That is the entire fix:
+    edit the cell size in Settings, re-run, the grid re-flows. Pinned by a fixture that re-runs the
+    layout at a new cell size and asserts every rect moved *and* that the author's page survived.
+  - **`fit_mode` SURVIVES a re-flow.** `_GRID_CLEARED_KEYS` is `_REPACK_CLEARED_KEYS` minus
+    `fit_mode`: on `pack` that field is derived output, on `grid` it is the author's choice.
+  - **One page, and over-capacity changes NOTHING.** `batch_atlas.py` has no page concept at all
+    (a manifest carries a single `source_image`), so overflow does not exist to spill into. Create
+    Atlas returns a note naming capacity, count and the three knobs rather than laying out a
+    partial grid, which would look like a successful run. Multi-page remains unbuilt — see Open items.
+  - **Six `layout == "pack"` gates were judged one at a time**, behind a new shared
+    `batch_atlas.is_from_scratch(m)` rather than a seventh copy of the string compare. Widened: the
+    page-pointer update + its mid-compose re-read, the index delete affordance, compose's
+    `_unplaced` skip, and `slice_atlas.slice_regions` (a 7th gate found during the work) — each
+    because `region_box`'s fallback answers `(0, 0, cell_w, cell_h)` on a grid, so an un-rected
+    region would stack in the top-left cell or be sliced from it. Left pack-only **deliberately**:
+    `auto_pack_layout`'s own entry, and `_deployatlas`'s blank-rect DROP — a pack rect is stamped
+    only after measuring non-empty art, so a blank one is definitionally a fault, whereas a blank
+    grid cell is the ordinary "not generated yet" state and dropping it would turn a visible hole
+    into a missing frame. That judgement is itself pinned by a fixture so it is not "fixed" later.
+  - Fixtures: `py test_grid_layout.py` (90 checks) + the export half in `test_video_to_refs.py`,
+    including an end-to-end that exports, runs the real `grid_layout`, then re-runs it at a halved
+    cell. 18 mutations tried, 18 caught.
+  - **Not verified:** no live run — no R2, no ComfyUI, no deployed service. The Settings-panel
+    round-trip (typing Atlas width → `_saveconfig` → `m["atlas"]["width"]`) is read-verified only;
+    that path is unchanged and already wrote those fields. `fit: cover`/`fill` pixel behaviour is
+    asserted to reach the manifest, not to render correctly.
 - **From-scratch atlases (auto-pack)** — create a brand-new atlas in the tool (no Sheet Maker / `.atlas` needed) and grow it region-by-region. **`＋ New atlas`** asks for the name in a dialog first (sanitised the way `r2_slug` stores it; a name already in the manifest dropdown is flagged live and confirmed on Create, which then sends `overwrite:true`), writes an empty `pack`-layout manifest (`atlas.layout:"pack"`, no bound `.atlas`) and makes it active — a bare `/newatlas` call without the flag still switches to the existing atlas instead of overwriting; **`＋ Add region`** / per-card **🗑** append/remove name-only regions; each is generated from its prompt like any other. **Create Atlas then auto-packs**: `auto_pack_layout` (ui_server) measures each region's ALPHA-trimmed variant, runs the ported MaxRects packer (`pack.py`, a lockstep copy of `sheet-tool/packer.py` `pack()`), and stamps `x/y/w/h(/rotated)` + `atlas.width/height` back onto the manifest BEFORE the compose subprocess reads it. Region size is entirely emergent from the trimmed art (no per-region size to set); the page auto-sizes and re-packs every Create Atlas, so the atlas morphs as regions are added. Placement is 1:1 — the packed rect equals the trimmed bbox, so compose's default `contain` path scales by 1.0 (verified: packer no-overlap/in-bounds, `auto_pack_layout` stamping + ungenerated-skip, and `fit_to_region` exact-fill). **The geometry is derived output and only the packer owns it:** anything it did not just place is stripped of its rect, so a region can never carry a previous page's placement into `_deployatlas`'s manifest-regions fallback, which emits the TexturePacker `.json` from those same fields (see the 2026-09-16 entry — a stale rect there shipped a frame showing the wrong art). Both the pack note and the deploy note name every region left out of the frame map. After compose, `publish_pack_page` mirrors the composed page to `<C>/<P>/atlas/<stem>_new.webp` and repoints the manifest at it, so a `pack` atlas's declared page and its rects always come from the same producer (2026-09-16 in "Recent changes"). The page auto-crops to the layout's used bounding box on BOTH axes (`AUTO_PACK_MAX_WIDTH` = 2048 is only a cap), so a small atlas is a snug page, not a 2048-wide sheet of empty space — this is `pack.py`'s one intentional divergence from `sheet-tool/packer.py` `pack()` (which keeps its fixed sheet width); the `_MaxRects` core stays identical and compose parity (`_packer_compose_tile` ↔ `packer.compose`) is untouched. **Owner live-verify owed** (a real generate + Create Atlas + deploy through a from-scratch atlas on the GPU/tunnel).
 - The local Python Atlas Maker (stdlib `http.server` + Pillow) **re-hosted on Railway** — `cloud_paths.py` staging mirrors the R2 prefix 1:1, `storage.py` write-through, ComfyUI reached over the Cloudflare tunnel (refs via `/upload/image`, outputs via `/view`).
 - **SDXL** generate / slice / compose / deploy — the proven, default pipeline.
@@ -39,6 +79,7 @@ Works today on `main` / live:
 10. **The real *My computer* render over the tunnel is owed (owner).** The `http` transport has been off the production path since 2026-08-18; the new setting puts it back on demand. Start ComfyUI + the desktop launcher's tunnel, pick *My computer* in ⚙ Global settings, render one region. **Attempted 2026-09-07 and it got further than expected:** the request crossed the tunnel and ComfyUI answered — refusing the graph for a missing node pack, not a transport fault. So what is still owed is a render against a local ComfyUI whose node set actually matches (`services/atlas-comfy-pod/tools/sync-local-nodes.py`, then a ComfyUI restart, then the PuLID weights), or the same blueprint on RunPod. **Half of that is now done:** `sync-local-nodes.py` put `PuLID_ComfyUI` on the local box at the pinned SHA and, after a restart, the five `Pulid*` classes register and the preflight passes on the graph that failed (1152 classes, no pack lost). What is left is purely WEIGHTS - the PuLID SDXL ip-adapter and InsightFace `antelopev2` - so the render is still owed. See "Recent changes".
 
 11. ✅ ~~**A save made during a render's FX rebuild is still lost.**~~ — **DONE (2026-09-14).** The slow job no longer writes its own stale copy of the whole manifest; it re-applies only the fields it owns, onto a manifest re-read inside the lock. Same treatment for the two neighbouring cycles in `run_compose`. See "Recent changes".
+12. **A `grid` atlas is ONE page — multi-page is unbuilt.** `batch_atlas.py` has no page concept at all (a manifest carries a single `source_image`), so a grid whose cells do not hold every region **refuses** rather than spilling onto a second page. For the Flipbook ref export this caps a run at whatever fits — e.g. 64 frames at a 256px cell in a 2048² page. **Next, if it bites:** multi-page reaches compose, the page pointer, deploy and the launcher's consumption of the descriptor — it is not a layout-level change, which is why it was deliberately not folded into the grid work.
 
 ## Blocked (owner / external)
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.

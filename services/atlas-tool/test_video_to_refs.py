@@ -17,12 +17,22 @@ goes wrong is silent:
     (worse) a basename fallback landing on ANOTHER export's frame;
   * an R2 key that is not the one `_locate_ref_in_staging` asks for → works
     until the container restarts, then every ref is gone;
-  * packer geometry on a region, or `atlas.width/height` → the manifest claims
-    a page that does not exist and Create Atlas is no longer the thing that
-    builds it;
+  * packer geometry on a region → the manifest claims rects for a page that
+    does not exist, and Create Atlas is no longer the thing that lays them out;
   * an over-budget range TRUNCATED instead of refused → a manifest that is
     complete-looking and short, in the one artifact whose job is to say which
     frames there are.
+
+THE PAGE THIS EXPORT SEEDS. It writes `atlas.layout: "grid"` plus the four
+geometry fields `ui_server.grid_layout` reads — and that IS the fix behind #710's
+bug report. Under the `pack` layout this used to write, `auto_pack_layout` packs
+at a hardcoded 2048 width and then OVERWRITES `atlas.width/height` with the
+packer's result, so the Atlas width/height + Default cell width/height the author
+typed into ⚙ Settings were read by nothing and discarded on the next Create
+Atlas. Here those four are INPUT: seeded to fit the frames at native size, then
+retyped by the author and re-flowed. `test_grid_layout.py` owns the layout half;
+this file owns what the export hands it, and the last test walks the handoff end
+to end so the two halves cannot drift apart.
 """
 from __future__ import annotations
 
@@ -73,6 +83,13 @@ def check_raises(label: str, fn, needle: str = "") -> None:
 CANVAS_W, CANVAS_H = 260, 180
 BOX = 40
 
+# The project's effective generation size, written into the sandboxed staging
+# root as a real `atlas_config.json`. Deliberately NOT the 1024x1024 default:
+# the `settings` block this export writes has to prove it RESOLVED the project's
+# value, and a fixture asserting the default would pass just as well if the
+# lookup were skipped entirely.
+GEN_W, GEN_H = 1536, 768
+
 
 def make_frames(n: int) -> list[Image.Image]:
     """`n` frames, each a solid box that MOVES on a transparent field — so a
@@ -108,6 +125,10 @@ def stub_world(webp: bytes):
     objects: dict[str, bytes] = {}
     (tmp / "manifests").mkdir(parents=True, exist_ok=True)
     (tmp / "input").mkdir(parents=True, exist_ok=True)
+    # `batch_atlas._config_paths` looks here FIRST (the staging copy the UI
+    # writes), so this is the project's effective config for the duration.
+    (tmp / "atlas_config.json").write_text(
+        json.dumps({"gen_width": GEN_W, "gen_height": GEN_H}), encoding="utf-8")
 
     storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
     storage.get = lambda k: objects.get(k)
@@ -154,19 +175,34 @@ def test_full_resolution_refs() -> None:
 
     man = json.loads((tmp / "manifests" / res["manifest"]).read_text("utf-8"))
 
-    # --- the manifest is an EMPTY pack atlas: nothing was packed ---
-    check("the atlas block declares pack layout and NOTHING else",
-          man["atlas"], {"layout": "pack"})
-    check("no page size is claimed — there is no page",
-          any(k in man["atlas"] for k in ("width", "height")), False)
+    # --- the manifest is an EMPTY grid atlas: the page is DECLARED, not built ---
+    # 6 frames of 260x180: 2 columns x 3 rows is the smallest page by area, and
+    # the near-squarest of the four tied at that area (260x1080, 520x540,
+    # 780x360, 1560x180).
+    check("the atlas block is a grid, sized to hold the frames at native size",
+          man["atlas"], {"layout": "grid", "width": 520, "height": 540,
+                         "cell_width": CANVAS_W, "cell_height": CANVAS_H})
+    check("the cell IS the frame — no downscale is baked into the geometry",
+          (man["atlas"]["cell_width"], man["atlas"]["cell_height"]),
+          (res["width"], res["height"]))
+    # A fresh export states its generation size rather than inheriting whatever
+    # the project-wide default happens to be on the day it is generated.
+    check("a settings block carries the resolved generation size",
+          man["settings"], {"gen_width": GEN_W, "gen_height": GEN_H})
     check("the empty style block is there, as on a new atlas",
           man["style"], {"positive_prefix": "", "positive_suffix": "", "negative": ""})
 
     expect = [f"coin_spin_{i:04d}" for i in range(n)]
     check("regions are one per frame, in source order",
           [r["name"] for r in man["regions"]], expect)
-    check("a region carries ONLY its name and a style_ref",
-          sorted({k for r in man["regions"] for k in r}), ["name", "style_ref"])
+    check("a region carries its name, a style_ref and a fit_mode",
+          sorted({k for r in man["regions"] for k in r}),
+          ["fit_mode", "name", "style_ref"])
+    check("every region is placed `contain` by default — one uniform scale, "
+          "one centre, no crop",
+          {r["fit_mode"] for r in man["regions"]}, {"contain"})
+    # The rects are grid_layout's on every Create Atlas. Freezing them here is
+    # what would make an edited cell size do nothing — the reported bug.
     check("no region carries packer geometry",
           any(k in r for r in man["regions"]
               for k in ("x", "y", "w", "h", "rotated",
@@ -328,6 +364,136 @@ def test_refusals() -> None:
           list((tmp2 / "manifests").glob("*.json")), [])
 
 
+def test_the_seeded_page_is_the_smallest_that_fits() -> None:
+    """The page seed is arithmetic, so it is checked as arithmetic. Smallest by
+    AREA, tie-broken on the shorter long side then the fewer columns — so equal
+    -area choices resolve to the near-square one (520x540, not 1560x180) while a
+    strictly smaller strip still wins on area (100x500 beats 300x200)."""
+    g = video_to_refs._grid_page
+    check("one frame is one cell", g(1, 100, 100), (100, 100))
+    check("four squares square up", g(4, 100, 100), (200, 200))
+    check("five squares take the zero-waste strip — it is genuinely smaller",
+          g(5, 100, 100), (100, 500))
+    check("six 260x180 frames pick the squarest of the equal-area options",
+          g(6, CANVAS_W, CANVAS_H), (520, 540))
+    # 7 cells of 300x200 fit a 3x3 page (900x600) with two wasted — or a 1x7
+    # strip (300x1400) with none. Area decides, and a zero-waste strip wins:
+    # the seed is a starting point, and squaring it up is one Settings edit.
+    check("minimum area beats squareness when the two disagree",
+          g(7, 300, 200), (300, 1400))
+    check("the page is always an exact multiple of the cell, never rounded up",
+          [d % c for d, c in zip(g(7, 300, 200), (300, 200))], [0, 0])
+    check("a big count still lands well inside the ceiling",
+          g(120, 100, 100), (1000, 1200))
+
+
+def test_a_page_that_cannot_be_seeded_is_refused() -> None:
+    """MAX_PAGE_SIDE is a texture limit, not a disk one: a page past it fails to
+    upload on the weakest target this art ships to, silently. So the export
+    refuses — and refuses BEFORE writing, like every other refusal here."""
+    tmp, objects = stub_world(make_webp(make_frames(6)))
+    real = video_to_refs.MAX_PAGE_SIDE
+    try:
+        # 400px page, 260x180 cell: 1 column x 2 rows = 2 cells for 6 frames.
+        video_to_refs.MAX_PAGE_SIDE = 400
+        check_raises("frames that need more page than the ceiling are refused",
+                     lambda: video_to_refs.build_ref_set("s", 1, name="huge"),
+                     "raise the stride")
+        check("...before writing any ref", objects, {})
+        check("...and before writing a manifest",
+              list((tmp / "manifests").glob("*.json")), [])
+        # A stride is the knob the message names, so it has to actually work.
+        res = video_to_refs.build_ref_set("s", 1, name="strided", stride=4)
+        man = json.loads((tmp / "manifests" / res["manifest"]).read_text("utf-8"))
+        check("a stride brings the same range under the ceiling",
+              (res["frames"], man["atlas"]["width"], man["atlas"]["height"]),
+              (2, 260, 360))
+
+        # Not even one frame fits: a different message, because the stride
+        # cannot fix it.
+        video_to_refs.MAX_PAGE_SIDE = 200
+        check_raises("a frame larger than the whole ceiling says so instead",
+                     lambda: video_to_refs.build_ref_set("s", 1, name="giant"),
+                     "not even one frame fits")
+    finally:
+        video_to_refs.MAX_PAGE_SIDE = real
+
+
+def test_fit_mode() -> None:
+    """`fit` is the one placement field this export writes. `contain` is the
+    default because it is the only one of the three that keeps a flipbook a
+    flipbook — uniform scale, one centre, nothing cropped or stretched."""
+    tmp, objects = stub_world(make_webp(make_frames(4)))
+
+    res = video_to_refs.build_ref_set("s", 1, name="covered", fit="cover")
+    man = json.loads((tmp / "manifests" / res["manifest"]).read_text("utf-8"))
+    check("an explicit fit reaches every region",
+          {r["fit_mode"] for r in man["regions"]}, {"cover"})
+
+    res = video_to_refs.build_ref_set("s", 1, name="cased", fit="  FILL  ")
+    man = json.loads((tmp / "manifests" / res["manifest"]).read_text("utf-8"))
+    check("case and whitespace are normalized",
+          {r["fit_mode"] for r in man["regions"]}, {"fill"})
+
+    # Rejected, not coerced: a typo silently falling back to the default places
+    # every frame the caller did NOT ask for, and placement is invisible until
+    # the atlas is composed.
+    before = sorted(objects)
+    check_raises("an unknown fit is refused",
+                 lambda: video_to_refs.build_ref_set("s", 1, name="bogus",
+                                                     fit="containe"),
+                 "unknown fit")
+    check("...and nothing was written for it", sorted(objects), before)
+    check("...and no manifest was left behind",
+          (tmp / "manifests" / "atlas_manifest_bogus.json").exists(), False)
+
+
+def test_the_export_and_the_layout_agree() -> None:
+    """THE HANDOFF, end to end — the two halves of the reported bug in one test.
+
+    The export seeds the page; `ui_server.grid_layout` is what Create Atlas runs
+    over it. Everything must land: every frame placed, in FRAME ORDER, row-major,
+    with nothing left over — and then the author retypes the cell size and the
+    whole grid re-flows, which is the thing that used to do nothing at all."""
+    import ui_server
+
+    n = 6
+    tmp, objects = stub_world(make_webp(make_frames(n)))
+    res = video_to_refs.build_ref_set("s", 1, name="handoff")
+    mp = tmp / "manifests" / res["manifest"]
+    man = json.loads(mp.read_text("utf-8"))
+
+    note, changed = ui_server.grid_layout(man)
+    check("Create Atlas places every exported frame", changed, True)
+    check("...row-major, in frame order, at the seeded cell",
+          [(r["name"], r["x"], r["y"], r["w"], r["h"]) for r in man["regions"]],
+          [("handoff_0000", 0, 0, 260, 180), ("handoff_0001", 260, 0, 260, 180),
+           ("handoff_0002", 0, 180, 260, 180),
+           ("handoff_0003", 260, 180, 260, 180),
+           ("handoff_0004", 0, 360, 260, 180),
+           ("handoff_0005", 260, 360, 260, 180)])
+    check("the seeded page is exactly full — no cell wasted",
+          "spare" in (note or ""), False)
+    check("and the page the author sees is the page the export seeded",
+          (man["atlas"]["width"], man["atlas"]["height"]), (520, 540))
+
+    # ⚙ Settings: halve the cell, press Create Atlas again.
+    man["atlas"]["cell_width"], man["atlas"]["cell_height"] = 130, 90
+    _note, changed = ui_server.grid_layout(man)
+    check("a re-run at a new cell size re-flows the whole grid", changed, True)
+    check("...to the new cells, still in frame order",
+          [(r["x"], r["y"], r["w"], r["h"]) for r in man["regions"]],
+          [(0, 0, 130, 90), (130, 0, 130, 90), (260, 0, 130, 90),
+           (390, 0, 130, 90), (0, 90, 130, 90), (130, 90, 130, 90)])
+    check("the author's page is still the author's",
+          (man["atlas"]["width"], man["atlas"]["height"]), (520, 540))
+    check("the fit the export stamped survives every re-flow",
+          {r["fit_mode"] for r in man["regions"]}, {"contain"})
+    check("and so does the ref each region generates from",
+          [r["style_ref"] for r in man["regions"]],
+          [f"refs/video/handoff/handoff_{i:04d}.png" for i in range(n)])
+
+
 def test_route() -> None:
     """The ROUTE, not just the module: a dispatch string that never matches is
     invisible until the UI calls it, and the failure shape is part of the
@@ -374,13 +540,44 @@ def test_route() -> None:
     check("...carrying {error: …}, the /video/toclip convention",
           "not finished" in json.loads(busy.sent["body"])["error"].lower(), True)
 
+    # `fit` is the ONE field the request contract grew — optional, defaulting to
+    # contain. The launcher panel is being built against exactly this.
+    fitted = FakeHandler("/video/torefs", {"session": "sess1", "variation": 1,
+                                           "name": "Fitted", "fit": "cover"})
+    fitted.do_POST()
+    man = json.loads(
+        (tmp / "manifests" / "atlas_manifest_fitted.json").read_text("utf-8"))
+    check("the route passes `fit` through to every region",
+          {r["fit_mode"] for r in man["regions"]}, {"cover"})
+    check("...and the response shape is unchanged by it",
+          sorted(json.loads(fitted.sent["body"])),
+          ["atlas_name", "frames", "height", "manifest", "regions", "width"])
+
+    omitted = FakeHandler("/video/torefs", {"session": "sess1", "variation": 1,
+                                            "name": "Omitted"})
+    omitted.do_POST()
+    man = json.loads(
+        (tmp / "manifests" / "atlas_manifest_omitted.json").read_text("utf-8"))
+    check("omitting `fit` defaults to contain",
+          {r["fit_mode"] for r in man["regions"]}, {"contain"})
+
+    bad = FakeHandler("/video/torefs", {"session": "sess1", "variation": 1,
+                                        "name": "Bad", "fit": "stretch"})
+    bad.do_POST()
+    check("an unknown fit comes back as {error: …}, not a 500",
+          "unknown fit" in json.loads(bad.sent["body"])["error"].lower(), True)
+
 
 if __name__ == "__main__":
     test_full_resolution_refs()
     test_cold_container_hydrate()
     test_range_and_stride()
     test_over_budget_raises()
+    test_the_seeded_page_is_the_smallest_that_fits()
+    test_a_page_that_cannot_be_seeded_is_refused()
+    test_fit_mode()
     test_refusals()
+    test_the_export_and_the_layout_agree()
     test_route()
     print()
     if FAILED:

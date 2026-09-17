@@ -353,10 +353,21 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
      the unit being exported is *a chosen variation of a session* — a thing only this mode has a
      handle on. The Atlas Maker receives regions and refs, which it already understands; it gains
      no new concept, which is the test.
-   - **The export creates a manifest, never a page.** A region with no committed image is left
-     unplaced by `auto_pack_layout`, so a reference atlas is pixel-free until it is generated. This
-     is what makes full-resolution refs affordable, and it is the answer to the owner's objection
-     that 1024² references would make the atlas enormous — they never enter a sheet.
+   - **The export creates a manifest, never a page.** A reference atlas is pixel-free until it is
+     generated. This is what makes full-resolution refs affordable, and it is the answer to the
+     owner's objection that 1024² references would make the atlas enormous — they never enter a
+     sheet; the page is built from the generated art.
+   - **It exports a `grid` atlas, because the author owns the page size** (owner direction
+     2026-09-17, after the first cut shipped as `pack`). `pack` derives the page from the art and
+     *overwrites* `atlas.width`/`height`, so the Atlas width/height and cell size typed into
+     Settings could never take effect — the exact report. `grid` reads those four fields and
+     re-flows on every Create Atlas. The layout belongs to the Atlas Maker, not to this mode; see
+     [status/atlas-maker.md](../status/atlas-maker.md).
+   - **Fit is per export, not per atlas.** `fit_mode` (contain / cover / fill) rides with the
+     export because it is a property of the SEQUENCE being regenerated, not of the tool: `contain`
+     scales every frame uniformly inside an identical cell and centres it, which is what keeps a
+     regenerated animation registered. It is the grid's answer to what `pack_trim: "keep"` does for
+     a packed atlas — and `pack_trim` is not read in grid mode, so the two never overlap.
    - **It does not touch `manifest_path`.** The stateless rule above is not relaxed for this route;
      the author selects the new atlas in `/atlas` themselves.
 

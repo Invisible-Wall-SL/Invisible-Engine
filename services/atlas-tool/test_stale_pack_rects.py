@@ -291,7 +291,12 @@ def test_compose_skips_a_pack_region_with_no_rect() -> None:
     """The window this closes: auto_pack strips a rect, then a render commits
     that region's art before the compose subprocess reads the manifest. With
     art but no rect, region_box answers (0, 0, whole page) -- so compose would
-    paint ONE symbol across the entire sheet, destroying every other region."""
+    paint ONE symbol across the entire sheet, destroying every other region.
+
+    The gate is now `is_from_scratch`, so `grid` is inside it too: there the
+    fallback answers (0, 0, cell_w, cell_h) instead, stacking every unplaced
+    region into the top-left cell. Same fault, quieter pixels.
+    `test_grid_layout.py` runs the real compose over that case."""
     check("region_box really does invent a full-page box",
           (lambda: (ba.ATLAS_META.update({"width": 1024, "height": 2048}),
                     ba.region_box({"name": "X"}))[1])(), (0, 0, 1024, 2048))
@@ -300,8 +305,9 @@ def test_compose_skips_a_pack_region_with_no_rect() -> None:
     body = src.split("if args.compose_only:")[1].split("\n    # ---- ")[0]
     check("compose skips an unplaced region instead", "_unplaced(region)"
           in body, True)
-    check("...and only on a pack layout, where the rect is derived",
-          'is_pack = str(atlas.get("layout", ""))' in body, True)
+    check("...and only where the rect is DERIVED -- the from-scratch layouts, "
+          "never the legacy cell grid",
+          "derived_layout = is_from_scratch(manifest)" in body, True)
 
 
 def test_what_compose_skips_never_has_a_frame_to_orphan() -> None:

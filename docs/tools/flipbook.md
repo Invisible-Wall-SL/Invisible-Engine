@@ -552,17 +552,32 @@ the video, with the flipbook nowhere in the loop.
 | **Atlas name** | The atlas that gets created, and the prefix of every region and reference file in it. |
 | **From** / **To** | The slice of the animation to export, same as the flipbook panel. |
 | **Every** | Take every Nth frame. There is no fps here — reference images carry no timing. |
+| **Fit** | How each regenerated frame maps into its cell. **contain** (the default) scales it uniformly and centres it, so every frame lands at the same scale in an identical cell — the one that keeps a sequence lined up. **cover** fills the cell and crops the overflow; **fill** stretches, and distorts when the aspects differ. |
 
 There is deliberately **no Max px**: downscaling is the thing you came here to avoid. The
 panel shows how many frames will go out, and at what size, before you commit.
 
-**The atlas it creates has no pixels in it, and that is the point.** A region stays *unplaced*
-until it has a generated image, so a freshly exported atlas has no page at all — the
-full-size references sit beside it as loose input files and never enter a sheet. The page
-appears only when you regenerate and Create Atlas, and it is built from the *generated* art at
-the generation size, not from the references. So large references cannot inflate the atlas.
+**The references never enter the sheet.** They sit beside the atlas as loose full-size input
+files; the page is built from the *generated* art, fitted into the cells you set. So a 1024²
+reference cannot inflate the atlas.
 
-Two things to expect:
+**The atlas is a grid, and the grid is yours.** The export creates the atlas in the Atlas
+Maker's `grid` layout, seeded with a cell the size of a video frame and the smallest page that
+holds them all. Those are a starting point, not a decision: open the atlas in the Atlas Maker,
+set **Atlas width / height** and **Default cell width / height** in Settings, and re-run
+Create Atlas — the grid re-flows to what you set, every time. Frames are laid out row by row
+in frame order.
+
+This is the one thing the from-scratch `pack` layout cannot do: it derives the page from the
+art and overwrites your atlas size, which is why the export uses a grid instead. See
+[the Atlas Maker guide](atlas-maker.md) for the layout itself.
+
+**One page, and it refuses rather than truncates.** An Atlas Maker atlas has exactly one page,
+so if your atlas size and cell size don't leave room for every frame, Create Atlas changes
+nothing and tells you the capacity and the count. Raise the atlas size, lower the cell size,
+or re-export with a bigger **Every**.
+
+Two more things to expect:
 
 - **It does not select the atlas for you.** Which atlas the Atlas Maker has open is shared by
   everyone using the tool, so switching it from here would pull the atlas out from under
