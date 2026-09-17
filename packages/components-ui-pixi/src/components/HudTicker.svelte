@@ -23,9 +23,10 @@
 	 *   instance of it.
 	 * - PER-INSTANCE (the `background*` component params, read off the param context
 	 *   `<ComponentInstance>` provides — the same channel the Caption/Value parts read their
-	 *   style from): `backgroundImage` REPLACES the tile with a picked atlas frame, sized by
-	 *   `backgroundWidth`/`backgroundHeight` and multiplied by `backgroundTint`. This is what
-	 *   lets balance / win / bet each carry their own background art without forking the def.
+	 *   style from): `backgroundImage` REPLACES the tile with a picked atlas frame, at its own
+	 *   natural size unless `backgroundWidth`/`backgroundHeight` override it, and multiplied by
+	 *   `backgroundTint`. This is what lets balance / win / bet each carry their own background
+	 *   art without forking the def.
 	 *
 	 * All optional → unset keeps the coded defaults (byte-identical to `UiLabel`). The
 	 * `fill`/value styling lives on the caption/value parts, not this tile.
@@ -75,8 +76,17 @@
 	const imageFallback = $derived(
 		image ? parseScopedFrameRef(image).region || undefined : undefined,
 	);
-	const width = $derived(numberParam('backgroundWidth') ?? TILE_WIDTH);
-	const height = $derived(numberParam('backgroundHeight') ?? TILE_HEIGHT);
+	// An explicit size always wins. With NONE, a picked frame renders at its own natural
+	// ("generation") size: the coded `TILE_WIDTH`×`TILE_HEIGHT` box is a 326:73 ratio drawn for
+	// the coded rounded-rect, and forcing custom art into it squashes whatever the author picked
+	// to a shape it was never generated at. `undefined` — not a computed number — is what makes
+	// `<Sprite>` take the texture's own dimensions, and is the pixi-svelte parity-safe omission.
+	// The `{:else}` branch below only renders when there is NO image, so the coded tile keeps the
+	// coded box exactly as before.
+	const explicitWidth = $derived(numberParam('backgroundWidth'));
+	const explicitHeight = $derived(numberParam('backgroundHeight'));
+	const width = $derived(explicitWidth ?? (image ? undefined : TILE_WIDTH));
+	const height = $derived(explicitHeight ?? (image ? undefined : TILE_HEIGHT));
 	const anchor = $derived(transform?.anchor ?? { x: 0.5, y: 0 });
 	// The instance's `backgroundTint` wins over the def-level `bind.props` tint; unset ⇒ the
 	// prop, unset ⇒ undefined (which both renderers treat as untinted — parity).
