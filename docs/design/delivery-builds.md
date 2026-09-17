@@ -135,9 +135,172 @@ Against the 2-complex node (`gs.2-complex.science`), which speaks the protocol w
 3. **Cascade vocabulary.** `tumbleStep`/`multiplierCollect` in the facade are OUR mock's invention,
    not a capture. Stargate is Gates-of-Olympus math, so the real names and shapes must replace them.
 
-## Phase 3 — packaging (AFTER)
+## The embed — how the partner's page loads us (SETTLED 2026-09-17)
 
-`publish-game-bundle.mjs` grows a package-for-delivery mode: zip `build/` plus a short embed
+The partner hosts ONE HTML page per brand that serves every game built on the same client
+technology. It is server-rendered; the `<?= ?>` parts are theirs and we never touch them. Our half
+is two lines:
+
+```html
+<div id="game"></div>
+<script src="<?=baseUrl?><?=gameAlias?>/game.js"></script>
+```
+
+- **`baseUrl`** is `cdnUrl + '/' + brand + '/games/' + versionPath + '/'`. `brand` groups games by
+  client technology (`eanew` today; it will change, but stays fixed while we test) and `versionPath`
+  is a per-game server-config string.
+- **`gameAlias`** is the game's name with spaces removed — game 2's `"Book Of Bet Options"` →
+  `BookOfBetOptions` — available server-side and mirrored on the CDN by convention.
+- The CDN layout is **ours to choose**; `brand/games/version/gameAlias` is their convention and we
+  follow it, because the page builds that URL and cannot be told otherwise per game.
+
+Two consequences that are not preferences:
+
+- **No iframe of our own.** Their page already sits inside iframes they do not control (casino
+  operator, external app), so an iframe from us would nest inside those. We mount into their div.
+- **Fixed filename, no content hash.** One page serves every game, so the filename must be identical
+  across games; and `versionPath` is already the cache-buster, so a hash is not merely unnecessary —
+  the server composes the URL and cannot know one.
+
+## Host settings — what their page hands the client
+
+`window.params.GameSettings` = `{ token, service, config: { … } }`. `token` is the session (which is
+why `session.source: 'host'` exists), `service` the RGS endpoint, and `config` the brand's declared
+settings. Each setting has a **scope**, and only `client` / `server|client` ones reach us —
+`packages/delivery-profile/src/host.ts` reads them via `hostNumber` / `hostBoolean`.
+
+The full `eanew` set as of 2026-09-17 (client-visible unless marked server-only):
+
+| Group                 | Settings                                                                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bet ladder**        | `betMultipliers` · `initialBetMultiplierIndex` · `betFactors` · `betPoints` · `minNormalBet` · `maxNormalBet` · `showBetRanges`                                                               |
+| **Lines / cost**      | `oneCreditBuysLines` · `reelsCost` · `ignoreLines` _(server)_                                                                                                                                 |
+| **Jurisdiction**      | `showTheoreticalPayback` · `showBuyBonusPayback` · `showHighChancePayback` · `showCreditValue` · `allowOutcomeBuy` · `deniedCountryCodes` · `allowedCountryCodes` · `certificator` _(server)_ |
+| **Autoplay / turbo**  | `allowAutoplay` · `autoplayDisabled` · `autoplaySpins` · `enableTurbo` · `minSpinDuration` · `confirmGameRoundStart`                                                                          |
+| **Money & locale**    | `currencyFormat` · `currencySymbol` · `locale` · `isLockChangeCurrency` · `balanceUpdateInterval`                                                                                             |
+| **Chrome**            | `home` · `whiteLabel` · `brandName` · `errorPanel` · `clock` · `showTime` · `elapsedTime` · `scale` · `gameId`                                                                                |
+| **History**           | `historyClient` · `externalHistoryUrl` · `showFreeRoundBet`                                                                                                                                   |
+| **Jackpot**           | `jackpot` · `jpspin`                                                                                                                                                                          |
+| **Build / injection** | `versionPath` · `certifiedVersionPaths` · `customJs` · `beforeGameEmbedHeadInclude` · `flash`                                                                                                 |
+| **Math** _(server)_   | `usesMathPools` · `poolScriptHash` · `outcomes` · `script` · `rtp` · `supportsWinInjection`                                                                                                   |
+
+**`betMultipliers` + `initialBetMultiplierIndex` are the `M` in `betOptions[x] × M`.** The host
+supplies the multiplier ladder and the default selection, so the game does not have to invent one —
+which is most of Phase 2 item 2 below, from the other direction: `betOptions` (server) gives the
+credit cost per option, `betMultipliers` (host) gives the stake steps.
+
+### The set is per-brand, and it is a REQUEST CHANNEL
+
+This is not a fixed contract we discover and conform to. The schema is declared **per brand**, and
+the partner extends it on request: we name a field, its type and its scope, they add it to the
+brand, set it server-side, and it appears in `config` on the next `get_game`. Their words: _"you can
+tell me add variable 'wtf' as a stringlist … and it will be part of server knowledge"_.
+
+Brands differ because their games do — a `crash` brand carries `externalWsHost` (it needs a socket),
+`mainBetMultiplierIndexes`, `maxMultiplier` and its own history model, and simply does not have most
+of the slot chrome above. So OUR brand's set is ours to shape, and `eanew` is only where we start
+because that is where game 2 lives.
+
+`host.ts` is already built for this: it reads **by name** and returns null when a field is absent, so
+honouring a new one is a one-line read that cannot break an operator who has not set it. Adding a
+field is cheap on both sides; the expensive thing is inventing client behaviour for a value the
+operator never declared, which is the mistake `betOptionsName` nearly walked us into.
+
+### What we should ask for — and what we should honour first
+
+Nothing is blocking: every field the client currently reads already exists in `eanew`. The gap runs
+the other way — fields that are **already there** and which we still answer ourselves:
+
+| Already declared, not yet honoured                                                                                  | What we do instead today               |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `betMultipliers` · `initialBetMultiplierIndex` · `minNormalBet` · `maxNormalBet`                                    | `requestAuthenticate` invents a ladder |
+| `currencySymbol` · `currencyFormat` · `isLockChangeCurrency`                                                        | format money from our own config       |
+| `locale`                                                                                                            | Lingui's own resolution                |
+| `allowAutoplay` · `autoplayDisabled` · `autoplaySpins`                                                              | a coded autoplay menu                  |
+| `minSpinDuration`                                                                                                   | coded spin timing                      |
+| `home`                                                                                                              | no lobby/exit affordance               |
+| `showCreditValue` · `showBetRanges` · `errorPanel` · `clock` · `elapsedTime` · `showTime` · `confirmGameRoundStart` | coded on/off                           |
+| `historyClient` · `externalHistoryUrl`                                                                              | no history surface                     |
+
+Each is an operator's declaration about a REGULATED or contractual surface, so each one we answer
+ourselves is a place a delivery can be wrong for a jurisdiction. Work through them by how much they
+cost to get wrong — the bet ladder first, then currency, then autoplay.
+
+### `service` is read and then ignored
+
+`readHostGameSettings()` already returns `service` (`"webnode/engine"`) and nothing consumes it: the
+profile's baked `rgs.endpoint` wins. Worth closing, and it may close something bigger with it — in
+their own template the game API is built as a **relative** path (`'/' + RequestController.getBaseUrl()
+
+- '/engine'`), i.e. same-origin with the page. If that is how a real operator deployment is wired,
+then a delivery's RGS is same-origin, and the CORS work (`simpleRequest`, the `text/plain`dodge, the
+preflight question) is moot for exactly the case it was built for. Confirm before assuming either
+way:`allowUrlOverride: false` already stops the URL being repointed, and a relative endpoint is a
+  strictly smaller attack surface than an absolute one.
+
+## Phase 3 — the embeddable build ✅ BUILT
+
+`pnpm --filter lines build:embed` (`PUBLIC_DELIVERY_EMBED=1` + `scripts/build-embed.mjs`) produces
+the folder the partner's page loads: `game.js` at its root, `_app/` and `assets/` beside it. Drop it
+at `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without the
+flag nothing changes — the default build is still the single droppable `index.html`.
+
+**Verified 2026-09-17** against a harness that serves the page at `/partner/` and the game at
+`/cdn/eanew/games/v1.0/BookOfBetOptions/`, i.e. paths that share nothing, so a document-relative URL
+cannot pass by accident: the game renders inside the operator's `<div id="game">` and every asset —
+spines, atlases, bitmap fonts, the audiosprite, the KTX2 transcoder blob — resolves under the CDN
+path. The only 404s left are the boot-splash index this game has never configured and the RGS the
+harness does not run.
+
+### What the measurement found
+
+**Measured against a real `apps/lines` build, 2026-09-17** — because the premise was that
+`bundleStrategy: 'inline'` had to be undone, and undoing it turned out to be most of the job:
+
+- **The loadable bundle already exists.** The build emits `_app/immutable/bundle.<hash>.js`
+  (3.0 MB, a **classic** script, not a module) _and_ a 3.0 MB `index.html` with that same bundle
+  copied into it verbatim. Inlining does not replace the file, it duplicates it — so the artifact
+  the partner needs is already being produced, just not used.
+- **Asset URLs are already script-relative.** `apps/lines/src/game/assets.ts` writes
+  `new URL('../../assets/…', import.meta.url)`, and for a classic script Vite compiles
+  `import.meta.url` to `document.currentScript.src || document.baseURI`. Loaded via `<script src>`
+  that resolves against the **CDN folder**, so moving the folder per `versionPath` works with no
+  `base` config and no URL rewriting. Inlined, `currentScript.src` is empty and it falls back to
+  `document.baseURI` — which is precisely why today's build only works when the HTML sits in the
+  folder with the assets.
+- `assets/` (59 MB in the reference game) is already a plain sibling folder fetched at runtime.
+- **What the HTML shell still owns**, and a bundle would have to carry: the two stylesheets (16 KB,
+  inlined today), the Typekit `<link>`, the boot splash + `window.__ieBoot`, and SvelteKit's
+  `start()` call with its config object.
+
+### Two things that were NOT script-relative
+
+Everything that goes through the asset table resolved correctly the moment the bundle stopped being
+inlined. Two paths did not, because they are built as STRINGS rather than from `import.meta.url`,
+and both were invisible until the document stopped being ours:
+
+- **`srcBase()`** (the boot splash index and a project's own exported sound banks) returned the
+  page-relative `'assets/'`. It now resolves against the bundle — see `gameAssetsBase()` in
+  `apps/lines/src/game/assets.ts`, which anchors on an emitted file rather than a bare directory
+  because only a path Vite can resolve to an asset is rewritten at build time.
+- **The audiosprite's own `src` list.** `sounds.json` names its media from the deploy root
+  (`./assets/audio/sounds.ogg`) and howler resolves that against the DOCUMENT, so a delivery would
+  have run silently. `assetLoad.ts` re-anchors each entry beside the sprite JSON it came from,
+  taking the filename only — which also means a game repo carrying its own older `sounds.json`
+  needs no change.
+
+Both fixes are no-ops for every build we host, where the document and the bundle share a folder;
+verified by building the default way and getting the identical 404 set.
+
+### Still open
+
+- **The boot splash** (`window.__ieBoot`, the overlay markup) lives in `app.html`, which a delivery
+  never serves. Every call site is optional-chained, so an embed simply has no pre-Pixi splash — the
+  operator's page covers that stretch and the in-canvas `LoadingBar` takes over. Worth revisiting
+  only if a partner asks.
+- **`publish-game-bundle.mjs`** still has no package-for-delivery mode.
+
+`publish-game-bundle.mjs` would then grow one: zip that folder plus a short embed
 contract, instead of uploading to our R2 and registering a card. Keep it a separate mode — the
 existing `--protocol lines|book` flag only picks which MOCK the test server mounts, which is
 meaningless for a partner delivery, and the two publish paths already guard against clobbering each
@@ -145,12 +308,15 @@ other's cards.
 
 ## Open questions for the partner
 
-1. Which query param does their embed carry the session token in? (`session.param` in
-   `profiles/2complex.json` is currently a **guess**.)
+1. ~~Which query param does their embed carry the session token in?~~ **ANSWERED** — not a query
+   param at all: their page puts it on `window.params.GameSettings.token`, which is what
+   `session.source: 'host'` reads. `session.param` stays as the fallback for a plain launch URL.
 2. `Access-Control-Max-Age` — our JSON content-type preflights; uncached that is an extra round-trip
    per spin.
 3. Their page's CSP `connect-src` must allow the RGS host. Fails silently, looks like a network error.
-4. Bet units: is `context[1]` per-line or total, and in cents?
+4. ~~Bet units: is `context[1]` per-line or total, and in cents?~~ **ANSWERED** — total stake is
+   `betOptions[x] × M` in credits, `denom` 0.01, so 1 credit = 1 cent. The `M` ladder is the host's
+   `betMultipliers`.
 5. Does the server emit a boot `config` event (symbols, window, `availablePayLines`, paytable)? The
    facade derives the symbol whitelist, grid and paylines from it.
 6. Does the RGS bind a session to the operator it was minted for and validate that per call? A

@@ -10,7 +10,8 @@ export default {
 	},
 	pressToContinueText: {
 		type: 'sprites',
-		src: new URL('../../assets/sprites/pressToContinueText/MM_pressanywhere.json', import.meta.url).href,
+		src: new URL('../../assets/sprites/pressToContinueText/MM_pressanywhere.json', import.meta.url)
+			.href,
 		preload: true,
 	},
 	H1: {
@@ -161,7 +162,8 @@ export default {
 		type: 'spine',
 		src: {
 			atlas: new URL('../../assets/spines/globalMultiplier/multiframe.atlas', import.meta.url).href,
-			skeleton: new URL('../../assets/spines/globalMultiplier/multiframe.json', import.meta.url).href,
+			skeleton: new URL('../../assets/spines/globalMultiplier/multiframe.json', import.meta.url)
+				.href,
 			scale: 2,
 		},
 	},
@@ -201,8 +203,14 @@ export default {
 	foregroundFeatureAnimation: {
 		type: 'spine',
 		src: {
-			atlas: new URL('../../assets/spines/foregroundFeatureAnimation/mm_bg_feature.atlas', import.meta.url).href,
-			skeleton: new URL('../../assets/spines/foregroundFeatureAnimation/mm_bg_feature.json', import.meta.url).href,
+			atlas: new URL(
+				'../../assets/spines/foregroundFeatureAnimation/mm_bg_feature.atlas',
+				import.meta.url,
+			).href,
+			skeleton: new URL(
+				'../../assets/spines/foregroundFeatureAnimation/mm_bg_feature.json',
+				import.meta.url,
+			).href,
 			scale: 2,
 		},
 		preload: true,
@@ -211,7 +219,8 @@ export default {
 		type: 'spine',
 		src: {
 			atlas: new URL('../../assets/spines/tumbleWin/tumble_win.atlas', import.meta.url).href,
-			skeleton: new URL('../../assets/spines/tumbleWin/tumble_multiplier.json', import.meta.url).href,
+			skeleton: new URL('../../assets/spines/tumbleWin/tumble_multiplier.json', import.meta.url)
+				.href,
 			scale: 2,
 		},
 	},
@@ -242,7 +251,8 @@ export default {
 	},
 	winSmall: {
 		type: 'sprites',
-		src: new URL('../../assets/sprites/winSmall/MM_Localisation_winsmall.json', import.meta.url).href,
+		src: new URL('../../assets/sprites/winSmall/MM_Localisation_winsmall.json', import.meta.url)
+			.href,
 	},
 	clusterWin: {
 		type: 'spine',
@@ -274,3 +284,22 @@ export default {
 		preload: true,
 	},
 } as const;
+
+/**
+ * The deploy's `assets/` root as an ABSOLUTE url, for the few things that build an asset path as a
+ * STRING instead of going through the table above — the boot splash index and a project's own
+ * exported sound banks, which howler fetches itself.
+ *
+ * Those used to use the page-relative `'assets/'`, which is right for every build we host: the
+ * shell sits in the same folder. It is wrong for a DELIVERY, where the page belongs to the operator
+ * and our bundle is loaded from a CDN — `'assets/'` then resolves against THEIR document and 404s,
+ * while everything in the table above resolves correctly because `import.meta.url` follows the
+ * script. This makes the string path agree with the table.
+ *
+ * The marker is a real file rather than the `../../assets/` directory because only a path that
+ * resolves to an emitted asset is rewritten at build time; a bare directory would survive into the
+ * bundle unrewritten and resolve against the chunk's own folder (`_app/immutable/`).
+ */
+const ASSET_ROOT_MARKER = new URL('../../assets/audio/sounds.json', import.meta.url).href;
+
+export const gameAssetsBase = (): string => new URL('../', ASSET_ROOT_MARKER).href;
