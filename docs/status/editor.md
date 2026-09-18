@@ -39,9 +39,9 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
-- 2026-09-17 — **The canvas now previews a component instance through the project's DEFAULTS sidecar, so the Scene Editor draws what the game draws.** `resolveComponentParams`' third layer (§13.3 per-project defaults) had never been supplied by any editor call site — every one passed `undefined` — so a shared def carrying one game's appearance previewed with the *def's* values while the runtime `<ComponentInstance>` (which does read `getComponentDefaults`) rendered the project's. `/editor/+page.server.ts` now loads `listComponentDefaults(projectKey)` alongside `components` and returns it as `componentDefaults`; `EditorCanvas` takes it as a prop and threads `componentDefaults[def.id]` into every place a placed instance resolves: `nodesHaveSpine` (so the WebGL spine layer mounts for the rig the project actually uses), `drawComponentInstance`, `drawRepeater` (+ `repeaterBoxes`), and `nodeBox` → `componentInstanceContentBox` (so a selection rect frames the art the project's defaults draw). It is forwarded to `EditorTextLayer` and `EditorSpineLayer`, which resolve on their own. Parity is exact: with no sidecar stored the map is `{}`, `componentDefaults[def.id]` is `undefined`, and every call passes what it passed before. The Component Editor's `componentParams` prop path is untouched — that is its own open-component preview, a different concern. Companion authoring UI in [component-editor status](./component-editor.md). Launcher build + `pnpm lint` green; svelte-check adds no new error. ⏳ Not browser-verified.
+- 2026-09-17 — **The canvas now previews a component instance through the project's DEFAULTS sidecar, so the Scene Editor draws what the game draws.** `resolveComponentParams`' third layer (§13.3 per-project defaults) had never been supplied by any editor call site — every one passed `undefined` — so a shared def carrying one game's appearance previewed with the _def's_ values while the runtime `<ComponentInstance>` (which does read `getComponentDefaults`) rendered the project's. `/editor/+page.server.ts` now loads `listComponentDefaults(projectKey)` alongside `components` and returns it as `componentDefaults`; `EditorCanvas` takes it as a prop and threads `componentDefaults[def.id]` into every place a placed instance resolves: `nodesHaveSpine` (so the WebGL spine layer mounts for the rig the project actually uses), `drawComponentInstance`, `drawRepeater` (+ `repeaterBoxes`), and `nodeBox` → `componentInstanceContentBox` (so a selection rect frames the art the project's defaults draw). It is forwarded to `EditorTextLayer` and `EditorSpineLayer`, which resolve on their own. Parity is exact: with no sidecar stored the map is `{}`, `componentDefaults[def.id]` is `undefined`, and every call passes what it passed before. The Component Editor's `componentParams` prop path is untouched — that is its own open-component preview, a different concern. Companion authoring UI in [component-editor status](./component-editor.md). Launcher build + `pnpm lint` green; svelte-check adds no new error. ⏳ Not browser-verified.
 - 2026-09-17 — **A `standard` (HUD box) screen can finally be pinned to the TOP of the window**
-  (owner: *"I am missing the Top vertical alignment option in the V align for Standard hud box"*).
+  (owner: _"I am missing the Top vertical alignment option in the V align for Standard hud box"_).
   Not hidden or gated — `top` had simply never been written. `standard` space was built for the HUD
   **bottom bar**, so its v-axis only ever grew the one value it needed; the h-axis got both `left`
   and `right` because it was symmetric from the start. Five surfaces had to learn the value, and
@@ -53,6 +53,7 @@ Shipped capabilities on `main`:
   (the dimmed region is now drawn on the side the box is NOT pinned to, so a top-pinned box shows
   the window running DOWN from it). `scene.align?.vertical` was already in the canvas repaint
   whitelist, so the cue re-draws on switch with no change there.
+
   - **Parity.** `getY()` was restructured into the same shape as its `getX()` sibling; the
     `bottom` and centred branches keep their EXACT original expressions, so every existing
     `<MainContainer standard alignVertical="bottom">` in `components-ui-pixi` (LayoutDesktop /
@@ -74,9 +75,56 @@ Shipped capabilities on `main`:
     path worth a click is the SAVE one: pick `top`, reload, confirm it survives (that is the
     `normalizeAlign` whitelist above, the surface that would fail silently).
 
+- 2026-09-18 — **`overlay` and `lighten` never blended in the game at all: the renderer was
+  skipping the filter.** Owner-reported ("I can't see the lighten blend mode working in game, it
+  seems to work fine in the scene editor canvas") — the same report that was filed against
+  `overlay` on 2026-09-17 and answered then with a behaviour explanation. That answer was wrong.
+  Both advanced modes have been silent no-ops in game since the day they shipped.
+
+  - **Why.** An advanced blend mode is a filter that READS THE BACKDROP. On WebGL the backdrop is
+    only readable from a non-root render target, so `FilterSystem.push` refuses outright when the
+    renderer has no back buffer: `if (filter.blendRequired && !renderer.backBuffer.useBackBuffer)
+{ warn(…); enabled = false; }` → `filterData.skip = true`, and the node draws as `normal`.
+    Pixi's `useBackBuffer` defaults to **false** and `<InitialiseApplication>` never set it.
+  - **Fix:** `useBackBuffer: true` in `app.init()`. The frame renders into an offscreen texture and
+    is blitted to the canvas at the end — one full-screen texture plus one 1:1 blit per frame, with
+    MSAA preserved (the back-buffer texture is created with `antialias`), so a game that blends
+    nothing renders as before. The GPU-native modes (`add`/`multiply`/`screen`) were never affected.
+  - **Measured on pixi 8.8.1**, a `40c040` sprite over an `808080` backdrop, reading back the
+    rendered pixel, with our exact init options:
+
+    | mode      | `useBackBuffer: false`             | `useBackBuffer: true` |
+    | --------- | ---------------------------------- | --------------------- |
+    | `normal`  | `40c040`                           | `40c040`              |
+    | `lighten` | `40c040` ⟵ **identical to normal** | `80c080` ✅           |
+    | `overlay` | `40c040` ⟵ **identical to normal** | `41c041` ✅           |
+    | `screen`  | `a0e0a0`                           | `a0e0a0`              |
+
+  - **Pixi was saying so the whole time.** It logs `PixiJS Warning: Blend filter requires backBuffer
+on WebGL renderer to be enabled. Set 'useBackBuffer: true' in the renderer options.` on every
+    push. Nobody read the game console.
+  - **Why the earlier verification passed anyway** — worth keeping, because both readings were real
+    measurements that happened to be consistent with a broken feature:
+    - `_filterHash` reporting `['overlay']`/`['lighten']` proves the pipe ASSIGNED the filter. The
+      skip happens one layer down, in `FilterSystem`. Assignment is not application.
+    - the Screen-vs-Lighten screenshot A/B showed a difference because `screen` is GPU-native and
+      really did blend, while `lighten` fell back to `normal` — which also differs from `screen`.
+      The A/B never compared `lighten` against `normal`, the one pair that would have caught it.
+      The lesson generalises: **read back a PIXEL, against the `normal` baseline.** A probe that
+      renders a colour over a known backdrop and compares the sampled value to the arithmetic the
+      mode is named for is a few lines, needs no game, and cannot be satisfied by a no-op.
+  - **New guard** (`check:symbol-layers`, now 80 assertions): `<InitialiseApplication>` must carry
+    BOTH `import 'pixi.js/advanced-blend-modes'` and `useBackBuffer: true`. Each is a silent no-op
+    when absent and each has now cost a release. Proven non-vacuous by flipping the flag to `false`
+    and watching the check fail.
+  - Gates: `pnpm lint`, `check:undefined-names`, `check:symbol-layers` (80), both app builds green.
+  - **Needs a runtime release** (`packages/**`) to reach the online games, and the `engine`
+    submodule bump to reach standalone Book of Borut.
+
 - 2026-09-17 — **The blend control is withdrawn from `spine` nodes: it never worked in game.**
   Shipped 2026-09-16 offering blend on sprite/spine/flipbook/effect. The spine case was never
   probed in a running game — the verification used a sprite — and it is a **no-op**.
+
   - **Why.** A Pixi blend cannot reach skeleton geometry. `SpinePipe.addRenderable` pushes every
     slot straight into the batcher carrying the SLOT's own blend and never calls
     `renderPipes.blendMode`; it does not read `groupBlendMode` either. So neither
@@ -109,28 +157,33 @@ Shipped capabilities on `main`:
   `(240,200,120)` over water `(20,80,160)` lands at `(241,216,205)`, near-white. `lighten` is a
   per-channel `max`, so the same pair lands at `(240,200,160)` and stays warm. Dark areas still
   disappear, which was the part Screen got right.
+
   - Free to add: the Pixi advanced-blend registration shipped with `overlay` (2026-09-17), and
     `lighten` is in that same set, so this is the type, the list, the label, the three surface
     readers and a docs line.
-  - **Verified in-game** the same way `overlay` was — probe node, forced render (the browser pane
-    freezes rAF), pipe `_filterHash` reports `['lighten']`, so the filter really resolves rather
-    than silently falling back to `normal`. Screen-vs-Lighten screenshots on the same node show
-    the washed-out/preserved-colour difference directly.
+  - ~~**Verified in-game**~~ — **this claim was wrong; see 2026-09-18.** `_filterHash` reporting
+    `['lighten']` proves only that the pipe ASSIGNED the filter; `FilterSystem` then skipped it for
+    want of a back buffer. The Screen-vs-Lighten screenshots differed because `screen` blended and
+    `lighten` did not. `lighten` did not reach the game until 2026-09-18.
   - Gates: `pnpm lint`, `check:undefined-names`, both app builds green.
-  - **Not a bug report to chase:** `overlay` was working; it is keyed on the BACKDROP (multiply
-    where what is behind is dark, screen where it is light), so over a dark game background it
-    darkens — the opposite of "dark parts of my art disappear". That is a source-keyed ask, which
-    is `screen`/`lighten` territory.
+  - ~~**Not a bug report to chase:** `overlay` was working~~ — **wrong, and it cost a day: see
+    2026-09-18.** `overlay` was NOT working in game; the owner's "overlay is not working for me"
+    was a correct bug report, explained away with backdrop-keying theory instead of measured. The
+    theory itself is right (`overlay` is keyed on the backdrop, so a source-keyed ask is
+    `screen`/`lighten` territory) — but it was used to dismiss a report rather than test one.
 
 - 2026-09-17 — **`overlay` joins the blend modes, and the registration that makes it real.**
   Added to `engine-layout/blendMode.ts` (type + list + label + all three surface readers), so the
   editor dropdown, the 2D canvas and the WebGL overlays pick it up with no further wiring —
   Canvas2D `globalCompositeOperation` and CSS `mix-blend-mode` both support `overlay` natively.
+
   - **The game needed one more thing.** `overlay` is one of Pixi's ADVANCED blend modes: a filter
     that reads the backdrop, registered only by `import 'pixi.js/advanced-blend-modes'`. Without
     that import Pixi accepts `blendMode = 'overlay'` on the node and silently renders it as
     `normal` — no warning, no error. `<InitialiseApplication>` now does the import beside the
     existing `pixi.js/ktx2` one.
+  - **The import is necessary but NOT sufficient** — the renderer also needs a back buffer, which
+    it did not get until 2026-09-18, so nothing below reached the screen.
   - **Proven by A/B, both sides with a forced render** (the browser pane freezes rAF, so a reading
     taken without `renderer.render()` is meaningless — two earlier readings were, and looked like
     evidence): registration OFF ⇒ the pipe's `_filterHash` is `[]` and the node does not blend,
@@ -195,21 +248,24 @@ Shipped capabilities on `main`:
     build. ✅ **Owner-confirmed live in `/editor` 2026-09-17** — the dropdown, the blend-run
     splitting on a real doc and the per-layoutType override all work as authored. (The blend
     control was withdrawn from `spine` nodes the same day; see the entry above.)
+
 - 2026-09-16 — **A correctly deployed atlas was served as the OLD art in `/editor`, `/symbols` AND
   `/flipbook` — the stale-deploy guard rejected the right page.** Owner flow: generate an atlas in
   Flipbook 🎬 video mode → re-pack it in the Atlas Maker → deploy. The deployed atlas is correct;
   every launcher tool that resolves regions kept drawing the previous art, and **a hard browser
   reload did not fix it** — which is what identifies it as server-side, not a client cache.
+
   - **Verified against live R2** (`invisible_wall/test6`, read-only probe):
 
-    | object | mtime | pixels |
-    | --- | --- | --- |
+    | object                                           | mtime     | pixels                     |
+    | ------------------------------------------------ | --------- | -------------------------- |
     | `manifests/atlas_manifest_S_New_Squid_Idle.json` | 09:55:47Z | declares `atlas` 2047x1173 |
-    | `deploy/sprites/S_New_Squid_Idle/….webp` | 09:50:20Z | **2047x1173** |
-    | `sheets/S_New_Squid_Idle/….png` | 08:37:51Z | 1934x1612 |
+    | `deploy/sprites/S_New_Squid_Idle/….webp`         | 09:50:20Z | **2047x1173**              |
+    | `sheets/S_New_Squid_Idle/….png`                  | 08:37:51Z | 1934x1612                  |
 
     The manifest's own declared page size matches the DEPLOY exactly. The source page is the
     Flipbook video mode's original, written once and never touched by the Atlas Maker's re-pack.
+
   - **Cause: the 2026-07-14 guard used the wrong evidence.** `editorRegions.ts findDeployedPage`
     rejected a deployed page whenever the manifest was newer than it (09:50 < 09:55), so
     `resolvePageKey` fell through to `atlas.source_image_path` — a page of a DIFFERENT SIZE, so
@@ -237,7 +293,7 @@ Shipped capabilities on `main`:
     written believing the server was clean. It is a real gap; it was not this report's cause.
   - **Deployed 2026-09-16** — the launcher rolled out on `ed7bf11a` (which carries this commit): Railway reports `Success - app.invisiblewall.org`, and the live build stamp at `/_app/version.json` decodes to 10:38:54Z, minutes after the merge. ⏳ **Still not live-verified** — a re-check of the same sheet is what remains. The deploy proves the guard is running, not that it picks the right page for the owner's actual manifest.
 
-- 2026-09-14 — **A background cover can be fitted on ONE axis, aligned off-centre, and both per screen layout** (owner: *“specify if I fit using X or Y … overwritable per screen layout … I should be able to change the anchor, right now this option is not doing anything”*). Three things in one seam. (a) **`fit` gained `width` / `height`.** `cover`/`contain` pick the driving axis FROM the aspect ratio, so which axis they pin flips as the window ratio crosses the art's — there was no way to say “always span the window's width, crop/gap vertically”. The two new values pin the uniform fit scale to that axis. (b) **The anchor now means something on a cover node.** It was dead — every cover path overwrote it with `0.5` — so the crop was always taken from the centre. The fit is still COMPUTED centred; `coverTransform` then slides the fitted art within the overflow (CSS `object-position` semantics: `0` = left/top edge, `1` = right/bottom) and returns that as the centre to draw at, so there is exactly one alignment formula and the art keeps its own 0.5 pivot everywhere. Parity is free: every editor spawn already writes `anchor {0.5,0.5}`, and an absent anchor defaults to it ⇒ zero slide. (c) **Per-layoutType overrides** — `NodeOverride` gains `fit` + `coverScale` (stretch and alignment already ride the existing per-layout `scale`/`anchor`), and all four canonical readers take the active `layoutType`, resolving that bucket before the base. **That also fixed a latent bug:** `backgroundCoverStretch` read only the BASE `scale`, so a per-ratio stretch override was silently ignored by every cover path. The Properties “Background” section now carries **fit** (4 options) / **cover scale** / **align x** / **align y**, each with the standard overridden-dot + × reset in a non-base ratio. Wired through every cover surface so the preview can't disagree with the game: runtime `LayoutNodeView` (sprite / flipbook / componentInstance covers, and the SPINE cover — sized by `<SpineProvider fit>`, so its alignment comes from the shared `coverAnchorOffset` against the skeleton dims it is sized from), the coded `<Background>` (same helper, per rig key), `EditorCanvas` (both cover paths) and `EditorSpineLayer` (background/coverFit + the `cover`-placement preview art). pixi-svelte's `spineSizeScale` learned the same two axis fits. A per-axis fit on a `preview.art` bind anchor also had to map to the COVER placement in `resolveAnchorPreviewArt` — only `'cover'` did, so `width`/`height` would have demoted the full-bleed background to a centred overlay; that resolver is now layoutType-aware for the same reason (a per-ratio fit override could otherwise flip the GAME to a cover while the editor kept previewing a centred overlay). **The componentInstance cover is threaded inside `coverBoxTransform`, not at its call sites** — #611 gave that path a second entry point (the editor-baked `node.coverBox`, which is the path every re-saved doc takes), so an anchor applied to one `return` would align the same backdrop differently depending on whether the editor had baked it. `tools/bg-scene-spike/coverBox.ts` — the parity guard for exactly that pair of surfaces — gained the anchor + per-axis fit as inputs, because a formula parameter it does not exercise is a parameter it no longer guards.
+- 2026-09-14 — **A background cover can be fitted on ONE axis, aligned off-centre, and both per screen layout** (owner: _“specify if I fit using X or Y … overwritable per screen layout … I should be able to change the anchor, right now this option is not doing anything”_). Three things in one seam. (a) **`fit` gained `width` / `height`.** `cover`/`contain` pick the driving axis FROM the aspect ratio, so which axis they pin flips as the window ratio crosses the art's — there was no way to say “always span the window's width, crop/gap vertically”. The two new values pin the uniform fit scale to that axis. (b) **The anchor now means something on a cover node.** It was dead — every cover path overwrote it with `0.5` — so the crop was always taken from the centre. The fit is still COMPUTED centred; `coverTransform` then slides the fitted art within the overflow (CSS `object-position` semantics: `0` = left/top edge, `1` = right/bottom) and returns that as the centre to draw at, so there is exactly one alignment formula and the art keeps its own 0.5 pivot everywhere. Parity is free: every editor spawn already writes `anchor {0.5,0.5}`, and an absent anchor defaults to it ⇒ zero slide. (c) **Per-layoutType overrides** — `NodeOverride` gains `fit` + `coverScale` (stretch and alignment already ride the existing per-layout `scale`/`anchor`), and all four canonical readers take the active `layoutType`, resolving that bucket before the base. **That also fixed a latent bug:** `backgroundCoverStretch` read only the BASE `scale`, so a per-ratio stretch override was silently ignored by every cover path. The Properties “Background” section now carries **fit** (4 options) / **cover scale** / **align x** / **align y**, each with the standard overridden-dot + × reset in a non-base ratio. Wired through every cover surface so the preview can't disagree with the game: runtime `LayoutNodeView` (sprite / flipbook / componentInstance covers, and the SPINE cover — sized by `<SpineProvider fit>`, so its alignment comes from the shared `coverAnchorOffset` against the skeleton dims it is sized from), the coded `<Background>` (same helper, per rig key), `EditorCanvas` (both cover paths) and `EditorSpineLayer` (background/coverFit + the `cover`-placement preview art). pixi-svelte's `spineSizeScale` learned the same two axis fits. A per-axis fit on a `preview.art` bind anchor also had to map to the COVER placement in `resolveAnchorPreviewArt` — only `'cover'` did, so `width`/`height` would have demoted the full-bleed background to a centred overlay; that resolver is now layoutType-aware for the same reason (a per-ratio fit override could otherwise flip the GAME to a cover while the editor kept previewing a centred overlay). **The componentInstance cover is threaded inside `coverBoxTransform`, not at its call sites** — #611 gave that path a second entry point (the editor-baked `node.coverBox`, which is the path every re-saved doc takes), so an anchor applied to one `return` would align the same backdrop differently depending on whether the editor had baked it. `tools/bg-scene-spike/coverBox.ts` — the parity guard for exactly that pair of surfaces — gained the anchor + per-axis fit as inputs, because a formula parameter it does not exercise is a parameter it no longer guards.
 
   **Verified:** the RUNTIME half is browser-verified against a real doc — `fit: 'cover'` fitted the background rig at scale 0.47958 and `fit: 'width'` at 0.41831 (= 1280 ÷ the rig's authored 3059.92, read off the live Pixi tree); anchor `{0,0}` vs `{1,1}` visibly pinned a half-size contain to the top-left then the bottom-right; and a per-bucket override beat a deliberately wrong base. The EDITOR half is ⏳ **not browser-verified** (auth-gated) — owner confirms live. Gates on the rebased tree: eslint, `check:undefined-names`, the flow-vocabulary check, both `lines` and `launcher-api` builds, `test-cover-fit.mjs`, the bg-scene spike, and `packages/engine-layout/scripts/test-cover-axis-anchor.mjs` (33 assertions over the real module: the axis fits, the alignment, the offset helper, override precedence).
 

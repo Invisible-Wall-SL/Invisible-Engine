@@ -489,6 +489,24 @@ check(
 	false,
 );
 
+// --- the two things an ADVANCED blend mode needs from the renderer ------------------------------
+// `overlay` and `lighten` are backdrop-reading FILTERS, not GPU blend states, and each of these is
+// a silent no-op when missing — the node renders as `normal`, in game only, while the editor (which
+// blends through Canvas2D/CSS) keeps previewing it correctly. Both were found the hard way.
+const appSrc = read(
+	`${here}../../../packages/pixi-svelte/src/lib/components/InitialiseApplication.svelte`,
+);
+check(
+	'InitialiseApplication: registers the advanced blend modes (else they are not modes at all)',
+	/^\s*import 'pixi\.js\/advanced-blend-modes';/m.test(appSrc),
+	true,
+);
+check(
+	'InitialiseApplication: enables the back buffer (else FilterSystem SKIPS every blend filter)',
+	/^\s*useBackBuffer: true,/m.test(appSrc),
+	true,
+);
+
 // ── 7. The win dim, and a layer's opt-out from it ────────────────────────────────────────────
 // "Darken the non-winning symbols" (`winCycle.dimNonWinning`) draws every non-paying cell through a
 // Pixi tint. A layer can now step out of that (`dimWithSymbol: false`) — which is only expressible

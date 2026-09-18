@@ -302,7 +302,10 @@ Working on `main`:
   order**, each layer carrying its own **`blendMode`** and an optional **`behind`** (draw under the
   cell's art; absent ⇒ over it). The owner's art is sprite/flipbook and the ask was specifically
   `lighten` + `overlay`, both of which already exist as Pixi ADVANCED blend modes registered by
-  `<InitialiseApplication>`.
+  `<InitialiseApplication>`. ⚠️ Those two did not actually draw in ANY game until 2026-09-18 — the
+  renderer was skipping the blend filter for want of a back buffer, so a layered symbol authored
+  before that release blended only in the tool. Cause + fix + the measurement:
+  `docs/status/editor.md`, 2026-09-18.
   **Reuses the EXISTING layer object rather than inventing one** — `bookVfxLayerSchema` (the four
   kinds `sprite`/`spine`/`flipbook`/`fx` + `assetKey`/`animationName`/`clipId`/`effectId` +
   `sizeRatios`/`offset`) moved above `symbolCellSchema` and gained `blendMode`/`behind`, so ONE
@@ -656,6 +659,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 - 2026-09-16 — **A parked win now releases on the MOUSE, not just Space.** Owner report: with
   `waitForPress` on, the space bar skipped the win but the left mouse button did nothing — "these 2
   should always be paired". A defect in the park, one line deep.
+
   - **Why the two inputs disagreed.** Every `PressToContinue` owns its OWN Space hotkey and fires it
     directly, so Space runs EVERY live press surface. The POINTER does not: `<ContinuePressMask>`
     routes a click to the TOP registered press alone. A project whose scene carries an authored
@@ -668,7 +672,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   - Fix: `releaseWinDismissHold()` sets both latches. Pinned by a new assertion in
     `pnpm check:big-win-cue` (18 now, mutation-tested).
   - Verified live: `parked, holding…` → `releaseWinDismissHold called, armed = true` → `park
-    released; pressed = true`, overlay closed, round settled.
+released; pressed = true`, overlay closed, round settled.
   - Still asymmetric by design elsewhere: Space fires every live surface, the pointer only the top.
     That predates the park and is untouched here.
 
@@ -677,6 +681,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   the coded press-anywhere is suppressed by design), authors no win container with a tap-to-continue,
   and leaves the `winUpdate` node's two interaction toggles unticked. Result: no tap surface anywhere,
   and the celebration plays to nobody and closes itself.
+
   - New optional **`waitForPress`** on the `winUpdate` action node, beside `holdToSpeedUp` /
     `tapToSkip` — it is the same KIND of thing (a per-instance count-up interaction authored on that
     node), not a global. Unset ⇒ OFF ⇒ byte-identical.
@@ -701,6 +706,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 - 2026-09-16 — **The big-win run-up was dead on the only path that matters, and the overlay restarted
   the count.** Owner report: "I get the Big win overlay right away starting to count from 0." Two
   distinct bugs in yesterday's cue.
+
   - **PLACEMENT.** The cue was invoked from the coded `setWin` handler and the v2 `winShow` EFFECT.
     A v2 flow that OWNS `setWin` never reaches the coded handler, and the authored choreography is
     `seq(broadcast('winShow'), effect('winShow', …), …)` — so by the time the effect ran the overlay
@@ -727,6 +733,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   request; three controls in **/symbols → Win amount text**, in a new **Count up** group under the
   style fields. All default OFF, which is the whole parity argument: the stamp is on the beat every
   paying spin runs, in every game on the shared `runtime:lines` bundle.
+
   - **`text.countUp`** + **`text.countUpDuration`** (seconds, coded default `0.6`): the stamp runs
     from zero to the win instead of appearing whole, and the narration AWAITS it — the symbols
     celebrate after the number lands, not over it. Every counting FRAME is re-rendered through the
@@ -767,7 +774,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
     broadcast the cue at target `1000` book units — the smallest big tier (10×) on a $1 bet — which
     landed, hid, and handed over to the big-win overlay. Offline contract check:
     `pnpm --filter launcher-api exec tsx --tsconfig tsconfig.scripts.json
-    scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineText` +
+scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineText` +
     `normalizeSymbolsDoc`, so the client and server prunes cannot drift). Runtime release + Borut
     `engine` submodule bump owed.
 
@@ -780,6 +787,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   - **Engine change — needs a runtime release to reach the online games and a Borut `engine` submodule bump for the remake.** ⏳ owner visual-verify: switch it on for a cascading emerge project, save, rebuild, and watch a fast round for an intro the next spin starts over.
 
 - 2026-09-15 — **`check:tumble-pattern` was red on every Windows clone, and the trap is the one `check:clear-reel` hit five days earlier.** It reported `1 of 34 FAILED` on any checkout with `core.autocrlf=true` while nothing was wrong: its `read()` handed raw file text to `/\n\t\t\t\ttumblePattern,\n/`, and the whitelist line in `bake-editor-doc.mjs` — present and correct — ends `tumblePattern,\r\n`, so the pattern's TRAILING newline never matched. Exactly 1 of 34 and not more because the sibling assertion on the export endpoint (`/\n\t\t\ttumblePattern,/`) has no trailing `\n` and matched all along: **a LEADING `\n` survives CRLF, a trailing one does not** — which is why this fails in ones and twos rather than obviously, and reads like a real contract breach. Fixed by normalizing in `read()`, copying the helper and its comment verbatim from `check-clear-reel-and-win-explode.ts`, which was given exactly this fix on 2026-09-10 (see that entry below); this file predates it and never picked it up.
+
   - **The convention, for the next guard that greps source.** Fourteen of this repo's offline guards already normalize (`readFileSync(…).replace(/\r\n/g, '\n')`; seventeen files in all, counting fixtures and the sync scripts). A new one asserting on a pattern that names a line break MUST too, or it is red on Windows for a reason that has nothing to do with its claim — and the danger is not the red, it is the repair: a guard that cries wolf gets ignored, or "fixed" by weakening the assertion, which is how a bundle-path check stops checking. Both incidents were found by someone hitting the failure locally, never by CI, because CI runs on LF.
   - **Audited the rest of them, nothing else is latent.** The four other guards that read source without normalizing — `verify-boot-splash`, `verify-clip-reachability`, `verify-scaffold-template`, `verify-win-beat-budget` — all PASS on a CRLF checkout: their newline patterns are `split('\n')` / leading-`\n` shapes, not the trailing-`\n` shape CRLF breaks. They are fine today by luck of shape, not by design, so the rule above still applies if one grows an assertion.
   - **Harness only** — `bake-editor-doc.mjs` and everything it emits untouched, count unchanged at **34**. Mutation-verified that the assertion is still live: deleting the whitelist line from the bake script fails exactly that check, restoring it goes green.

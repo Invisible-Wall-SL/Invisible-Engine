@@ -9,11 +9,14 @@
  * intersection is 16 modes wide and this list grows into it on demand.
  *
  * `normal`/`add`/`multiply`/`screen` are GPU-native in Pixi. `overlay` and `lighten` are Pixi's
- * ADVANCED blend modes — filters that read the backdrop — and they work ONLY once
- * `pixi.js/advanced-blend-modes` has been imported, which `<InitialiseApplication>` does.
- * Without that import Pixi silently renders them as `normal`, so adding another advanced
- * mode means checking that registration, not just this table. The editor pays none of
- * that: it blends through Canvas2D and CSS, which support both outright.
+ * ADVANCED blend modes — filters that read the backdrop — and they need TWO things from
+ * `<InitialiseApplication>`, both of which fail SILENTLY (the node just renders as `normal`):
+ *   1. `import 'pixi.js/advanced-blend-modes'` — without it the mode is not registered at all.
+ *   2. `useBackBuffer: true` in `app.init()` — on WebGL the backdrop is only readable from a
+ *      non-root render target, so without the back buffer `FilterSystem` skips the filter.
+ * Adding another advanced mode means checking BOTH, not just this table. The editor pays
+ * neither: it blends through Canvas2D and CSS, which support them outright — which is exactly
+ * how an authored `overlay`/`lighten` previewed correctly while doing nothing in game.
  *
  * `normal` is the absent value everywhere — a node without `blendMode` is byte-identical
  * to before this existed.

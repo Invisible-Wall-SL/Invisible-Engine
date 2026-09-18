@@ -65,6 +65,20 @@
 			// bug looked GPU-vendor specific. WebGL is rock-solid across all these devices
 			// and visually identical for a 2D game. Revisit only when mobile WebGPU matures.
 			preference: 'webgl',
+			// Render the frame into an offscreen back buffer and blit it to the canvas at the
+			// end. Required for Pixi's ADVANCED blend modes (`overlay`, `lighten`, …), which are
+			// filters that READ THE BACKDROP: on WebGL the backdrop is only readable from a
+			// non-root render target, so with the default `useBackBuffer: false` `FilterSystem`
+			// sets `filterData.skip = true` and the node renders as `normal`. It warns once per
+			// push ("Blend filter requires backBuffer on WebGL renderer to be enabled") and
+			// draws something plausible, which is why an authored `lighten` looked right in the
+			// editor (Canvas2D/CSS blend natively) and did nothing in game. Measured on
+			// pixi 8.8.1, backdrop `808080` under `40c040`: `lighten` gave `40c040` (i.e. normal)
+			// with the back buffer off and the correct `80c080` with it on.
+			// Costs one full-screen texture plus one blit per frame; the blit is a 1:1 copy at
+			// the same resolution and MSAA still applies (the back-buffer texture is created
+			// with `antialias`), so an unblended game renders identically to before.
+			useBackBuffer: true,
 			powerPreference: 'high-performance',
 			// Clamp the backing-store resolution to [1, 2]. Upper cap: on high-DPR phones
 			// (iPhone 16 = 3) an uncapped DPR allocates every framebuffer + render-texture at
