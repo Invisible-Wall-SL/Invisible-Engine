@@ -33,7 +33,7 @@ import {
 	type GameMessageKind,
 } from 'state-shared';
 import { stateBonus, stateBonusDerived } from 'components-ui-html';
-import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
+import { waitForTimeout } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
@@ -54,6 +54,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
 import { type WinLevelData } from 'engine-game';
+import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
@@ -1171,7 +1172,15 @@ const effects: Record<string, FlowEffect> = {
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
 				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
-				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
+				// BOUNDED. `explosion` is a ONE-SHOT beat (`symbolStateLoopsByDefault`), so this awaits a
+				// completion the cell gets exactly ONE chance to report — and a cell that cannot report (art
+				// bound to a state that never fires `complete`, a seat out of frame) would hang the morph,
+				// and with it the round, FOREVER: `roundSkip.race` releases only on a slam, which is a
+				// player action, not a guarantee. Capped at the cascade's own removal beat, which plays this
+				// very art for the same kind of step (`symbolBeat.ts`).
+				await roundSkip.race(
+					awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), TRANSIT_BEAT_CAP_MS),
+				);
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
 				await roundSkip.wait(0.12 * SECOND);

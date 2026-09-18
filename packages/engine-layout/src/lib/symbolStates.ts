@@ -83,6 +83,50 @@ export const LINES_SYMBOL_STATES = ['stacked'] as const;
  */
 export const SWAP_SYMBOL_STATES = ['intro'] as const;
 
+/**
+ * The TERMINAL states — the ones a presentation plays and then MOVES PAST, so their animation
+ * defaults to ONE-SHOT where every other state defaults to a loop.
+ *
+ * The default everywhere else is LOOP (`symbolCellSchema.loop`: "ABSENT MEANS LOOP"), which is right
+ * for a state that describes how a symbol IS — resting, spinning, celebrating — and wrong for one
+ * that describes a symbol LEAVING. A looping explosion has no end to wait on, so the beat that awaits
+ * it can only ever be settled by its cap.
+ *
+ * That cap is not free on either caller. The end-of-win pop (`boardExplodeWinSymbols`) is ONE
+ * concurrent beat for the whole spin, so a looping explosion makes every paying spin sit out the
+ * entire win-beat budget — `WIN_BEAT_CAP_MS` by default, or whatever ceiling the project authored —
+ * with a board of symbols being blown apart and re-formed on repeat, before it clears. The cascade's
+ * removal beat (`TumbleBoard`) pays `TRANSIT_BEAT_CAP_MS` on every step for the same reason.
+ * Measured on the reference symbol set: a 0.53s explosion restarting ~7.5 times across a 4000ms
+ * budget.
+ *
+ * So this is not a preference, it is what the state MEANS. An author who genuinely wants a repeating
+ * pop still says so — an explicit `loop: true` on the cell wins over this default, exactly as an
+ * explicit `loop: false` always won over the loop default.
+ *
+ * `clearReel` is here for the same reason and not merely by association: it is the other half of the
+ * same beat (the board TAKING a symbol off), it is awaited the same way, and unauthored it renders
+ * the `explosion` binding itself — so leaving it out would give one project's pop an end and its
+ * neighbour's an endless loop depending only on which of the two cells got bound.
+ *
+ * Deliberately NOT extended to `win`/`land`. Both are also awaited, but both are states a game may
+ * legitimately want to repeat while the board rests, and changing their default would re-time every
+ * shipped game's win presentation — which is what `winBeat.maxMs` exists to let a project do
+ * deliberately.
+ */
+export const TERMINAL_SYMBOL_STATES = ['explosion', 'clearReel'] as const;
+
+/**
+ * Does this state's animation repeat when the authored cell says nothing? The one home for the
+ * answer, so the renderer and any tool that previews a state agree by construction.
+ *
+ * Takes a plain `string` rather than {@link SymbolStateName} because a game's state machine may
+ * widen the set with its own states (`apps/lines` unions in `SpinningReelSymbolState`), and anything
+ * outside the terminal set gets the historical loop default.
+ */
+export const symbolStateLoopsByDefault = (state: string): boolean =>
+	!(TERMINAL_SYMBOL_STATES as readonly string[]).includes(state);
+
 /** Human labels — the Symbols grid column headers, reused by the editor's dropdown so a
  *  state reads the same in both tools. */
 export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {

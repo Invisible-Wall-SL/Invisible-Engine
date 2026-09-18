@@ -4,6 +4,8 @@
 	import SymbolSpineMain from './SymbolSpineMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
+	import { symbolStateLoopsByDefault } from 'engine-layout';
+
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
@@ -63,13 +65,25 @@
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
 	/**
-	 * Does this state's animation repeat? The authored cell decides, and ABSENT MEANS LOOP — the
-	 * flipbook renderer has always defaulted that way (`clip.loop ?? true`), while spine defaulted to
-	 * one-shot only because nothing ever passed a value. An explicit `loop` prop still wins, for the
-	 * callers that own the decision themselves.
+	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
+	 * (`symbolStateLoopsByDefault`) — loop for a state that says how a symbol IS, one-shot for a
+	 * TERMINAL one that says it is leaving (`explosion`, `clearReel`). An explicit `loop` prop still
+	 * wins, for the callers that own the decision themselves.
+	 *
+	 * It used to be a flat `?? true` for every state, matching what a flipbook cell has always done
+	 * (`clip.loop ?? true`). That is safe for a flipbook — `SymbolFlipbook` times its `oncomplete` off
+	 * the clip's LENGTH, so a looping clip still completes after one cycle — but not for a spine,
+	 * which reports completion only through the runtime's own `complete` event. A looping explosion
+	 * therefore had no end for the pop's beat to settle on and spent the whole win-beat budget.
+	 *
+	 * The default is asked of `props.state` — the state the caller REQUESTED, not `symbolInfo`'s
+	 * resolved fallback — because "is this beat terminal?" is a question about the moment, not about
+	 * which cell's art ended up drawing it.
 	 */
 	const loop = $derived(
-		props.loop ?? (symbolInfo.missingArt ? undefined : symbolInfo.loop) ?? true,
+		props.loop ??
+			(symbolInfo.missingArt ? undefined : symbolInfo.loop) ??
+			symbolStateLoopsByDefault(props.state),
 	);
 	/**
 	 * The authored win-highlight frame is a property of the winning SYMBOL, not of one renderer, so
