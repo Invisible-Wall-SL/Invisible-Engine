@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -504,14 +505,17 @@
 	async function toggleProd(node: PodNode): Promise<void> {
 		if (nodeBusy) return;
 		const to = !node.prod;
-		const warning = to
-			? `Promote ${node.name} to the serverless worker?
-
-That is the Atlas Maker's PROD generation path. It commits to main and rebuilds the prod image. Promote only after a pod off the R&D image has rendered clean with it.`
-			: `Take ${node.name} off the serverless worker?
-
-Any blueprint that uses it will stop running in the Atlas Maker.`;
-		if (!confirm(warning)) return;
+		const ok = await askConfirm({
+			title: to
+				? `Promote ${node.name} to the serverless worker?`
+				: `Take ${node.name} off the serverless worker?`,
+			message: to
+				? "That is the Atlas Maker's PROD generation path. It commits to main and rebuilds the prod image. Promote only after a pod off the R&D image has rendered clean with it."
+				: 'Any blueprint that uses it will stop running in the Atlas Maker.',
+			confirmLabel: to ? 'Promote' : 'Take it off',
+			danger: !to,
+		});
+		if (!ok) return;
 		nodeBusy = true;
 		nodeError = '';
 		try {
@@ -540,12 +544,13 @@ Any blueprint that uses it will stop running in the Atlas Maker.`;
 
 	async function dropNode(name: string): Promise<void> {
 		if (nodeBusy) return;
-		if (
-			!confirm(`Remove ${name} from the image?
-
-Commits to main and rebuilds.`)
-		)
-			return;
+		const ok = await askConfirm({
+			title: `Remove ${name} from the image?`,
+			message: 'Commits to main and rebuilds.',
+			confirmLabel: 'Remove',
+			danger: true,
+		});
+		if (!ok) return;
 		nodeBusy = true;
 		nodeError = '';
 		try {
@@ -614,16 +619,14 @@ Commits to main and rebuilds.`)
 	async function moveToLatest(pod: Pod): Promise<void> {
 		const sha = build?.latest?.sha;
 		if (!sha || moving[pod.id]) return;
-		if (
-			!confirm(
-				`Move "${pod.label}" to build ${shortSha(sha)}?
-
-RunPod recreates the container, so anything ` +
-					`installed by hand on it is lost. Models on the Network Volume are not affected.`,
-			)
-		) {
-			return;
-		}
+		const ok = await askConfirm({
+			title: `Move "${pod.label}" to build ${shortSha(sha)}?`,
+			message:
+				'RunPod recreates the container, so anything installed by hand on it is lost. Models on ' +
+				'the Network Volume are not affected.',
+			confirmLabel: 'Move it',
+		});
+		if (!ok) return;
 		moving[pod.id] = true;
 		delete moved[pod.id];
 		try {

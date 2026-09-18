@@ -4,6 +4,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
@@ -269,11 +270,15 @@
 		if (!force && saveState.status === 'conflict') {
 			// Spell out that this DESTROYS the other effect. Effects have no history, so
 			// "overwrite" here is permanent — cancelling and renaming is the safe way out.
-			const confirmed = confirm(
-				`${saveState.message}\n\nOverwrite it with yours?\n\n` +
+			const confirmed = await askConfirm({
+				title: 'Overwrite their effect with yours?',
+				message:
+					`${saveState.message}\n\n` +
 					'This permanently REPLACES the stored effect. It has no version history, ' +
 					'so their work cannot be recovered. Cancel to rename yours instead.',
-			);
+				confirmLabel: 'Overwrite it',
+				danger: true,
+			});
 			return confirmed ? await saveEffect(true) : false;
 		}
 		return false;
@@ -286,7 +291,12 @@
 	 */
 	async function saveEffectAs(): Promise<void> {
 		const suggested = `${doc.name} copy`.trim();
-		const name = window.prompt('Save as a new effect named:', suggested);
+		const name = await askText({
+			title: 'Save a copy',
+			label: 'Save as a new effect named:',
+			value: suggested,
+			confirmLabel: 'Save copy',
+		});
 		if (name === null) return; // cancelled
 		const clean = name.trim();
 		if (!clean) return;
@@ -314,7 +324,14 @@
 		const id = pickerId || (doc.id !== UNTITLED_EFFECT_ID ? doc.id : '');
 		if (!id) return;
 		const label = effects.find((e) => e.id === id)?.name ?? id;
-		if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+		const ok = await askConfirm({
+			title: `Delete "${label}"?`,
+			message: 'Effects have no version history — this cannot be undone.',
+			confirmLabel: 'Delete effect',
+			danger: true,
+			requireText: label,
+		});
+		if (!ok) return;
 		deleting = true;
 		saveError = '';
 		savedNote = '';
@@ -379,16 +396,18 @@
 	}
 
 	/** Ask before anything that would DISCARD unsaved edits. */
-	function confirmDiscard(action: string): boolean {
+	async function confirmDiscard(action: string): Promise<boolean> {
 		if (!isDirty()) return true;
-		return window.confirm(
-			`"${doc.name || 'This effect'}" has unsaved changes.\n\n` +
-				`${action} will discard them. Continue?`,
-		);
+		return await askConfirm({
+			title: `"${doc.name || 'This effect'}" has unsaved changes`,
+			message: `${action} will discard them.`,
+			confirmLabel: 'Discard them',
+			danger: true,
+		});
 	}
 
-	function newEffect(): void {
-		if (!confirmDiscard('Starting a new effect')) return;
+	async function newEffect(): Promise<void> {
+		if (!(await confirmDiscard('Starting a new effect'))) return;
 		const fresh = emptyEffectDoc();
 		doc = fresh;
 		selectedKey = fresh.layers[0]?.key ?? '';
@@ -407,7 +426,7 @@
 		if (!id || opening) return;
 		if (id === doc.id && !isDirty()) return; // already open and untouched
 		const label = effects.find((e) => e.id === id)?.name ?? id;
-		if (!confirmDiscard(`Opening "${label}"`)) return;
+		if (!(await confirmDiscard(`Opening "${label}"`))) return;
 		opening = true;
 		saveError = '';
 		try {
@@ -880,7 +899,7 @@
 		/>
 		<!-- `onclick={saveEffect}` passes the click EVENT as `force` (truthy): a manual Save has
 		     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
-		     destructive conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
+		     destructive conflict ask is effectively dead on this path); flagged for the owner. -->
 		<button class="primary" onclick={saveEffect} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
 		</button>
@@ -889,7 +908,7 @@
 			onclick={saveEffectAs}
 			disabled={busy || lease.readOnly}>⧉ Save As…</button
 		>
-		<button onclick={newEffect}>+ New</button>
+		<button onclick={() => void newEffect()}>+ New</button>
 		<select
 			class="open"
 			title="Open a saved effect"

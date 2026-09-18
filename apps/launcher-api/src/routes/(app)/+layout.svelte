@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { navigating } from '$app/state';
 	import BootSplash from '$lib/BootSplash.svelte';
+	import DialogHost from '$lib/DialogHost.svelte';
 	import { bootPhrases } from '$lib/bootPhrases';
 
 	let {
@@ -66,6 +67,13 @@
 </script>
 
 {@render children()}
+
+<!--
+	The single modal host for `askConfirm()` / `askMessage()` / `askText()` (see
+	`$lib/dialogs.svelte.ts`). Mounted here, once, so no tool page has to own a dialog just to
+	ask a yes/no — and so the `showModal()` inertness covers the whole authed shell.
+-->
+<DialogHost />
 
 {#if boot}
 	<BootSplash

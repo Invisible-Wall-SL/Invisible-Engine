@@ -5,6 +5,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import type {
 		LocalizationDoc,
 		LocalizationEntry,
@@ -78,7 +79,7 @@
 	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save via the form action;
 	 * the transport owns the FormData encoding, including the caller-side create path (the
 	 * EMPTY STRING encodes "no doc existed" — FormData has no null). A conflict is surfaced by
-	 * the wrapper's `confirm()`; `force` (`force=1`) drops the precondition.
+	 * the wrapper's overwrite ask; `force` (`force=1`) drops the precondition.
 	 */
 	/**
 	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's localization doc
@@ -199,7 +200,7 @@
 	 * flow is "read it in context, then approve the batch". Empty cells are skipped so
 	 * this can never mark a blank as vetted, and nothing persists until Save.
 	 */
-	function markReviewed() {
+	async function markReviewed() {
 		const langs = reviewScope === ALL_LANGS ? targetLangs : [reviewScope];
 		const pending = entries.flatMap((e) =>
 			langs.filter((l) => e.translations[l]?.text.trim() && !e.translations[l]!.reviewed),
@@ -209,15 +210,14 @@
 			return;
 		}
 		const scopeLabel = reviewScope === ALL_LANGS ? 'all languages' : reviewScope;
-		if (
-			!confirm(
-				`Mark ${pending} translation${pending === 1 ? '' : 's'} (${scopeLabel}) as reviewed?\n\n` +
-					`Reviewed text is what ships to players. Open the game from the launcher first — an ` +
-					`authoring boot shows unreviewed text, so you can read these in context before approving.`,
-			)
-		) {
-			return;
-		}
+		const ok = await askConfirm({
+			title: `Mark ${pending} translation${pending === 1 ? '' : 's'} (${scopeLabel}) as reviewed?`,
+			message:
+				`Reviewed text is what ships to players. Open the game from the launcher first — an ` +
+				`authoring boot shows unreviewed text, so you can read these in context before approving.`,
+			confirmLabel: 'Mark reviewed',
+		});
+		if (!ok) return;
 		for (const entry of entries) {
 			for (const lang of langs) {
 				const c = entry.translations[lang];
@@ -278,7 +278,15 @@
 		} else if (saveState.status === 'conflict') {
 			const msg = saveState.message;
 			say(msg, 'error');
-			if (!force && confirm(`${msg}\n\nOverwrite their version with yours?`)) await save(true);
+			const overwrite =
+				!force &&
+				(await askConfirm({
+					title: 'Someone else saved this translation set',
+					message: msg,
+					confirmLabel: 'Overwrite theirs',
+					danger: true,
+				}));
+			if (overwrite) await save(true);
 		}
 	}
 
@@ -351,7 +359,7 @@
 			     as a full-width notice below the bar instead. -->
 			<!-- NOTE: `onclick={save}` passes the click EVENT as `force` (truthy), so a manual Save
 			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
-			     pre-existing latent bug (localization's conflict `confirm()` is therefore effectively
+			     pre-existing latent bug (localization's conflict ask is therefore effectively
 			     dead on the button path); flagged for the owner, not silently "fixed". -->
 			<button class="primary" onclick={save} disabled={lease.readOnly || busy || !saveState.dirty}
 				>Save</button
