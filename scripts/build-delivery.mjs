@@ -176,7 +176,10 @@ if (!pkg.scripts?.build) {
 
 const profileFile = resolve(PROFILE_DIR, `${profile}.json`);
 const profilePath = existsSync(profileFile) ? profileFile : resolve(gameRoot, profile);
-if (!existsSync(profileFile) && !profile.includes('/') && !profile.endsWith('.json')) {
+// The RESOLVED file, not the name's shape. Checking the shape let `--profile missing.json`
+// through, because it looked like a path — and the miss then surfaced either as a vite error
+// three minutes into a build or, under `--skip-build`, as a bare ENOENT with no profile named.
+if (!existsSync(profilePath)) {
 	fail(
 		new Error(
 			`No delivery profile '${profile}'. Available:\n` +
