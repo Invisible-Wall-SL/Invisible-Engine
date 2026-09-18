@@ -2226,7 +2226,10 @@
 					</section>
 				{/if}
 
-				{#if data.reelBehaviour.emerge || doc.transition}
+				<!-- `|| arOn` widens the section's own gate ONLY so the arrival-release switch below it
+					 stays reachable: a project that authored the flag and then left `emerge` would otherwise
+					 have nowhere to switch it back off, and the flag persists sparsely. -->
+				{#if data.reelBehaviour.emerge || doc.transition || arOn}
 					<section class="bookvfx">
 						<div class="hl-head">
 							<div class="hl-title">
@@ -2426,6 +2429,55 @@
 								</button>
 							</div>
 						{/if}
+
+						<!-- The arrival release lives HERE, with the transition, because that is where an author
+							 goes when the swap between two boards feels slow. It is NOT part of the transition and
+							 deliberately not gated on one being bound: the transition FX is fire-and-forget and
+							 never holds the round, whereas the emerge arrival beat is awaited whether or not a
+							 transition exists — so an emerge project with no transition needs this switch too. -->
+						<div class="wl-config">
+							<div class="wl-group">
+								<label class="switch" class:on={arOn}>
+									<input
+										type="checkbox"
+										checked={arOn}
+										onchange={(e) => (doc = setArrivalReleaseEnabled(doc, e.currentTarget.checked))}
+									/>
+									<span class="track"><span class="knob"></span></span>
+									<span class="switch-label">
+										Let the next spin start as soon as the symbols are back
+									</span>
+								</label>
+								<p class="hint">
+									Separate from the transition above. On a board whose new symbols
+									<strong>emerge</strong> in place, the round is held until the last symbol has
+									finished its <strong>Intro</strong>. Turn this on and it is released the moment
+									every symbol is back on screen instead. Nothing is shortened: every intro still
+									plays in full and still settles into its resting art, whether or not its animation
+									reports finishing — only what the round WAITS for changes.
+								</p>
+								{#if arOn}
+									<p class="hint">
+										The trade is that the next spin may begin over an intro still rising — worth
+										watching once at speed before shipping it. Measured on the live
+										<code>test6</code>: a spin's symbol clips were done 2.1 s in and the round
+										released at 3.4 s, the gap being the arrival beat running out its two-second
+										cap. A cascade step pays the same wait again, which is why the pause between two
+										wins of one spin feels like the pause after it.
+									</p>
+								{/if}
+								{#if !data.reelBehaviour.emerge}
+									<p class="hint">
+										This project does not use the <strong>emerge</strong> swap style (<strong
+											>Game Config → Reel behaviour</strong
+										>), so the switch changes nothing as things stand — a board that drops or spins
+										its symbols in has no arrival to wait on.{#if arOn}
+											It is on because it was authored; turn it off to drop it from the project
+											entirely.{/if}
+									</p>
+								{/if}
+							</div>
+						</div>
 					</section>
 				{/if}
 
@@ -3538,60 +3590,6 @@
 						</div>
 					{/if}
 				</section>
-
-				{#if data.reelBehaviour.emerge || arOn}
-					<section class="winline" class:expanded={arOn}>
-						<div class="wl-head">
-							<div class="wl-text">
-								<h2>Let the next spin start as soon as the symbols are back</h2>
-								<p class="wl-sub">
-									On a board whose new symbols <strong>emerge</strong> in place, the round is held
-									until the last symbol has finished its <strong>Intro</strong>. Turn this on and it
-									is released the moment every symbol is back on screen instead — the intros still
-									play, they are simply no longer waited for.
-								</p>
-							</div>
-							<label class="switch" class:on={arOn}>
-								<input
-									type="checkbox"
-									checked={arOn}
-									onchange={(e) => (doc = setArrivalReleaseEnabled(doc, e.currentTarget.checked))}
-								/>
-								<span class="track"><span class="knob"></span></span>
-								<span class="switch-label">{arOn ? 'On' : 'Off'}</span>
-							</label>
-						</div>
-
-						{#if arOn}
-							<div class="wl-config">
-								<div class="wl-group">
-									<p class="wl-note">
-										Nothing is cut short: every symbol still plays its intro in full and still
-										settles into its resting art at the end, whether or not its animation reports
-										finishing. What changes is only what the round WAITS for. The trade is that the
-										next spin may begin over an intro still rising — worth watching once at speed
-										before shipping it.
-									</p>
-									<p class="wl-note">
-										Measured on the live <code>test6</code>: a spin's symbol clips were done 2.1 s
-										in and the round released at 3.4 s, the gap being the arrival beat running out
-										its two-second cap. A cascade step pays the same wait again, which is why the
-										pause between two wins of one spin feels like the pause after it.
-									</p>
-									{#if !data.reelBehaviour.emerge}
-										<p class="wl-note">
-											This project does not use the <strong>emerge</strong> swap style (<strong
-												>Game Config → Reel behaviour</strong
-											>), so the switch changes nothing as things stand — a board that drops or
-											spins its symbols in has no arrival to wait on. It is shown because it is
-											authored; turn it off to drop it from the project entirely.
-										</p>
-									{/if}
-								</div>
-							</div>
-						{/if}
-					</section>
-				{/if}
 
 				<section class="winline symbolsounds" class:expanded={true}>
 					<div class="wl-head">

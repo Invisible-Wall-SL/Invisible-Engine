@@ -549,8 +549,8 @@ intro, drop the cap) change authored values, and the ask was explicitly to chang
 **Why the save does not consult the swap style.** The flag is only meaningful under `emerge`, but
 the symbols doc and the game config are edited independently, so a save that dropped it because
 `/config` currently says otherwise would present as a switch that will not stay on. The gate is in
-the TOOL (the section is hidden on a non-emerge project, and stays visible while the flag is set),
-never in the data.
+the TOOL (the switch's host section is hidden on a non-emerge project that has authored neither this
+flag nor a `transition`, and always stays reachable while the flag is set), never in the data.
 
 **Chain (rule 8).** `.strict` Zod + sparse prune (`enabled: true` only) → client
 type/`arrivalReleaseEnabled`/`setArrivalReleaseEnabled`/`docSignature` → the spread PUT →
