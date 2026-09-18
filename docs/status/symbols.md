@@ -1264,7 +1264,7 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   runs through) now plays `tumbleExplosion`; `expandBookColumns` keeps `explosion`.
   **Nothing changes for a project that binds one explosion:** `resolveSymbolState` makes
   `tumbleExplosion` INHERIT `explosion` before the `static` last resort, asserted in
-  `apps/lines/src/game/symbolCell.fixture.ts`. The column is gated on `resolveCascade` (server
+  `packages/engine-game/src/game/symbolCell.fixture.ts`. The column is gated on `resolveCascade` (server
   `load` → `visibleStatesFor(gameType, cascade)`) rather than the game kind, so a lines project
   that switched the cascade on in `/config` gets the column and a cluster project gets it without
   authoring anything. Header carries a tooltip saying an empty cell reuses `Explosion`, because a

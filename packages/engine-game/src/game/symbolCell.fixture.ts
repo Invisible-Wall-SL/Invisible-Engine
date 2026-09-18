@@ -1,6 +1,6 @@
 /**
  * Offline fixture for symbol-state resolution — run with node (it strips the types):
- *   node apps/lines/src/game/symbolCell.fixture.ts
+ *   node packages/engine-game/src/game/symbolCell.fixture.ts
  *
  * The case that matters is the one that took the live board down: a project's own multiplier symbol,
  * authored with every state EXCEPT `explosion`, on a cascading game. `explosion` is the only state

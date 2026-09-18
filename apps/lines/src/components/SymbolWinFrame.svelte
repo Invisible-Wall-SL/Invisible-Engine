@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { SpineProvider, SpineTrack } from 'pixi-svelte';
 
-	import { SYMBOL_SIZE } from 'engine-game';
+	import { SYMBOL_SIZE, hexToTintNumber } from 'engine-game';
 	import { bakedHighlight } from '../editor-scenes';
-	import { hexToTintNumber } from '../game/utils';
 
 	/**
 	 * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine, drawn over a

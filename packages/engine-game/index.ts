@@ -41,6 +41,15 @@ export {
 	SPIN_OPTIONS_FAST,
 } from './src/game/constants';
 export { createGameConfig, type GameConfigDeps } from './src/game/gameConfig';
+export {
+	isUsableCell,
+	resolveSymbolState,
+	type CellLike,
+	type StateMapLike,
+} from './src/game/symbolCell';
+export { createSymbolMap, type SymbolMapDeps, type SymbolMapApi } from './src/game/symbolMap';
+export { createSymbolInfo, type SymbolInfoDeps, type SymbolInfoApi } from './src/game/symbolInfo';
+export { hexToTintNumber } from './src/game/tint';
 export { createGameContext, getGameContext, type GameContext } from './src/game/context';
 export {
 	createGameState,

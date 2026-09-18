@@ -1,7 +1,7 @@
 /**
  * Parity check between the two rules that decide WHICH ART a symbol×state cell shows:
  *
- *   - the ENGINE's `resolveSymbolState` (`apps/lines/src/game/symbolCell.ts`) — what ships;
+ *   - the ENGINE's `resolveSymbolState` (`packages/engine-game/src/game/symbolCell.ts`) — what ships;
  *   - the TOOL's `effectiveCell` (`/symbols`) — what the author is shown.
  *
  * They are separate implementations (one is dependency-free and runs in the game, the other merges
@@ -23,7 +23,10 @@
  * Run:  pnpm --filter launcher-api check:symbol-state-parity     (from the repo root)
  */
 
-import { resolveSymbolState, type StateMapLike } from '../../lines/src/game/symbolCell.ts';
+import {
+	resolveSymbolState,
+	type StateMapLike,
+} from '../../../packages/engine-game/src/game/symbolCell.ts';
 import {
 	SYMBOL_STATES,
 	effectiveCell,
