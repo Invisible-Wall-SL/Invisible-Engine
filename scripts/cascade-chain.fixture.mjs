@@ -54,12 +54,12 @@ const startMock = async (port, opts) => {
 	return server;
 };
 
-const spin = async (port, sid, seq) => {
+const spin = async (port, sid, seq, bet = [20, 1]) => {
 	const r = await fetch(`http://localhost:${port}/rgs/engine?sid=${sid}&seq=${seq}`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify([
-			{ action: 'bet', context: [20, 1] },
+			{ action: 'bet', context: bet },
 			{ action: 'play', context: '' },
 		]),
 	});
@@ -323,6 +323,19 @@ const AUTHORED = {
 	PIC9: { 3: 17 },
 	PIC10: { 3: 19 },
 };
+const DICT_WAYS = 4 ** 5;
+/**
+ * `[a, betPerLine]`, chosen so the stake divides EXACTLY by this board's ways count.
+ *
+ * A ways game prices a paytable multiplier per WAY (`payoutDivisor()` → `activeWaysCount()`, which
+ * the mock mirrors in `payoutBaseFor`), so the per-way base here is `total / 1024`. At the fixture's
+ * usual 20-cent stake that base is 0.02 of a cent and every win in this section collapses onto
+ * `payCents`'s one-cent floor — the authored multiplier would be unrecoverable, and the assertion
+ * below would be measuring the floor rather than the paytable. A stake of 2048 cents makes the base
+ * exactly 2, so the arithmetic stays whole. Not a protocol claim: a real ways game quotes bet levels
+ * sized to its own ways count for the same reason.
+ */
+const DICT_BET = [DICT_WAYS, 2];
 const dictServer = await startMock(7806, {
 	winModel: 'ways',
 	reels: 5,
@@ -336,26 +349,29 @@ const dealt = new Set();
 const paid = new Map();
 let config = null;
 for (let i = 0; i < 40; i++) {
-	const d = await hush(() => spin(7806, `dict${i}`, i));
+	const d = await hush(() => spin(7806, `dict${i}`, i, DICT_BET));
 	const ev = d.events ?? [];
 	config ??= ev.find((e) => e.event === 'config')?.context ?? null;
 	for (const cell of (ev.find((e) => e.event === 'playedSpin')?.context ?? []).flat()) {
 		dealt.add(cell);
 	}
-	// Every win must price at the AUTHORED multiplier — `betPerLine` is 1 in `spin`, and a ways win
-	// multiplies by its PATH COUNT, so divide that back out to recover the paytable value. The count
-	// is recomputed from the positions rather than read off the win: the evaluator hangs a `ways`
-	// property on the positions ARRAY, and `JSON.stringify` drops an array's extra properties, so it
-	// never survives the wire. Harmless (nothing reads it) but it means the wire cannot be asked.
+	// Every win must price at the AUTHORED multiplier. A ways win pays
+	// `multiplier × pathCount × (total / waysCount)`, so divide both the path count and the per-way
+	// base back out to recover the paytable value — `DICT_BET` is sized to keep that base a whole
+	// number. The path count is recomputed from the positions rather than read off the win: the
+	// evaluator hangs a `ways` property on the positions ARRAY, and `JSON.stringify` drops an array's
+	// extra properties, so it never survives the wire. Harmless (nothing reads it) but it means the
+	// wire cannot be asked.
 	for (const w of ev.filter((e) => e.event === 'spinWin').map((e) => e.context)) {
 		if (w.mode !== 'ways') continue;
 		paid.set(w.what, (paid.get(w.what) ?? 0) + 1);
 		const perReel = new Map();
 		for (const { reel } of w.context) perReel.set(reel, (perReel.get(reel) ?? 0) + 1);
 		const ways = [...perReel.values()].reduce((product, n) => product * n, 1);
+		const perWayBase = (DICT_BET[0] * DICT_BET[1]) / DICT_WAYS;
 		check(
 			`ways win on ${w.what} x${w.occurs} pays the AUTHORED multiplier`,
-			w.pay / ways,
+			w.pay / ways / perWayBase,
 			AUTHORED[w.what]?.[w.occurs] ?? 0,
 		);
 	}

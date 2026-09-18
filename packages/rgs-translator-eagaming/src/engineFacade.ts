@@ -234,6 +234,64 @@ const betModesFromOptions = (
 	return out;
 };
 
+/**
+ * The payline set the server DECLARED for this session, or null before the boot `config` event lands.
+ *
+ * The real Play4Fun wire field is `availablePayLines`; our mocks emit `paylines` in the same event.
+ * One home for that alias because two call sites need it: the bet's line count (below) and a win's
+ * `meta.lineIndex` ordinal (`adaptEventsForEngine`).
+ */
+const declaredPayLines = (sid: string): number[][] | null => {
+	const cfg = capturedConfig.get(sid) as
+		| { availablePayLines?: number[][]; paylines?: number[][] }
+		| undefined;
+	const lines = cfg?.availablePayLines ?? cfg?.paylines;
+	return Array.isArray(lines) ? lines : null;
+};
+
+/**
+ * How many lines this bet buys — the `a` in the wire's `bet` context `[a, betPerLine]`, where the
+ * stake is `a × betPerLine`.
+ *
+ * This USED to be a hardcoded 5, which was right only for Hot Fruits (a 5-line game) and silently
+ * wrong everywhere else. The server evaluates and declares its OWN payline set, and both sides then
+ * derive the per-line stake from a different number: the shared `lines` config default has 20 lines,
+ * so the client bought "5 lines" while the server paid 20 and the facade normalised wins against
+ * `betPerLine × 20` — every win displayed at a QUARTER of the multiplier the wallet credited.
+ *
+ * A model with no lines (cluster, scatter-pays) declares an empty set and buys ONE unit: `betPerLine`
+ * is then the whole stake, which is exactly what `payoutDivisor()` returning 1 means on the client.
+ *
+ * Falls back to 5 only when no config has been captured (a server that sends none) — the legacy
+ * behaviour, kept so an unknown server degrades rather than divides by a guess.
+ */
+const betLineCount = (sid: string): number => {
+	const lines = declaredPayLines(sid);
+	if (!lines) return 5;
+	return Math.max(1, lines.length);
+};
+
+/** Warn once per session when integer-cent `betPerLine` rounding makes the charged stake differ from
+ *  the level the player picked. LEGACY-ENCODING ONLY: `context[0]` is a line count only there, so
+ *  `[0] × [1]` is only the stake there. See the call site in `requestBet` for the ladder problem. */
+const warnedStakeRounding = new Set<string>();
+const warnOnStakeRounding = (
+	sid: string,
+	body: { action: string; context?: unknown }[],
+	requestedCents: number,
+): void => {
+	const bet = body.find((a) => a.action === 'bet')?.context;
+	if (!Array.isArray(bet)) return;
+	const charged = (Number(bet[0]) || 0) * (Number(bet[1]) || 0);
+	if (charged === requestedCents || warnedStakeRounding.has(sid)) return;
+	warnedStakeRounding.add(sid);
+	console.warn(
+		`[engine-facade] bet of ${requestedCents} cents does not divide evenly across ${bet[0]} ` +
+			`line(s), so this spin costs ${charged} cents. Wins stay correct (they are normalised ` +
+			`against the stake the server charged); pick bet levels that are multiples of the line count.`,
+	);
+};
+
 /** Compare the server's declared symbol vocabulary against what `activeMapping`
  *  knows how to translate, and the declared grid against what the facade emits.
  *  Logs once per session as a console.warn; never throws. */
@@ -586,12 +644,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	// one line (it fell through to the Symbols-tool default). Resolve the index from the win's actual
 	// payline SHAPE against the captured server config instead — base-agnostic and exact. Falls back to
 	// the raw `paylineId` when there's no shape (scatter/special wins) or no captured config (parity).
-	const serverPaylines = (() => {
-		const cfg = capturedConfig.get(sid) as
-			| { availablePayLines?: number[][]; paylines?: number[][] }
-			| undefined;
-		return cfg?.availablePayLines ?? cfg?.paylines ?? null;
-	})();
+	const serverPaylines = declaredPayLines(sid);
 	const lineIndexFor = (c: { context?: unknown }): number => {
 		const shape = (c.context as { payline?: number[] })?.payline;
 		if (serverPaylines && Array.isArray(shape)) {
@@ -642,9 +695,14 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// win displays stay correct when the feature is BOUGHT (a premium-inflated
 				// `total` would shrink every win ~100×). Both fields ship in the Play4Fun
 				// `bet` event (and the book-of mock); fall back to `total` only if absent.
+				//
+				// The line count floors at 1 so a PAYLINES-LESS model (cluster / scatter-pays declare
+				// no lines at all) still derives its base from `betPerLine` rather than falling through
+				// to `total` — the fall-through is the buy-inflated number this comment exists to avoid.
+				// `requestBet` sends `a = 1` for those games, so `betPerLine` IS the base stake.
 				const ctx = e.context as { total?: number; betPerLine?: number; paylines?: unknown[] };
 				const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
-				const numLines = Array.isArray(ctx.paylines) ? ctx.paylines.length : 0;
+				const numLines = Math.max(1, Array.isArray(ctx.paylines) ? ctx.paylines.length : 0);
 				const baseBet = betPerLine * numLines;
 				betBaseCents = baseBet > 0 ? baseBet : (ctx.total ?? 0);
 				break;
@@ -1129,6 +1187,11 @@ export const requestBet = async (options: {
 	const optionIndex = serverOptions ? betOptionIndexFor(options.mode, serverOptions) : null;
 	if (serverOptions && optionIndex === null) warnUnexpressibleMode(options.sessionID, options.mode);
 
+	// Which of the three encodings below this bet used. Only the last one puts a LINE COUNT in
+	// `context[0]`, which is what makes the stake `[0] × [1]` and the rounding warning meaningful.
+	const legacyLinesEncoding =
+		!(serverOptions && optionIndex !== null) && activeMapping !== bookMapping;
+
 	const betBody: ReturnType<typeof buildBetActions> =
 		serverOptions && optionIndex !== null
 			? [
@@ -1150,9 +1213,17 @@ export const requestBet = async (options: {
 						amount: play4FunAmount,
 						mode: options.mode,
 						currency: options.currency,
-						betLinesOrConfig: 5,
+						betLinesOrConfig: betLineCount(options.sessionID),
 						playContext: '',
 					});
+
+	// `betPerLine` is integer cents, so `a × betPerLine` cannot always hit the requested amount — a
+	// $0.10 bet across 20 lines wants half a cent per line and floors at one, charging $0.20. The
+	// stake stays SELF-CONSISTENT either way (the server echoes what it charged and every win is
+	// normalised against it), so this is a bet-LADDER problem, not a scaling one: our synthesised
+	// betLevels are Stake-shaped and a real Play4Fun game quotes levels that divide by its line count.
+	// Surface it once rather than let a level quietly cost more than it says.
+	if (legacyLinesEncoding) warnOnStakeRounding(options.sessionID, betBody, play4FunAmount);
 
 	const first = await fetcher.post({ body: betBody });
 

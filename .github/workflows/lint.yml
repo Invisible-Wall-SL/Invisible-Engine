@@ -100,3 +100,17 @@ jobs:
       # regenerated it. This is that gate.
       - name: flow vocabulary is up to date
         run: node scripts/gen-flow-vocabulary.mjs --check
+
+      # RGS gate — the client and the server must agree about MONEY, for all four win models.
+      #
+      # `check:ways` already existed and was never wired here; `cluster` and `scatter` shipped with
+      # no gate at all, and NOTHING asserted the stake itself. That is precisely where two bugs sat
+      # unnoticed: the facade declared a hardcoded 5 paylines while the shared `lines` config
+      # authors 20, so every win counted up to a QUARTER of the multiplier the wallet credited; and
+      # a paylines-less model had 13 phantom lines regenerated for it, mispricing ways and cluster.
+      #
+      # `check:stake` drives the REAL facade against the REAL mock (see scripts/ts-loader.mjs for
+      # why a plain node script can now import the TS source) and asserts the one invariant that
+      # only holds when both halves agree: finalWin ÷ 100 === round.payoutMultiplier.
+      - name: rgs win models agree on money
+        run: pnpm check:rgs
