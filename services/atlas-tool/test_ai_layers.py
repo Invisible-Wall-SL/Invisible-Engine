@@ -71,12 +71,13 @@ def check(label: str, got, want) -> None:
 # --------------------------------------------------------------------------
 # Fixtures
 # --------------------------------------------------------------------------
-def _stage(regions: list[dict]) -> Path:
+def _stage(regions: list[dict], atlas: dict | None = None) -> Path:
     """A staged manifest the handler can round-trip, with ui_server pointed at
     it and the R2 mirror stubbed out."""
     mp = Path(tempfile.mkdtemp()) / "atlas_manifest_test.json"
     mp.write_text(json.dumps(
-        {"atlas": {"layout": "pack"}, "style": {}, "regions": regions}),
+        {"atlas": atlas if atlas is not None else {"layout": "pack"},
+         "style": {}, "regions": regions}),
         encoding="utf-8")
     u.manifest_path = lambda: mp                                  # noqa: E731
     u._mirror = lambda p: None                                    # noqa: E731
@@ -441,6 +442,36 @@ def test_addlayer_refuses_the_four_bad_cases():
     check("nothing was written", len(_read(mp)["regions"]), 2)
 
 
+def test_an_atlas_with_no_layout_is_refused_with_the_remedy_named():
+    """Reported the day it deployed: "I don't see any button". The gate was
+    right -- a layer is a NEW region and needs its own rect, which only a
+    layout the tool owns can make room for -- but hiding the control taught
+    the user nothing. Everything else in this tool refuses OUT LOUD, so the
+    button is now offered wherever it could ever work (can_choose_layout, i.e.
+    any atlas not bound to a `.atlas`) and the refusal names the fix."""
+    mp = _stage([{"name": "H1"}], atlas={})          # legacy: no layout at all
+    msg = _handler()._addlayer({"base": "H1", "suffix": "fire"})
+    check("it refuses", msg.startswith("⚠"), True)
+    check("and names the control that fixes it", "Atlas settings" in msg, True)
+    check("and says which values", "grid or pack" in msg, True)
+    check("and warns what the switch costs", "re-flows" in msg, True)
+    check("nothing was written", len(_read(mp)["regions"]), 1)
+
+
+def test_which_atlases_offer_the_button():
+    # 🗑 acts on the geometry as it stands, so it stays on is_from_scratch. The
+    # LAYER button only needs the atlas to be ABLE to have a layout: a
+    # layout-less atlas is one Save away, a `.atlas`-bound one never qualifies.
+    for atlas, offered in (({"layout": "pack"}, True),
+                           ({"layout": "grid"}, True),
+                           ({}, True),
+                           ({"atlas_file": "x.atlas"}, False)):
+        m = {"atlas": atlas, "regions": [{"name": "H1"}]}
+        check(f"atlas={atlas or 'legacy'}: "
+              f"{'offers' if offered else 'HIDES'} the button",
+              ba.can_choose_layout(m), offered)
+
+
 def test_addlayer_sanitises_the_name():
     mp = _stage([{"name": "H1"}])
     _handler()._addlayer({"base": "H1", "suffix": "fire storm!"})
@@ -501,6 +532,8 @@ if __name__ == "__main__":
                test_the_seeded_copy_is_a_starting_point_not_a_link,
                test_addlayer_refuses_the_four_bad_cases,
                test_addlayer_sanitises_the_name,
+               test_an_atlas_with_no_layout_is_refused_with_the_remedy_named,
+               test_which_atlases_offer_the_button,
                test_copyfrom_does_not_carry_the_base_link,
                test_a_reimport_keeps_the_base_link,
                test_deleting_a_base_names_the_layers_it_orphans):

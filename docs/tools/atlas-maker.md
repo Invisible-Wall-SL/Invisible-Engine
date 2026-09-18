@@ -120,6 +120,14 @@ sheet (`<sheet>::<region>`), so layers on separate sheets would work — they
 would just cost a texture swap per layer instead of batching with the base, and
 pay a second page's gutter. Split them only when a page genuinely overflows.
 
+> **Both kinds need an atlas the tool lays out** — `pack` or `grid`, i.e. one
+> started with **＋ New atlas**, or one you have since given a **Layout** in 🧩
+> Atlas settings. A layer is a NEW region and a new region needs its own rect,
+> which only a layout the tool owns can make room for. If your atlas has no
+> layout yet, **➕🗂** is still there and tells you so when you press it; on an
+> atlas bound to a `.atlas` file it is hidden, because nothing can fix that.
+> See [My atlas has no ➕🗂 button](#my-atlas-has-no--button).
+
 There are two kinds, and the difference is where the layer's *pixels* come from.
 
 | | **FX layer** | **AI layer** |
@@ -144,7 +152,8 @@ haloing art you replaced. `⚙ build` re-derives one by hand after a tweak.
 
 ### AI layers — a different render of the same source
 
-**➕🗂** on a region's card asks for a suffix and creates `<base>_<suffix>` as
+**➕🗂** on a region's card (only on a `pack`/`grid` atlas — see the note
+above) asks for a suffix and creates `<base>_<suffix>` as
 an ordinary generated slot — its own prompt, seed, variants and lock. What
 makes it a layer is that it **reads the base's reference image**. Re-point the
 base's ref and every AI layer of it follows, with nothing to re-copy; give the
@@ -184,6 +193,26 @@ Five things are refused rather than surprising you:
 Deleting a base does **not** cascade. Its layers stay and become ordinary
 regions rendering on their own refs; the message names them so it is not
 silent.
+
+### My atlas has no ➕🗂 button
+
+If the button is missing entirely, your atlas is **bound to a `.atlas` file**.
+That file owns the region list and every rect, and the tool will not hand that
+layout to itself — it would destroy geometry that only exists outside it — so
+layers are not available there. Slice the source into a new `pack`/`grid`
+atlas if you need them. (Same reason 🗑 is missing on those cards.)
+
+If the button is there but **pressing it says the atlas has no layout**, you
+are one setting away. Open **🧩 Atlas settings**, set **Layout** to `grid` or
+`pack`, and save. **This clears the rects the atlas has now** — the tool says
+so as it does it — so Create Atlas re-flows the whole page. `grid` keeps the
+page size yours; `pack` hands it to the packer.
+
+Why the restriction at all: a layer is a **new region**, and a new region needs
+its own rect. On a `.atlas`-bound manifest a region with no `.atlas` counterpart
+is dropped by the geometry merge; on a manifest with no layout it survives but
+never gets a rect, and Create Atlas skips it (`not placed on this page`). Only a
+layout the tool owns can re-flow the page to make room.
 
 ## ⚙ Settings — and where the dropdowns get their values
 
