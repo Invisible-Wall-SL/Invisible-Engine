@@ -51,16 +51,28 @@ const sliceFunction = (name) => {
 	throw new Error(`could not find the end of ${name}() in editorStorage.ts`);
 };
 
-const kindsMatch = source.match(
-	/const NODE_KINDS = new Set<LayoutNode\['kind'\]>\(\[([\s\S]*?)\]\)/,
-);
-if (!kindsMatch) throw new Error('editorStorage.ts no longer declares NODE_KINDS');
+// `NODE_KINDS` is DERIVED, not declared: `editorStorage.ts` builds its Set from `engine-layout`'s
+// exported `LAYOUT_NODE_KINDS`, which is the single source of truth for the kinds a save accepts.
+// So read the list from there, and assert the derivation still holds — if the normalizer ever goes
+// back to a hand-copied literal, this fixture would otherwise validate against a list the shipped
+// code no longer uses.
+if (!/const NODE_KINDS = new Set<LayoutNode\['kind'\]>\(LAYOUT_NODE_KINDS\)/.test(source)) {
+	throw new Error(
+		'editorStorage.ts no longer derives NODE_KINDS from engine-layout’s LAYOUT_NODE_KINDS',
+	);
+}
+
+const kindsMatch = read('packages/engine-layout/src/lib/types.ts')
+	.replace(/\r\n/g, '\n')
+	.match(/export const LAYOUT_NODE_KINDS = \[([\s\S]*?)\] as const/);
+if (!kindsMatch) throw new Error('engine-layout no longer declares LAYOUT_NODE_KINDS');
 const NODE_KINDS = new Set(
 	kindsMatch[1]
 		.split(',')
 		.map((entry) => entry.trim().replace(/^'|'$/g, ''))
 		.filter(Boolean),
 );
+if (!NODE_KINDS.size) throw new Error('LAYOUT_NODE_KINDS parsed to an empty list');
 
 // Strip the TS type annotations the two functions carry, then evaluate them together.
 const strip = (fn) =>
