@@ -3470,8 +3470,67 @@ def _packer_compose_tile(img: Image.Image, rw: int, rh: int,
     return img
 
 
+def _layer_parity_tile(img: Image.Image, rw: int, rh: int, rotated: bool,
+                       place: dict) -> Image.Image:
+    """Place a LAYER on the sheet-parity path by its BASE's transform.
+
+    `_packer_compose_tile` centres a cell on its OWN visible bbox, which is the
+    right answer for a cell that stands alone and the wrong one for a layer: a
+    layer's position is not its own, it is its base's (the same premise as
+    `layer_registration_crop`, which is why the alpha path crops it to a
+    base-derived box). For every SYMMETRIC effect the two answers coincide — a
+    glow's halo is concentric with the glyph it grew from, so its own bbox
+    centre IS its base's. For the one asymmetric effect, `shine.make_shadow`,
+    they do not: the drop is carried by where the blob sits relative to the
+    glyph, and centring the blob's bbox is precisely the operation that throws
+    that away. An AI layer (`layer_of`) is the same case again and by default:
+    a separate render's ink centre matches its base's only by luck, and it
+    reaches here only on the base's own canvas (`layer_registration` declines
+    any other size for an AI layer), so the base's transform is exactly what
+    puts the two frames on top of each other.
+
+    `place` comes from `layer_registration` and says, in LAYER-canvas
+    coordinates:
+      scale   the factor the BASE's canvas gets (its rect / its canvas, never
+              upscaling) — used here INSTEAD of this layer's own, so the two
+              layers land at one pixel scale however much margin this one's
+              canvas carries;
+      anchor  the base's ink-bbox centre;
+      rel     where that centre lands inside the rect, normalised — 0.5 when the
+              base is bbox-centred, and its verbatim position when the base's
+              scaled canvas exactly fills its rect (in which case nothing is
+              re-centred at all and this reduces to a straight paste).
+
+    Only reached when `layer_registration` says this layer's ink DISAGREES with
+    its base's; everything that agrees goes to `_packer_compose_tile` untouched,
+    so the parity contract is kept exactly rather than reproduced.
+
+    A ROTATED cell is placed by its canvas, not by the anchor — packer centres a
+    rotated cell's rectangle (a bbox would be in pre-rotation space), so that is
+    what its base got and what registers with it. The canvas is concentric with
+    the base's by construction, so this still carries the drop.
+    """
+    s = place["scale"]
+    iw = max(1, round(img.width * s))
+    ih = max(1, round(img.height * s))
+    if (img.width, img.height) != (iw, ih):
+        img = img.resize((iw, ih), Image.LANCZOS)
+    if rotated:
+        ox, oy = (rw - iw) // 2, (rh - ih) // 2
+    else:
+        ax, ay = place["anchor"]
+        ox = int(round(rw * place["rel"][0] - ax * s))
+        oy = int(round(rh * place["rel"][1] - ay * s))
+    if (ox, oy) != (0, 0) or (rw, rh) != (iw, ih):
+        img = img.crop((-ox, -oy, -ox + rw, -oy + rh))
+    if rotated:
+        img = img.rotate(-90, expand=True)  # clockwise
+    return img
+
+
 def fit_to_region(img: Image.Image, region: dict,
-                  crop_box: tuple[int, int, int, int] | None = None) -> Image.Image:
+                  crop_box: tuple[int, int, int, int] | None = None,
+                  layer_place: dict | None = None) -> Image.Image:
     """Place the regenerated element into its packed slot.
 
     The element is cropped to its ALPHA content (Spine only ever renders the
@@ -3531,9 +3590,19 @@ def fit_to_region(img: Image.Image, region: dict,
     # default fallback below also resolves to "contain" for legacy cell-grid
     # regions, which must keep their alpha-crop behaviour. `crop_box` is
     # deliberately unused here: there is no alpha-crop to override, and packer
-    # centres the visible bbox for base and FX cells alike.
+    # centres the visible bbox for base and layer cells alike — EXCEPT that a
+    # LAYER has no placement of its own (see `_layer_parity_tile`), so when the
+    # caller resolved its base AND the two disagree about where the ink is, we
+    # replay packer.compose about the BASE's ink instead of this layer's. Every
+    # symmetric effect agrees and goes to the replay untouched, byte for byte;
+    # what disagrees is a drop shadow, whose whole content is the offset that
+    # centring its own blob deletes — and an AI layer, which is a different
+    # picture of the same slot and has no ink in common with its base at all.
     if not keep_full and (
             str(region.get("fit_mode", "")).strip().lower() == "contain"):
+        if layer_place is not None and not layer_place["replay"]:
+            return _layer_parity_tile(img, target_w, target_h,
+                                      bool(region.get("rotated")), layer_place)
         return _packer_compose_tile(img, target_w, target_h,
                                     bool(region.get("rotated")))
 
@@ -3701,8 +3770,8 @@ def layer_base_name(region: dict) -> str | None:
         base's own pixels.
 
     Both are drawn stacked on the base in-game, so both owe it registration
-    (see layer_registration_crop) — which is the whole reason one resolver
-    serves them. Pure dict/string reads; no IO.
+    (see layer_registration) — which is the whole reason one resolver serves
+    them. Pure dict/string reads; no IO.
     """
     explicit = region.get("layer_of")
     if isinstance(explicit, str) and explicit.strip():
@@ -3742,41 +3811,66 @@ def resolve_layer_refs(region: dict, by_name: dict) -> dict:
     return {**region, **missing}
 
 
-def layer_registration_crop(img: Image.Image, region: dict,
-                            by_name: dict, batch_dir: Path
-                            ) -> tuple[int, int, int, int] | None:
-    """Crop box that keeps a LAYER registered with its base element.
+def layer_registration(img: Image.Image, region: dict,
+                       by_name: dict, batch_dir: Path) -> dict | None:
+    """How a LAYER is placed so it stays registered with its base element.
 
-    An FX layer (`<base>_glow` / `<base>_shadow` / ...) is built by shine.py
-    from the base's OWN source image onto a canvas of the SAME size with the
-    glyph in the SAME place. But its alpha bbox is deliberately larger (the halo blooms
-    into the margin), so letting fit_to_region crop it to that bbox scales the
-    glyph down and shifts it relative to the base — the FX renders offset and
-    resized under a rig that expects the two slots to line up.
+    Two kinds reach here through `layer_base_name`, and what differs between
+    them is the size of the gamble, not the remedy:
 
-    An **AI layer** (`layer_of`) has the same failure mode and a worse odds
-    profile: it is a wholly separate render, so its silhouette agrees with the
-    base's only by luck. Both resolve their base through layer_base_name and
-    take the same box.
+      * an **FX layer** (`<base>_glow` / `<base>_shadow` / ...) is built by
+        shine.py from the base's OWN source image, onto the base's canvas with
+        the glyph in the SAME place — or, for an offset drop shadow, onto that
+        canvas grown SYMMETRICALLY (`shine.make_shadow`), which keeps the two
+        concentric while giving the blob room to sit off-centre;
+      * an **AI layer** (`layer_of`) is a wholly separate render — same
+        failure mode on worse odds, since its silhouette agrees with the
+        base's only by luck.
 
-    Only `pack_trim: alpha` consumes it. Under the default `keep` both frames
-    are placed on their whole canvas, which registers them by construction —
-    see fit_to_region, where crop_box is moot on that branch for exactly the
-    same reason.
+    Either way the layer lives in the base's pixel space and owes its
+    placement to the base's numbers, never to its own ink:
 
-    Cropping the FX to the base's bare bbox would register but throw the halo
-    away. So we crop to the base's bbox GROWN about its centre by the ratio of
-    the two authored slots — the slot IS the element's footprint budget, so
-    this is the largest halo the packed rect can actually carry, and it lands
-    at exactly the base's scale (identical for `fill`, `contain` and `cover`,
-    since both boxes are scaled by the same factors). A same-size FX slot
-    degenerates to the base's bbox: the halo is then geometrically un-drawable,
-    not discarded by us.
+      box     the crop box for the alpha path. The layer's own alpha bbox is
+              deliberately larger than its base's (an FX halo blooms into the
+              margin; an AI render sprawls where it likes), so cropping to it
+              scales the glyph down and shifts it — the layer then renders
+              offset and resized under a rig that expects the two slots to
+              line up. Cropping to the base's bare bbox would register but
+              throw the halo away, so the box is the base's bbox GROWN about
+              its centre by the ratio of the two authored slots: the slot IS
+              the element's footprint budget, so this is the largest halo the
+              packed rect can carry, and it lands at exactly the base's scale
+              (identical for `fill`, `contain` and `cover`, since both boxes
+              are scaled by the same factors). A same-size slot degenerates to
+              the base's bbox: the halo is then geometrically un-drawable, not
+              discarded by us.
+      scale /
+      anchor /
+      rel     the base's transform, for the sheet-parity path — see
+              `_layer_parity_tile`, which uses them instead of centring this
+              layer's own bbox.
+      replay  True when this layer's ink ALREADY agrees with its base's, i.e.
+              when the standalone `_packer_compose_tile` replay is the right
+              answer and must be kept byte-exact.
 
-    Returns None — i.e. today's self-cropping behaviour — for a non-FX region,
-    an unresolvable base, or an FX image whose canvas does NOT match its base's
-    (hand-made or stale FX art isn't in the base's pixel space, so the box
-    would be meaningless).
+    Only `pack_trim: alpha` consumes `box`. Under the default `keep` both
+    frames are placed on their whole canvas, which registers them by
+    construction — see fit_to_region, where crop_box is moot on that branch
+    for exactly the same reason. `scale`/`anchor`/`rel`/`replay` are read on a
+    different branch entirely (explicit `fit_mode: "contain"`), so the two
+    never contend.
+
+    All coordinates are in the LAYER image's canvas, so a shadow's symmetric
+    margin is already folded in.
+
+    Returns None — i.e. today's self-cropping behaviour — for a region that is
+    nobody's layer, an unresolvable base, or art that is not in the base's
+    pixel space. That last test is the one place the two kinds part: an FX
+    layer may be on the base's canvas OR on that canvas symmetrically grown,
+    because `shine.make_shadow` is the only thing in the tool that grows one;
+    an AI layer is held to exact equality, since its canvas is whatever its
+    pipeline rendered and reading a 2x render as "the base plus margin" would
+    scale it by the base's factor and place it confidently in the wrong spot.
     """
     base_name = layer_base_name(region)
     if base_name is None:
@@ -3792,21 +3886,76 @@ def layer_registration_crop(img: Image.Image, region: dict,
             base_img = f.convert("RGBA")
     except (OSError, ValueError):
         return None
-    if base_img.size != img.size:
-        return None
+    # A margin has to be symmetric AND whole on both axes to be a margin: an
+    # odd or negative difference means this is some other canvas, not the
+    # base's with room added around it. And it has to be a canvas this tool
+    # could have grown — only `shine.make_shadow` grows one — so an AI layer
+    # (explicit `layer_of`, canvas whatever its pipeline rendered) is held to
+    # exact equality and declines to guess, exactly as before.
+    dw, dh = img.width - base_img.width, img.height - base_img.height
+    if (dw, dh) != (0, 0):
+        if str(region.get("layer_of") or "").strip():
+            return None
+        if dw < 0 or dh < 0 or dw % 2 or dh % 2:
+            return None
+    mx, my = dw // 2, dh // 2
     bb = base_img.getchannel("A").getbbox()
     if not bb:
         return None
-    _, _, base_w, base_h = region_box(base)
-    _, _, fx_w, fx_h = region_box(region)
+    try:
+        _, _, base_w, base_h = region_box(base)
+        _, _, fx_w, fx_h = region_box(region)
+    except (TypeError, ValueError):
+        # No geometry to register against — region_box falls back to
+        # ATLAS_META, which is empty outside the compose subprocess (the
+        # inspector calls this too).
+        return None
     if not (base_w and base_h and fx_w and fx_h):
         return None
-    x0, y0, x1, y1 = bb
+    x0, y0, x1, y1 = bb[0] + mx, bb[1] + my, bb[2] + mx, bb[3] + my
     half_w = (x1 - x0) * (fx_w / base_w) / 2
     half_h = (y1 - y0) * (fx_h / base_h) / 2
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    return (int(round(cx - half_w)), int(round(cy - half_h)),
-            int(round(cx + half_w)), int(round(cy + half_h)))
+    # The base's own parity transform: its canvas scaled into its rect, never
+    # upscaled. If that exactly fills the rect, packer.compose re-centres
+    # NOTHING and the base's ink keeps its place on the canvas — so the anchor
+    # must land at that same relative place, not at the middle. Otherwise the
+    # base's bbox IS centred, and the anchor goes to the middle.
+    bs = min(base_w / base_img.width, base_h / base_img.height, 1.0)
+    if (max(1, round(base_img.width * bs)),
+            max(1, round(base_img.height * bs))) == (base_w, base_h):
+        rel = ((cx - mx) * bs / base_w, (cy - my) * bs / base_h)
+    else:
+        rel = (0.5, 0.5)
+    # Is the standalone replay already the right answer? It is whenever this
+    # layer's ink is centred on its base's ON THE BASE'S OWN CANVAS — a glow's
+    # halo, a recolour, a centred zoom. Then `_packer_compose_tile` and
+    # `_layer_parity_tile` agree about WHERE, and handing those to the replay keeps
+    # the sheet-parity contract exact rather than "within a pixel" (the two
+    # round their integer offsets from different box widths). Measured with
+    # `img.getbbox()`, not the alpha bbox, because the question is about the box
+    # packer WOULD centre, and packer measures RGBA — a layer with a coloured
+    # but transparent gutter is placed by that gutter.
+    #
+    # A canvas that GREW is never replayed: only `make_shadow` grows one, and it
+    # grows one precisely because the layer carries an offset its ink does not
+    # show. (A blurred full-bleed silhouette's blob fills the whole margin and
+    # reads as perfectly centred — exactly the case the replay would flatten.)
+    own = img.getbbox()
+    replay = (mx, my) == (0, 0) and (own is None or (
+        abs((own[0] + own[2]) / 2 - cx) <= 0.5
+        and abs((own[1] + own[3]) / 2 - cy) <= 0.5))
+    return {"box": (int(round(cx - half_w)), int(round(cy - half_h)),
+                    int(round(cx + half_w)), int(round(cy + half_h))),
+            "scale": bs, "anchor": (cx, cy), "rel": rel, "replay": replay}
+
+
+def layer_registration_crop(img: Image.Image, region: dict,
+                            by_name: dict, batch_dir: Path
+                            ) -> tuple[int, int, int, int] | None:
+    """`layer_registration`'s crop box alone, for the alpha path's `crop_box`."""
+    reg = layer_registration(img, region, by_name, batch_dir)
+    return None if reg is None else reg["box"]
 
 
 def region_locked(region: dict) -> bool:
@@ -4147,8 +4296,10 @@ def main() -> None:
             ov = override_image_path(region)
             if ov is not None:
                 img = Image.open(ov).convert("RGBA")
-                img = fit_to_region(img, region, layer_registration_crop(
-                    img, region, all_regions_by_name, batch_dir))
+                reg = layer_registration(img, region, all_regions_by_name,
+                                         batch_dir)
+                img = fit_to_region(img, region,
+                                    reg["box"] if reg else None, reg)
                 rx, ry, _, _ = region_box(region)
                 canvas.paste(img, (rx, ry), img)
                 placed += 1
@@ -4164,8 +4315,9 @@ def main() -> None:
                 print(f"  skip {region['name']}: no generated variant found")
                 continue
             img = Image.open(src).convert("RGBA")
-            img = fit_to_region(img, region, layer_registration_crop(
-                img, region, all_regions_by_name, batch_dir))
+            reg = layer_registration(img, region, all_regions_by_name,
+                                     batch_dir)
+            img = fit_to_region(img, region, reg["box"] if reg else None, reg)
             rx, ry, _, _ = region_box(region)
             canvas.paste(img, (rx, ry), img)
             placed += 1

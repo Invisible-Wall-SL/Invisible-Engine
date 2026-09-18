@@ -4458,7 +4458,12 @@ def _placement_mode(r: dict, keep_full: bool = False) -> dict:
          then maps;
       1. otherwise an EXPLICIT `fit_mode == "contain"` short-circuits to the
          sheet-parity path (`_packer_compose_tile`, a verbatim replay of
-         packer.compose);
+         packer.compose) — or, for a LAYER whose base compose can resolve,
+         `_layer_parity_tile`, the same replay taken about the BASE's ink. Same
+         branch either way, which is why this reports one mode: what changes is
+         whose bbox is centred, and only for a layer (an FX one visibly only
+         when its drop shadow is offset; an AI one by default, its ink having
+         nothing in common with its base's);
       2. otherwise `mode = explicit or ("fill" if spine_slot else "contain")`,
          where `spine_slot = "orig_w" in region and "orig_h" in region`;
       3. that `mode` selects fill / cover / (else) the alpha-crop + letterbox
@@ -4561,14 +4566,20 @@ def _ink_bbox(im: Image.Image):
     return im.getchannel("A").getbbox()
 
 
-def _parity_of(region: dict, page: Image.Image) -> dict:
+def _parity_of(region: dict, page: Image.Image,
+               by_name: dict | None = None) -> dict:
     """Does this region's page pixels match what `packer.compose` would produce
     from its source art? THE discriminator — unlike the ink-fill ratio it is
     evidence, not inference, and it directly predicts whether re-running
     "Create Atlas" would move the region.
 
     Recomposes the tile through the REAL `batch_atlas._packer_compose_tile`
-    (never a local copy — the parity fix is verified and must not be perturbed)
+    (never a local copy — the parity fix is verified and must not be perturbed),
+    or, for a LAYER that compose places by its base's numbers rather than its
+    own ink (`batch_atlas.layer_registration` says which), through the REAL
+    `batch_atlas._layer_parity_tile` — predicting an offset drop shadow with the
+    standalone-cell replay would report it as DIFFERS and send the reader after
+    a placement bug that isn't there,
     and replays compose's `canvas.paste(img, (rx, ry), img)` onto a transparent
     canvas. That paste is NOT a no-op: PIL applies the mask to every band, so a
     semi-transparent pixel lands as `src * a` (and alpha as `a * a / 255`).
@@ -4594,7 +4605,11 @@ def _parity_of(region: dict, page: Image.Image) -> dict:
     try:
         with Image.open(src) as raw:
             img = raw.convert("RGBA")
-        tile = batch_atlas._packer_compose_tile(img, tw, th, rotated)
+        reg = batch_atlas.layer_registration(img, region, by_name or {},
+                                             BATCH_DIR)
+        tile = (batch_atlas._layer_parity_tile(img, tw, th, rotated, reg)
+                if reg is not None and not reg["replay"]
+                else batch_atlas._packer_compose_tile(img, tw, th, rotated))
     except (OSError, ValueError) as e:
         return {"verdict": "NO SOURCE", "delta": "",
                 "why": f"source {src.name} could not be read: {e}"}
@@ -8644,12 +8659,14 @@ class Handler(BaseHTTPRequestHandler):
                 page = raw.convert("RGBA")
         except (OSError, ValueError) as e:
             return json.dumps({"error": f"page unreadable: {e}"}).encode()
-        for r in all_regions(load_manifest()):
+        regions = all_regions(load_manifest())
+        by_name = {str(r.get("name", "")): r for r in regions}
+        for r in regions:
             name = str(r.get("name", ""))
             if not name:
                 continue
             try:
-                out[name] = _parity_of(r, page)
+                out[name] = _parity_of(r, page, by_name)
             except Exception as e:  # noqa: BLE001 — one bad region must not
                 # sink the whole scan; report it in place of a verdict.
                 out[name] = {"verdict": "NO SOURCE", "delta": "",
