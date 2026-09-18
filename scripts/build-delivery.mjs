@@ -3,7 +3,9 @@
  *
  *     node engine/scripts/build-delivery.mjs [--profile operator-embed] [--out delivery]
  *                                            [--alias BookOfBorut] [--zip] [--json result.json]
- *     node engine/scripts/build-delivery.mjs --list-profiles
+ *     node engine/scripts/build-delivery.mjs --list-profiles     # for a UI's profile picker
+ *     node engine/scripts/build-delivery.mjs --print-env         # env a caller's own build must set
+ *     node engine/scripts/build-delivery.mjs --skip-build …      # package a build it already made
  *
  * WHY IT LIVES IN THE ENGINE AND TAKES NO SETUP. `scripts/new-game.mjs` writes a repo's scripts
  * ONCE, at scaffold time, and nothing ever refreshes them — the same snapshot problem that had every
@@ -106,6 +108,30 @@ const profile = arg('--profile', DEFAULT_PROFILE);
 const outDir = arg('--out', '');
 const wantZip = flag('--zip');
 const jsonOut = arg('--json', '');
+
+/**
+ * The env that makes `pnpm build` produce an embeddable bundle rather than a droppable site.
+ *
+ * Exported through `--print-env` as well as used directly, because a caller that runs the build
+ * ITSELF still has to set exactly these. The desktop launcher is that caller: its own build runner
+ * handles a `vite build` that finishes its output and then never exits (an open sass/esbuild handle
+ * keeps Node alive), which `spawnSync` here cannot — it would wait forever. So the launcher builds,
+ * then calls back with `--skip-build` to package. One definition, both paths.
+ */
+const DELIVERY_ENV = {
+	PUBLIC_DELIVERY_EMBED: '1',
+	PUBLIC_RGS_TRANSPORT: 'play4fun',
+	PUBLIC_DELIVERY_PROFILE: profile,
+};
+
+/** Package an existing `build/` — the caller ran `pnpm build` with `--print-env`'s variables set.
+ *  `build-embed.mjs` still runs, and refuses loudly if that build was not an embed build. */
+const skipBuild = flag('--skip-build');
+
+if (flag('--print-env')) {
+	console.log(JSON.stringify(DELIVERY_ENV, null, 2));
+	process.exit(0);
+}
 
 /**
  * Fail with a reason a UI can show, not just a non-zero exit — otherwise the button says "it broke".
@@ -341,11 +367,11 @@ const embedDoc = (baked) => {
 };
 
 try {
-	run('pnpm', ['build'], {
-		PUBLIC_DELIVERY_EMBED: '1',
-		PUBLIC_RGS_TRANSPORT: 'play4fun',
-		PUBLIC_DELIVERY_PROFILE: profile,
-	});
+	if (skipBuild) {
+		console.info(`\n(--skip-build: packaging the existing build/ as '${profile}')\n`);
+	} else {
+		run('pnpm', ['build'], DELIVERY_ENV);
+	}
 
 	// `process.execPath`, no shell: the same Node that is running this, spawned directly, so an
 	// engine path containing spaces is never handed to a command-line parser at all.
