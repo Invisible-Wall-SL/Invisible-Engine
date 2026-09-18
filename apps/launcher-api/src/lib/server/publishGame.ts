@@ -125,7 +125,21 @@ export async function publishGame(
 	}
 
 	// 2. Freshen deploy/ so the live runtime serves the current art/fonts/sounds/symbols.
-	await ensureDeployExports(projectKey, clientKey);
+	const exports = await ensureDeployExports(projectKey, clientKey);
+	// The stranded-spine report, which this path used to compute and throw away — so the ONLINE
+	// publish (the one that shipped the missing free-spin cage) said nothing, and the only warning
+	// was the browser console at boot, right next to the throw it was meant to pre-empt. Logged,
+	// not thrown: a missing spine is visible on screen like a blank sprite, so it warns the way
+	// the region guard does rather than blocking a publish on legacy data.
+	const spinesMissing = exports.editorArt.spinesMissing ?? [];
+	if (spinesMissing.length > 0) {
+		console.warn(
+			`[publish] ${projectKey}: ${spinesMissing.length} placed spine bundle(s) resolved to ` +
+				`NOTHING and will be MISSING in-game: ${spinesMissing.join(', ')}. A bundle under ` +
+				"another project's prefix is not exported into this game — re-pick the rig from this " +
+				'project, or promote it to the shared library (/admin → Spines).',
+		);
+	}
 	// A bundle assembled moments before this publish landed would keep being served for the
 	// rest of its TTL, so a publish-then-reload could still show pre-publish data. Drop it.
 	invalidateRuntimeBundle(projectKey);

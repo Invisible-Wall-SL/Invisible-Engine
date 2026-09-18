@@ -299,11 +299,19 @@ bundle ADDRESS is reportable, so a coded/game-bundled key (`bigwin`, `fsIntroNum
 bundle NAME supplied by a `spine`-kind param are both excluded — the false-alarm class
 `isBuiltinRegion` prevents for regions.
 
+Reportable is narrower than "unresolved" a second time: `staticSpineKeyIsReachable` drops a
+static key the runtime can never request, because `LayoutNodeView` falls back to it only when
+the bound param is empty and `resolveComponentParams` seeds every param from its def default.
+A pinned component snapshot is immutable, so without this a def fixed today would keep warning
+about its frozen past forever.
+
 **The export deliberately does NOT follow a foreign prefix.** Copying another project's bundle
 into this game's `deploy/` would put one client's art in another client's bundle, against
 `r2-client-isolation-and-scaffold.md`, and `sharedSpinePromote`'s "COPY, DON'T REFERENCE" already
 answers the question: promote the bundle to `_shared/spines/` and bind it there. The authoring
-side enforces that — `saveComponent` refuses a def whose spine node points into another project.
+side closes the loop — `saveComponent` re-points a foreign spine ref at the shared copy when one
+exists, clears it when a param supersedes it, and refuses otherwise. It cannot simply refuse:
+nothing in the editor can re-point a spine node's `assetKey` after it is created.
 
 ## The shared build/deploy token (admin-managed)
 

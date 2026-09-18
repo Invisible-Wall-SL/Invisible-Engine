@@ -610,30 +610,41 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Open items / next
 
-1. **S5 — prove end-to-end on Book of Borut.** Mirror the S1 engine contract
+1. **`symbolExport` still drops an unresolvable spine in silence** (`symbolExport.ts`, the
+   `if (!result) continue` after `exportSpineBundle`). The editor-art side grew a report for
+   exactly this on 2026-09-18 — `EditorArtIndex.spinesMissing`, warned by the CLI bake, the
+   online publish and the game at boot ([launcher status](./launcher.md)) — after a shared
+   component pinned to another project's prefix shipped a missing free-spin cage with nothing
+   said between authoring and the browser console. Symbol cells, `highlight`, `boardGlow`,
+   `anticipation.spineKey` and rig layers all feed the SAME helper and still have no such
+   report, so a rebound symbol whose bundle was renamed or deleted ships as nothing. Same asset
+   class, same rule 8; reuse `parseSpineBundleKey` / `staticSpineKeyIsReachable`
+   (`$lib/spineBundleKey.ts`) so the false-alarm rules stay identical.
+
+2. **S5 — prove end-to-end on Book of Borut.** Mirror the S1 engine contract
    (`symbolMap.ts` / `getSymbolInfo`) into Book of Borut's own `src/game/*`, keep symbol
    frame names unique across bound sheets, verify the shared-spine fallback, then actually
    rebind a symbol online → tokened rebuild → republish → confirm the new asset/animation
    in-game.
-2. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/spine`)
+3. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/spine`)
    — a user holding **only** the `symbols` tool gets a 403 on previews. Default roles hold
    both, so it only bites a narrowly-scoped role.
-3. **Default-art cells render as placeholder chips until project assets are seeded into R2**
+4. **Default-art cells render as placeholder chips until project assets are seeded into R2**
    (sprites under `sheets/`/`manifests/`, spines under `spines/`). Spine _default_ cells stay
    chips regardless — only a rebind stores a full bundle prefix that previews.
-4. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
+5. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
    (see the four-surfaces model in `docs/status/README.md`).
-5. **`bookVfx` + `transition` can carry a `blendMode` but no control offers one.** Cell layers
+6. **`bookVfx` + `transition` can carry a `blendMode` but no control offers one.** Cell layers
    put the field on the SHARED layer schema (deliberately — one shape, one renderer), so the two
    older layer consumers accept, persist, sign and render a mode today; only their panels never ask
    for one. Adding two `<select>`s gated on `canBlendLayerKind` is the whole job.
-6. **Cell layers are not composited in any preview.** The grid says `+N layers`; the panel previews
+7. **Cell layers are not composited in any preview.** The grid says `+N layers`; the panel previews
    each layer alone; no blend result is shown anywhere. The blocker is the grid's ONE shared WebGL
    canvas (a context-count limit) — a faithful composite of a spine base with a blended sprite over
    it is not available there. A panel-only DOM composite (sprite/flipbook layers over a sprite base,
    CSS `mix-blend-mode`) IS achievable and is the obvious next increment; it would still not cover a
    spine base.
-7. **A stacked picture's `art`/`winArt` reuses `symbolCellSchema`, so it now ACCEPTS `layers`** —
+8. **A stacked picture's `art`/`winArt` reuses `symbolCellSchema`, so it now ACCEPTS `layers`** —
    but nothing authors them there and `stackedArt()` strips them at export, so they would not ship.
    Either wire them through or narrow that schema; today it is a silent no-op, not a bug.
 

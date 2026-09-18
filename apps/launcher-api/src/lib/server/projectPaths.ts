@@ -14,6 +14,7 @@
  */
 
 import { isValidSoundFile } from 'engine-layout';
+import { BUNDLE_SEGMENT_RE } from '$lib/spineBundleKey';
 
 export const UNASSIGNED_CLIENT = 'unassigned';
 
@@ -63,37 +64,6 @@ export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
-
-/** A spine `assetKey` that ADDRESSES an R2 bundle, parsed into its owner + bundle name. */
-export interface SpineBundleRef {
-	/** The cross-project `_shared/spines/` library rather than one project's root. */
-	shared: boolean;
-	/** R2 client/project path segments — absent for a shared bundle. */
-	client?: string;
-	project?: string;
-	bundle: string;
-}
-
-/**
- * Parse a spine `assetKey` that is an R2 bundle PREFIX, whoever owns it — including a
- * project other than the one reading it, which {@link bundleFromAssetKey} deliberately
- * cannot express (it answers "which bundle of MINE is this", so a foreign prefix is
- * `null` there and every caller then skips it).
- *
- * That distinction is the whole point: a key this parses but `bundleFromAssetKey` rejects
- * is a reference into SOMEONE ELSE'S project — never a coded/game-bundled key like
- * `bigwin`, which has no `spines/` path at all. So it is exactly the set the export must
- * report as stranded (`editorArtExport`) and the authoring side must refuse to save
- * (`componentStorage`), instead of the silence that shipped a free-spin cage pinned to
- * another project's prefix to every game that placed the shared counter.
- */
-export function parseSpineBundleKey(assetKey: string): SpineBundleRef | null {
-	const trimmed = assetKey.endsWith('/') ? assetKey.slice(0, -1) : assetKey;
-	const match = /^(?:_shared|([^/]+)\/([^/]+))\/spines\/([^/]+)$/.exec(trimmed);
-	if (!match) return null;
-	const [, client, project, bundle] = match;
-	return client ? { shared: false, client, project, bundle } : { shared: true, bundle };
-}
 
 /**
  * Cross-project shared SHEETS, outside any single project: `_shared/sheets/<folder>`.
@@ -516,14 +486,15 @@ export function sheetConfigKey(client: string, project: string): string {
 
 /** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only.
  * Spine folder names are legitimately camelCase (`foregroundAnimation`, `fsIntro`),
- * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case. */
-const BUNDLE_SEG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+ * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case.
+ * The segment rule itself lives with `parseSpineBundleKey`, which reads these paths
+ * back, so the writer and the reader cannot drift apart. */
 function assertBundle(value: string): void {
 	if (!value || value.includes('..') || value.startsWith('/') || value.endsWith('/')) {
 		throw new Error(`Invalid spine bundle: ${JSON.stringify(value)}`);
 	}
 	for (const seg of value.split('/')) {
-		if (!BUNDLE_SEG_RE.test(seg)) {
+		if (!BUNDLE_SEGMENT_RE.test(seg)) {
 			throw new Error(`Invalid spine bundle segment: ${JSON.stringify(seg)}`);
 		}
 	}
