@@ -290,6 +290,16 @@ function-vocabulary requirement, …) as a code + message. Node- and pin-located
 The sub-bar's **⚠ N issues** / **✓ valid** pill mirrors the count. Validation never blocks
 authoring; it is a running honesty check.
 
+Two of them read your **screens**, not just the graph. A Show Container with **Wait for this
+screen** on holds the round until that screen completes, and there is no timeout by design — so
+`hold-without-release` (red) means nothing can ever complete it: its screen has no *Tap to
+continue* (or *On loaded*) component, no Hide Container for it can run while the chain is
+waiting — one further down the SAME chain cannot, it never gets there — and there is no
+`complete:<screen>` event. `tap-without-hold` is the blue **hint** for the mirror: the screen
+has a tap surface but nothing waits for it, so the tap advances nothing (it still fires its
+tap signal). Both stay silent for a screen the editor could not resolve, so a brand-new project
+is never reddened by them.
+
 ### Preview (deterministic timeline)
 
 The left **Preview** panel runs a chosen **event** node's handler headlessly through the
