@@ -1502,10 +1502,15 @@ export function bootSplashAssetBase(): string {
 
 /**
  * URL flag the LAUNCHER adds to its own "launch game" links. It marks a boot as an
- * AUTHORING boot, which is the only case that gets the on-screen stale-data banner —
+ * AUTHORING boot, which is the only case that gets the on-screen STALE-DATA banner —
  * the same published URL is what players load, and a player who hits a transient launcher
  * hiccup should get the (working) stale game, not a red developer warning. The console
  * error + `window.__IE_RUNTIME_STALE__` below are set for everyone regardless.
+ *
+ * ⚠️ That reasoning holds only while there IS a working stale game to fall back to. When the
+ * fallback is the engine's own sample (no baked doc — every shared-runtime game), the boot is a
+ * DEAD END and {@link markRuntimeStale} shows everyone the overlay; this flag then only adds the
+ * technical reason to it.
  */
 const AUTHORING_PARAM = 'ie_authoring';
 
@@ -1534,8 +1539,24 @@ declare global {
 		| undefined;
 }
 
-/** Backoff before each retry. See {@link fetchRuntimeWithRetry} for why retrying pays. */
-const RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000];
+/**
+ * Backoff between retries — doubling from {@link RUNTIME_RETRY_BASE_DELAY_MS}, capped at
+ * {@link RUNTIME_RETRY_MAX_DELAY_MS}, repeated until {@link RUNTIME_FETCH_BUDGET_MS} is spent.
+ *
+ * ⚠️ THIS WAS A FIXED `[1_000, 3_000]` — THREE ATTEMPTS — AND THAT WAS THE BUG. The failure it
+ * has to survive is a LAUNCHER CONTAINER SWAP, which does not hang: it answers instantly with a
+ * 502 or a refused connection. So all three attempts burned in ~4s of a 90s budget and the game
+ * gave up while the launcher was still booting. Every push that triggers a runtime release ALSO
+ * redeploys the launcher (it has no Railway watch paths — `docs/INFRA.md`), and the launcher is
+ * the slower of the two: on `13571da2` the release went green at 12:48:47Z and the launcher only
+ * answered at 12:50:31Z. Reloading the game inside that 104s window dropped it onto the coded
+ * sample — no project art, no project config — which is exactly the "my runtime release wiped the
+ * game" report. A FAST failure must therefore cost a retry, not the budget.
+ *
+ * 1s, 2s, 4s, 8s, then 15s apiece fills the 90s with ~9 attempts instead of 3.
+ */
+const RUNTIME_RETRY_BASE_DELAY_MS = 1_000;
+const RUNTIME_RETRY_MAX_DELAY_MS = 15_000;
 
 /**
  * Per-attempt cap. Must comfortably exceed a cold assemble or we abort runs that were about to
@@ -1572,24 +1593,35 @@ const RUNTIME_ATTEMPT_TIMEOUT_MS = 60_000;
 const RUNTIME_SLOW_ATTEMPT_RATIO = 0.6;
 
 /**
- * Total budget across all attempts. Bounds the worst case for a PLAYER: on a hard launcher
- * outage they wait this long at most before getting the (working) baked game, instead of
- * three full attempt timeouts stacked back to back. Enforced as a real deadline — each
- * attempt's timeout is clamped to the budget REMAINING, so this can't be overrun by an
- * attempt that starts just before the deadline.
+ * Total budget across all attempts, and the only real bound on how long a boot can stall.
+ * Enforced as a deadline — each attempt's timeout is clamped to the budget REMAINING, and a
+ * retry is scheduled only if its delay still fits — so it cannot be overrun.
+ *
+ * ⚠️ SPENDING THE WHOLE BUDGET IS THE RIGHT TRADE HERE, and the reasoning this comment used to
+ * carry ("bound the wait before the player gets the working baked game") was wrong for this
+ * runtime: the shared `_runtime/<id>` bundle ships an EMPTY `baked-editor-bundle.json`, so
+ * `hasBakedDoc()` is false and there is no baked game to fall back to — only
+ * {@link fallbackEditorScenes} and the compiled-in `config.ts`, i.e. a DIFFERENT game wearing the
+ * engine's sample art. Waiting 90s beats rendering that instantly. A standalone build, which does
+ * bake a real doc, is unaffected: its fallback is the project's own authored snapshot.
  */
 const RUNTIME_FETCH_BUDGET_MS = 90_000;
 
 /**
- * GET the runtime bundle, retrying a FAILED response (5xx / network error) a couple of
- * times before giving up and letting the caller fall back to stale baked data.
+ * GET the runtime bundle, retrying a FAILED response (5xx / network error) until
+ * {@link RUNTIME_FETCH_BUDGET_MS} is spent, before giving up and letting the caller fall back.
  *
- * Retrying is worth it because of how the launcher assembles this: a bundle costs tens of seconds
- * (it re-runs every exporter), and the endpoint single-flights + briefly caches the result
- * (`runtimeBundleCache.ts`). So when the gateway 502s a slow assemble, the server is usually
- * still finishing it — a retry JOINS that same run (or hits the warm cache) instead of
- * starting another cold one. Without the server-side single-flight this retry would just
- * pile on more load and lose the same race, so the two changes only work as a pair.
+ * Retrying is worth it for two independent reasons:
+ *
+ *  1. **A slow assemble.** A bundle costs tens of seconds (it re-runs every exporter), and the
+ *     endpoint single-flights + briefly caches the result (`runtimeBundleCache.ts`). So when the
+ *     gateway 502s a slow assemble, the server is usually still finishing it — a retry JOINS that
+ *     same run (or hits the warm cache) instead of starting another cold one. Without the
+ *     server-side single-flight this retry would just pile on more load and lose the same race,
+ *     so the two changes only work as a pair.
+ *  2. **A launcher that is restarting.** Nothing is in flight to join and every attempt fails
+ *     instantly; the only thing that helps is still asking a minute later. That is what the
+ *     backoff on {@link RUNTIME_RETRY_BASE_DELAY_MS} is for — read it before shortening this.
  *
  * A 4xx is NOT retried: a bad/expired `?k=` token will fail identically every time, and
  * retrying only delays the (correct, loud) console error.
@@ -1597,8 +1629,10 @@ const RUNTIME_FETCH_BUDGET_MS = 90_000;
 async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 	const deadline = Date.now() + RUNTIME_FETCH_BUDGET_MS;
 	for (let attempt = 0; ; attempt++) {
-		const last = attempt >= RUNTIME_RETRY_DELAYS_MS.length;
 		let failure: string;
+		// Kept so the give-up path can surface the REAL cause rather than a synthesized one.
+		let failedResponse: Response | undefined;
+		let failedError: unknown;
 		// Clamp to the budget REMAINING so a late attempt can't run past the deadline. Never
 		// below 1s — a sliver of budget should fail fast, not fire a request doomed to abort.
 		const attemptCap = Math.max(1_000, Math.min(RUNTIME_ATTEMPT_TIMEOUT_MS, deadline - Date.now()));
@@ -1620,24 +1654,30 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 			}
 			// Client errors are deterministic — fail fast rather than retry a bad token.
 			if (res.ok || (res.status >= 400 && res.status < 500)) return res;
-			// On the last attempt return the response itself, so the caller reports the REAL status.
-			if (last) return res;
 			failure = `${res.status} ${res.statusText}`;
+			failedResponse = res;
 		} catch (err) {
-			// A network failure on the last attempt must surface as a throw, so the caller logs the
-			// real message rather than a synthesized response.
-			if (last) throw err;
 			failure = err instanceof Error ? err.message : String(err);
+			failedError = err;
 		}
-		const delay = RUNTIME_RETRY_DELAYS_MS[attempt];
+		const delay = Math.min(RUNTIME_RETRY_MAX_DELAY_MS, RUNTIME_RETRY_BASE_DELAY_MS * 2 ** attempt);
+		// Out of budget. Report the REAL failure — the response itself when there was one (so the
+		// caller can name the status), else a throw carrying the underlying network error.
 		if (Date.now() + delay >= deadline) {
+			if (failedResponse) return failedResponse;
 			throw new Error(
-				`live data fetch gave up after ${RUNTIME_FETCH_BUDGET_MS}ms — last: ${failure}`,
+				`live data fetch gave up after ${RUNTIME_FETCH_BUDGET_MS}ms and ${attempt + 1} ` +
+					`attempts — last: ${failure}`,
+				{ cause: failedError },
 			);
 		}
+		// The splash has been reading "Fetching from R2…" since boot. A retry means the launcher is
+		// down or restarting and the wait is now tens of seconds, so name it — otherwise the longer
+		// budget just reads as a hang.
+		window.__ieBoot?.phase('Reconnecting to the launcher…');
 		console.warn(
-			`[runtime] live data fetch failed (${failure}) — ` +
-				`retry ${attempt + 1}/${RUNTIME_RETRY_DELAYS_MS.length} in ${delay}ms`,
+			`[runtime] live data fetch failed (${failure}) — retry ${attempt + 1} in ${delay}ms ` +
+				`(${Math.round((deadline - Date.now()) / 1000)}s of budget left)`,
 		);
 		await new Promise((resolve) => setTimeout(resolve, delay));
 	}
@@ -1652,9 +1692,85 @@ let runtimeFetchFailure: string | undefined;
 
 const STALE_BANNER_ID = 'ie-stale-data-banner';
 
+/** The ordinary stale-data warning: real authored data IS on screen, just not the newest. A thin
+ *  dismissible strip, and authors only — see {@link AUTHORING_PARAM}. */
+function staleBanner(reason: string): HTMLElement {
+	const banner = document.createElement('div');
+	banner.id = STALE_BANNER_ID;
+	banner.textContent =
+		`⚠ STALE DATA — this game is NOT showing your live authoring, so recent edits are ` +
+		`missing. Reason: ${reason}. Reload to retry.`;
+	banner.setAttribute(
+		'style',
+		'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b3261e;color:#fff;' +
+			'font:600 13px/1.4 system-ui,sans-serif;padding:10px 40px 10px 14px;cursor:pointer;' +
+			'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+	);
+	banner.title = 'Click to dismiss';
+	banner.onclick = () => banner.remove();
+	return banner;
+}
+
 /**
- * Record that this boot is rendering data that is NOT the project's live authoring, and —
- * for an authoring boot only — say so on screen.
+ * The DEAD END: nothing authored is behind this at all — only {@link fallbackEditorScenes} and
+ * the compiled-in `config.ts`, i.e. the engine's sample game wearing sample art.
+ *
+ * Shown to EVERYONE, players included, and it COVERS the canvas, because what is underneath is
+ * not a degraded version of the project — it is a different game. Rendering that silently is what
+ * made a routine launcher restart read as "the runtime release deleted all my art and config",
+ * and it survived several debugging sessions because the game looks perfectly healthy.
+ *
+ * Built node by node rather than with `innerHTML`: `reason` embeds a status line and a URL taken
+ * from `location.search`.
+ */
+function deadEndOverlay(reason: string, authoring: boolean): HTMLElement {
+	const overlay = document.createElement('div');
+	overlay.id = STALE_BANNER_ID;
+	overlay.setAttribute(
+		'style',
+		'position:fixed;inset:0;z-index:2147483647;background:#0b0b0ff2;color:#fff;display:flex;' +
+			'flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;' +
+			'text-align:center;font:400 15px/1.5 system-ui,sans-serif',
+	);
+
+	const title = document.createElement('div');
+	title.textContent = 'This game could not load';
+	title.setAttribute('style', 'font:600 20px/1.3 system-ui,sans-serif');
+
+	const body = document.createElement('div');
+	body.textContent =
+		'It could not reach the server holding its artwork and settings, so what you can see is ' +
+		'not the real game. This is usually temporary — please reload in a moment.';
+	body.setAttribute('style', 'max-width:440px;opacity:.85');
+
+	const reload = document.createElement('button');
+	reload.textContent = 'Reload';
+	reload.setAttribute(
+		'style',
+		'margin-top:4px;padding:10px 26px;border:0;border-radius:6px;background:#fff;color:#111;' +
+			'font:600 14px system-ui,sans-serif;cursor:pointer',
+	);
+	reload.onclick = () => window.location.reload();
+
+	overlay.append(title, body, reload);
+
+	// Authors get the proximate cause; a player gets nothing they could act on.
+	if (authoring) {
+		const detail = document.createElement('div');
+		detail.textContent = `Reason: ${reason}`;
+		detail.setAttribute(
+			'style',
+			'margin-top:10px;max-width:640px;opacity:.6;font:400 12px/1.5 ui-monospace,monospace;' +
+				'word-break:break-word',
+		);
+		overlay.appendChild(detail);
+	}
+	return overlay;
+}
+
+/**
+ * Record that this boot is rendering data that is NOT the project's live authoring, and say so
+ * on screen — to the author, or, when `deadEnd`, to everyone.
  *
  * This exists because the silent version of this fallback is genuinely expensive: a game
  * that quietly renders a pre-edit snapshot looks completely healthy, so the missing edit
@@ -1663,34 +1779,24 @@ const STALE_BANNER_ID = 'ie-stale-data-banner';
  * simply never received the live doc.) The global flag is always set so a console probe or
  * the debug menu can read it.
  *
+ * `deadEnd` separates the two severities: false ⇒ authored data is on screen and merely stale
+ * ({@link staleBanner}); true ⇒ NOTHING authored is on screen ({@link deadEndOverlay}).
+ *
  * Call this ONLY once the losing data source is known — never on a fetch failure alone.
  */
-function markRuntimeStale(reason: string): void {
+function markRuntimeStale(reason: string, deadEnd = false): void {
 	if (typeof window === 'undefined') return;
 	// First reason wins: it is the proximate cause (e.g. the 502), whereas a later call
 	// reports only the downstream consequence (e.g. "bundled fallback").
 	if (window.__IE_RUNTIME_STALE__) return;
 	window.__IE_RUNTIME_STALE__ = { reason, at: new Date().toISOString() };
 
-	const params = new URLSearchParams(window.location.search);
-	if (params.get(AUTHORING_PARAM) !== '1') return;
+	const authoring = new URLSearchParams(window.location.search).get(AUTHORING_PARAM) === '1';
+	if (!deadEnd && !authoring) return;
 
 	const show = () => {
 		if (document.getElementById(STALE_BANNER_ID)) return;
-		const banner = document.createElement('div');
-		banner.id = STALE_BANNER_ID;
-		banner.textContent =
-			`⚠ STALE DATA — this game is NOT showing your live authoring, so recent edits are ` +
-			`missing. Reason: ${reason}. Reload to retry.`;
-		banner.setAttribute(
-			'style',
-			'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b3261e;color:#fff;' +
-				'font:600 13px/1.4 system-ui,sans-serif;padding:10px 40px 10px 14px;cursor:pointer;' +
-				'box-shadow:0 2px 8px rgba(0,0,0,.4)',
-		);
-		banner.title = 'Click to dismiss';
-		banner.onclick = () => banner.remove();
-		document.body.appendChild(banner);
+		document.body.appendChild(deadEnd ? deadEndOverlay(reason, authoring) : staleBanner(reason));
 	};
 	// This can run from `load()`, which may resolve before <body> exists.
 	if (document.body) show();
@@ -1800,7 +1906,15 @@ function fellBack(reason: string): LayoutDoc {
 	);
 	// The bundled layout is nobody's authoring, so this is always stale. Prefer the runtime
 	// fetch's reason when there was one — it's the proximate cause; `reason` is its consequence.
-	markRuntimeStale(runtimeFetchFailure ?? `bundled fallback layout — ${reason}`);
+	//
+	// DEAD END iff the URL asked for live authoring (`?runtime=1`): reaching here then means the
+	// game is about to render the engine's sample instead of the project, with nothing authored
+	// anywhere on screen. `runtimeModeEnabled()` is the gate rather than "no baked doc" because a
+	// dev / Storybook boot also has no baked doc and uses this fallback entirely legitimately.
+	markRuntimeStale(
+		runtimeFetchFailure ?? `bundled fallback layout — ${reason}`,
+		runtimeModeEnabled(),
+	);
 	return fallbackEditorScenes;
 }
 
