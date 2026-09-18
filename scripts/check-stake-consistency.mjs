@@ -78,6 +78,22 @@ const MODELS = [
 			symbolPaytable: scatterPaytable,
 		},
 	},
+	// The FREE-SPIN feature, forced on every base spin. A feature round is the one case where these
+	// assertions are not a single spin's arithmetic: one stake buys a base spin plus ten free ones,
+	// the facade drives them all and aggregates them into ONE book, so `finalWin` is the sum of
+	// eleven boards and the whole-cent / no-zero-pay checks run over every win in the feature. Run
+	// over `ways`, whose payout base (stake ÷ 243) is the fractional one, so a free spin that
+	// skipped `roundPays` would surface here.
+	//
+	// What this does NOT catch: a free spin priced against the WRONG base. `finalWin` and
+	// `payoutMultiplier` both derive from the same `gameEnd.win`, so they agree with each other
+	// however the wins were priced — swapping the free-spin evaluator for a per-line one leaves
+	// every assertion here green and merely pays less. That one is pinned in `check:freespins` §5,
+	// which asserts the free spins actually pay the model's own wins.
+	{
+		name: 'ways + free spins',
+		opts: { winModel: 'ways', reels: 5, rows: 3, paylines: [], forceTrigger: true },
+	},
 ];
 
 /** Spin one model to exhaustion-of-budget, collecting what the assertions below need. */

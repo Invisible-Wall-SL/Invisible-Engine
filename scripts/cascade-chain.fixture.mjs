@@ -67,7 +67,14 @@ const spin = async (port, sid, seq, bet = [20, 1]) => {
 };
 
 const survey = async (port, label, rounds) => {
-	const stats = { rounds: 0, chained: 0, maxSteps: 0, deadSpinsWithSteps: 0, totalSteps: 0 };
+	const stats = {
+		rounds: 0,
+		chained: 0,
+		maxSteps: 0,
+		deadSpinsWithSteps: 0,
+		totalSteps: 0,
+		triggered: 0,
+	};
 	for (let i = 0; i < rounds; i++) {
 		const d = await hush(() => spin(port, `${label}${i}`, i));
 		const ev = d.events ?? [];
@@ -83,6 +90,20 @@ const survey = async (port, label, rounds) => {
 		stats.maxSteps = Math.max(stats.maxSteps, steps.length);
 		if (steps.length > 1) stats.chained += 1;
 		if (dealtWin === 0 && steps.length > 0) stats.deadSpinsWithSteps += 1;
+
+		// A round that TRIGGERED the free-spin feature is a different shape and none of the chain
+		// invariants below describe it: it deliberately stays open (no `gameEnd`, not even under the
+		// auto-collect `play.context: ''` this fixture posts), because the free spins and the collect
+		// still have to happen. It also does not tumble — the cascade is a base-game fixture, and a
+		// chain on the trigger spin would rewrite the win the free-spin counter then accumulates.
+		// Assert exactly that, and move on.
+		if (ev.some((e) => e.event === 'spinTrigger')) {
+			stats.triggered += 1;
+			check(`${label} ${i}: a trigger spin holds the round open`, gameEnd, undefined);
+			check(`${label} ${i}: a trigger spin enters the bonus`, ev.some((e) => e.event === 'enterBonus'), true);
+			check(`${label} ${i}: a trigger spin does not tumble`, steps.length, 0);
+			continue;
+		}
 
 		// A DEMO tumble explodes symbols nothing paid on, so the chain invariants below do not
 		// apply to it — it is decoration for a game whose cascade was forced on. Assert what IS
