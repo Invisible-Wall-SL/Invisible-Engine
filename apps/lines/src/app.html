@@ -100,7 +100,12 @@
 				else apply();
 				// Safety net: never let a wiring bug pin the splash over a live game. A cold online
 				// boot (hydrate + assemble + asset wave) can run ~30s, so give generous margin.
-				setTimeout(done, 60000);
+				//
+				// ⚠️ MUST OUTLAST THE RUNTIME FETCH, or the splash clears mid-retry and the black
+				// shell it was covering comes back. `editor-scenes.ts` retries the runtime bundle
+				// for up to RUNTIME_FETCH_BUDGET_MS (90s) to ride out a launcher restart, and that
+				// budget only starts after hydrate (~7s) — so the worst honest boot is ~97s.
+				setTimeout(done, 120000);
 			})();
 		</script>
 

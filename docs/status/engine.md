@@ -163,6 +163,38 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-09-18 — **A runtime release no longer drops the online games onto the engine's sample game.**
+  Reported as "sometimes when I run my runtime release all the project art is missing, the game shows
+  defaults, and no config loads". The release was never the cause. The launcher deliberately has NO
+  Railway watch paths (`docs/INFRA.md`), so every push that triggers a runtime release —
+  `apps/lines/**` or `packages/**` — also redeploys it, and the launcher is the slower of the two: on
+  `13571da2` the release went green at 12:48:47Z and the launcher only answered at 12:50:31Z. Reload
+  the game inside that **104s window** and `/api/editor/runtime` answers 502/refused,
+  `prepareRuntimeBundle` returns false, and boot falls through. Everything project-specific rides that
+  ONE fetch, so it is all-or-nothing — art, symbols, fonts, flow, win text AND config vanish together
+  — and for the shared runtime there is nothing underneath: `_runtime/<id>` ships an EMPTY
+  `baked-editor-bundle.json`, so `hasBakedDoc()` is false and the game lands on
+  `fallbackEditorScenes` + the compiled-in `config.ts`.
+  - **The retry ladder was the bug.** `RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000]` — three attempts —
+    against a failure that answers INSTANTLY, so the game gave up ~4s into a 90s budget it never
+    touched. (Note the asymmetry: `runtime-release.yml`'s own `/refresh` step retries over 4.5 min for
+    exactly this reason.) Now exponential — 1s, 2s, 4s, 8s, then 15s apiece until the budget is spent
+    — measured at **9 attempts over 75s**, which rides the container swap out. The splash reads
+    "Reconnecting to the launcher…" on the first retry instead of looking hung, and `app.html`'s
+    safety net went 60s → 120s so it cannot clear mid-retry and re-expose the black shell.
+  - **The dead-end fallback is no longer silent.** A `?runtime=1` boot that ends on
+    `fallbackEditorScenes` is never correct — nothing authored is behind it, so the player is looking
+    at a DIFFERENT game, which is precisely why a routine launcher restart read as "the release
+    deleted my art". `markRuntimeStale(reason, deadEnd)` now shows EVERYONE a full-screen "This game
+    could not load" overlay with a Reload button; `ie_authoring=1` adds the technical reason. The
+    ordinary stale-but-authored case (a real baked doc is on screen) keeps the authors-only strip
+    unchanged. `runtimeModeEnabled()` is the gate rather than "no baked doc", because a dev/Storybook
+    boot also has no baked doc and uses that fallback legitimately — verified: flag set, no overlay.
+  - **Not fixed here — the durable fix is infra.** Set a Railway healthcheck on the launcher
+    (`/api/health` exists and is dependency-free) so the old container keeps serving until the new one
+    is ready. That closes the window instead of tolerating it; this change only makes the game survive
+    it and say so when it can't.
+
 - 2026-09-18 — **`verify-board-tiles.mjs` is green again, and it no longer strips TypeScript with regexes
   of its own.** It had been red on `main` since #734 — `SyntaxError: Unexpected token ':'` out of
   `new Function` at part 5, the rule-8 ship chain. #734 gave `collectArtRefs`'s inner `visit` a SECOND,
