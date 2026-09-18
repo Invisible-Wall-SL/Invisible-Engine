@@ -25,8 +25,13 @@ before — an un-authored project still runs the compiled template.
 
 ## The panels
 
-- **Identity** — provider, game name, game ID, RTP. Shown on the info page and used
-  in the RGS handshake.
+- **Return to player** — the declared RTP. It is read: the Game Maker card renders
+  it as the game's `97% RTP` chip. (A _provider / game name / game ID_ trio used to
+  sit here too, under an **Identity** heading. Nothing on this stack read them — the
+  info page renders from `infoManifest`, the RGS handshake sends none of them, and
+  the on-screen title comes from the launcher's **project name** — so they asked for
+  values that changed nothing and were removed. They remain in the config document
+  itself, for a future Stake-RGS path.)
 - **Grid** — reel count and visible rows, **per reel**. This is the board's size
   everywhere: the game renders this many reels and rows, the Scene Editor draws its
   preview at this size, and a dev game's mock RGS deals it. Changing the reel count

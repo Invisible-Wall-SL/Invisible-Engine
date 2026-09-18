@@ -964,14 +964,29 @@
 			</div>
 		{/if}
 
-		<!-- Identity ---------------------------------------------------------------->
+		<!-- Return to player --------------------------------------------------------->
+		<!--
+			`providerName` / `gameName` / `gameID` USED TO BE EDITABLE HERE, under an "Identity"
+			heading claiming they were "shown on the info page and used in the RGS handshake".
+			Neither is true on this stack: the info page renders from `infoManifest`, the RGS
+			handshake goes through the Play4Fun facade (which sends none of them), and the on-screen
+			title comes from the launcher's project name via `applyHudGameNameDefault`. A search of
+			the whole repo found NO reader — only the type requiring them and fixtures setting them
+			to satisfy it.
+
+			So the fields asked an author to invent values that changed nothing, and every project
+			showed the same Stake sample text (`sample_provider` / `0_0_lines`) because there was
+			never a reason to edit them. They stay in `GameConfigDoc` — that shape mirrors the
+			upstream Stake config and is the contract if this ever talks to a Stake RGS directly —
+			but they are no longer presented as something to fill in. Give them a UI again when
+			something reads them, ideally seeded from the project's client + name rather than typed.
+
+			`rtp` IS read (`gameProfile.ts` renders the "97% RTP" line), so it keeps its field.
+		-->
 		<section>
-			<h2>Identity</h2>
-			<p class="hint">Shown on the info page and used in the RGS handshake.</p>
+			<h2>Return to player</h2>
+			<p class="hint">Shown on the game's profile card.</p>
 			<div class="fields">
-				<label><span>Provider</span><input bind:value={doc.providerName} /></label>
-				<label><span>Game name</span><input bind:value={doc.gameName} /></label>
-				<label><span>Game ID</span><input bind:value={doc.gameID} /></label>
 				<label
 					><span>RTP</span><input
 						type="number"
