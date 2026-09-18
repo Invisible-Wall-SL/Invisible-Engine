@@ -70,8 +70,11 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
 1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-2. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
-   models are already installed.
+2. **Blueprint models: the `r2_key` half.** The ComfyUI-Manager auto-install itself is NOT unbuilt —
+   it is code-complete and wired into every run ([atlas-maker](status/atlas-maker.md) open item 7),
+   and what it owes is a LIVE run, not code. What is genuinely unbuilt is resolving a declared model
+   against the `comfyui-models/` R2 mirror, so a private or trained model — the kind no Manager URL
+   can fetch — still has to reach a machine by hand ([comfyui](status/comfyui.md) open item 9).
 3. **Delivery builds, Phase 2** ([design](design/delivery-builds.md)) — Phase 1 (profile +
    `config.json`) shipped 2026-09-14; Phase 3 (the embeddable `game.js` a partner's page includes,
    plus same-origin `rgs.source: 'host'`) shipped 2026-09-17. Still unbuilt: **server-supplied bet
