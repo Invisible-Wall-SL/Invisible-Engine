@@ -62,7 +62,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
       What this costs is that the mock's evaluator must MIRROR the client's `payoutDivisor()`, and
       nothing checked it — see the 2026-08-21 entry below, and `pnpm check:rgs`, which is that check.
       Still true: **no ways or cluster project has been played end-to-end by a human**, only by the
-      gates.
+      gates. The **setup half is now done for `ways`** (2026-09-18): `WIN_MODEL=ways` on the mock
+      CLI, a `ways-dev` launch entry, and [playtest/ways.md](../playtest/ways.md). What is left is a
+      person spinning it — and note the playbook's own warning that a purely local boot is a ways
+      SERVER against a lines CLIENT (no ways config reaches `apps/lines` without `?runtime=1`).
    2. `apps/ways` strips are **cosmetic, evenly weighted — NOT a math export**. Fine as a client
       default; not fine shipped for money.
    3. `cluster` still has empty-placeholder `paddingReels`, so it ships no config default.
@@ -266,6 +269,38 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`/api/health` exists and is dependency-free) so the old container keeps serving until the new one
     is ready. That closes the window instead of tolerating it; this change only makes the game survive
     it and say so when it can't.
+- 2026-09-18 — **the standalone mock could not be asked for a win model, so nobody could play a ways
+  game without a launcher.** `createMockRgs` has taken `winModel` since ways shipped, but only the
+  IN-PROCESS caller (`services/test-server`, reading a published project) ever passed it — the CLI
+  block built `createMockRgs({ label, reels, rows })`, so `node scripts/mock-rgs-server.mjs` dealt
+  **lines** however hard anyone wished otherwise. That is the whole reason "prove a ways game with a
+  person playing it" stayed open: the gates could reach the evaluator in-process and a human could
+  not reach it at all. **`WIN_MODEL=lines|ways|cluster|scatter` now wires it**, alongside
+  `MIN_CLUSTER` / `ADJACENCY` / `MIN_COUNT` / `MULTIPLIER` (the other knobs `createMockRgs` already
+  accepted). Validated and **fatal on a typo**, printing the legal list — a `WIN_MODEL=way` that
+  silently dealt paylines is indistinguishable from a broken ways evaluator, which is a debugging
+  session spent in the wrong file. The legal set is now one constant (`WIN_MODELS`) read by both the
+  validator and `createMockRgs`, so the two cannot drift. **`CASCADE`/`STACKED` deliberately NOT
+  forwarded:** `createMockRgs` already reads both from the environment, and passing `cascade`
+  explicitly would flip `cascadeIsDemo` (`opts.cascade ?? …` / `opts.cascade === undefined`) and make
+  dead spins tumble on a game that only had the demo flag on. The banner now names the model,
+  including when it defaulted. **Parity:** the same script at HEAD and after, `SEED=parity`, three
+  rounds with no `WIN_MODEL` — byte-identical responses apart from the un-seeded round id.
+  `pnpm check:rgs`, `pnpm check:ways` and `verify-stepped-grid` green.
+  **Also shipped: [docs/playtest/ways.md](../playtest/ways.md)** — and the thing it had to say out
+  loud is that **the mock and the client decide the win model independently**. The client reads
+  `winModel` off the project's Game Config (`runtime → baked → compiled`), `apps/lines`'
+  `baked-editor-bundle.json` carries no config and `game/config.ts` declares no `winModel`, and the
+  dev `/api/editor/doc` path fetches the LAYOUT DOC ONLY — so the cheap local boot is a ways SERVER
+  against a LINES CLIENT. It proves the evaluator, the wire shape, the win-cell lighting and the
+  wallet math; it gets `payoutDivisor()`, the info-page pricing, the payline-diagram stand-down and
+  the anticipation walker wrong, because all four follow `activeWinModel()`. The playbook tabulates
+  exactly that split so a Route-A discrepancy is not re-reported as an engine bug, and names the one
+  route that gives a real ways client (`?runtime=1&project=test6&k=…` → `GET /api/editor/runtime`;
+  `editorDocBase` already defaults to the production launcher, so no local launcher is needed — only
+  a live read token). It carries `lines.md`'s honesty forward: animation completion / return-to-idle
+  is not observable under automation (the Browser pane backgrounds the tab and freezes Svelte's rAF
+  loop), so every such check is human-eyes and must never be auto-FAILed.
 - 2026-09-18 — **every slice-compiling guard now goes through the shared wrapper, so a drifted slice
   names itself instead of dying at `<anonymous_script>:N`.** `verify-board-tiles` adopted
   `scripts/lib/compile-slice.mjs` when it was written; the other **twelve** still called `new Function`
