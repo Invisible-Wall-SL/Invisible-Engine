@@ -68,7 +68,10 @@ is **no** reveal-path `computeArming` hook.
      - **Settled** reel (the compact result set, `length ≤ numRows+2` — placed at the START of the bounce
        by `removePaddingAndBounceBack`): scan only the visible window (symbolIndex `1..numRows`) so a
        partial result crops to the top N/M and the picture **drops in with the bounce**, not after full
-       stop.
+       stop. **Runs are capped at the authored height** here too (2026-08-10, #283) — a landed run LONGER
+       than M splits into consecutive M-tall pictures (any remainder < M crops / `fullHeightOnly`s like a
+       partial). Before the cap an over-height run stretched into ONE oversized picture, so the same
+       symbol rendered at different sizes depending on how many landed.
    - `stackedScrollStrip(strips)` — seeds the reel's SCROLL filler (`paddingBoard`) with natural-height
      BLOCKS of each eligible symbol (H2 → 3 cells, W → 5, …) so the tall symbols exist to roll. Applied
      at both spin call sites (`flowEffects.ts` revealBoard + `bookEventHandlerMap.ts` reveal); a no-op
@@ -87,7 +90,12 @@ is **no** reveal-path `computeArming` hook.
    (a tall picture authored at the box aspect is undistorted; a placeholder icon still fills+crops),
    then a `<Rectangle isMask>` reveals only the top `visibleCells`. `StackedPictures.svelte` maps the
    runs; mounted in `Board.svelte` inside the resting board container (shares `getSymbolX`/`symbolY`
-   coordinates + the board window mask).
+   coordinates + the board window mask). **A spine tall art is placed with `anchor={0}` + `centreBox`,
+   not the sprite/flipbook `anchor={0.5}`**: a spine pivots in its LOCAL skeleton frame, so anchor 0.5
+   pivots by `box/2` and lifts the art by `boxH²/(2·skeleton.height)` — clipped at the top, gapped at
+   the bottom (see Known issues, #286). `<SpineProvider centreBox>` then drops the centre of the rig's
+   AUTHORED box on the box centre, so a rig whose skeleton origin is not its bounds centre lands right
+   too — the same convention `SymbolSpineMain` uses ([rigger status](../status/rigger.md), 2026-09-02).
 6. **Two picture slots — resting + winning** (owner ask 2026-08-25). A stacked symbol authors `art`
    (the picture it normally shows — typically a still) and an optional `winArt` (what it becomes while
    that stack is part of a **paying line** — the spine/flipbook it pays out with). Both are ordinary
@@ -147,6 +155,20 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
 
 ## Known issues
 
+- **An over-height run stretched the picture — FIXED (2026-08-10, #283).** A landed run LONGER than the
+  symbol's authored height was scanned uncapped, so `naturalCells` grew past the height and the art
+  stretched: the same symbol rendered at a different size depending on how many landed. The scan caps
+  EVERY run at the authored height, so an over-height column tiles consecutive M-tall pictures and any
+  remainder shorter than M takes the ordinary partial path. A genuine partial (run < M) is untouched.
+  Detail: [symbols status](../status/symbols.md).
+- **A spine tall art rendered vertically offset — FIXED (2026-08-10, #286).** A stacked symbol authored
+  as a SPINE rendered clipped at the top and gapped at the bottom instead of filling the run, because
+  `StackedPicture` mounted it with the sprite branch's `anchor={0.5}` (see §5 for the geometry). Fixed
+  by `anchor={0}` on the spine branch. **Generalised on 2026-09-02** by `<SpineProvider centreBox>`,
+  which centres the rig's AUTHORED box instead of assuming the skeleton origin sits in it — this fix's
+  original reasoning ("symbol rigs are origin-centred") held only for the rigs we ship from the Spine
+  editor. The shared `SpineProvider` pivot was deliberately NOT rewritten: that would move every symbol
+  in every game. Detail: [symbols status](../status/symbols.md) + [rigger status](../status/rigger.md).
 - **Win presentation hung on a covered cell — FIXED (2026-08-10).** A paying line crossing a stacked
   run stalled: `ReelSymbol` mounts no `<Symbol>` for a cell in `stackedCoverage()`, so its
   `oncomplete` never fired, and `Board.svelte`'s `boardWithAnimateSymbols` awaited it forever. The

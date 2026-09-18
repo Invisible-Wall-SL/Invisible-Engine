@@ -18,8 +18,9 @@
 	 *
 	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
 	 * `run.topEdgeY` are the SAME board-local coordinates `BoardBase` uses. The container is centred on
-	 * the full picture (anchor 0.5 everywhere avoids depending on object anchors); the mask rectangle
-	 * then reveals only the top `visibleCells` from the box top.
+	 * the full picture; the sprite/flipbook branches anchor at 0.5 (texture centre) while the SPINE
+	 * branch uses `anchor={0}` + `centreBox` (a spine pivots in its LOCAL skeleton frame — see that
+	 * branch's note); the mask rectangle then reveals only the top `visibleCells` from the box top.
 	 */
 	const { run }: { run: StackedPictureRun } = $props();
 	const context = getContext();
