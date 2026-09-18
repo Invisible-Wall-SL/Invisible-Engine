@@ -109,7 +109,7 @@ engine's game layer, frozen on the day it was scaffolded — that is what made
 builds ship a months-old game. If an older repo still has a `src/` folder the
 build ignores it and says so; `git rm -r src` clears it up.)
 
-**…and from v1.0.54 it fills in the engine packages your repo's `package.json`
+**…and from v1.0.55 it fills in the engine packages your repo's `package.json`
 never heard of.** The step above builds the *current* game layer, and when the
 engine gains a new shared package (`engine-game`, `game-config`, …) a repo
 scaffolded before it had no line declaring it — so the build stopped at
