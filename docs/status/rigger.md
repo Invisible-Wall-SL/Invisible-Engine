@@ -5,6 +5,7 @@
 **One-line state:** _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
+
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, non-destructively saved to R2 alongside the artist's source. Phases 0–6 are all on `main`:
 
 - **Bones** — transform edits, canvas drag-to-move, reparent (cycle-safe topo-sort), rename (rewrites every reference), add/delete, collapsible hierarchy.
@@ -29,6 +30,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons, weighted-mesh vertices included). `.skel` binary is view-only; editing is JSON only. See design §0 for the reconciled phase summary.
 
 ## Open items / next
+
 1. ✅ ~~**Ship-from-Rigger (rule 8)**~~ — **DONE (owner-confirmed 2026-08-04).** A rig now travels the full export → `deploy/` → bake → pull → runtime-register chain and reaches a game; "renders in `/rigger`" now also means "ships."
 2. ✅ ~~**Mesh-deform animation timelines**~~ — **DONE (merged, owner-confirmed 2026-08-04).** The
    per-vertex `deform` dopesheet channel (key at playhead from the live mesh, curve-aware preview,
@@ -47,7 +49,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    as a slot (the other half of design §12.4a). NOTE the one-shot timeline cue is a different thing
    and it DID gain depth + modifiers on 2026-08-27 (Recent changes); what is still missing is the
    persistent emitter. Owner
-   live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
+   live-verify is owed against real R2 + a real game, and nobody has yet _looked_ at baked rig
    text on screen.
    The runtime half is already **live**: `.github/workflows/runtime-release.yml` auto-releases on
    any push to `main` touching `packages/**`, and the release built from `88f5e5e7` (2026-08-18
@@ -58,6 +60,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 6. **Cinematic mode** — SHIPPED as a fourth mode (2026-08-17); see [status/cinematic](cinematic.md) and [design/invisible-cinematic](../design/invisible-cinematic.md). Two spillovers worth knowing here: (a) the cinematic stage keeps its OWN actor array rather than touching the rig editor's `skeleton`/`animState` singletons, so rig editing is byte-unchanged; (b) `/rigger` now has an **undo stack for the first time**, but it is scoped to the cinematic document — **rig editing still has no undo**. The history is written to be liftable (it knows nothing beyond `serialize`/`applySnapshot`), so giving the rig editor undo is now a matter of pointing it at `rawDoc` rather than building one.
 
 ## Blocked (owner / external)
+
 - ✅ ~~**Rig/animation library catalogs moved to Postgres — live-verify owed.**~~ **VERIFIED live
   (owner-confirmed 2026-08-04):** `/rigger` lists every rig + animation post-deploy (the first list
   call backfilled the legacy index blobs), migrations applied through 0014. Concurrency Phase 0 is
@@ -66,6 +69,13 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-18 — **The rig FX preview was offset and clipped at 150% browser zoom** — `createFxOverlay`
+  set `resolution: devicePixelRatio` without `autoDensity`, so the canvas ELEMENT kept its
+  backing-store size and every effect landed `devicePixelRatio`× too far from the origin. Found and
+  fixed via `/symbols`, which shares the factory; never reported here. Cause, measurements and the
+  guard: `docs/status/symbols.md`, 2026-09-18.
+
 - 2026-09-04 — **A rig's bound FX / clips now play wherever the rig is mounted, not only on a placed `spine` node.** What you key here reached the game through exactly two mount sites; a rig used by a coded component (the big-win rig, backdrops, transitions, cinematic actors) read the binding nowhere. The join moved into `<SpineProvider>`. Authoring is unchanged. Detail in [fx status](fx.md).
 - 2026-09-03 — **A carrier rig's bound clips and effects draw at their authored size in the game too.** Follow-up to the Bounds fix below: the frame was right but the lobster inside it was half-size on the board, because a symbol bundle is read at load scale 2 and a Pixi child riding a bone follows only the bone's scale. The engine now scales bound content by the host bundle's load scale, so what this tool (and /symbols) shows at load 1 is what the board draws. Details in [engine status](engine.md).
 - 2026-09-02 — **The Bounds box is now the frame that fills a symbol cell — centred — everywhere, so
@@ -94,9 +104,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     release; the launcher side deploys with this commit. The Bounds button's tooltip now states the
     contract. ⏳ Owner live-verify on `test6`'s lobster rig.
 - 2026-09-02 — **A rig event binding is one KEYFRAME, and a key at t=0 plays.** Reported directly:
-  two event keys, a flipbook on the one at 0.01s and an effect on the one at 1s, and *"the FX will
-  start playing on the first keyframe with the flipbook"*; and *"if I put my keyframe at 0 then
-  neither the Flipbook or the FX start playing, as if they were getting skipped completely"*. Two
+  two event keys, a flipbook on the one at 0.01s and an effect on the one at 1s, and _"the FX will
+  start playing on the first keyframe with the flipbook"_; and _"if I put my keyframe at 0 then
+  neither the Flipbook or the FX start playing, as if they were getting skipped completely"_. Two
   independent bugs, two independent fixes.
   - **What was wrong (1): the manifest was keyed by the event NAME.** Both keys carry the default
     name `event`, so the bake collapsed them onto that name and `<RiggedEffect>` / `<RiggedFlipbook>`
@@ -184,7 +194,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     burst flipped about its bone. Invisible for as long as FX has existed — a particle burst is
     near-symmetric — and glaring the moment a Flipbook clip, which has an up and a down, was bound
     (2026-08-31, one day earlier). The game never did this: `<SpineBoneAttach followRotation
-    followScale>` takes `rotation = -getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES,
+followScale>` takes `rotation = -getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES,
     with a comment saying why. One shared `fxMatrix` in `fxOverlay.client.ts` now strips the
     reflection and keeps rotation + magnitudes, so **`/symbols` is fixed by the same change** — it
     was flipped too, just hidden under the oversize.
@@ -201,7 +211,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   explosion plays in `/symbols` but not at all in the game". The `noAtlas` placeholder page in
   `api/rigger/new` was a spliced 1×1 PNG (a grayscale+alpha IHDR carrying an RGBA IDAT ⇒ bad IDAT
   CRC, truncated zlib), so Chrome answered `InvalidStateError: The source image could not be
-  decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loadedAssets`, and
+decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loadedAssets`, and
   `<SpineProvider>` rendered nothing — **including its children**, which for a carrier rig is the
   entire point of it (`<RiggedEffect>` / `<RiggedFlipbook>`). Every authoring surface stayed healthy
   because they read the `.irig` and preview clips off the TIMELINE, never through the loaded bundle:
@@ -211,9 +221,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   `⟳ Re-sync atlas` cannot repair one). Verified live: the H1 `tumbleExplosion` cell went from
   "magenta / key missing" in the in-game Symbol Debug grid to playing its bound clip + `v_splash`.
 - 2026-08-31 — **A rig animation event can now play a FLIPBOOK CLIP, so rigs, flipbooks and FX mix in
-  the animator.** Asked directly: *"I would like to be able to add flipbooks to the rigger, so I can
+  the animator.** Asked directly: _"I would like to be able to add flipbooks to the rigger, so I can
   mix rigs, flipbook and FX in the animator. we already added FX successfully, and we can use that as
-  a reference"* — so it is deliberately the same shape as the FX binding, end to end.
+  a reference"_ — so it is deliberately the same shape as the FX binding, end to end.
   - **`event.flipbook = { clipId, bone?, … }`** beside the existing `event.fx`. Same custom-field
     trick, same reason it needs a baked manifest: spine-pixi discards custom event fields at parse
     time, so the binding is read from the rig `.irig`/`.json` (`rigFlipbookExport.ts`) and shipped as
@@ -266,8 +276,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     each tracked by its own binding object. Vendored `rigger-fx.js` rebuilt (it MUST be, or
     `playFlipbook` is missing from the bundle and nothing plays).
 - 2026-08-27 — **A rig FX cue can be marked CONTINUOUS, so a looping animation stops chopping it up.**
-  Asked directly: *"would it be possible to mark an FX I put in the rig as continuous? so if the
-  animation loops the FX is not resetting?"* Yes, and it was a small addition to the override set.
+  Asked directly: _"would it be possible to mark an FX I put in the rig as continuous? so if the
+  animation loops the FX is not resetting?"_ Yes, and it was a small addition to the override set.
   - **What was wrong:** a binding is a one-shot per beat — every time the event crosses, `RiggedEffect`
     bumps `runId` and the `{#key runId}` re-mount replays the effect from t=0. On a LOOPING clip that
     restarts the burst once per lap, which is right for an impact and visibly wrong for anything
@@ -288,8 +298,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     played **3 times**, once per lap. Gate `check:rig-fx-overrides` extended and **mutation-verified**
     — storing `continuous:false` and dropping the field from the reader each fail it.
 - 2026-08-27 — **The stage now has an FX overlay on EACH side of the rig, so two cues at opposite
-  depths both preview truthfully.** Reported after the previous fix: *"the layering works fine in
-  game, but not in the rigger — the canvas view is still showing both FX on top of the rig."* That
+  depths both preview truthfully.** Reported after the previous fix: _"the layering works fine in
+  game, but not in the rigger — the canvas view is still showing both FX on top of the rig."_ That
   was the design conceding, not a bug: with ONE overlay every live burst shared a band, and the rule
   chosen when they disagreed was "prefer front", so a behind-cue was dragged on top.
   - **Now two overlays**, lazily created per band: `back` at `z-index 0` (below `#cv`) and `front` at
@@ -318,8 +328,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   - Owner confirmed the same day: in-game layering correct, and the `/symbols` FX alignment fix is
     **verified by eye** — that closes the pixel-check owed for it.
 - 2026-08-27 — **Two FX cues at different depths both previewed on the same side, and the slot list
-  read backwards.** Reported as *"I placed the new slot over the rig slot… but both my FX draw at
-  the bottom, so the drawing selection doesn't really seem to work."* Two separate causes, one of
+  read backwards.** Reported as _"I placed the new slot over the rig slot… but both my FX draw at
+  the bottom, so the drawing selection doesn't really seem to work."_ Two separate causes, one of
   them mine.
   - **The band was last-fire-wins.** The stage has ONE overlay canvas, so every live burst shares a
     band — but `setFxOverlayDepth` was called per FIRE, so of two cues 40ms apart the second dragged
@@ -340,11 +350,11 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     to `z-index 0`; the contested note appears only when contested; the picker and list captions
     render.
 - 2026-08-27 — **The stage can now actually SHOW a burst behind the rig, so "Draw at slot" is
-  authorable instead of just bakeable.** Reported bluntly: *"I am still not able to author the FX
-  under the rig!"* — and that was fair. Shipping the slot picker while the preview could only ever
+  authorable instead of just bakeable.** Reported bluntly: _"I am still not able to author the FX
+  under the rig!"_ — and that was fair. Shipping the slot picker while the preview could only ever
   draw FX on top left the author choosing a depth they could not see.
   - **Why "behind" never worked:** `#cv` cleared at **alpha 1**, so the overlay's lower band
-    (`z-index: 0`) was not "behind the art", it was *underneath an opaque sheet* — invisible. The
+    (`z-index: 0`) was not "behind the art", it was _underneath an opaque sheet_ — invisible. The
     band existed but could never show anything, which is also why a cinematic set authored behind
     its cast showed nothing at all.
   - **Why it could not simply clear transparent:** `premultiplyAtlas` uploads every page with
@@ -419,7 +429,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   - **The cinematic's overlay depth was sticky.** FX is a second Pixi canvas over `#cv`, and only
     two bands exist (`z-index` 0 or 2 around the rig canvas's 1). A cinematic set authored BEHIND
     its cast asks for band 0 via `setFxDepth(false)` — but `#cv` clears at **alpha 1**, so band 0
-    is not "behind the art", it is *invisible*, and nothing reset it on the way out. One visit to
+    is not "behind the art", it is _invisible_, and nothing reset it on the way out. One visit to
     Cinematic mode therefore buried every animate-mode burst for the rest of the page session.
     The band is now cinematic-scoped: `setMode` restores the front band whenever cinematic mode is
     left, and both writers go through one `setFxOverlayDepth` helper.
@@ -461,7 +471,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   rule saw — so `textElementDrift` gained **`(wrong size)`**, and it clears on the cheap
   re-attach path with no rasterising (`textDriftNeedsBake`, now extracted rather than restated
   in the gate). Both new rules fail CLOSED on missing data, like the width rule: an attachment
-  with no declared size is *unknown*, not wrong. Gate `rigtext-autosync.mjs` 36/36, and
+  with no declared size is _unknown_, not wrong. Gate `rigtext-autosync.mjs` 36/36, and
   **decisive on five separate broken copies** (restoring the old bail; dropping the size rule;
   removing either fail-closed guard; routing `(wrong size)` through a full re-bake). The first
   version of that gate matched SOURCE TEXT and let two of the five pass — case 17 now RUNS
@@ -474,19 +484,19 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   deliberate design call, not a patch. Region attachments (a plain button label) are unaffected.
   **Not retroactive:** a deployed game keeps its old rig until the rig is re-opened in `/rigger`
   (which now auto-repairs it) and the game is re-published.
-- 2026-08-20 — **⟳ Re-sync atlas flipped rotated regions 180°, and the cause was the boot-splash mirror shadowing the real page — a same-day regression, now fixed + guarded.** Symptom: re-syncing `R_InvisibleEngine` turned a rig that rendered CORRECTLY into one whose wordmark read `NI` instead of `IN`, with mirrored parts. Chain: `pickDeployedPage` answers "which deployed page IS this sheet?" by basename stem, newest-first, excluding only `deploy/editor-<kind>/` as derived bake output. The new `deploy/_boot/<tier>/` mirror (shipped that morning) copies a spine bundle's page under the SAME filename, **already reoriented 180° for Spine**, and rewrites it on every `ensureDeployExports` — so it was always the newest stem match and won the ranking. `ensureBundleAtlasFresh` then re-derived the bundle from that page and ran `reorientRotatedRegionsForSpine` a SECOND time, leaving every rotated region 180° out. Fix: the exclusion is now structural (`DERIVED_SUBTREE_RE` = `editor-<kind>` | `_boot` | `_pages`) with the rule stated as *a page we WROTE from another page can never be the source of truth for that other page* — `_pages` joins it for the same reason even though its content-addressed names made a stem collision unlikely. **The convention itself was re-derived from the vendored runtime and is unchanged:** `spine-webgl-4.2.js` maps texture upper-left → displayed upper-RIGHT for `degrees == 90` (a 90° CW display rotation), so storage must be CCW while our packers store CW — the 180° reorient is right, it was just running twice. Also confirmed CORRECT and left alone: `regionsToSpineAtlas` writes `bounds` with UPRIGHT `w,h`, which is what the parser wants (it derives the `(h×w)` footprint itself at `u2 = (x + height)/pageWidth`). Guarded by `pnpm --filter launcher-api run check:deployed-page` (9 assertions), **mutation-verified** — restoring the old `editor-*`-only exclusion fails exactly the three `_boot`/`_pages` cases, and a `_bootcamp/` look-alike is asserted NOT excluded so the fix stays surgical. **Not retroactive:** any rig re-synced while the bug was live is still flipped; re-sync it once more after this deploys and it resolves the real `sprites/` page and reorients once.
+- 2026-08-20 — **⟳ Re-sync atlas flipped rotated regions 180°, and the cause was the boot-splash mirror shadowing the real page — a same-day regression, now fixed + guarded.** Symptom: re-syncing `R_InvisibleEngine` turned a rig that rendered CORRECTLY into one whose wordmark read `NI` instead of `IN`, with mirrored parts. Chain: `pickDeployedPage` answers "which deployed page IS this sheet?" by basename stem, newest-first, excluding only `deploy/editor-<kind>/` as derived bake output. The new `deploy/_boot/<tier>/` mirror (shipped that morning) copies a spine bundle's page under the SAME filename, **already reoriented 180° for Spine**, and rewrites it on every `ensureDeployExports` — so it was always the newest stem match and won the ranking. `ensureBundleAtlasFresh` then re-derived the bundle from that page and ran `reorientRotatedRegionsForSpine` a SECOND time, leaving every rotated region 180° out. Fix: the exclusion is now structural (`DERIVED_SUBTREE_RE` = `editor-<kind>` | `_boot` | `_pages`) with the rule stated as _a page we WROTE from another page can never be the source of truth for that other page_ — `_pages` joins it for the same reason even though its content-addressed names made a stem collision unlikely. **The convention itself was re-derived from the vendored runtime and is unchanged:** `spine-webgl-4.2.js` maps texture upper-left → displayed upper-RIGHT for `degrees == 90` (a 90° CW display rotation), so storage must be CCW while our packers store CW — the 180° reorient is right, it was just running twice. Also confirmed CORRECT and left alone: `regionsToSpineAtlas` writes `bounds` with UPRIGHT `w,h`, which is what the parser wants (it derives the `(h×w)` footprint itself at `u2 = (x + height)/pageWidth`). Guarded by `pnpm --filter launcher-api run check:deployed-page` (9 assertions), **mutation-verified** — restoring the old `editor-*`-only exclusion fails exactly the three `_boot`/`_pages` cases, and a `_bootcamp/` look-alike is asserted NOT excluded so the fix stays surgical. **Not retroactive:** any rig re-synced while the bug was live is still flipped; re-sync it once more after this deploys and it resolves the real `sprites/` page and reorients once.
 - 2026-08-18 — **Two rig-editor crashes, found while building the cinematic's Tweak Mode** (which
   drives this file's animator, so its bugs are this tool's bugs). Both are old, both are one-line:
   - **◆ Animate died on any freshly imported `.json` rig.** Spine JSON omits `time` on a keyframe
     at 0 — it is the format's default — and `sampleChannel` treats `k.time` as a number. A channel
-    whose ONLY key is written that way made it walk off the end of the array and throw *from the
-    frame loop*. Rigs saved by this tool always write the time, so it only ever bit imports; the
+    whose ONLY key is written that way made it walk off the end of the array and throw _from the
+    frame loop_. Rigs saved by this tool always write the time, so it only ever bit imports; the
     `anticipation` builtin has 37 such channels. Now normalised once at load (`normalizeKeyTimes`),
     which fixes the sampler, the dopesheet, key drag and `animDuration` together.
   - **A slot with no setup attachment broke every `setMode` on that rig.** `slotsWithPath` handed
     the slot's null `attachmentName` to `getAttachment`, which throws on null instead of returning
     nothing, taking `buildInspector` — and therefore the mode switch — down with it.
-  See [status/cinematic](cinematic.md) for Tweak Mode itself.
+    See [status/cinematic](cinematic.md) for Tweak Mode itself.
 - 2026-08-18 — **A translation now SHRINKS to the source locale's width instead of running off
   the art.** Owner, once French finally reached the button: "the text is not fitting anymore."
   `Acheter fonctionnalité` baked 421px against `Buy Feature`'s 247px — 1.7× — and every locale
@@ -512,7 +522,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     would have re-baked every pre-fit variant on sight.
   - **The auto-sync loaded strings but not FONTS**, so its first real re-bake lost every tile to
     "the font could not be loaded" and wrote nothing. Only live use could surface it: the gate
-    reasons about drift rather than pixels, and the first live run repaired *attachments*, which
+    reasons about drift rather than pixels, and the first live run repaired _attachments_, which
     needs no rasteriser at all. Fixed on both sides — the auto-sync loads both catalogs, and
     `save()` now loads the font catalog itself if no caller did, since resolving fonts is the
     bake's own business and not a prerequisite each call site should have to remember.
@@ -638,7 +648,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   `backfillMissingGeometry` (`$lib/server/editorRegions.ts`) now RECONCILES each region's on-page
   placement + rotation against the authoritative `atlas.texturepacker_json` (`frame` = the tight
   packed rect; un-swap a rotated frame's axes back to upright), overriding a drifted `x/y/w/h/
-  rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landmine. Heals via the
+rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landmine. Heals via the
   same `ensureBundleAtlasFresh` used on the Symbols/Editor read path, the bake path, and the
   Rigger's **⟳ Re-sync atlas** button. Launcher-server only (`editorRegions.ts`) — no engine change,
   no submodule bump. Headless proof: replicated the reconcile against the real `S_VFX` manifest +
@@ -657,7 +667,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   **This also fixes a pre-existing latent bug:** `dedupMeshVertices` / `dropMeshVertices` /
   `removeMeshVertex[Fallback]` renumbered verts but never permuted deform, so removing/merging a
   vertex silently mis-aligned existing deform keys (fine at rest, corrupt on playback / re-import);
-  all four now call `reorderDeform`. Hull-loop *reordering* deferred to 3.6d. Launcher-static only
+  all four now call `reorderDeform`. Hull-loop _reordering_ deferred to 3.6d. Launcher-static only
   (`view.html`) — no engine change, no submodule bump. Offline proof:
   `tools/rigger-spike/hulledit.mjs` — posed deform is byte-preserved through a permutation on BOTH
   an unweighted and a weighted (varied influence-count) mesh via spine-core, hull stays a simple
@@ -667,7 +677,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   click two vertices to toggle a "keep this edge" constraint that (a) **survives re-triangulation**
   — guaranteed present via proper constrained edge-insertion (`forceConstraintEdge` re-triangulates
   the cavity the segment crosses, not just flip-protection) and (b) **persists losslessly** as spine
-  `edges` (`vertexIndex×2` pairs). The `edges` field was previously *derived-and-dropped* on every
+  `edges` (`vertexIndex×2` pairs). The `edges` field was previously _derived-and-dropped_ on every
   topology edit; now the four `delete rd.edges` teardowns are **remaps** (`remapEdges` +
   `removeOneRemap`) so author constraints survive add/remove/dedup/drop, and every retriangulate
   **re-derives** `rd.edges = hull loop ∪ author interior edges` (`cdtWithConstraints`) — also giving
@@ -703,7 +713,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   from the editor-art export + game), and saving rig A could drop a DIFFERENT atlas-less rig B.
   Now `save` goes through **`reindexSkeletonsPreserving`** (`spineIndex.ts`): Layer 1 re-derives
   a missing `.atlas` from the folder's `source.json` via `ensureBundleAtlasFresh` (the `⟳ Re-sync
-  atlas` path); Layer 2 preserves the prior `skeletons.json` entry for any folder it still can't
+atlas` path); Layer 2 preserves the prior `skeletons.json` entry for any folder it still can't
   rebuild (never drops) and, for the folder being SAVED, **fails 400 loudly** ("…has no atlas and
   no source to rebuild it — re-sync an atlas first") instead of writing a self-dropping index. A
   healthy save is byte-identical to before (parity fast-path). Offline proof:
@@ -713,7 +723,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   rig B. Route them through `reindexSkeletonsPreserving` (or a preserve-only variant) next.
 - 2026-07-16 — **Rig + animation library catalogs are Postgres rows, not R2 blobs.** The
   `_shared/{rigs,animations}/index.json` blobs were read-modify-written by four endpoints with
-  no guard, and are GLOBAL (not project-scoped) — so two users on *unrelated* projects silently
+  no guard, and are GLOBAL (not project-scoped) — so two users on _unrelated_ projects silently
   dropped each other's rows, surfacing as "my rig vanished" (the `<id>.json` body wrote fine;
   only the catalog entry was lost). Row upserts remove the race structurally. Blob/row ordering
   now fails toward an orphaned blob, never a dangling row ([detail in history](../history.md)).

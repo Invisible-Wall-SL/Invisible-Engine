@@ -554,6 +554,27 @@ check(
 	true,
 );
 
+// --- the tool's own FX preview is sized in CSS pixels ------------------------------------------
+// `/symbols` (and the Rigger) preview an `fx` layer through the shared `createFxOverlay`, which sets
+// `resolution: devicePixelRatio` so callers can place effects in host-space CSS pixels. `autoDensity`
+// is the flag that makes that true — it sizes the canvas ELEMENT in CSS pixels — and it defaults to
+// FALSE. Without it the element takes its backing-store size, so on a 150% display the overlay is
+// 1.5x the host, clipped on the right and bottom, with every effect landing 1.5x too far from the
+// origin. At DPR 1 the two coincide and nothing looks wrong, so only a scaled display shows it.
+const fxOverlaySrc = read(`${here}../src/lib/fx/fxOverlay.client.ts`);
+const fxInit = /await created\.init\(\{[\s\S]*?\}\);/.exec(fxOverlaySrc)?.[0] ?? '';
+check('fxOverlay: the app init parsed', fxInit !== '', true);
+check(
+	'fxOverlay: sets resolution from devicePixelRatio (effects are placed in host-space CSS px)',
+	/resolution: window\.devicePixelRatio/.test(fxInit),
+	true,
+);
+check(
+	'fxOverlay: pairs that with autoDensity, so the CANVAS ELEMENT is sized in CSS px too (else the preview is offset and clipped on any scaled display)',
+	/autoDensity: true/.test(fxInit),
+	true,
+);
+
 // ── 7. The win dim, and a layer's opt-out from it ────────────────────────────────────────────
 // "Darken the non-winning symbols" (`winCycle.dimNonWinning`) draws every non-paying cell through a
 // Pixi tint. A layer can now step out of that (`dimWithSymbol: false`) — which is only expressible
