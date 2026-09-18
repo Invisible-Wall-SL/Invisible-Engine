@@ -177,36 +177,54 @@ Press it and you pick two things:
 - **Delivery profile** — which RGS the build belongs to. This is baked in
   permanently: a delivered build's wallet is not something the host page gets to
   repoint later. `operator-embed` is the one to use for a real handover — it names
-  no RGS host at all, because the operator's own page *is* the origin. The list
-  comes from the engine, so a new partner profile shows up without a launcher release.
+  no RGS host at all, because the operator's own page *is* the origin. The list —
+  and the one-line description under the picker — is read out of *that project's*
+  engine submodule, so a new partner profile arrives with the engine rather than
+  with a launcher release.
 - **Game alias** — the CDN folder their page composes the script URL from. Their
   convention is the game's display name with the spaces removed (*Book Of Borut* →
-  `BookOfBorut`), which is what the box is prefilled with. **Get it wrong and their
-  script tag 404s**, so confirm it with them rather than assuming.
+  `BookOfBorut`), which is what the box is prefilled with. **Get it wrong and
+  their script tag 404s**, so confirm it with them rather than assuming. Clear the
+  box and the engine guesses from the repo name instead — and `EMBED.md` then tells
+  the partner the alias is a guess they must confirm, which is not what you want a
+  handover to say.
 
-You get a folder, a zip named after the alias, and an `EMBED.md` written for the
-partner: where to put the folder, what their page must set, and the two lines they
-add to it. Two values in those lines are **fixed and cannot vary per game** —
-the container id `game` and the filename `game.js` — because one page of theirs
-serves every game and composes the URL server-side, so it can neither pass a
-per-game id nor know a content hash. Their cache-buster is the `versionPath`
-folder, which is why the whole folder moves per release.
+You get a `delivery/` folder beside the repo's `build/` (**📁 Open folder** in the
+result dialog goes straight there), a `<alias>.zip` next to it whose root folder
+*is* the alias, and an `EMBED.md` written for the partner: where to put the folder,
+what their page must set, and the two lines they add to it (the dialog shows those
+two lines too, with a **Copy** button). Two values in them are **fixed and cannot
+vary per game** — the container id `game` and the filename `game.js` — because
+one page of theirs serves every game and composes the URL server-side, so it can
+neither pass a per-game id nor know a content hash. Their cache-buster is the
+`versionPath` folder, which is why the whole folder moves per release.
 
 **▶ Play it, in the result dialog, is not optional polish.** A delivery build
 cannot be opened: there is no `index.html`, and it reads the session and RGS path
 from `window.params.GameSettings`, which only the partner's page supplies — so
 double-clicking the folder gets you nothing, correctly. Paste a session token from
-their platform and their RGS origin and it plays here exactly as it will on their
-page, wallet included. Without it, the first person ever to run the build is the
+their platform and their RGS origin into *session (sid)* and *RGS origin*, and it
+plays here exactly as it will on their page, wallet included: a fake operator page
+opens on `localhost:4599`, serving the build at a CDN-shaped path that shares
+nothing with the page, and proxying your RGS origin same-origin the way their
+infrastructure does. Without it, the first person ever to run the build is the
 operator.
 
 - Leave the fields empty and it still loads, then refuses at the session check —
   which is itself worth seeing once, because that refusal is what protects a
   mis-wired embed from showing a player a wallet nobody issued.
-- 🐞 **Debug** and 🗜 **Optimize** mean the same as for a publish. Debug ships the
-  in-game debug tooling *to the partner*, so untick it for a real handover.
+- 🐞 **Debug** and 🗜 **Optimize** are the card's own checkboxes, read when you press
+  **📦 Deliver** — set them first, the dialog has no copy of them. They mean
+  the same as for a publish, except that here Debug ships the in-game debug tooling
+  *to the partner*, so untick it for a real handover.
+- **You still have to be signed in**, even though nothing is uploaded: the build
+  pulls live art, fonts and scenes from R2 with a token fetched from the portal.
+  Without it the progress log warns and the build falls back to the repo's
+  placeholder art — a handover nobody wants to make twice.
 - Needs the project's engine submodule to be recent; if it predates delivery
-  builds the launcher says so and one ☁ Publish advances it.
+  builds the launcher says so and one ☁ Publish advances it. It also needs the
+  card's *Cloud publish* settings, same as a publish — a data-only project has to
+  be 🏗 Scaffolded first.
 
 ## Related
 

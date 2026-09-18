@@ -41,7 +41,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 
 | Tool | Where it runs | Default roles | Doc |
 |---|---|---|---|
-| **Invisible Launcher** (desktop ComfyUI + tunnel manager) | your machine | admin · developer · artist · pipeline tester · music/SFX | [invisible-launcher.md](invisible-launcher.md) |
+| **Invisible Launcher** (desktop ComfyUI + tunnel manager; also builds, publishes and delivers games) | your machine | admin · developer · artist · pipeline tester · music/SFX | [invisible-launcher.md](invisible-launcher.md) |
 | **Spine Editor** (third-party) | your machine (licensed) | admin · animator | [spine-editor.md](spine-editor.md) |
 
 > The full role list (admin · developer · artist · animator · pipeline tester ·
