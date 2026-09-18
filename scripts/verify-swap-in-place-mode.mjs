@@ -94,12 +94,12 @@
 // strippers made "the component grew an annotation" a failure mode of its own, and one of those
 // failures is what kept parts 3-10 from running at all for the length of a feature.
 
-import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 import { tumbleExplosionDelays } from '../packages/engine-layout/src/lib/tumblePattern.ts';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { assertStubSetIsComplete } from './lib/stub-set-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -133,15 +133,6 @@ const sliceBetween = (source, what, from, to) => {
 	return source.slice(start, end + to.length);
 };
 
-// `stripTypeScriptTypes` is flagged experimental, and the warning Node prints for it would be the
-// loudest line in a passing run. Silenced narrowly — anything else Node has to say still gets through.
-const emitWarning = process.emitWarning.bind(process);
-process.emitWarning = (warning, ...rest) => {
-	const type = typeof rest[0] === 'string' ? rest[0] : rest[0]?.type;
-	if (type === 'ExperimentalWarning' && String(warning).includes('stripTypeScriptTypes')) return;
-	emitWarning(warning, ...rest);
-};
-
 /**
  * A source slice, as JavaScript this fixture can evaluate.
  *
@@ -153,22 +144,15 @@ process.emitWarning = (warning, ...rest) => {
  * 3, 4 and 5 went dark behind "grew a type annotation this fixture cannot strip". Node's own stripper
  * knows the whole language, so growing an annotation is no longer an event.
  */
-const stripTypes = (what, source) => {
-	let js;
-	try {
-		js = stripTypeScriptTypes(source, { mode: 'strip' });
-	} catch (error) {
-		throw new Error(`${what}: the slice is not strippable TypeScript — ${error.message}`);
-	}
+const stripTypes = (what, source) =>
 	// Runes are Svelte's, not TypeScript's, so the stripper leaves them — and here each one reduces to
 	// the identity its VALUE semantics have outside a component. `.raw` first: the bare `$state(`
 	// pattern would not match it, but stripping leaves the type argument's whitespace behind, so both
 	// patterns have to tolerate the gap.
-	return js
+	stripSliceTypes(what, source)
 		.replace(/\$state\.raw\s*\(/g, '(')
 		.replace(/\$state\s*\(/g, '(')
 		.replace(/\$derived\s*\(/g, '(');
-};
 
 // `boardPerspective` … `getSymbolSeat` — the same contiguous block `verify-symbol-seat.mjs` takes,
 // which is where `boardSwapsInPlace` now lives too (deliberately: it sits with the geometry it is
@@ -277,12 +261,11 @@ const behaviourCeiling = (() => {
 
 /** The engine's `deps.reelBehaviour`, built the way the app builds it: the REAL resolver, over the
  *  block a project would have authored in `/config` → Reel behaviour. */
-const behaviourDep = new Function(
-	'SWAP_STYLES',
-	'REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS',
-	'reelBehaviour',
-	`${behaviourSource}\nreturn () => resolveReelBehaviour({ reelBehaviour });`,
-);
+const behaviourDep = compileSlice({
+	what: 'verify-swap-in-place-mode / reelBehaviour.ts#resolveReelBehaviour',
+	names: ['SWAP_STYLES', 'REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS', 'reelBehaviour'],
+	body: `${behaviourSource}\nreturn () => resolveReelBehaviour({ reelBehaviour });`,
+});
 
 const constantsSource = read('packages/engine-game/src/game/constants.ts');
 const readConst = (name) => {
@@ -291,14 +274,17 @@ const readConst = (name) => {
 	return Number(match[1]);
 };
 
-const buildEngine = new Function(
-	'SYMBOL_SIZE',
-	'REEL_PADDING',
-	'resolveReelGridFromNode',
-	'boardOverride',
-	'deps',
-	'stateGame',
-	`${resolverSource}
+const buildEngine = compileSlice({
+	what: 'verify-swap-in-place-mode / gameState.svelte.ts#boardSwapsInPlace+getSymbolSeat',
+	names: [
+		'SYMBOL_SIZE',
+		'REEL_PADDING',
+		'resolveReelGridFromNode',
+		'boardOverride',
+		'deps',
+		'stateGame',
+	],
+	body: `${resolverSource}
 ${seatBlock}
 ${standDownBlock}
 return {
@@ -312,7 +298,7 @@ return {
 	sequentialStopActive,
 	stackedPicturesActive,
 };`,
-);
+});
 
 /**
  * @param perspective the authored `perspective` block on the reelGrid NODE — SHAPE only now — or
@@ -1146,7 +1132,11 @@ return {
 		});
 	}
 
-	return new Function(...Object.keys(stubs), body)(...Object.values(stubs));
+	return compileSlice({
+		what: 'verify-swap-in-place-mode / the TumbleBoard + Board runtime',
+		names: Object.keys(stubs),
+		body,
+	})(...Object.values(stubs));
 };
 
 /**
@@ -1276,14 +1266,17 @@ const runReveal = async ({
 		},
 	};
 
-	const present = new Function(
-		'eventEmitter',
-		'tumbleBoardCombined',
-		'stateGameDerived',
-		'waitForTimeout',
-		'COLUMN_CASCADE_STAGGER_MS',
-		`${source}\nreturn ${name};`,
-	)(
+	const present = compileSlice({
+		what: `verify-swap-in-place-mode / flowEffects.ts#${name}`,
+		names: [
+			'eventEmitter',
+			'tumbleBoardCombined',
+			'stateGameDerived',
+			'waitForTimeout',
+			'COLUMN_CASCADE_STAGGER_MS',
+		],
+		body: `${source}\nreturn ${name};`,
+	})(
 		eventEmitter,
 		runtime.tumbleBoardCombined,
 		{
@@ -2889,12 +2882,11 @@ const runCascadeStep = async ({
 			await runtime.handlers[event.type]?.(event);
 		},
 	};
-	const step = new Function(
-		'eventEmitter',
-		'stateGameDerived',
-		'tumbleBoardCombined',
-		`${cascadeStepSource}\nreturn tumbleBoardStep;`,
-	)(
+	const step = compileSlice({
+		what: 'verify-swap-in-place-mode / the cascade tumbleBoardStep',
+		names: ['eventEmitter', 'stateGameDerived', 'tumbleBoardCombined'],
+		body: `${cascadeStepSource}\nreturn tumbleBoardStep;`,
+	})(
 		eventEmitter,
 		{ boardSwapsInPlace: () => false, boardSwapStyle: () => 'dropIn' },
 		runtime.tumbleBoardCombined,

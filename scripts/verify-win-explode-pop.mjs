@@ -96,11 +96,11 @@
 // cannot be imported from Node), and the type removal is Node's own `stripTypeScriptTypes`, so a
 // rename fails loudly here rather than leaving the fixture quietly asserting nothing.
 
-import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 import { sequence } from '../packages/utils-shared/sequence.ts';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { assertStubSetIsComplete } from './lib/stub-set-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -128,30 +128,16 @@ const sliceBetween = (source, what, from, to) => {
 	return source.slice(start, end + to.length);
 };
 
-// `stripTypeScriptTypes` is flagged experimental, and the warning would be the loudest line in a
-// passing run. Silenced narrowly — anything else Node has to say still gets through.
-const emitWarning = process.emitWarning.bind(process);
-process.emitWarning = (warning, ...rest) => {
-	const type = typeof rest[0] === 'string' ? rest[0] : rest[0]?.type;
-	if (type === 'ExperimentalWarning' && String(warning).includes('stripTypeScriptTypes')) return;
-	emitWarning(warning, ...rest);
-};
-
-/** A source slice, as JavaScript this fixture can evaluate. Runes reduce to the identity their
- *  VALUE semantics have outside a component. */
-const stripTypes = (what, source) => {
-	let js;
-	try {
-		js = stripTypeScriptTypes(source, { mode: 'strip' });
-	} catch (error) {
-		throw new Error(`${what}: the slice is not strippable TypeScript — ${error.message}`);
-	}
-	return js
+/** A source slice, as JavaScript this fixture can evaluate. The type removal is the shared
+ *  `stripSliceTypes` (Node's own stripper, the experimental warning silenced, a parse failure
+ *  attributed to the slice); the rune reduction on top is this fixture's own — runes reduce to the
+ *  identity their VALUE semantics have outside a component. */
+const stripTypes = (what, source) =>
+	stripSliceTypes(what, source)
 		.replace(/\$state\.raw\s*\(/g, '(')
 		.replace(/\$state\s*\(/g, '(')
 		.replace(/\$derived\s*\(/g, '(')
 		.replace(/^export /gm, '');
-};
 
 // ---------------------------------------------------------------------------
 // THE SLICES — every function under test, taken from the shipped file.
@@ -524,7 +510,11 @@ const buildRound = ({
 		});
 	}
 
-	const runtime = new Function(...Object.keys(stubs), runtimeBody)(...Object.values(stubs));
+	const runtime = compileSlice({
+		what: 'verify-win-explode-pop / the Board.svelte + symbolBeat runtime',
+		names: Object.keys(stubs),
+		body: runtimeBody,
+	})(...Object.values(stubs));
 
 	return { runtime, clock, stateGame, transitions, log, seam, config, roundSkip, rebuildBoard };
 };
@@ -858,25 +848,28 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 		if (bookEvent.type === 'reveal' || bookEvent.type === 'tumbleBoard') world.rebuildBoard();
 	};
 
-	const play = new Function(
-		'stopWinCycle',
-		'forgetWinCycleWins',
-		'roundSkip',
-		'stateBet',
-		'stateUi',
-		'clearSpinHold',
-		'eventEmitter',
-		'explodeSpinWinners',
-		'explodeWinnersBeforeBoardChange',
-		'startWinCycle',
-		'getFlowInterpreter',
-		'getFlowV2',
-		'sequence',
-		'playBookEvent',
-		'coded',
-		'holdAfterBigWin',
-		`${stripTypes('the playBet seam', `${sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n')}\n${playBetBody}`)}\nreturn playBet;`,
-	)(
+	const play = compileSlice({
+		what: 'verify-win-explode-pop / utils.ts#playBet',
+		names: [
+			'stopWinCycle',
+			'forgetWinCycleWins',
+			'roundSkip',
+			'stateBet',
+			'stateUi',
+			'clearSpinHold',
+			'eventEmitter',
+			'explodeSpinWinners',
+			'explodeWinnersBeforeBoardChange',
+			'startWinCycle',
+			'getFlowInterpreter',
+			'getFlowV2',
+			'sequence',
+			'playBookEvent',
+			'coded',
+			'holdAfterBigWin',
+		],
+		body: `${stripTypes('the playBet seam', `${sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n')}\n${playBetBody}`)}\nreturn playBet;`,
+	})(
 		() => order.push('stopWinCycle'),
 		world.runtime.forgetWinCycleWins,
 		world.roundSkip,
@@ -1038,11 +1031,11 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 	);
 	const ifLine = reelSymbolSource.match(/\n\{#if ([^}]+)\}\n/);
 	if (!ifLine) throw new Error('ReelSymbol.svelte no longer opens with an {#if}');
-	const gate = new Function(
-		'props',
-		'covered',
-		`${stripTypes('the ReelSymbol removed derivation', derivation)}\nreturn Boolean(${ifLine[1]});`,
-	);
+	const gate = compileSlice({
+		what: 'verify-win-explode-pop / ReelSymbol.svelte#removed',
+		names: ['props', 'covered'],
+		body: `${stripTypes('the ReelSymbol removed derivation', derivation)}\nreturn Boolean(${ifLine[1]});`,
+	});
 	const cell = (removed) => ({ reelSymbol: { removed } });
 	check('drawn: not covered, not removed', gate(cell(false), false), true);
 	check('undrawn: removed', gate(cell(true), false), false);
@@ -1081,14 +1074,15 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 	// and a guard a paragraph can trip is a guard nobody keeps.
 	const forwardCode = body.replace(/\/\/[^\n]*/g, '');
 	check('the forward does not ask who is holding the cell', /\bcascade\b/.test(forwardCode), false);
-	const gate = new Function(
-		'state',
-		`let forwarded = 0;
+	const gate = compileSlice({
+		what: 'verify-win-explode-pop / ReelSymbol.svelte#oncomplete forward',
+		names: ['state'],
+		body: `let forwarded = 0;
 const props = { reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
 // The body RETURNS EARLY once it has forwarded, so it runs as its own function rather than inline.
 (() => { ${body} })();
 return { forwarded, state: props.reelSymbol.symbolState };`,
-	);
+	});
 	// EVERY STATE A BEAT DRIVES reports, whoever armed it — `win` and `explosion` are the reel
 	// board's, `clearReel` and `intro` are a cascade step's, and one cell answers for both.
 	for (const state of ['win', 'explosion', 'clearReel', 'intro']) {
