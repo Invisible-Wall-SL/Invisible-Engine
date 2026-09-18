@@ -38,6 +38,14 @@
  *  - `cinematic-await-loop`  — a `playCinematic` that BOTH loops and awaits completion: it can
  *                            never resume, so the round hangs (an ERROR, not a warning).
  *  - `cinematic-missing-ref` — a `playCinematic` naming no cinematic (a warning — it is inert).
+ *  - `hold-without-release`  — a `showContainer{awaitComplete}` whose container can never be
+ *                            completed: no tap surface on its scene, no `hideContainer` that can
+ *                            still run while the chain is held, no `complete:<id>` entry. The round
+ *                            hangs forever (an ERROR, the `cinematic-await-loop` failure mode).
+ *  - `tap-without-hold`      — the mirror: a container whose scene HAS a tap-to-continue overlay, but
+ *                            no `showContainer{awaitComplete}` and no `complete:<id>` entry waits for
+ *                            it. INFO, not a warning — the tap still emits its `tapSignal` and the
+ *                            once-per-session `tapToStart`, so it is a hint, not a defect.
  *  - `text-message-unreachable` — a `textMessage` with NO state-gate (`visibleWhile` unset/`'none'`)
  *                            AND no incoming `show` exec edge: nothing can ever make it appear.
  *
@@ -53,7 +61,6 @@ import type {
 	ContainerEventDecl,
 	DataEdge,
 	DataSource,
-	ExecEdge,
 	FlowDoc,
 	FunctionDef,
 	FunctionLibraryDoc,
@@ -88,9 +95,12 @@ export type FlowIssueCode =
 	| 'text-message-empty'
 	| 'text-message-unreachable'
 	| 'cinematic-await-loop'
-	| 'cinematic-missing-ref';
+	| 'cinematic-missing-ref'
+	| 'hold-without-release'
+	| 'tap-without-hold';
 
-export type FlowIssueSeverity = 'error' | 'warning';
+/** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
+export type FlowIssueSeverity = 'error' | 'warning' | 'info';
 
 /** Where an issue is located — a node, an edge, or a specific pin. */
 export type FlowIssueAt =
@@ -252,6 +262,138 @@ const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
 	return owners;
 };
 
+// ---------------------------------------------------------------------------
+// Hold safety — can a `showContainer{awaitComplete}` ever be released? (check i)
+// ---------------------------------------------------------------------------
+
+/**
+ * The nodes an AWAITING `showContainer` blocks: everything reachable from its plain `exec`
+ * continuation. While the hold is pending that continuation has not run, so NOTHING in this set can
+ * release it — which is why a `hideContainer` sitting downstream of the hold (the canonical
+ * show → tap → hide chain) must NOT count as a release.
+ *
+ * The walk follows EVERY exec-out of a blocked node, container-event pins included: a container that
+ * never mounts can never fire its buttons either. The hold node's OWN container-event pins are not
+ * walked — that container IS mounted (the hold begins after the mount), so a button on the held
+ * screen is exactly the thing that can still run.
+ */
+const blockedByHold = (graph: FlowDoc['graph'], holdId: string): Set<string> => {
+	const blocked = new Set<string>();
+	const queue = graph.exec
+		.filter((e) => e.from.node === holdId && e.from.pin === 'exec')
+		.map((e) => e.to.node);
+	let id = queue.pop();
+	while (id !== undefined) {
+		if (id !== holdId && !blocked.has(id)) {
+			blocked.add(id);
+			for (const e of graph.exec) if (e.from.node === id) queue.push(e.to.node);
+		}
+		id = queue.pop();
+	}
+	return blocked;
+};
+
+/**
+ * Does a shared FUNCTION's body (or anything it calls) ever hide `ref`? A `hideContainer` inside a
+ * function body is invisible to a graph scan, and missing it would turn a working doc RED — so the
+ * library is walked too, cycle-guarded by the set of function ids already visited.
+ */
+const functionHidesContainer = (
+	fnId: string,
+	ref: string,
+	library: FunctionLibraryDoc,
+	seen: Set<string>,
+): boolean => {
+	if (seen.has(fnId)) return false;
+	seen.add(fnId);
+	const fn = library.functions.find((f) => f.id === fnId);
+	if (!fn) return false;
+	const scan = (graph: FlowDoc['graph']): boolean => {
+		for (const node of graph.nodes) {
+			if (node.kind === 'hideContainer' && node.ref === ref) return true;
+			if (node.kind === 'group' && scan(node.body)) return true;
+			if (node.kind === 'functionCall' && functionHidesContainer(node.ref, ref, library, seen)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	return scan(fn.body);
+};
+
+/** Does this node take `ref` down — directly, or through the function it calls? */
+const hidesContainer = (node: Node, ref: string, library: FunctionLibraryDoc): boolean =>
+	(node.kind === 'hideContainer' && node.ref === ref) ||
+	(node.kind === 'functionCall' &&
+		functionHidesContainer(node.ref, ref, library, new Set<string>()));
+
+/**
+ * `hold-without-release` + `tap-without-hold` (check i) — the authoring-time half of the round-block
+ * hold. `showContainer{awaitComplete}` blocks the exec chain (and the book pump awaiting it) until
+ * `mount.complete(ref)` or `mount.hide(ref)` fires; nothing at runtime times it out, deliberately (a
+ * player who walks away mid-outro should find the screen still up). So an unreleasable hold is a
+ * round that hangs forever, and only the graph + the backing SCENE together can see it coming.
+ *
+ * A hold is RELEASED by any of three authored surfaces:
+ *   1. a `tapToContinue` (or `completeOnLoaded`) surface on the container's own scene — the tap calls
+ *      `completeActiveScreen` → `mount.complete(ref)`, resuming this very chain;
+ *   2. a `hideContainer` for `ref` that can still run while the hold is pending (`mount.hide` releases
+ *      holds so they never leak) — including one reached through a shared function;
+ *   3. an authored `complete:<ref>` event entry — the HANDOFF shape the v1→v2 translator emits.
+ *
+ * NEVER GUESS (`scope.ts`): both checks read `ctx.containerTaps`, and a container ABSENT from that
+ * map is unresolved — skipped entirely. An unsaved/standalone project projects no scenes, so the map
+ * is empty and this pass reports NOTHING rather than reddening every flow in the editor.
+ *
+ * KNOWN LIMIT (fails toward the error, so it is stated rather than papered over): at runtime
+ * `dispatchFlowV2Complete` scans the SHOWN containers top-down, so a full-screen tap surface on a
+ * DIFFERENT mounted container also releases the topmost hold. A doc that works only by that
+ * cross-talk is still flagged — it is an authoring accident, not a wiring.
+ */
+const holdSafetyIssues = (graph: FlowDoc['graph'], ctx: PinContext): FlowIssue[] => {
+	const taps = ctx.containerTaps;
+	if (!taps) return [];
+	const issues: FlowIssue[] = [];
+	const completeEntry = (ref: string): boolean =>
+		graph.nodes.some((n) => n.kind === 'event' && n.ref === `complete:${ref}`);
+
+	for (const node of graph.nodes) {
+		if (node.kind !== 'showContainer' || !node.awaitComplete) continue;
+		if (taps[node.ref] === undefined) continue; // unresolved container ⇒ never guess.
+		if (taps[node.ref] || completeEntry(node.ref)) continue;
+		const blocked = blockedByHold(graph, node.id);
+		const released = graph.nodes.some(
+			(n) => !blocked.has(n.id) && hidesContainer(n, node.ref, ctx.library),
+		);
+		if (released) continue;
+		issues.push({
+			code: 'hold-without-release',
+			severity: 'error',
+			message: `show container '${node.id}' waits for '${node.ref}' to complete, but nothing can complete it — its screen has no tap-to-continue, no Hide Container for it can run while the chain is held, and there is no 'complete:${node.ref}' event. The round would hang here forever`,
+			at: { on: 'node', node: node.id },
+		});
+	}
+
+	// The mirror: an authored tap surface nothing waits for. The tap is not dead (it still emits its
+	// `tapSignal` and the once-per-session `tapToStart`), so this is a HINT, not a defect.
+	const held = new Set<string>();
+	for (const n of graph.nodes) if (n.kind === 'showContainer' && n.awaitComplete) held.add(n.ref);
+	const reported = new Set<string>();
+	for (const node of graph.nodes) {
+		if (node.kind !== 'showContainer' || node.awaitComplete) continue;
+		if (taps[node.ref] !== true || reported.has(node.ref)) continue;
+		if (held.has(node.ref) || completeEntry(node.ref)) continue;
+		reported.add(node.ref);
+		issues.push({
+			code: 'tap-without-hold',
+			severity: 'info',
+			message: `container '${node.ref}' has a tap-to-continue overlay, but no show node waits for it and there is no 'complete:${node.ref}' event — the tap advances nothing (turn on "Wait for this screen" here, or author the complete event)`,
+			at: { on: 'node', node: node.id },
+		});
+	}
+	return issues;
+};
+
 /**
  * `duplicate-id` check on the RAW (pre-flatten) graph: any node id used more than once across the
  * graph + its group bodies. `flattenGroups` inlines a group's body (which keeps its ids), so a
@@ -287,8 +429,12 @@ export const validateFlowDoc = (
 	// pins (`derivePins`), so an edge from `spinButton.onSpin` resolves as a real endpoint. Optional so
 	// every existing caller still compiles.
 	containerEvents?: Record<string, ContainerEventDecl[]>,
+	// The RESOLVED release surface per container (ContainerId → does its scene mount a tap-to-continue /
+	// completeOnLoaded?). Feeds the hold-safety checks ONLY, and only for the containers it keys: absent
+	// (an unsaved project, a headless caller) ⇒ those checks report nothing at all — never guess.
+	containerTaps?: Record<string, boolean>,
 ): FlowIssue[] => {
-	const ctx: PinContext = { vocab, library, containerEvents };
+	const ctx: PinContext = { vocab, library, containerEvents, containerTaps };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	// The `duplicate-id` scan runs on the RAW graph (before flatten collapses group bodies in) — that
 	// is where a body-vs-main id collision is visible. §5.2: the structural checks then run on the
@@ -607,6 +753,10 @@ const validateGraph = (
 			});
 		}
 	}
+
+	// --- (i) hold safety: a round-block hold nothing can release, + its mirror. Scoped to the
+	// containers whose scene actually resolved (see `holdSafetyIssues`).
+	issues.push(...holdSafetyIssues(graph, ctx));
 
 	// --- (g) textMessage authoring aids: blank text renders nothing; a message with neither a
 	// state-gate nor an incoming `show` edge can never appear. Both are warnings (the graph still runs).

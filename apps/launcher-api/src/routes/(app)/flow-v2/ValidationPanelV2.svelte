@@ -34,6 +34,8 @@
 		'accessor-unresolved': '✗',
 		'fn-requires': '⚠',
 		'duplicate-id': '⧉',
+		'hold-without-release': '⏳',
+		'tap-without-hold': 'ℹ',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.
@@ -71,6 +73,7 @@
 						<button
 							class="issue"
 							class:error={issue.severity === 'error'}
+							class:info={issue.severity === 'info'}
 							onclick={() => onfocus(node)}
 							title={issue.message}
 						>
@@ -84,6 +87,7 @@
 						<div
 							class="issue static"
 							class:error={issue.severity === 'error'}
+							class:info={issue.severity === 'info'}
 							title={issue.message}
 						>
 							<span class="icon">{ICON[issue.code] ?? '⚠'}</span>
@@ -183,6 +187,15 @@
 	}
 	.issue.error:not(.static):hover {
 		border-color: #ef4444;
+	}
+	/* `info` is a HINT (the doc runs) — it must not read like the amber warning next to it. */
+	.issue.info {
+		border-color: #1e3a5f;
+		background: #0e141a;
+		color: #93c5fd;
+	}
+	.issue.info:not(.static):hover {
+		border-color: #3b82f6;
 	}
 	.icon {
 		flex: none;
