@@ -31,14 +31,15 @@
 // above the mask). A host that provides only ONE context silently hides whichever half of a project's
 // art it does not match. So a symbol host must provide BOTH.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIR = join(ROOT, 'apps/lines/src/components');
 
-const read = (f) => readFileSync(join(DIR, f), 'utf8').replace(/\r\n/g, '\n');
+const read = lfReaderFrom(DIR);
 
 /** Strip the `<script>` blocks and HTML comments — imports and prose are not markup. */
 const markupOf = (src) =>

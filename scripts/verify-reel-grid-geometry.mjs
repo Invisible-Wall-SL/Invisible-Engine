@@ -66,14 +66,14 @@
 // The matrix is the one phases 0 and 1 used: square + non-square cells, gapX, gapY, off-centre
 // reel/row lead, per-cell seat alignment, the whole-board nudge, and 3x3 / 5x4 / 10x10.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows and the slice markers below are written with `\n`.
-const readLF = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+const readLF = lfReaderFrom(ROOT);
 
 const ENGINE_SRC = readLF('packages/engine-game/src/game/gameState.svelte.ts');
 const EDITOR_SRC = readLF('apps/launcher-api/src/routes/(app)/editor/editorCanvas.helpers.ts');

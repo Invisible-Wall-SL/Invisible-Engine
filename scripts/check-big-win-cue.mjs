@@ -18,12 +18,12 @@
  *
  * Run:  node scripts/check-big-win-cue.mjs
  */
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { lfReaderFrom } from './lib/read-lf.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (rel) => readFileSync(join(root, rel), 'utf8');
+const read = lfReaderFrom(root);
 
 const utils = read('apps/lines/src/game/utils.ts');
 const handlers = read('apps/lines/src/game/bookEventHandlerMap.ts');

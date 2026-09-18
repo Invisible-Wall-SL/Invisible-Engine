@@ -40,9 +40,9 @@
 // `symbolIndex - 1 - addingReel.length`, well above row 0 — and it runs the whole matrix under BOTH
 // a flat and a perspective board.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLF, lfReaderFrom } from './lib/read-lf.mjs';
 
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
@@ -51,10 +51,7 @@ const SOURCE = join(ROOT, 'packages/engine-game/src/game/gameState.svelte.ts');
 
 // Coded constants (packages/engine-game/src/game/constants.ts) — read from the file so a change to
 // either one cannot leave the fixture asserting against a stale number.
-const constantsSource = readFileSync(
-	join(ROOT, 'packages/engine-game/src/game/constants.ts'),
-	'utf8',
-);
+const constantsSource = readLF(join(ROOT, 'packages/engine-game/src/game/constants.ts'));
 const readConst = (name) => {
 	const match = constantsSource.match(new RegExp(`export const ${name} = ([\\d.]+);`));
 	if (!match) throw new Error(`constants.ts no longer exports ${name}`);
@@ -70,7 +67,7 @@ const REEL_PADDING = readConst('REEL_PADDING');
  */
 // Normalized to LF: the repo checks out CRLF on Windows, and the slice markers below are written
 // with `\n`.
-const source = readFileSync(SOURCE, 'utf8').replace(/\r\n/g, '\n');
+const source = readLF(SOURCE);
 const blockStart = source.indexOf('\tconst boardGeometry = () => {');
 const seatStart = source.indexOf('\tconst getSymbolSeat = (');
 if (blockStart < 0 || seatStart < blockStart) {
@@ -589,7 +586,7 @@ for (const [gridLabel, grid] of GRIDS) {
 	}
 }
 
-const readSrc = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+const readSrc = lfReaderFrom(ROOT);
 // ---------------------------------------------------------------------------
 // AND `ReelSymbol` MUST TAKE THE RESTING y FROM THE SEAT.
 //

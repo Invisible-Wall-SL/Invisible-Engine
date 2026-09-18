@@ -25,9 +25,9 @@
  *
  * Run: node scripts/verify-boot-splash.mjs
  */
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readLF } from './lib/read-lf.mjs';
 
 const SRC =
 	process.argv[2] ??
@@ -36,7 +36,7 @@ const SRC =
 		'..',
 		'apps/launcher-api/static/shared/boot-splash.js',
 	);
-const code = readFileSync(SRC, 'utf8');
+const code = readLF(SRC);
 
 const store = new Map(); // the shared tab storage — survives both "documents"
 

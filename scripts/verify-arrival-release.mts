@@ -23,7 +23,7 @@
  * Run: apps/launcher-api/node_modules/.bin/tsx scripts/verify-arrival-release.mts
  */
 
-import { readFileSync } from 'node:fs';
+import { readLF } from './lib/read-lf.mjs';
 
 let failures = 0;
 const assert = (label: string, got: unknown, want: unknown) => {
@@ -34,7 +34,7 @@ const assert = (label: string, got: unknown, want: unknown) => {
 	);
 };
 
-const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n'); // prettier-ignore
+const read = (rel: string) => readLF(new URL(rel, import.meta.url));
 
 // 1. THE ACCESSOR resolves the flag on BOTH bundle paths and defaults OFF.
 const scenes = read('../apps/lines/src/editor-scenes.ts');

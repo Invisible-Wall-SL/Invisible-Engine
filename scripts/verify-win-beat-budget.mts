@@ -26,7 +26,7 @@
  * Run: apps/launcher-api/node_modules/.bin/tsx scripts/verify-win-beat-budget.mts
  */
 
-import { readFileSync } from 'node:fs';
+import { readLF } from './lib/read-lf.mjs';
 
 import {
 	resolveWinBeatBudget,
@@ -72,10 +72,7 @@ assert('…and clamps the unauthored fallback to it', resolveWinBeatBudget(300).
 assert('a budget equal to the floor leaves it alone', resolveWinBeatBudget(WIN_BEAT_MIN_MS).minMs, WIN_BEAT_MIN_MS); // prettier-ignore
 
 // 5. THE CALL SITES — see the header. Read the real component, not a copy of it.
-const board = readFileSync(
-	new URL('../apps/lines/src/components/Board.svelte', import.meta.url),
-	'utf8',
-);
+const board = readLF(new URL('../apps/lines/src/components/Board.svelte', import.meta.url));
 assert('Board resolves a budget for the win beat', board.includes('resolveWinBeatBudget(bakedWinBeatMaxMs())'), true); // prettier-ignore
 assert('the win beat races the budget', /budget\.capMs\s*\n?\s*:\s*budget\.unauthoredMs/.test(board), true); // prettier-ignore
 assert('the win beat floors on the budget', board.includes('waitForTimeout(budget.minMs)'), true);

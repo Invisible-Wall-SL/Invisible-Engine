@@ -28,9 +28,10 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLF } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const src = readFileSync(join(ROOT, 'scripts', 'new-game.mjs'), 'utf8');
+const src = readLF(join(ROOT, 'scripts', 'new-game.mjs'));
 
 let checks = 0;
 const fail = (msg) => {

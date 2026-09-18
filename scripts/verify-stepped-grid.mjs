@@ -27,9 +27,9 @@
 //      perspective board. Asserted against the source, because Svelte template wiring cannot
 //      be executed from Node, and it is the half no data-level test can see.
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom, readLF } from './lib/read-lf.mjs';
 
 import { createMockRgs, standardPaylines, coversAllRows, rowsPerReel } from './mock-rgs-server.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
@@ -268,10 +268,7 @@ const dealOnce = async (opts) => {
 // captured config, so this checks the shipped expression rather than a copy that can rot.
 // ---------------------------------------------------------------------------
 {
-	const source = readFileSync(
-		join(ROOT, 'packages/rgs-translator-eagaming/src/engineFacade.ts'),
-		'utf8',
-	).replace(/\r\n/g, '\n');
+	const source = readLF(join(ROOT, 'packages/rgs-translator-eagaming/src/engineFacade.ts'));
 	const start = source.indexOf('const clampBoardToGrid = (');
 	if (start < 0) throw new Error('could not locate clampBoardToGrid in engineFacade.ts');
 	const end = source.indexOf('\n};\n', start);
@@ -354,7 +351,7 @@ const dealOnce = async (opts) => {
 // `BoardBase` branches stay exactly as they were.
 // ---------------------------------------------------------------------------
 {
-	const read = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+	const read = lfReaderFrom(ROOT);
 	const has = (label, rel, re) => {
 		checks += 1;
 		if (!re.test(read(rel))) fail(`wiring :: ${label}`, `${rel} no longer matches ${re}`);

@@ -28,9 +28,9 @@
  * module, which only exists inside a SvelteKit build.
  */
 
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 import { ZodError } from 'zod';
 import { TUMBLE_PATTERNS, TUMBLE_STEP_MS_DEFAULT, TUMBLE_STEP_MS_MAX } from 'engine-layout';
 import { emptySymbolsDoc, normalizeSymbolsDoc } from '../src/lib/server/symbolsStorage.ts';
@@ -48,8 +48,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 /** Source with LF newlines whatever the checkout uses. Every assertion from here down is about the
  *  CODE, and a Windows working copy (`core.autocrlf`) would otherwise fail patterns that name a line
  *  break for reasons that have nothing to do with the claim. */
-const read = (path: string): string =>
-	readFileSync(join(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
+const read = lfReaderFrom(ROOT);
 
 let failures = 0;
 let checks = 0;
