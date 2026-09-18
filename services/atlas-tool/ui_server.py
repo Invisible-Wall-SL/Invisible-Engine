@@ -10001,6 +10001,17 @@ class Handler(BaseHTTPRequestHandler):
         frequent. (_addregion / _delregion predate the lock and do not take it;
         matching them is the weaker consistency of the two available.)"""
         m = load_manifest()
+        # A layer is a NEW region, and a new region needs its OWN rect — two
+        # slots cannot share one without overwriting each other on the page.
+        # Only a layout this tool owns can re-flow the page to make room: on a
+        # manifest with no layout the region survives but never gets a rect and
+        # compose skips it ("not placed on this page"), which is a silent
+        # half-failure. So refuse here, and say which control fixes it.
+        if not batch_atlas.is_from_scratch(m):
+            return ("⚠ This atlas has no layout, so a new region has nowhere "
+                    "to go. Set Layout to grid or pack in 🧩 Atlas settings "
+                    "first — note that clears the rects it has now, so Create "
+                    "Atlas re-flows the page.")
         by_name = {r.get("name"): r for bucket in ("regions", "rotated_regions")
                    for r in (m.get(bucket) or []) if isinstance(r, dict)}
         srcr = by_name.get(base)
@@ -10339,6 +10350,14 @@ class Handler(BaseHTTPRequestHandler):
         # its regions ARE the manifest's list, and on the next Create Atlas the
         # grid simply re-flows around the gap.
         is_pack = batch_atlas.is_from_scratch(m)
+        # The LAYER button is offered more widely than 🗑, on purpose. 🗑 acts
+        # on the geometry as it stands, so it is right to gate on
+        # `is_from_scratch`. A layer only needs the atlas to be ABLE to have a
+        # layout — `can_choose_layout` (= not bound to a `.atlas`) — because a
+        # layout-less atlas is one Save away from qualifying. Hiding it there
+        # made the feature invisible with no way to find out why, which is not
+        # how anything else in this tool refuses.
+        can_layer = batch_atlas.can_choose_layout(m)
         for r in all_regions(m):
             name = r["name"]
             # Only the EXPLICIT link badges/gates the card. An `_glow` name is
@@ -10441,9 +10460,10 @@ class Handler(BaseHTTPRequestHandler):
                     '<button class="cpbtn" title="Add an AI layer of this '
                     'region: generated separately (own prompt, seed and '
                     'variants) but from THIS region&#39;s reference image, '
-                    'and packed on this same page in register with it." '
+                    'and packed on this same page in register with it. '
+                    'Needs a grid or pack Layout." '
                     f'onclick="addLayer(\'{html.escape(name)}\')">➕🗂'
-                    '</button>' if is_pack and not is_layer else ""),
+                    '</button>' if can_layer and not is_layer else ""),
                 del_btn=(
                     '<button class="cpbtn" title="Remove this region from the '
                     f'atlas" onclick="delRegion(\'{html.escape(name)}\')">🗑'
