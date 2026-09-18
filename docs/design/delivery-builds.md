@@ -384,13 +384,50 @@ verified by building the default way and getting the identical 404 set.
   never serves. Every call site is optional-chained, so an embed simply has no pre-Pixi splash — the
   operator's page covers that stretch and the in-canvas `LoadingBar` takes over. Worth revisiting
   only if a partner asks.
-- **`publish-game-bundle.mjs`** still has no package-for-delivery mode.
 
-`publish-game-bundle.mjs` would then grow one: zip that folder plus a short embed
-contract, instead of uploading to our R2 and registering a card. Keep it a separate mode — the
-existing `--protocol lines|book` flag only picks which MOCK the test server mounts, which is
-meaningless for a partner delivery, and the two publish paths already guard against clobbering each
-other's cards.
+## Phase 4 — the handover ✅ BUILT
+
+The plan was for `publish-game-bundle.mjs` to grow a package-for-delivery mode. It did not, and the
+reason is worth keeping: that script exists to upload to OUR R2 and register a card, and a delivery
+does neither. Everything a package step needs — which profile was baked, what the alias is, where the
+folder ended up — is already in `build-delivery.mjs`, so the mode went there and the publish path was
+left alone.
+
+`build-delivery.mjs` now finishes the handover rather than stopping at a folder:
+
+- **`EMBED.md`**, written beside `game.js` and generated FROM THE BAKED PROFILE, so it cannot
+  describe a build we did not make: where the folder goes, the two lines for their page, the two
+  values that cannot vary per game (`id="game"`, `game.js`) and why, what `window.params` must carry,
+  and whether the RGS is same-origin or cross-origin with the CORS that implies.
+- **`--zip`**, rooted at the `gameAlias` so an unzip lands in the shape their CDN expects. Written by
+  hand on `node:zlib` (`scripts/zip-dir.mjs`) — this script runs from a game repo's engine submodule
+  and takes no per-repo setup, and a game repo installs from its own lockfile, so a dependency would
+  be present or absent depending on which repo you were standing in.
+- **`--alias`**, because the alias is the partner's and a wrong one is a 404 on their CDN. Derived
+  from the repo name when omitted, and the guess is stated rather than assumed.
+- **`--list-profiles` / `--print-env` / `--json` / `--skip-build`** — the seams a UI needs.
+
+### The button
+
+The desktop launcher's **📦 Deliver** (a separate repo, `Invisible-Wall-SL/invisible-launcher`) is
+what makes a delivery something other than a thing you type. It is not a publish: nothing is
+uploaded, no card is registered, the test server is never told.
+
+It **cannot** run `build-delivery.mjs` in one shot, and the reason generalises to any GUI caller:
+`vite build` regularly finishes writing its output and then never exits — an open sass-embedded or
+esbuild handle keeps Node alive — which `spawnSync` cannot escape. The launcher already solves that
+by watching the output and killing the settled tree, so it runs the build itself with `--print-env`'s
+variables and calls back with `--skip-build` to package. That is what those two flags are for; a
+one-shot terminal run is unchanged.
+
+Nothing about a delivery is restated in the launcher: the env comes from `--print-env`, the profile
+picker from `--list-profiles`, the paths from `--json`. The one thing it knows better is the alias —
+the partner composes the CDN folder from the display name with spaces removed, and the launcher has
+that name, so it prefills it instead of letting the engine re-capitalise a slug.
+
+The result dialog offers **▶ Play it**, which is `serve-embed.mjs` with a session token and an RGS
+origin. That pairing is the point: producing a delivery and playing one were two commands, and the
+second is the one people skip.
 
 ## Open questions for the partner
 
