@@ -291,6 +291,16 @@ except the first bullet below, which is on a branch:
      live job keeps billing. Cheap mitigation: on that path, if the slot is empty, re-check it once
      after a delay before settling the tile.
    - ~~**`video/_out/` has no sweeper.**~~ **DONE** — `sweep_stranded_slots` (see Recent changes).
+7. **Pre-fetch the BiRefNet weights a blueprint uses into the Network Volume**, so a first use
+   never downloads on demand from several workers at once. Nothing on `main` does:
+   `services/atlas-tool/runpod/provision.sh` clones `ComfyUI-RMBG` but fetches no weights, and
+   `services/atlas-comfy-pod/tools/fetch-models.py` has no RMBG entry. Item 1's open question —
+   *do the weights resolve on a cold worker?* — was answered the hard way on 2026-09-03: they
+   resolve by downloading on demand into `models/RMBG/BiRefNet/` on the SHARED volume — ONE
+   folder that every BiRefNet variant shares — and a concurrent first download left a `.py`
+   there with NUL bytes in it, failing every cutout on every worker for 14 hours (the 2026-09-04
+   entry in Recent changes). Until this lands, the first run of any new BiRefNet model should be
+   **1 variation**, so one worker writes that folder.
 
 ## Blocked (owner / external)
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
@@ -637,6 +647,38 @@ except the first bullet below, which is on a branch:
     sheet-tool and the test-server, while #601 (which also touches `services/_shared/**`)
     was correctly built by the two services that vendor it. This change is what makes a
     swap survivable; that setting is what stops most swaps happening at all.
+- 2026-09-04 — **Fourteen hours of video renders died on one corrupt file on the Network Volume —
+  diagnosed from the RunPod log, not from the tile.** The owner's endpoint log export
+  (level-filtered, LOCAL-time stamps) carries the one line the tile could not:
+  `!!! Exception during processing !!! Error in image processing: Error loading BiRefNet model:
+  source code string cannot contain null bytes` — 60 times, on 9 workers, first at 00:43 local
+  (= 2026-09-03 22:43Z, variation 11 of session `20260903_221516_d6ff`, the first to fail).
+  BiRefNet ships its own Python beside its weights (`trust_remote_code`), a `.py` under
+  `models/RMBG/` on the SHARED volume held NUL bytes, and every worker that reached the cutout
+  stage compiled it and died — which is why the failure was ~4 min in, hit every GPU tier,
+  interleaved with successes on other workers for one session, then became total and survived
+  overnight. Nothing pre-fetches BiRefNet, so the likely cause is three workers
+  first-downloading it into the same folder at once. What it was NOT, each ruled out by the
+  per-variation clocks: the imported blueprint (13/13 clean six times that afternoon), any
+  deploy in the window (#575's variations 1–10 ran on its code and passed), the GPU tier, the
+  container disk. Live-verified the same hour: #585's sliders/dropdowns on the built-in
+  blueprint, and #587 (label stacked above the slider) after its rebuild.
+  - **One folder, every variant — which is why a single torn file took the whole tool down.**
+    All twelve BiRefNet models share `models/RMBG/BiRefNet/`: `birefnet.py`, `BiRefNet_config.py`
+    and `config.json` sit there beside each `<model>.safetensors` (the node's `MODEL_CONFIG`
+    declares `cache_dir: "BiRefNet"`, and `hf_hub_download` fills it on first use). So one torn
+    `.py` breaks toonout, general, all of them — switching model is not a workaround.
+  - **Remediated — the volume is no longer torn.** The fix on a pod terminal that mounts the
+    volume: `grep -lP` the folder's `*.py` for NUL bytes, delete the two `.py` and `config.json`
+    (keep the weights — the node re-fetches the Python), stop any session still re-rolling into
+    it, then re-run with **1 variation** so a single worker re-downloads cleanly before scaling
+    back up. Renders were coming off the GPU complete again by 2026-09-07 (the sweep in the
+    2026-09-07 entry below found five finished that day), so what survives this incident is the
+    prevention: **Open item 7**.
+  - **Do not conflate it with the stranded-render fault in the 2026-09-07 entry.** Those renders
+    FINISHED and were mis-reported to the author as `lost contact with RunPod for 18Xs`, some of
+    them from this same week; this one never produced a frame and its tiles read
+    `comfy execution error`. The tile string is what tells the two apart.
 - 2026-09-04 — **A rig-timeline `event.flipbook` binding now plays wherever the rig is mounted.** The clip half of the same two-mount-sites gap; `<SpineProvider>` resolves and mounts bound clips itself now. Detail in [fx status](fx.md).
 - 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
   `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix
