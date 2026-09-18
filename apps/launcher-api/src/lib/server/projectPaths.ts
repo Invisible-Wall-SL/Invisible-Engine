@@ -64,6 +64,37 @@ export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
 
+/** A spine `assetKey` that ADDRESSES an R2 bundle, parsed into its owner + bundle name. */
+export interface SpineBundleRef {
+	/** The cross-project `_shared/spines/` library rather than one project's root. */
+	shared: boolean;
+	/** R2 client/project path segments — absent for a shared bundle. */
+	client?: string;
+	project?: string;
+	bundle: string;
+}
+
+/**
+ * Parse a spine `assetKey` that is an R2 bundle PREFIX, whoever owns it — including a
+ * project other than the one reading it, which {@link bundleFromAssetKey} deliberately
+ * cannot express (it answers "which bundle of MINE is this", so a foreign prefix is
+ * `null` there and every caller then skips it).
+ *
+ * That distinction is the whole point: a key this parses but `bundleFromAssetKey` rejects
+ * is a reference into SOMEONE ELSE'S project — never a coded/game-bundled key like
+ * `bigwin`, which has no `spines/` path at all. So it is exactly the set the export must
+ * report as stranded (`editorArtExport`) and the authoring side must refuse to save
+ * (`componentStorage`), instead of the silence that shipped a free-spin cage pinned to
+ * another project's prefix to every game that placed the shared counter.
+ */
+export function parseSpineBundleKey(assetKey: string): SpineBundleRef | null {
+	const trimmed = assetKey.endsWith('/') ? assetKey.slice(0, -1) : assetKey;
+	const match = /^(?:_shared|([^/]+)\/([^/]+))\/spines\/([^/]+)$/.exec(trimmed);
+	if (!match) return null;
+	const [, client, project, bundle] = match;
+	return client ? { shared: false, client, project, bundle } : { shared: true, bundle };
+}
+
 /**
  * Cross-project shared SHEETS, outside any single project: `_shared/sheets/<folder>`.
  *

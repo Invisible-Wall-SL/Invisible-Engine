@@ -4,6 +4,7 @@ import type {
 	ComponentParam,
 	ComponentSignal,
 	ContainerNode,
+	LayoutNode,
 	SlotKind,
 	TemplateSlot,
 } from 'engine-layout';
@@ -16,9 +17,11 @@ import {
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
+	parseSpineBundleKey,
 	projectComponentKey,
 	projectComponentVersionKey,
 	projectComponentsPrefix,
+	r2Slug,
 	sharedComponentsPrefix,
 } from './projectPaths';
 import {
@@ -247,6 +250,44 @@ async function readComponentForWrite(
  * `scope: 'shared'` defs live on a GLOBAL key no project lease could ever cover, so this CAS
  * is their ONLY protection — which is why threading it mattered most for that scope.
  */
+/**
+ * Refuse a def whose `spine` node points at a bundle under ANOTHER project's R2 prefix.
+ *
+ * Nothing downstream can honour such a reference. The export resolves a bundle in this
+ * project's `spines/` root then `_shared/spines/` only, so a foreign prefix copies NO files
+ * into `deploy/`, while the doc keeps that prefix as its runtime lookup key — the game then
+ * throws `Spine: key "…" is not found in loadedAssets` and the art is absent. That is how a
+ * free-spin cage pinned to `invisible_wall/bookofborutremake/spines/R_Cage_Freespin/` reached
+ * every game that placed the SHARED counter, months after it was authored.
+ *
+ * The check is on the AUTHORING side because the shared library is resolved by every project,
+ * so a shared def that depends on one project is a cross-project break waiting to happen — the
+ * same reason `sharedSpinePromote` copies a bundle into `_shared/spines/` rather than pointing
+ * at the project that authored it. `_shared/spines/` stays allowed everywhere (that IS the
+ * supported way to borrow), a project def keeps its OWN bundles, and a bare/coded key
+ * (`bigwin`) parses to nothing and is untouched.
+ */
+function assertNoForeignSpineRefs(def: ComponentDef, projectKey?: string): void {
+	const ownProject = def.scope === 'project' && projectKey ? r2Slug(projectKey) : null;
+	const offenders = new Set<string>();
+	const visit = (node: LayoutNode): void => {
+		if (node.kind === 'spine' && typeof node.assetKey === 'string' && node.assetKey) {
+			const ref = parseSpineBundleKey(node.assetKey);
+			if (ref && !ref.shared && ref.project !== ownProject) offenders.add(node.assetKey);
+		}
+		if (node.kind === 'container') for (const child of node.children) visit(child);
+	};
+	visit(def.root);
+	if (offenders.size === 0) return;
+	throw new ComponentValidationError(
+		`This component references ${offenders.size} spine bundle(s) from another project: ` +
+			`${[...offenders].join(', ')}. That art is never exported into a game built from ` +
+			`${ownProject ? 'this project' : 'the shared library'}, so it would ship missing. ` +
+			'Re-pick a rig from this project, or promote it to the shared spine library ' +
+			'(/admin → Spines) and pick it from there.',
+	);
+}
+
 export async function saveComponent(
 	component: ComponentDef,
 	projectKey?: string,
@@ -267,6 +308,7 @@ export async function saveComponent(
 	if (normalized.scope === 'project' && !projectKey) {
 		throw new ComponentValidationError('A project-scoped component requires a projectKey.');
 	}
+	assertNoForeignSpineRefs(normalized, projectKey);
 	const isProject = normalized.scope === 'project';
 	const key = isProject
 		? projectComponentKey(projectKey as string, normalized.id)

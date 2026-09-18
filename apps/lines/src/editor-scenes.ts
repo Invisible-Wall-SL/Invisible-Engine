@@ -132,6 +132,9 @@ type BakedBundle = {
 		/** Placed region names no exported sheet packs — they render blank in-game.
 		 * The dangling-binding guard warns about these at boot (see `warnMissingAssets`). */
 		missing?: string[];
+		/** Placed spine `assetKey`s that resolved to no R2 bundle — typically a rig borrowed
+		 * from ANOTHER project, which this game's export never copies. Same guard, spine half. */
+		spinesMissing?: string[];
 	};
 	/** Fonts (Font Maker output) the project uses, exported to `deploy/editor-fonts/`
 	 * and mirrored into `static/assets/` by the deploy pull. The catalog's `prefix`
@@ -580,13 +583,21 @@ let warnedMissingAssets = false;
 function warnMissingAssets(source: BakedBundle): void {
 	if (warnedMissingAssets) return;
 	const art = source.editorArt?.missing ?? [];
+	const spine = source.editorArt?.spinesMissing ?? [];
 	const sym = source.symbols?.index?.missing ?? [];
-	if (art.length === 0 && sym.length === 0) return;
+	if (art.length === 0 && spine.length === 0 && sym.length === 0) return;
 	warnedMissingAssets = true;
 	if (art.length) {
 		console.warn(
 			`[invisible] ${art.length} placed region(s) are in NO shipped atlas and will render blank: ` +
 				`${art.join(', ')}. Re-pack the atlas so it contains them, or re-pick the frame in the editor.`,
+		);
+	}
+	if (spine.length) {
+		console.warn(
+			`[invisible] ${spine.length} placed spine bundle(s) shipped with NO files and will be missing: ` +
+				`${spine.join(', ')}. A rig under another project's prefix is not exported into this game — ` +
+				're-pick it from this project, or promote it to the shared spine library.',
 		);
 	}
 	if (sym.length) {

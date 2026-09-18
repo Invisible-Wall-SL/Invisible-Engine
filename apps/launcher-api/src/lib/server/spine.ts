@@ -22,6 +22,10 @@ import { getRoleOverrides } from './roleToolAccess';
 import { ensureBundleAtlasFresh, firstAtlasPageName } from './spineBundleSync';
 import { getToolOverrides } from './userToolAccess';
 
+/** Re-exported so spine callers reach the path parser without importing the path module
+ * directly — it is the inverse of `SUB.spines`/`sharedSpinesPrefix` and lives with them. */
+export { parseSpineBundleKey, type SpineBundleRef } from './projectPaths';
+
 export async function requireSpineAccess(locals: App.Locals): Promise<void> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
@@ -311,7 +315,9 @@ export interface SkeletonIndexEntry {
 
 /** Bundle name (`folder` in the index) implied by a spine node's `assetKey`. The
  * `assetKey` is the R2 prefix the asset list hands out — either per-project
- * `<client>/<project>/spines/<bundle>/` or the shared `_shared/spines/<bundle>/`. */
+ * `<client>/<project>/spines/<bundle>/` or the shared `_shared/spines/<bundle>/`.
+ * A prefix under ANOTHER project's root is `null` here (it names no bundle this
+ * project can resolve) — see {@link parseSpineBundleKey}. */
 export function bundleFromAssetKey(
 	clientKey: string,
 	projectKey: string,
