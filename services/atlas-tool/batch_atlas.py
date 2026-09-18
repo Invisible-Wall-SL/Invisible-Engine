@@ -2574,6 +2574,13 @@ def resolve_blueprint_workflow(
                     region = regions[0]
             if region is None:
                 raise ValueError("this manifest has no regions to resolve")
+            # Same inheritance a real run applies, so the exported workflow
+            # shows the refs the layer would ACTUALLY render with rather than
+            # the empty ones it stores.
+            region = resolve_layer_refs(region, {
+                r["name"]: r
+                for r in (regions + list(manifest.get("rotated_regions") or []))
+                if r.get("name")})
 
             # Blueprint id: explicit arg, else the region's effective pipeline,
             # else the manifest's active pipeline (apply_manifest_settings put it
@@ -3476,7 +3483,7 @@ def fit_to_region(img: Image.Image, region: dict,
     (`<base>_glow`, ...), whose own alpha bbox is DELIBERATELY bigger than
     their base's (the halo blooms past the glyph) — cropping them to it would
     scale the glyph down relative to its base and break registration. See
-    fx_registration_crop, which builds the box from the BASE's bbox instead.
+    layer_registration_crop, which builds the box from the BASE's bbox instead.
 
     For a Spine/.atlas slot the packed (w, h) IS the element's authored
     footprint (true for EVERY region, trimmed or not — `helmet` is untrimmed
@@ -3549,7 +3556,7 @@ def fit_to_region(img: Image.Image, region: dict,
             padded.paste(img, (pad_w, pad_h), img)
             img = padded
     # …and under `keep` neither step runs. Not just the crop: `crop_box` is an
-    # alpha box too (`fx_registration_crop` derives it from the BASE's bbox,
+    # alpha box too (`layer_registration_crop` derives it from the BASE's bbox,
     # to re-register a halo against a glyph that WAS cropped), and it is moot
     # here — an FX layer is rendered on its base's canvas, so leaving both of
     # them whole registers them by construction. The padding goes with it
@@ -3681,17 +3688,81 @@ def _pick_variant_png(batch_dir: Path, region: dict) -> Path | None:
     return files[-1]
 
 
-def fx_registration_crop(img: Image.Image, region: dict,
-                         by_name: dict, batch_dir: Path
-                         ) -> tuple[int, int, int, int] | None:
-    """Crop box that keeps an FX layer registered with its base element.
+def layer_base_name(region: dict) -> str | None:
+    """The region this one is a LAYER of, or None if it stands alone.
 
-    An FX layer (`<base>_glow` / `_shadow` / ...) is built by shine.py from the
-    base's OWN source image onto a canvas of the SAME size with the glyph in
-    the SAME place. But its alpha bbox is deliberately larger (the halo blooms
+    Two kinds of layer resolve through here, and the explicit one wins:
+
+      * an **AI layer** — an ordinary generated region carrying `layer_of`,
+        which names its base outright. Its art is a separate render (its own
+        prompt, pipeline and seed) off the base's source refs.
+      * an **FX layer** — `<base>_glow` / `_shadow` / ..., classified from its
+        NAME by shine.fx_layer_info, whose art is derived locally from the
+        base's own pixels.
+
+    Both are drawn stacked on the base in-game, so both owe it registration
+    (see layer_registration_crop) — which is the whole reason one resolver
+    serves them. Pure dict/string reads; no IO.
+    """
+    explicit = region.get("layer_of")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    info = shine.fx_layer_info(region.get("name", ""))
+    return info["base"] if info else None
+
+
+# Refs an AI layer inherits from its base when it declares none of its own.
+# This is what makes "a different render OF THE SAME SOURCE" true rather than
+# a convention: repoint the base's reference and every layer follows, with no
+# copy to keep in sync. A layer that sets its own ref overrides, per key.
+_LAYER_INHERITED_REF_KEYS = ("style_ref", "shape_ref")
+
+
+def resolve_layer_refs(region: dict, by_name: dict) -> dict:
+    """`region` with any ref it does not own filled in from its base.
+
+    Returns the SAME object when there is nothing to inherit, else a shallow
+    copy — never a mutation, because the caller's dict is the loaded manifest
+    and persisting an inherited ref would freeze the link it exists to keep
+    live. A dangling `layer_of` (base deleted) inherits nothing and is not an
+    error: the layer simply renders on its own refs.
+
+    FX layers are deliberately untouched — shine.py reads the base's committed
+    PIXELS through fx_source, not its refs, so filling these in would be noise.
+    """
+    if not region.get("layer_of"):
+        return region
+    base = by_name.get(layer_base_name(region) or "")
+    if base is None:
+        return region
+    missing = {k: base[k] for k in _LAYER_INHERITED_REF_KEYS
+               if not region.get(k) and base.get(k)}
+    if not missing:
+        return region
+    return {**region, **missing}
+
+
+def layer_registration_crop(img: Image.Image, region: dict,
+                            by_name: dict, batch_dir: Path
+                            ) -> tuple[int, int, int, int] | None:
+    """Crop box that keeps a LAYER registered with its base element.
+
+    An FX layer (`<base>_glow` / `<base>_shadow` / ...) is built by shine.py
+    from the base's OWN source image onto a canvas of the SAME size with the
+    glyph in the SAME place. But its alpha bbox is deliberately larger (the halo blooms
     into the margin), so letting fit_to_region crop it to that bbox scales the
     glyph down and shifts it relative to the base — the FX renders offset and
     resized under a rig that expects the two slots to line up.
+
+    An **AI layer** (`layer_of`) has the same failure mode and a worse odds
+    profile: it is a wholly separate render, so its silhouette agrees with the
+    base's only by luck. Both resolve their base through layer_base_name and
+    take the same box.
+
+    Only `pack_trim: alpha` consumes it. Under the default `keep` both frames
+    are placed on their whole canvas, which registers them by construction —
+    see fit_to_region, where crop_box is moot on that branch for exactly the
+    same reason.
 
     Cropping the FX to the base's bare bbox would register but throw the halo
     away. So we crop to the base's bbox GROWN about its centre by the ratio of
@@ -3707,10 +3778,10 @@ def fx_registration_crop(img: Image.Image, region: dict,
     (hand-made or stale FX art isn't in the base's pixel space, so the box
     would be meaningless).
     """
-    info = shine.fx_layer_info(region.get("name", ""))
-    if info is None:
+    base_name = layer_base_name(region)
+    if base_name is None:
         return None
-    base = by_name.get(info["base"])
+    base = by_name.get(base_name)
     if base is None:
         return None
     src = override_image_path(base) or _pick_variant_png(batch_dir, base)
@@ -4076,7 +4147,7 @@ def main() -> None:
             ov = override_image_path(region)
             if ov is not None:
                 img = Image.open(ov).convert("RGBA")
-                img = fit_to_region(img, region, fx_registration_crop(
+                img = fit_to_region(img, region, layer_registration_crop(
                     img, region, all_regions_by_name, batch_dir))
                 rx, ry, _, _ = region_box(region)
                 canvas.paste(img, (rx, ry), img)
@@ -4093,7 +4164,7 @@ def main() -> None:
                 print(f"  skip {region['name']}: no generated variant found")
                 continue
             img = Image.open(src).convert("RGBA")
-            img = fit_to_region(img, region, fx_registration_crop(
+            img = fit_to_region(img, region, layer_registration_crop(
                 img, region, all_regions_by_name, batch_dir))
             rx, ry, _, _ = region_box(region)
             canvas.paste(img, (rx, ry), img)
@@ -4151,18 +4222,25 @@ def main() -> None:
     # leaves the region blank.
     def _is_fx_layer(r: dict) -> dict | None:
         """A region is a LOCAL-FX layer (derived from a base — never AI
-        generated) when its name carries a canonical FX suffix, the base it
-        derives from EXISTS IN THE MANIFEST (not necessarily in the current
-        selection — an FX cell can be processed on its own), and its stored
-        `mode` is a known FX preset. Returns fx_layer_info (with `mode`) or None.
-        Guards against a coincidental '_zoom'-named region with no matching
-        base."""
-        info = shine.fx_layer_info(r.get("name", ""))
-        if info is None or info["base"] not in all_region_names:
+        generated) when it is a LAYER of another region (layer_base_name: a
+        canonical FX suffix, or an explicit `layer_of`), the base it derives
+        from EXISTS IN THE MANIFEST (not necessarily in the current selection —
+        an FX cell can be processed on its own), and its stored `mode` is a
+        known FX preset. Returns {"base", "mode"} or None. Guards against a
+        coincidental '_zoom'-named region with no matching base.
+
+        This MUST stay in step with ui_server.rebuild_fx_layers, which decides
+        the same question at compose. If this one said "generate" where that
+        one says "derive", the slot would be rendered for real — paid, on
+        gpt_image — and then overwritten from its base's pixels seconds later.
+        Hence the shared resolver rather than a second name test."""
+        base = layer_base_name(r)
+        if base is None or base not in all_region_names:
             return None
-        if str(r.get("mode") or "").strip().lower() not in shine.FX_PRESETS:
+        mode = str(r.get("mode") or "").strip().lower()
+        if mode not in shine.FX_PRESETS:
             return None
-        return info
+        return {"base": base, "mode": mode}
 
     # A region is only treated as "use my own image" (skipped from generation)
     # when its override file actually EXISTS. A region flagged output_override
@@ -4294,7 +4372,11 @@ def main() -> None:
         label = f"{region['name']} ({region.get('fruit', '?')})"
         flag = " [rotated]" if region.get("rotated") else ""
         print(f"[{i}/{len(jobs)}] {label}{flag} ...", flush=True)
-        run_region(region, style, source_image, client_id)
+        # An AI layer borrows its base's refs BY REFERENCE — resolved here,
+        # per job, never written back: the manifest must keep holding the link
+        # and not a frozen copy of whatever the base pointed at today.
+        run_region(resolve_layer_refs(region, all_regions_by_name),
+                   style, source_image, client_id)
 
     print(f"Done generating. Variant PNGs saved in {BATCH_DIR}")
 
