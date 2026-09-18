@@ -100,6 +100,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 import { tumbleExplosionDelays } from '../packages/engine-layout/src/lib/tumblePattern.ts';
+import { assertStubSetIsComplete } from './lib/stub-set-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
@@ -1014,6 +1015,8 @@ const boardOf = (prefix) =>
  * unlike those two it has behaviour: `inTransit` awaits the movement it wraps, and a stand-in that
  * forgot to would silently un-order every beat measured below.
  */
+let stubSetChecked = false;
+
 const buildTumbleRuntime = ({
 	clock,
 	previousBoard,
@@ -1026,91 +1029,40 @@ const buildTumbleRuntime = ({
 	moves,
 	authoredIntro,
 	swapStyle,
+	/** `/symbols` → Transition → the arrival release. OFF is the unauthored project, and the premise
+	 *  every timing in this file is written against: the emerge arrival is AWAITED. */
+	releaseOnArrival = false,
 }) => {
 	// The REELS this cascade drives. Their settled cells are what it adopts, and their factory is
 	// what it mints the step's arrivals through — see `makeReel`.
 	const stateGame = {
 		board: previousBoard.map((strip, reelIndex) => makeReel(strip, previousRemoved[reelIndex])),
 	};
-	const build = new Function(
-		'Tween',
-		'backOut',
-		'cubicIn',
-		'waitForResolve',
-		'waitForTimeout',
-		'getSymbolSeat',
-		// THE REELS THEMSELVES, not only the derived view of them. The cascade adopts their settled
-		// cells and mints its arrivals through their factory, so a stub that answered only
-		// `boardRaw()` would leave the helpers under test unreachable.
-		'stateGame',
-		'stateGameDerived',
-		// The overlay's handlers PLAY things now (the cascade pop, a symbol's own pop, a symbol's own
-		// emerge voice). Stubbed rather than ignored, and RECORDED rather than no-op'd: what a beat
-		// sounds like is part of what it does, and a cue that stopped firing would otherwise leave no
-		// trace here at all. The real players are `soundBindings.ts`, which reads baked project data
-		// no fixture has — so what is asserted is that the beat asks, not what it picks.
-		'playTumbleExplosionSound',
-		'playSymbolClearReelSound',
-		'playSymbolIntroSound',
-		// WHICH SYMBOLS AUTHORED AN INTRO. A parameter rather than a constant, because the whole
-		// point of the predicate is that the two answers cost different amounts of time, and a
-		// fixture that could only exercise one of them would not be testing the rule at all.
-		'hasAuthoredSymbolState',
-		// THE EXPLOSION → INTRO TRANSITION, unauthored — which is what `bakedSymbolTransition()`
-		// returns for every project that has not drawn one, and therefore the behaviour every claim
-		// below is about. What a transition DOES is not in scope here (nothing in a fixture draws);
-		// what is in scope is that the explode handler asks, and that an unauthored answer changes no
-		// step, no order and no beat — it is fire-and-forget by construction (see `transitions`).
-		'bakedSymbolTransition',
-		// THE EXPLOSION PATTERN, and the ordering function that reads it. Both are free identifiers in
-		// the explode handler, so the slice needs them or it throws before a single claim below is
-		// tested — which is exactly what happened when the pattern and this fixture's repair landed in
-		// the same hour, each green on its own branch and broken together on `main`.
-		//
-		// `bakedTumblePattern` answers UNAUTHORED, like `bakedSymbolTransition` above and for the same
-		// reason: every claim in this file is about a board with no pattern picked, and that answer is
-		// what makes the explode step the single frame those claims assume. The ORDERING function is
-		// the real one rather than a stub, so if the un-authored path ever stopped resolving to
-		// all-zero, every order asserted below would move and say so.
-		'bakedTumblePattern',
-		// ARRIVAL RELEASE — read by the appear handler to decide whether the round is let go as soon
-		// as the symbols are seated, or only once every intro has played out. Another free identifier
-		// in the slice, and the third time a new one has quietly taken this fixture out: it threw
-		// before a single part-9 claim ran, on `main`, green on the branch that added it. It answers
-		// OFF here for the same reason the two above answer unauthored — that is the state every project
-		// is in until someone turns it on, and it is the behaviour every claim below was written for.
-		'bakedArrivalReleaseEnabled',
-		'tumbleExplosionDelays',
-		`${tumbleStateSource}
-let show = false;
-// Svelte's, and the helper slice hands it the transition sweep. Nothing unmounts a component in a
-// fixture, so the callback never runs — what has to hold is that registering it does not throw.
-const onDestroy = () => {};
-${helpers}
-${handlersDecl}
-return {
-	handlers,
-	stateTumble,
-	tumbleBoardCombined,
-	stateGame,
-	showing: () => show,
-};`,
-	);
-	return build(
-		tweenClass(clock, moves),
-		(t) => t,
-		(t) => t,
-		(arm) => new Promise((resolve) => arm(resolve)),
+	/**
+	 * The stub set: every module the slices import and this fixture does not run. Written as an
+	 * OBJECT, not as the two positional lists `new Function` wants, because a positional list can
+	 * drift out of step with ITSELF — insert one name and every stub below it is silently bound to
+	 * the wrong value. Keys and values travel together here by construction, and the guard below
+	 * reads the keys.
+	 */
+	const stubs = {
+		Tween: tweenClass(clock, moves),
+		backOut: (t) => t,
+		cubicIn: (t) => t,
+		waitForResolve: (arm) => new Promise((resolve) => arm(resolve)),
 		// The beat CAP on the virtual clock: no symbol reports `oncomplete` here (there is no
 		// renderer), so every beat resolves through this race arm — which is exactly what an
 		// unauthored `land` state does in the real game.
-		(ms) => clock.wait(ms),
+		waitForTimeout: (ms) => clock.wait(ms),
 		// A monotonic stand-in. The real seat algebra has its own fixture; what is under test here is
 		// which seat each symbol is AIMED at, not what that seat evaluates to. With `ROWS = 3` the
 		// board window bottom is 360, so anything a drain leaves below that is out of the window.
-		(reel, row) => ({ x: reel * 120, y: (row + 0.5) * 120, scale: 1 }),
+		getSymbolSeat: (reel, row) => ({ x: reel * 120, y: (row + 0.5) * 120, scale: 1 }),
+		// THE REELS THEMSELVES, not only the derived view of them. The cascade adopts their settled
+		// cells and mints its arrivals through their factory, so a stub that answered only
+		// `boardRaw()` would leave the helpers under test unreachable.
 		stateGame,
-		{
+		stateGameDerived: {
 			boardRaw: () => previousBoard,
 			// WHICH seats the end-of-win pop already emptied — all-`false` for every run but the one
 			// that turns it on, which is what makes the removal's claims below a difference rather than
@@ -1125,17 +1077,76 @@ return {
 			boardSwapsInPlace: () => true,
 			boardSwapStyle: () => swapStyle,
 		},
-		() => onSound?.('tumbleExplosion'),
-		(symbolName) => onSound?.(`symbol:clearReel:${symbolName}`),
-		(symbolName) => onSound?.(`symbol:intro:${symbolName}`),
+		// The overlay's handlers PLAY things now (the cascade pop, a symbol's own pop, a symbol's own
+		// emerge voice). Stubbed rather than ignored, and RECORDED rather than no-op'd: what a beat
+		// sounds like is part of what it does, and a cue that stopped firing would otherwise leave no
+		// trace here at all. The real players are `soundBindings.ts`, which reads baked project data
+		// no fixture has — so what is asserted is that the beat asks, not what it picks.
+		playTumbleExplosionSound: () => onSound?.('tumbleExplosion'),
+		playSymbolClearReelSound: (symbolName) => onSound?.(`symbol:clearReel:${symbolName}`),
+		playSymbolIntroSound: (symbolName) => onSound?.(`symbol:intro:${symbolName}`),
+		// WHICH SYMBOLS AUTHORED AN INTRO. A parameter rather than a constant, because the whole
+		// point of the predicate is that the two answers cost different amounts of time, and a
+		// fixture that could only exercise one of them would not be testing the rule at all.
 		// Default: NOTHING is authored. That is the state every project is in the day the style
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
-		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
-		() => undefined,
-		() => undefined,
-		() => false,
+		hasAuthoredSymbolState: (symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
+		// THE EXPLOSION → INTRO TRANSITION, unauthored — which is what `bakedSymbolTransition()`
+		// returns for every project that has not drawn one, and therefore the behaviour every claim
+		// below is about. What a transition DOES is not in scope here (nothing in a fixture draws);
+		// what is in scope is that the explode handler asks, and that an unauthored answer changes no
+		// step, no order and no beat — it is fire-and-forget by construction (see `transitions`).
+		bakedSymbolTransition: () => undefined,
+		// THE EXPLOSION PATTERN, and the ordering function that reads it. Both are free identifiers in
+		// the explode handler, so the slice needs them or it throws before a single claim below is
+		// tested — which is exactly what happened when the pattern and this fixture's repair landed in
+		// the same hour, each green on its own branch and broken together on `main`.
+		//
+		// `bakedTumblePattern` answers UNAUTHORED, like `bakedSymbolTransition` above and for the same
+		// reason: every claim in this file is about a board with no pattern picked, and that answer is
+		// what makes the explode step the single frame those claims assume. The ORDERING function is
+		// the real one rather than a stub, so if the un-authored path ever stopped resolving to
+		// all-zero, every order asserted below would move and say so.
+		bakedTumblePattern: () => undefined,
+		// ARRIVAL RELEASE — read by the appear handler to decide whether the round is let go as soon
+		// as the symbols are seated, or only once every intro has played out. Another free identifier
+		// in the slice, and the third time a new one has quietly taken this fixture out: it threw
+		// before a single part-9 claim ran, on `main`, green on the branch that added it.
+		//
+		// A knob rather than a constant, and driven BOTH ways below: OFF is the state every project is
+		// in until someone turns it on, and what every timing in this file is written against — but a
+		// stub nothing ever flips is the shape a stub set drifts into.
+		bakedArrivalReleaseEnabled: () => releaseOnArrival,
 		tumbleExplosionDelays,
-	);
+	};
+
+	const body = `${tumbleStateSource}
+let show = false;
+// Svelte's, and the helper slice hands it the transition sweep. Nothing unmounts a component in a
+// fixture, so the callback never runs — what has to hold is that registering it does not throw.
+const onDestroy = () => {};
+${helpers}
+${handlersDecl}
+return {
+	handlers,
+	stateTumble,
+	tumbleBoardCombined,
+	stateGame,
+	showing: () => show,
+};`;
+
+	// Once per run, before the first presentation: does this set still cover everything the slices
+	// call? It did not, twice — see `scripts/lib/stub-set-guard.mjs`.
+	if (!stubSetChecked) {
+		stubSetChecked = true;
+		assertStubSetIsComplete({
+			what: 'verify-swap-in-place-mode',
+			body,
+			stubNames: Object.keys(stubs),
+		});
+	}
+
+	return new Function(...Object.keys(stubs), body)(...Object.values(stubs));
 };
 
 /**
@@ -1160,6 +1171,8 @@ const runReveal = async ({
 	 *  into the padded strip (Invisible Symbols → "Winning symbols explode"). Empty ⇒ the board every
 	 *  other run in this file drives. */
 	removedCells = [],
+	/** `/symbols` → Transition → the arrival release. OFF everywhere but the A/B that turns it on. */
+	releaseOnArrival = false,
 }) => {
 	const clock = createClock();
 	/** The authored style this run IS, read off the presentation being driven — the same answer the
@@ -1192,6 +1205,7 @@ const runReveal = async ({
 		moves,
 		authoredIntro,
 		swapStyle,
+		releaseOnArrival,
 	});
 
 	const logEvent = (event) => {
@@ -2260,6 +2274,47 @@ check(
 			entryFor(emerge, 'tumbleBoardAppear', reelIndex).at,
 			firstAppear,
 		);
+	}
+}
+
+{
+	// THE ARRIVAL RELEASE (`/symbols` → Transition → "let the next spin start as soon as the
+	// symbols are back"). The switch changes what the round WAITS for and nothing else, so it is
+	// driven A/B on one presentation with every symbol's `intro` AUTHORED — an unauthored one
+	// costs the short transit beat instead of the long cap, which would hide the difference.
+	//
+	// It is also why `bakedArrivalReleaseEnabled` is a stub this fixture can FLIP rather than a
+	// constant: every clock in this file is written against the OFF answer, and a stub nothing ever
+	// changes is the shape a stub set drifts into — which is how this fixture went down twice.
+	const arrivalOpts = { name: 'emergeRevealBoard', source: emergePresentation, staggerMs: 0, authoredIntro: () => true }; // prettier-ignore
+	const awaited = await runReveal({ ...arrivalOpts, releaseOnArrival: false });
+	const released = await runReveal({ ...arrivalOpts, releaseOnArrival: true });
+
+	// OFF: the column is held for the authored intro cap (`INTRO_BEAT_CAP_MS`, the long one) —
+	// the measured tail the switch exists to give back.
+	const awaitedAppear = entryFor(awaited, 'tumbleBoardAppear', 0);
+	check('awaited: the arrival holds the column for the authored intro cap', awaitedAppear.done - awaitedAppear.at, INTRO_CAP_MS); // prettier-ignore
+	check('...and the whole reveal costs it', awaited.clock.at(), INTRO_CAP_MS);
+
+	// ON: released the moment every cell is seated.
+	const releasedAppear = entryFor(released, 'tumbleBoardAppear', 0);
+	check('released: the arrival holds the column for nothing at all', releasedAppear.done - releasedAppear.at, 0); // prettier-ignore
+	check('...and the reveal is over in the tick it started', released.clock.at(), 0);
+
+	// AND NOTHING ELSE MOVED. Same broadcasts in the same order, the same landings, the same emerge
+	// voices and the same settled board cell for cell: every intro still PLAYS and every cell is
+	// still seated with its new art — only the awaiting stops. DETACHED, NOT SKIPPED.
+	check('...with the same broadcast sequence', released.types.join(' -> '), awaited.types.join(' -> ')); // prettier-ignore
+	check('...the same landings', released.landed.join(','), awaited.landed.join(','));
+	check('...and the same emerge voices, so the intros still play', released.sounded.filter((cue) => cue.startsWith('symbol:intro:')).length, REELS * ROWS); // prettier-ignore
+	for (let reel = 0; reel < REELS; reel += 1) {
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`released emerge settled cell (${reel}, ${row}) IS the revealed symbol`,
+				released.settled[reel][row],
+				released.revealedBoard[reel][row],
+			);
+		}
 	}
 }
 

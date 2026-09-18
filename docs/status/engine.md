@@ -163,6 +163,48 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-09-18 — **the same guard has now been repaired four times by adding the one name that run happened
+  to hit, so the repair is now a shared check instead.** Several offline fixtures cannot import what they
+  test (Svelte components, runes files Node will not load), so they SLICE the shipped source and compile it
+  with `new Function`, whose parameters ARE the stub set. That list is hand-written and it DRIFTS: the
+  component grows a call, the list does not follow. `new Function` compiles a free identifier happily and
+  only throws when the line RUNS — inside an async cue handler several awaits deep — so the file dies on a
+  bare `ReferenceError` naming one symbol, every check after it asserts nothing, and the fixture goes on
+  looking maintained. It has now happened on `verify-swap-in-place-mode.mjs` three times (#622, #625, and
+  `bakedArrivalReleaseEnabled` at part 9), on `verify-win-explode-pop.mjs` once (`resolveWinBeatBudget` at
+  part 2 of 11) and on `verify-reelgrid-perspective-roundtrip.mjs` (#613).
+  - **`scripts/lib/stub-set-guard.mjs`** type-checks the exact body a fixture is about to hand
+    `new Function`, with the stub set declared ambient, and reports the "this name does not exist" family
+    BEFORE the first case that compiles the slice — `tsc --noResolve` filtered to TS2304/TS2552/TS18004, the
+    same technique `scripts/check-undefined-names.mjs` uses for the same bug one layer out. A missing stub is
+    a message naming the fixture, the identifier and what to do about it, not a `ReferenceError` from the
+    middle of a handler. Both fixtures adopt it, and both stopped passing stubs as the two positional lists
+    `new Function` wants: names and values travel in one object now, so inserting a name can no longer bind
+    every stub below it to the wrong value.
+  - **It found two more the hour it was wired in, on a green `main`.** `overlayShown` and `settleBoard` are
+    free in `Board.svelte`'s `boardSettle` / `tumbleBoardShow` / `tumbleBoardHide` handlers and nothing
+    provided them — latent, waiting for the first case to drive one of those cues. Declared in the fixture's
+    preamble (no cascade is ever up there, so `boardSettle` takes the plain settle path; the adoption path is
+    `verify-swap-in-place-mode.mjs`'s).
+  - **Two driven cases, so neither flipped stub is decorative.** A winner with no `explosion` bound leaves
+    the board without a beat — the live `test6` scatter, one such cell cost every paying spin the whole
+    budget — and the arrival-release A/B releases an emerge column in the tick it is seated where the awaited
+    one pays `INTRO_BEAT_CAP_MS`, with the same broadcasts, landings, voices and settled board either way.
+    Both predicates had been stubbed as constants nobody ever flipped, which is the shape a stub set drifts
+    into.
+  - Counts: `verify-win-explode-pop` 173 → 178, `verify-swap-in-place-mode` 644 → 676, both exit 0. Mutation-
+    tested in both directions: deleting a stub fires the guard by name before the first compiled case (where
+    without it the file still dies at part 2 / part 9 on a bare `ReferenceError`), and reverting the shipped
+    behaviour turns each file red — 18/178 when the pop stops removing after its beat, 4/178 when the
+    unbound-`explosion` skip is deleted, 15/676 when `swapInPlace` is re-coupled to `farScale`, 2/676 when the
+    arrival release is ignored.
+  - **Still open, and found while checking the neighbours: `scripts/verify-board-tiles.mjs` is RED on `main`**
+    since #734 — `SyntaxError: Unexpected token ':'` out of `new Function` at part 5, because the
+    `editorArtExport.ts` slice it compiles now carries TypeScript annotations its stripping no longer removes.
+    Same family, one step earlier: not a stub that went missing but a SLICE whose shape moved, which this
+    guard does not cover because the text never reaches `tsc`. `verify-reelgrid-perspective-roundtrip.mjs`
+    was the same shape and is green again since #613.
+
 - 2026-09-17 — **a delivery build is now producible and, for the first time, playable before it ships.** Two engine scripts. `build-delivery.mjs` runs a game repo's own `pnpm build` with the three env vars a delivery needs and then writes `game.js` — one command from any game repo, no per-repo wiring, because `new-game.mjs` writes a repo's scripts once at scaffold time and nothing refreshes them, so a script added only to the scaffold would work for games created after today and for none that exist. `serve-embed.mjs` plays the result: a fake operator page at `/operator/`, the game at a CDN-shaped path that **shares nothing with it**, and an RGS proxy so the game's same-origin calls reach a real node. Until this existed a delivery build could not be opened at all — no `index.html`, and it reads its session from `window.params`, so it refuses to boot anywhere but the partner's page. We would have handed over a bundle nobody had ever seen run. **It immediately earned its keep:** pointed at the live node with a spent session, the game showed the player `[object Object]`. `ModalError` only rendered a structured error when it carried BOTH `error` and `message` — our own throws do, so it looked right for years; a partner reports failures as HTTP 200 with `{result, error, errorCode}` and no `message`, so **every** partner-side failure reached the player as a type name. It now searches the known human keys breadth-first (the sentence sits at a different depth on each shape) and falls back to JSON rather than `[object Object]`. Verified both directions: the partner's expired session reads "not authorized", and our own missing-token error still reads as its sentence.
 
 - 2026-09-17 — **audited what the partner's `config` event declares against what we actually read, and most of it reaches nothing.** The facade bridges three fields to the engine (`__IE_SERVER_CONFIG__`: `availablePayLines`, `symbols`, `window`) plus `betOptions`/`gameCost` in `betOptions.ts`. Unread: `oneCreditBuysLines`, `costPerReel`, `maxWays`, `symbolsPay.scatter` — and **`paytable`, which is the one that matters.** It is declared in `Play4FunConfigContext` and named in comments, but never read: the paytable screen comes from the AUTHORED config, so a delivery can show a player one paytable while the operator's server pays another and nothing anywhere notices. Not urgent for Book-of, where the two agree today; it matters the moment a partner changes a paytable on their side, which is exactly the change nobody tells the client team about. Reading it and warning on mismatch at boot — not "fixing" it — would be cheap. **Also recorded rather than dismissed: one spin in four in the first live session sent no `collect`.** The other three closed cleanly at `seq=2` with their own `gid`, the balance reconciled, and a later eight-round session collected every time; it has not reproduced. Worth keeping because the failure it would represent is a round left open that the client thinks is finished — the one that pays nothing while the HUD says otherwise — and the earlier collect bug lived in this same path. Response bodies would settle it; the browser pane only captured request URLs.
