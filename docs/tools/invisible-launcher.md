@@ -156,7 +156,7 @@ engine automatically.
 
 ### 📦 Deliver — build the folder a partner hosts
 
-**☁ Publish** puts a game on *our* server. **📦 Deliver** produces the folder
+*(from **v1.0.54**)* **☁ Publish** puts a game on *our* server. **📦 Deliver** produces the folder
 somebody *else* serves — a client, a casino operator, an aggregator — from their
 own domain, launched by their own page. Nothing is uploaded, no game card is
 registered and the test server is never told.
