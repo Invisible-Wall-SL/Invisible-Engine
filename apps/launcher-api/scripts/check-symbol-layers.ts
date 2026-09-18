@@ -548,6 +548,11 @@ check(
 	corrected.some((m) => gpuNative.includes(m)),
 	false,
 );
+check(
+	"advancedBlendModes.ts: the filter inherits the renderer's resolution (else the backdrop is sampled at the wrong scale and the blend covers only PART of the node — the 150%-display bug)",
+	/this\.resolution = 'inherit';/.test(filterSrc),
+	true,
+);
 
 // ── 7. The win dim, and a layer's opt-out from it ────────────────────────────────────────────
 // "Darken the non-winning symbols" (`winCycle.dimNonWinning`) draws every non-paying cell through a
