@@ -154,6 +154,49 @@ engine automatically.
 > refuse to overwrite each other's game card. Keep the keys distinct — `<game>`
 > for the desktop build, `<game>remake` for the online one.
 
+### 📦 Deliver — build the folder a partner hosts
+
+*(from **v1.0.54**)* **☁ Publish** puts a game on *our* server. **📦 Deliver** produces the folder
+somebody *else* serves — a client, a casino operator, an aggregator — from their
+own domain, launched by their own page. Nothing is uploaded, no game card is
+registered and the test server is never told.
+
+Press it and you pick two things:
+
+- **Delivery profile** — which RGS the build belongs to. This is baked in
+  permanently: a delivered build's wallet is not something the host page gets to
+  repoint later. `operator-embed` is the one to use for a real handover — it names
+  no RGS host at all, because the operator's own page *is* the origin. The list
+  comes from the engine, so a new partner profile shows up without a launcher release.
+- **Game alias** — the CDN folder their page composes the script URL from. Their
+  convention is the game's display name with the spaces removed (*Book Of Borut* →
+  `BookOfBorut`), which is what the box is prefilled with. **Get it wrong and their
+  script tag 404s**, so confirm it with them rather than assuming.
+
+You get a folder, a zip named after the alias, and an `EMBED.md` written for the
+partner: where to put the folder, what their page must set, and the two lines they
+add to it. Two values in those lines are **fixed and cannot vary per game** —
+the container id `game` and the filename `game.js` — because one page of theirs
+serves every game and composes the URL server-side, so it can neither pass a
+per-game id nor know a content hash. Their cache-buster is the `versionPath`
+folder, which is why the whole folder moves per release.
+
+**▶ Play it, in the result dialog, is not optional polish.** A delivery build
+cannot be opened: there is no `index.html`, and it reads the session and RGS path
+from `window.params.GameSettings`, which only the partner's page supplies — so
+double-clicking the folder gets you nothing, correctly. Paste a session token from
+their platform and their RGS origin and it plays here exactly as it will on their
+page, wallet included. Without it, the first person ever to run the build is the
+operator.
+
+- Leave the fields empty and it still loads, then refuses at the session check —
+  which is itself worth seeing once, because that refusal is what protects a
+  mis-wired embed from showing a player a wallet nobody issued.
+- 🐞 **Debug** and 🗜 **Optimize** mean the same as for a publish. Debug ships the
+  in-game debug tooling *to the partner*, so untick it for a real handover.
+- Needs the project's engine submodule to be recent; if it predates delivery
+  builds the launcher says so and one ☁ Publish advances it.
+
 ## Related
 
 - [ComfyUI](comfyui.md) — what the launcher installs + starts.
