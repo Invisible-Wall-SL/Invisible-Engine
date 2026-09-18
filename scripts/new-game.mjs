@@ -131,7 +131,11 @@ const SEED_DEPS = seedPkg.dependencies ?? {};
 const SEED_DEV_DEPS = seedPkg.devDependencies ?? {};
 
 const files = {
-	'.gitignore': `node_modules\n/build\n/.svelte-kit\n/dist\n.env\n.env.*\n!.env.example\n`,
+	// `/delivery` + `/*.zip` are `build-delivery.mjs`'s output — tens of megabytes of build
+	// artifact sitting in the working tree, one `git add -A` away from being committed.
+	'.gitignore':
+		`node_modules\n/build\n/delivery\n/*.zip\n/.svelte-kit\n/dist\n` +
+		`.env\n.env.*\n!.env.example\n`,
 
 	'pnpm-workspace.yaml': `packages:\n  - "engine/packages/*"\n  - "."\n`,
 

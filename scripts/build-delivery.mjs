@@ -48,7 +48,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { isStandaloneGame } from '../packages/config-svelte/appSrc.js';
 import { zipDir } from './zip-dir.mjs';
@@ -108,6 +108,16 @@ const profile = arg('--profile', DEFAULT_PROFILE);
 const outDir = arg('--out', '');
 const wantZip = flag('--zip');
 const jsonOut = arg('--json', '');
+
+/**
+ * Where `pnpm build` put its output.
+ *
+ * `build/` for every game the scaffolder makes, but NOT a given: the desktop launcher reads each
+ * project's `publish.build_out`, which merely defaults to that. Hardcoding it here would have the
+ * launcher compress one folder and the packager hand over another, with nothing noticing until the
+ * missing `game.js` at the end.
+ */
+const buildDir = resolve(gameRoot, arg('--build', 'build'));
 
 /**
  * The env that makes `pnpm build` produce an embeddable bundle rather than a droppable site.
@@ -212,7 +222,13 @@ const aliasFromPackage = (name) =>
 const aliasGiven = arg('--alias', '');
 const alias = aliasGiven || aliasFromPackage(pkg.name);
 
-const quote = (value) => (/[\s"]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value);
+/** Quote for the shell that will actually re-parse this: `cmd.exe` escapes an embedded quote by
+ *  doubling it, POSIX shells by backslash. No caller passes a quoted argument today; getting it
+ *  wrong only when one eventually does is the kind of latency this is not worth having. */
+const quote = (value) =>
+	/[\s"]/.test(value)
+		? `"${value.replace(/"/g, process.platform === 'win32' ? '""' : '\\"')}"`
+		: value;
 
 /**
  * Run a build step, inheriting stdio so its output is the user's.
@@ -244,7 +260,7 @@ const run = (command, args, env, { shell = process.platform === 'win32' } = {}) 
 	}
 };
 
-/** Every file under `dir`, relative and `/`-separated, with the total byte count. */
+/** How many files are under `dir`, and how many bytes they come to. */
 const measure = (dir) => {
 	const walk = (current) =>
 		readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
@@ -255,7 +271,6 @@ const measure = (dir) => {
 	return {
 		fileCount: files.length,
 		bytes: files.reduce((total, file) => total + statSync(file).size, 0),
-		names: files.map((file) => relative(dir, file).split(sep).join('/')),
 	};
 };
 
@@ -380,27 +395,41 @@ try {
 	// engine path containing spaces is never handed to a command-line parser at all.
 	run(
 		process.execPath,
-		[resolve(ENGINE_ROOT, 'scripts/build-embed.mjs'), 'build'],
+		[resolve(ENGINE_ROOT, 'scripts/build-embed.mjs'), buildDir],
 		{},
 		{ shell: false },
 	);
 
-	// The shell SvelteKit emits has now been read — `build-embed.mjs` generated `game.js` out of it —
-	// and a delivery must not carry it onward. Embed mode only switches `bundleStrategy`, so the
-	// `index.html` still lands in `build/`, and shipping it would contradict the one thing a partner
-	// is told about this folder: that it is not a site. Left in place it is a URL on their CDN that
-	// loads our game outside their page, fails the session check and looks like our bug.
-	rmSync(resolve(gameRoot, 'build/index.html'), { force: true });
-
 	// `--out` copies the result somewhere stable, because `build/` is what the NEXT ordinary build
 	// overwrites — and a delivery folder you are about to hand over should not evaporate the next time
 	// someone runs `pnpm build`.
-	let final = resolve(gameRoot, 'build');
+	let final = buildDir;
 	if (outDir) {
 		final = resolve(gameRoot, outDir);
+		// `rmSync(recursive)` below is why this is checked rather than trusted: `--out .` would
+		// delete the game repo, and `--out build` would delete the very folder about to be copied.
+		if (final === gameRoot || final === buildDir) {
+			throw new Error(
+				`--out ${outDir} resolves to ${final === gameRoot ? 'the repo root' : 'the build folder'}` +
+					`, which is emptied before the copy. Pick a new directory, e.g. --out delivery.`,
+			);
+		}
 		rmSync(final, { recursive: true, force: true });
-		cpSync(resolve(gameRoot, 'build'), final, { recursive: true });
+		cpSync(buildDir, final, { recursive: true });
 	}
+
+	// The shell SvelteKit emits has now been read — `build-embed.mjs` generated `game.js` out of it —
+	// and a delivery must not carry it onward. Embed mode only switches `bundleStrategy`, so the
+	// `index.html` still lands in the build folder, and shipping it would contradict the one thing a
+	// partner is told about this folder: that it is not a site. Left in place it is a URL on their
+	// CDN that loads our game outside their page, fails the session check and looks like our bug.
+	//
+	// Deleted from the DELIVERY copy, after the copy — never from the source build. Everything that
+	// can still fail (the `game.js` check, the profile read, `EMBED.md`, the zip) runs below this
+	// point, and taking the shell out of `build/` would leave that folder permanently unpackageable:
+	// a `--skip-build` retry would then die claiming the build was never an embed build, which by
+	// then is untrue and costs a five-minute rebuild to disprove.
+	rmSync(resolve(final, 'index.html'), { force: true });
 
 	if (!existsSync(resolve(final, ENTRY_FILE))) {
 		throw new Error(
@@ -413,7 +442,7 @@ try {
 	const docPath = resolve(final, 'EMBED.md');
 	writeFileSync(docPath, embedDoc(baked), 'utf8');
 
-	const { fileCount, bytes, names } = measure(final);
+	const { fileCount, bytes } = measure(final);
 
 	let zip = null;
 	if (wantZip) {
@@ -422,7 +451,13 @@ try {
 		zip = { path: zipPath, files, bytes: zipBytes };
 	}
 
+	// `--service` carries the BAKED endpoint into the preview. Without it `serve-embed.mjs` falls back
+	// to its own default, so a profile pointing anywhere else would be exercised over a path the
+	// delivery never uses — a preview that passes while the real thing 404s.
+	const endpoint = baked.rgs?.endpoint ?? '';
 	const serveArgs = [final, '--alias', alias];
+	if (endpoint) serveArgs.push('--service', endpoint.replace(/^\//, ''));
+
 	if (jsonOut) {
 		writeFileSync(
 			resolve(gameRoot, jsonOut),
@@ -436,9 +471,12 @@ try {
 					entry: ENTRY_FILE,
 					containerId: CONTAINER_ID,
 					embedDoc: docPath,
+					endpoint,
 					fileCount,
 					bytes,
-					contents: names.filter((name) => !name.includes('/')).sort(),
+					// Top-level entries, directories included — `measure()` returns files only, so
+					// filtering its list showed `game.js` and hid `_app/` and `assets/`.
+					contents: readdirSync(final).sort(),
 					zip,
 					// The "play it" half, so a UI never has to hardcode where the engine lives.
 					serve: { script: SERVE_SCRIPT, args: serveArgs },
@@ -449,6 +487,20 @@ try {
 			'utf8',
 		);
 	}
+
+	/**
+	 * Warn about delivery output git does not ignore.
+	 *
+	 * The scaffolder only learned to ignore `/delivery` and `/*.zip` today, and nothing refreshes an
+	 * existing repo's `.gitignore` — the same snapshot problem this script exists to sidestep. So an
+	 * older game repo ends a delivery with tens of megabytes of artifact sitting in its working tree,
+	 * one `git add -A` from being committed. Asking git is the only reliable answer (a repo may ignore
+	 * these by another rule entirely); a git that will not run simply means no warning.
+	 */
+	const notIgnored = [final, zip?.path].filter(Boolean).filter((path) => {
+		const probe = spawnSync('git', ['check-ignore', '-q', path], { cwd: gameRoot });
+		return probe.error ? false : probe.status === 1;
+	});
 
 	const mb = (n) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 	console.info(
@@ -467,7 +519,13 @@ try {
 			(aliasGiven
 				? ''
 				: `\n  NOTE: '${alias}' was derived from the repo name. Confirm it matches their gameAlias,\n` +
-					`        or pass --alias — a mismatch is a 404 on their CDN.\n`),
+					`        or pass --alias — a mismatch is a 404 on their CDN.\n`) +
+			(notIgnored.length
+				? `\n  NOTE: git does not ignore this delivery output:\n` +
+					notIgnored.map((path) => `        ${path}\n`).join('') +
+					`        Add '/delivery' and '/*.zip' to .gitignore — it is build artifact, and\n` +
+					`        a 'git add -A' would commit ${mb(bytes + (zip?.bytes ?? 0))} of it.\n`
+				: ''),
 	);
 } catch (error) {
 	fail(error);

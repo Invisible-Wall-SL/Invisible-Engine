@@ -109,6 +109,12 @@ export const zipDir = (sourceDir, outFile, { root = '' } = {}) => {
 		const crc = crc32(body);
 		const localOffset = offset;
 
+		// Before the size fields are written, not after: `writeUInt32LE` would otherwise throw a
+		// bare ERR_OUT_OF_RANGE that names neither the file nor the limit it hit.
+		if (body.length > MAX_BYTES || payload.length > MAX_BYTES) {
+			throw new Error(`${full} is over 4GB; a non-zip64 entry cannot describe it.`);
+		}
+
 		const header = Buffer.alloc(30);
 		header.writeUInt32LE(LOCAL_SIG, 0);
 		header.writeUInt16LE(20, 4);
@@ -150,6 +156,9 @@ export const zipDir = (sourceDir, outFile, { root = '' } = {}) => {
 	}
 
 	const directory = Buffer.concat(central);
+	if (directory.length > MAX_BYTES) {
+		throw new Error(`${sourceDir} has a central directory over 4GB.`);
+	}
 	const eocd = Buffer.alloc(22);
 	eocd.writeUInt32LE(EOCD_SIG, 0);
 	eocd.writeUInt16LE(0, 4);
