@@ -33,6 +33,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 
 import { editorArtTextureKey } from '../packages/engine-layout/src/lib/editorArtKey.ts';
@@ -93,47 +94,16 @@ const matchBrace = (src, open) => {
 	throw new Error('unbalanced braces');
 };
 
-/** Split a parameter list at TOP-LEVEL commas and keep each parameter's NAME — all a plain-JS
- *  re-declaration of the function needs. */
-const paramNames = (params) => {
-	const out = [];
-	let depth = 0;
-	let current = '';
-	for (const ch of params) {
-		if (ch === '(' || ch === '[' || ch === '{' || ch === '<') depth += 1;
-		else if (ch === ')' || ch === ']' || ch === '}' || ch === '>') depth -= 1;
-		if (ch === ',' && depth === 0) {
-			out.push(current);
-			current = '';
-		} else current += ch;
-	}
-	out.push(current);
-	return out
-		.map((p) => p.trim())
-		.filter(Boolean)
-		.map((p) => {
-			const m = p.match(/^([A-Za-z_$][\w$]*)/);
-			if (!m) throw new Error(`could not read a parameter name from "${p}"`);
-			return m[1];
-		});
-};
-
-/** The TypeScript a sliced BODY can still carry. Deliberately narrow: an annotation shape these
- *  three regexes do not know about makes the `new Function` below throw a SyntaxError, which is the
- *  loud failure we want rather than a silently skipped check. */
-const stripBodyTs = (body) =>
-	body
-		// `const visit = (node: LayoutNode): void => {`
-		.replace(
-			/\(\s*([A-Za-z_$][\w$]*)\s*:\s*[\w.[\]<>| ]+\s*\)\s*:\s*[\w.[\]<>| ]+\s*=>/g,
-			'($1) =>',
-		)
-		// `new Map<string, Set<string>>(` / `new Set<string>(`
-		.replace(/new (Map|Set)<(?:[^<>]|<[^<>]*>)*>\(/g, 'new $1(')
-		// `const refs: ArtRefs = {`
-		.replace(/\b(const|let)\s+([A-Za-z_$][\w$]*)\s*:\s*[\w.[\]<>|; ]+?\s*=/g, '$1 $2 =');
-
-/** Slice `function <name>(…)…{ … }` out of `src` and rebuild it as plain JS. */
+/** Slice `function <name>(…)…{ … }` out of `src` and return it as plain JS.
+ *
+ *  The types come off with Node's OWN stripper (`stripSliceTypes`), never with regexes of this
+ *  fixture's own. The hand-written kind only knows the annotation shapes someone happened to write,
+ *  and #734 added one they did not — a SECOND, OPTIONAL parameter on `collectArtRefs`'s inner
+ *  `visit` (`(node: LayoutNode, ownerDef?: ComponentDef): void =>`). The annotation survived, part 5
+ *  died on a bare `SyntaxError` out of `<anonymous_script>`, and it sat red on `main` for a week
+ *  while parts 1-4 stayed green. "The slice's shape moved" has to stop being a class of bug here,
+ *  not be repaired one annotation at a time.
+ */
 const sliceFunction = (src, name, where) => {
 	const start = src.indexOf(`function ${name}(`);
 	if (start < 0) throw new Error(`${where} no longer defines ${name}()`);
@@ -142,8 +112,8 @@ const sliceFunction = (src, name, where) => {
 	const bodyStart = src.indexOf('{', close);
 	if (bodyStart < 0) throw new Error(`${where}: could not find the body of ${name}()`);
 	const bodyEnd = matchBrace(src, bodyStart);
-	const params = paramNames(src.slice(open + 1, close));
-	return `function ${name}(${params.join(', ')}) ${stripBodyTs(src.slice(bodyStart, bodyEnd + 1))}`;
+	const declared = `function ${name}(${src.slice(open + 1, close)}) ${src.slice(bodyStart, bodyEnd + 1)}`;
+	return stripSliceTypes(`${where}#${name}`, declared);
 };
 
 /** Read `const <name> = $derived(<expr>);` out of a Svelte `<script>` and return `<expr>`. */
@@ -224,13 +194,12 @@ const SYMBOL_DIM_TINT = readConst(CONSTANTS, 'SYMBOL_DIM_TINT', 'constants.ts');
 // =============================================================================================
 
 const REEL_GRID_SRC = read('packages/engine-layout/src/lib/reelGrid.ts');
-const resolveReelGridTileArt = new Function(
-	'parseScopedFrameRef',
-	'isManifestAssetKey',
-	'editorArtTextureKey',
-	`${sliceFunction(REEL_GRID_SRC.replace('export function', 'function'), 'resolveReelGridTileArt', 'reelGrid.ts')}
+const resolveReelGridTileArt = compileSlice({
+	what: 'verify-board-tiles / reelGrid.ts#resolveReelGridTileArt',
+	names: ['parseScopedFrameRef', 'isManifestAssetKey', 'editorArtTextureKey'],
+	body: `${sliceFunction(REEL_GRID_SRC.replace('export function', 'function'), 'resolveReelGridTileArt', 'reelGrid.ts')}
 return resolveReelGridTileArt;`,
-)(
+})(
 	// Imported, not stubbed: the point of routing the tile ref through the shared parser is that a
 	// tile and a sprite bound to the same frame resolve identically, and a stub would let this pass
 	// while the real pair diverged.
@@ -326,20 +295,26 @@ if (blockStart < 0 || seatStart < blockStart) {
 }
 const blockEnd = GAME_STATE.indexOf('\n\t};\n', seatStart);
 if (blockEnd < 0) throw new Error('could not locate the end of getSymbolSeat');
-const seatBlock = GAME_STATE.slice(blockStart, blockEnd + '\n\t};\n'.length)
-	.replace(/: number/g, '')
-	.replace(/: BoardPerspective/g, '');
-
-const buildGetters = new Function(
-	'SYMBOL_SIZE',
-	'REEL_PADDING',
-	'resolveReelGridFromNode',
-	'resolveReelGridPerspective',
-	'boardOverride',
-	'deps',
-	`${seatBlock}
-return { boardGeometry, getSymbolX, getSymbolY, getSymbolSeat, boardPerspective };`,
+// Stripped by Node, not by naming the two annotations this block happens to carry today: a
+// third one added upstream is exactly the drift that took part 5 down.
+const seatBlock = stripSliceTypes(
+	'gameState.svelte.ts#boardGeometry…getSymbolSeat',
+	GAME_STATE.slice(blockStart, blockEnd + '\n\t};\n'.length),
 );
+
+const buildGetters = compileSlice({
+	what: 'verify-board-tiles / gameState.svelte.ts seat block',
+	names: [
+		'SYMBOL_SIZE',
+		'REEL_PADDING',
+		'resolveReelGridFromNode',
+		'resolveReelGridPerspective',
+		'boardOverride',
+		'deps',
+	],
+	body: `${seatBlock}
+return { boardGeometry, getSymbolX, getSymbolY, getSymbolSeat, boardPerspective };`,
+});
 
 const gettersFor = (grid, dims, perspective) =>
 	buildGetters(
@@ -451,16 +426,19 @@ const spriteAttrs = readAttributes(TILE.markup, 'Sprite', TILE_WHERE);
  * lets an arbitrary authored attribute expression be read here — so this asserts what Pixi gets,
  * not what this fixture assumes it gets.
  */
-const renderTile = new Function(
-	'props',
-	'context',
-	'getSymbolSeat',
-	'stateGame',
-	'winDimCellKey',
-	'SYMBOL_DIM_TINT',
-	'PADDING_ROW',
-	'ATTRS',
-	`const seat = ${tileExpr.seat};
+const renderTile = compileSlice({
+	what: 'verify-board-tiles / BoardTile.svelte',
+	names: [
+		'props',
+		'context',
+		'getSymbolSeat',
+		'stateGame',
+		'winDimCellKey',
+		'SYMBOL_DIM_TINT',
+		'PADDING_ROW',
+		'ATTRS',
+	],
+	body: `const seat = ${tileExpr.seat};
 	const geometry = ${tileExpr.geometry};
 	const dimmed = ${tileExpr.dimmed};
 	const scale = ${tileExpr.scale};
@@ -468,7 +446,7 @@ const renderTile = new Function(
 	for (const [key, expression] of Object.entries(ATTRS.container)) out.container[key] = eval(expression);
 	for (const [key, expression] of Object.entries(ATTRS.sprite)) out.sprite[key] = eval(expression);
 	return out;`,
-);
+});
 
 const ART = { key: 'ATLAS::TILE', fallbackKey: 'TILE' };
 const NO_DIM = { active: false, cells: {} };
@@ -559,17 +537,21 @@ const symbolPaddingRow = (() => {
 })();
 same('the tile and the symbol agree on where the padding row is', tilePaddingRow, symbolPaddingRow);
 
-const symbolDimmed = new Function(
-	'props',
-	'stateGame',
-	'winDimCellKey',
-	// Is a CASCADE STEP driving this cell? `null` — the win dim is a RESTING-board presentation, so
-	// the only state in which this claim means anything is the one where no step owns the board. The
-	// cell stands the dim down while one does (docs/design/board-cell-continuity.md), and a dim that
-	// still fired mid-cascade would key off rows a step is in the middle of rearranging.
-	'cascade',
-	`return ${symbolDimExpr};`,
-);
+const symbolDimmed = compileSlice({
+	what: 'verify-board-tiles / ReelSymbol.svelte#dimmed',
+	names: [
+		'props',
+		'stateGame',
+		'winDimCellKey',
+		// Is a CASCADE STEP driving this cell? `null` — the win dim is a RESTING-board
+		// presentation, so the only state in which this claim means anything is the one where no
+		// step owns the board. The cell stands the dim down while one does
+		// (docs/design/board-cell-continuity.md), and a dim that still fired mid-cascade would key
+		// off rows a step is in the middle of rearranging.
+		'cascade',
+	],
+	body: `return ${symbolDimExpr};`,
+});
 
 {
 	const [reels, rows] = [5, 4];
@@ -630,9 +612,15 @@ const symbolDimmed = new Function(
 
 console.log('5. the rule-8 ship chain: collectArtRefs sees the tile');
 const EXPORT_SRC = read('apps/launcher-api/src/lib/server/editorArtExport.ts');
-const collectArtRefs = new Function(
-	'parseScopedFrameRef',
-	[
+// Both stub names are IMPORTED, not faked. `collectArtRefs` asks
+// `staticSpineKeyIsReachable` which of the two spine sets a node's static `assetKey` belongs
+// in (#734), and it is free in the slice — a stub would let this fixture pass while the real
+// pair diverged, and leaving it out entirely arms a `ReferenceError` for the first case that
+// places a spine node. Both modules are dependency-free on purpose so Node can load them.
+const collectArtRefs = compileSlice({
+	what: 'verify-board-tiles / editorArtExport.ts#collectArtRefs',
+	names: ['parseScopedFrameRef', 'staticSpineKeyIsReachable'],
+	body: [
 		sliceFunction(EXPORT_SRC, 'isManifestAssetKey', 'editorArtExport.ts'),
 		sliceFunction(EXPORT_SRC, 'isImageAssetKey', 'editorArtExport.ts'),
 		sliceFunction(EXPORT_SRC, 'walkNodes', 'editorArtExport.ts'),
@@ -640,19 +628,50 @@ const collectArtRefs = new Function(
 		sliceFunction(EXPORT_SRC, 'collectArtRefs', 'editorArtExport.ts'),
 		'return collectArtRefs;',
 	].join('\n'),
-)((await import('../packages/engine-layout/src/lib/editorArtKey.ts')).parseScopedFrameRef);
+})(
+	(await import('../packages/engine-layout/src/lib/editorArtKey.ts')).parseScopedFrameRef,
+	(await import('../apps/launcher-api/src/lib/spineBundleKey.ts')).staticSpineKeyIsReachable,
+);
 
 const docWith = (nodes) => ({ scenes: [{ nodes }] });
-const refsFor = (nodes) => {
-	const refs = collectArtRefs(docWith(nodes), {});
+const refsFor = (nodes, defs = {}) => {
+	const refs = collectArtRefs(docWith(nodes), defs);
 	return {
 		manifestKeys: [...refs.manifestKeys],
 		usedRegions: [...refs.usedRegions],
 		regionNames: [...refs.regionNames],
 		imageKeys: [...refs.imageKeys],
 		spineKeys: [...refs.spineKeys],
+		spineFallbackKeys: [...refs.spineFallbackKeys],
 	};
 };
+
+{
+	// NOT a tile claim — this is what keeps the `staticSpineKeyIsReachable` stub HONEST. #734 split
+	// the spine branch in two through that call, and it is free in the slice: with no case that
+	// places a spine node, the injected name could be deleted, or quietly replaced by a stub that
+	// always says `true`, and every assertion here would still pass. The two sets it sorts into are
+	// the whole point of the split (only `spineKeys` is reported as stranded), so assert the fork
+	// both ways.
+	const SPINE = 'invisible_wall/knights/spines/R_Cage_Freespin/';
+	const node = { kind: 'spine', id: 'cage', assetKey: SPINE };
+	deepSame('a scene spine key is reachable, so it reports', refsFor([node]).spineKeys, [SPINE]);
+	const bound = {
+		root: {
+			kind: 'container',
+			id: 'root',
+			children: [{ ...node, paramBindings: { assetKey: 'rig' } }],
+		},
+		params: [{ key: 'rig', kind: 'spine', default: 'R_Other' }],
+	};
+	const refs = refsFor([], { def: bound });
+	deepSame(
+		'…but a key shadowed by a param default is a FALLBACK, never reported',
+		refs.spineKeys,
+		[],
+	);
+	deepSame('…and is still exported', refs.spineFallbackKeys, [SPINE]);
+}
 
 {
 	const refs = refsFor([{ kind: 'reelGrid', id: 'grid', tileRegion: SCOPED_TILE }]);
@@ -692,6 +711,7 @@ const refsFor = (nodes) => {
 		regionNames: [],
 		imageKeys: [],
 		spineKeys: [],
+		spineFallbackKeys: [],
 	});
 }
 {
