@@ -163,6 +163,66 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-09-18 — **`verify-board-tiles.mjs` is green again, and it no longer strips TypeScript with regexes
+  of its own.** It had been red on `main` since #734 — `SyntaxError: Unexpected token ':'` out of
+  `new Function` at part 5, the rule-8 ship chain. #734 gave `collectArtRefs`'s inner `visit` a SECOND,
+  OPTIONAL parameter (`(node: LayoutNode, ownerDef?: ComponentDef): void =>`), and the fixture's own
+  annotation-stripping knew one shape: one parameter, no `?`. The annotation survived into the compiled
+  text and the file died before part 5 ran a single assertion, while parts 1-4 stayed green and the run
+  never printed its count line.
+  - **The repair is to stop hand-writing the stripper.** `sliceFunction` now cuts the WHOLE declaration
+    — parameter list included, types and all — and hands it to Node's own `stripTypeScriptTypes`
+    (`mode: 'strip'`, so every line and column still points at real source), which is the technique
+    `verify-win-explode-pop` / `verify-swap-in-place-mode` / `verify-tumble-pattern` /
+    `verify-test-server-project-pin` already use. The two guessed annotation names on the
+    `gameState.svelte.ts` seat block (`: number`, `: BoardPerspective`) went the same way: a third one
+    added upstream is the identical trap, one part over. "The slice's shape moved" stops being a class of
+    bug rather than being repaired one annotation at a time — the same lesson as the stub-set guard
+    below, and reached the same way.
+  - **The recurrence, not the instance: `scripts/lib/compile-slice.mjs`.** `compileSlice({what, names,
+    body})` wraps `new Function` so a parse failure reports the FIXTURE, the SLICE and the parser's own
+    code frame instead of `<anonymous_script>:54` — a line inside a string nobody can open, naming no
+    file and no function. `new Function` will not give that frame up (its SyntaxError carries
+    `at new Function (<anonymous>)` and no position; the `<anonymous_script>:54` V8 prints for an
+    UNCAUGHT one goes to stderr and never reaches `error.stack`), so the same text is recompiled through
+    `vm.compileFunction` under a `filename` naming the slice, purely to harvest it. `stripSliceTypes`
+    lives beside it and refuses a slice that is not strippable TypeScript, naming it. Both are wired
+    through all five of this fixture's compile sites. **This is deliberately NOT what
+    `scripts/lib/stub-set-guard.mjs` covers, and wiring one does not get you the other:** that guard
+    type-checks the body as TypeScript, so leftover TypeScript passes it clean and then throws at
+    `new Function`; a SyntaxError is not a missing name and will never appear in `tsc`'s undefined-name
+    codes.
+  - **`staticSpineKeyIsReachable` was free in the slice** — #734 routes the spine branch through it and
+    nothing provided it, so the first case to place a spine node would have died on a `ReferenceError`
+    (mutation D below, exactly the shape the stub-set guard exists for). It is now IMPORTED, not stubbed
+    (`spineBundleKey.ts` is dependency-free on purpose), and part 5 gained three assertions that make it
+    load-bearing: a scene-level spine key reports, a key shadowed by a param default sorts into
+    `spineFallbackKeys` instead, and it is still exported. Without them the name could be deleted, or
+    faked as always-true, and every other assertion would still pass.
+  - Counts: **58638 → 58641**, exit 0 (parts 1-4 unchanged at 58628; part 5 10 → 13). On `main` the
+    printed total was NOTHING — the process died before the count line. All 16 `verify-*.mjs` now exit
+    0; `verify-board-tiles` was the only red one. ESLint and Prettier clean.
+  - **Mutation-tested five ways.** (1) Delete the `reelGrid` branch from the real
+    `collectArtRefs` — the bug part 5 exists to catch — and **7 of its 13 fire** (`got=[]` for the atlas,
+    the used frame, the name-guess pool, the nested walk and the sprite-parity control), exit 1.
+    (2) Restore the old narrow single-parameter regex stripper and the run dies at part 5 again, but now
+    as `verify-board-tiles / editorArtExport.ts#collectArtRefs: the compiled slice does not parse as
+    JavaScript — Unexpected token '=>'` with the offending line and a caret under it. (3) Drift a slice
+    anchor 200 chars mid-function and `stripSliceTypes` refuses by name
+    (`reelGrid.ts#resolveReelGridTileArt: the slice is not strippable TypeScript — Expected '}'`).
+    (4) Fake `staticSpineKeyIsReachable` as always-true → 2 fail. (5) Drop it → `ReferenceError`.
+  - **Still owed, and cheap:** the other twelve fixtures that compile slices
+    (`verify-symbol-overflow`, `verify-reel-grid-geometry`, `verify-swap-in-place-mode`,
+    `verify-win-explode-pop`, `verify-test-server-project-pin`, `verify-tumble-pattern`,
+    `verify-symbol-seat`, `verify-stepped-grid`, `verify-boot-splash`, `verify-clip-reachability`,
+    `verify-editor-doc-backup`, `verify-reelgrid-perspective-roundtrip` — 34 `new Function` sites) still
+    call `new Function` directly, so a drifted anchor in any of them still reads as
+    `<anonymous_script>:N`. Four of them also carry their own private copy of the `stripTypeScriptTypes`
+    wrapper that `compile-slice.mjs` now shares. Mechanical, but it touches twelve green guards, so it is
+    its own change. The stub-set guard is wired into only two of the twelve for the same reason — and
+    `verify-board-tiles` is not one of them: four bodies would mean four `tsc` spawns against a fixture
+    that currently runs in 0.17 s, and its one free identifier is now imported and asserted.
+
 - 2026-09-18 — **the same guard has now been repaired four times by adding the one name that run happened
   to hit, so the repair is now a shared check instead.** Several offline fixtures cannot import what they
   test (Svelte components, runes files Node will not load), so they SLICE the shipped source and compile it
@@ -198,12 +258,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     behaviour turns each file red — 18/178 when the pop stops removing after its beat, 4/178 when the
     unbound-`explosion` skip is deleted, 15/676 when `swapInPlace` is re-coupled to `farScale`, 2/676 when the
     arrival release is ignored.
-  - **Still open, and found while checking the neighbours: `scripts/verify-board-tiles.mjs` is RED on `main`**
-    since #734 — `SyntaxError: Unexpected token ':'` out of `new Function` at part 5, because the
-    `editorArtExport.ts` slice it compiles now carries TypeScript annotations its stripping no longer removes.
-    Same family, one step earlier: not a stub that went missing but a SLICE whose shape moved, which this
-    guard does not cover because the text never reaches `tsc`. `verify-reelgrid-perspective-roundtrip.mjs`
-    was the same shape and is green again since #613.
+  - ~~**Still open, and found while checking the neighbours: `scripts/verify-board-tiles.mjs` is RED on
+    `main`** since #734~~ — **CLOSED the same day**, see the entry above: the `editorArtExport.ts` slice it
+    compiles had grown a TypeScript annotation its own stripping did not know, so the text never reached
+    `tsc` and this guard could not have caught it. Repaired by handing the slice to Node's stripper instead
+    of regexes, plus `scripts/lib/compile-slice.mjs` for the parse failure this guard's family does not
+    cover. `verify-reelgrid-perspective-roundtrip.mjs` was the same shape and is green again since #613.
 
 - 2026-09-17 — **a delivery build is now producible and, for the first time, playable before it ships.** Two engine scripts. `build-delivery.mjs` runs a game repo's own `pnpm build` with the three env vars a delivery needs and then writes `game.js` — one command from any game repo, no per-repo wiring, because `new-game.mjs` writes a repo's scripts once at scaffold time and nothing refreshes them, so a script added only to the scaffold would work for games created after today and for none that exist. `serve-embed.mjs` plays the result: a fake operator page at `/operator/`, the game at a CDN-shaped path that **shares nothing with it**, and an RGS proxy so the game's same-origin calls reach a real node. Until this existed a delivery build could not be opened at all — no `index.html`, and it reads its session from `window.params`, so it refuses to boot anywhere but the partner's page. We would have handed over a bundle nobody had ever seen run. **It immediately earned its keep:** pointed at the live node with a spent session, the game showed the player `[object Object]`. `ModalError` only rendered a structured error when it carried BOTH `error` and `message` — our own throws do, so it looked right for years; a partner reports failures as HTTP 200 with `{result, error, errorCode}` and no `message`, so **every** partner-side failure reached the player as a type name. It now searches the known human keys breadth-first (the sentence sits at a different depth on each shape) and falls back to JSON rather than `[object Object]`. Verified both directions: the partner's expired session reads "not authorized", and our own missing-token error still reads as its sentence.
 
