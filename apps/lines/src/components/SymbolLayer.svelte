@@ -104,9 +104,11 @@
 	 *  - `pixiBlendMode` — `normal` becomes `undefined`, which `propsSyncEffect` skips entirely, so an
 	 *    unblended layer leaves the container untouched (the parity path).
 	 *
-	 * `overlay`/`lighten` are Pixi ADVANCED blend modes and need `pixi.js/advanced-blend-modes`
-	 * imported — `<InitialiseApplication>` does it, the same registration the editor's placed nodes
-	 * rely on. Without it Pixi silently renders them as `normal`.
+	 * `overlay`/`lighten` are ADVANCED blend modes — backdrop-reading FILTERS, not GPU blend states.
+	 * They need a registration AND a back buffer on the renderer, both of which
+	 * `<InitialiseApplication>` provides (see `pixi-svelte`'s `advancedBlendModes.ts`); without
+	 * either, Pixi silently renders them as `normal`. Same registration the editor's placed nodes
+	 * rely on.
 	 */
 	const blendMode = $derived(
 		pixiBlendMode(

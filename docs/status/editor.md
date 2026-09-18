@@ -75,6 +75,57 @@ Shipped capabilities on `main`:
     path worth a click is the SAVE one: pick `top`, reload, confirm it survives (that is the
     `normalizeAlign` whitelist above, the surface that would fail silently).
 
+- 2026-09-18 — **…and once they blended, they blended DIFFERENTLY from the editor: Pixi's advanced
+  filters treat a premultiplied sample as straight colour.** Owner-reported within the hour, against
+  an `overlay` on a reel-frame sprite: correct in the Scene Editor canvas, wrong in the runtime.
+
+  - **Why.** `blend-template.frag` samples `uTexture`/`uBackTexture` and passes `front.rgb` straight
+    to the mode's function. Pixi textures are PREMULTIPLIED, so `front.rgb` is `colour × alpha`. The
+    blend maths therefore receives a darkened colour everywhere the art is not fully opaque, and the
+    result slides back toward the backdrop as alpha falls. Canvas2D and CSS — the editor's two
+    surfaces — blend STRAIGHT colour per the compositing spec. The two agree only at alpha 1, which
+    is exactly the case every probe so far had used.
+  - Soft-edged art is the whole point of these modes, so in practice they disagreed everywhere it
+    mattered: a vignette or light-shaft overlay is mostly partial alpha, and the game rendered it
+    much weaker than the editor drew it.
+  - **Measured**, `f0c878` over an opaque `2050a0`:
+
+    | mode      | alpha | editor (Canvas2D/CSS) | Pixi stock | corrected |
+    | --------- | ----- | --------------------- | ---------- | --------- |
+    | `overlay` | 1.0   | `3c7d9a`              | `3c7d9a`   | `3c7d9a`  |
+    | `overlay` | 0.5   | `2e679d`              | `1f4787` ✗ | `2e679d`  |
+    | `overlay` | 0.25  | `275b9f`              | `1c448e` ✗ | `275b9f`  |
+    | `lighten` | 0.5   | `888ca0`              | `4c5aa0` ✗ | `888ca0`  |
+    | `lighten` | 0.25  | `546ea0`              | `2750a0` ✗ | `546ea0`  |
+
+    `screen` and `multiply` match at every alpha and always did — they are GPU blend states, never
+    filters. The divergence is specific to the advanced path.
+
+  - **Fix:** stop importing `pixi.js/advanced-blend-modes` and register our own corrected filters
+    (`packages/pixi-svelte/src/lib/advancedBlendModes.ts`) under the same extension names. They
+    un-premultiply both samples, apply the same Photoshop formula, and composite with the spec's
+    `co = αs·((1−αb)·Cs + αb·B(Cb,Cs)) + (1−αs)·αb·Cb`, then re-premultiply — which reduces to
+    Pixi's own expression at alpha 1, hence the unchanged column above. GL and WGSL both written,
+    though the renderer is pinned to WebGL. Registration must happen BEFORE the `Application` is
+    built: `BlendModePipe` caches one `FilterEffect` per mode name for the life of a renderer.
+  - **Verified end-to-end in the real built game** (not just a harness): all 16 mode × alpha pairs
+    now match the editor's Canvas2D exactly.
+  - **Side effect worth having:** we no longer ship Pixi's other 20 advanced modes, so the ~92 KB
+    the 2026-09-17 entry counted as the cost of registration is mostly back. The trade is that
+    adding a mode to `BLEND_MODES` now needs a formula here too — which is what the new coverage
+    assertion enforces rather than leaving to memory.
+  - **Guards** (`check:symbol-layers`, 80 → 88): the registration call exists, it runs before the
+    `Application` is constructed, the stock import is NOT present, and **every advanced mode the
+    editor offers has a corrected filter** (driven off a new `GPU_NATIVE_BLEND_MODES` in
+    `blendMode.ts`, so the split has one home). Proven non-vacuous by deleting the `lighten`
+    formula and watching the coverage check name it.
+  - ⏳ **Open, and reported alongside this:** the artist's machine shows _artifacts_ around the
+    blended sprite. Not reproduced yet and not explained by the maths above. The standing suspicion
+    is the filter's cost and bounds rather than its colour: an advanced blend allocates an input
+    texture AND a backdrop copy at the node's bounds every frame — for a 1213×1026 reel frame at
+    `resolution: 2` that is two ~2426×2052 textures per frame — and the backdrop copy is taken from
+    a rectangle that need not land on whole pixels.
+
 - 2026-09-18 — **`overlay` and `lighten` never blended in the game at all: the renderer was
   skipping the filter.** Owner-reported ("I can't see the lighten blend mode working in game, it
   seems to work fine in the scene editor canvas") — the same report that was filed against
