@@ -62,7 +62,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
       What this costs is that the mock's evaluator must MIRROR the client's `payoutDivisor()`, and
       nothing checked it — see the 2026-08-21 entry below, and `pnpm check:rgs`, which is that check.
       Still true: **no ways or cluster project has been played end-to-end by a human**, only by the
-      gates.
+      gates. The **setup half is now done for `ways`** (2026-09-18): `WIN_MODEL=ways` on the mock
+      CLI, a `ways-dev` launch entry, and [playtest/ways.md](../playtest/ways.md). What is left is a
+      person spinning it — and note the playbook's own warning that a purely local boot is a ways
+      SERVER against a lines CLIENT (no ways config reaches `apps/lines` without `?runtime=1`).
    2. `apps/ways` strips are **cosmetic, evenly weighted — NOT a math export**. Fine as a client
       default; not fine shipped for money.
    3. `cluster` still has empty-placeholder `paddingReels`, so it ships no config default.
@@ -162,6 +165,72 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, spine symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-09-18 — **the standalone mock could not be asked for a win model, so nobody could play a ways
+  game without a launcher.** `createMockRgs` has taken `winModel` since ways shipped, but only the
+  IN-PROCESS caller (`services/test-server`, reading a published project) ever passed it — the CLI
+  block built `createMockRgs({ label, reels, rows })`, so `node scripts/mock-rgs-server.mjs` dealt
+  **lines** however hard anyone wished otherwise. That is the whole reason "prove a ways game with a
+  person playing it" stayed open: the gates could reach the evaluator in-process and a human could
+  not reach it at all. **`WIN_MODEL=lines|ways|cluster|scatter` now wires it**, alongside
+  `MIN_CLUSTER` / `ADJACENCY` / `MIN_COUNT` / `MULTIPLIER` (the other knobs `createMockRgs` already
+  accepted). Validated and **fatal on a typo**, printing the legal list — a `WIN_MODEL=way` that
+  silently dealt paylines is indistinguishable from a broken ways evaluator, which is a debugging
+  session spent in the wrong file. The legal set is now one constant (`WIN_MODELS`) read by both the
+  validator and `createMockRgs`, so the two cannot drift. **`CASCADE`/`STACKED` deliberately NOT
+  forwarded:** `createMockRgs` already reads both from the environment, and passing `cascade`
+  explicitly would flip `cascadeIsDemo` (`opts.cascade ?? …` / `opts.cascade === undefined`) and make
+  dead spins tumble on a game that only had the demo flag on. The banner now names the model,
+  including when it defaulted. **Parity:** the same script at HEAD and after, `SEED=parity`, three
+  rounds with no `WIN_MODEL` — byte-identical responses apart from the un-seeded round id.
+  `pnpm check:rgs`, `pnpm check:ways` and `verify-stepped-grid` green.
+  **Also shipped: [docs/playtest/ways.md](../playtest/ways.md)** — and the thing it had to say out
+  loud is that **the mock and the client decide the win model independently**. The client reads
+  `winModel` off the project's Game Config (`runtime → baked → compiled`), `apps/lines`'
+  `baked-editor-bundle.json` carries no config and `game/config.ts` declares no `winModel`, and the
+  dev `/api/editor/doc` path fetches the LAYOUT DOC ONLY — so the cheap local boot is a ways SERVER
+  against a LINES CLIENT. It proves the evaluator, the wire shape, the win-cell lighting and the
+  wallet math; it gets `payoutDivisor()`, the info-page pricing, the payline-diagram stand-down and
+  the anticipation walker wrong, because all four follow `activeWinModel()`. The playbook tabulates
+  exactly that split so a Route-A discrepancy is not re-reported as an engine bug, and names the one
+  route that gives a real ways client (`?runtime=1&project=test6&k=…` → `GET /api/editor/runtime`;
+  `editorDocBase` already defaults to the production launcher, so no local launcher is needed — only
+  a live read token). It carries `lines.md`'s honesty forward: animation completion / return-to-idle
+  is not observable under automation (the Browser pane backgrounds the tab and freezes Svelte's rAF
+  loop), so every such check is human-eyes and must never be auto-FAILed.
+- 2026-09-18 — **every slice-compiling guard now goes through the shared wrapper, so a drifted slice
+  names itself instead of dying at `<anonymous_script>:N`.** `verify-board-tiles` adopted
+  `scripts/lib/compile-slice.mjs` when it was written; the other **twelve** still called `new Function`
+  directly, and **four of them carried their own private copy of the `stripTypeScriptTypes` wrapper**
+  (`verify-swap-in-place-mode`, `verify-win-explode-pop`, `verify-test-server-project-pin`,
+  `verify-tumble-pattern`). All twelve are converted — 29 compile sites, and the four private copies are
+  a net DELETION rather than an addition. **The two fixtures whose stripper does more than strip keep
+  their extra step and lose only the duplicated half:** `verify-win-explode-pop` and
+  `verify-swap-in-place-mode` reduce runes to their out-of-component value semantics AFTER stripping,
+  which is theirs and not the shared wrapper's business; what they no longer each own is Node's stripper,
+  its experimental-warning silencer and the attributed failure. `verify-boot-splash` is the one that
+  takes `compileSlice` WITHOUT `stripSliceTypes` — `boot-splash.js` ships as JavaScript, so there is
+  nothing to strip and only the attribution is worth having.
+  - **Proved behaviour-neutral by transcript, not by a green tick.** Every guard's full stdout was
+    captured before the change and diffed after: **eleven of twelve byte-identical**, and the twelfth
+    (`verify-tumble-pattern`) differs by exactly the two lines of
+    `ExperimentalWarning: stripTypeScriptTypes` that the shared wrapper silences — the improvement
+    itself. Assertion counts unmoved. Re-diffed a second time after Prettier, because a formatter pass
+    over twelve files is its own chance to move something.
+  - **Mutation-tested against the bug the wrapper exists for**, old code vs new, same mutation: a
+    `Map<string, ReadonlyArray<number>>` local added inside the real `resolveReelGridFromNode` — an
+    annotation shape `verify-symbol-overflow`'s old regex set (`: number` / ` as number`) had never
+    heard of. **Old: dies before the first assertion. New: 4045 assertions, PASS.** That is case 1 from
+    `compile-slice.mjs`'s header reproduced on a second file, which is the claim the rollout rests on.
+    A separate anchor-drift mutation was caught EARLIER, by the slice anchor's own `could not locate`
+    throw — worth recording, because it shows the two layers do not overlap and neither is redundant.
+  - **Not done, and it is the bigger hole:** *none* of the 21 `verify-*` guards run in CI. `lint.yml`
+    runs `pnpm lint`, `check:undefined-names`, `gen-flow-vocabulary --check` and `check:rgs`; the
+    pre-commit hook runs the secret scanner plus two generator `--check` passes. So a regression in any
+    of these only surfaces when a person happens to run one — which is exactly how `verify-board-tiles`
+    sat red on `main` for a week and how `verify-swap-in-place-mode` died silently at part 9 three
+    separate times. Better attribution shortens the diagnosis; it does not shorten the week. One
+    aggregate script wired into `lint.yml` would, and it is independent of this change.
 
 - 2026-09-18 — **`verify-board-tiles.mjs` is green again, and it no longer strips TypeScript with regexes
   of its own.** It had been red on `main` since #734 — `SyntaxError: Unexpected token ':'` out of

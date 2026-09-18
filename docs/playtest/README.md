@@ -47,3 +47,15 @@ reports it but does not pass/fail it (see the visual-limits note in `.claude/age
 2. If the game isn't in [.claude/launch.json](../../.claude/launch.json), add a launch config
    (name, `cwd`, port, env) so the agent can `preview_start` it.
 3. List scenarios from that game's mechanic (see `docs/playtest/lines.md` for a worked example).
+
+## Playbooks
+
+| File | Covers |
+|---|---|
+| [lines.md](lines.md) | the canonical Book-of dev build (`apps/lines`, payline scoring) |
+| [ways.md](ways.md) | the `ways` win model — every completed run pays and the wins SUM |
+| [borut-remake.md](borut-remake.md) | the shipped Book of Borut remake |
+
+A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the
+project's Invisible Game Config) must say so at the top and say which surfaces the cheap local boot
+therefore gets wrong — `ways.md` is the worked example.

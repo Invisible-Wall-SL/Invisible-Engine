@@ -16,6 +16,12 @@
  *   PORT=7777                 (default)
  *   START_BALANCE=10000       (default — credits in cents, 100 = $1.00)
  *   SEED=anything             (deterministic spin outcomes)
+ *   WIN_MODEL=lines           lines | ways | cluster | scatter — HOW a spin is priced. Fatal on a
+ *                             typo (a silent lines deal is indistinguishable from a broken evaluator)
+ *   REELS=5 · ROWS=3          the dealt grid; `ROWS=3,4,5,4,3` deals a STEPPED board
+ *   MIN_CLUSTER=5 · ADJACENCY=orthogonal   cluster shape (WIN_MODEL=cluster)
+ *   MIN_COUNT=8               scatter-pays floor (WIN_MODEL=scatter)
+ *   FORCE_TRIGGER=1 · STACKED=1 · CASCADE=1 · MULTIPLIER=1   outcome/presentation forcing
  *
  * Endpoints:
  *   POST …/rgs/engine?sid=&seq=&gid=    — main batched-action endpoint
@@ -103,6 +109,12 @@ const LINE_COINCIDING = false;
 // not a fixed 5×3. Absent overrides ⇒ these values ⇒ byte-identical to before.
 const DEFAULT_REELS = 5;
 const DEFAULT_ROWS = 3;
+/**
+ * Every way this mock can DECIDE a win. One list, read by both `createMockRgs` (which falls back to
+ * `lines` for anything else) and the CLI's `WIN_MODEL` validator (which refuses anything else) — a
+ * second copy is how a typo becomes a silent lines deal on a game that was asked for ways.
+ */
+const WIN_MODELS = ['lines', 'ways', 'cluster', 'scatter'];
 const DEFAULT_PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
@@ -733,7 +745,7 @@ export function createMockRgs(opts = {}) {
 	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
 	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
 	// the same event stream.
-	const winModel = ['ways', 'cluster', 'scatter'].includes(opts.winModel) ? opts.winModel : 'lines';
+	const winModel = WIN_MODELS.includes(opts.winModel) ? opts.winModel : 'lines';
 
 	// Only a LINES game has paylines. Ways / cluster / scatter-pays decide a win without them, and
 	// their configs authored none — but the fallback below reads an empty list as "absent" and
@@ -1653,7 +1665,66 @@ if (isMainModule) {
 			.map(Math.floor);
 		return list.length ? list : undefined;
 	};
-	const mock = createMockRgs({ label: 'mock', reels: envInt('REELS'), rows: envRows() });
+	/**
+	 * WHICH WIN MODEL THE STANDALONE MOCK DEALS. `createMockRgs` has taken `winModel` since ways
+	 * shipped, but only the in-process caller (`services/test-server`, which reads a published
+	 * project) ever passed it — so `node scripts/mock-rgs-server.mjs` dealt LINES whatever anyone
+	 * meant, and there was no way to play a ways/cluster/scatter board without a launcher.
+	 *
+	 * Validated, and FATAL on a typo. A mock that quietly ignores `WIN_MODEL=way` and deals paylines
+	 * is indistinguishable from a ways evaluator that does not work — the operator would be debugging
+	 * the engine over a one-character mistake. Absent ⇒ `undefined` ⇒ `lines` ⇒ byte-identical to
+	 * every run before this existed.
+	 */
+	const envWinModel = () => {
+		const raw = (process.env.WIN_MODEL ?? '').trim();
+		if (!raw) return undefined;
+		const value = raw.toLowerCase();
+		if (!WIN_MODELS.includes(value)) {
+			console.error(
+				`[mock] WIN_MODEL="${raw}" is not a win model this mock can deal.\n` +
+					`[mock] legal values: ${WIN_MODELS.join(' | ')} (omit it for ${WIN_MODELS[0]}).`,
+			);
+			process.exit(1);
+		}
+		return value;
+	};
+	/** Cluster connectivity, same two values `normalizeWinModel` declares. Fatal on anything else,
+	 *  for the reason `WIN_MODEL` is: a silently-orthogonal deal reads as "diagonal clusters are
+	 *  broken". */
+	const envAdjacency = () => {
+		const raw = (process.env.ADJACENCY ?? '').trim();
+		if (!raw) return undefined;
+		const value = raw.toLowerCase();
+		if (value !== 'orthogonal' && value !== 'diagonal') {
+			console.error(
+				`[mock] ADJACENCY="${raw}" is not a cluster connectivity.\n` +
+					'[mock] legal values: orthogonal | diagonal (omit it for orthogonal).',
+			);
+			process.exit(1);
+		}
+		return value;
+	};
+	const winModel = envWinModel();
+	// `CASCADE` and `STACKED` are deliberately NOT forwarded here: `createMockRgs` already reads both
+	// from the environment itself, and passing `cascade` EXPLICITLY would flip `cascadeIsDemo`
+	// (`opts.cascade ?? …` / `opts.cascade === undefined`) and make dead spins tumble on a game that
+	// only had the demo flag on. Reading them where they already live keeps CLI behaviour identical.
+	const mock = createMockRgs({
+		label: 'mock',
+		reels: envInt('REELS'),
+		rows: envRows(),
+		winModel,
+		// Cluster/scatter shape knobs. `undefined` ⇒ `createMockRgs`'s own defaults (5 / 8 /
+		// orthogonal), which is what every previous CLI run got.
+		minCluster: envInt('MIN_CLUSTER'),
+		adjacency: envAdjacency(),
+		minCount: envInt('MIN_COUNT'),
+		// Only ever consulted by the scatter collect fixture (`winModel: 'scatter'` + `CASCADE=1`);
+		// `false` and `undefined` are the same answer to its `=== true` gate, so this is inert
+		// everywhere else.
+		multiplier: process.env.MULTIPLIER === '1',
+	});
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
 		return mock.handle(req, res, url);
@@ -1676,6 +1747,9 @@ if (isMainModule) {
 		console.log(
 			`[mock] starting balance: ${mock.startBalance}, seed: ${mock.seed ?? '(time-based)'}`,
 		);
+		// Say the win model out loud even when it defaulted: "which game am I actually dealing" is
+		// the first thing anyone debugging a wrong-looking board needs, and the default is invisible.
+		console.log(`[mock] win model: ${winModel ?? `${WIN_MODELS[0]} (default)`}`);
 		console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
 	});
 }
