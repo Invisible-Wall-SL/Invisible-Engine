@@ -1,5 +1,4 @@
 import { json } from '@sveltejs/kit';
-import { validateSession } from '$lib/server/auth';
 import { purgeGameCache, type PurgeResult } from '$lib/server/cfPurge';
 import { ENV } from '$lib/server/env';
 import {
@@ -14,6 +13,7 @@ import {
 	setGameUrl,
 	type GameBuildInfo,
 } from '$lib/server/games';
+import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { getOrMintReadToken, projectExists } from '$lib/server/projects';
 import { pinTestServerGameToProject, type PinOutcome } from '$lib/server/testServerManifest';
 import type { RequestHandler } from './$types';
@@ -120,26 +120,16 @@ async function pinToProject(key: string, projectKey: string, docBase: string): P
 	}
 }
 
-// Same gate as the other desktop-launcher bearer endpoints (models/nodes): only the
-// owner role may register a game.
-const REGISTER_ROLE = 'admin';
-
 const NO_STORE = { 'cache-control': 'no-store' };
 
-function bearer(header: string | null): string | undefined {
-	if (!header) return undefined;
-	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-	return match?.[1];
-}
-
 // Reads `Authorization: Bearer <token>` (a session token from POST /api/launcher/login),
-// validates it like the web session cookie, checks the owner role, then UPSERTS a game
-// row (key/name/url + required project scope) in the `games` table — the same data
+// validates it like the web session cookie, checks the `gamePublish` capability, then UPSERTS a
+// game row (key/name/url + required project scope) in the `games` table — the same data
 // `/admin → Games` manages. The desktop launcher calls this after publishing a game
 // bundle to the test server, so the game appears in the portal's Games section with no
 // manual step. `project` MUST name an existing project (the publish is always project-
 // specific); omitting it is a 400, not a silent global game. 401 no/invalid token,
-// 403 wrong role, 400 bad body. Never logs the body.
+// 403 missing the capability, 400 bad body. Never logs the body.
 //
 // It ALSO re-stamps that project onto the game's test-server manifest entry (`pin` in the
 // response) — the desktop launcher's own manifest write has no project pointer and replaces the
@@ -151,14 +141,8 @@ function bearer(header: string | null): string | undefined {
 // `docBase` the test server will call back on) — the same value `publishGame.ts` takes as
 // `launcherOrigin`.
 export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
-	const token = bearer(request.headers.get('authorization'));
-	const user = await validateSession(token);
-	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	}
-	if (user.role !== REGISTER_ROLE) {
-		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
-	}
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 
 	let body: {
 		key?: unknown;

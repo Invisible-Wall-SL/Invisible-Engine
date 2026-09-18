@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { engineStalenessIndex } from '$lib/server/engineStaleness';
 import { listGames } from '$lib/server/games';
+import { userHasCapability } from '$lib/server/launcherAuth';
 import { accessibleProjectsWithClient } from '$lib/server/projects';
 import {
 	PublishAllBusyError,
@@ -10,8 +11,6 @@ import {
 	startPublishAllJob,
 	type PublishAllJob,
 } from '$lib/server/publishAllJob';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -25,17 +24,13 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   DELETE                                                       → ask the run to stop
  *
  * The run itself is a background job (see `publishAllJob.ts`); this route only resolves
- * WHICH games it covers. Gated exactly like the single-project publish (`adminPanel`), and
+ * WHICH games it covers. Gated exactly like the single-project publish (`gamePublish`), and
  * the target list is always intersected with the caller's accessible projects — an explicit
  * `projects` list narrows the scope, it can never widen it.
  */
 async function canPublish(locals: App.Locals): Promise<boolean> {
 	if (!locals.user) return false;
-	const [roleOverrides, overrides] = await Promise.all([
-		getRoleOverrides(locals.user.role),
-		getToolOverrides(locals.user.id),
-	]);
-	return roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides);
+	return userHasCapability(locals.user, GAME_PUBLISH_CAPABILITY);
 }
 
 /** The job as the page reads it: items + a rolled-up progress line. */

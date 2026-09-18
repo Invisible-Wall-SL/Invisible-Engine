@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { Cookies } from '@sveltejs/kit';
+import { bearerToken } from '$lib/launcherGates';
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
 import { deleteObject, getObjectText, putObjectText } from '$lib/server/r2';
 import { r2Slug } from '$lib/server/projectPaths';
@@ -18,16 +19,11 @@ function userKey(userId: string): string {
 	return `_users/${r2Slug(userId)}/comfy.json`;
 }
 
-function bearer(header: string | null): string | undefined {
-	const m = /^Bearer\s+(.+)$/i.exec((header ?? '').trim());
-	return m?.[1];
-}
-
 // Accept an `Authorization: Bearer <token>` (the desktop launcher already holds
 // a session token from POST /api/launcher/login) OR the web session cookie (a
 // user managing it from the portal). Same validation as everywhere else.
 async function authUser(request: Request, cookies: Cookies) {
-	const token = bearer(request.headers.get('authorization')) ?? cookies.get(SESSION_COOKIE);
+	const token = bearerToken(request.headers.get('authorization')) ?? cookies.get(SESSION_COOKIE);
 	return validateSession(token);
 }
 

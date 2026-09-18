@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { bearerToken } from '$lib/launcherGates';
 import { validateSession } from '$lib/server/auth';
 import {
 	assignProjectToClient,
@@ -7,6 +8,7 @@ import {
 	isValidClientKey,
 } from '$lib/server/clients';
 import { selectableGameKinds } from '$lib/server/gameKinds';
+import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { launcherProfileFor } from '$lib/server/launcherProfile';
 import {
 	DEFAULT_PROJECT_KEY,
@@ -21,17 +23,7 @@ import {
 } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
-// Same gate as the other desktop-launcher bearer endpoints (models/nodes/register-game):
-// only the owner role may publish a launcher profile.
-const REGISTER_ROLE = 'admin';
-
 const NO_STORE = { 'cache-control': 'no-store' };
-
-function bearer(header: string | null): string | undefined {
-	if (!header) return undefined;
-	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-	return match?.[1];
-}
 
 // Reads `Authorization: Bearer <token>` (a session token from POST /api/launcher/login)
 // and validates it like the web session cookie. NO role gate here: visibility IS the
@@ -41,8 +33,7 @@ function bearer(header: string | null): string | undefined {
 // plus the distinct set of clients present among them so the desktop app can build a
 // client selector. 401 no/invalid token. Never logs the body.
 export const GET: RequestHandler = async ({ request }) => {
-	const token = bearer(request.headers.get('authorization'));
-	const user = await validateSession(token);
+	const user = await validateSession(bearerToken(request.headers.get('authorization')));
 	if (!user) {
 		return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
 	}
@@ -87,10 +78,12 @@ export const GET: RequestHandler = async ({ request }) => {
 	return json({ projects, clients }, { headers: NO_STORE });
 };
 
-// Owner-only (REGISTER_ROLE). The desktop launcher calls this to publish a per-project
+// Gated on `gamePublish`, like every other step of a desktop publish: publishing a profile is
+// what ⬆ Setup does on the way to shipping a game, so a role the owner granted the capability
+// to must not hit a wall here. The desktop launcher calls this to publish a per-project
 // "launcher profile" (an opaque, machine-independent JSON blob) up to the server. Upserts
 // the project (creating its client row first if `clientKey` is given), then stores the
-// profile. 401 no/invalid token, 403 wrong role, 400 bad body. Never logs the body.
+// profile. 401 no/invalid token, 403 missing the capability, 400 bad body. Never logs the body.
 //
 // An optional `gameType` is applied ON CREATE ONLY. A project scaffolded on the desktop
 // used to arrive with no kind at all and default to `lines`, so a Book-of game was
@@ -99,14 +92,8 @@ export const GET: RequestHandler = async ({ request }) => {
 // worse than not having it: the portal owns the kind once the project exists, and any
 // ⬆ Setup from a machine would revert a kind changed online.
 export const POST: RequestHandler = async ({ request }) => {
-	const token = bearer(request.headers.get('authorization'));
-	const user = await validateSession(token);
-	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	}
-	if (user.role !== REGISTER_ROLE) {
-		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
-	}
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 
 	let body: {
 		key?: unknown;

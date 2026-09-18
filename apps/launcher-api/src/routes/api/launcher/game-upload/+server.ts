@@ -1,10 +1,10 @@
 import { json } from '@sveltejs/kit';
-import { validateSession } from '$lib/server/auth';
 import {
 	commitBundlePublish,
 	relayBundleFile,
 	MAX_RELAY_FILE_BYTES,
 } from '$lib/server/gameBundleRelay';
+import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { isMockProtocol } from '$lib/server/testServerManifest';
 import type { RequestHandler } from './$types';
 
@@ -16,38 +16,19 @@ import type { RequestHandler } from './$types';
 //   POST ?key=<gameKey>              {name, protocol, files[]} → verify + prune + merge games.json
 //
 // Both read `Authorization: Bearer <token>` (a session token from POST /api/launcher/login) and
-// require the SAME role as `register-game`: this writes the games manifest, so it is exactly as
-// privileged as registering a game. 401 no/invalid token, 403 wrong role, 400 bad key/path/body,
-// 409 the key belongs to an online game (or the bundle arrived incomplete), 413 too big.
-// Never logs the body.
+// require the SAME capability as `register-game` (`gamePublish`): this writes the games manifest,
+// so it is exactly as privileged as registering a game. 401 no/invalid token, 403 missing the
+// capability, 400 bad key/path/body, 409 the key belongs to an online game (or the bundle arrived
+// incomplete), 413 too big. Never logs the body.
 //
 // The publisher then calls POST /api/launcher/register-game exactly as it does after a direct-to-R2
 // publish — that is what upserts the portal's games row, re-stamps the project pin and purges the
 // edge cache, and none of it is duplicated here.
-const UPLOAD_ROLE = 'admin';
 const NO_STORE = { 'cache-control': 'no-store' };
 
-/** `Authorization: Bearer <token>` → the token. Mirrors `register-game`'s parser; six launcher
- *  routes now carry a copy of these four lines (see the extraction note in docs/status/launcher.md
- *  §Open items 3 — copied on purpose rather than refactor five live endpoints in an urgent fix). */
-function bearer(header: string | null): string | undefined {
-	if (!header) return undefined;
-	return /^Bearer\s+(.+)$/i.exec(header.trim())?.[1];
-}
-
-/** 401/403 as a Response, or the authenticated admin. */
-async function authorize(request: Request): Promise<Response | null> {
-	const user = await validateSession(bearer(request.headers.get('authorization')));
-	if (!user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	if (user.role !== UPLOAD_ROLE) {
-		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
-	}
-	return null;
-}
-
 export const PUT: RequestHandler = async ({ request, url }) => {
-	const denied = await authorize(request);
-	if (denied) return denied;
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 
 	const key = url.searchParams.get('key') ?? '';
 	const path = url.searchParams.get('path') ?? '';
@@ -67,8 +48,8 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 };
 
 export const POST: RequestHandler = async ({ request, url }) => {
-	const denied = await authorize(request);
-	if (denied) return denied;
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 
 	const key = url.searchParams.get('key') ?? '';
 	if (!key) return json({ error: 'key is required' }, { status: 400, headers: NO_STORE });
@@ -99,7 +80,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
 /** What a publisher may send in one PUT, so it can split or warn before trying. */
 export const GET: RequestHandler = async ({ request }) => {
-	const denied = await authorize(request);
-	if (denied) return denied;
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 	return json({ maxFileBytes: MAX_RELAY_FILE_BYTES }, { headers: NO_STORE });
 };
