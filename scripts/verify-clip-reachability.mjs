@@ -30,6 +30,7 @@
 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { readLF } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,9 +53,11 @@ const ok = (label, cond, detail = '') => {
 // the function is renamed or its shape changes, this fails rather than testing a stale copy.
 const fnText = /export function collectClipIds\([\s\S]*?\n}/.exec(REACH);
 ok('collectClipIds lives in the shared reachability module', Boolean(fnText));
-const collectClipIds = new Function(
-	`${fnText[0].replace(/^export /, '').replace(/: unknown|: Set<string>|: void|as Record<string, unknown>/g, '')}; return collectClipIds;`,
-)();
+const collectClipIds = compileSlice({
+	what: 'verify-clip-reachability / clipReachability.ts#collectClipIds',
+	names: [],
+	body: `${stripSliceTypes('clipReachability.ts#collectClipIds', fnText[0].replace(/^export /, ''))}; return collectClipIds;`,
+})();
 
 console.log('1. the walk finds a clipId wherever it is nested');
 const cases = [

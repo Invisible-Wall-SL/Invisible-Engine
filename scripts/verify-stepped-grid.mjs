@@ -29,6 +29,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom, readLF } from './lib/read-lf.mjs';
 
 import { createMockRgs, standardPaylines, coversAllRows, rowsPerReel } from './mock-rgs-server.mjs';
@@ -273,19 +274,20 @@ const dealOnce = async (opts) => {
 	if (start < 0) throw new Error('could not locate clampBoardToGrid in engineFacade.ts');
 	const end = source.indexOf('\n};\n', start);
 	if (end < 0) throw new Error('could not locate the end of clampBoardToGrid');
-	const block = source
-		.slice(start, end + '\n};\n'.length)
-		.replace(/: string\[\]\[\]/g, '')
-		.replace(/: string/g, '')
-		.replace(/: number/g, '');
+	// Node's own stripper, not annotation-shaped regexes: the slice's types are whatever the shipped
+	// facade writes today, and a shape the regexes missed would land as a bare SyntaxError from
+	// `<anonymous_script>`. See lib/compile-slice.mjs.
+	const block = stripSliceTypes(
+		'engineFacade.ts#clampBoardToGrid',
+		source.slice(start, end + '\n};\n'.length),
+	);
 
 	const build = (window) =>
-		new Function(
-			'capturedConfig',
-			'warnedUnknownSymbols',
-			'console',
-			`${block}\nreturn clampBoardToGrid;`,
-		)(new Map([['s', { window }]]), new Set(), { warn() {} });
+		compileSlice({
+			what: 'verify-stepped-grid / engineFacade.ts#clampBoardToGrid',
+			names: ['capturedConfig', 'warnedUnknownSymbols', 'console'],
+			body: `${block}\nreturn clampBoardToGrid;`,
+		})(new Map([['s', { window }]]), new Set(), { warn() {} });
 
 	const tall = Array.from({ length: 5 }, (_u, reel) =>
 		Array.from({ length: 5 }, (_v, row) => `r${reel}.${row}`),

@@ -68,6 +68,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
@@ -127,20 +128,24 @@ const layoutBlock = sliceBlock(
 	'\n\t};\n',
 	'boardLayout in gameState.svelte.ts',
 );
-const engineBlock = (seatBlock + layoutBlock)
-	.replace(/: number/g, '')
-	.replace(/: BoardPerspective/g, '');
-
-const buildEngine = new Function(
-	'SYMBOL_SIZE',
-	'REEL_PADDING',
-	'resolveReelGridFromNode',
-	'resolveReelGridPerspective',
-	'boardOverride',
-	'deps',
-	`${engineBlock}
-return { boardGeometry, getSymbolX, getSymbolY, getSymbolLead, getSymbolSeat, boardLayout };`,
+const engineBlock = stripSliceTypes(
+	'gameState.svelte.ts#getSymbolSeat+boardLayout',
+	seatBlock + layoutBlock,
 );
+
+const buildEngine = compileSlice({
+	what: 'verify-reel-grid-geometry / gameState.svelte.ts#getSymbolSeat+boardLayout',
+	names: [
+		'SYMBOL_SIZE',
+		'REEL_PADDING',
+		'resolveReelGridFromNode',
+		'resolveReelGridPerspective',
+		'boardOverride',
+		'deps',
+	],
+	body: `${engineBlock}
+return { boardGeometry, getSymbolX, getSymbolY, getSymbolLead, getSymbolSeat, boardLayout };`,
+});
 
 // ---------------------------------------------------------------------------------------------
 // The LAYOUT side: the real `resolveReelGridFromNode`, so the node → resolved-grid step the game
@@ -153,19 +158,14 @@ const resolveGridBlock = sliceBlock(
 	'export function resolveReelGridFromNode(',
 	'\n}\n',
 	'resolveReelGridFromNode in reelGrid.ts',
-)
-	.replace(
-		/export function resolveReelGridFromNode\([\s\S]*?\): ReelGridLayout \| undefined \{/,
-		'function resolveReelGridFromNode(node, layoutType) {',
-	)
-	.replace(/ as number/g, '')
-	.replace(/: number/g, '');
+);
 
-const resolveReelGridFromNode = new Function(
-	'resolveTransform',
-	`${resolveGridBlock}
+const resolveReelGridFromNode = compileSlice({
+	what: 'verify-reel-grid-geometry / reelGrid.ts#resolveReelGridFromNode',
+	names: ['resolveTransform'],
+	body: `${stripSliceTypes('reelGrid.ts#resolveReelGridFromNode', resolveGridBlock).replace(/^export /m, '')}
 return resolveReelGridFromNode;`,
-)((node) => ({ x: node.x, y: node.y, anchor: node.anchor, scale: node.scale }));
+})((node) => ({ x: node.x, y: node.y, anchor: node.anchor, scale: node.scale }));
 
 // ---------------------------------------------------------------------------------------------
 // The EDITOR side: the real `reelGridGeometry`.
@@ -175,23 +175,14 @@ const geometryBlock = sliceBlock(
 	'export function reelGridGeometry(',
 	'\n}\n',
 	'reelGridGeometry in editorCanvas.helpers.ts',
-)
-	.replace(
-		/export function reelGridGeometry\([\s\S]*?\): ReelGridGeometry \{/,
-		'function reelGridGeometry(node, anchor, dims) {',
-	)
-	.replace(/ as number/g, '')
-	.replace(/: ReelGridSeat\[\]/g, '')
-	.replace(/: ReelGridGeometry/g, '')
-	.replace(/: Vec2\[\]/g, '')
-	.replace(/: number/g, '');
+);
 
-const reelGridGeometry = new Function(
-	'BOARD_LOCAL_CELL',
-	'resolveReelGridPerspective',
-	`${geometryBlock}
+const reelGridGeometry = compileSlice({
+	what: 'verify-reel-grid-geometry / editorCanvas.helpers.ts#reelGridGeometry',
+	names: ['BOARD_LOCAL_CELL', 'resolveReelGridPerspective'],
+	body: `${stripSliceTypes('editorCanvas.helpers.ts#reelGridGeometry', geometryBlock).replace(/^export /m, '')}
 return reelGridGeometry;`,
-)(BOARD_LOCAL_CELL, (node) => node?.perspective);
+})(BOARD_LOCAL_CELL, (node) => node?.perspective);
 
 // ---------------------------------------------------------------------------------------------
 // Fixture inputs.
