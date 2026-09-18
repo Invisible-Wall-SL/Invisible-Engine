@@ -109,10 +109,16 @@
 		data.containerEvents ?? {},
 	);
 
+	// HOLD SAFETY — ContainerId → does its backing scene carry a release surface (a tap-to-continue /
+	// completeOnLoaded)? Only the validator reads it, to catch a `showContainer{awaitComplete}` nothing
+	// can ever complete. A container the server could not resolve is ABSENT from the map (and an
+	// unsaved project yields an empty one), which those checks treat as "unknown" and skip.
+	const containerTaps = $derived<Record<string, boolean>>(data.containerTaps ?? {});
+
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
 	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
-	const ctx = $derived<PinContext>({ vocab, library, containerEvents });
+	const ctx = $derived<PinContext>({ vocab, library, containerEvents, containerTaps });
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -297,7 +303,7 @@
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
-			: validateFlowDoc(doc, vocab, library, containerEvents),
+			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps),
 	);
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE pin's

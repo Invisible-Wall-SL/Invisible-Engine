@@ -53,6 +53,7 @@
 		"v2translateremake": "tsx flowV2TranslateRemake.ts",
 		"v2choreo": "tsx flowV2Choreo.ts",
 		"v2hold": "tsx flowV2Hold.ts",
+		"v2holdsafety": "tsx flowV2HoldSafety.ts",
 		"v2taptostart": "tsx flowV2TapToStart.ts",
 		"v2fullscreen": "tsx flowV2Fullscreen.ts",
 		"v2optional": "tsx flowV2OptionalParams.ts",

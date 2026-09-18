@@ -1,5 +1,6 @@
 import { soundOptionsFor } from '$lib/soundOptions';
 import { collectSceneCueNames } from '$lib/sceneCues';
+import { collectContainerTaps } from '$lib/containerTaps';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
@@ -104,6 +105,13 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		doc.containers.push({ id: scene.id, sceneId: scene.id, z });
 	}
 
+	// HOLD SAFETY — ContainerId → does its backing scene mount something that can COMPLETE it (a
+	// `tapToContinue` overlay, or a `completeOnLoaded` auto-advance)? A `showContainer{awaitComplete}`
+	// on a container with no release hangs the round forever and the engine has no timeout by design,
+	// so the validator flags it — but only where this map actually resolved the container (a scene-less
+	// project keys nothing and the checks stay silent). Same projection shape as the cue harvest above.
+	const containerTaps = collectContainerTaps(doc.containers, layout.scenes ?? []);
+
 	// §6.1 — the container-event surface, keyed by ContainerId. For each of the FlowDoc's
 	// `containers`, find its Scene-Editor scene by `sceneId`, project the scene's nodes down to the
 	// minimal `ConfiguredComponentEvent` shape (any node with a non-empty universal `action` binding
@@ -178,5 +186,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		containerEvents,
+		/** ContainerId → whether that screen can complete itself (a tap-to-continue / completeOnLoaded
+		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
+		 *  time; a container absent from the map is unresolved and stays unchecked. */
+		containerTaps,
 	};
 };
