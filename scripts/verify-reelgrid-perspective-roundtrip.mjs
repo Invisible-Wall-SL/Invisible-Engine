@@ -28,6 +28,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { readLF, lfReaderFrom } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,20 +75,16 @@ const NODE_KINDS = new Set(
 );
 if (!NODE_KINDS.size) throw new Error('LAYOUT_NODE_KINDS parsed to an empty list');
 
-// Strip the TS type annotations the two functions carry, then evaluate them together.
-const strip = (fn) =>
-	fn
-		// The signature's return type, between the closing paren and the body's brace.
-		.replace(/\)\s*:\s*[^{]+\{/, ') {')
-		// Parameter annotations (`input: unknown`, `v: unknown`).
-		.replace(/([(,]\s*\w+)\s*:\s*unknown\b/g, '$1')
-		.replace(/ as unknown as LayoutNode/g, '')
-		.replace(/ as LayoutNode\['kind'\]/g, '');
+// Stripped with Node's own TypeScript stripper rather than annotation-shaped regexes — the two
+// functions' types are whatever editorStorage.ts writes today, and a shape the regexes did not know
+// would reach `new Function` as a bare SyntaxError. See lib/compile-slice.mjs.
+const strip = (name) => stripSliceTypes(`editorStorage.ts#${name}`, sliceFunction(name));
 
-const normalizeNode = new Function(
-	'NODE_KINDS',
-	`${strip(sliceFunction('isRecord'))}\n${strip(sliceFunction('normalizeNode'))}\nreturn normalizeNode;`,
-)(NODE_KINDS);
+const normalizeNode = compileSlice({
+	what: 'verify-reelgrid-perspective-roundtrip / editorStorage.ts#normalizeNode',
+	names: ['NODE_KINDS'],
+	body: `${strip('isRecord')}\n${strip('normalizeNode')}\nreturn normalizeNode;`,
+})(NODE_KINDS);
 
 let failures = 0;
 let checks = 0;

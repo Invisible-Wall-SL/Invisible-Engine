@@ -50,6 +50,7 @@
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -205,15 +206,22 @@ if (/cond|ifMatch|ifNoneMatch|precondition/.test(copyCall[1])) {
 	throw new Error('the backup copy now carries a precondition — it can 409 and strand a project');
 }
 
-const build = new Function(
-	'headObject',
-	'copyObject',
-	'getObjectText',
-	'listAllObjects',
-	'deleteObjects',
-	'putObjectText',
-	'normalizeDoc',
-	`${takeFn(pathsSrc, 'r2Slug')}
+// `takeFn` above does this fixture's own type stripping, declaration by declaration, because it has
+// to walk parameter lists and return annotations to find each body at all. What it cannot do is
+// report a parse failure as anything but a bare SyntaxError from `<anonymous_script>` — eleven
+// declarations are spliced together here, and the frame has to name which one drifted.
+const build = compileSlice({
+	what: 'verify-editor-doc-backup / editorDocPaths + editorDocBackups + editorStorage',
+	names: [
+		'headObject',
+		'copyObject',
+		'getObjectText',
+		'listAllObjects',
+		'deleteObjects',
+		'putObjectText',
+		'normalizeDoc',
+	],
+	body: `${takeFn(pathsSrc, 'r2Slug')}
 ${takeFn(pathsSrc, 'projectPrefix')}
 ${subMap}
 ${takeFn(pathsSrc, 'editorDocKey')}
@@ -237,7 +245,7 @@ return {
 	saveDoc,
 	forgetCoalescing: () => lastBackupAtMs.clear(),
 };`,
-);
+});
 
 // ---------------------------------------------------------------------------
 // The stub R2 — the helper boundary named in `r2.ts`, not a real bucket.

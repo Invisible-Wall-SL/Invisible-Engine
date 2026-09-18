@@ -27,6 +27,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { compileSlice } from './lib/compile-slice.mjs';
 import { readLF } from './lib/read-lf.mjs';
 
 const SRC =
@@ -133,7 +134,13 @@ async function runDocument({ url, done_after_ms }) {
 	};
 	win.window = win;
 
-	const fn = new Function(...Object.keys(sandbox), code);
+	// No type stripping: `boot-splash.js` ships as JavaScript. The wrapper is still worth it for the
+	// attributed parse error — a SyntaxError here would otherwise name `<anonymous_script>`.
+	const fn = compileSlice({
+		what: 'verify-boot-splash / static/shared/boot-splash.js',
+		names: Object.keys(sandbox),
+		body: code,
+	});
 	fn(...Object.values(sandbox));
 
 	setTimeout(() => win.IWBoot.done(), done_after_ms);
