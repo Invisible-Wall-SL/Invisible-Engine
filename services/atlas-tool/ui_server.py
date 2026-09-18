@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import copy
 import html
 import io
 import json
@@ -1775,7 +1776,7 @@ def _normalize_converted_region(r: dict) -> dict | None:
     # rects stayed right while the art inside them was re-derived from its
     # alpha bbox and resized to the slot.
     for k in ("fit_mode", "prompt", "shape_ref", "seed", "mode", "pipeline",
-              "negative"):
+              "negative", "layer_of"):
         v = r.get(k)
         if v not in (None, ""):
             out[k] = v
@@ -2413,24 +2414,25 @@ def thumb_bytes(path: Path, box: int = 240) -> bytes:
 # ---------------------------------------------------------------------------
 
 def fx_source(m: dict, name: str) -> Path | None:
-    """Source image for a local FX build. If the region is an FX layer of a
-    base element (`<base>_shine`/`_glow`/`_shadow`/`_blur`/`_zoom`) and that
-    base has a committed image, derive from it (so the FX matches the
-    regenerated base). Otherwise, in order: the frozen FX-source snapshot (so
-    rebuilds stay idempotent and never stack FX-on-FX); the region's committed
-    user image (the picture shown on the card); its picked/latest generated
-    variant; finally its own reference (style_ref / shape_ref / atlas slice)."""
+    """Source image for a local FX build. If the region is a LAYER of a base
+    element — an `_shine`/`_glow`/`_shadow`/`_blur`/`_zoom` name, or an
+    explicit `layer_of` — and that base has a committed image, derive from it
+    (so the FX matches the regenerated base). Otherwise, in order: the frozen
+    FX-source snapshot (so rebuilds stay idempotent and never stack FX-on-FX);
+    the region's committed user image (the picture shown on the card); its
+    picked/latest generated variant; finally its own reference (style_ref /
+    shape_ref / atlas slice)."""
     project_paths.ensure_lazy("batch/")  # variant pile hydrates on demand
     regions = all_regions(m)
-    _info = shine.fx_layer_info(name)  # canonical FX-suffix classifier
-    if _info:
-        base = next((r for r in regions if r["name"] == _info["base"]), None)
+    region = next((r for r in regions if r.get("name") == name), None) or {}
+    base_name = batch_atlas.layer_base_name(region or {"name": name})
+    if base_name:
+        base = next((r for r in regions if r["name"] == base_name), None)
         if base is not None:
             s = (batch_atlas.override_image_path(base)
                  or batch_atlas._pick_variant_png(BATCH_DIR, base))
             if s and s.exists():
                 return s
-    region = next((r for r in regions if r["name"] == name), None) or {}
     # 1. Frozen original captured at the first FX build (see build_fx_region).
     #    Always wins so re-tuning params re-derives from the SAME source
     #    instead of recolouring an already-recoloured image.
@@ -2586,9 +2588,14 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
     """Automatically rebuild configured FX layers from their (current) bases.
 
     Global toggle: config['auto_fx_rebuild'] — a MISSING key reads as ON.
-    Candidates: regions whose name is a canonical FX layer (shine.fx_layer_info
-    returns truthy), whose base region exists in the manifest, and whose stored
-    mode is a known FX preset. When `base_names` is given (render case) keep
+    Candidates: regions that are a LAYER of another region
+    (batch_atlas.layer_base_name — an `_glow`-style name, or an explicit
+    `layer_of`), whose base region exists in the manifest, and whose stored
+    mode is a known FX preset. That last test is what keeps AI layers out:
+    they carry `layer_of` too, but their art comes from a render, not from
+    shine.py, so there is nothing here to rebuild.
+
+    When `base_names` is given (render case) keep
     candidates whose BASE was processed (base in the set) OR whose FX layer was
     itself processed (name in the set); when None (compose case) keep all.
     Layers are ordered by suffix depth so a layer whose base is ITSELF an
@@ -2602,10 +2609,10 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
     candidates = []
     for r in regions:
         name = r.get("name", "")
-        info = shine.fx_layer_info(name)
-        if not info:
+        base_name = batch_atlas.layer_base_name(r)
+        if not base_name:
             continue
-        if info["base"] not in existing:
+        if base_name not in existing:
             continue
         if r.get("mode") not in shine.FX_PRESETS:
             continue
@@ -2614,20 +2621,25 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
         # the FX layer ITSELF was selected/processed (name in the set) — so
         # "select the FX cell → Process" derives it, not only "process the base".
         if base_names is not None and not (
-                info["base"] in base_names or name in base_names):
+                base_name in base_names or name in base_names):
             continue
         candidates.append(name)
 
+    by_name = {r["name"]: r for r in regions if r.get("name")}
+
     def _depth(nm: str) -> int:
-        # Count how many FX suffixes a name carries (FX-on-FX nesting), so a
-        # deeper layer builds AFTER the shallower one it derives from.
-        depth, cur = 0, nm
+        # How many layers deep this one sits (FX-on-FX nesting, or a chain of
+        # `layer_of`), so a deeper layer builds AFTER the one it derives from.
+        # `seen` bounds a cycle a hand-edited manifest could write (A→B→A) —
+        # ordering is a nicety, hanging the server on it is not.
+        depth, cur, seen = 0, nm, {nm}
         while True:
-            inf = shine.fx_layer_info(cur)
-            if not inf:
+            nxt = batch_atlas.layer_base_name(by_name.get(cur) or {"name": cur})
+            if not nxt or nxt in seen:
                 break
             depth += 1
-            cur = inf["base"]
+            seen.add(nxt)
+            cur = nxt
         return depth
 
     candidates.sort(key=_depth)
@@ -5297,6 +5309,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .promptbox textarea.pr{{min-height:80px}}
  .promptbox .rneglbl{{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa;padding:2px 8px 8px}}
  .negbadge{{color:#e0a030;font-weight:600}}
+ .layerbadge{{background:#3a3560;color:#d8d2ff;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}}
  .gptbadge{{background:#2e6b3e;color:#cfeede;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}}
  .usedseed{{font-size:12px;color:#9bb;font-family:monospace}}
  .mini{{font-size:11px;padding:4px 8px}}
@@ -5636,6 +5649,18 @@ function addRegion(){{
  if(name===null) return;
  name=name.trim(); if(!name) return;
  _postReload('/addregion',{{name:name}});
+}}
+function addLayer(base){{
+ if(!base) return;
+ let sfx=prompt('New AI layer of "'+base+'".'
+  +'\\n\\nIt is generated on its own (its own prompt, seed '
+  +'and variants) but reads the reference image of '+base+', and packs '
+  +'onto this same page in register with it.'
+  +'\\n\\nSuffix (letters, numbers, _ or -) — the layer '
+  +'will be named '+base+'_<suffix>:');
+ if(sfx===null) return;
+ sfx=sfx.trim(); if(!sfx) return;
+ _postReload('/addlayer',{{base:base,suffix:sfx}});
 }}
 function delRegion(name){{
  if(!name) return;
@@ -7542,8 +7567,8 @@ window.addEventListener('DOMContentLoaded',function(){{
 </script></body></html>"""
 
 CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe}" data-usedseed="{used_seed}" data-lockedseed="{locked_seed}" data-variant="{variant}">
- <h3><input type="checkbox" class="sel" {checked}> {name}{gpt_badge}
-  <button class="cpbtn" title="Copy settings (prompt + advanced + shine; NOT reference image, seed or lock)" onclick="copyCfg('{name}')">⧉</button><button class="ptbtn" title="Paste copied settings into this region" onclick="pasteCfg('{name}')">📥</button>{del_btn}{mode_sel}</h3>
+ <h3><input type="checkbox" class="sel" {checked}> {name}{gpt_badge}{layer_badge}
+  <button class="cpbtn" title="Copy settings (prompt + advanced + shine; NOT reference image, seed or lock)" onclick="copyCfg('{name}')">⧉</button><button class="ptbtn" title="Paste copied settings into this region" onclick="pasteCfg('{name}')">📥</button>{layer_btn}{del_btn}{mode_sel}</h3>
  <div class="role">{role}</div>
  <div class="imgs">
   <figure>
@@ -8238,6 +8263,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._newatlas(json.loads(raw)).encode())
         elif post_path == "/addregion":
             self._send(200, "text/plain", self._addregion(json.loads(raw)).encode())
+        elif post_path == "/addlayer":
+            self._send(200, "text/plain", self._addlayer(json.loads(raw)).encode())
         elif post_path == "/delregion":
             self._send(200, "text/plain", self._delregion(json.loads(raw)).encode())
         elif post_path == "/saveadv":
@@ -9925,6 +9952,87 @@ class Handler(BaseHTTPRequestHandler):
         save_manifest(m)
         return f"✓ Added region '{name}'."
 
+    # On top of _COPY_BLOCK, never SEEDED into a new layer:
+    #   * the inherited refs — seeding one would freeze today's value into the
+    #     layer, and resolve_layer_refs would then stop filling it, which is
+    #     precisely the live link the feature exists for. (_COPY_BLOCK already
+    #     holds style_ref; shape_ref is copyable between ordinary regions and
+    #     must not become so here.)
+    #   * `mode`/`fx`/`shine` — an AI layer is AI-generated by definition. A
+    #     base already set to Glow would otherwise hand its layer an FX mode,
+    #     and the slot would be rendered for real and then overwritten from the
+    #     base's pixels on the next Create Atlas.
+    #   * `fit_mode` — a placement contract belongs to the rect it was measured
+    #     for. An inherited explicit `contain` also routes compose down
+    #     _packer_compose_tile, which never sees the registration crop.
+    _LAYER_SEED_BLOCK = ({"name", "mode", "fx", "shine", "fit_mode"}
+                         | set(batch_atlas._LAYER_INHERITED_REF_KEYS))
+
+    def _addlayer(self, payload: dict) -> str:
+        """Add an AI LAYER of an existing region: a second, independently
+        generated slot that borrows the base's SOURCE but owns its prompt.
+
+        `<base><suffix>` is a region like any other — its own seed, its own
+        variant pile, its own committed image — so the two never fight over a
+        file. What makes it a layer is `layer_of`: the refs it does not set are
+        read from the base at render time (batch_atlas.resolve_layer_refs) and
+        it is cropped to the base's footprint at compose
+        (batch_atlas.layer_registration_crop), so the two pack onto the SAME
+        page in register and stack in-game as symbol cell layers.
+
+        Its tuning is SEEDED from the base (the same key set ⧉/📥 copies) so
+        you edit a prompt instead of writing one; that copy is a starting
+        point, not a link — only the refs stay live.
+        """
+        base = str(payload.get("base", "")).strip()
+        suffix = _sanitize_region_name(payload.get("suffix", ""))
+        if not base:
+            return "No base region specified."
+        if not suffix:
+            return "Give the layer a suffix (letters, numbers, _ or -)."
+        with _manifest_lock:
+            return self._addlayer_locked(base, suffix)
+
+    def _addlayer_locked(self, base: str, suffix: str) -> str:
+        """The read-modify-write half of /addlayer. Split out so the whole
+        cycle sits inside _manifest_lock: this writes the WHOLE manifest back,
+        so a variant pick or /save landing between the read and the write would
+        be lost outright — and picks commit on click, so those writes are
+        frequent. (_addregion / _delregion predate the lock and do not take it;
+        matching them is the weaker consistency of the two available.)"""
+        m = load_manifest()
+        by_name = {r.get("name"): r for bucket in ("regions", "rotated_regions")
+                   for r in (m.get(bucket) or []) if isinstance(r, dict)}
+        srcr = by_name.get(base)
+        if srcr is None:
+            return f"⚠ No region '{base}' to layer."
+        # No chains. A layer registers against ONE base, and `fx_source` /
+        # layer_registration_crop both resolve exactly one hop — a layer of a
+        # layer would register against the middle slot, not the art underneath.
+        if batch_atlas.layer_base_name(srcr):
+            return (f"⚠ '{base}' is itself a layer. Add the new layer to "
+                    f"'{batch_atlas.layer_base_name(srcr)}' instead.")
+        name = _sanitize_region_name(f"{base}_{suffix}")
+        if name in by_name:
+            return f"⚠ A region '{name}' already exists."
+        # The FX suffixes are shine.py's vocabulary: a region named `..._glow`
+        # is rebuilt from its base's PIXELS, which is the opposite of what an
+        # AI layer is for. Refuse rather than quietly make an FX slot.
+        fx = shine.fx_layer_info(name)
+        if fx:
+            return (f"⚠ '_{suffix}' is a built-in FX suffix — '{name}' would "
+                    f"be derived from {base}'s pixels, not generated. Use the "
+                    f"mode dropdown for {fx['mode']}, or pick another suffix.")
+        layer = {k: copy.deepcopy(v) for k, v in srcr.items()
+                 if k not in self._COPY_BLOCK
+                 and k not in self._LAYER_SEED_BLOCK}
+        layer["name"] = name
+        layer["layer_of"] = base
+        m.setdefault("regions", []).append(layer)
+        save_manifest(m)
+        return (f"✓ Added layer '{name}' of '{base}' — edit its prompt, "
+                f"generate, then Create Atlas to pack it in.")
+
     def _delregion(self, payload: dict) -> str:
         """Remove a region (both buckets) from the active manifest. '✓' ⇒
         client reloads. Does NOT delete generated variants — re-adding the same
@@ -9946,6 +10054,17 @@ class Handler(BaseHTTPRequestHandler):
         if not removed:
             return f"⚠ No region '{name}' to remove."
         save_manifest(m)
+        # A dangling `layer_of` is harmless — the layer inherits nothing and
+        # registers against nothing, i.e. it becomes an ordinary region — but
+        # it is invisible, so say it rather than let the art drift silently.
+        orphans = [r["name"] for b in ("regions", "rotated_regions")
+                   for r in (m.get(b) or [])
+                   if isinstance(r, dict) and r.get("layer_of") == name
+                   and r.get("name")]
+        if orphans:
+            return (f"✓ Removed region '{name}'. {len(orphans)} layer(s) no "
+                    f"longer have a base and now render on their own refs: "
+                    f"{', '.join(orphans)}")
         return f"✓ Removed region '{name}'."
 
     def _saveglobalstyle(self, payload: dict) -> str:
@@ -10222,6 +10341,14 @@ class Handler(BaseHTTPRequestHandler):
         is_pack = batch_atlas.is_from_scratch(m)
         for r in all_regions(m):
             name = r["name"]
+            # Only the EXPLICIT link badges/gates the card. An `_glow` name is
+            # an FX layer, which the mode dropdown already states — saying it
+            # twice, in two vocabularies, would just be noise.
+            layer_of = str(r.get("layer_of", "") or "").strip()
+            # The BUTTON's gate is the server's refusal, not just the explicit
+            # link: an `_glow` card is a layer too, so offering it one would
+            # only ever return "is itself a layer".
+            is_layer = bool(batch_atlas.layer_base_name(r))
             eff_pipe = str(r.get("pipeline", "")).strip().lower() or g_pipe
             # Card mode: explicit r["mode"], else legacy shine_mode flag,
             # else AI gen. Old _shine regions stay AI unless shine_mode set
@@ -10304,6 +10431,19 @@ class Handler(BaseHTTPRequestHandler):
                     "GPT-Image-1, not the local pipeline'>GPT</span>"
                     if eff_pipe == "gpt_image" else ""),
                 cb=ref_token,
+                layer_badge=(
+                    '<span class="layerbadge" title="An AI layer of '
+                    f'{html.escape(layer_of)} — generated on '
+                    'its own, but off that region&#39;s reference image, '
+                    'and packed in register with it">layer of '
+                    f'{html.escape(layer_of)}</span>' if layer_of else ""),
+                layer_btn=(
+                    '<button class="cpbtn" title="Add an AI layer of this '
+                    'region: generated separately (own prompt, seed and '
+                    'variants) but from THIS region&#39;s reference image, '
+                    'and packed on this same page in register with it." '
+                    f'onclick="addLayer(\'{html.escape(name)}\')">➕🗂'
+                    '</button>' if is_pack and not is_layer else ""),
                 del_btn=(
                     '<button class="cpbtn" title="Remove this region from the '
                     f'atlas" onclick="delRegion(\'{html.escape(name)}\')">🗑'
@@ -10856,10 +10996,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # Never copied between regions: identity/geometry, results, and the
     # per-region bits that must stay original — style_ref (each region's own
-    # reference image) and seed (the locked seed / lock state is per-result).
+    # reference image), seed (the locked seed / lock state is per-result) and
+    # layer_of (which base a region is a layer of is identity, not tuning;
+    # pasting it would silently re-parent the destination).
     _COPY_BLOCK = {"name", "x", "y", "w", "h", "rotated", "bounds", "offsets",
                    "rotate", "output_override", "variant", "variant_at",
-                   "fruit", "role", "style_ref", "seed", "lock"}
+                   "fruit", "role", "style_ref", "seed", "lock", "layer_of"}
 
     def _copyfrom(self, payload: dict) -> str:
         """Copy tuning settings (prompt, negatives, replace flags, every
@@ -10876,7 +11018,6 @@ class Handler(BaseHTTPRequestHandler):
         if srcr is None:
             return _diag("NOTHING_TO_PASTE")
         keys = [k for k in srcr if k not in self._COPY_BLOCK]
-        import copy as _copy
         n = 0
         for d in dsts:
             r = self._ensure_region(m, d)
@@ -10886,7 +11027,7 @@ class Handler(BaseHTTPRequestHandler):
                 if k not in self._COPY_BLOCK and k != "name":
                     del r[k]
             for k in keys:                     # then apply source's
-                r[k] = _copy.deepcopy(srcr[k])
+                r[k] = copy.deepcopy(srcr[k])
             n += 1
         save_manifest(m)
         return (f"Pasted {len(keys)} setting(s) from '{src}' into "
@@ -10977,11 +11118,6 @@ class Handler(BaseHTTPRequestHandler):
                 f"color {params['color']}, blur {params['blur']}, "
                 f"amount {params['intensity']}, layers {params['layers']}. "
                 f"Create Atlas to apply; ✕ revert to undo.")
-
-    def _fx_source(self, m: dict, name: str) -> Path | None:
-        """Thin delegate to the module-level fx_source (shared with the
-        automated rebuild). See fx_source for the resolution order."""
-        return fx_source(m, name)
 
     def _setmode(self, payload: dict) -> str:
         """Persist a region's card mode: ai | colour | shadow | shine | glow

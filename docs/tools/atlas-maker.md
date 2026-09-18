@@ -68,7 +68,9 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
    Esc or a blank name change nothing).
 2. **Per region**, edit the prompt, set/lock a seed, choose style/shape refs.
    Refs can be uploaded from your machine or **picked from R2** via the
-   `/fsbrowse` browser (returns R2-relative paths).
+   `/fsbrowse` browser (returns R2-relative paths). To get several pictures out
+   of one source — a glow, a shadow, a second style — add a **layer** rather
+   than a second atlas (see [Layers](#layers--several-pictures-from-one-source)).
 3. **Render** — the tool sends the workflow to your ComfyUI and shows live
    progress on the button; thumbnails + seeds refresh in place when done.
 4. **Curate** — open **▦ variants**, click the one you want. The pick is saved
@@ -105,6 +107,83 @@ slot again and the new file wins: every unlocked card is back on its latest
 variant the moment the run finishes, with nothing to click. That is decided
 from the manifest each time the page is drawn, so it holds however the render
 ended — stopped, crashed, tab closed, or refreshed from another machine.
+
+## Layers — several pictures from one source
+
+A **layer** is a second slot that draws *with* its base rather than instead of
+it: a glow over a glyph, a shadow under it, a second pass in another style. All
+the layers of one element pack onto the **same page** as the base, and the game
+stacks them as symbol cell layers, each with its own blend mode and draw order.
+
+Keeping them on one page is deliberate. The engine can address a frame on any
+sheet (`<sheet>::<region>`), so layers on separate sheets would work — they
+would just cost a texture swap per layer instead of batching with the base, and
+pay a second page's gutter. Split them only when a page genuinely overflows.
+
+There are two kinds, and the difference is where the layer's *pixels* come from.
+
+| | **FX layer** | **AI layer** |
+|---|---|---|
+| Made by | shine.py, on the CPU | the pipeline, like any other slot |
+| Costs | nothing — no ComfyUI, no credits | one render per variant |
+| Named | `<base>_glow`, `_shadow`, `_shine`, `_blur`, `_zoom`, `_colour` | `<base>_<whatever you choose>` |
+| Created by | **＋ Add region** with that name, then pick the mode | **➕🗂** on the base's card |
+| Derived from | the base's committed **pixels** | the base's **reference image** |
+| When the base changes | rebuilt automatically on Create Atlas | left alone — re-render it yourself |
+
+### FX layers — a treatment of the base's own art
+
+Add a region named `<base>_glow` (or `_shadow` / `_shine` / `_blur` / `_zoom` /
+`_colour`) and set the card's mode dropdown to match. It has no prompt: its
+picture is computed from whatever the base currently shows, with the mode's
+parameters on the card (blur radius, tint, threshold …).
+
+The payoff is that it **follows its base**. Re-render the base and every FX
+layer of it is rebuilt on the next Create Atlas, so a glow never goes on
+haloing art you replaced. `⚙ build` re-derives one by hand after a tweak.
+
+### AI layers — a different render of the same source
+
+**➕🗂** on a region's card asks for a suffix and creates `<base>_<suffix>` as
+an ordinary generated slot — its own prompt, seed, variants and lock. What
+makes it a layer is that it **reads the base's reference image**. Re-point the
+base's ref and every AI layer of it follows, with nothing to re-copy; give the
+layer a ref of its own and that one wins instead.
+
+Its prompt and pipeline are *seeded* from the base so you have something to
+edit rather than a blank card. That copy is a starting point, not a link —
+changing the base's prompt afterwards leaves the layer's alone. Four things are
+deliberately **not** carried over: the reference images (those are inherited
+live, not copied), the seed and lock, the packed rect, and the mode — a layer
+of a base set to Glow is still an ordinary AI slot.
+
+**They are packed in register, and how depends on Frame trim.**
+
+Under **Keep the whole frame** (the default) both the base and its layers are
+placed on their full canvas, so they line up by construction — every render of
+an atlas comes out at the same gen width/height. Nothing to tune. The one way
+to break it is to change **Gen width / height** between rendering the base and
+rendering the layer, so if a layer sits wrong, check that first.
+
+Under **Crop each frame to its visible pixels**, each frame would otherwise be
+scaled to its *own* ink — and two independent renders never agree on their
+silhouette, so the layer comes out a different size and off-centre. There, a
+layer is cropped to **its base's** footprint instead, grown by the ratio of the
+two slots: a bigger rect carries proportionally more margin (room for a halo),
+the same rect lands on exactly the base's box. A layer rendered on a different
+canvas from its base cannot be placed this way and falls back to cropping
+itself.
+
+Five things are refused rather than surprising you:
+
+- **a suffix that is an FX mode** (`_glow`, …) — that name means "derived from
+  the base's pixels", the opposite of a render;
+- **a layer of a layer** — a layer registers against exactly one base;
+- **a name that already exists**, a missing base, and a blank suffix.
+
+Deleting a base does **not** cascade. Its layers stay and become ordinary
+regions rendering on their own refs; the message names them so it is not
+silent.
 
 ## ⚙ Settings — and where the dropdowns get their values
 
