@@ -655,6 +655,47 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-18 — **The tool's FX preview was offset and clipped on a scaled display — nothing to do
+  with blend.** Owner-reported via their artist: an `fx` layer sat in the wrong place and got cut off
+  at **150% browser zoom**; the same effect was correct in the live game and correct in the Scene
+  Editor. Reported alongside the blend work and initially read as part of it, which cost a round of
+  investigation on the wrong surface — the game's blend path measured clean.
+
+  - **Why.** `createFxOverlay` (`$lib/fx/fxOverlay.client.ts`, SHARED by `/symbols` and `/rigger`)
+    sets `resolution: window.devicePixelRatio` so callers can place effects in host-space CSS pixels
+    — but never set **`autoDensity`**, which defaults to `false` and is the flag that sizes the
+    canvas ELEMENT in CSS pixels. Without it the element takes its backing-store size, so at DPR 1.5
+    a 320×240 host gets a 480×360 canvas pinned at its top-left. `inset: 0` cannot rein that in: a
+    canvas is a REPLACED element, so `width: auto` resolves to the intrinsic width and the
+    `right`/`bottom` constraints are dropped.
+  - **Measured** on a 320×240 host, an effect placed dead centre (160,120):
+
+    | resolution | `autoDensity` | canvas CSS box | effect lands at | host overflow |
+    | ---------- | ------------- | -------------- | --------------- | ------------- |
+    | 1          | false         | 320×240        | 160,120         | no            |
+    | 1.25       | false         | 400×300        | 200,150         | **clipped**   |
+    | 1.5        | false         | 480×360        | **240,180**     | **clipped**   |
+    | 1.5        | **true**      | 320×240        | 160,120         | no            |
+
+    Offset scales exactly with `devicePixelRatio`, which is why it is invisible at 100% zoom and why
+    it looked like a property of the artist's machine.
+
+  - **Why only this surface.** It is the ONLY place in the launcher that sets `resolution` from
+    `devicePixelRatio` without pairing it with `autoDensity` — every other one pairs them, and the
+    Scene Editor's `EditorEffectLayer` and `/fx`'s `FxStage` never set `resolution` at all, so both
+    are immune. The existing comment already claimed the overlay "keeps stage coords in CSS px";
+    the code was missing the half that delivers it.
+  - **Fix:** `autoDensity: true`. Also re-reads `devicePixelRatio` on `resize`, because the value is
+    a snapshot taken at init and browser zoom changes it for the life of the page — without that the
+    overlay would be correct only at whatever zoom it happened to mount with.
+  - **Guard** (`check:symbol-layers`, 89 → 92): the overlay's init must set `resolution` from
+    `devicePixelRatio` AND `autoDensity: true`. Proven non-vacuous by deleting the flag.
+  - **Fixes `/rigger` too** — same factory, same bug, never reported there.
+  - Launcher-only: ships on the Railway deploy, no runtime release.
+  - ⏳ **NOT browser-verified on the auth-gated tool** — the mechanism is measured on the real Pixi
+    init in isolation, but nobody has yet opened `/symbols` at 150% and looked. Owner/artist to
+    confirm.
+
 - 2026-09-17 — **A layer's blend rides the RENDERABLE, not the wrapping container.** Review change
   on top of the `layers[]` build. `SymbolLayer` originally set `blendMode` on the one `<Container>`
   wrapping every arm. That is equivalent for Pixi's GPU-native modes, which inherit down the subtree
@@ -672,6 +713,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   between two boards, which is what the Transition section is. It is now a switch at the FOOT of
   **Transition**, in a `wl-config`/`wl-group` block with the section's own `hint` copy — the same
   shape the Stacked-pictures sub-switches use, no new CSS.
+
   - ⚠️ **It is NOT conditional on a transition being bound, and must not become so.** The owner's
     framing for the move was "it would be needed only when transitions are activated"; the grouping
     is right but that reason is not. The Transition FX is fire-and-forget and has never gated the
@@ -1293,7 +1335,7 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
     rig's AUTHORED box — so a Rigger rig whose origin is not its bounds centre is placed right too, and
     `StackedPicture` is one of that change's three opt-ins ([rigger status](rigger.md)). The shared
     `SpineProvider` pivot was deliberately NOT rewritten: that would shift every symbol in every game.
-  Design: [docs/design/stacked-picture-mode.md](../design/stacked-picture-mode.md).
+    Design: [docs/design/stacked-picture-mode.md](../design/stacked-picture-mode.md).
 - 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
   (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was
   gating it behind `!['S', 'M']` — so the scatter (`S`), which reaches `'win'` via

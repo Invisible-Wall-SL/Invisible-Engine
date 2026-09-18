@@ -335,11 +335,25 @@ export function createFxOverlay(): FxOverlayApi {
 			// Transparent bg so this overlays the raw-WebGL stage; `resolution: devicePixelRatio`
 			// keeps stage coords in CSS px (so containers place directly at the host-space (x,y) the
 			// caller computed the same way it positions its bone marker).
+			//
+			// `autoDensity` is what actually DELIVERS that promise, and it defaults to FALSE. It is
+			// the flag that sizes the canvas ELEMENT in CSS pixels; without it the element takes its
+			// intrinsic size — the backing store — so at `devicePixelRatio` 1.5 a 320x240 host gets a
+			// 480x360 canvas pinned at its top-left. `inset: 0` does not rein that in: a canvas is a
+			// replaced element, so `width: auto` resolves to the intrinsic width and the `right`/
+			// `bottom` constraints are dropped. The overlay then overflows the host (clipped on the
+			// right and bottom) and every effect lands `devicePixelRatio`x further from the origin
+			// than the host-space coordinate it was given. At DPR 1 the two sizes coincide and
+			// nothing looks wrong, which is why this survived: it only appears on a scaled display.
+			// Measured on a 320x240 host: at resolution 1.5 an effect placed dead centre (160,120)
+			// drew at (240,180). The Scene Editor's `EditorEffectLayer` and `/fx`'s `FxStage` are
+			// immune because they never set `resolution` at all.
 			await created.init({
 				backgroundAlpha: 0,
 				antialias: true,
 				resizeTo: hostEl,
 				resolution: window.devicePixelRatio || 1,
+				autoDensity: true,
 			});
 			app = created;
 			const canvas = app.canvas;
@@ -355,8 +369,20 @@ export function createFxOverlay(): FxOverlayApi {
 			// `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`. (That scaling now happens inside `tick`,
 			// which also clocks the flipbook sprites off the same ticker.)
 			app.ticker.add(tick);
+			// `resolution` is a snapshot taken here, but browser zoom changes `devicePixelRatio` for
+			// the life of the page. Zooming fires `resize`, so re-read it there — otherwise the
+			// overlay stays at the resolution it happened to mount with and goes soft (or sharp but
+			// wasteful) until something remounts it.
+			window.addEventListener('resize', syncResolution);
 		})();
 		return initPromise;
+	}
+
+	function syncResolution(): void {
+		const dpr = window.devicePixelRatio || 1;
+		if (!app || app.renderer.resolution === dpr) return;
+		app.renderer.resolution = dpr;
+		app.resize();
 	}
 
 	// --- play / follow / stop -------------------------------------------------------------------
@@ -597,6 +623,7 @@ export function createFxOverlay(): FxOverlayApi {
 
 	function destroy(): void {
 		clear();
+		window.removeEventListener('resize', syncResolution);
 		app?.destroy(true);
 		app = null;
 		world = null;
