@@ -101,6 +101,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sequence } from '../packages/utils-shared/sequence.ts';
+import { assertStubSetIsComplete } from './lib/stub-set-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
@@ -249,6 +250,47 @@ const STACKED_WIN_HOLD_MS = Number(
 	)[1],
 );
 
+/** The body every round is compiled from — hoisted so the stub-set guard below can type-check the
+ *  SAME text that actually runs. */
+const runtimeBody = `let show = true;
+// THE CASCADE'S TWO NAMES, declared rather than stubbed. Both live in \`Board.svelte\` outside the
+// handler object this file slices, so the \`boardSettle\`/\`tumbleBoardShow\`/\`tumbleBoardHide\`
+// handlers reach for them as free identifiers — the stub-set guard found them the day it was
+// wired in, latent, on \`main\`. No cascade is ever up here (\`stateTumble.active\` is false for
+// every round), so \`boardSettle\` takes the plain settle path, which is what these say; the
+// adoption path is driven by \`verify-swap-in-place-mode.mjs\`.
+const context = {
+	stateGame,
+	eventEmitter,
+	stateGameDerived: { enhancedBoard: { stop: () => {}, settle: () => {}, readyToSpinEffect: () => {} } },
+};
+let overlayShown = false;
+const settleBoard = (board) => context.stateGameDerived.enhancedBoard.settle(board);
+${runtimeSource}
+const stateGameDerived = { boardRaw, boardRemoved };
+return {
+	boardHandlers,
+	codedHandlers,
+	animateSymbols,
+	winningPositionsOf,
+	recordWinCycleWins,
+	forgetWinCycleWins,
+	explodeSpinWinners,
+	explodeWinnersBeforeBoardChange,
+	cycleEntries,
+	playBet,
+	playBookEvents,
+	holdAfterBigWin,
+	boardRaw,
+	boardRemoved,
+};`;
+
+// The fixture compiles sliced component source with `new Function`, and its parameters are the
+// stub set. That list drifted out of step with `Board.svelte` and the whole file died on a bare
+// `ReferenceError` at part 2 — so the list is no longer trusted: every free identifier in the body
+// is checked against it before the first round runs. See `scripts/lib/stub-set-guard.mjs`.
+let stubSetChecked = false;
+
 // ---------------------------------------------------------------------------
 // THE HARNESS — a virtual clock, a board of reel cells that report like symbols do, and the
 // slices above wired to each other exactly as the modules wire them.
@@ -317,6 +359,11 @@ const buildRound = ({
 	/** Seats hidden under a stacked picture — they mount no `<Symbol>`, so they can neither draw a
 	 *  pop nor report one (docs/design/stacked-picture-mode.md). */
 	coveredSeats = [],
+	/** Does this symbol BIND art for this state? TRUE for everything by default — the ordinary
+	 *  authored project, and the premise every pop expectation below rests on. A knob rather than a
+	 *  constant because the FALSE answer is a different code path (the beatless skip), and a stub
+	 *  nothing ever flips is the shape a stub set drifts into. */
+	symbolStateAuthored = () => true,
 	clock = createClock(),
 } = {}) => {
 	/** Every `symbolState` write, in order, with the virtual time — the round's narration as data. */
@@ -410,115 +457,74 @@ const buildRound = ({
 		},
 	};
 
-	const runtime = new Function(
-		'waitForResolve',
-		'waitForTimeout',
-		'sequence',
-		'eventEmitter',
-		'roundSkip',
-		'stateGame',
-		'inUnskippablePresentation',
-		'bakedWinExplodeEnabled',
-		'bakedWinCycleConfig',
-		'bakedWinLineConfig',
-		'setWinDim',
-		'stackedCoverage',
-		'stackedWinHoldMs',
-		'STACKED_WIN_HOLD_MS',
-		'winLineColorForPositions',
-		'winLineEnabledForWin',
-		'winLinePointsFor',
-		'winLineShapeFor',
-		'winLineFullPointsFor',
-		'winLineColorFor',
-		'winLineTextFor',
-		'showWinInfoMessage',
-		'stateBet',
-		'stateUi',
-		'stateBetDerived',
-		'activeWinLevelIsBig',
-		'armSpinHold',
-		'clearSpinHold',
-		'clearWinPresentation',
-		'stopWinCycle',
-		'startWinCycle',
-		'getFlowInterpreter',
-		'getFlowV2',
-		'playBookEvent',
-		'coded',
-		// THE AUTHORED WIN-BEAT CEILING (Invisible Symbols → win beat). Unauthored here, which is the
-		// state every project is in until someone sets one, and therefore the behaviour every claim
-		// below was written against: `resolveWinBeatBudget` then answers with the coded guard.
-		'bakedWinBeatMaxMs',
-		// WHICH SYMBOLS AUTHORED A STATE. `false` for everything here: an un-authored state inherits,
-		// which is what every project ships with and what these claims measure against.
-		'hasAuthoredSymbolState',
-		`let show = true;
-const context = {
-	stateGame,
-	eventEmitter,
-	stateGameDerived: { enhancedBoard: { stop: () => {}, settle: () => {}, readyToSpinEffect: () => {} } },
-};
-${runtimeSource}
-const stateGameDerived = { boardRaw, boardRemoved };
-return {
-	boardHandlers,
-	codedHandlers,
-	animateSymbols,
-	winningPositionsOf,
-	recordWinCycleWins,
-	forgetWinCycleWins,
-	explodeSpinWinners,
-	explodeWinnersBeforeBoardChange,
-	cycleEntries,
-	playBet,
-	playBookEvents,
-	holdAfterBigWin,
-	boardRaw,
-	boardRemoved,
-};`,
-	)(
-		(arm) => new Promise((resolve) => arm(resolve)),
-		(ms) => clock.wait(ms),
+	/**
+	 * The stub set: every module the slices import and this fixture does not run. Written as an
+	 * OBJECT, not as the two positional lists `new Function` wants, because a positional list can
+	 * drift out of step with ITSELF — insert one name and every stub below it is silently bound to
+	 * the wrong value. Keys and values travel together here by construction, and the guard below
+	 * reads the keys.
+	 */
+	const stubs = {
+		waitForResolve: (arm) => new Promise((resolve) => arm(resolve)),
+		waitForTimeout: (ms) => clock.wait(ms),
 		sequence,
 		eventEmitter,
 		roundSkip,
 		stateGame,
-		() => false,
-		() => config.winExplode,
-		() => config.winCycle,
-		() => config.winLine,
-		() => {},
-		() => new Set(coveredSeats.map(([reel, row]) => `${reel}:${row}`)),
-		() => undefined,
+		inUnskippablePresentation: () => false,
+		bakedWinExplodeEnabled: () => config.winExplode,
+		bakedWinCycleConfig: () => config.winCycle,
+		bakedWinLineConfig: () => config.winLine,
+		setWinDim: () => {},
+		stackedCoverage: () => new Set(coveredSeats.map(([reel, row]) => `${reel}:${row}`)),
+		stackedWinHoldMs: () => undefined,
 		STACKED_WIN_HOLD_MS,
-		() => undefined,
-		() => true,
-		() => [],
-		() => undefined,
-		() => [],
-		() => undefined,
-		() => ({ amount: '', message: '' }),
-		// `showWinInfoMessage` — TRUE, i.e. the ordinary project that authored a win template. It is
-		// the coded handler's slammed branch that reads it (`if (shown) await slamHold(400)`), so a
-		// stub answering `false` silently deletes the message hold and with it the slam's real timing.
-		() => true,
-		{ winBookEventAmount: 0 },
-		{ unskippablePresentationActive: false, freeSpinsAdded: 0 },
-		{ isContinuousBet: () => false },
-		() => true,
-		(resolve) => seam.push({ what: 'armSpinHold', at: clock.at(), resolve }),
-		() => seam.push({ what: 'clearSpinHold', at: clock.at() }),
-		() => seam.push({ what: 'clearWinPresentation', at: clock.at() }),
-		() => seam.push({ what: 'stopWinCycle', at: clock.at() }),
-		() => seam.push({ what: 'startWinCycle', at: clock.at() }),
-		() => undefined,
-		() => undefined,
-		async () => {},
-		{ playBookEvent: async () => {} },
-		() => undefined,
-		() => true,
-	);
+		winLineColorForPositions: () => undefined,
+		winLineEnabledForWin: () => true,
+		winLinePointsFor: () => [],
+		winLineShapeFor: () => undefined,
+		winLineFullPointsFor: () => [],
+		winLineColorFor: () => undefined,
+		winLineTextFor: () => ({ amount: '', message: '' }),
+		// TRUE, i.e. the ordinary project that authored a win template. It is the coded handler's
+		// slammed branch that reads it (`if (shown) await slamHold(400)`), so a stub answering `false`
+		// silently deletes the message hold and with it the slam's real timing.
+		showWinInfoMessage: () => true,
+		stateBet: { winBookEventAmount: 0 },
+		stateUi: { unskippablePresentationActive: false, freeSpinsAdded: 0 },
+		stateBetDerived: { isContinuousBet: () => false },
+		activeWinLevelIsBig: () => true,
+		armSpinHold: (resolve) => seam.push({ what: 'armSpinHold', at: clock.at(), resolve }),
+		clearSpinHold: () => seam.push({ what: 'clearSpinHold', at: clock.at() }),
+		clearWinPresentation: () => seam.push({ what: 'clearWinPresentation', at: clock.at() }),
+		stopWinCycle: () => seam.push({ what: 'stopWinCycle', at: clock.at() }),
+		startWinCycle: () => seam.push({ what: 'startWinCycle', at: clock.at() }),
+		getFlowInterpreter: () => undefined,
+		getFlowV2: () => undefined,
+		playBookEvent: async () => {},
+		coded: { playBookEvent: async () => {} },
+		// THE AUTHORED WIN-BEAT CEILING (Invisible Symbols → win beat). Unauthored here, which is the
+		// state every project is in until someone sets one, and therefore the behaviour every claim
+		// below was written against: `resolveWinBeatBudget` then answers with the coded guard. What
+		// the resolver does with an authored one is `verify-win-beat-budget.mts`, which drives it.
+		bakedWinBeatMaxMs: () => undefined,
+		// WHICH SYMBOLS AUTHORED A STATE — the round's own knob, TRUE for everything unless a case
+		// says otherwise. A cell answering FALSE for `explosion` is skipped by the pop without a beat
+		// (it still leaves the board), which is the unbound-`explosion` stall driven in part 3.
+		hasAuthoredSymbolState: (name, state) => symbolStateAuthored(name, state),
+	};
+
+	// Once per run, before the first round: does this set still cover everything the slices call?
+	if (!stubSetChecked) {
+		stubSetChecked = true;
+		assertStubSetIsComplete({
+			what: 'verify-win-explode-pop',
+			body: runtimeBody,
+			stubNames: Object.keys(stubs),
+		});
+	}
+
+	const runtime = new Function(...Object.keys(stubs), runtimeBody)(...Object.values(stubs));
 
 	return { runtime, clock, stateGame, transitions, log, seam, config, roundSkip, rebuildBoard };
 };
@@ -744,6 +750,33 @@ console.log('\n--- 3. the spin ends on ONE pop over the deduped winning set ---'
 	check('…and is not removed either — the tall picture still owns it', round.stateGame.board[2].reelState.symbols[2].removed, false); // prettier-ignore
 	check('…while its five uncovered co-winners pop as usual', round.transitions.filter((t) => t.state === 'explosion').length, 5); // prettier-ignore
 	check('…and the beat is still one explosion long, not a cap', round.clock.at() - beforePop, 200);
+}
+
+{
+	// A WINNER WITH NO `explosion` BOUND. The field case, and the expensive one: `explosion` falls
+	// back to `static` through `resolveSymbolState`, which on a cell that has just finished its win
+	// is what is ALREADY on screen — so nothing re-mounts, no renderer effect re-runs, and the cell
+	// can never report. The pop is ONE concurrent `Promise.all`, so that single cell used to make
+	// every paying spin containing it sit out the whole budget with nothing to show for it. Measured
+	// live on `test6`: the SCATTER was the unbound one, so a scatter win cost 4s and a line win 0.5s.
+	//
+	// It must be skipped WITHOUT a beat — and still LEAVE, because "and be gone" is the other half of
+	// the promise and a winner left standing is popped a second time by the next board's clear.
+	//
+	// This is also the case that keeps `hasAuthoredSymbolState` an exercised stub rather than a
+	// constant nobody flips — the shape a stub set drifts into.
+	const round = await presentWinInfo(
+		buildRound({
+			winExplode: true,
+			symbolStateAuthored: (name, state) => !(name === 'S22' && state === 'explosion'),
+		}),
+	);
+	const beforePop = round.clock.at();
+	await round.clock.run(() => round.runtime.explodeSpinWinners());
+	check('a winner with no explosion bound is not exploded', round.transitions.filter((t) => t.state === 'explosion' && t.reel === 2 && t.row === 2).length, 0); // prettier-ignore
+	check('…but it still leaves the board', round.stateGame.board[2].reelState.symbols[2].removed, true); // prettier-ignore
+	check('…its five co-winners pop as usual', round.transitions.filter((t) => t.state === 'explosion').length, 5); // prettier-ignore
+	check('…and the spin pays one explosion, not the runaway guard', round.clock.at() - beforePop, 200); // prettier-ignore
 }
 
 {
@@ -1255,6 +1288,10 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 	// the race rather than only on the report. The early one is before it by definition: it is the
 	// short-circuit that never races at all.
 	check('…on BOTH exits of the race, i.e. after the await rather than inside the arm', pop.lastIndexOf('.removed = true') > pop.indexOf('awaitSymbolBeat('), true); // prettier-ignore
+	// …and the EARLY one is the unbound-state skip's, not some other short-circuit that grew into the
+	// handler. Driven above; this is the text-level twin of that case, so a removal that moved out of
+	// the skip is caught even on a build where nothing happens to leave a cell unbound.
+	check('…the early one belongs to the unbound-state skip', pop.slice(0, pop.indexOf('.removed = true')).includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
 	// Bounded by the AUTHORED ceiling when a project sets one and by the coded guard when it does
 	// not — `resolveWinBeatBudget` is the one place that decides which, so "cap each win at N" bounds
 	// what a paying cell costs in total rather than only its first half.
