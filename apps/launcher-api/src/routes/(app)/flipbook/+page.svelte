@@ -18,6 +18,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import BoundsBox from '$lib/BoundsBox.svelte';
 	import { boxFit } from '$lib/boundsFit';
 	import { centrePane, paneSize, zoomAbout } from '$lib/panZoom';
@@ -235,11 +236,15 @@
 		saveError = saveState.message;
 		if (saveState.status === 'scope-mismatch') return false; // never forceable — reload is the fix
 		if (!force && saveState.status === 'conflict') {
-			const confirmed = confirm(
-				`${saveState.message}\n\nOverwrite it with yours?\n\n` +
+			const confirmed = await askConfirm({
+				title: 'Overwrite their clip with yours?',
+				message:
+					`${saveState.message}\n\n` +
 					'This permanently REPLACES the stored clip. It has no version history, ' +
 					'so their work cannot be recovered. Cancel to rename yours instead.',
-			);
+				confirmLabel: 'Overwrite it',
+				danger: true,
+			});
 			return confirmed ? await save(true) : false;
 		}
 		return false;
@@ -248,7 +253,12 @@
 	/** Save a COPY under a new name. Resetting the id to the sentinel makes the save key the new
 	 * file off the new name; the original's R2 object is untouched. */
 	async function saveAs(): Promise<void> {
-		const name = window.prompt('Save as a new clip named:', `${clip.name} copy`.trim());
+		const name = await askText({
+			title: 'Save a copy',
+			label: 'Save as a new clip named:',
+			value: `${clip.name} copy`.trim(),
+			confirmLabel: 'Save copy',
+		});
 		if (name === null) return;
 		const clean = name.trim();
 		if (!clean) return;
@@ -267,7 +277,14 @@
 		const id = pickerId || (clip.id !== UNTITLED_CLIP_ID ? clip.id : '');
 		if (!id) return;
 		const label = clips.find((c) => c.id === id)?.name ?? id;
-		if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+		const ok = await askConfirm({
+			title: `Delete "${label}"?`,
+			message: 'Clips have no version history — this cannot be undone.',
+			confirmLabel: 'Delete clip',
+			danger: true,
+			requireText: label,
+		});
+		if (!ok) return;
 		deleting = true;
 		saveError = '';
 		savedNote = '';
@@ -328,16 +345,18 @@
 	}
 
 	/** Ask before anything that would DISCARD unsaved edits. */
-	function confirmDiscard(action: string): boolean {
+	async function confirmDiscard(action: string): Promise<boolean> {
 		if (!isDirty()) return true;
-		return window.confirm(
-			`"${clip.name || 'This clip'}" has unsaved changes.\n\n` +
-				`${action} will discard them. Continue?`,
-		);
+		return await askConfirm({
+			title: `"${clip.name || 'This clip'}" has unsaved changes`,
+			message: `${action} will discard them.`,
+			confirmLabel: 'Discard them',
+			danger: true,
+		});
 	}
 
-	function newClip(): void {
-		if (!confirmDiscard('Starting a new clip')) return;
+	async function newClip(): Promise<void> {
+		if (!(await confirmDiscard('Starting a new clip'))) return;
 		const fresh = emptyClip();
 		clip = fresh;
 		sheetKey = fresh.assetKey || data.atlases[0]?.manifestKey || '';
@@ -355,7 +374,7 @@
 		if (!id || opening) return;
 		if (id === clip.id && !isDirty()) return; // already open and untouched
 		const label = clips.find((c) => c.id === id)?.name ?? id;
-		if (!confirmDiscard(`Opening "${label}"`)) return;
+		if (!(await confirmDiscard(`Opening "${label}"`))) return;
 		opening = true;
 		saveError = '';
 		try {
@@ -425,10 +444,14 @@
 						.concat(clash.map((c) => `  • ${c.name}`))
 						.join(String.fromCharCode(10))
 				: '';
-			const prompt = [`Import ${incoming.length} animation(s)?`, '']
-				.concat(lines)
-				.join(String.fromCharCode(10));
-			if (!window.confirm(prompt + warning)) return;
+			const summary = lines.concat(warning ? [warning] : []).join(String.fromCharCode(10));
+			const proceed = await askConfirm({
+				title: `Import ${incoming.length} animation(s)?`,
+				message: summary,
+				confirmLabel: 'Import',
+				danger: clash.length > 0,
+			});
+			if (!proceed) return;
 
 			let ok = 0;
 			for (const c of incoming) {
@@ -621,20 +644,22 @@
 	 * a double-length clip when clicked twice, and the run IS the animation — so it is the list.
 	 * The run carries its own `primary` sheet (the one holding the most of its frames, so the
 	 * stored doc needs the fewest scoped refs), which becomes the clip's `assetKey`. */
-	function useSequence(seq: {
+	async function useSequence(seq: {
 		stem: string;
 		primary: string;
 		frames: string[];
 		sheets: string[];
-	}): void {
-		if (
-			clip.frames.length > 0 &&
-			!confirm(
-				`Replace the ${clip.frames.length} frame(s) in this clip with the ${seq.frames.length}-frame ` +
-					`sequence "${seq.stem}" from ${seq.sheets.map(sheetLabel).join(' + ')}?`,
-			)
-		) {
-			return;
+	}): Promise<void> {
+		if (clip.frames.length > 0) {
+			const ok = await askConfirm({
+				title: `Replace the ${clip.frames.length} frame(s) in this clip?`,
+				message:
+					`They become the ${seq.frames.length}-frame sequence "${seq.stem}" from ` +
+					`${seq.sheets.map(sheetLabel).join(' + ')}.`,
+				confirmLabel: 'Replace frames',
+				danger: true,
+			});
+			if (!ok) return;
 		}
 		clip = {
 			...clip,
@@ -1101,7 +1126,7 @@
 			<aside class="rail">
 				<div class="head">
 					<h3>Clips</h3>
-					<button class="add" onclick={newClip}>+ New</button>
+					<button class="add" onclick={() => void newClip()}>+ New</button>
 				</div>
 
 				<!-- The animation plist is authored elsewhere (a cocos project, an exporter) and states
@@ -1487,7 +1512,7 @@
 							<button
 								class="seq"
 								class:seqhere={seq.primary === sheetKey}
-								onclick={() => useSequence(seq)}
+								onclick={() => void useSequence(seq)}
 							>
 								<span class="sqn">{seq.sheets.map(sheetLabel).join(' + ')}</span>
 								<span class="sqc"

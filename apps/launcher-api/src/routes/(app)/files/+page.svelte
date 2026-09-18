@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -168,22 +169,36 @@
 	async function deleteKeys(keys: string[]): Promise<void> {
 		if (keys.length === 0) return;
 		const label = keys.length === 1 ? basename(keys[0]) : `${keys.length} files`;
-		if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+		const ok = await askConfirm({
+			title: `Delete ${label}?`,
+			message: 'This cannot be undone.',
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (!ok) return;
 		await mutate('/api/files/delete', { keys });
 	}
 
 	async function deleteFolder(p: string): Promise<void> {
-		if (!confirm(`Delete the folder "${basename(p)}" and everything in it? This cannot be undone.`))
-			return;
+		const ok = await askConfirm({
+			title: `Delete the folder "${basename(p)}"?`,
+			message: 'Everything in it goes with it. This cannot be undone.',
+			confirmLabel: 'Delete folder',
+			danger: true,
+			requireText: basename(p),
+		});
+		if (!ok) return;
 		await mutate('/api/files/delete', { prefix: p });
 	}
 
 	async function rename(key: string, isFolder: boolean): Promise<void> {
 		const current = key;
-		const next = prompt(
-			isFolder ? 'New folder path (must end with /):' : 'New full key (path):',
-			current,
-		);
+		const next = await askText({
+			title: isFolder ? 'Rename folder' : 'Rename file',
+			label: isFolder ? 'New folder path (must end with /):' : 'New full key (path):',
+			value: current,
+			confirmLabel: 'Rename',
+		});
 		if (!next || next === current) return;
 		await mutate('/api/files/move', { from: current, to: next });
 	}
@@ -274,9 +289,7 @@
 	}
 
 	const dbRangeLabel = $derived(
-		dbTotal === 0
-			? '0 rows'
-			: `${dbOffset + 1}–${dbOffset + dbRows.length} of ${dbTotal}`,
+		dbTotal === 0 ? '0 rows' : `${dbOffset + 1}–${dbOffset + dbRows.length} of ${dbTotal}`,
 	);
 </script>
 
@@ -325,15 +338,23 @@
 					onchange={(e) => void uploadFiles(e.currentTarget.files)}
 					disabled={busy}
 				/>
-				<button type="button" onclick={() => fileInput?.click()} disabled={busy}>Upload here</button>
+				<button type="button" onclick={() => fileInput?.click()} disabled={busy}>Upload here</button
+				>
 				{#if selectedKeys.length > 0}
-					<button class="danger" type="button" onclick={() => void deleteKeys(selectedKeys)} disabled={busy}>
+					<button
+						class="danger"
+						type="button"
+						onclick={() => void deleteKeys(selectedKeys)}
+						disabled={busy}
+					>
 						Delete selected ({selectedKeys.length})
 					</button>
 				{/if}
 			{:else}
 				<span class="muted">
-					{full ? 'Open a folder to browse the bucket.' : "Pick a tool folder to browse this project's files."}
+					{full
+						? 'Open a folder to browse the bucket.'
+						: "Pick a tool folder to browse this project's files."}
 				</span>
 			{/if}
 			<button class="ghost" type="button" onclick={() => void refresh()} disabled={busy || loading}>
@@ -359,8 +380,15 @@
 					<span class="cell date"></span>
 					<span class="cell actions">
 						{#if !atRoot}
-							<button type="button" onclick={() => void rename(f, true)} disabled={busy}>Move</button>
-							<button class="danger" type="button" onclick={() => void deleteFolder(f)} disabled={busy}>
+							<button type="button" onclick={() => void rename(f, true)} disabled={busy}
+								>Move</button
+							>
+							<button
+								class="danger"
+								type="button"
+								onclick={() => void deleteFolder(f)}
+								disabled={busy}
+							>
 								Delete
 							</button>
 						{/if}
@@ -381,7 +409,12 @@
 						<button type="button" onclick={() => void rename(file.key, false)} disabled={busy}>
 							Move
 						</button>
-						<button class="danger" type="button" onclick={() => void deleteKeys([file.key])} disabled={busy}>
+						<button
+							class="danger"
+							type="button"
+							onclick={() => void deleteKeys([file.key])}
+							disabled={busy}
+						>
 							Delete
 						</button>
 					</span>
