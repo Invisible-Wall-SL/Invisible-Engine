@@ -498,13 +498,55 @@ const appSrc = read(
 );
 check(
 	'InitialiseApplication: registers the advanced blend modes (else they are not modes at all)',
-	/^\s*import 'pixi\.js\/advanced-blend-modes';/m.test(appSrc),
+	/^\s*registerAdvancedBlendModes\(\);/m.test(appSrc),
+	true,
+);
+check(
+	'InitialiseApplication: registers them BEFORE the Application is built (the pipe caches one filter per mode name for the life of a renderer)',
+	appSrc.indexOf('registerAdvancedBlendModes();') < appSrc.indexOf('new PIXI.Application'),
 	true,
 );
 check(
 	'InitialiseApplication: enables the back buffer (else FilterSystem SKIPS every blend filter)',
 	/^\s*useBackBuffer: true,/m.test(appSrc),
 	true,
+);
+
+// --- every ADVANCED mode the editor offers has a corrected filter behind it ---------------------
+// Pixi's own `pixi.js/advanced-blend-modes` is deliberately NOT imported: its shader hands the
+// PREMULTIPLIED sample to the blend maths as if it were straight colour, so it disagrees with the
+// editor's Canvas2D/CSS everywhere the art is not fully opaque. We register corrected filters
+// instead — which means a mode added to `BLEND_MODES` with no formula in `advancedBlendModes.ts`
+// would go back to rendering as `normal`, silently, in game only.
+check(
+	'InitialiseApplication: does not import the stock advanced blend modes',
+	/import 'pixi\.js\/advanced-blend-modes'/.test(appSrc),
+	false,
+);
+const blendSrc = read(`${here}../../../packages/engine-layout/src/lib/blendMode.ts`);
+const filterSrc = read(`${here}../../../packages/pixi-svelte/src/lib/advancedBlendModes.ts`);
+const quoted = (re: RegExp, src: string) =>
+	((re.exec(src)?.[1] ?? '').match(/'[a-z-]+'/g) ?? []).map((q) => q.slice(1, -1));
+const allModes = quoted(/export const BLEND_MODES = \[([\s\S]*?)\]/, blendSrc);
+const gpuNative = quoted(/export const GPU_NATIVE_BLEND_MODES = \[([\s\S]*?)\]/, blendSrc);
+const advanced = allModes.filter((m) => !gpuNative.includes(m));
+const formulaBlock = /const ADVANCED_BLEND_FORMULAS[\s\S]*?\n};/.exec(filterSrc)?.[0] ?? '';
+const corrected = (formulaBlock.match(/^\t([a-z-]+): \{$/gm) ?? []).map((l) =>
+	l.trim().replace(': {', ''),
+);
+check('blendMode.ts: the mode list parsed (the regex still matches)', allModes.length > 0, true);
+check('blendMode.ts: the GPU-native list parsed', gpuNative.length > 0, true);
+check('blendMode.ts: there is at least one ADVANCED mode to cover', advanced.length > 0, true);
+check('advancedBlendModes.ts: the formula table parsed', corrected.length > 0, true);
+check(
+	`every advanced mode the editor offers has a corrected filter (offers ${advanced.join('/')}, registers ${corrected.join('/')})`,
+	advanced.every((m) => corrected.includes(m)),
+	true,
+);
+check(
+	'no corrected filter is registered for a GPU-native mode (those never become filters)',
+	corrected.some((m) => gpuNative.includes(m)),
+	false,
 );
 
 // ── 7. The win dim, and a layer's opt-out from it ────────────────────────────────────────────

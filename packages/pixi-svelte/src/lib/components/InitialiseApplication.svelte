@@ -5,13 +5,15 @@
 	// to the device-native GPU format (ASTC/ETC2/BC), staying compressed in VRAM. Inert for a
 	// game that ships no `.ktx2` assets — the loader is simply never dispatched (parity).
 	import 'pixi.js/ktx2';
-	// Side-effect import: registers Pixi's ADVANCED blend modes (`overlay` and its family) as
-	// filter extensions. Without it `blendMode = 'overlay'` is silently rendered as `normal` —
-	// no warning, no error, just a node that does not blend — so the authored mode would work in
-	// the editor preview (Canvas2D/CSS support overlay natively) and quietly do nothing in game.
-	// Registration only; the filters are constructed on demand, so a game placing no advanced
-	// blend pays the bundle and nothing else.
-	import 'pixi.js/advanced-blend-modes';
+	// Registers the ADVANCED blend modes (`overlay`, `lighten`) as filter extensions. Unregistered,
+	// `blendMode = 'overlay'` is silently rendered as `normal` — no warning, no error — so the
+	// authored mode would work in the editor preview (Canvas2D/CSS support it natively) and quietly
+	// do nothing in game. We register OUR OWN corrected filters rather than importing
+	// `pixi.js/advanced-blend-modes`, because Pixi's blend the PREMULTIPLIED sample as if it were
+	// straight colour and so disagree with the editor everywhere the art is not fully opaque — see
+	// `advancedBlendModes.ts` for the measurements. Registration only; the filters are constructed
+	// on demand, so a game placing no advanced blend pays nothing beyond the bundle.
+	import { registerAdvancedBlendModes } from '../advancedBlendModes';
 	// Self-hosted KTX2 transcoder, bundled INTO the engine via Vite `?url` so it is emitted
 	// into every consuming build's own asset output (`_app/immutable/...`) with a correct,
 	// base-aware URL — standalone game builds AND the shared runtime bundle alike. (An earlier
@@ -48,6 +50,10 @@
 			jsUrl: await toWorkerUrl(ktxTranscoderJsUrl),
 			wasmUrl: await toWorkerUrl(ktxTranscoderWasmUrl),
 		});
+
+		// Before the renderer exists: `BlendModePipe` caches one `FilterEffect` per mode name for
+		// the life of a renderer, so a registration landing after a mode has drawn is ignored.
+		registerAdvancedBlendModes();
 
 		await preloadFont();
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();

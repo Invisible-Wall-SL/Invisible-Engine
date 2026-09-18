@@ -33,6 +33,16 @@ export const BLEND_MODES = [
 	'overlay',
 ] as const satisfies readonly BlendMode[];
 
+/**
+ * The modes Pixi implements as a GPU BLEND STATE. Everything else in {@link BLEND_MODES} is an
+ * ADVANCED mode: a backdrop-reading FILTER, which is a different code path with two extra
+ * requirements (registration, and a back buffer on the renderer) and its own maths. The split is
+ * declared here so the offline guard can assert that every advanced mode the editor offers has a
+ * corrected filter registered for it in `pixi-svelte`'s `advancedBlendModes.ts` — a mode added to
+ * the list above without one would silently render as `normal` in game.
+ */
+export const GPU_NATIVE_BLEND_MODES = ['normal', 'add', 'multiply', 'screen'] as const;
+
 /** Author-facing label per mode (the Photoshop names, plus what each is FOR). */
 export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
 	normal: 'Normal',
