@@ -26,7 +26,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 3. **Refactor debt** — the gate + "resolve active (client,project)" prelude is copy-pasted across ~9 routes and there are two divergent `allowedPrefixes()` kept in lockstep by hand; per-request DB fan-out (~4 sequential queries, resolved twice per navigation) is a known perf cost. The desktop-facing routes repeat the same shape in their own idiom: a four-line `Bearer` parser + `validateSession` + role check now sits in six of them (`comfyui-nodes`, `models-manifest`, `projects`, `register-game`, `tunnel-bundle`, `game-upload`). `game-upload` copied it knowingly rather than refactor five live endpoints inside an urgent fix — one `requireLauncherAdmin(request)` helper is owed.
 4. **Grant `gamePublish`** to any non-admin publishers (owner) now that the deploy token is capability-gated.
 5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
-6. **Migrate the ~15 `window.confirm()` sites + 3 hand-rolled `.modal-backdrop` divs to `<ConfirmDialog>`** (`docs/ui-inventory.md` §17). The natural shape is an `askConfirm(): Promise<boolean>` wrapper over ONE host mounted in `(app)/+layout.svelte`; deliberately NOT done in the same change, so a dialog regression can't land on every tool at once.
+6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
 
 ## Blocked (owner / external)
@@ -39,6 +39,44 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-18 — every native browser pop-up in the launcher is gone
+`window.confirm()` / `alert()` / `prompt()` no longer appear anywhere in `apps/launcher-api/src`.
+The real count was **46 calls across 11 route files** (36 `confirm`, 5 `alert`, 5 `prompt`) — three
+times the "~15" this file used to claim, because the estimate was never re-counted as tools were
+added.
+
+- **The foundation that was missing**: `src/lib/dialogs.svelte.ts` — `askConfirm(): Promise<boolean>`,
+  `askMessage(): Promise<void>`, `askText(): Promise<string | null>`, rendered by ONE
+  `<DialogHost>` mounted in `(app)/+layout.svelte`. Promise-returning on purpose: a native
+  `confirm()` is an EXPRESSION in the middle of a handler, so `await askConfirm({…})` keeps the
+  control flow the author already wrote instead of turning 46 call sites into 46 new pieces of
+  resume-in-a-callback state. Requests queue FIFO — `confirm()` blocked the thread so two could
+  never overlap, but an un-awaited `askConfirm()` can, and dropping the second would silently
+  answer it `false`.
+- **One dialog implementation, not two.** `ConfirmDialog.svelte` grew three OPTIONAL props rather
+  than being forked: `message` (plain text, newlines preserved, so the ported strings survive
+  verbatim), `hideCancel` (the `alert()` shape), `input` (the `prompt()` shape — seeded, selected
+  on open, Enter submits). Its two existing direct callers (admin delete + purge) are untouched.
+- **Destructive styling + typed guards**: every delete is `danger`; the unrecoverable ones
+  (component, FX effect, flipbook clip, an FTP folder) require the name typed first.
+- **The `beforeNavigate` unsaved-work guards were the hard part** — they call `navigation.cancel()`
+  SYNCHRONOUSLY, and a dialog cannot answer in time. They were NOT converted naïvely; they now go
+  through `src/lib/unsavedGuard.ts`, which **cancels first, always**, and re-issues the navigation
+  itself on confirm. Cancelling is the safe default: the worst case of a bug there is a navigation
+  that needs a second click, never work discarded silently. The re-issue is kind-specific —
+  `goto(to)` for a link/`goto`, but `history.go(delta)` for Back/Forward, because SvelteKit
+  counteracts a cancelled popstate with its own `history.go` and replaying that with `goto` would
+  push a NEW entry, quietly turning Back into Forward.
+- **Pinned by a scan, not by a type.** These are globals on `window` — always in scope, always
+  correctly typed — so no compiler can object to one, and this app's `build` doesn't type-check
+  anyway. `apps/launcher-api/nativeDialogs.fixture.ts`
+  (`pnpm --filter launcher-api check:native-dialogs`) reads the sources, strips comments, and fails
+  on any re-introduced call; it mutation-tests its own regex against the exact shapes it removed.
+  `ConfirmDialog`'s own confirm handler was renamed `accept()` for it: a local named `confirm`
+  shadows the global and is indistinguishable from it to any source scan.
+- **Out of scope:** `static/rigger/cinematic.js` (6 calls). Vanilla JS served as-is; it cannot
+  import a Svelte component, so it needs a vanilla dialog of its own.
 
 - 2026-09-18 — **A desktop ☁ Publish now backfills the engine packages a game repo's `package.json` never learned about** (`invisible-launcher` #13, `LAUNCHER_VERSION` 1.0.55). The 2026-09-17 entry below made every game repo compile the submodule's own `apps/lines/src` — current by construction — but nothing advanced the repo's own manifest to match. So the first time the engine gained a workspace package, every repo scaffolded before it built the CURRENT game layer against a manifest that had never heard of it, and `vite build` died on `Rollup failed to resolve import "engine-game"`. **Measured against the engine's 31 workspace deps: 3 of 4 real game repos were broken** — `bookofborut` missing `engine-flow-v2`/`engine-fx`/`engine-game`/`game-config`, `test1` missing `engine-game`/`game-config`, `bookofborutremake` missing `engine-game`; only `test6` (scaffolded after the fix below) was complete.
   - **It is `new-game.mjs`'s own rule, applied to an EXISTING repo.** The scaffolder derives a new repo's deps from `apps/<SEED_APP>/package.json` wholesale precisely because two hardcoded lists rotted there ("never gained `engine-game` or `game-config`"). `backfill_workspace_deps` reads the same manifest — the seed app name parsed out of the scaffolder's `SEED_APP`, falling back to `apps/lines` — and declares at `workspace:*` whatever the game repo does not, in the section the engine declares it in.

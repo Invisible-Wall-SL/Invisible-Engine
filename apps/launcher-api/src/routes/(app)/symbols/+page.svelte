@@ -16,6 +16,7 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		clearRegionCache,
@@ -523,7 +524,7 @@
 	 * `saveSymbolsDoc` (which owns the CAS + create encoding via the `null` etag) and adopts the
 	 * server's normalized doc + new etag together, so the next save CASes against what was just
 	 * written. A `SymbolsConflictError` maps to `reason:'conflict'`, surfaced by the wrapper's
-	 * `confirm()`; `force` overwrites.
+	 * overwrite ask; `force` overwrites.
 	 */
 	/**
 	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's symbols doc
@@ -917,7 +918,13 @@
 		// Never discard the local doc — ask. Declining leaves the edits on screen and `dirty`
 		// true, so nothing is lost by saying no; the sticky conflict re-prompts on the next Save.
 		if (!force && saveState.status === 'conflict') {
-			if (confirm(`${saveState.message}\n\nOverwrite their version with yours?`)) await save(true);
+			const overwrite = await askConfirm({
+				title: 'Someone else saved these symbols',
+				message: saveState.message,
+				confirmLabel: 'Overwrite theirs',
+				danger: true,
+			});
+			if (overwrite) await save(true);
 		}
 	}
 
@@ -1775,7 +1782,7 @@
 				</button>
 				<!-- `onclick={save}` passes the click EVENT as `force` (truthy): a manual Save has
 				     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
-				     conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
+				     conflict ask is effectively dead on this path); flagged for the owner. -->
 				<button
 					class="save"
 					type="button"

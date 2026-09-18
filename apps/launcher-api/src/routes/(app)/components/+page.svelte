@@ -29,7 +29,8 @@
 		Scene,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
-	import { beforeNavigate } from '$app/navigation';
+	import { askConfirm } from '$lib/dialogs.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	// Reuse the editor's child components across routes (only `+page`/`+layout`/
 	// `+server` are route-special in SvelteKit; these `.svelte`/`.ts` modules are
 	// plain imports). `/editor` keeps owning them — this tool is the standalone
@@ -75,7 +76,7 @@
 	 * Draft save-state machine (multi-user-concurrency Phase 2a). Manual save. `state.etag` is
 	 * the open draft's precondition (the id→etag map `componentEtags` seeds it on open via
 	 * `adoptEtag`; re-adopted from each save response). Conflict UX is DELIBERATELY bespoke — a
-	 * versioned `confirm()` ("save as a NEW version on top of theirs") rather than a banner,
+	 * versioned ask ("save as a NEW version on top of theirs") rather than a banner,
 	 * since components are versioned and the other author's work survives as its own immutable
 	 * snapshot; it's driven off `state.status`/`state.message`, not the shared badge. Create
 	 * encoding stays caller-side (JSON `null`). Promote-to-shared is a separate operation (its
@@ -189,7 +190,7 @@
 	/**
 	 * The defaults sidecar's OWN save machine — deliberately not folded into the draft's
 	 * `saveState`. It writes a different R2 key with its own ETag, and its conflict UX is the
-	 * ORDINARY shared badge (the draft's is a bespoke versioned `confirm()`, since components are
+	 * ORDINARY shared badge (the draft's is a bespoke versioned ask, since components are
 	 * versioned and this sidecar is not). Same reasoning as promote-to-shared keeping its own
 	 * state. Manual save; NOT gated on the component `lease` — that lease covers the def object,
 	 * and this is a separate key whose `If-Match` CAS is its own floor (as promote-to-shared is).
@@ -411,19 +412,20 @@
 	/** Open `def` for editing. `$state.snapshot` (NOT `structuredClone`): `def` may be
 	 * a reactive proxy (a `components` list entry), which `structuredClone` rejects
 	 * with DataCloneError — snapshot returns a plain, detached deep copy. */
-	function openComponent(def: ComponentDef): void {
+	async function openComponent(def: ComponentDef): Promise<void> {
 		// Switching components in the sidebar is the MOST common way to leave one, and it bypasses
-		// every other guard (`beforeNavigate` sees no navigation, `closeComponent` isn't called).
+		// every other guard (the navigation guard sees no navigation, `closeComponent` isn't called).
 		// The defaults panel is a second, separately-saved store, so it needs asking about here.
-		if (
-			defaultsDirty &&
-			componentDraft?.id !== def.id &&
-			!window.confirm(
-				'You have unsaved changes to this game’s defaults for the open component. ' +
-					'Opening another component discards them. Continue?',
-			)
-		) {
-			return;
+		if (defaultsDirty && componentDraft?.id !== def.id) {
+			const ok = await askConfirm({
+				title: 'Discard the unsaved defaults?',
+				message:
+					'You have unsaved changes to this game’s defaults for the open component. ' +
+					'Opening another component discards them.',
+				confirmLabel: 'Discard and open',
+				danger: true,
+			});
+			if (!ok) return;
 		}
 		componentDraft = $state.snapshot(def) as ComponentDef;
 		// The save precondition for this def's scope key. An entry absent from the map (a
@@ -493,15 +495,16 @@
 		if (!componentDraft || versionBusy) return;
 		// Only warn about losing edits when we're leaving an EDITABLE (latest) draft with
 		// unsaved changes — inspecting one snapshot then another discards nothing of value.
-		if (
-			!isInspecting &&
-			(draftDirty || defaultsDirty) &&
-			!window.confirm(
-				'Inspecting an older version replaces the canvas with that read-only snapshot — ' +
-					'your unsaved edits to the current version will be lost. Continue?',
-			)
-		) {
-			return;
+		if (!isInspecting && (draftDirty || defaultsDirty)) {
+			const ok = await askConfirm({
+				title: 'Discard your unsaved edits?',
+				message:
+					'Inspecting an older version replaces the canvas with that read-only snapshot — ' +
+					'your unsaved edits to the current version will be lost.',
+				confirmLabel: 'Discard and inspect',
+				danger: true,
+			});
+			if (!ok) return;
 		}
 		// Inspecting HIDES the defaults panel (its label gates on `!isInspecting`), and the
 		// "Save for this game" button lives inside it — so dirty defaults carried in would be
@@ -581,17 +584,21 @@
 	// `beforeunload` never fires for a CLIENT-SIDE navigation, and every tool-bar entry is an
 	// `<a href>` SvelteKit intercepts as one — so without this, clicking Editor / Flow / the
 	// emblem silently discarded the draft and the defaults. `willUnload` navigations are left to
-	// the handler above (cancelling one only re-triggers the browser's own dialog).
-	beforeNavigate((navigation) => {
-		if (!unsavedWork || navigation.willUnload) return;
+	// the handler above (cancelling one only re-triggers the browser's own dialog); the helper
+	// skips them for that reason.
+	guardUnsavedWork(() => {
+		if (!unsavedWork) return null;
 		const what = draftDirty
 			? defaultsDirty
 				? 'this component and this game’s defaults for it'
 				: 'this component'
 			: 'this game’s defaults for this component';
-		if (!window.confirm(`You have unsaved changes to ${what}.\n\nLeave anyway?`)) {
-			navigation.cancel();
-		}
+		return {
+			title: `You have unsaved changes to ${what}`,
+			message: 'Leaving this page discards them.',
+			confirmLabel: 'Leave anyway',
+			danger: true,
+		};
 	});
 
 	let newName = $state('');
@@ -681,25 +688,27 @@
 				def.params = [{ key: 'action', kind: 'string', options: ENGINE_ACTION_CATALOG }];
 			}
 		}
-		openComponent(def);
+		void openComponent(def);
 		newName = '';
 	}
 
 	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
-	function closeComponent(): void {
-		if (
-			(draftDirty || defaultsDirty) &&
-			!window.confirm(
-				draftDirty && savedSnapshot === null
-					? 'This component has never been saved — closing discards it entirely. Close anyway?'
-					: draftDirty
-						? 'Discard the unsaved changes to this component?'
-						: 'Discard the unsaved changes to this game’s defaults for this component?',
-			)
-		) {
-			return;
+	async function closeComponent(): Promise<void> {
+		if (draftDirty || defaultsDirty) {
+			const ok = await askConfirm({
+				title:
+					draftDirty && savedSnapshot === null
+						? 'This component has never been saved'
+						: draftDirty
+							? 'Discard the unsaved changes to this component?'
+							: 'Discard the unsaved changes to this game’s defaults for this component?',
+				message: draftDirty && savedSnapshot === null ? 'Closing discards it entirely.' : undefined,
+				confirmLabel: 'Discard and close',
+				danger: true,
+			});
+			if (!ok) return;
 		}
 		componentDraft = null;
 		savedSnapshot = null;
@@ -719,13 +728,20 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (!window.confirm(`Delete component "${def.name}"? This cannot be undone.`)) return;
+		const ok = await askConfirm({
+			title: `Delete component "${def.name}"?`,
+			message: 'Every version of it goes with it. This cannot be undone.',
+			confirmLabel: 'Delete component',
+			danger: true,
+			requireText: def.name,
+		});
+		if (!ok) return;
 		const params = new URLSearchParams({ id: def.id, scope: def.scope });
 		if (def.scope === 'project') params.set('project', data.projectKey);
 		const res = await fetch(`/api/editor/component?${params.toString()}`, { method: 'DELETE' });
 		if (!res.ok) return;
 		components = components.filter((c) => c.id !== def.id);
-		if (componentDraft?.id === def.id) closeComponent();
+		if (componentDraft?.id === def.id) await closeComponent();
 	}
 
 	/** Spawn a node into the open draft's `root.children` (the array the synthetic
@@ -787,9 +803,12 @@
 			// theirs survives as its own immutable snapshot. Offer the stack-on-top choice.
 			const msg = saveState.message;
 			saveStatus = { kind: 'error', message: msg };
-			if (confirm(`${msg}\n\nSave yours as a NEW version on top of theirs?`)) {
-				await saveComponent(true);
-			}
+			const stack = await askConfirm({
+				title: 'Save yours as a NEW version on top of theirs?',
+				message: msg,
+				confirmLabel: 'Save on top',
+			});
+			if (stack) await saveComponent(true);
 			return;
 		}
 		saveStatus = { kind: 'error', message: saveState.message || 'Component save failed' };
@@ -806,16 +825,15 @@
 	 */
 	async function promoteToShared(): Promise<void> {
 		if (!componentDraft || busy || !data.canPublishShared || isInspecting) return;
-		if (
-			!window.confirm(
-				`Promote "${componentDraft.name}" to the SHARED library?\n\n` +
-					'This writes a repo-wide copy every project inherits. The project component ' +
-					'of the same id still SHADOWS the shared one wherever it exists — promoting ' +
-					'does not move or delete your project copy.',
-			)
-		) {
-			return;
-		}
+		const ok = await askConfirm({
+			title: `Promote "${componentDraft.name}" to the SHARED library?`,
+			message:
+				'This writes a repo-wide copy every project inherits. The project component ' +
+				'of the same id still SHADOWS the shared one wherever it exists — promoting ' +
+				'does not move or delete your project copy.',
+			confirmLabel: 'Promote',
+		});
+		if (!ok) return;
 		promoting = true;
 		saveStatus = null;
 		try {
@@ -850,7 +868,12 @@
 				const b = (await res.json().catch(() => ({}))) as { message?: string };
 				const msg = b.message ?? 'Someone else changed this shared component.';
 				saveStatus = { kind: 'error', message: msg };
-				if (!confirm(`${msg}\n\nPromote yours as a NEW version on top of theirs?`)) return;
+				const stack = await askConfirm({
+					title: 'Promote yours as a NEW version on top of theirs?',
+					message: msg,
+					confirmLabel: 'Promote on top',
+				});
+				if (!stack) return;
 				res = await post({ force: true });
 			}
 			if (res.ok) {
@@ -1287,7 +1310,7 @@
 		window.addEventListener('pagehide', onUnload);
 		if (data.openId) {
 			const def = components.find((c) => c.id === data.openId);
-			if (def) openComponent(def);
+			if (def) void openComponent(def);
 		}
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
@@ -1410,7 +1433,9 @@
 						Promote to shared
 					</button>
 				{/if}
-				<button class="save-btn" type="button" onclick={closeComponent}>← All components</button>
+				<button class="save-btn" type="button" onclick={() => void closeComponent()}>
+					← All components
+				</button>
 			</div>
 		</div>
 	{/if}
@@ -1500,7 +1525,7 @@
 						{#if components.length === 0}
 							<p class="muted">No components yet. Create one above to start authoring.</p>
 						{:else}
-							<ComponentList {components} onRowClick={openComponent}>
+							<ComponentList {components} onRowClick={(def) => void openComponent(def)}>
 								{#snippet actions(def)}
 									<button
 										type="button"

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { beforeNavigate } from '$app/navigation';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -585,13 +585,19 @@
 		};
 	});
 
-	// Registered at component init (`beforeNavigate` is a lifecycle hook, like `onMount`), and torn
-	// down with the page. `willUnload` navigations are left to `beforeunload` above: cancelling one
-	// of those only re-triggers the browser's own dialog, so confirming twice is the alternative.
-	beforeNavigate((navigation) => {
-		if (!leaveCost || navigation.willUnload) return;
-		if (!window.confirm(`${leaveCost}\n\nLeave anyway?`)) navigation.cancel();
-	});
+	// Registered at component init (it wraps `beforeNavigate`, a lifecycle hook like `onMount`), and
+	// torn down with the page. `willUnload` navigations are left to `beforeunload` above: cancelling
+	// one of those only re-triggers the browser's own dialog, so confirming twice is the alternative.
+	guardUnsavedWork(() =>
+		leaveCost
+			? {
+					title: leaveCost,
+					message: 'Leaving this page loses it.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
 </script>
 
 <svelte:head><title>Invisible Sound — {data.projectKey}</title></svelte:head>
