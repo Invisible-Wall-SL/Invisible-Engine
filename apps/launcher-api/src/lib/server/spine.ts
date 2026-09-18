@@ -313,7 +313,8 @@ export interface SkeletonIndexEntry {
  * `assetKey` is the R2 prefix the asset list hands out — either per-project
  * `<client>/<project>/spines/<bundle>/` or the shared `_shared/spines/<bundle>/`.
  * A prefix under ANOTHER project's root is `null` here (it names no bundle this
- * project can resolve) — see {@link parseSpineBundleKey}. */
+ * project can resolve); `$lib/spineBundleKey.ts#parseSpineBundleKey` is the wider
+ * parser that still reads it, which is how a stranded reference is detected. */
 export function bundleFromAssetKey(
 	clientKey: string,
 	projectKey: string,
