@@ -384,6 +384,15 @@ verified by building the default way and getting the identical 404 set.
   never serves. Every call site is optional-chained, so an embed simply has no pre-Pixi splash — the
   operator's page covers that stretch and the in-canvas `LoadingBar` takes over. Worth revisiting
   only if a partner asks.
+- **`config.json` is aimed at the wrong folder for an embed** (measured 2026-09-18 against a real
+  delivery: the boot requested `/operator/config.json`). It resolves page-relative — correct when the
+  page was ours and sat in the folder with the assets, but a delivery has no page of ours, so the
+  operator would have to put the file beside the page that serves EVERY game. One file would repoint
+  all of them, which is the exact hazard `?rgs_profile=` refuses `config.json` for. Harmless today
+  (absent = normal, one 404 per boot) and the staging↔production story it exists for is not one a
+  partner has asked for yet. If it is ever wanted for a delivery it should resolve beside `game.js`,
+  like the assets do — which is a change to what an operator may repoint, so it needs deciding rather
+  than patching.
 
 ## Phase 4 — the handover ✅ BUILT
 
