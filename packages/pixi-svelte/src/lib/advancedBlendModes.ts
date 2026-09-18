@@ -76,6 +76,16 @@ function correctedBlendFilter(formula: BlendFormula) {
 					main: wgslMain,
 				},
 			});
+			// The blend shader samples the front and the BACKDROP with the same `vTextureCoord`, but
+			// the two textures are allocated separately: the front at THIS filter's resolution, the
+			// backdrop at the render target's. `TexturePool` rounds each up to a power of two and
+			// derives the UV scale from that rounded size, so unless the two resolutions agree the
+			// backdrop is sampled at the wrong scale and the blend covers only part of the node.
+			// `BlendModeFilter` leaves Pixi's default of 1, which happens to agree whenever the
+			// renderer resolution is itself a power of two — `nextPow2(2n) === 2 * nextPow2(n)` — and
+			// disagrees at every other value. A 150%-scaled display gives `resolution: 1.5`, where the
+			// blend reached 75% of the node's width and stopped on a hard rectangular edge.
+			this.resolution = 'inherit';
 		}
 	};
 }

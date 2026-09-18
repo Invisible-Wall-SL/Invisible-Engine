@@ -75,6 +75,46 @@ Shipped capabilities on `main`:
     path worth a click is the SAVE one: pick `top`, reload, confirm it survives (that is the
     `normalizeAlign` whitelist above, the surface that would fail silently).
 
+- 2026-09-18 — **The "artifacts on the artist's machine" were the third blend bug: on a 150%-scaled
+  display the blend covered only 75% of the node and stopped on a hard rectangular edge.** Reported
+  with a screenshot: a clean vertical and horizontal seam across the reels, art blended above-left
+  of it and raw below-right. The machine is 2560×1600 at 150% browser zoom ⇒ `resolution: 1.5`.
+
+  - **Why.** The blend shader samples the front and the BACKDROP with the same `vTextureCoord`, but
+    the two textures are allocated separately — the front at the FILTER's resolution (Pixi's
+    `BlendModeFilter` leaves the default `1`), the backdrop at the render target's
+    (`FilterSystem.getBackTexture` uses `lastRenderSurface.colorTexture.source._resolution`).
+    `TexturePool.getOptimalTexture` rounds each up to a power of two and derives the UV scale from
+    that ROUNDED size, so the two agree only by coincidence. Traced on a 400×300 canvas:
+
+    | renderer resolution | front texture   | backdrop texture     | UV agree?                     |
+    | ------------------- | --------------- | -------------------- | ----------------------------- |
+    | 1                   | 512², uv 0.7813 | 512², uv 0.7813      | yes                           |
+    | 1.5                 | 512², uv 0.7813 | 1024×512, uv 0.5859  | **no — 0.5859/0.7813 = 0.75** |
+    | 2                   | 512², uv 0.7813 | 1024², uv 0.7813     | yes                           |
+    | 3                   | 512², uv 0.7813 | 2048×1024, uv 0.5859 | **no — 0.75**                 |
+
+    0.75 is exactly the coverage measured, and 1.75 gave 0.875 for the same reason. It is not
+    simply "fractional resolutions break": whether the two power-of-two roundings land together
+    depends on the node's bounds as well, so `2.5` passed for these bounds and `3` did not. That is
+    what makes it look like a machine-specific artifact rather than a bug.
+
+  - **What the seam looks like is our own shader being right:** past the edge of the copied
+    backdrop, `back.a` is 0, and blending against nothing correctly yields the source unchanged —
+    so the art appears with no blend at all rather than going black.
+  - **Fix:** `this.resolution = 'inherit'` on our filters. `FilterSystem.push` reads exactly that
+    (`filter.resolution === 'inherit' ? colorTextureSource._resolution : filter.resolution`), so the
+    front is allocated at the same resolution as the backdrop and the two roundings cannot diverge.
+  - **Bonus, unlooked-for:** the front content was previously rendered at resolution 1 and scaled up,
+    so on ANY hi-dpi display a blended node was softer than its unblended neighbours. `inherit`
+    fixes that too. It costs a larger input texture for blended nodes — the correct size.
+  - **Verified** over 7 resolutions × 2 modes, 25 samples across the node each: every sample equals
+    what the editor's Canvas2D computes. Proven non-vacuous by removing the line — 1.5, 1.75 and 3
+    then fail 9–10 of 25 samples with the raw front colour, the reported symptom exactly.
+  - **Guard** (`check:symbol-layers`, 88 → 89): the filter must set `resolution: 'inherit'`.
+  - **Method note:** this one was invisible to every probe so far because they all ran at the
+    browser pane's own resolution. Sweeping `resolution` cost four lines and found it immediately.
+
 - 2026-09-18 — **…and once they blended, they blended DIFFERENTLY from the editor: Pixi's advanced
   filters treat a premultiplied sample as straight colour.** Owner-reported within the hour, against
   an `overlay` on a reel-frame sprite: correct in the Scene Editor canvas, wrong in the runtime.
