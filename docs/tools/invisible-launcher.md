@@ -109,6 +109,17 @@ engine's game layer, frozen on the day it was scaffolded — that is what made
 builds ship a months-old game. If an older repo still has a `src/` folder the
 build ignores it and says so; `git rm -r src` clears it up.)
 
+**…and from v1.0.55 it fills in the engine packages your repo's `package.json`
+never heard of.** The step above builds the *current* game layer, and when the
+engine gains a new shared package (`engine-game`, `game-config`, …) a repo
+scaffolded before it had no line declaring it — so the build stopped at
+`Rollup failed to resolve import "engine-game"`, naming a package you never chose
+not to depend on. The publish now compares your manifest against the engine's own
+game app and declares whatever is missing at `workspace:*` before installing,
+listing what it added in the progress log. It applies that **to the build only**:
+the folder is hard-reset on every publish, so nothing is committed or pushed on
+your behalf — make the same edit in the game repo when you want it fixed at rest.
+
 **You don't pick a template for an existing project.** A project's **game kind**
 (Lines, Book of, Ways, Cluster, Scatter, or a custom kind) is authored online —
 in Invisible Game Maker or the editor's kind picker — and the portal sends it
