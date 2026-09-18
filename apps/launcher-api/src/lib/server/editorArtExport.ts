@@ -61,6 +61,7 @@ import {
 	loadSkeletonIndexWithShared,
 	type ExportedSpineEntry,
 } from './spine';
+import { parseSpineBundleKey, staticSpineKeyIsReachable } from '$lib/spineBundleKey';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 
@@ -110,6 +111,14 @@ export interface EditorArtIndex {
 	sheets: EditorArtSheet[];
 	images: EditorArtImage[];
 	spines: EditorArtSpine[];
+	/** Spine `assetKey`s the doc PLACES that name an R2 bundle prefix which resolved to
+	 *  nothing — a reference into another project, or a bundle since deleted/renamed. The
+	 *  spine half of the dangling-binding guard: the doc keeps the prefix as its runtime
+	 *  lookup key, so the game throws `Spine: key "…" is not found in loadedAssets` and the
+	 *  art is simply absent. Bare/coded keys (`bigwin`) are excluded — the game registers
+	 *  those itself, so reporting them would be the false alarm `isBuiltinRegion` prevents
+	 *  for regions. */
+	spinesMissing: string[];
 	collisions: EditorArtCollision[];
 	/** Region names the doc PLACES that no exported sheet packs — so they never
 	 *  reach the game's `loadedAssets` and the sprite renders blank ("… is not found
@@ -145,6 +154,13 @@ interface ArtRefs {
 	/** `spine`-node `assetKey`s (full R2 bundle prefixes). A coded spine key (no R2
 	 * bundle) resolves to nothing in `exportSpineBundle` and is skipped there. */
 	spineKeys: Set<string>;
+	/** The same, for a node whose `assetKey` is bound to a param that DECLARES a non-empty
+	 * default — so `LayoutNodeView` never falls back to the static key and it can't be the
+	 * lookup that fails. Still exported (it costs nothing and a resolvable one is a real
+	 * fallback), never REPORTED: `Button_Square`'s pinned v11 snapshot is immutable and still
+	 * carries a foreign prefix on such a node, which would otherwise warn on every publish
+	 * about art no game ever requests. See `staticSpineKeyIsReachable`. */
+	spineFallbackKeys: Set<string>;
 	/** Bundle NAMES referenced by `spine`-kind component params (def defaults + instance
 	 * overrides). A param stores the bare bundle name (`EditorProperties` `<option
 	 * value={s.name}>`), not an assetKey, so each is reconstructed into a project-rooted
@@ -188,6 +204,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		manifestKeys: new Set(),
 		imageKeys: new Set(),
 		spineKeys: new Set(),
+		spineFallbackKeys: new Set(),
 		spineNames: new Set(),
 		regionNames: new Set(),
 		usedRegions: new Set(),
@@ -210,7 +227,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		spineParamKeys.set(id, spineKeys);
 	}
 
-	const visit = (node: LayoutNode): void => {
+	const visit = (node: LayoutNode, ownerDef?: ComponentDef): void => {
 		if (node.kind === 'sprite' && typeof node.region === 'string' && node.region) {
 			// A sprite `region` can itself be a SCOPED ref (`<assetKey>::<frame>` — what an
 			// image-kind param binding stores), which is how `LayoutNodeView` reads it. Adding the
@@ -225,7 +242,10 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		} else if (node.kind === 'sprite' && !node.region && isImageAssetKey(node.assetKey)) {
 			refs.imageKeys.add(node.assetKey);
 		} else if (node.kind === 'spine' && typeof node.assetKey === 'string' && node.assetKey) {
-			refs.spineKeys.add(node.assetKey);
+			const target = staticSpineKeyIsReachable(node, ownerDef?.params)
+				? refs.spineKeys
+				: refs.spineFallbackKeys;
+			target.add(node.assetKey);
 		}
 		// A `reelGrid` node's GROUND TILE art (docs/design/perspective-board-mode.md §"The tiles").
 		// This `visit` is a per-node-kind WHITELIST, so a kind it has never heard of contributes
@@ -252,8 +272,9 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		}
 	};
 
-	for (const scene of doc.scenes) walkNodes(scene.nodes, visit);
-	for (const def of Object.values(defs)) walkNodes([def.root], visit);
+	// A scene-level node has no component params, so its static key is always reachable.
+	for (const scene of doc.scenes) walkNodes(scene.nodes, (n) => visit(n));
+	for (const def of Object.values(defs)) walkNodes([def.root], (n) => visit(n, def));
 	// Regions referenced by name through image params are "used" too.
 	for (const n of refs.regionNames) refs.usedRegions.add(n);
 	return refs;
@@ -729,10 +750,21 @@ export async function exportEditorArt(
 	// `fsIntroNumber`) resolves to nothing and is skipped (the game registers it itself).
 	// Stems share the `usedStems` pool with the sheets so a spine/sheet name clash can't
 	// collide.
+	//
+	// `reportable` is what the stranded-spine guard below fires on: ONLY a static `assetKey`
+	// the runtime can actually look up. A reconstructed NAME is project-rooted by construction,
+	// so a coded/game-bundled one (`bigwin`) would otherwise report as stranded on every
+	// project, and a static key shadowed by a param default is never requested at all — the
+	// same false-alarm class `isBuiltinRegion` exists to prevent for regions.
 	const spines: EditorArtSpine[] = [];
+	const spinesMissing: string[] = [];
 	const spineAssetKeys = [
-		...refs.spineKeys,
-		...[...refs.spineNames].map((name) => `${SUB.spines(clientKey, projectKey)}/${name}/`),
+		...[...refs.spineKeys].map((assetKey) => ({ assetKey, reportable: true })),
+		...[...refs.spineFallbackKeys].map((assetKey) => ({ assetKey, reportable: false })),
+		...[...refs.spineNames].map((name) => ({
+			assetKey: `${SUB.spines(clientKey, projectKey)}/${name}/`,
+			reportable: false,
+		})),
 	];
 	if (spineAssetKeys.length > 0) {
 		await phase('spines', async () => {
@@ -743,7 +775,7 @@ export async function exportEditorArt(
 				const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
 				return tail || 'spine';
 			};
-			for (const assetKey of spineAssetKeys) {
+			for (const { assetKey, reportable } of spineAssetKeys) {
 				// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
 				// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
 				// key with no R2 bundle falls back to its assetKey.
@@ -767,7 +799,17 @@ export async function exportEditorArt(
 					// rig's) dedups to ONE shared `_pages/` texture instead of a private copy per rig.
 					pageStore,
 				});
-				if (!result) continue;
+				if (!result) {
+					// STRANDED: the node names an R2 bundle PREFIX that resolved to nothing — a
+					// reference into another project (`bundleFromAssetKey` only answers for this
+					// project + `_shared/`), or a bundle since deleted/renamed. Either way the
+					// export ships nothing while the doc keeps the prefix as its lookup key, so
+					// the game throws `Spine: key "…" is not found in loadedAssets` and the art is
+					// simply absent. This used to `continue` in silence — the one asset class with
+					// no dangling guard (rule 8) — so it reached production unannounced.
+					if (reportable && parseSpineBundleKey(assetKey)) spinesMissing.push(assetKey);
+					continue;
+				}
 				// Register under the plain bundle NAME — not the full prefix — or the runtime
 				// lookup misses and the spine never loads in the built game.
 				if (gameKey) result.entry.key = gameKey;
@@ -846,6 +888,7 @@ export async function exportEditorArt(
 		sheets,
 		images,
 		spines,
+		spinesMissing: spinesMissing.sort(),
 		collisions,
 		missing: danglingRegions,
 		clipMissing,

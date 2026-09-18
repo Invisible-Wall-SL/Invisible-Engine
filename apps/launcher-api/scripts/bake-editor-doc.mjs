@@ -261,6 +261,8 @@ async function main() {
 				spines: Array.isArray(art?.spines) ? art.spines : [],
 				// Placed regions no shipped atlas packs — carried so the game warns at boot.
 				missing: Array.isArray(art?.missing) ? art.missing : [],
+				// Placed spine bundles that resolved to nothing — same, for the spine half.
+				spinesMissing: Array.isArray(art?.spinesMissing) ? art.spinesMissing : [],
 			};
 			// FATAL, unlike every other dangling report here. A dangling sprite region renders an
 			// invisible node — obvious on screen. A dangling CLIP frame silently SHORTENS an
@@ -292,6 +294,18 @@ async function main() {
 					`⚠ bake-doc: ${artMissing.length} PLACED region(s) are in NO shipped atlas and will ` +
 						`render BLANK in-game: ${artMissing.join(', ')}. Re-pack the atlas so it contains ` +
 						'them, or re-pick the frame in the Scene Editor.',
+				);
+			}
+			// The spine half of the same guard. A stranded spine is LOUDER in-game than a blank
+			// sprite (it throws `Spine: key "…" is not found in loadedAssets`) but it shipped
+			// unannounced for want of this line, so name the key and where it points.
+			const spinesMissing = Array.isArray(art?.spinesMissing) ? art.spinesMissing : [];
+			if (spinesMissing.length) {
+				console.warn(
+					`⚠ bake-doc: ${spinesMissing.length} placed spine bundle(s) resolved to NOTHING and ` +
+						`will be MISSING in-game: ${spinesMissing.join(', ')}. A bundle under another ` +
+						"project's prefix is not exported into this game — re-pick the rig from this " +
+						'project, or promote it to the shared library (/admin → Spines) and re-pick it.',
 				);
 			}
 			const collisions = Array.isArray(art?.collisions) ? art.collisions : [];

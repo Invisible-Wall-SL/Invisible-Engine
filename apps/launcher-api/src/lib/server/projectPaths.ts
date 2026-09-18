@@ -14,6 +14,7 @@
  */
 
 import { isValidSoundFile } from 'engine-layout';
+import { BUNDLE_SEGMENT_RE } from '$lib/spineBundleKey';
 
 export const UNASSIGNED_CLIENT = 'unassigned';
 
@@ -485,14 +486,15 @@ export function sheetConfigKey(client: string, project: string): string {
 
 /** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only.
  * Spine folder names are legitimately camelCase (`foregroundAnimation`, `fsIntro`),
- * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case. */
-const BUNDLE_SEG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+ * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case.
+ * The segment rule itself lives with `parseSpineBundleKey`, which reads these paths
+ * back, so the writer and the reader cannot drift apart. */
 function assertBundle(value: string): void {
 	if (!value || value.includes('..') || value.startsWith('/') || value.endsWith('/')) {
 		throw new Error(`Invalid spine bundle: ${JSON.stringify(value)}`);
 	}
 	for (const seg of value.split('/')) {
-		if (!BUNDLE_SEG_RE.test(seg)) {
+		if (!BUNDLE_SEGMENT_RE.test(seg)) {
 			throw new Error(`Invalid spine bundle segment: ${JSON.stringify(seg)}`);
 		}
 	}

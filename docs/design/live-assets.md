@@ -278,6 +278,41 @@ Two constraints it must keep:
 Everything fails open: a missing index, a renamed bundle, or a tier that won't
 render skips that splash instead of blocking boot.
 
+## Spines join the dangling-binding guard — added 2026-09-18
+
+The 2026-07-03 guard above covers a placed sprite REGION and a flipbook CLIP frame. Spines had
+none, and they are the one class addressed by a bundle PREFIX rather than a name — which is
+where a reference can point somewhere this project cannot reach:
+
+`bundleFromAssetKey` resolves a bundle in the reading project's `spines/` root or
+`_shared/spines/`, and answers `null` for anything else. `exportSpineBundle` returns `null` on
+that `null`, and the export used to `continue` past it. `resolveSpineKeysForGame` skips on the
+SAME condition, so the doc keeps the full foreign prefix as its runtime lookup key: export
+nothing, look up something, and the game throws `Spine: key "…" is not found in loadedAssets`
+with nothing said at publish time. (Shared SHEETS have no such gap — a sheet is addressed by
+the full manifest key and read verbatim, per `sharedSheetsPrefix`.)
+
+`EditorArtIndex.spinesMissing` now carries every PLACED spine `assetKey` that names a bundle
+prefix and resolved to nothing; `bake-editor-doc.mjs` warns per publish, `warnMissingAssets`
+warns once at boot. `parseSpineBundleKey` (`projectPaths.ts`) is what scopes it: only a real
+bundle ADDRESS is reportable, so a coded/game-bundled key (`bigwin`, `fsIntroNumber`) and a
+bundle NAME supplied by a `spine`-kind param are both excluded — the false-alarm class
+`isBuiltinRegion` prevents for regions.
+
+Reportable is narrower than "unresolved" a second time: `staticSpineKeyIsReachable` drops a
+static key the runtime can never request, because `LayoutNodeView` falls back to it only when
+the bound param is empty and `resolveComponentParams` seeds every param from its def default.
+A pinned component snapshot is immutable, so without this a def fixed today would keep warning
+about its frozen past forever.
+
+**The export deliberately does NOT follow a foreign prefix.** Copying another project's bundle
+into this game's `deploy/` would put one client's art in another client's bundle, against
+`r2-client-isolation-and-scaffold.md`, and `sharedSpinePromote`'s "COPY, DON'T REFERENCE" already
+answers the question: promote the bundle to `_shared/spines/` and bind it there. The authoring
+side closes the loop — `saveComponent` re-points a foreign spine ref at the shared copy when one
+exists, clears it when a param supersedes it, and refuses otherwise. It cannot simply refuse:
+nothing in the editor can re-point a spine node's `assetKey` after it is created.
+
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,

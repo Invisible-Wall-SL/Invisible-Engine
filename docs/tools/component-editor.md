@@ -193,6 +193,22 @@ and in the shipped game. Loading an older version is available via
 `GET /api/editor/component?id=…&version=<N>` (the UI to browse versions is not built
 yet).
 
+**Spines from another project are re-pointed on save.** A spine node's rig belongs to the
+project it was rigged in, and the build only ever ships rigs from the project being built (or
+from the shared spine library). So if a component holds a rig under a *different* project's
+prefix, that art would be missing in every game — the component would render, the spine simply
+would not be there, and the browser console would say `Spine: key "…" is not found in
+loadedAssets`. On save the server fixes it for you where it can:
+
+- the same rig is already in the **shared spine library** → the node is re-pointed at it,
+  silently, and everything keeps working;
+- the node's rig is driven by a **spine variable** → the stale rig on the node is cleared, since
+  the variable is what actually picks the rig;
+- otherwise the save is **refused**, naming the rig. Ask an admin to promote it in
+  **/admin → Spines**, then save again — the component will then point at the shared copy by
+  itself. (This also applies to **Promote to shared** below: once shared, a component is
+  inherited by every project, so it may not depend on any one project's rigs.)
+
 **Promote to shared.** Holders of the **`componentPublish`** capability (admin by
 default, grantable per role/user in `/admin`) also see a **Promote to shared** button
 in the top bar while a component is open. It saves a repo-wide copy to the shared
