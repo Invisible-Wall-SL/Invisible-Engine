@@ -5368,6 +5368,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
  <button onclick="newAtlas()" class="alt" title="Create a brand-new, empty atlas from scratch (auto-pack layout) — asks for its name first. Add regions and generate them from prompts; Create Atlas packs them into a page automatically.">＋ New atlas</button>
+ <button onclick="dupAtlas()" class="alt" title="Copy THIS atlas — every region, its source refs, the layout and all settings — to a new name, so you can run the same setup again for a different extraction. The copy's regions are tagged (bg_frame_001) so the two atlases never share generated images; the refs are NOT copied, both point at the same sources.">⧉ Duplicate atlas</button>
  <button onclick="addRegion()" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
  <button onclick="clearCache(this)" class="alt" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
@@ -5424,6 +5425,18 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
    <label style="font-size:13px;display:flex;align-items:center;gap:8px">Atlas name <input id="nanamein" type="text" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" style="flex:1;width:auto" oninput="onNewAtlasName()"></label>
    <div id="nawarn" style="font-size:12px;color:#e0a030;min-height:16px;line-height:1.35"></div>
    <div style="display:flex;justify-content:flex-end;gap:8px"><button class="alt" onclick="closeNewAtlas()">Cancel</button><button onclick="confirmNewAtlas()">Create</button></div>
+  </div>
+ </div>
+</div>
+<div id="dupmodal" class="modal" onclick="if(event.target===this)closeDupAtlas()">
+ <div class="modalbox" style="width:min(480px,92vw)" onkeydown="onDupAtlasKey(event)">
+  <div class="modalhdr"><span>Duplicate atlas</span><button onclick="closeDupAtlas()">✕ close</button></div>
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px">
+   <div style="font-size:12px;color:#9aa4b2;line-height:1.45">Copies every region, its source refs, the layout and all settings. Both atlases read the SAME source images; only the generated results are kept apart.</div>
+   <label style="font-size:13px;display:flex;align-items:center;gap:8px">New atlas name <input id="dunamein" type="text" placeholder="e.g. backgrounds" autocomplete="off" spellcheck="false" style="flex:1;width:auto" oninput="onDupAtlasName()"></label>
+   <label style="font-size:13px;display:flex;align-items:center;gap:8px">Region tag <input id="duprefin" type="text" placeholder="e.g. bg" autocomplete="off" spellcheck="false" style="flex:1;width:auto" oninput="onDupAtlasName(1)"></label>
+   <div id="duwarn" style="font-size:12px;color:#9aa4b2;min-height:32px;line-height:1.35"></div>
+   <div style="display:flex;justify-content:flex-end;gap:8px"><button class="alt" onclick="closeDupAtlas()">Cancel</button><button onclick="confirmDupAtlas()">Duplicate</button></div>
   </div>
  </div>
 </div>
@@ -5643,6 +5656,49 @@ function confirmNewAtlas(){{
    +'Cancel to pick a different name.')) return;
  closeNewAtlas();
  _postReload('/newatlas',{{name:raw,overwrite:t.exists}});
+}}
+// Duplicate atlas: the region TAG is not cosmetic. Variants live at
+// batch/<region>_NNNNN_.png, keyed by name with no atlas in the path, so two
+// atlases sharing a region name share one pile and the newest file wins for
+// BOTH. The tag is therefore required, and pre-filled from the atlas name.
+function dupRegionNames(){{
+ return [...document.querySelectorAll('.card')].map(c=>c.dataset.name);
+}}
+function dupAtlas(){{
+ let n=dupRegionNames();
+ if(!n.length){{ alert('This atlas has no regions to duplicate.'); return; }}
+ document.getElementById('dunamein').value='';
+ document.getElementById('duprefin').value='';
+ document.getElementById('duprefin').dataset.touched='';
+ onDupAtlasName();
+ document.getElementById('dupmodal').classList.add('open');
+ document.getElementById('dunamein').focus();
+}}
+function closeDupAtlas(){{ document.getElementById('dupmodal').classList.remove('open'); }}
+function onDupAtlasName(tagEdited){{
+ let ni=document.getElementById('dunamein'), pi=document.getElementById('duprefin');
+ if(tagEdited) pi.dataset.touched='1';
+ let raw=ni.value.trim(), t=newAtlasTarget(raw);
+ // The tag follows the name until you type your own.
+ if(!pi.dataset.touched) pi.value=atlasSlug(raw).slice(0,16);
+ let tag=pi.value.trim().replace(/[^A-Za-z0-9_-]+/g,'_').replace(/^[_-]+|[_-]+$/g,'');
+ let names=dupRegionNames(), w='';
+ if(t.exists) w+='⚠ An atlas "'+t.name+'" already exists — Duplicate never overwrites, so pick another name. ';
+ else if(t.slug && t.name!==raw) w+='Will be saved as "'+t.name+'". ';
+ if(!tag) w+='A region tag is required — it is what keeps the generated images of the two atlases apart.';
+ else if(names.length) w+=names.length+' region(s): '+names[0]+' → '+tag+'_'+names[0]+(names.length>1?', …':'');
+ document.getElementById('duwarn').textContent=w;
+}}
+function onDupAtlasKey(e){{
+ if(e.key==='Enter'){{ e.preventDefault(); confirmDupAtlas(); }}
+}}
+function confirmDupAtlas(){{
+ let raw=document.getElementById('dunamein').value.trim();
+ let tag=document.getElementById('duprefin').value.trim();
+ let t=newAtlasTarget(raw);
+ if(!t.slug || !tag || t.exists){{ onDupAtlasName(); document.getElementById(t.slug&&!t.exists?'duprefin':'dunamein').focus(); return; }}
+ closeDupAtlas();
+ _postReload('/duplicateatlas',{{name:raw,prefix:tag}});
 }}
 function addRegion(){{
  let name=prompt('Region name (letters, numbers, _ or -). You\\'ll set its prompt on the card:');
@@ -8261,6 +8317,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._delvariants(json.loads(raw)).encode())
         elif post_path == "/newatlas":
             self._send(200, "text/plain", self._newatlas(json.loads(raw)).encode())
+        elif post_path == "/duplicateatlas":
+            self._send(200, "text/plain",
+                       self._duplicateatlas(json.loads(raw)).encode())
         elif post_path == "/addregion":
             self._send(200, "text/plain", self._addregion(json.loads(raw)).encode())
         elif post_path == "/addlayer":
@@ -9935,6 +9994,116 @@ class Handler(BaseHTTPRequestHandler):
         cfg["manifest_path"] = fname
         save_config(cfg)
         return f"✓ Created atlas '{shown}' — add regions, generate, then Create Atlas."
+
+    # Per-region results that belong to the atlas they were made in, never to
+    # a copy of it. `variant`/`variant_at` name a file in the ORIGINAL's pile;
+    # `output_override` points at `refs/useroutput_<original name>.png`, which
+    # is the original's committed tile; `seed`/`lock` pin a render the copy has
+    # not done yet. Everything else — prompts, refs, blueprint + params, and
+    # the RECT — is the setup being duplicated, so it comes across as-is.
+    _DUPLICATE_DROP = {"variant", "variant_at", "seed", "lock",
+                       "output_override"}
+
+    def _duplicateatlas(self, payload: dict) -> str:
+        """Copy the ACTIVE atlas — regions, refs, layout and every setting —
+        to a new name, renaming each region with a caller-supplied tag.
+
+        This is the "run the same setup again for a different extraction" tool:
+        one atlas is authored once (regions, source refs, blueprint, params),
+        then duplicated per pass, and only the prompts change.
+
+        **The rename is mandatory, and it is the whole safety property.** A
+        region's generated variants live at `batch/<name>_NNNNN_.png` — keyed
+        by NAME, project-wide, with no atlas in the path. Two atlases sharing a
+        region name therefore share one pile, and `_pick_variant_png` treats
+        the newest file in it as the region's art: rendering the copy would
+        silently move the ORIGINAL's cards, and its composed sheet, onto the
+        copy's art (no pick required — an unpicked region already composes
+        `files[-1]`), while `_drop_superseded_picks` deletes the original's pin
+        on its next render. Only an explicit `lock` survives that. The same
+        name keys `refs/useroutput_<name>.png` and `refs/fxsrc_<name>.png`, so
+        distinct names separate those too.
+
+        **The refs are deliberately NOT renamed.** `shape_ref`/`style_ref` are
+        stored PATHS, never re-derived from the region name (`_setref` picks
+        the filename once, at upload), so copying their values verbatim points
+        both atlases at the very same source images — which is the point of
+        duplicating rather than starting over. Upload a new ref on the copy and
+        it writes under the copy's own name, leaving the original alone.
+        """
+        name = str(payload.get("name", "")).strip()
+        prefix = _sanitize_region_name(payload.get("prefix", ""))
+        if not name:
+            return "Give the new atlas a name."
+        if not prefix:
+            return ("Give the copy's regions a tag (letters, numbers, _ or -) "
+                    "— it keeps the two atlases' generated images apart.")
+        src = load_manifest()
+        # A `.atlas`-bound atlas takes its region LIST from that file, so a
+        # renamed manifest region has no counterpart and `all_regions` drops
+        # it. Nothing the author can do here makes the copy work.
+        if batch_atlas.is_atlas_bound(src):
+            return ("⚠ This atlas is bound to a .atlas file, which owns its "
+                    "region names — a renamed copy would come out empty. "
+                    "Duplicate a pack/grid atlas instead.")
+        regions = [r for b in ("regions", "rotated_regions")
+                   for r in (src.get(b) or []) if isinstance(r, dict)
+                   and r.get("name")]
+        if not regions:
+            return "⚠ This atlas has no regions to duplicate."
+        slug = project_paths.r2_slug(name)
+        if not slug:
+            return "✖ Couldn't derive an atlas name from that — use letters/numbers."
+        fname = f"atlas_manifest_{slug}.json"
+        fname = next((m for m in list_manifests() if m.lower() == fname.lower()),
+                     fname)
+        shown = fname[len("atlas_manifest_"):-len(".json")]
+        dest = MANIFEST_DIR / fname
+        if dest.exists():
+            return (f"⚠ An atlas '{shown}' already exists — pick another name. "
+                    f"(Duplicate never overwrites: the copy would take the "
+                    f"other atlas's place while its images stayed behind.)")
+        renamed = {r["name"]: _sanitize_region_name(f"{prefix}_{r['name']}")
+                   for r in regions}
+        clash = sorted(n for n in renamed.values()
+                       if n in renamed and renamed[n] != n)
+        if clash:
+            return (f"⚠ Tag '{prefix}' would collide with existing region "
+                    f"name(s): {', '.join(clash[:5])}. Pick another tag.")
+        out = []
+        for r in regions:
+            c = {k: copy.deepcopy(v) for k, v in r.items()
+                 if k not in self._DUPLICATE_DROP}
+            c["name"] = renamed[r["name"]]
+            # A layer points at a region BY NAME, so the link has to follow the
+            # rename or it would dangle (or, worse, resolve to the original's
+            # region and pull that atlas's art in as a base).
+            base = c.get("layer_of")
+            if base:
+                c["layer_of"] = renamed.get(base, base)
+            out.append(c)
+        new = {k: copy.deepcopy(v) for k, v in src.items()
+               if k not in ("regions", "rotated_regions",
+                            "deploy_path", "deploy_basename")}
+        new["regions"] = out
+        # The composed page is named from the manifest stem, so it is already
+        # distinct — but a copied deploy target is NOT: `deploy_path` +
+        # `deploy_basename` would publish the copy straight over the sheet the
+        # original ships. Cleared, the deploy resolves a fresh key on first use.
+        (new.get("atlas") or {}).pop("texturepacker_json", None)
+        try:
+            MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+            dest.write_text(json.dumps(new, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+            _mirror(dest)
+        except OSError as e:
+            return f"✖ Couldn't create the atlas: {e}"
+        cfg = load_config()
+        cfg["manifest_path"] = fname
+        save_config(cfg)
+        return (f"✓ Duplicated into '{shown}' — {len(out)} region(s) as "
+                f"'{prefix}_*', same source refs, prompts ready to edit. "
+                f"Deploy target cleared.")
 
     def _addregion(self, payload: dict) -> str:
         """Append a named region to the active manifest (from-scratch flow). The
