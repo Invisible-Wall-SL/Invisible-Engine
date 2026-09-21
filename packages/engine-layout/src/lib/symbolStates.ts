@@ -41,7 +41,7 @@ export type SymbolStateName = (typeof SYMBOL_STATES)[number];
  * under a moving board, a morph pop reads on a resting reel — and the engine's own Spine set carries
  * a separate explosion for each, so they are separate bindings here.
  *
- * Unauthored it INHERITS `explosion` (`apps/lines/src/game/symbolCell.ts`), which is what keeps a
+ * Unauthored it INHERITS `explosion` (`packages/engine-game/src/game/symbolCell.ts`), which is what keeps a
  * project that never binds it byte-identical to before this state existed. Valid in the doc for
  * every game (the schema accepts it so bindings round-trip), but the Symbols grid only shows its
  * column for a project that cascades OR clears — same gating idea as {@link BOOK_SYMBOL_STATES}.
@@ -73,7 +73,7 @@ export const LINES_SYMBOL_STATES = ['stacked'] as const;
  * every time a cascade refilled. An emerge is the OPPOSITE moment: nothing travelled, so what plays
  * is the whole arrival rather than its punctuation.
  *
- * Unauthored it INHERITS `land` (`apps/lines/src/game/symbolCell.ts`), which is what keeps a project
+ * Unauthored it INHERITS `land` (`packages/engine-game/src/game/symbolCell.ts`), which is what keeps a project
  * that never binds it looking exactly as it does today the moment it switches the style on — an
  * emerge with no authored intro is a board that appears and plays its ordinary landing.
  *

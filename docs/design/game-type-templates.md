@@ -192,7 +192,22 @@ need nothing — they are deliberately decoupled bridges to the Play4Fun facade.
   "components remaining" count overstates how much of Phase A is left.
 - **Bet mode and game type.** They stay bound to the compiled config, unlike the symbol vocabulary,
   so they stay in the app.
-- **`utils` and `symbolMap`**, until `editor-scenes` and `assets` have seams of their own.
+- **The play pipeline** — `playBookEvent` / `playBookEvents` / `playBet`, all that remains of
+  `utils`. It waits on Phase B's second half rather than on a seam: its dispatch reads book-event
+  ARMS, and a factory generic over the app's `BookEvent` union cannot discriminate them, so moving
+  it before the engine DECLARES which book events it handles would buy a relocation with the
+  precise typing the shipped game already has.
+
+### The `editor-scenes` seam, measured rather than assumed
+
+An earlier version of this plan parked `utils` and `symbolMap` "until `editor-scenes` and `assets`
+have seams of their own", which read as a large inversion of a 52-export module and was the reason
+both sat unmoved through five slices. Neither of them imports `assets` at all, and between them they
+read TWO of those 52 exports — `bakedSymbolMap` for the symbol map, `bakedWinLineConfig` for the
+play pipeline. So the seam is one injected getter per reader, not an inversion, and the rule it
+settles is worth stating generally: **a seam is sized by what the mover actually consumes, not by
+the module it consumes it from.** Inverting the whole surface would have coupled `engine-game` to a
+game's baked bundle to deliver one function.
 
 ## Phase B — the mechanic contract
 
@@ -475,8 +490,11 @@ The honest list of what this plan has not delivered, in the order it matters:
    the RGS. The only place it evaluates a board is anticipation, which is why that was the whole of
    the work here.
 
-3. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
-   `assets` seams of their own, and the components gated behind them.
+3. **The last Phase A module — the play pipeline**, which is really Phase B work: the engine has to
+   declare its book-event contract before `playBookEvent`/`playBookEvents`/`playBet` can move
+   without casting away the arm typing they read today. Nothing is gated behind it — no component
+   imports it. The symbol layer that WAS gated (`symbolMap`, `getSymbolInfo`, the symbol-state rule)
+   moved in Phase A6.
 4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board
    whose symbol frequencies mean nothing — not fine shipped for money.

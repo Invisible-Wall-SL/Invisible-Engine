@@ -69,18 +69,34 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    4. A game only ever ships an **authored** config, so setting a project game type without
       pressing Save in `/config` leaves it playing as lines. See [tools/game-config](../tools/game-config.md).
 
-1. **Game-type templates — Phase A extraction: A0–A5 have all landed; the remainder is small and
-   named.** Plan: [design/game-type-templates.md](../design/game-type-templates.md).
+1. **Game-type templates — Phase A extraction: A0–A6 have all landed; what is left is ONE named
+   module and it is Phase B's, not Phase A's.** Plan:
+   [design/game-type-templates.md](../design/game-type-templates.md).
    `packages/engine-game` now holds the type-agnostic engine layer — 7 leaf modules, the context
-   (inverted, not moved), `createGameState()`, `createGameConfig()`, the `constants` split and 10
-   components. `apps/lines/src/game/stateGame.svelte.ts` is 75 lines of composition + re-export and
-   `gameConfig.ts` is 45, with every call site untouched. `getPaylines`/`getNumLines`/`paylineColor`
+   (inverted, not moved), `createGameState()`, `createGameConfig()`, `createSymbolMap()` /
+   `createSymbolInfo()` + the symbol-state rule, the `constants` split and 10
+   components. `apps/lines/src/game/stateGame.svelte.ts` is 75 lines of composition + re-export,
+   `gameConfig.ts` is 45, `symbolMap.ts` is 30 and `utils.ts` is down from 448 to 292, with every
+   call site untouched.
+   `getPaylines`/`getNumLines`/`paylineColor`
    moved across unchanged so the relocation stayed provable, and Phase C/D then turned them into the
    win-model arms they were left in place for (item 0 above, which also owns what Phase D still
    owes).
 
-   **What is genuinely left:** `utils` and `symbolMap`, which need `editor-scenes`/`assets` seams —
-   and they gate most of the remaining component queue. **Re-scoped:** ~13 of the components still
+   **What is genuinely left:** the PLAY PIPELINE — `playBookEvent` / `playBookEvents` / `playBet` /
+   `convertTorResumableBet`, the only thing still in `apps/lines/src/game/utils.ts`. **Deliberately
+   not moved, and the reason is not effort.** Its `dispatchBookEvent` reads book-event ARMS
+   (`winInfo.totalWin`, `setWin.{amount,winLevel}`, `freeSpinRetrigger.extraFs`,
+   `freeSpinTrigger.totalFs`), and TypeScript cannot discriminate a generic union — so a
+   `createPlayBook(deps)` generic over the app's `BookEvent` would have to read those fields through
+   casts, trading the precise typing the shipped game has today for a relocation. Declaring which
+   book events the engine handles is Phase B's second half ("book events and presentation"), so the
+   module moves when that contract is declared, not before. Two facts that back the line: **no
+   component imports the play pipeline** (its only consumers are `actor.ts`,
+   `bookEventHandlerMap.ts` and four stories), so it gates NOTHING in the component queue; and
+   `scripts/verify-win-explode-pop.mjs` + `verify-swap-in-place-mode.mjs` assert against
+   `utils.ts` as SOURCE TEXT — 854 checks that a factory rewrite would have had to be re-expressed
+   for in the same change. **Re-scoped:** ~13 of the components still
    in `apps/lines` are lines/book mechanic components that should NEVER move, so a raw file count
    overstates the remainder. Reference scene sets for a type other than `lines`/`bookOf` are Phase E
    (a game type as an authoring KIND), not Phase A — they belong to [status/editor](editor.md) and
@@ -147,6 +163,33 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    re-exported, 21 consumers untouched. Cleanest seam in Phase A — the file was already type-agnostic
    apart from its two inputs, and the `__IE_SERVER_CONFIG__`/`__IE_WIN_LEVELS__` globals needed
    nothing because they are deliberately decoupled bridges to the Play4Fun facade.
+   **A6 — the symbol layer** (`symbolMap` + the symbol half of `utils`). **The blocker this slice
+   was carrying was overstated, and measuring it is what made the slice small.** The plan said both
+   modules needed `editor-scenes` AND `assets` seams; in fact neither imports `assets` at all, and
+   of `editor-scenes`' 52 exports the symbol layer reads exactly ONE (`bakedSymbolMap`). So the seam
+   is a single injected getter (`SymbolMapDeps.bakedMap`) beside the coded map A3.5 left in the app —
+   not an inversion of `editor-scenes`, which would have coupled the engine to a game's baked bundle
+   for nothing. Package-side: `createSymbolMap()` (the coded ⊕ baked merge, its memo, the generation
+   counter, `resolveSymbolSizeRatios`), `createSymbolInfo()` (`getSymbolInfo` + its identity memo,
+   `hasAuthoredSymbolState`, the two missing-art guards), `symbolCell.ts` moved across BYTE-IDENTICAL,
+   and `hexToTintNumber` as a plain export. App-side: `symbolMap.ts` builds the map instance and
+   `utils.ts` builds the resolver ON it — the resolver is constructed in `utils.ts` rather than next
+   to the map precisely so the ten components importing `getSymbolInfo` from `../game/utils` keep the
+   import they have. **Exactly ONE call site changed** (`SymbolWinFrame.svelte` now takes
+   `hexToTintNumber` from `engine-game`, because re-exporting a pure function through the app would
+   have been the compat shim the A1 rule forbids); the other twelve importers are untouched. Two
+   dead things were deleted rather than moved: `getEmptyBoard` (no importer anywhere in the repo) and
+   a `lodash` default import `utils.ts` had stopped using. **What the split risked, and what now
+   guards it:** the map's merge memo and the resolver's cell memo used to be module-level state in
+   two files that shared one generation counter — the thing that stops an online game rendering the
+   coded template art forever after the runtime bundle lands. Across a package seam that coupling is
+   now the `symbolMap` API object passed into `createSymbolInfo`, and it is asserted at RUNTIME by
+   `packages/engine-game/src/game/symbolInfo.fixture.ts` (27 assertions, tsx — the reset case, memo
+   identity, both missing-art fallbacks, the ratio precedence, and that two instances never share
+   state). `constants.ts` still has ZERO imports (the A3.5 constraint holds — the cast that
+   `SYMBOL_INFO_MAP` needs lives at the composition root, where it also closed a pre-existing
+   `svelte-check` error: 194 → 193). Gate: 1730 → 1733 bundle modules, `symbolCell.ts` the same
+   content hash at its new path, 4 modules rewritten, **1725 of 1730 byte-identical**.
 
 2. ✅ ~~**B4 — HUD migration**~~ — **DONE for `apps/lines` (shipped 2026-06-08).** Live Balance/Win/Bet readouts render as `hudReadout` component instances behind the parity gate. Remaining: the **Borut mirror (B4.6)** submodule bump + owner live-verify.
 3. **Three-knob reel grid + Borut mirror tail** — the reel-grid split (2026-07-03) was NOT yet published to `_runtime/lines` at the time of writing and not mirrored to Borut's engine submodule; verify it rode a later runtime publish.
