@@ -64,6 +64,19 @@ import {
 import { parseSpineBundleKey, staticSpineKeyIsReachable } from '$lib/spineBundleKey';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
+import { mapWithConcurrency } from './concurrency';
+
+/**
+ * How many sheets / spine bundles this export has in flight at once.
+ *
+ * Sized against the two things that bound it. UP: the work is pure R2 latency (~4-5 sequential
+ * round-trips per sheet), so widening keeps paying until the network saturates. DOWN: the launcher
+ * is memory-tight — it already OOMs during bake — and each task can hold a full atlas page in
+ * memory and may KTX2-encode it, so an unbounded fan-out over 41 pages trades a slow assemble for a
+ * dead container. 6 is deliberately conservative: it should take `art:manifests` from ~50s to under
+ * 10s, and the next lever is the exporters that then dominate (`symbols` at ~29s), not this number.
+ */
+const ART_EXPORT_CONCURRENCY = 6;
 
 export interface EditorArtSheet {
 	/** The manifest R2 key the doc references (`SpriteNode.assetKey`). */
@@ -630,6 +643,29 @@ export async function exportEditorArt(
 	 * through — precisely the cross-sheet mix-up scoped refs exist to prevent. */
 	const coveredBySheet = new Map<string, Set<string>>();
 
+	/**
+	 * Every sheet's output stem, assigned SYNCHRONOUSLY in `refs.manifestKeys` order before any
+	 * export runs — the thing that keeps a concurrent export deterministic.
+	 *
+	 * A stem is a filename (`editor-art/<stem>/<stem>.<version>.json`), and two manifests whose
+	 * keys reduce to the same stem are disambiguated by a `_2` suffix. Claiming that suffix inside
+	 * the export would hand it to whichever sheet's R2 read happened to land first, so two
+	 * assembles of an UNCHANGED project could swap `foo` and `foo_2` between them and ship the same
+	 * art at different URLs. Deciding it up front, off a Set whose iteration order is insertion
+	 * order, makes the mapping a pure function of the doc again.
+	 *
+	 * `refs.manifestKeys` is complete by here; the late `missing` fallback below exports keys that
+	 * are not in it, so `exportManifest` still claims a stem for anything absent from this map.
+	 */
+	const plannedStems = new Map<string, string>();
+	for (const manifestKey of refs.manifestKeys) {
+		let planned = stemFromManifestKey(manifestKey);
+		for (let i = 2; usedStems.has(planned); i++)
+			planned = `${stemFromManifestKey(manifestKey)}_${i}`;
+		usedStems.add(planned);
+		plannedStems.set(manifestKey, planned);
+	}
+
 	const exportManifest = async (
 		manifestKey: string,
 		preloaded?: EditorRegionSet,
@@ -639,8 +675,20 @@ export async function exportEditorArt(
 		const set = preloaded ?? (await loadRegionSet(manifestKey, clientKey, projectKey));
 		if (set.regions.length === 0 || !set.pageKey) return;
 
-		let stem = stemFromManifestKey(manifestKey);
-		for (let i = 2; usedStems.has(stem); i++) stem = `${stemFromManifestKey(manifestKey)}_${i}`;
+		// Normally pre-assigned by `plannedStems` above. The fallback path claims one the old way —
+		// and ⚠️ CLAIMS IT IN THE SAME SYNCHRONOUS TICK AS THE COLLISION CHECK. `usedStems.add` used
+		// to sit after the two awaits below, which was a check-then-act window: once these sheets
+		// export concurrently, two of them could both settle on `foo` and both write their
+		// spritesheet JSON to `editor-art/foo/` — one piece of shipped art silently overwriting
+		// another. Nothing between the loop and the `add` may await. The only behaviour change is
+		// that a sheet which bails below now consumes its stem, so a skipped sheet can leave a `_2`
+		// gap in the names; harmless, and the alternative is a race.
+		let stem = plannedStems.get(manifestKey);
+		if (!stem) {
+			stem = stemFromManifestKey(manifestKey);
+			for (let i = 2; usedStems.has(stem); i++) stem = `${stemFromManifestKey(manifestKey)}_${i}`;
+			usedStems.add(stem);
+		}
 
 		// Stamp a content hash into the filenames so a re-authored atlas ships at a NEW
 		// URL the cache can't serve stale (see assetVersion.ts). Null = source page gone.
@@ -661,7 +709,6 @@ export async function exportEditorArt(
 		// frame rects are unchanged (the WebP page keeps full resolution). Missing source ⇒ skip.
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
-		usedStems.add(stem);
 		const boxFor = artBoundsLookup(manifestKey);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
@@ -691,10 +738,20 @@ export async function exportEditorArt(
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
 	};
 
+	// THE assemble's hot loop. Profiled 2026-09-21 on `test6`: 50.3s for 41 sheets — ~1.2s each,
+	// and none of it compute. Every sheet makes ~4-5 SEQUENTIAL R2 round-trips (load the region set,
+	// version it, ensure the shared page, write the spritesheet JSON, maybe the KTX2 twin), so the
+	// old `for…await` spent the whole time waiting on the network one request at a time. Overlapping
+	// those waits is what takes `art` off the critical path; see `mapWithConcurrency` for why the
+	// width is bounded rather than a `Promise.all`. `exportManifest` is concurrency-safe by
+	// construction: it claims `exported` and its `stem` synchronously, and `pageStore.ensure`
+	// single-flights per source page.
 	await phase('manifests', async () => {
-		for (const manifestKey of refs.manifestKeys) {
-			await exportManifest(manifestKey);
-		}
+		// Materialised to an array first: a Set iterates in insertion order, which is the order
+		// `plannedStems` assigned the stems in, so the two stay in step.
+		await mapWithConcurrency([...refs.manifestKeys], ART_EXPORT_CONCURRENCY, (manifestKey) =>
+			exportManifest(manifestKey),
+		);
 	});
 
 	// Image-kind params reference regions by NAME only — locate each missing one
@@ -775,6 +832,17 @@ export async function exportEditorArt(
 				const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
 				return tail || 'spine';
 			};
+			// PLAN synchronously, in input order — dedup and stem suffixes are decided here so they
+			// stay a pure function of the doc, exactly as for the sheets above. Then EXECUTE the
+			// plan concurrently: each bundle is another run of sequential R2 round-trips (14.1s for
+			// 9 bundles on `test6`, ~1.6s each) that has no reason to wait on its predecessor.
+			const spinePlan: {
+				assetKey: string;
+				reportable: boolean;
+				/** `bundleFromAssetKey` answers `null` for a coded key with no R2 bundle. */
+				gameKey: string | null;
+				stem: string;
+			}[] = [];
 			for (const { assetKey, reportable } of spineAssetKeys) {
 				// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
 				// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
@@ -786,6 +854,10 @@ export async function exportEditorArt(
 				let stem = spineStem(assetKey);
 				for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
 				usedStems.add(stem);
+				spinePlan.push({ assetKey, reportable, gameKey, stem });
+			}
+			await mapWithConcurrency(spinePlan, ART_EXPORT_CONCURRENCY, async (planned) => {
+				const { assetKey, reportable, gameKey, stem } = planned;
 				const result = await exportSpineBundle({
 					clientKey,
 					projectKey,
@@ -808,14 +880,14 @@ export async function exportEditorArt(
 					// simply absent. This used to `continue` in silence — the one asset class with
 					// no dangling guard (rule 8) — so it reached production unannounced.
 					if (reportable && parseSpineBundleKey(assetKey)) spinesMissing.push(assetKey);
-					continue;
+					return;
 				}
 				// Register under the plain bundle NAME — not the full prefix — or the runtime
 				// lookup misses and the spine never loads in the built game.
 				if (gameKey) result.entry.key = gameKey;
 				for (const k of result.written) written.add(k);
 				spines.push(result.entry);
-			}
+			});
 		});
 	}
 

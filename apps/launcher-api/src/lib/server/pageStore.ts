@@ -50,6 +50,19 @@ export interface SharedPage {
 export class PageStore {
 	/** ETag:size → shared page, so an identical source page is written + encoded only once. */
 	private readonly byContent = new Map<string, SharedPage>();
+	/**
+	 * In-flight `ensure` runs keyed by SOURCE key — the single-flight that makes this store safe to
+	 * call concurrently.
+	 *
+	 * `byContent` alone cannot do it: its key is derived from a `headObject` result, so the lookup
+	 * and the `set` are separated by five awaits (head → exists → copy → KTX2 encode → meta write).
+	 * Callers were sequential when that was written; they are not any more (the art export now runs
+	 * its sheets through `mapWithConcurrency`), and two sheets sharing a page would each miss the
+	 * cache and then each COPY and each KTX2-ENCODE the same bytes — the expensive half of the
+	 * export, done twice, on the read path. Keyed on the source rather than the content because the
+	 * content key does not exist until the head returns.
+	 */
+	private readonly inflight = new Map<string, Promise<SharedPage | null>>();
 	/** Every R2 key written under `deployPrefix` — fold into the caller's prune set. */
 	readonly written = new Set<string>();
 
@@ -59,8 +72,18 @@ export class PageStore {
 	 * Ensure the page at `sourceKey` (and its KTX2 twin when enabled) exists once in the shared
 	 * store; return its shared filenames, or null when the source is missing. `ext` is the page's
 	 * real extension (`webp`/`png`/`jpg`).
+	 *
+	 * Safe to call concurrently for the same `sourceKey`: the second caller joins the first.
 	 */
 	async ensure(sourceKey: string, ext: string): Promise<SharedPage | null> {
+		const pending = this.inflight.get(sourceKey);
+		if (pending) return pending;
+		const run = this.ensureOnce(sourceKey, ext).finally(() => this.inflight.delete(sourceKey));
+		this.inflight.set(sourceKey, run);
+		return run;
+	}
+
+	private async ensureOnce(sourceKey: string, ext: string): Promise<SharedPage | null> {
 		const head = await headObject(sourceKey);
 		if (!head) return null;
 		const contentKey = `${head.etag ?? ''}:${head.size}`;
