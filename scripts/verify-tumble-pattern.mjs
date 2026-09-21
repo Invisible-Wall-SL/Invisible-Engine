@@ -46,9 +46,9 @@
 // signature, and the two bundle-path whitelists — are asserted by
 // `pnpm --filter launcher-api check:tumble-pattern`.
 
-import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 
 import {
@@ -475,9 +475,9 @@ if (!explodeHandlerSource.includes('tumbleExplosionDelays')) {
 
 const buildExplode = (env) => {
 	const names = Object.keys(env);
-	const body = stripTypeScriptTypes(`const handler = { ${explodeHandlerSource} };`);
-	// eslint-disable-next-line no-new-func
-	const make = new Function(...names, `${body}\nreturn handler.tumbleBoardExplode;`);
+	const what = 'verify-tumble-pattern / Board.svelte#tumbleBoardExplode';
+	const body = stripSliceTypes(what, `const handler = { ${explodeHandlerSource} };`);
+	const make = compileSlice({ what, names, body: `${body}\nreturn handler.tumbleBoardExplode;` });
 	return make(...names.map((name) => env[name]));
 };
 
@@ -501,12 +501,14 @@ const awaitExplosionSource = (() => {
 	return script.slice(start, end);
 })();
 
-const buildAwaitExplosion = (awaitBeat) =>
-	// eslint-disable-next-line no-new-func
-	new Function(
-		'awaitBeat',
-		`${stripTypeScriptTypes(awaitExplosionSource)}\nreturn awaitExplosion;`,
-	)(awaitBeat);
+const buildAwaitExplosion = (awaitBeat) => {
+	const what = 'verify-tumble-pattern / TumbleBoard.svelte#awaitExplosion';
+	return compileSlice({
+		what,
+		names: ['awaitBeat'],
+		body: `${stripSliceTypes(what, awaitExplosionSource)}\nreturn awaitExplosion;`,
+	})(awaitBeat);
+};
 
 /** Timers resolved in armed order at each virtual instant, so a run is deterministic. */
 const createClock = () => {

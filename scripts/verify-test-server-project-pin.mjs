@@ -35,9 +35,9 @@
 //      publish: it must patch an existing entry without disturbing anything else, must never CREATE
 //      one, must not write at all when the pin is already right, and must survive a lost CAS.
 
-import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -136,7 +136,11 @@ const harness = async (entry, calls = 1) => {
 	const body =
 		`${warnSource}\n${refreshSource}\n` +
 		`for (let i = 0; i < ${calls}; i += 1) await refreshContract('waysofwavesbuild');`;
-	const run = new Function(...keys, `return (async () => { ${body} })();`);
+	const run = compileSlice({
+		what: 'verify-test-server-project-pin / testServerContract.ts#refreshContract',
+		names: keys,
+		body: `return (async () => { ${body} })();`,
+	});
 	await run(...keys.map((k) => scope[k]));
 	return { asked, warned };
 };
@@ -204,16 +208,11 @@ await check('re-publishing a bundle cannot blank a pointer it was not told about
 		'const previous = manifest.games[gameKey] ?? {};',
 		'\t};\n',
 	);
-	const run = new Function(
-		'manifest',
-		'gameKey',
-		'protocol',
-		'name',
-		'projectKey',
-		'launcherOrigin',
-		'readToken',
-		`${merge} return manifest.games[gameKey];`,
-	);
+	const run = compileSlice({
+		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
+		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		body: `${merge} return manifest.games[gameKey];`,
+	});
 	// The online Game Maker wrote a full entry; this script is then run with none of the flags.
 	const manifest = {
 		games: {
@@ -243,16 +242,11 @@ await check('the flags write the pointer the test server reads', () => {
 		'const previous = manifest.games[gameKey] ?? {};',
 		'\t};\n',
 	);
-	const run = new Function(
-		'manifest',
-		'gameKey',
-		'protocol',
-		'name',
-		'projectKey',
-		'launcherOrigin',
-		'readToken',
-		`${merge} return manifest.games[gameKey];`,
-	);
+	const run = compileSlice({
+		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
+		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		body: `${merge} return manifest.games[gameKey];`,
+	});
 	const manifest = { games: {} };
 	const entry = run(
 		manifest,
@@ -305,7 +299,8 @@ const manifestModule = read('apps/launcher-api/src/lib/server/testServerManifest
 
 // The REAL function, TypeScript stripped rather than re-typed by hand, so a change to its logic is
 // a change to what runs here.
-const pinSource = stripTypeScriptTypes(
+const pinSource = stripSliceTypes(
+	'testServerManifest.ts#pinTestServerGameToProject',
 	sliceBetween(
 		manifestModule,
 		'pinTestServerGameToProject',
@@ -363,12 +358,11 @@ const pinHarness = async (games, pin, { conflicts = 0, gameKey = 'waysofwavesbui
 		},
 	};
 	const keys = Object.keys(scope);
-	const run = new Function(
-		...keys,
-		'gameKey',
-		'pin',
-		`return (async () => { ${pinSource} return pinTestServerGameToProject(gameKey, pin); })();`,
-	);
+	const run = compileSlice({
+		what: 'verify-test-server-project-pin / testServerManifest.ts#pinTestServerGameToProject',
+		names: [...keys, 'gameKey', 'pin'],
+		body: `return (async () => { ${pinSource} return pinTestServerGameToProject(gameKey, pin); })();`,
+	});
 	const outcome = await run(...keys.map((k) => scope[k]), gameKey, pin);
 	return { outcome, writes, manifest: JSON.parse(store) };
 };

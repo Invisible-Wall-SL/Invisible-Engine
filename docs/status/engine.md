@@ -223,6 +223,39 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`/api/health` exists and is dependency-free) so the old container keeps serving until the new one
     is ready. That closes the window instead of tolerating it; this change only makes the game survive
     it and say so when it can't.
+- 2026-09-18 — **every slice-compiling guard now goes through the shared wrapper, so a drifted slice
+  names itself instead of dying at `<anonymous_script>:N`.** `verify-board-tiles` adopted
+  `scripts/lib/compile-slice.mjs` when it was written; the other **twelve** still called `new Function`
+  directly, and **four of them carried their own private copy of the `stripTypeScriptTypes` wrapper**
+  (`verify-swap-in-place-mode`, `verify-win-explode-pop`, `verify-test-server-project-pin`,
+  `verify-tumble-pattern`). All twelve are converted — 29 compile sites, and the four private copies are
+  a net DELETION rather than an addition. **The two fixtures whose stripper does more than strip keep
+  their extra step and lose only the duplicated half:** `verify-win-explode-pop` and
+  `verify-swap-in-place-mode` reduce runes to their out-of-component value semantics AFTER stripping,
+  which is theirs and not the shared wrapper's business; what they no longer each own is Node's stripper,
+  its experimental-warning silencer and the attributed failure. `verify-boot-splash` is the one that
+  takes `compileSlice` WITHOUT `stripSliceTypes` — `boot-splash.js` ships as JavaScript, so there is
+  nothing to strip and only the attribution is worth having.
+  - **Proved behaviour-neutral by transcript, not by a green tick.** Every guard's full stdout was
+    captured before the change and diffed after: **eleven of twelve byte-identical**, and the twelfth
+    (`verify-tumble-pattern`) differs by exactly the two lines of
+    `ExperimentalWarning: stripTypeScriptTypes` that the shared wrapper silences — the improvement
+    itself. Assertion counts unmoved. Re-diffed a second time after Prettier, because a formatter pass
+    over twelve files is its own chance to move something.
+  - **Mutation-tested against the bug the wrapper exists for**, old code vs new, same mutation: a
+    `Map<string, ReadonlyArray<number>>` local added inside the real `resolveReelGridFromNode` — an
+    annotation shape `verify-symbol-overflow`'s old regex set (`: number` / ` as number`) had never
+    heard of. **Old: dies before the first assertion. New: 4045 assertions, PASS.** That is case 1 from
+    `compile-slice.mjs`'s header reproduced on a second file, which is the claim the rollout rests on.
+    A separate anchor-drift mutation was caught EARLIER, by the slice anchor's own `could not locate`
+    throw — worth recording, because it shows the two layers do not overlap and neither is redundant.
+  - **Not done, and it is the bigger hole:** *none* of the 21 `verify-*` guards run in CI. `lint.yml`
+    runs `pnpm lint`, `check:undefined-names`, `gen-flow-vocabulary --check` and `check:rgs`; the
+    pre-commit hook runs the secret scanner plus two generator `--check` passes. So a regression in any
+    of these only surfaces when a person happens to run one — which is exactly how `verify-board-tiles`
+    sat red on `main` for a week and how `verify-swap-in-place-mode` died silently at part 9 three
+    separate times. Better attribution shortens the diagnosis; it does not shorten the week. One
+    aggregate script wired into `lint.yml` would, and it is independent of this change.
 
 - 2026-09-18 — **`verify-board-tiles.mjs` is green again, and it no longer strips TypeScript with regexes
   of its own.** It had been red on `main` since #734 — `SyntaxError: Unexpected token ':'` out of
@@ -272,17 +305,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     anchor 200 chars mid-function and `stripSliceTypes` refuses by name
     (`reelGrid.ts#resolveReelGridTileArt: the slice is not strippable TypeScript — Expected '}'`).
     (4) Fake `staticSpineKeyIsReachable` as always-true → 2 fail. (5) Drop it → `ReferenceError`.
-  - **Still owed, and cheap:** the other twelve fixtures that compile slices
-    (`verify-symbol-overflow`, `verify-reel-grid-geometry`, `verify-swap-in-place-mode`,
-    `verify-win-explode-pop`, `verify-test-server-project-pin`, `verify-tumble-pattern`,
-    `verify-symbol-seat`, `verify-stepped-grid`, `verify-boot-splash`, `verify-clip-reachability`,
-    `verify-editor-doc-backup`, `verify-reelgrid-perspective-roundtrip` — 34 `new Function` sites) still
-    call `new Function` directly, so a drifted anchor in any of them still reads as
-    `<anonymous_script>:N`. Four of them also carry their own private copy of the `stripTypeScriptTypes`
-    wrapper that `compile-slice.mjs` now shares. Mechanical, but it touches twelve green guards, so it is
-    its own change. The stub-set guard is wired into only two of the twelve for the same reason — and
-    `verify-board-tiles` is not one of them: four bodies would mean four `tsc` spawns against a fixture
-    that currently runs in 0.17 s, and its one free identifier is now imported and asserted.
+  - ~~**Still owed, and cheap:** the other twelve fixtures that compile slices~~ — **DONE 2026-09-18**,
+    see the entry above. All thirteen slice-compiling guards now go through `compileSlice`, and the four
+    private `stripTypeScriptTypes` copies are deleted. The stub-set guard is still wired into only two of
+    them, deliberately — and `verify-board-tiles` is still not one: four bodies would mean four `tsc`
+    spawns against a fixture that runs in 0.17 s, and its one free identifier is imported and asserted.
 
 - 2026-09-18 — **the same guard has now been repaired four times by adding the one name that run happened
   to hit, so the repair is now a shared check instead.** Several offline fixtures cannot import what they

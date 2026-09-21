@@ -33,6 +33,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { lfReaderFrom } from './lib/read-lf.mjs';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
@@ -72,22 +73,20 @@ const sliceBlock = (src, startMarker, endMarker, what) => {
 // The LAYOUT side: the real `resolveReelGridFromNode` (node → resolved grid, where the authored
 // overflow is gated and folded through the cell scale).
 // ---------------------------------------------------------------------------------------------
-const resolveReelGridFromNode = new Function(
-	'resolveTransform',
-	`${sliceBlock(
-		LAYOUT_SRC,
-		'export function resolveReelGridFromNode(',
-		'\n}\n',
-		'resolveReelGridFromNode in reelGrid.ts',
-	)
-		.replace(
-			/export function resolveReelGridFromNode\([\s\S]*?\): ReelGridLayout \| undefined \{/,
-			'function resolveReelGridFromNode(node, layoutType) {',
-		)
-		.replace(/ as number/g, '')
-		.replace(/: number/g, '')}
+const resolveReelGridFromNode = compileSlice({
+	what: 'verify-symbol-overflow / reelGrid.ts#resolveReelGridFromNode',
+	names: ['resolveTransform'],
+	body: `${stripSliceTypes(
+		'reelGrid.ts#resolveReelGridFromNode',
+		sliceBlock(
+			LAYOUT_SRC,
+			'export function resolveReelGridFromNode(',
+			'\n}\n',
+			'resolveReelGridFromNode in reelGrid.ts',
+		),
+	).replace(/^export /m, '')}
 return resolveReelGridFromNode;`,
-)((node) => ({ x: node.x, y: node.y, anchor: node.anchor, scale: node.scale }));
+})((node) => ({ x: node.x, y: node.y, anchor: node.anchor, scale: node.scale }));
 
 // ---------------------------------------------------------------------------------------------
 // The ENGINE side: `boardGeometry` … `getSymbolSeat` (which carries `boardMaskColumns`), plus
@@ -119,29 +118,39 @@ const authoredBlock = sliceBlock(
 	'\n\t};\n',
 	'boardOverflowAuthored in gameState.svelte.ts',
 );
-const engineBlock = (seatBlock + overflowBlock + authoredBlock)
-	.replace(/: number/g, '')
-	.replace(/: BoardPerspective/g, '');
-
-const buildEngine = new Function(
-	'SYMBOL_SIZE',
-	'REEL_PADDING',
-	'NO_BOARD_OVERFLOW',
-	'resolveReelGridFromNode',
-	'resolveReelGridPerspective',
-	'boardOverride',
-	'stateGame',
-	'deps',
-	`${engineBlock}
-return { boardGeometry, boardOverflow, boardOverflowAuthored, boardMaskColumns };`,
+const engineBlock = stripSliceTypes(
+	'gameState.svelte.ts#boardGeometry+boardOverflow+boardOverflowAuthored',
+	seatBlock + overflowBlock + authoredBlock,
 );
+
+const buildEngine = compileSlice({
+	what: 'verify-symbol-overflow / gameState.svelte.ts#boardGeometry+boardOverflow',
+	names: [
+		'SYMBOL_SIZE',
+		'REEL_PADDING',
+		'NO_BOARD_OVERFLOW',
+		'resolveReelGridFromNode',
+		'resolveReelGridPerspective',
+		'boardOverride',
+		'stateGame',
+		'deps',
+	],
+	body: `${engineBlock}
+return { boardGeometry, boardOverflow, boardOverflowAuthored, boardMaskColumns };`,
+});
 
 /** The engine's own shared zero, read back out of the source so this fixture cannot assert against
  *  a different object than the one that ships. */
 const NO_BOARD_OVERFLOW = (() => {
 	const match = ENGINE_SRC.match(/const NO_BOARD_OVERFLOW = Object\.freeze\((\{[^}]*\})\);/);
 	if (!match) throw new Error('gameState.svelte.ts no longer declares NO_BOARD_OVERFLOW');
-	return Object.freeze(new Function(`return ${match[1]};`)());
+	return Object.freeze(
+		compileSlice({
+			what: 'verify-symbol-overflow / gameState.svelte.ts#NO_BOARD_OVERFLOW',
+			names: [],
+			body: `return ${match[1]};`,
+		})(),
+	);
 })();
 
 /**
@@ -186,26 +195,20 @@ const engineFor = (node, { dims = { reels: 5, rows: 3 }, rolling, motions, rowsP
 // The EDITOR side: the real `reelGridGeometry`.
 // ---------------------------------------------------------------------------------------------
 const BOARD_LOCAL_CELL = readConst(EDITOR_SRC, 'BOARD_LOCAL_CELL', 'editorCanvas.helpers.ts');
-const reelGridGeometry = new Function(
-	'BOARD_LOCAL_CELL',
-	'resolveReelGridPerspective',
-	`${sliceBlock(
-		EDITOR_SRC,
-		'export function reelGridGeometry(',
-		'\n}\n',
-		'reelGridGeometry in editorCanvas.helpers.ts',
-	)
-		.replace(
-			/export function reelGridGeometry\([\s\S]*?\): ReelGridGeometry \{/,
-			'function reelGridGeometry(node, anchor, dims) {',
-		)
-		.replace(/ as number/g, '')
-		.replace(/: ReelGridSeat\[\]/g, '')
-		.replace(/: ReelGridGeometry/g, '')
-		.replace(/: Vec2\[\]/g, '')
-		.replace(/: number/g, '')}
+const reelGridGeometry = compileSlice({
+	what: 'verify-symbol-overflow / editorCanvas.helpers.ts#reelGridGeometry',
+	names: ['BOARD_LOCAL_CELL', 'resolveReelGridPerspective'],
+	body: `${stripSliceTypes(
+		'editorCanvas.helpers.ts#reelGridGeometry',
+		sliceBlock(
+			EDITOR_SRC,
+			'export function reelGridGeometry(',
+			'\n}\n',
+			'reelGridGeometry in editorCanvas.helpers.ts',
+		),
+	).replace(/^export /m, '')}
 return reelGridGeometry;`,
-)(BOARD_LOCAL_CELL, (node) => node?.perspective);
+})(BOARD_LOCAL_CELL, (node) => node?.perspective);
 
 // ---------------------------------------------------------------------------------------------
 // The MASK's own arithmetic, lifted out of `BoardMask.svelte`'s markup. The component cannot be
@@ -236,18 +239,16 @@ const maskRect = (() => {
 		}
 		return rect.slice(from, i);
 	};
-	const build = new Function(
-		'SYMBOL_SIZE',
-		'windowWidth',
-		'windowHeight',
-		'overflow',
-		`return {
+	const build = compileSlice({
+		what: 'verify-symbol-overflow / BoardMask.svelte#rect',
+		names: ['SYMBOL_SIZE', 'windowWidth', 'windowHeight', 'overflow'],
+		body: `return {
 			x: ${propOf('x')},
 			y: ${propOf('y')},
 			width: ${propOf('width')},
 			height: ${propOf('height')},
 		};`,
-	);
+	});
 	return (windowWidth, windowHeight, overflow) =>
 		build(SYMBOL_SIZE, windowWidth, windowHeight, overflow);
 })();

@@ -42,6 +42,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 import { readLF, lfReaderFrom } from './lib/read-lf.mjs';
 
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
@@ -75,22 +76,25 @@ if (blockStart < 0 || seatStart < blockStart) {
 }
 const blockEnd = source.indexOf('\n\t};\n', seatStart);
 if (blockEnd < 0) throw new Error('could not locate the end of getSymbolSeat');
-// The only TypeScript in the slice is the parameter annotations — `number` and the perspective model
-// type declared just above the factory. A new annotation shape would make the Function below throw a
-// SyntaxError, which is the loud failure we want rather than a silently skipped check.
-const block = source
-	.slice(blockStart, blockEnd + '\n\t};\n'.length)
-	.replace(/: number/g, '')
-	.replace(/: BoardPerspective/g, '');
+// Stripped by Node's own TypeScript stripper, not by annotation-shaped regexes: the slice's
+// parameter types are whatever the shipped source happens to write today, and a shape nobody
+// anticipated must not be a shape the fixture silently leaves behind. See lib/compile-slice.mjs.
+const block = stripSliceTypes(
+	'gameState.svelte.ts#boardGeometry…getSymbolSeat',
+	source.slice(blockStart, blockEnd + '\n\t};\n'.length),
+);
 
-const buildGetters = new Function(
-	'SYMBOL_SIZE',
-	'REEL_PADDING',
-	'resolveReelGridFromNode',
-	'resolveReelGridPerspective',
-	'boardOverride',
-	'deps',
-	`${block}
+const buildGetters = compileSlice({
+	what: 'verify-symbol-seat / gameState.svelte.ts#boardGeometry…getSymbolSeat',
+	names: [
+		'SYMBOL_SIZE',
+		'REEL_PADDING',
+		'resolveReelGridFromNode',
+		'resolveReelGridPerspective',
+		'boardOverride',
+		'deps',
+	],
+	body: `${block}
 return {
 	boardGeometry,
 	getSymbolX,
@@ -103,7 +107,7 @@ return {
 	boardMaskColumns,
 	rowSeatIndex,
 };`,
-);
+});
 
 /**
  * @param grid a resolved `ReelGridLayout` (or null = "no doc", the coded constants)
