@@ -30,16 +30,22 @@
  *
  *     node scripts/serve-embed.mjs <build-dir> [--port 4599] [--sid S0001e]
  *                                  [--service webnode/engine] [--alias MyGame]
- *                                  [--rgs https://gs.2-complex.science]
+ *                                  [--rgs 2complex | gs.2-complex.science | https://…]
  *
  * `--sid` is the session token the fake page hands over. Point it at a REAL session on the partner
- * node, pass `--rgs`, and the game plays for real.
+ * node, pass `--rgs`, and the game plays for real. `--rgs` takes a delivery PROFILE NAME as well as
+ * a URL or a bare host — the profile already knows its RGS, and naming it is what people reach for.
  *
  * See `docs/design/delivery-builds.md`.
  */
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** This script lives in the engine's `scripts/`, so the delivery profiles sit beside it —
+ *  the same ones `--profile` names when the build was cut. */
+const ENGINE_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 const arg = (flag, fallback) => {
 	const i = process.argv.indexOf(flag);
@@ -54,7 +60,60 @@ const alias = arg('--alias', 'DeliveryGame');
 const brand = arg('--brand', 'eanew');
 const version = arg('--version', 'v1.0');
 
-const rgsOrigin = arg('--rgs', '').replace(/\/+$/, '');
+/**
+ * What `--rgs` meant, in the three forms people actually type.
+ *
+ * It used to be taken literally, and anything that was not a URL became one by concatenation:
+ * `--rgs 2complex` produced `2complex/webnode/engine?sid=…`, which `fetch` rejects. The result was
+ * a 502 per spin, each naming the request rather than the flag — so the mistake was invisible and
+ * survived several sessions. A PROFILE NAME is the obvious thing to reach for, because it is what
+ * the same person just chose in the 📦 Deliver picker and what `--profile` takes; refusing it was
+ * the tool failing to answer a reasonable question.
+ *
+ * Resolved, in order: an absolute URL is used as-is · a delivery profile's name gives its
+ * `rgs.baseUrl` · a bare hostname gets `https://`. Anything else refuses AT STARTUP, naming the
+ * profiles it knows, rather than at the first spin.
+ */
+const resolveRgs = (value) => {
+	const raw = value.trim().replace(/\/+$/, '');
+	if (!raw) return '';
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+
+	const profileFile = resolve(ENGINE_ROOT, 'packages/delivery-profile/profiles', `${raw}.json`);
+	if (existsSync(profileFile)) {
+		const baseUrl = (JSON.parse(readFileSync(profileFile, 'utf8')).rgs?.baseUrl ?? '').replace(
+			/\/+$/,
+			'',
+		);
+		if (baseUrl) {
+			console.info(`  --rgs ${raw} -> ${baseUrl}  (from the '${raw}' delivery profile)`);
+			return baseUrl;
+		}
+		throw new Error(
+			`The '${raw}' delivery profile names no RGS host — it is a same-origin profile ` +
+				`(rgs.source: 'host'), so there is nothing to proxy to.\n` +
+				`Pass the operator's own RGS origin instead, e.g. --rgs https://gs.2-complex.science`,
+		);
+	}
+
+	// A bare host (`gs.2-complex.science`) is unambiguous; a bare word is not.
+	if (/^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(raw)) return `https://${raw}`;
+
+	const known = existsSync(resolve(ENGINE_ROOT, 'packages/delivery-profile/profiles'))
+		? readdirSync(resolve(ENGINE_ROOT, 'packages/delivery-profile/profiles'))
+				.filter((f) => f.endsWith('.json'))
+				.map((f) => f.slice(0, -5))
+				.join(', ')
+		: '(none found)';
+	throw new Error(
+		`--rgs ${raw} is neither a URL nor a delivery profile.\n` +
+			`  a URL      : --rgs https://gs.2-complex.science\n` +
+			`  a host     : --rgs gs.2-complex.science\n` +
+			`  a profile  : --rgs <${known}>`,
+	);
+};
+
+const rgsOrigin = resolveRgs(arg('--rgs', ''));
 
 const PREFIX = `/cdn/${brand}/games/${version}/${alias}/`;
 const PAGE_PATH = '/operator/';
