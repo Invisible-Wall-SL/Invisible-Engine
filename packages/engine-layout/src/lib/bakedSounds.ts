@@ -34,7 +34,7 @@ import type { SoundCatalog } from './soundLibrary';
  */
 export function bakedSoundBanks(
 	catalog: SoundCatalog | undefined,
-	srcBase = 'assets/',
+	srcBase: string,
 ): LoadedAudio<string>[] {
 	if (!catalog?.sounds?.length) return [];
 	const out: LoadedAudio<string>[] = [];
