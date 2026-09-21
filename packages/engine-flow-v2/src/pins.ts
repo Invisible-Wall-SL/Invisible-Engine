@@ -35,7 +35,8 @@ import type {
 	TypeRef,
 } from './types';
 
-/** The lookups a deriver needs — the template contract + the shared function library. */
+/** The lookups a deriver (and the validator, which runs on the same context) needs — the template
+ *  contract, the shared function library, and the scene-backed facts about each container. */
 export interface PinContext {
 	vocab: TemplateVocabulary;
 	library: FunctionLibraryDoc;
@@ -47,6 +48,22 @@ export interface PinContext {
 	 * (parity-safe).
 	 */
 	containerEvents?: Record<string, ContainerEventDecl[]>;
+	/**
+	 * RESOLVED release surfaces, keyed by `ContainerId` → does that container's backing scene mount
+	 * something that can COMPLETE it (a `tapToContinue` overlay, or a `completeOnLoaded` auto-advance)?
+	 * Both call the game's `completeActiveScreen` → `mount.complete(id)`, which is what releases a
+	 * `showContainer{awaitComplete}` hold.
+	 *
+	 * Read by the validator only (`hold-without-release` / `tap-without-hold`) — no pin's shape depends
+	 * on it. It lives here because it is the same kind of lookup as `containerEvents`: a fact about the
+	 * SCENE behind a container, which the FlowDoc alone cannot answer, projected in by whoever holds the
+	 * LayoutDoc.
+	 *
+	 * NEVER GUESS (`scope.ts`): a container is keyed here ONLY when its scene actually resolved. An
+	 * absent key means "unknown", and every check that reads this map is skipped for it — so an unsaved
+	 * or standalone project (empty map) yields NO issues rather than a false error on every flow.
+	 */
+	containerTaps?: Record<string, boolean>;
 }
 
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };

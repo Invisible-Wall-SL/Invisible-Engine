@@ -51,6 +51,8 @@
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"precheck:scene-cues": "node scripts/ensure-svelte-kit.mjs",
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
+		"precheck:container-taps": "node scripts/ensure-svelte-kit.mjs",
+		"check:container-taps": "tsx --tsconfig tsconfig.scripts.json scripts/check-container-taps.ts",
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
 		"check:builtin-spines": "node scripts/check-builtin-spines.mjs",
 		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
