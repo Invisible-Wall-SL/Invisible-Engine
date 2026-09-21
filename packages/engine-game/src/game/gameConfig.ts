@@ -4,6 +4,10 @@ import {
 	resolveWinLevelChain,
 	resolveWinLevels,
 	resolveGrid,
+	acceptServerWindow,
+	reconcileGridDoc,
+	gridShapeDiffers,
+	type ServerWindow,
 	resolveReelBehaviour,
 	resolveSounds,
 	resolveWinModel,
@@ -70,6 +74,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** {@link activeGrid}'s identity-keyed memo — see the note there for why it is not reset-managed. */
 	let gridMemoFor: GameConfigDoc | null = null;
 	let gridMemo: ResolvedGrid | null = null;
+	/** The RGS's declared board as of {@link captureServerGrid} — the ONE value {@link activeGrid}
+	 *  reconciles against. `undefined` until captured, and on every game whose server declares no
+	 *  window, which is what makes the un-captured state byte-identical to having no overlay at all. */
+	let capturedWindow: ServerWindow | undefined;
 
 	/**
 	 * The compiled template, normalized. Kept as a lazily-built fallback rather than a module-scope
@@ -126,7 +134,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	type ServerGameConfig = {
 		availablePayLines: number[][];
 		symbols: string[];
-		window?: { reels: number; rows: number };
+		/** `rows` is the BOUNDING BOX — the tallest column. `rowsPerReel` is present only when the
+		 *  columns differ, so a server that never heard of stepped grids sends the shape it always
+		 *  sent (`rgs-translator-eagaming`'s `Play4FunConfigContext['window']`, published verbatim). */
+		window?: { reels: number; rows: number; rowsPerReel?: number[] };
 	};
 
 	/** The RGS-declared config, or `undefined` when no config event has been published (⇒ parity). A
@@ -136,6 +147,64 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
 		if (!cfg || !Array.isArray(cfg.symbols) || cfg.symbols.length === 0) return undefined;
 		return cfg;
+	}
+
+	/**
+	 * The RGS's declared board, read STRAIGHT off the global — `{ reels, rows }`, or `undefined` when
+	 * no config event has landed or the one that did declared no usable window.
+	 *
+	 * Deliberately NOT routed through {@link serverConfig}, and the reason is mechanical rather than
+	 * stylistic: `serverConfig()` fires {@link warnOnServerGridMismatch}, which reads
+	 * {@link boardDimensions}, which reads {@link activeGrid} — which is this function's caller. Going
+	 * through it would be unbounded recursion on the first render. The warning already reads the
+	 * global directly for its own half of the comparison, so this is the same source, named once.
+	 *
+	 * It also deliberately does NOT require `symbols`: a window is a complete statement about the
+	 * board on its own, and a config that declares one while carrying no in-play set still knows how
+	 * big the board is.
+	 */
+	function serverWindow(): ServerWindow | undefined {
+		return acceptServerWindow(
+			(globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__?.window,
+		);
+	}
+
+	/**
+	 * ADOPT the RGS's declared board — once, at a point the game controls — and say whether doing so
+	 * actually changed the grid.
+	 *
+	 * {@link activeGrid} reads {@link capturedWindow} rather than the global, and this is the only
+	 * thing that writes it. That indirection is the whole design, for two reasons:
+	 *
+	 * 1. **The board is not an accessor.** `stateGame.board` is BUILT once, at `stateGame` module
+	 *    init, from `initialBoard()`/`boardDimensions()`. Every other server-authoritative reader
+	 *    (paylines, the in-play gate, the strips) is a live accessor and needs no boot hook, which is
+	 *    what the note at `Game.svelte`'s runtime branch says — but a grid that resizes the board is
+	 *    not one of those. Something has to rebuild it, and it has to happen on the BAKED path too,
+	 *    where that branch never runs. Returning "did it change" is how the caller knows to, without
+	 *    rebuilding a board that was already right (parity).
+	 * 2. **A live read would be a non-reactive input to a hot accessor.** `__IE_SERVER_CONFIG__` is a
+	 *    plain global with no Svelte dependency, so an accessor that read it per call could change
+	 *    value with nothing invalidating the `$derived`s built on it — the mask sized for one grid
+	 *    while the seats use another, resolving at whatever moment each happened to re-run. Latched,
+	 *    the grid has exactly ONE transition, at a moment `Game.svelte` picks, before first paint.
+	 *
+	 * Safe to call more than once and safe to call before the config lands: it simply re-reads. The
+	 * ordering it relies on is real rather than assumed — `<Authenticate>` gates the game's mount on
+	 * the very request whose `config` event publishes the overlay, so it is already in at boot.
+	 */
+	function captureServerGrid(): boolean {
+		const next = serverWindow();
+		// Asked of the AUTHORED doc, which is what the reels were built from — this runs once, at boot,
+		// before anything has been adopted.
+		const doc = getActiveGameConfig();
+		const changed = next
+			? gridShapeDiffers(resolveGrid(doc), resolveGrid(reconcileGridDoc(doc, next)))
+			: false;
+		capturedWindow = next;
+		gridMemo = null;
+		gridMemoFor = null;
+		return changed;
 	}
 
 	/** Latched once a server config actually DECLARES a window, so {@link warnOnServerGridMismatch}
@@ -172,23 +241,42 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 */
 	function warnOnServerGridMismatch(): void {
 		if (gridChecked) return;
-		const win = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__
-			?.window;
-		const reels = Math.round(Number(win?.reels));
-		const rows = Math.round(Number(win?.rows));
-		if (!Number.isFinite(reels) || !Number.isFinite(rows) || reels < 1 || rows < 1) return;
+		// The CAPTURED window, so the message describes the board that was actually adopted rather
+		// than whatever the global says at the moment of the read. Un-captured ⇒ nothing was adopted
+		// ⇒ nothing to report.
+		const win = capturedWindow;
+		if (!win) return;
 		gridChecked = true;
 
-		const board = boardDimensions();
-		if (reels === board.x && rows === board.y) return;
+		// What the PROJECT authored, before {@link reconcileGridDoc} had its say — the comparison has
+		// to be against the doc, because the resolved grid now follows the server by construction and
+		// could only ever agree with it.
+		const authored = resolveGrid(getActiveGameConfig());
+		// Compare the SHAPE, not just the box: with a declared `rowsPerReel` the server can replace the
+		// authored step while the bounding box agrees, and that is still the board changing under the
+		// author's feet.
+		const drawn = activeGrid();
+		const same =
+			drawn.reels === authored.reels &&
+			drawn.rows.length === authored.rows.length &&
+			drawn.rows.every((r, i) => r === authored.rows[i]);
+		if (same) return;
+		const stepRefused = authored.stepped && !win.rowsPerReel;
+
+		const shapeOf = (g: ResolvedGrid) =>
+			g.stepped ? `${g.reels}×[${g.rows.join(',')}]` : `${g.reels}×${g.maxRows}`;
 		console.error(
-			`[game-config] error: the RGS deals a ${reels}×${rows} board but this game draws ` +
-				`${board.x}×${board.y} (Invisible Game Config numReels/numRows). The reels and rows ` +
-				'outside the server board never receive a symbol, and wins are evaluated on a grid the ' +
-				'client is not showing. The test server follows this config on its own, so a mismatch ' +
-				'means it is not following: publish the game once (older entries have no pointer back to ' +
-				'the live config), or — against a real RGS, which is authoritative — set the config back ' +
-				'to the size the server deals.',
+			`[game-config] error: the RGS deals ${shapeOf(activeGrid())} and this project authored ` +
+				`${shapeOf(authored)} (Invisible Game Config numReels/numRows). THE SERVER WINS — the ` +
+				`board now draws ${shapeOf(drawn)}` +
+				(stepRefused
+					? ', and the authored per-column step was DROPPED, because the server declared a plain ' +
+						'rectangle and a column drawn shorter than it dealt hides a cell that was scored. '
+					: '. ') +
+				'The test server follows this config on its own, so a disagreement means it is not ' +
+				'following: publish the game once (older entries have no pointer back to the live ' +
+				'config). Against a real RGS — which is authoritative and declares only a rectangle — ' +
+				'author the config to the size the server deals.',
 		);
 	}
 
@@ -354,7 +442,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * counted correctly rather than assumed to be uniform.
 	 */
 	function activeWaysCount(): number {
-		const rows = getActiveGameConfig().numRows;
+		// The RESOLVED grid, not the raw doc: the board follows the RGS's declared window
+		// ({@link reconcileGridDoc}), and a ways count taken from the authored `numRows` would price a
+		// spin against a board the game is not drawing — the same client/math divergence one layer up.
+		const rows = activeGrid().rows;
 		if (!rows.length) return 1;
 		return rows.reduce((product, r) => product * Math.max(1, Math.floor(r)), 1);
 	}
@@ -387,7 +478,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 
 	/** Visible rows on the first reel — the info page's grid height. */
 	function getNumRows(): number {
-		return getActiveGameConfig().numRows[0] ?? 3;
+		// Resolved grid, for the reason {@link activeWaysCount} gives: the board the game DRAWS is the
+		// one every derived display number has to agree with.
+		return activeGrid().rows[0] ?? 3;
 	}
 
 	/**
@@ -406,6 +499,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const grid = activeGrid();
 		return { x: grid.reels, y: grid.maxRows };
 	}
+
 
 	/**
 	 * THE GRID — per-column heights and their vertical placement, resolved once
@@ -434,9 +528,15 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// `activeReelBehaviour`, which stays un-memoised for exactly that reason — it is three field
 		// reads and allocates nothing). Keying on the object reference gets the memo without the
 		// bookkeeping: dropping `cached` yields a NEW doc object, so this invalidates itself.
+		// The LATCHED window, never a live read of the global — see {@link captureServerGrid}. That is
+		// what keeps this a pure function of two values that change only at points `Game.svelte`
+		// controls, so the memo needs no key beyond the doc identity and no consumer can observe the
+		// grid changing underneath it mid-render.
 		if (gridMemo && gridMemoFor === config) return gridMemo;
 		gridMemoFor = config;
-		gridMemo = resolveGrid(config);
+		gridMemo = capturedWindow
+			? resolveGrid(reconcileGridDoc(config, capturedWindow))
+			: resolveGrid(config);
 		return gridMemo;
 	}
 
@@ -778,6 +878,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		publishWinLevelsToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
+		captureServerGrid,
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 	};

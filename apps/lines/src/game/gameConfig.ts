@@ -50,5 +50,6 @@ export const {
 	activeWinLevel,
 	publishWinLevelsToFacade,
 	warnOnGameConfigIssues,
+	captureServerGrid,
 	warnOnServerGridMismatch,
 } = gameConfig;

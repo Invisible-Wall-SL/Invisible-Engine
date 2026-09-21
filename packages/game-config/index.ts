@@ -9,3 +9,4 @@ export * from './src/mechanics';
 export * from './src/reelBehaviour';
 export * from './src/sounds';
 export * from './src/grid';
+export * from './src/serverGrid';
