@@ -321,26 +321,56 @@ def make_shadow(
 ) -> Image.Image:
     """Return ONLY a soft shadow blob of the base's alpha silhouette.
 
-    Same canvas size & registration as the base (so it composes into the slot
-    exactly like its source). The silhouette is filled with `color`, blurred,
-    scaled to `opacity`, and shifted by (offset_x, offset_y) — both the blur
-    radius and the offset scale with the subject so they look consistent
-    regardless of source resolution. No glyph is drawn (it's a drop shadow
-    layer, used on its own FX region).
+    Registered with the base and CENTRED ON IT: the output canvas is the base's,
+    grown symmetrically by 2*|dx| x 2*|dy| so that the shifted, blurred blob
+    always fits inside it. Growing it symmetrically is the whole point — the
+    canvas centre still coincides with the base canvas's centre, so the layer
+    stays in the base's pixel space (see `batch_atlas.layer_registration`,
+    which maps the base's bbox across that margin), while the drop is carried by
+    where the blob sits INSIDE the canvas rather than by how much of it the
+    canvas cuts off.
+
+    The silhouette is filled with `color`, blurred, scaled to `opacity`, and
+    shifted by (offset_x, offset_y) — both the blur radius and the offset scale
+    with the subject so they look consistent regardless of source resolution.
+    No glyph is drawn (it's a drop shadow layer, used on its own FX region).
+
+    The shift is applied to the ALPHA BEFORE the blur, on the grown canvas, so
+    the blur spreads into the new margin instead of being cut at the old canvas
+    edge. At offset (0, 0) the margin is zero and this is byte-for-byte what the
+    un-offset shadow has always been — the only shadow whose placement was never
+    in question, and the parity case the offsets are measured against.
+
+    It does NOT add headroom for the blur itself: a silhouette that already
+    touches the base's canvas edge has its halo cut there, exactly as
+    `make_glow`'s does, and inventing room for one and not the other would put
+    the two FX layers of one element on different canvases.
     """
     base = base.convert("RGBA")
     alpha = base.split()[-1]
     scale = max(base.size) / 256.0
+    dx, dy = int(round(offset_x * scale)), int(round(offset_y * scale))
+    # |d| per side: the base-sized silhouette is pasted at |d| + d, i.e. flush
+    # against one edge and 2|d| from the other, so NOTHING of it falls outside.
+    mx, my = abs(dx), abs(dy)
+    size = (base.width + 2 * mx, base.height + 2 * my)
+    if (mx, my) != (0, 0):
+        shifted = Image.new("L", size, 0)
+        shifted.paste(alpha, (mx + dx, my + dy))
+        alpha = shifted
     radius = max(0.0, blur * scale)
     mask = alpha.filter(ImageFilter.GaussianBlur(radius)) if radius > 0 else alpha
     op = max(0.0, min(1.0, opacity))
     mask = mask.point(lambda p: int(p * op))
 
-    out = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    solid = Image.new("RGBA", base.size, (*color, 0))
+    out = Image.new("RGBA", size, (0, 0, 0, 0))
+    solid = Image.new("RGBA", size, (*color, 0))
     solid.putalpha(mask)
-    dx, dy = int(round(offset_x * scale)), int(round(offset_y * scale))
-    out.paste(solid, (dx, dy), solid)
+    # Pasted THROUGH itself, as it always was: that is what leaves the RGB of a
+    # tinted shadow premultiplied by its own alpha, so a transparent pixel is
+    # (0, 0, 0, 0) and the RGBA bbox every composer measures is the blob — not
+    # the whole canvas flooded with `color`.
+    out.paste(solid, (0, 0), solid)
     return out
 
 
