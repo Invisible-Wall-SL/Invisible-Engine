@@ -134,6 +134,7 @@
 		publishWinLevelsToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
+		captureServerGrid,
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 	} from '../game/gameConfig';
@@ -284,11 +285,14 @@
 		// Config exists to fix.
 		resetGameConfigCache();
 		// The RGS server-config overlay (`__IE_SERVER_CONFIG__`, published by the Play4Fun facade on the
-		// boot `config` event) needs NO reset here: `gameConfig.ts`'s accessors read it live from the
-		// global on every call, so a config that arrives AFTER this boot branch (it lands during
-		// authenticate) still takes effect the next time paylines / numLines / the in-play gate / strips
-		// are read (per-render / per-spin). Deliberately not folded into the memoised config for that
-		// reason (`docs/design/invisible-game-config.md`, server-authoritative phase).
+		// boot `config` event) needs no reset here for PAYLINES / numLines / the in-play gate / strips:
+		// those are live accessors, so a config arriving after this branch still takes effect the next
+		// time they are read (per-render / per-spin). Deliberately not folded into the memoised config
+		// for that reason (`docs/design/invisible-game-config.md`, server-authoritative phase).
+		//
+		// The GRID is the exception and is handled below by `captureServerGrid()`, outside this branch:
+		// it resizes a board that was BUILT once rather than read per render, and a baked bundle — which
+		// never enters this branch — needs it just as much.
 		// The board was built at `stateGame` module init from the compiled template's grid — before
 		// this bundle landed. Rebuild it now the authored config is live, so an online project's
 		// numReels/numRows actually resizes the board (grid-dimensions enhancement). No-op in effect
@@ -303,12 +307,27 @@
 	// so it inspects the config the game will actually run, not the one it booted with.
 	warnOnGameConfigIssues(getActiveSymbolInfoMap());
 
-	// And say out loud when the RGS is dealing a DIFFERENT board than the one we just sized. The
-	// board follows Invisible Game Config, which an online project fetches live; the mock RGS follows
-	// a copy of that grid synced at publish. Change the grid without republishing and the client
-	// draws 6×6 while the server deals 5×3 — a total mismatch that, until this line, presented only
-	// as a game that stopped working. Safe here: `<Authenticate>` gates this mount on the request
-	// that publishes the overlay, so the server's declared window is already in.
+	// ADOPT the RGS's declared board, and rebuild the reels if that changed the grid.
+	//
+	// UNCONDITIONAL — outside the runtime-bundle branch above, unlike the `rebuildBoard()` in it.
+	// Every OTHER server-authoritative reader is a live accessor that needs no boot hook, which is
+	// what that branch's note says; the board is the exception, because `stateGame.board` is BUILT
+	// once at module init rather than read per render. A baked bundle never enters that branch, so
+	// without this line it would size its mask, seats and cull off the server's window while the
+	// reels kept the authored column count — half of one board and half of another.
+	//
+	// Gated on the grid ACTUALLY changing, which is what makes this parity-safe: a game whose server
+	// declares no window, or declares the board the project already authored, rebuilds nothing and
+	// keeps the cells it booted with.
+	//
+	// Safe here for the same reason the warning below is: `<Authenticate>` gates this mount on the
+	// request that publishes the overlay, so the server's declared window is already in.
+	if (captureServerGrid()) rebuildBoard();
+
+	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
+	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
+	// project fetches its config live while the mock RGS follows a copy synced at publish, so a grid
+	// changed without republishing shows up here rather than as a game that stopped working.
 	warnOnServerGridMismatch();
 
 	// Build the bet-selector / buy-bonus menu from the ACTIVE config (Invisible Game Config Phase 6),
