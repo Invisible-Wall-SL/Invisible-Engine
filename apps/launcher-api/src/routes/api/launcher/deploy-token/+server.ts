@@ -1,18 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { GAME_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { validateSession } from '$lib/server/auth';
 import { getDeployToken } from '$lib/server/appSettings';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
+import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
-
-function bearer(header: string | null): string | undefined {
-	if (!header) return undefined;
-	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-	return match?.[1];
-}
 
 // Hands the desktop launcher the shared build/deploy token so the game build can
 // pull live art (`pull:assets`) + freeze the editor layout (`bake:doc`) on ANY
@@ -27,17 +18,8 @@ function bearer(header: string | null): string | undefined {
 // /admin → Roles (per role) or the per-user panel. 401 on a missing/invalid session;
 // 403 when the session lacks the capability; 404 when the token is unset.
 export const GET: RequestHandler = async ({ request }) => {
-	const session = bearer(request.headers.get('authorization'));
-	const user = await validateSession(session);
-	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	}
-
-	const roleOverrides = await getRoleOverrides(user.role);
-	const userOverrides = await getToolOverrides(user.id);
-	if (!roleHasCapability(user.role, GAME_PUBLISH_CAPABILITY, roleOverrides, userOverrides)) {
-		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
-	}
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
 
 	const token = await getDeployToken();
 	if (!token) {

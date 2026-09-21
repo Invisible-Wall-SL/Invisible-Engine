@@ -1,12 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { validateSession } from '$lib/server/auth';
+import { requireLauncherAdmin } from '$lib/server/launcherAuth';
 import { getObjectText, presignManifestEntries } from '$lib/server/r2';
 import type { RequestHandler } from './$types';
 
 const MANIFEST_KEY = 'tools/invisible-launcher/comfyui-nodes.json';
-
-// Same gate as the models manifest: only the owner role may presign node downloads.
-const NODES_ROLE = 'admin';
 
 // 6 hours — matches the models manifest so a long multi-zip sync won't outlive the
 // presigned URLs mid-download.
@@ -31,27 +28,19 @@ interface NodesManifest {
 	nodes: ManifestNode[];
 }
 
-function bearer(header: string | null): string | undefined {
-	if (!header) return undefined;
-	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-	return match?.[1];
-}
-
 // Reads `Authorization: Bearer <token>` (a session token from
 // POST /api/launcher/login), validates it like the web session cookie, checks the
-// owner role, then returns the R2-seeded ComfyUI custom-node manifest with a
+// caller is the owner, then returns the R2-seeded ComfyUI custom-node manifest with a
 // short-lived presigned GET URL added per node so the desktop launcher downloads each
 // zip directly from R2 (no portal bandwidth). Presigned URLs and credentials are never
 // logged. 401 no/invalid token, 403 wrong role, 404 if the manifest isn't seeded.
+//
+// OWNER-ONLY BY NATURE, like the models manifest beside it: custom nodes are installed
+// into the owner's own ComfyUI, not shipped by a publish. `requireLauncherAdmin`
+// compares the literal `admin` role, so there is no capability that opens it.
 export const GET: RequestHandler = async ({ request }) => {
-	const token = bearer(request.headers.get('authorization'));
-	const user = await validateSession(token);
-	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401 });
-	}
-	if (user.role !== NODES_ROLE) {
-		return json({ error: 'Forbidden' }, { status: 403 });
-	}
+	const auth = await requireLauncherAdmin(request);
+	if (!auth.ok) return auth.response;
 
 	const text = await getObjectText(MANIFEST_KEY);
 	if (text === null) {

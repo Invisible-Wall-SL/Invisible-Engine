@@ -23,6 +23,8 @@
 		"gen:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts",
 		"check:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts --check",
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
+		"precheck:launcher-gates": "node scripts/ensure-svelte-kit.mjs",
+		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
 		"check:spine-bundle-key": "node spineBundleKey.fixture.ts",
 		"precheck:symbol-stage-geometry": "node scripts/ensure-svelte-kit.mjs",
 		"check:symbol-stage-geometry": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbol-stage-geometry.ts",

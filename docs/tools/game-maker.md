@@ -27,9 +27,11 @@ re-registers it; it never rebuilds a bundle.
   `https://games.invisiblewall.org/<key>/`.
 - **Access:** the `gameMaker` tool, granted by default to `admin`, `developer` and
   `pipelineTester` roles (overridable per role/user in the admin panel like any tool). **Creating**
-  a project is available to any holder of the tool; **Publishing** currently
-  requires the admin-panel capability — i.e. publish is an `admin`-only operation
-  in Phase 1.
+  a project is available to any holder of the tool; **Publishing** additionally requires the
+  **Build & publish games** (`gamePublish`) capability, which is default-ON for `admin` and
+  granted to anyone else per role or per user in `/admin → Roles`. The same one capability
+  covers the whole chain — this page's Publish, the bulk republish, and every step of a
+  desktop ☁ Publish — so a granted role works end to end.
 
 ## How to use it
 
@@ -146,7 +148,7 @@ source's game type, is created unpublished, and mints its own read token on its
 first publish.
 
 You need the Game Maker tool and access to the source project; unlike Publish, it
-is not admin-only.
+needs no extra capability.
 
 ### Publish (and Re-publish)
 
@@ -224,7 +226,7 @@ when a republish would pick up newer engine code.
 
 After an engine release, every published game is stale at once, and pressing
 **Republish + Reconcile** on each row in turn is the chore this replaces. The
-**Your projects** header carries two bulk buttons (admins only, the same gate as
+**Your projects** header carries two bulk buttons (the same `gamePublish` gate as
 Publish itself):
 
 - **Republish N stale games** — appears only while at least one game shows the
@@ -291,9 +293,10 @@ graduate later; its R2 authoring data carries over.
 - **Per-game math is not yet authored here.** Reelstrips / paylines / paytable /
   bet modes still ship compiled per runtime; moving them to R2 JSON with a loader
   is **Phase 2**. Until then a published game runs on its runtime's default math.
-- **Publish is admin-only for now.** Any tool holder can create projects, but the
-  publish endpoint is gated by the admin-panel capability. Widening this to
-  `developer` is a deliberate later decision.
+- **Publish needs a capability, not just the tool.** Any tool holder can create
+  projects, but publishing is gated by **Build & publish games** (`gamePublish`),
+  default-ON for `admin` only. Granting it to `developer` / `pipelineTester` is an
+  explicit act in `/admin → Roles`; until then their Publish button returns 403.
 - **Mock RGS only.** Published games spin against the faithful-but-fake mock RGS
   on the Invisible Test Server (shared `sessionID=demo`, fake balance, resets on
   restart). This is a test/preview surface, not a real-money deploy. See

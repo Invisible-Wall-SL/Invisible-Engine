@@ -1,19 +1,20 @@
 import { json } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
+import { userHasCapability } from '$lib/server/launcherAuth';
 import { DEFAULT_PROJECT_KEY, projectExists } from '$lib/server/projects';
 import { PublishBlockedError, publishGame } from '$lib/server/publishGame';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
 
 /**
- * Server-side Publish for the Invisible Game Maker page (Phase 1). Cookie-authed
- * (the page is in the authed `(app)` area); gated like `/admin` via the
- * `adminPanel` capability — Phase 1 keeps publish an admin operation. Body:
- * `{ project: string }`. On success returns the playable game URL.
+ * Server-side Publish for the Invisible Game Maker page. Cookie-authed (the page is in
+ * the authed `(app)` area) and gated on the `gamePublish` capability — the SAME gate as
+ * the deploy token and the desktop publish chain, so one grant in /admin → Roles covers
+ * a publisher end to end. It used to check `adminPanel` ("Phase 1 keeps publish an admin
+ * operation"), which made the only way to let a developer publish be handing them the
+ * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
  *   POST /api/game-maker/publish   { "project": "<key>", "allowUnapproved"?: true }
  *   → 200 { ok, key, url, playUrl, sounds }
@@ -21,9 +22,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
  */
 export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides)) {
+	if (!(await userHasCapability(locals.user, GAME_PUBLISH_CAPABILITY))) {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
