@@ -104,12 +104,28 @@
 	 * cascade, the stacked mode, the debug grid, the Book expand/reveal riders, the inline message
 	 * symbol — so one seam reaches all of them.
 	 *
-	 * DRAW ORDER IS MARKUP ORDER, not `zIndex`: a `behind` layer is rendered before the cell's art
-	 * and the rest after it, and within each group the authored array order is kept. Pixi draws
-	 * children in order, so this needs no `sortableChildren` on whatever container happens to be the
-	 * parent — which varies by mount site (`SymbolWrap`, the cascade's animating layer, a text line).
-	 * The win frame and the multiplier stamp stay last of all: both are readouts of the round, not
-	 * art the author is composing, and a layer drawn over the frame would hide the win.
+	 * DRAW ORDER: a `behind` layer is rendered before the cell's art and the rest after it, and
+	 * within each group the authored array order is kept. The win frame and the multiplier stamp stay
+	 * last of all: both are readouts of the round, not art the author is composing, and a layer drawn
+	 * over the frame would hide the win.
+	 *
+	 * IT IS BOUGHT TWICE, because markup order alone does not survive a state change.
+	 *
+	 * Each group sits in an UNCONDITIONAL `<Container>` of its own — the same device, for the same
+	 * reason, as the two tint wrappers below. `layers` is resolved per STATE (`getSymbolInfo`), so a
+	 * spin whose state binds different layers (or none) unmounts them and lands them again on the
+	 * next state. A `pixi-svelte` child is `addChild`-ed once in `onMount` and nothing re-derives the
+	 * order, so a layer that remounts is appended to the END of whatever holds it: the behind-group's
+	 * shadow reappeared IN FRONT of the character after the first spin, and stayed there until the
+	 * cell was rebuilt. The wrapper is mounted once and never unmounts, so the three bands hold
+	 * whatever the layers inside them do.
+	 *
+	 * WITHIN a band the layers carry a `zIndex` (their array index), because the wrapper only fixes
+	 * which band they are in — two behind-layers that remount in a different order would still swap,
+	 * and a ripple swapping with the shadow above it is the same bug one level in. Sorting is safe to
+	 * turn on HERE and was not before: the wrapper is a container this component owns outright,
+	 * whereas the cell's own parent varies by mount site (`SymbolWrap`, the cascade's animating
+	 * layer, a text line) and may hold children that are none of our business.
 	 *
 	 * A layer is passed NO `oncomplete` and no `once`, so it loops and never reports: the base cell
 	 * alone owns the beat (`ReelSymbol` → `symbolBeat.ts`). If N layers reported, whichever finished
@@ -149,14 +165,23 @@
 	every time the celebration started or ended — a spine would restart its animation mid-win — where
 	an always-mounted container with no tint set is a transform-free no-op.
 
-	Draw order is unchanged and is still MARKUP order: behind-layers, the cell's art, over-layers,
-	then the win frame and the multiplier stamp. The frame and the stamp share the second container
-	because they are contiguous; nothing may be re-ordered to share one, since array order IS draw
-	order for the layers between them.
+	Draw order is unchanged: behind-layers, the cell's art, over-layers, then the win frame and the
+	multiplier stamp. Each of the four is now its own unconditional container, so the bands survive a
+	layer remounting (see `layers` above). The frame and the stamp share the last one because they
+	are contiguous; nothing may be re-ordered to share a container, since the containers ARE the
+	bands.
 -->
-{#each behindLayers as layer, i (layerKey(layer, i))}
-	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} />
-{/each}
+<Container>
+	{#each behindLayers as layer, i (layerKey(layer, i))}
+		<SymbolLayer
+			{layer}
+			x={props.x ?? 0}
+			y={props.y ?? 0}
+			tint={layerTint(layer)}
+			zIndex={i + 1}
+		/>
+	{/each}
+</Container>
 
 <Container tint={props.tint}>
 	{#if !hasArt}
@@ -189,9 +214,17 @@
 	{/if}
 </Container>
 
-{#each overLayers as layer, i (layerKey(layer, i))}
-	<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} />
-{/each}
+<Container>
+	{#each overLayers as layer, i (layerKey(layer, i))}
+		<SymbolLayer
+			{layer}
+			x={props.x ?? 0}
+			y={props.y ?? 0}
+			tint={layerTint(layer)}
+			zIndex={i + 1}
+		/>
+	{/each}
+</Container>
 
 <Container tint={props.tint}>
 	{#if showWinFrame}
