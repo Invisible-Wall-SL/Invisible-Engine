@@ -436,14 +436,42 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 export async function exportEditorSymbols(
 	clientKey: string,
 	projectKey: string,
+	opts?: {
+		/**
+		 * Per-phase collector, surfaced as `symbols:<name>` in `/api/editor/runtime`'s
+		 * `Server-Timing` header — the same treatment `exportEditorArt` already has.
+		 *
+		 * WHY. With `art` parallelised (#756), `symbols` is THE ceiling of the runtime assemble:
+		 * 29.1s of what is now a ~32s total, with nothing else above ~17s. The top-level number
+		 * cannot say which of this function's three sequential loops owns it, and the answer
+		 * decides the fix rather than just sizing it — two of the loops are map-shaped and safe to
+		 * overlap, but the by-name candidate scan is a SEARCH WITH AN EARLY BREAK, so fanning that
+		 * one out would load every candidate instead of stopping at the first covering set and
+		 * could do strictly more R2 work. Measure before touching it.
+		 */
+		timings?: Record<string, number>;
+	},
 ): Promise<SymbolExportResult> {
+	/** Record a phase's elapsed ms under `symbols:<name>`, or run it untimed when no record
+	 *  was passed (Publish and the desktop bake call this without one). */
+	const phase = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+		if (!opts?.timings) return run();
+		const startedAt = Date.now();
+		try {
+			return await run();
+		} finally {
+			opts.timings[`symbols:${name}`] = Date.now() - startedAt;
+		}
+	};
 	// Repair any sprite cell whose scoped atlas ref names its manifest by a bare basename (the same
 	// naming problem the flipbook clips had), so a pinned atlas resolves to the full manifest key
 	// the sheet ships under. A correctly-authored doc pays nothing.
-	const doc = await canonicalizeSymbolsDocForExport(
-		await loadSymbolsDoc(clientKey, projectKey),
-		clientKey,
-		projectKey,
+	const doc = await phase('doc', async () =>
+		canonicalizeSymbolsDocForExport(
+			await loadSymbolsDoc(clientKey, projectKey),
+			clientKey,
+			projectKey,
+		),
 	);
 	const refs = collectSymbolRefs(doc);
 
@@ -508,11 +536,14 @@ export async function exportEditorSymbols(
 	// than guess via the ambiguous by-name scan below. `toTexturePackerJson` emits the scoped key,
 	// so the cell resolves uniquely in-game even when another atlas reuses the region name — this is
 	// what stops the idle-board static sprites from collapsing to one shared texture.
-	for (const manifestKey of refs.spriteManifests) {
-		await exportSheet(await loadRegionSet(manifestKey, clientKey, projectKey));
-	}
+	await phase('sheets:pinned', async () => {
+		for (const manifestKey of refs.spriteManifests) {
+			await exportSheet(await loadRegionSet(manifestKey, clientKey, projectKey));
+		}
+	});
 
-	if (refs.frameNames.size > 0) {
+	await phase('sheets:scan', async () => {
+		if (refs.frameNames.size === 0) return;
 		const { atlases, sheets: sheetItems } = await listProjectAssets(clientKey, projectKey);
 		// `atlas-manifest` keys are manifests; `sheet` keys are output prefixes —
 		// `loadRegionSet` resolves both to a region set with the resolved manifest key.
@@ -537,7 +568,7 @@ export async function exportEditorSymbols(
 				exportedManifests.add(set.assetKey);
 			}
 		}
-	}
+	});
 
 	// ── Spine cells: copy each referenced bundle into deploy/ via the shared helper ──
 	// `assetKey` is the full R2 bundle prefix; `exportSpineBundle` copies the bundle's
@@ -546,27 +577,30 @@ export async function exportEditorSymbols(
 	// once mirrored. Dedup by assetKey (W.win + W.land share one bundle → copy once).
 	const spines: SymbolSpine[] = [];
 	const exportedSpines = new Set<string>();
-	const skeletonIndex =
-		refs.spineKeys.size > 0 ? await loadSkeletonIndexWithShared(clientKey, projectKey) : [];
+	const skeletonIndex = await phase('spines:index', async () =>
+		refs.spineKeys.size > 0 ? loadSkeletonIndexWithShared(clientKey, projectKey) : [],
+	);
 
-	for (const assetKey of refs.spineKeys) {
-		if (exportedSpines.has(assetKey)) continue;
-		exportedSpines.add(assetKey);
+	await phase('spines:bundles', async () => {
+		for (const assetKey of refs.spineKeys) {
+			if (exportedSpines.has(assetKey)) continue;
+			exportedSpines.add(assetKey);
 
-		const result = await exportSpineBundle({
-			clientKey,
-			projectKey,
-			assetKey,
-			deployPrefix,
-			subtree: EXPORT_SUBTREE,
-			stem: claimStem(assetKey.replace(/\/$/, '')),
-			skeletonIndex,
-			scale: SYMBOL_SPINE_LOAD_SCALE,
-		});
-		if (!result) continue;
-		for (const k of result.written) written.add(k);
-		spines.push(result.entry);
-	}
+			const result = await exportSpineBundle({
+				clientKey,
+				projectKey,
+				assetKey,
+				deployPrefix,
+				subtree: EXPORT_SUBTREE,
+				stem: claimStem(assetKey.replace(/\/$/, '')),
+				skeletonIndex,
+				scale: SYMBOL_SPINE_LOAD_SCALE,
+			});
+			if (!result) continue;
+			for (const k of result.written) written.add(k);
+			spines.push(result.entry);
+		}
+	});
 
 	// Cross-sheet frame-name collisions. Symbol sheet frames register with NO
 	// namespace (a cell's `assetKey` is the plain frame key), so a name in two
@@ -601,8 +635,10 @@ export async function exportEditorSymbols(
 	written.add(indexKey);
 
 	// Prune leftovers from a previous export so deploy/editor-symbols/ mirrors the doc.
-	const existing = await listAllKeys(symbolsPrefix);
-	await deleteObjects(existing.filter((k) => !written.has(k)));
+	await phase('prune', async () => {
+		const existing = await listAllKeys(symbolsPrefix);
+		await deleteObjects(existing.filter((k) => !written.has(k)));
+	});
 
 	// The global highlight override (if any). Its spine bundle was exported in the
 	// loop above (added to `refs.spineKeys`), so it's already in `index.spines` under
