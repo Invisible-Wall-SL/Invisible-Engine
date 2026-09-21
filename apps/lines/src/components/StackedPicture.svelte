@@ -72,9 +72,20 @@
 	const isSprite = $derived(info.type === 'sprite');
 	const isFlipbook = $derived(info.type === 'flipbook');
 	const clip = $derived(isFlipbook && info.clipId ? resolveFlipbook(info.clipId) : undefined);
+
+	/**
+	 * ABOVE THE SYMBOL BAND, and now said out loud rather than inherited from mount order.
+	 *
+	 * This overlay replaces the per-cell icons under a run, so it has always drawn over them — it
+	 * simply mounted after `BoardBase` and every board child sat at the default `0`. Now that a
+	 * symbol carries a seat-derived index in `(0, 0.5]` (`ReelSymbol`'s `zIndex`), the parent sorts,
+	 * and an unstated `0` would drop this BEHIND the very icons it exists to hide. Still under
+	 * `BookVfx`'s foreground (`+1`), which is where it already was.
+	 */
+	const Z_INDEX = 0.75;
 </script>
 
-<Container x={run.x} y={run.topEdgeY - hiddenOffset + boxH / 2}>
+<Container x={run.x} y={run.topEdgeY - hiddenOffset + boxH / 2} zIndex={Z_INDEX}>
 	{#if isSprite}
 		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
 	{:else if isFlipbook && clip}

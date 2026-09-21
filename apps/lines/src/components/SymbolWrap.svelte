@@ -19,6 +19,11 @@
 		/** Which column this cell belongs to. Only read on a STEPPED board, where the cull window is
 		 *  per column rather than board-wide — see `bottom` below. */
 		reelIndex?: number;
+		/** This cell's paint order within its board container, derived from its SEAT rather than from
+		 *  when it mounted (`ReelSymbol`'s `zIndex` owns the rule and the band it has to stay inside).
+		 *  Absent ⇒ the container keeps Pixi's default `0` and the parent is never flagged
+		 *  sort-dirty, which is the pre-existing mount-order behaviour exactly. */
+		zIndex?: number;
 		children: Snippet;
 	};
 
@@ -69,7 +74,7 @@
 	     Pixi's cascade only ever multiplies and a layer that opts out of the dim therefore has to be
 	     outside every tinted node. Same factor, applied one level lower — the leaf colours are
 	     identical either way. -->
-	<Container x={props.x} y={props.y} {scale}>
+	<Container x={props.x} y={props.y} {scale} zIndex={props.zIndex}>
 		{@render props.children()}
 	</Container>
 {/if}

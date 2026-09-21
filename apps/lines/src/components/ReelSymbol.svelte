@@ -13,6 +13,8 @@
 		type ReelSymbol,
 	} from '../game/stateGame.svelte';
 	import { SYMBOL_DIM_TINT } from 'engine-game';
+	import { activeGrid, boardDimensions } from '../game/gameConfig';
+	import { symbolZIndex } from '../game/paintOrder';
 
 	type Props = {
 		reelIndex: number;
@@ -59,6 +61,23 @@
 
 	/** This cell's seat on the lattice — `x` and the row `scale` always come from here. */
 	const seat = $derived(getSymbolSeat(props.reelIndex, props.row + PADDING_ROW));
+
+	/**
+	 * This cell's place in the board container's paint order — the rule, and why it exists at all,
+	 * live in `game/paintOrder.ts` so they can be tested without a renderer
+	 * (`scripts/verify-board-paint-order.mjs`).
+	 */
+	const zIndex = $derived.by(() => {
+		const grid = activeGrid();
+		const rowIndex = props.row + PADDING_ROW;
+		return symbolZIndex({
+			reelIndex: props.reelIndex,
+			rowIndex,
+			seatRow: grid.stepped ? rowIndex + grid.rowOffsetForReel(props.reelIndex) : rowIndex,
+			perspective: !!stateGameDerived.boardPerspective(),
+			reels: boardDimensions().x,
+		});
+	});
 
 	/**
 	 * Is a CASCADE driving this cell right now (`stateTumble`)? While it is, the cascade owns the
@@ -142,6 +161,7 @@
 	<SymbolWrap
 		x={seat.x}
 		{y}
+		{zIndex}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}
 		animating={symbolInfo.type === 'spine' &&
