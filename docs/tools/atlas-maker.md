@@ -79,9 +79,12 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
    separate promise: *don't re-render this slot at all.*
 5. **Compose / slice** — assemble the atlas page / slice a source page into
    refs (needs the `.atlas` geometry + source image in R2, see limitations).
-6. **🖼 View atlas** — check the composed page in the **Region Overlay
+6. **⧉ Duplicate atlas** — to run this same setup again for a different
+   result (another extraction, another style), copy it rather than rebuilding
+   from an empty atlas. See [⧉ Duplicate atlas](#-duplicate-atlas--the-same-setup-a-different-pass).
+7. **🖼 View atlas** — check the composed page in the **Region Overlay
    Inspector** (below) before you deploy it.
-7. **Deploy** — `/deployatlas` copies the finished result to R2.
+8. **Deploy** — `/deployatlas` copies the finished result to R2.
 
 ### Picking a variant vs locking a slot
 
@@ -107,6 +110,68 @@ slot again and the new file wins: every unlocked card is back on its latest
 variant the moment the run finishes, with nothing to click. That is decided
 from the manifest each time the page is drawn, so it holds however the render
 ended — stopped, crashed, tab closed, or refreshed from another machine.
+
+## ⧉ Duplicate atlas — the same setup, a different pass
+
+You author an atlas once — regions, source refs, blueprint, params — and then
+want to run that *same* setup again for a different result: the character in
+one pass, the background in another, each as its own sheet. **⧉ Duplicate
+atlas** (next to ＋ New atlas) copies the whole setup under a new name so you
+only have to edit the prompts.
+
+It copies **everything that is setup**: every region with its prompt, negative,
+pipeline/blueprint and advanced overrides, the atlas settings and blueprint
+params, the global style, the layout, and each region's **rect** — the copy
+lays out exactly like the original. Then it switches you to the copy.
+
+It drops **everything that is a result**: the variant pick, the seed, the lock
+and the committed image. Those name files the copy has not made yet.
+
+It also **clears the deploy target** (`deploy_path` / `deploy_basename`).
+Copied verbatim, the duplicate would publish straight over the sheet the
+original ships — the composed page is named from the manifest so it is already
+distinct, but the deploy destination is not.
+
+### The regions get a tag, and that is the safety property
+
+The dialog asks for a **Region tag**, pre-filled from the atlas name. Every
+region is renamed `frame_001` → `bg_frame_001`. This is required, and it is not
+cosmetic.
+
+A region's generated images live at `batch/<region>_NNNNN_.png` — keyed by
+**name, across the whole project**, with no atlas anywhere in the path. Two
+atlases sharing a region name share **one pile**, and a region composes the
+newest file in it. So a copy that kept its names would, the first time you
+rendered it, move the *original's* cards and its composed sheet onto the copy's
+art. Measured on the real code, with a pile holding the original's image and
+then the copy's:
+
+| The original region | what it composes |
+|---|---|
+| no variant picked (the ordinary case) | **the copy's art** |
+| a pick, saved unlocked | **the copy's art** |
+| a pick with 🔒 **lock this pick** | its own art |
+
+Nothing looks wrong until the wrong art ships. Distinct names remove the
+question: the pile, the committed tile (`refs/useroutput_<name>.png`) and the
+FX snapshot (`refs/fxsrc_<name>.png`) are all keyed by region name, so all
+three are separate by construction.
+
+### The source images are shared on purpose
+
+The refs are **not** renamed and **not** copied — both atlases point at the
+exact same files. A reference is a stored path, never re-derived from the
+region name, so `bg_frame_001` keeps reading `refs/userref_frame_001.png`. That
+is the point of duplicating: one source sequence, many passes over it. Change
+the original's ref and every copy follows. Upload a new ref *on the copy* and
+it writes under the copy's own name, leaving the original alone.
+
+### Limits
+
+- **Not offered on a `.atlas`-bound atlas.** That file owns the region names,
+  so a renamed copy would come out empty. Duplicate a `pack`/`grid` atlas.
+- **It never overwrites.** An existing name is refused rather than replaced —
+  the copy would take the other atlas's place while its images stayed behind.
 
 ## Layers — several pictures from one source
 
