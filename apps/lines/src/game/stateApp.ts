@@ -5,6 +5,7 @@ import {
 	bakedBookVfxAssets,
 	bakedEditorArtAssets,
 	bakedFontCatalog,
+	bakedFontSrcBase,
 	bakedSymbolAssets,
 	bakedSymbolTransitionAssets,
 } from '../editor-scenes';
@@ -20,7 +21,17 @@ export const { stateApp } = createApp({
 	assets: {
 		...assets,
 		...bakedEditorArtAssets(),
-		...bakedFontAssets(bakedFontCatalog()),
+		// `bakedFontSrcBase()` is NOT optional here, though the parameter has a default.
+		// That default is the page-relative `'assets/'`, which is only ever right while the
+		// document and the bundle share a folder — true for everything we host, false for a
+		// DELIVERY, where the page belongs to the operator. Measured 2026-09-21 on a real
+		// delivery: the four bitmap-font descriptors were fetched from
+		// `{operator page}/assets/editor-fonts/…` and 404'd, while every other baked asset
+		// resolved correctly because `editor-scenes` builds those through `srcBase()`.
+		// At module scope this reads `gameAssetsBase()` — an absolute URL off
+		// `import.meta.url`, settled before anything loads — and live-runtime mode re-registers
+		// with the launcher's base from `Game.svelte`, as it already did.
+		...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
 		...bakedSymbolAssets(),
 		...bakedBookVfxAssets(),
 		...bakedSymbolTransitionAssets(),

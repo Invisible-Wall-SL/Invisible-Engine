@@ -312,12 +312,16 @@ console.log('\n14. the catalog becomes one BANK per file');
 
 	// PARITY: a project that has uploaded nothing must contribute no banks at all, so the game loads
 	// exactly the shipped audiosprite and behaves as it did before this pipeline existed.
-	check('no catalog ⇒ no banks', bakedSoundBanks(undefined), []);
-	check('an empty catalog ⇒ no banks', bakedSoundBanks({ prefix: 'sounds', sounds: [] }), []);
+	check('no catalog ⇒ no banks', bakedSoundBanks(undefined, 'assets/'), []);
+	check(
+		'an empty catalog ⇒ no banks',
+		bakedSoundBanks({ prefix: 'sounds', sounds: [] }, 'assets/'),
+		[],
+	);
 	// A doc row whose upload never landed is skipped by the exporter, but a hand-edited catalog can
 	// still carry one — a zero-length region would be a name that plays nothing.
-	check('a zero-duration entry is skipped', bakedSoundBanks({ prefix: 'sounds', sounds: [{ name: 'x', file: 'x.mp3', durationMs: 0 }] }), []); // prettier-ignore
-	check('a nameless entry is skipped', bakedSoundBanks({ prefix: 'sounds', sounds: [{ name: '', file: 'x.mp3', durationMs: 5 }] }), []); // prettier-ignore
+	check('a zero-duration entry is skipped', bakedSoundBanks({ prefix: 'sounds', sounds: [{ name: 'x', file: 'x.mp3', durationMs: 0 }] }, 'assets/'), []); // prettier-ignore
+	check('a nameless entry is skipped', bakedSoundBanks({ prefix: 'sounds', sounds: [{ name: '', file: 'x.mp3', durationMs: 5 }] }, 'assets/'), []); // prettier-ignore
 }
 
 console.log('\n15. the usage index reads every surface that can bind a sound');
