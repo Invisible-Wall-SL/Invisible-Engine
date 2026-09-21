@@ -163,6 +163,35 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-09-21 — **The real cause of "my art and config never load": the assemble is slower than the
+  client will wait.** The 2026-09-18 entry below fixed a real bug but not this one — the owner still
+  saw it, and the console said why: `retry 1 in 1000ms (30s of budget left)` then `gave up after
+  90000ms and 2 attempts — last: signal timed out`. The **first attempt burned the whole 60s cap**,
+  so this was never the fast 502 of a container swap; `/api/editor/runtime` was simply answering
+  slower than the cap. Measured on `test6`: **83.6s / 97.5s / 92.8s** over three consecutive
+  fetches, every one a healthy 200 with a complete 193 KB bundle. The budget (90s) was smaller than
+  one assemble, so the game could only ever load when it caught a cached ~21s run — which is exactly
+  what made it look intermittent. Cap → **150s**, budget → **210s**, `app.html` splash net → 240s.
+  These are a symptom of exporting on the read path; see game-maker open item 6, now the top
+  priority, which carries the measurements.
+  - **The half-state was the reason it read as "missing art" rather than "failed fetch".** When the
+    bundle times out, boot falls through to `/api/editor/doc` — which is CHEAP and succeeds — so the
+    game renders the project's REAL layout with none of its assets: art, component defs, symbols,
+    fonts and the authored config all ship exclusively in the runtime bundle, and `Game.svelte`
+    gates the asset re-merge + `resetGameConfigCache()` on `isRuntimeBundleActive()`. `test6` drew
+    its real 16-scene layout while logging `Sprite: key "invisible_wall/test6/…::TitleConcept" is
+    not found in loadedAssets`, `no component registered for id 'c_…'`, and a `symbols.W` warning
+    from the **template** config — with no stale flag and no overlay, because that branch counted as
+    success. A doc is not a game: it now marks stale + shows the dead-end overlay, and logs one
+    `LAYOUT-ONLY BOOT` line naming every missing class so the asset errors below it are legible as
+    consequences rather than causes.
+  - A retry after a TIMEOUT now says "Still loading your project…" rather than "Reconnecting to the
+    launcher…" — the launcher IS answering, just slowly, and the two waits should not look alike.
+  - Verified against the live launcher and the real `test6` project: the bundle lands
+    (`live runtime bundle ready for "test6"`), `__IE_RUNTIME_STALE__` is unset, no overlay, the
+    project's own art renders, and **neither** `not found in loadedAssets` nor `no component
+    registered` appears — the two errors that flooded the failing boot.
+
 - 2026-09-18 — **A runtime release no longer drops the online games onto the engine's sample game.**
   Reported as "sometimes when I run my runtime release all the project art is missing, the game shows
   defaults, and no config loads". The release was never the cause. The launcher deliberately has NO

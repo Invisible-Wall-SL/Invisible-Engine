@@ -102,10 +102,11 @@
 				// boot (hydrate + assemble + asset wave) can run ~30s, so give generous margin.
 				//
 				// ⚠️ MUST OUTLAST THE RUNTIME FETCH, or the splash clears mid-retry and the black
-				// shell it was covering comes back. `editor-scenes.ts` retries the runtime bundle
-				// for up to RUNTIME_FETCH_BUDGET_MS (90s) to ride out a launcher restart, and that
-				// budget only starts after hydrate (~7s) — so the worst honest boot is ~97s.
-				setTimeout(done, 120000);
+				// shell it was covering comes back. `editor-scenes.ts` waits up to
+				// RUNTIME_FETCH_BUDGET_MS (210s) for the runtime bundle — the /api/editor/runtime
+				// assemble measured 83-97s on `test6` — and that budget only starts after hydrate
+				// (~7s), so the worst honest boot is ~217s. Track that constant when it changes.
+				setTimeout(done, 240000);
 			})();
 		</script>
 

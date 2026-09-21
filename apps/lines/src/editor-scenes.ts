@@ -1585,8 +1585,22 @@ const RUNTIME_RETRY_MAX_DELAY_MS = 15_000;
  * single-flights, so attempt 2 joins the run in flight), which is why it read as "flaky" rather
  * than broken. {@link fetchRuntimeWithRetry} now warns whenever an attempt spends most of its
  * budget, so the next time this rots it says so BEFORE it starts failing.
+ *
+ * ⚠️ AND IT ROTTED AGAIN — 2026-09-21, project `test6`, measured over three consecutive fetches:
+ * **83.6s / 97.5s / 92.8s**, every one of them HTTP 200 with a complete 193 KB bundle (41 sheets,
+ * 9 spines, 13 symbols, `config` present, `art.missing` empty). Nothing was failing upstream this
+ * time — the endpoint simply answers slower than the client was willing to wait, and the old 60s
+ * cap inside a 90s budget could not fit even ONE assemble. The game therefore timed out on every
+ * boot except the occasional cached ~21s run, which is exactly the "sometimes my runtime release
+ * loses all the art and no config loads" report. So the earlier "raising this is usually the wrong
+ * fix" holds only while the endpoint is fast and flaky; when it is reliably SLOW, the cap has to
+ * clear it or nothing else matters.
+ *
+ * These numbers are a SYMPTOM of exporting on the read path, not a setting worth tuning. Bring them
+ * back down the moment `/api/editor/runtime` stops re-running the exporters (game-maker open item
+ * 6) — a 150s cap is not a target, it is the cost of that bug made visible.
  */
-const RUNTIME_ATTEMPT_TIMEOUT_MS = 60_000;
+const RUNTIME_ATTEMPT_TIMEOUT_MS = 150_000;
 
 /** Warn once an attempt exceeds this share of its cap — the early signal that the assemble has
  *  grown back into the timeout. */
@@ -1602,10 +1616,18 @@ const RUNTIME_SLOW_ATTEMPT_RATIO = 0.6;
  * runtime: the shared `_runtime/<id>` bundle ships an EMPTY `baked-editor-bundle.json`, so
  * `hasBakedDoc()` is false and there is no baked game to fall back to — only
  * {@link fallbackEditorScenes} and the compiled-in `config.ts`, i.e. a DIFFERENT game wearing the
- * engine's sample art. Waiting 90s beats rendering that instantly. A standalone build, which does
+ * engine's sample art. Waiting beats rendering that instantly. A standalone build, which does
  * bake a real doc, is unaffected: its fallback is the project's own authored snapshot.
+ *
+ * ⚠️ MUST FIT AT LEAST ONE WHOLE ASSEMBLE PLUS A JOIN, or it is the binding constraint and the cap
+ * is decorative. At 90s against the 83-97s assemble measured on `test6` (see
+ * {@link RUNTIME_ATTEMPT_TIMEOUT_MS}) the budget could not cover a single attempt: the first one
+ * was clamped to the budget remaining, timed out, and the second got a 29s stub — "gave up after
+ * 90000ms and 2 attempts". 210s = one full 150s attempt, then a retry that JOINS the in-flight
+ * assemble (the server single-flights, so the join returns as soon as the original run lands
+ * rather than starting a second one). Comes down with the cap once the read path stops exporting.
  */
-const RUNTIME_FETCH_BUDGET_MS = 90_000;
+const RUNTIME_FETCH_BUDGET_MS = 210_000;
 
 /**
  * GET the runtime bundle, retrying a FAILED response (5xx / network error) until
@@ -1671,10 +1693,14 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 				{ cause: failedError },
 			);
 		}
-		// The splash has been reading "Fetching from R2…" since boot. A retry means the launcher is
-		// down or restarting and the wait is now tens of seconds, so name it — otherwise the longer
-		// budget just reads as a hang.
-		window.__ieBoot?.phase('Reconnecting to the launcher…');
+		// The splash has been reading "Fetching from R2…" since boot; a retry means the wait is now
+		// tens of seconds, so name it or the long budget reads as a hang. The two failures look
+		// nothing alike to whoever is waiting: a timeout means the launcher IS answering, just
+		// slower than the cap (the 83-97s assemble), whereas a 502/refused means it is restarting.
+		const timedOut = !failedResponse && /timed out|aborted/i.test(failure);
+		window.__ieBoot?.phase(
+			timedOut ? 'Still loading your project…' : 'Reconnecting to the launcher…',
+		);
 		console.warn(
 			`[runtime] live data fetch failed (${failure}) — retry ${attempt + 1} in ${delay}ms ` +
 				`(${Math.round((deadline - Date.now()) / 1000)}s of budget left)`,
@@ -1990,6 +2016,28 @@ async function resolveEditorDoc(): Promise<LayoutDoc> {
 		registerComponentDefaults(data.componentDefaults ?? {});
 		const doc = data.doc;
 		if (doc && Array.isArray(doc.scenes) && doc.scenes.some((scene) => scene.id === 'basegame')) {
+			// ⚠️ A DOC IS NOT A GAME. This endpoint returns the LAYOUT only; everything the layout
+			// POINTS AT — editor art, component defs, symbols, fonts, flow, win text, the authored
+			// config — ships exclusively in the runtime bundle. So when `?runtime=1` asked for the
+			// bundle and did not get it, succeeding here is NOT a recovery: it renders the project's
+			// real nodes with none of their assets registered and the TEMPLATE config still in force
+			// (`Game.svelte` gates the asset re-merge + `resetGameConfigCache` on
+			// `isRuntimeBundleActive()`). Observed on `test6`, 2026-09-21: the game drew the real
+			// 16-scene layout while logging `Sprite: key "invisible_wall/test6/…::TitleConcept" is
+			// not found in loadedAssets`, `no component registered for id 'c_…'`, and a `symbols.W`
+			// warning from the sample config — with NO stale flag and NO overlay, because this branch
+			// counted as success. That silence is why it read as "the release deleted my art".
+			//
+			// It is a dead end for the same reason `fellBack` is: nothing authored is on screen.
+			if (runtimeFetchFailure) {
+				console.error(
+					`[runtime] LAYOUT-ONLY BOOT — the runtime bundle failed (${runtimeFetchFailure}) but ` +
+						`/api/editor/doc succeeded, so this game has its real layout and NONE of its art, ` +
+						`components, symbols, fonts or authored config. Every "not found in loadedAssets" ` +
+						`below is a consequence of that, not a missing asset. Reload to retry the bundle.`,
+				);
+				markRuntimeStale(runtimeFetchFailure, runtimeModeEnabled());
+			}
 			if (__IE_DEBUG__)
 				console.info(`[editor] loaded live layout doc for "${project}" — editor edits are active`);
 			return doc;
