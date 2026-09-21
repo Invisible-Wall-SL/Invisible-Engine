@@ -6,6 +6,7 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
+	import { askConfirm, askMessage, askText } from '$lib/dialogs.svelte';
 	import {
 		buttonBindToInstance,
 		engineOwnedOnly,
@@ -1153,22 +1154,35 @@
 
 	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
 	 * project's layout, after confirming if it would discard placed nodes. */
-	function adoptScenes(
+	async function adoptScenes(
 		doc: { scenes: Scene[]; gameType?: string; mainSizesMap?: typeof mainSizesMap },
 		gameType: string,
-	): void {
+	): Promise<void> {
 		if (doc.scenes.length === 0) return;
 		const crossType = Boolean(projectGameType) && gameType !== projectGameType;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
 		// A cross-type load (e.g. `lines` into a `bookOf` project) is the clobber
 		// case: confirm loudly AND suppress autosave afterwards so an edit can't
 		// silently overwrite the project's real, different-type saved doc.
-		const warn = crossType
-			? `⚠ This project is "${projectGameType}". Loading the "${gameType}" layout REPLACES it on screen, and saving would overwrite your "${projectGameType}" layout.\n\nIt will NOT autosave — you must click "Save" deliberately (or "Discard"). Continue?`
-			: hasContent
-				? `Load the ${gameType} scenes? This replaces the current layout on screen.\n\nNothing is saved until you make an edit, so your project's saved layout is safe — but if you then edit, the load is what gets saved.`
-				: `Load the ${gameType} scenes onto the canvas?\n\nNothing is saved until you make an edit.`;
-		if (!confirm(warn)) return;
+		const ok = await askConfirm({
+			title: crossType
+				? `This project is "${projectGameType}" — load a "${gameType}" layout?`
+				: hasContent
+					? `Load the ${gameType} scenes?`
+					: `Load the ${gameType} scenes onto the canvas?`,
+			message: crossType
+				? `Loading the "${gameType}" layout REPLACES it on screen, and saving would overwrite ` +
+					`your "${projectGameType}" layout.\n\nIt will NOT autosave — you must click "Save" ` +
+					`deliberately (or "Discard").`
+				: hasContent
+					? `This replaces the current layout on screen.\n\nNothing is saved until you make an ` +
+						`edit, so your project's saved layout is safe — but if you then edit, the load is ` +
+						`what gets saved.`
+					: 'Nothing is saved until you make an edit.',
+			confirmLabel: 'Load it',
+			danger: crossType,
+		});
+		if (!ok) return;
 		pendingDestructiveSave = true;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
@@ -1204,13 +1218,13 @@
 		// project-aware FILLED reference layout (lines + bookOf, §19.6).
 		if (kind === 'scaffold') {
 			const full = getFullSceneSet(gameType);
-			if (full) adoptScenes(engineOwnedOnly(full), gameType);
+			if (full) await adoptScenes(engineOwnedOnly(full), gameType);
 		} else if (kind === 'kind') {
 			try {
 				const res = await fetch(`/api/editor/kind?id=${encodeURIComponent(gameType)}`);
 				if (res.ok) {
 					const { doc } = (await res.json()) as { doc: LayoutDoc };
-					adoptScenes(engineOwnedOnly(doc), gameType);
+					await adoptScenes(engineOwnedOnly(doc), gameType);
 				} else {
 					lastError = `Couldn't load that game kind (${res.status}).`;
 				}
@@ -1222,7 +1236,7 @@
 				const res = await fetch(`/api/editor/import?gameType=${encodeURIComponent(gameType)}`);
 				if (res.ok) {
 					const doc = (await res.json()) as LayoutDoc;
-					adoptScenes(doc, gameType);
+					await adoptScenes(doc, gameType);
 				} else {
 					lastError = `Couldn't import that reference layout (${res.status}).`;
 				}
@@ -1234,8 +1248,14 @@
 	}
 
 	/** Discard a cross-type loaded layout and reload the project's saved doc. */
-	function discardCrossType(): void {
-		if (!confirm("Discard the loaded layout and restore your project's saved layout?")) return;
+	async function discardCrossType(): Promise<void> {
+		const ok = await askConfirm({
+			title: 'Discard the loaded layout?',
+			message: "Your project's saved layout is reloaded from R2.",
+			confirmLabel: 'Discard it',
+			danger: true,
+		});
+		if (!ok) return;
 		location.reload();
 	}
 
@@ -1263,11 +1283,21 @@
 	}
 
 	async function saveAsNewKind(): Promise<void> {
-		const name = prompt('Name this new game kind (e.g. "Crash"):')?.trim();
+		const name = (
+			await askText({
+				title: 'Save as a new game kind',
+				label: 'Name this new game kind (e.g. "Crash"):',
+				placeholder: 'Crash',
+				confirmLabel: 'Save kind',
+			})
+		)?.trim();
 		if (!name) return;
 		const id = slugifyKind(name);
 		if (!id) {
-			alert('That name has no usable slug characters — try a different name.');
+			await askMessage({
+				title: "That name can't become a kind id",
+				message: 'It has no usable slug characters — try a different name.',
+			});
 			return;
 		}
 		const doc: LayoutDoc = {
@@ -1286,7 +1316,13 @@
 				// code would have overwritten it silently.
 				const body = (await res.json().catch(() => ({}))) as { message?: string };
 				const msg = body.message ?? `A game kind "${id}" already exists.`;
-				if (!confirm(`${msg}\n\nOverwrite it?`)) return;
+				const overwrite = await askConfirm({
+					title: 'Overwrite that game kind?',
+					message: msg,
+					confirmLabel: 'Overwrite it',
+					danger: true,
+				});
+				if (!overwrite) return;
 				res = await postKind({ id, name, doc, overwrite: true });
 			}
 			if (!res.ok) {
@@ -1297,7 +1333,7 @@
 				} catch {
 					/* keep the status fallback */
 				}
-				alert(msg);
+				await askMessage({ title: "Couldn't save the game kind", message: msg });
 				return;
 			}
 			// Refresh the picker list so the new kind appears immediately.
@@ -1308,9 +1344,15 @@
 				/* non-fatal: the kind saved; the list just won't refresh until reload */
 			}
 			lastError = '';
-			alert(`Saved "${name}" as a new game kind. It now appears in "New game from kind".`);
+			await askMessage({
+				title: `Saved "${name}" as a new game kind`,
+				message: 'It now appears in "New game from kind".',
+			});
 		} catch (e) {
-			alert(e instanceof Error ? e.message : 'Save failed.');
+			await askMessage({
+				title: "Couldn't save the game kind",
+				message: e instanceof Error ? e.message : 'Save failed.',
+			});
 		}
 	}
 
@@ -1330,16 +1372,19 @@
 	 * that emitted them would go blank on such a game. The shared runtime (built from
 	 * `apps/lines`, `HUD_BUTTON_INSTANCES` on) registers `hudReadout`/`button` + the value/
 	 * action sources, so a published game renders these. */
-	function addHudLayer(): void {
+	async function addHudLayer(): Promise<void> {
 		const fresh = hudScenes({ readouts: true, buttons: true });
 		if (hasHud) {
-			if (
-				!confirm(
-					'Reset the HUD to the default layout? This replaces the balance/win/bet readouts and the button cluster with the engine default (flow-safe) HUD — any position edits you made to the HUD elements will be reset.',
-				)
-			) {
-				return;
-			}
+			const ok = await askConfirm({
+				title: 'Reset the HUD to the default layout?',
+				message:
+					'This replaces the balance/win/bet readouts and the button cluster with the engine ' +
+					'default (flow-safe) HUD — any position edits you made to the HUD elements will be ' +
+					'reset.',
+				confirmLabel: 'Reset the HUD',
+				danger: true,
+			});
+			if (!ok) return;
 			scenes = [...scenes.filter((s) => s.id !== 'hudBar' && s.id !== 'hudCorners'), ...fresh];
 		} else {
 			scenes = [...scenes, ...fresh];
@@ -1441,15 +1486,20 @@
 
 	/** Delete a screen (with its nodes) after confirmation, then re-resolve the active
 	 * screen so the canvas keeps a valid selection. */
-	function deleteScene(idx: number): void {
+	async function deleteScene(idx: number): Promise<void> {
 		const sc = scenes[idx];
 		if (!sc) return;
 		const label = sc.name || sc.id;
-		const msg =
-			sc.nodes.length > 0
-				? `Delete the "${label}" screen and its ${sc.nodes.length} item${sc.nodes.length === 1 ? '' : 's'}? This can't be undone.`
-				: `Delete the "${label}" screen?`;
-		if (!confirm(msg)) return;
+		const ok = await askConfirm({
+			title:
+				sc.nodes.length > 0
+					? `Delete the "${label}" screen and its ${sc.nodes.length} item${sc.nodes.length === 1 ? '' : 's'}?`
+					: `Delete the "${label}" screen?`,
+			message: sc.nodes.length > 0 ? "This can't be undone." : undefined,
+			confirmLabel: 'Delete screen',
+			danger: true,
+		});
+		if (!ok) return;
 		const activeId = activeScene?.id;
 		const next = scenes.filter((_, i) => i !== idx);
 		scenes = next;
@@ -2008,10 +2058,11 @@
 	 * (`/api/editor/backups`). Every save preserves the bytes it replaces, so this is the way
 	 * back from a bad edit, a bad reference/scaffold load, or an "Overwrite with mine".
 	 *
-	 * Native `confirm`/`prompt` on purpose: this page already drives every other
-	 * destroy-and-replace decision that way (`adoptScenes`, the kind overwrite, `discardCrossType`),
-	 * and a bespoke modal would be a new UI surface for one rarely-opened list. `location.reload()`
-	 * afterwards rather than swapping the doc in place — the restored doc has to re-run the whole
+	 * The list is asked for through `askText` rather than built as a picker UI: this page drives
+	 * every other destroy-and-replace decision through the shared dialog (`adoptScenes`, the kind
+	 * overwrite, `discardCrossType`), and a bespoke list panel would be a new UI surface for one
+	 * rarely-opened list. `location.reload()` afterwards rather than swapping the doc in place —
+	 * the restored doc has to re-run the whole
 	 * load (template, warnings, region resolution, the ETag the next save CASes against), and a
 	 * reload is the one way to get all of that right.
 	 */
@@ -2029,21 +2080,27 @@
 				backups: { id: string; savedAt: string; size: number }[];
 			};
 			if (backups.length === 0) {
-				alert(
-					'No earlier versions yet.\n\nA version is preserved each time a save replaces ' +
-						'the stored layout, so the first ones appear after your next few saves.',
-				);
+				await askMessage({
+					title: 'No earlier versions yet',
+					message:
+						'A version is preserved each time a save replaces the stored layout, so the ' +
+						'first ones appear after your next few saves.',
+				});
 				return;
 			}
 			const lines = backups.map(
 				(b, i) =>
 					`${i + 1}. ${new Date(b.savedAt).toLocaleString()}  (${Math.round(b.size / 1024)} KB)`,
 			);
-			const answer = prompt(
-				`Earlier versions of this project's layout, newest first.\n\n${lines.join('\n')}\n\n` +
-					'Type a number to RESTORE that version (your current layout is preserved as a new ' +
-					'version first, so this is undoable). Cancel to close.',
-			);
+			const answer = await askText({
+				title: 'Restore an earlier version',
+				message: `Earlier versions of this project's layout, newest first.\n\n${lines.join('\n')}`,
+				label:
+					'Type a number to RESTORE that version. Your current layout is preserved as a new ' +
+					'version first, so this is undoable.',
+				placeholder: '1',
+				confirmLabel: 'Restore',
+			});
 			const pick = Number(answer);
 			if (!answer || !Number.isInteger(pick) || pick < 1 || pick > backups.length) return;
 			const chosen = backups[pick - 1];
@@ -2051,8 +2108,14 @@
 				lastError = 'Another author is editing this project — take over before restoring.';
 				return;
 			}
-			if (saveState.dirty && !confirm('You have unsaved changes. Restore anyway and lose them?')) {
-				return;
+			if (saveState.dirty) {
+				const ok = await askConfirm({
+					title: 'You have unsaved changes',
+					message: 'Restoring an earlier version loses them.',
+					confirmLabel: 'Restore anyway',
+					danger: true,
+				});
+				if (!ok) return;
 			}
 			await restoreBackup(chosen.id);
 		} catch (e) {
@@ -2182,7 +2245,7 @@
 	/**
 	 * Template save-state machine — a SEPARATE instance for the GLOBAL
 	 * `_shared/editor-templates/<gameType>.json`. Manual save; conflict is surfaced by
-	 * `saveTemplate`'s `confirm()` (no scope-mismatch — a project can't wrong-target a global
+	 * `saveTemplate`'s overwrite ask (no scope-mismatch — a project can't wrong-target a global
 	 * key). Re-adopts the etag on every template load (`loadTemplateFor`) since switching game
 	 * type switches the object.
 	 */
@@ -2255,7 +2318,13 @@
 		let ok = await templateState.save();
 		if (!ok && templateState.status === 'conflict') {
 			const msg = templateState.message;
-			if (!confirm(`${msg}\n\nOverwrite their version with yours?`)) {
+			const overwrite = await askConfirm({
+				title: 'Overwrite their template with yours?',
+				message: msg,
+				confirmLabel: 'Overwrite it',
+				danger: true,
+			});
+			if (!overwrite) {
 				templateStatus = { kind: 'error', message: msg };
 				return;
 			}
@@ -2540,7 +2609,9 @@
 				<button class="save-btn" type="button" onclick={() => void save()}>
 					Save as {crossTypeFrom}
 				</button>
-				<button class="save-btn" type="button" onclick={discardCrossType}>Discard</button>
+				<button class="save-btn" type="button" onclick={() => void discardCrossType()}>
+					Discard
+				</button>
 			{:else if saveState.dirty}
 				<span class="save-pill dirty">Unsaved changes</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
@@ -2822,7 +2893,7 @@
 							class="del"
 							title="Delete this screen"
 							aria-label="Delete this screen"
-							onclick={() => deleteScene(i)}
+							onclick={() => void deleteScene(i)}
 						>
 							<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
 								<path
@@ -2900,7 +2971,7 @@
 						title={hasHud
 							? 'Refresh the HUD scenes to the latest version (resets HUD positions)'
 							: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
-						onclick={addHudLayer}
+						onclick={() => void addHudLayer()}
 					>
 						{hasHud ? '↻ Reset HUD to default' : '＋ Add HUD layer'}
 					</button>

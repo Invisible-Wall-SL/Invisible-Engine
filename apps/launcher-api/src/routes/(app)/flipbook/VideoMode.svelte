@@ -17,6 +17,7 @@
 	import { onDestroy } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { findUnexposedGates } from '$lib/blueprintGates';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import RunPicker, { type RunPickerItem } from '$lib/RunPicker.svelte';
 	import RegionThumb, { clearPageImages } from '../editor/RegionThumb.svelte';
 	import {
@@ -399,15 +400,15 @@
 	 * author afraid of losing a clip they already made. */
 	async function removeSession(s: Session): Promise<void> {
 		const live = (s.variations ?? []).filter((v) => v.status !== 'deleted').length;
-		if (
-			!confirm(
-				`Delete the session “${runTitle(s)}”?\n\n` +
-					`Its ${live} ${live === 1 ? 'render' : 'renders'} ${live === 1 ? 'is' : 'are'} ` +
-					`removed from cloud storage for good. Sheets already packed from it are kept.`,
-			)
-		) {
-			return;
-		}
+		const ok = await askConfirm({
+			title: `Delete the session “${runTitle(s)}”?`,
+			message:
+				`Its ${live} ${live === 1 ? 'render' : 'renders'} ${live === 1 ? 'is' : 'are'} ` +
+				`removed from cloud storage for good. Sheets already packed from it are kept.`,
+			confirmLabel: 'Delete session',
+			danger: true,
+		});
+		if (!ok) return;
 		try {
 			const res = await postJson<{ error?: string }>('delete', { session: s.id });
 			// A refused delete is reported, never drawn as a session that went away:
@@ -640,7 +641,13 @@
 	async function discardVariation(v: Variation): Promise<void> {
 		if (!session) return;
 		const label = `#${String(v.index).padStart(3, '0')}`;
-		if (!confirm(`Delete variation ${label}? Its render is removed for good.`)) return;
+		const ok = await askConfirm({
+			title: `Delete variation ${label}?`,
+			message: 'Its render is removed for good.',
+			confirmLabel: 'Delete render',
+			danger: true,
+		});
+		if (!ok) return;
 		tileBusy = v.index;
 		try {
 			const res = await postJson<Session & { error?: string; warning?: string }>('discard', {
@@ -1741,11 +1748,13 @@ ${endScript}</body></html>`;
 				return;
 			}
 			if (text.startsWith('⚠') && text.includes('already exists') && !overwrite) {
-				if (
-					confirm(`${text.replace('⚠ ', '')}
-
-Overwrite it?`)
-				) {
+				const ok = await askConfirm({
+					title: 'Overwrite the published blueprint?',
+					message: text.replace('⚠ ', ''),
+					confirmLabel: 'Overwrite it',
+					danger: true,
+				});
+				if (ok) {
 					await publishBlueprint(true);
 					return;
 				}

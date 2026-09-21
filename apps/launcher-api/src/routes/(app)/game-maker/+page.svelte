@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
 		LAUNCH_LOCALES,
 		LAUNCH_CURRENCIES,
@@ -417,11 +418,14 @@
 			// would overwrite something that cannot be rebuilt from here.
 			if (res.status === 409 && out?.reason === 'unapproved-sounds' && !allowUnapproved) {
 				const names: string[] = Array.isArray(out.details) ? out.details : [];
-				const ok = confirm(
-					`${out.error}\n\n` +
-						`These play in the game but nobody has signed them off:\n  ${names.join('\n  ')}\n\n` +
-						`Publish anyway?`,
-				);
+				const ok = await askConfirm({
+					title: 'Publish with unapproved sounds?',
+					message:
+						`${out.error}\n\n` +
+						`These play in the game but nobody has signed them off:\n  ${names.join('\n  ')}`,
+					confirmLabel: 'Publish anyway',
+					danger: true,
+				});
 				if (!ok) {
 					publishErr = { ...publishErr, [projectKey]: out.error };
 					return;
