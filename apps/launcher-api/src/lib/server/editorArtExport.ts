@@ -956,10 +956,20 @@ export async function exportEditorArt(
 		.filter((c) => c.frames.length > 0)
 		.sort((a, b) => a.clipId.localeCompare(b.clipId));
 
+	// CANONICAL ORDER. `sheets` and `spines` are filled by side-effecting `push`es from tasks that
+	// now run CONCURRENTLY, so their array order is whichever R2 read happened to land first — and
+	// two assembles of an unchanged project produced the same 41 sheets in a different order, i.e.
+	// a different 195 KB of JSON every time (measured 2026-09-21, right after the concurrency
+	// landed). Nothing downstream reads the order — the game keys sheets by `editorArt/<json>` and
+	// spines by `key` — but a payload that is never byte-equal to itself defeats the content
+	// fingerprint the runtime cache needs next (game-maker item 6), and makes diffing two bundles
+	// noise. Sorting by the unique lookup key is stable no matter which task finished first, and
+	// unlike "preserve input order" it also covers the late `missing`-fallback appends.
+	// `spinesMissing`, `collisions` and `clipMissing` are already sorted at their own sites.
 	const index: EditorArtIndex = {
-		sheets,
-		images,
-		spines,
+		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
+		images: [...images].sort((a, b) => a.key.localeCompare(b.key)),
+		spines: [...spines].sort((a, b) => a.key.localeCompare(b.key)),
 		spinesMissing: spinesMissing.sort(),
 		collisions,
 		missing: danglingRegions,

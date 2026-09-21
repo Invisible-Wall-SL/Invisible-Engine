@@ -13,9 +13,13 @@
  * out over 41 pages trades a slow assemble for a dead container. The limit is the knob that keeps
  * this a latency win and not a memory experiment.
  *
- * ORDERING. Results come back in INPUT order regardless of completion order, so a caller that
- * builds an index from them is byte-stable across runs. That is not cosmetic: a nondeterministic
- * order changes shipped filenames or payload bytes between two assembles of an unchanged project.
+ * ORDERING. The RETURNED array is in INPUT order regardless of completion order. ⚠️ That only buys
+ * a caller determinism if it actually USES the return value: a task that `push`es its result into a
+ * shared array as a side effect still lands in COMPLETION order, and this helper cannot help it.
+ * The art export does exactly that, and had to sort its index by key to get byte-stable output —
+ * which is not cosmetic, because a payload that is never byte-equal to itself defeats any content
+ * fingerprint over it. If you fan out with this, either consume the result or impose a canonical
+ * order at the end.
  *
  * FAILURE. Rejects with the first error, like `Promise.all` — callers here are exporters whose
  * partial output would be a silently smaller (i.e. broken) bundle, so failing loudly is correct.
