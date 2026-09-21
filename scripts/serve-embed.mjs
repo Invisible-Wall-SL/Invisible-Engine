@@ -59,6 +59,10 @@ const rgsOrigin = arg('--rgs', '').replace(/\/+$/, '');
 const PREFIX = `/cdn/${brand}/games/${version}/${alias}/`;
 const PAGE_PATH = '/operator/';
 
+/** The ONE path forwarded to the RGS — what the fake page declares as `GameSettings.service`, so
+ *  the proxy answers exactly what the game was told to call and nothing else. */
+const SERVICE_PATH = `/${service.replace(/^\/+/, '')}`;
+
 /**
  * Forward one request to the partner's RGS and pipe the answer back verbatim.
  *
@@ -180,10 +184,18 @@ createServer((req, res) => {
 		return;
 	}
 
-	// The operator's other job: the RGS lives behind the same origin as the page. Everything that is
-	// neither the page nor the game folder is forwarded there, which is what makes `rgs.source:
-	// 'host'` playable at all — the game posts a relative path and something has to answer it.
-	if (rgsOrigin && !path.startsWith(PREFIX)) {
+	// The operator's other job: the RGS lives behind the same origin as the page, so the game posts
+	// a relative path and something has to answer it. That is what makes `rgs.source: 'host'`
+	// playable at all.
+	//
+	// Scoped to the RGS ENDPOINT, not to "everything that is not the game folder". Forwarding the
+	// remainder turned this server's one guarantee — that a 404 below names a URL which resolved
+	// against the page — into a guarantee that held only while `--rgs` was absent, i.e. never while
+	// actually playing. It cost us: a delivery's four bitmap fonts were being fetched from
+	// `/operator/assets/editor-fonts/…`, and instead of four loud 404s they were proxied to the RGS
+	// and surfaced as 502s among a dozen identical RGS errors. A page-relative asset now fails the
+	// way it would on the partner's CDN, whether or not a wallet is attached.
+	if (rgsOrigin && path === SERVICE_PATH) {
 		proxyToRgs(req, res, path);
 		return;
 	}
@@ -222,7 +234,7 @@ createServer((req, res) => {
 				? `  Session:        ${sid}\n`
 				: `  Session:        (none — the game will refuse to boot, which is correct)\n`) +
 			(rgsOrigin
-				? `  RGS proxy:      * -> ${rgsOrigin}\n`
+				? `  RGS proxy:      ${SERVICE_PATH} -> ${rgsOrigin}  (that path only)\n`
 				: `  RGS proxy:      (none — pass --rgs <origin> to play for real)\n`) +
 			`\n  Any 404 logged below is a URL that resolved against the page instead of the bundle.\n`,
 	);
