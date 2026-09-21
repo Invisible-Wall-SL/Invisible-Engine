@@ -543,7 +543,12 @@ export async function ensureDeployExports(
 			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames, timings })),
 			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
 			step('sounds', timings, () => exportProjectSounds(client, projectKey)),
-			step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
+			// `timings` goes in for the same reason `art` gets it: with `art` parallelised, `symbols`
+			// is the assemble's ceiling, and the per-PHASE breakdown it folds back in
+			// (`symbols:sheets:pinned` / `symbols:sheets:scan` / `symbols:spines:bundles` / …) is
+			// what says which of its three loops to attack — and whether it is even the same kind
+			// of problem, since one of them is a search with an early break, not a map.
+			step('symbols', timings, () => exportEditorSymbols(client, projectKey, { timings })),
 			step('flow', timings, () => exportEditorFlow(client, projectKey)),
 			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
 			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
