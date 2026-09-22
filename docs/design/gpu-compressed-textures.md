@@ -74,6 +74,32 @@ point at the twins (region coords unchanged — same page dimensions); carried o
 **by extension**, so a `.ktx2` page routes through our KTX2 loader with no spine-runtime change.
 The game swaps `atlas`→`ktx2Atlas` on the compressed tier (`bakedEditorArtAssets` spine loop).
 
+## Block alignment (the one hard constraint)
+
+BC7, ASTC 4×4 and ETC2 — every target Basis transcodes to — store pixels in **4×4 blocks**, so an
+encoded page whose width or height is not a multiple of 4 has no valid encoding. It uploads with
+**no error** and samples as **fully black**: no exception, no console warning, a valid `.ktx2` file
+served 200. Indistinguishable from "the art failed to load", and only on the compressed tier — the
+one phones get and desktops do not.
+
+It shipped that way. Measured on the live Book of Borut build: of the nine KTX2 pages on the board,
+the three that were not 4-aligned rendered black — `1851×2800` (R_Board → the reel interior and
+cabinet) and `3250×2048` twice (the UI sheet → panel frames, and the UI button rig page → spin, ±,
+turbo, auto, buy bonus) — while all six aligned pages rendered correctly. The old rule aligned only
+on the DOWNSCALE path and only to a multiple of **2**; `3250` is even, so it passed, and
+`3250 / 4 = 812.5`, so the GPU did not.
+
+`ktx2Dimensions.ts` now floors both axes to whole blocks on **every** path. Down rather than up: the
+referencing atlas/sheet already rescales its coords to the dimensions the encoder reports, so ≤3 px
+off an edge is absorbed exactly, while padding would invent pixels inside the UV range. Guarded by
+`pnpm check:ktx2-alignment` (26 checks, including a 6400-case sweep).
+
+**`KTX2_ENCODER_REVISION` is what makes a fix like this reach existing projects.** `PageStore`
+content-addresses a twin by its SOURCE ETag+size, so art that has not changed is never re-encoded —
+which would have left every already-baked project serving the broken twin forever. The revision
+rides in the `_pages/<hash>.meta.json` sidecar; a mismatch re-encodes. Bump it for any change that
+alters the bytes produced for an unchanged source.
+
 ## Automatic downscaling (no manual resize)
 
 `ktx2Encode` auto-downscales the COMPRESSED variant so its longest side ≤ `DEFAULT_MAX_DIMENSION`

@@ -35,39 +35,26 @@
  */
 import sharp from 'sharp';
 import { encodeToKTX2 } from 'ktx2-encoder';
+import { DEFAULT_MAX_DIMENSION, MIN_ENCODE_PIXELS, targetSize } from './ktx2Dimensions';
 
-/** Below this source area, the encode/download cost isn't worth it — ship the WebP/PNG. */
-export const MIN_ENCODE_PIXELS = 1_000_000;
-/** Stay safely under the bundled Basis v2.5 encoder's ~12 Mpix hard cap (a page over it is
- *  downscaled to fit, not skipped). */
-export const MAX_ENCODE_PIXELS = 11_000_000;
-/** Cap the longest side of the COMPRESSED variant. 4096 clears both the encoder's Mpix cap
- *  and every iPhone GPU's `MAX_TEXTURE_SIZE` (4096 even on older A-series). Pages at or under
- *  this ship at full resolution; only larger ones (e.g. a 4096×8096 cinematic) downscale. */
-export const DEFAULT_MAX_DIMENSION = 4096;
-
-/** The dimensions a page will be encoded at: the source size, uniformly downscaled so the
- *  longest side ≤ `maxDimension` AND the area ≤ {@link MAX_ENCODE_PIXELS}. */
-function targetSize(
-	width: number,
-	height: number,
-	maxDimension: number,
-): { width: number; height: number; scale: number } {
-	const byDim = Math.min(1, maxDimension / Math.max(width, height));
-	const byArea = Math.min(1, Math.sqrt(MAX_ENCODE_PIXELS / (width * height)));
-	const scale = Math.min(byDim, byArea);
-	if (scale >= 1) return { width, height, scale: 1 };
-	// Round to even so ASTC 4×4 blocks (and any half-pixel atlas coords) stay clean.
-	const w = Math.max(2, Math.round((width * scale) / 2) * 2);
-	const h = Math.max(2, Math.round((height * scale) / 2) * 2);
-	return { width: w, height: h, scale };
-}
+// The sizing rules live in `ktx2Dimensions.ts` (no `sharp`, no wasm) so a guard can drive them
+// directly. Re-exported here so every existing importer of this module keeps working.
+export {
+	BLOCK,
+	DEFAULT_MAX_DIMENSION,
+	MAX_ENCODE_PIXELS,
+	MIN_ENCODE_PIXELS,
+	alignDown,
+	targetSize,
+} from './ktx2Dimensions';
 
 /** `sharp` decoder the encoder calls to turn compressed page bytes into raw RGBA (the encoder
  *  requires this in Node for LDR inputs), resizing to `target` when the page is being
  *  downscaled. Mirrors the raw-buffer decode in `spine.ts`. */
 function makeDecoder(target: { width: number; height: number } | null) {
-	return async (buffer: Uint8Array): Promise<{ width: number; height: number; data: Uint8Array }> => {
+	return async (
+		buffer: Uint8Array,
+	): Promise<{ width: number; height: number; data: Uint8Array }> => {
 		let pipeline = sharp(Buffer.from(buffer)).ensureAlpha();
 		if (target) pipeline = pipeline.resize(target.width, target.height, { fit: 'fill' });
 		const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
@@ -115,7 +102,13 @@ export async function encodePageToKtx2(
 		if (width * height < MIN_ENCODE_PIXELS) return null;
 
 		const target = targetSize(width, height, opts.maxDimension ?? DEFAULT_MAX_DIMENSION);
-		const resize = target.scale < 1 ? { width: target.width, height: target.height } : null;
+		// Resize whenever the target differs from the source AT ALL — not only when downscaling.
+		// Block alignment can change the size by a few pixels on a page that needed no downscale,
+		// and gating this on `scale < 1` is what let an unaligned page reach the encoder.
+		const resize =
+			target.width !== width || target.height !== height
+				? { width: target.width, height: target.height }
+				: null;
 
 		const ktx2 = await withSilencedStdout(() =>
 			encodeToKTX2(pageBytes, {
