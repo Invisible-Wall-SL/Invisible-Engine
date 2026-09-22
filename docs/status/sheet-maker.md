@@ -27,6 +27,10 @@ Works today on `main` / live:
   geometry). Detected numeric runs are recorded in `sequences` as the hint the /flipbook tool
   reads. `editable=1` is the opt-in lossy path (re-slices to loose sprites, **drops per-frame
   trim offsets**, doesn't lock).
+- **Whole-sheet downscale** — `Canvas size → Downscale sheet ⤓` scales the canvas, every
+  region rect and this sheet's sprite copies by one factor (½ / ¼ / ⅛ presets or a target
+  width), behind a numbers-first dialog + a confirm. `POST /api/rescale-sheet` does the
+  art half (LANCZOS, lossless WebP, refuses a locked sheet or a factor outside 0–1).
 - **Sheet lock** — a `"locked": true` manifest makes `api_arrange`, `api_export` and
   `api_fx_sync` refuse (each re-packs the page); `POST /api/unlock-sheet` clears it. `Save As`
   under a new name is still allowed. The rail marks locked sheets 🔒 (`api_state.locked_sheets`,
@@ -41,6 +45,31 @@ Works today on `main` / live:
 - None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
 
 ## Recent changes
+- 2026-09-22 — **Whole-sheet downscale (4K → 1K).** New `Downscale sheet ⤓` in the Canvas-size
+  card + `POST /api/rescale-sheet`. It resamples the **art**, not just the rects, and that is the
+  whole point: `packer.compose` draws each sprite at `min(cell/native, 1)` and never upscales, so
+  scaling only the geometry would leave 4k art under a 1k cell — where it stops being padded and
+  **fills** the cell. Every region deliberately padded to a uniform cell (the documented trick for
+  giving differently-sized icons one frame size) would silently lose its margin, and the game would
+  read the symbols as resized. Shrinking `sheet_src/<sheet>/` by the same factor keeps
+  `cell > native`, so every margin scales with it — verified both ways locally (a 1200px sprite in a
+  2048 cell: geometry-only → art fills the 150px cell; with the source rescaled → 100px art in a
+  150px cell, the original 2/3 exactly). Rects scale by their **edges** (`round((x+w)*f) - round(x*f)`),
+  not position-and-size apart, so flush-packed neighbours stay flush; rotated regions scale their
+  swapped footprint. The server rounds half-UP (`int(v+0.5)`), not Python's banker's `round()`, to
+  stay in step with the browser's `Math.round`.
+  **It is one-way** — the pile is overwritten and the full-res pixels are gone (re-upload to undo),
+  hence the gate: a dialog showing `4096 × 4096 → 1024 × 1024 (25%)`, the sprite count, the smallest
+  resulting sprite and a 1px-floor warning, then a `confirm()` naming the sheet and the loss.
+  When the open sheet is a loaded project sheet it also **re-saves in place** afterwards — without
+  that, `api_load_sheet` prefers the loose sprites over re-slicing the page, so reloading the still-4k
+  saved sheet would come back as small art marooned in huge cells. Locked (verbatim-import) sheets are
+  refused client- and server-side. Verified locally R2-less in the browser (seeded 4096² sheet, one
+  padded region, two flush neighbours): every guard (blank / ≥ canvas / < 16px / empty / locked),
+  cancel-changes-nothing, ¼ run → exact ×0.25 on canvas + all three rects with adjacency preserved,
+  files on disk resampled, session persisted at the new scale, in-place re-save wrote a 512² page,
+  and a full reload round-tripped identical geometry with the padding intact.
+  **Live verify owed** (Railway + the R2 mirror of the rescaled pile).
 - 2026-09-02 — **"New / clear canvas" kept overwriting the open sheet.** The button only emptied the canvas; the loaded sheet's name stayed in the name box, `Save` on a new sheet routes to `doSaveAs`, and `api_export` writes whatever name it is given — so forgetting to retype the name replaced the previous sheet's PNG / `.atlas` / JSON / manifest on R2, with the button's own tooltip promising "never overwrites". Now `New sheet…` opens a dialog (Enter = Create, Esc / backdrop = Cancel; blank = nothing happens) that sanitises the name the way `safe_name` will store it, warns live when it matches a rail entry, and asks for confirmation on Create; `doSaveAs` asks the same question when the name collides (and only when there is something to save). A freshly created, still-empty sheet is persisted to the session with its name, and `init` now restores a regions-less session that carries a `display_name`, so a refresh no longer falls back to `newsheet`. Verified locally (R2-less boot, two seeded rail entries): warning + confirm + cancel paths, sanitising (`My Sheet!` → `My_Sheet`), refresh keeps the name, Save As asks on a collision and not on a new name, in-place Save still asks. The Save As check keys on `sheetName` (the payload's `sheet`, which `api_export` writes under — `basename` is ignored), not the name box. **Known, pre-existing drift left alone:** `restoreSession` sets `sheetName` from the session's pile key but the box from `display_name`, so after typing a new name over a loaded sheet and refreshing, the box and the write target differ — the guard follows the write target. **Verified live on Railway** (2026-09-02, project `test6`, signed in via the launcher): the dialog opens, flags an existing rail name, and Cancel leaves the open sheet untouched.
 - 2026-08-24 — **Region thumbnails un-rotated a rotated frame the WRONG way for every sheet that wasn't a `.plist` import — the Symbols grid drew H3/H4/H5/L1/L3/L4/S 180° out.** `RegionThumb` branched the un-rotation on `loadRegionSet`'s `tpRotated` flag: CCW for a verbatim cocos2d import, CW for everything else, on the stated belief that "the Sheet Maker's own packer goes the other way". It does not — `rot_convention_check.py` pins `compose` to `rotate(-90)` (**CW**), the Atlas Maker's `fit_to_region` matches, and a native TexturePacker atlas is CW by definition. **Every producer stores CW, so the un-rotation is always CCW** — exactly what `EditorCanvas.drawRegion` has always done (its comment already said "verified empirically … MATCH THE GAME"). The two renderers had silently disagreed for every non-plist sheet with rotated frames. It bit hardest on the engine's own `symbolsStatic`, a real TexturePacker export whose rotated frames are precisely `h3 h4 h5 l1 l3 l4 s` (+ `explodedW`): the /symbols grid drew those symbols upside-down in their sprite states while the spine `win` state beside them (official runtime, always correct) looked right — which reads as "the spine is flipped". **Ground truth that settled the direction:** the same hammer art also lives UN-rotated in the spine atlas as `t3_hammer`; cropping the TexturePacker block and rotating it CCW reproduces it exactly, CW gives the 180°. Fix = drop the branch, always CCW; `tpRotated` had no other consumer and is deleted end-to-end (`EditorRegionSet`, the client type, `/api/editor/regions`). **Preview-only** — the game reads the TexturePacker JSON through Pixi's `Spritesheet` (`rotate: 2`, frame `(x,y,h,w)`), which was always correct, and `symbolExport.toTexturePackerJson` re-emits upright `w/h` + `rotated` unchanged. Sheets with no rotated frames are byte-identical. Affects every `RegionThumb` caller: /symbols, /flipbook, the editor asset library.
   - ⚠️ **Adjacent, deliberately NOT touched:** `uprightWH` (`editorRegions.ts`) swaps a rotated TP frame's `w/h` "back to upright" on the `reconcileWithTexturePacker` path — but TexturePacker's `frame.w/h` are ALREADY upright. Pixi reads the footprint as `(h×w)`, and `symbolsStatic`'s `l1` (`frame.w` 200 at `x` 203 on a 386-wide page) only fits if the footprint is the swapped 175. So that helper looks inverted. It runs only for manifests referencing an `atlas.texturepacker_json` whose cached geometry drifted, it is off this bug's path, and the 2026-08-10 rigger entry records it fixing a real symptom — it needs its own repro, not a drive-by flip.
