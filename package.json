@@ -28,7 +28,8 @@
     "gen:flow-v2-sounds": "node scripts/gen-flow-v2-sound-enums.mjs",
     "gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check",
     "check:undefined-names": "node scripts/check-undefined-names.mjs",
-    "check:big-win-cue": "node scripts/check-big-win-cue.mjs"
+    "check:big-win-cue": "node scripts/check-big-win-cue.mjs",
+    "check:page-store": "node scripts/check-page-store-shared.mjs"
   },
   "dependencies": {
     "eslint": "9.39.5",
