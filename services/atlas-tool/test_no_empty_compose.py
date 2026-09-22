@@ -71,8 +71,9 @@ class FakeR2:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
 
-    def push_file(self, local_path, key) -> None:
+    def push_file(self, local_path, key) -> bool:
         self.objects[str(key)] = Path(local_path).read_bytes()
+        return True
 
     def put(self, key, body, content_type=None, **kw) -> None:
         self.objects[str(key)] = body

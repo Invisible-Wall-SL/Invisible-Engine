@@ -269,6 +269,61 @@ Works today on `main` / live:
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
 
 ## Recent changes
+- 2026-09-22 — **Staging now reconciles DELETES, so this tool stops resurrecting sheets.** A sheet
+  deleted in the Sheet Maker kept showing in our picker, and opening it wrote the dead manifest back
+  into R2 minutes after a verified delete had removed it (`atlas_manifest_S_AutomationTest.json`,
+  confirmed in the bucket — every other object of that sheet stayed gone).
+  - **The mirror was one-way.** `storage.pull_prefix` only ever DOWNLOADS: it has no concept of an
+    object that LEFT the bucket, so a manifest deleted at the shared `manifests/` prefix stayed in
+    this container's staging forever. `list_manifests()` globs that directory, so the ghost kept
+    appearing; `_mirror` then pushed it back on the next save. ↻ Refresh made it worse, not better —
+    it force-hydrated but still only pulled. Only 🗑 Reset from R2 (which rmtrees first) ever cleared
+    it, which is not where anyone looks.
+  - **`cloud_paths.prune_manifests`** deletes staging manifests R2 no longer has, restoring the
+    documented 1:1 mirror. `hydrate()` calls it right after the synchronous `manifests/` pull and
+    returns the count; the Refresh note now reports it ("dropped N deleted at the source"), so a
+    cross-tool delete is visibly reflected rather than silently persisting.
+  - **Caught at ACTIVATION, not just on Refresh.** `hydrate`'s prune runs on boot and on ↻ Refresh
+    only, so in a long-lived container the ghost would sit in the picker until someone pressed a
+    button — and opening it is exactly when the resurrection happens. `_refresh_manifest_from_r2`
+    (which already runs on every manifest activation) now leads with a `storage.head`: `get` folds a
+    timeout into the same `None` as a 404, whereas `head` returns `None` ONLY for a real 404, so
+    absence confirmed there is authoritative and drops the staged copy on the spot. The
+    manifest-missing banner also stopped offering **"or Save to recreate it"** — after a
+    source-side delete that button pushed the dead manifest straight back into R2.
+  - **Two rails, because a prune is itself a delete.** It prunes ONLY off a listing that SUCCEEDED
+    (`list_keys` raises on a throttle, and reading that as "the bucket is empty" would wipe the whole
+    local tree — far worse than the ghost); and it never prunes a manifest that is not known to be
+    in R2 (`_AUTHORED`), so a best-effort mirror that failed cannot cost the user their
+    prompts/seeds.
+  - **The claim means "unpushed", NOT "this tool wrote it once"** — and that distinction is the
+    whole fix, not a detail. The first cut was add-only, which exempted every manifest the tool had
+    ever saved… i.e. precisely the sheet the user then deletes elsewhere, so the ghost would have
+    survived the prune built to remove it — the reported repro, defeated by its own safety rail.
+    Caught in review. `iw_common.storage.push_file` now RETURNS whether the bytes landed (it
+    swallowed every failure, so no caller could tell a successful push from a failed one), `_mirror`
+    claims before and releases on a CONFIRMED push, and the two writers that bypass `_mirror`
+    entirely (`video_to_refs`, `video_to_clip`) claim around their own `storage.put` — without that
+    a failed export was pruned out from under the user by the next refresh.
+  - **EVERY delete of a staged manifest asks the claim, not just the prune.** The activation-time
+    404 unlink above skipped it in the first cut, which made it the one delete that could destroy
+    the only copy of a brand-new atlas whose mirror had failed — and then tell the user it had been
+    "deleted in another tool". `is_authored()` is now checked there too. Claims are also taken
+    BEFORE the local write (a prune landing between write and push would unlink the file, and the
+    push would then find nothing to send and never release the claim), and the Refresh note reports
+    how many are held, because nothing retries a failed mirror on its own.
+  - **A real dead guard fell out of it.** `publish_pack_page` caught an exception around
+    `storage.push_file` to avoid repointing a manifest at a key that never landed — but `push_file`
+    swallowed everything and returned None, so that `except` could never fire and a failed mirror
+    repointed the manifest anyway. Now that the push reports success the guard actually works; the
+    test's fake was raising, which is what made the dead path look alive.
+  - `test_manifest_prune.py` defeats both rails deliberately and pins the claim's LIFETIME (a
+    released claim must prune), that it does not leak across (client, project), that `is_authored`
+    answers for the activation unlink, and that `.atlas` geometry and the scaffold's `.keep`
+    survive.
+  - **Still one-sided:** `sheet-tool`'s own `hydrate` has no prune, so the mirror-image ghost (a
+    manifest deleted from the Atlas Maker side) can still linger in the Sheet Maker's staging. Not
+    fixed here — the Sheet Maker is not the tool that resurrects.
 - 2026-09-20 — **⧉ Duplicate atlas — the same setup, a different pass.** The ORIGINAL ask, built properly after two wrong turns. The workflow: a blueprint extracts parts of a source sequence (character / background / prop); the atlas is authored once — regions, source refs, blueprint, params — and each further pass wants that setup under a new name with different prompts, as its own sheet. Before this, every pass meant rebuilding from an empty atlas.
   - **Why the earlier "AI layers" answer was wrong.** The first reading took "separate sheets" as *sprite layers stacked at runtime*, argued (correctly, for THAT question) that one page batches better in Pixi, and asked a question phrased in those terms; the owner reasonably answered "same page is fine", and the requirement was dropped. But the model was never stacking — it is extraction PASSES, and a character sheet and a background sheet are different assets, not layers of one image. Separate sheets were right all along. The lesson is about the question, not the code: a clarifying question framed in the wrong model gets a confident answer that confirms the wrong model. `layer_of` (2026-09-18) stays — it is a real feature for its own case — but it is not this one.
   - **The rename IS the design.** Variants live at `batch/<region>_NNNNN_.png`, keyed by NAME project-wide with no atlas in the path, so two atlases sharing a region name share one pile and a region composes the newest file in it. The duplicate therefore takes a required **Region tag** and renames every region (`frame_001` → `bg_frame_001`), which separates the pile, `refs/useroutput_<name>.png` and `refs/fxsrc_<name>.png` all at once — no shared mutable state to scope wrongly. **Measured on the real `_pick_variant_png`, with the original's image and then the copy's in one pile:** an unpicked region composes **the copy's art**; a pick saved unlocked composes **the copy's art**; only 🔒 lock (or a legacy manifest with no `lock` key, which `region_locked` still reads as locked) holds. The A/B control is in the same probe — with distinct names the original stays on its own art after the copy renders.

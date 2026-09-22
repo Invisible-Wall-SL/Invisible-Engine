@@ -405,8 +405,16 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
         size=(width, height), page=page, settings=_gen_settings())
     blob = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
     man_dir.mkdir(parents=True, exist_ok=True)
+    # Claimed from BEFORE the local write until the put is CONFIRMED: this
+    # writer bypasses `_mirror`, so without the claim a failed put leaves the
+    # export in staging alone and the next refresh prunes it out from under the
+    # user (`cloud_paths.prune_manifests`).
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    project_paths.note_authored(ck, pk, man_name)
     (man_dir / man_name).write_bytes(blob)
     storage.put(f"{r2}/manifests/{man_name}", blob, "application/json")
+    project_paths.clear_authored(ck, pk, man_name)
 
     # `regions` and `frames` are the same number by construction — one region per
     # exported frame — and are both reported because the caller describes two

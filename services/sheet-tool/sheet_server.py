@@ -1053,6 +1053,29 @@ def _clear_session_if_sheet(sheet: str) -> None:
             storage.delete(f"{r2_prefix}/{sp.name}")
 
 
+def _slice_tree_users(r2_prefix: str, sheet: str) -> list[str] | None:
+    """Manifests OTHER than `sheet`'s own that point into
+    `input/refs/atlasslices/<sheet>/`, or None when that cannot be determined.
+
+    None and a non-empty list mean the same thing to the caller — do not delete
+    the tree — but they are different facts and the caller reports them
+    differently. A scan that failed is not proof of no users."""
+    own = {f"atlas_manifest_{sheet}.json", f"{sheet}.json"}
+    needle = f"atlasslices/{sheet}/"
+    users: list[str] = []
+    try:
+        for obj in storage.list_keys(f"{r2_prefix}/manifests/"):
+            name = obj["key"].rsplit("/", 1)[-1]
+            if name in own or not name.endswith(".json"):
+                continue
+            blob = storage.get(obj["key"])
+            if blob and needle in blob.decode("utf-8", "replace"):
+                users.append(name)
+    except Exception:  # noqa: BLE001 — unscannable is not unreferenced
+        return None
+    return users
+
+
 def api_delete_sheet(payload: dict) -> dict:
     """Delete a saved sheet end-to-end. A sheet's bytes live in several R2/staging
     locations: the packed output `sheets/<sheet>/*`, the loose sprites
@@ -1061,14 +1084,28 @@ def api_delete_sheet(payload: dict) -> dict:
     Invisible Symbols State Machine) lists sheets straight off the live `sheets/`
     prefix, so a sheet is only really gone once those objects leave R2.
 
-    Two failure modes this guards against (both produced "deleted here, still
+    Three failure modes this guards against (all produced "deleted here, still
     loadable in the State Machine"):
       - the old code measured success against LOCAL STAGING and dropped the sheet
         from the rail even when R2 never changed;
       - `storage.delete` swallows every error (read-only token, transport hiccup),
-        so a silent R2 failure was reported as success.
+        so a silent R2 failure was reported as success;
+      - the verification itself used `storage.exists`, which folds EVERY error
+        into "not there" — a throttled or timed-out HEAD read as a successful
+        delete, which is the very bug the re-list was added to catch. It now uses
+        `storage.head` (only a real 404 is absence) and refuses when the check
+        cannot be completed at all: unverifiable is not verified-clean.
     So after deleting we RE-LIST R2 and fail loudly if anything survives, and the
     returned rail reflects R2 only once the source is confirmed clean.
+
+    `deploy/` is deliberately NOT touched. It is a BUILD ARTIFACT of Export
+    Symbols, not the sheet's source bytes, and the exporter already drops a sheet
+    whose packed page is gone — so it self-heals on the next export. Deleting a
+    live bundle's files out from under it would be the riskier move; instead we
+    say so in the returned note when a deployed copy is still standing.
+
+    The Atlas Maker's slice mirror is removed only when nothing else points at
+    it — see `_slice_tree_users`. Sheet-name namespacing is NOT ownership here.
 
     A partially-created / corrupted sheet may have NO objects at all (named in the
     editor but never exported). That is still removable: the prefixes come back
@@ -1095,26 +1132,68 @@ def api_delete_sheet(payload: dict) -> dict:
         return {"error": "No project / R2 context — cannot delete from the source. "
                 "Open the tool from the Launcher with a project selected."}
 
-    # 1. R2 (source of truth) FIRST — prefix-list + delete the packed sheet and
-    # loose-sprite trees, plus both manifest spellings. Empty prefixes just yield
-    # no keys, so a corrupted no-objects sheet is a clean no-op here.
-    for pre in (f"{r2_prefix}/sheets/{sheet}/", f"{r2_prefix}/sheet_src/{sheet}/"):
-        for obj in storage.list_keys(pre):
-            storage.delete(obj["key"])
-    for key in (f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json",
-                f"{r2_prefix}/manifests/{sheet}.json"):
+    # Every R2 tree that is the sheet's ALONE: `sheets/` (packed page + .atlas +
+    # TexturePacker json) and `sheet_src/` (the uploaded sprites).
+    # NOT included: `input/refs/useroutput_<region>.png`, keyed by REGION name and
+    # therefore SHARED by every manifest in the project — two sheets with a region
+    # of the same name share one file, so deleting it here would blank a surviving
+    # sheet's art. Those are left to the Atlas Maker, which owns that namespace.
+    trees = [f"{r2_prefix}/sheets/{sheet}/", f"{r2_prefix}/sheet_src/{sheet}/"]
+    manifest_keys = (f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json",
+                     f"{r2_prefix}/manifests/{sheet}.json")
+
+    # `input/refs/atlasslices/<sheet>/` is the Atlas Maker's slice mirror of this
+    # sheet's page. It LOOKS sheet-owned — it is namespaced by sheet name — but a
+    # duplicated atlas copies `shape_ref`/`style_ref` VERBATIM (`_DUPLICATE_DROP`
+    # does not clear them), so a derived atlas keeps pointing at the tree of the
+    # sheet it was copied from. Real cross-references in the bucket today:
+    # `s_new_boot_idle_water` → `atlasslices/S_New_Boot` (25 refs) and
+    # `mmBG` → `atlasslices/SingleImage` (176). So it is only removable once
+    # nothing else refers to it, and a scan we cannot complete means "leave it".
+    slices = f"{r2_prefix}/input/refs/atlasslices/{sheet}/"
+    slice_users = _slice_tree_users(r2_prefix, sheet)
+    if slice_users is None or slice_users:
+        pass                     # referenced elsewhere, or unknowable — keep it
+    else:
+        trees.append(slices)
+
+    # 1. R2 (source of truth) FIRST — prefix-list + delete each tree, plus both
+    # manifest spellings. Empty prefixes just yield no keys, so a corrupted
+    # no-objects sheet is a clean no-op here. `list_keys` RAISES on a transport
+    # error (it is the strict one), which must read back as an actionable
+    # refusal rather than a 500 on a button press.
+    try:
+        for pre in trees:
+            for obj in storage.list_keys(pre):
+                storage.delete(obj["key"])
+    except Exception as e:  # noqa: BLE001 — a half-listed tree is a half-delete
+        return {"error": f'Deleting "{sheet}" stopped part-way — R2 could not be '
+                f"read ({type(e).__name__}: {e}). SOME of its objects are already "
+                "gone and others may remain, so the sheet is left on the rail "
+                "rather than reported as deleted. Deleting again is safe and "
+                "finishes the job."}
+    for key in manifest_keys:
         storage.delete(key)
 
-    # 2. VERIFY against R2. `storage.delete` never raises, so re-list the keys
-    # that gate a sheet's visibility (the `sheets/` prefix the State Machine reads,
-    # plus the manifests the Atlas picker reads). Anything left means the delete
+    # 2. VERIFY against R2. `storage.delete` never raises, so re-read every key
+    # that gates a sheet's visibility (the prefixes the State Machine reads, plus
+    # the manifests the Atlas picker reads). Anything left means the delete
     # silently failed — surface it instead of lying, and leave staging intact so
     # the rail keeps showing the sheet that is, in fact, still there.
-    remaining = [o["key"] for o in storage.list_keys(f"{r2_prefix}/sheets/{sheet}/")]
-    for key in (f"{r2_prefix}/manifests/atlas_manifest_{sheet}.json",
-                f"{r2_prefix}/manifests/{sheet}.json"):
-        if storage.exists(key):
-            remaining.append(key)
+    #
+    # A check that cannot be COMPLETED is not a pass: `list_keys` raises and
+    # `head` raises ObjectUnreadable on anything but a real 404, and both land
+    # here. Reporting success off a failed read is exactly how the tool used to
+    # lie about a delete it never made.
+    try:
+        remaining = [o["key"] for pre in trees for o in storage.list_keys(pre)]
+        remaining += [k for k in manifest_keys if storage.head(k) is not None]
+    except Exception as e:  # noqa: BLE001 — unverifiable is NOT verified-clean
+        return {"error": f'Sent the deletes for "{sheet}" — most likely they all '
+                "landed — but the confirming read failed "
+                f"({type(e).__name__}: {e}), so it is NOT reported as deleted. "
+                "The sheet stays on the rail until a delete can be verified; "
+                "running it again is safe and settles it either way."}
     if remaining:
         return {"error": f'Could not delete "{sheet}" from R2 — {len(remaining)} '
                 "object(s) still remain at the source, so it was NOT removed. The "
@@ -1131,10 +1210,27 @@ def api_delete_sheet(payload: dict) -> dict:
     # refresh / restart doesn't restore a canvas pointing at the dead pile.
     _clear_session_if_sheet(sheet)
 
+    # 5. A deployed copy is a build artifact, not a leftover we own (see the
+    # docstring) — but say it is there, so "I deleted it and the game still
+    # ships it" is answered before it is asked.
+    note = f'Deleted "{sheet}" from R2.'
+    if slice_users:
+        note += (f" Kept its Atlas Maker slices — {len(slice_users)} other "
+                 f"manifest(s) still reference them (e.g. {slice_users[0]}).")
+    elif slice_users is None:
+        note += (" Kept its Atlas Maker slices — could not check whether another "
+                 "atlas still uses them.")
+    try:
+        if storage.list_keys(f"{r2_prefix}/deploy/editor-symbols/{sheet}/"):
+            note += (" A previously EXPORTED copy is still under deploy/ — it "
+                     "drops out of the next Export Symbols once the symbols doc "
+                     "stops binding it.")
+    except Exception:  # noqa: BLE001 — a courtesy note must never fail the delete
+        pass
+
     sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
         if out_root.exists() else []
-    return {"ok": True, "deleted": sheet, "sheets": sheets,
-            "note": f'Deleted "{sheet}" from R2.'}
+    return {"ok": True, "deleted": sheet, "sheets": sheets, "note": note}
 
 
 def api_set_project(payload: dict) -> dict:

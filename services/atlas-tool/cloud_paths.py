@@ -127,6 +127,117 @@ _LAZY_DONE: set[tuple[str, str, str]] = set()
 # re-takes this lock to discard the force-cleared guards.
 _LAZY_LOCK = threading.RLock()
 
+# Manifests written locally that are NOT KNOWN to be in R2, as
+# (client, project, filename). `prune_manifests` refuses to delete these, because
+# they may be the only copy of the user's prompts/seeds.
+#
+# The claim means "unpushed", NOT "this tool wrote it once" — the distinction is
+# the whole fix. An add-only "ever authored" set exempts every manifest the tool
+# has opened and saved this process, which is precisely the sheet the user then
+# deletes elsewhere: rail two would skip it and the ghost would survive the prune
+# it exists to trigger. So `note_authored` claims BEFORE a push and
+# `clear_authored` releases on a CONFIRMED one, leaving only genuinely-unpushed
+# work protected.
+_AUTHORED: set[tuple[str, str, str]] = set()
+_AUTHORED_LOCK = threading.Lock()
+
+
+def note_authored(client_key: str, proj_key: str, name: str) -> None:
+    """Claim `manifests/<name>` as written-here-but-not-yet-in-R2.
+
+    The keys are explicit rather than read from the calling thread's context: a
+    worker that forgets `set_context` would otherwise record under the ENV
+    defaults (`unassigned`/`cloud`), and the only symptom would be the manifest
+    silently becoming prunable."""
+    with _AUTHORED_LOCK:
+        _AUTHORED.add((client_key, proj_key, name))
+
+
+def clear_authored(client_key: str, proj_key: str, name: str) -> None:
+    """Release the claim — the bytes are confirmed in R2, so R2 can speak for
+    them and a later delete at the source must be free to prune the staged copy."""
+    with _AUTHORED_LOCK:
+        _AUTHORED.discard((client_key, proj_key, name))
+
+
+def is_authored(client_key: str, proj_key: str, name: str) -> bool:
+    """Whether `manifests/<name>` is local work not known to be in R2.
+
+    EVERY delete of a staged manifest must ask — not just `prune_manifests`. The
+    activation-time 404 unlink in `ui_server._refresh_manifest_from_r2` skipped
+    this at first, which made it the one delete that could destroy the only copy
+    of a brand-new atlas whose mirror had failed, and then blame it on "deleted
+    in another tool"."""
+    with _AUTHORED_LOCK:
+        return (client_key, proj_key, name) in _AUTHORED
+
+
+def authored_count(client_key: str, proj_key: str) -> int:
+    """How many of this project's manifests are still unpushed. Reported by the
+    Refresh note: a claim nothing ever retries would otherwise block its own
+    prune forever with no way to see why the ghost will not go."""
+    with _AUTHORED_LOCK:
+        return sum(1 for (c, p, _n) in _AUTHORED if (c, p) == (client_key, proj_key))
+
+
+def prune_manifests(client_key: str, proj_key: str, staging_root: Path) -> int:
+    """Delete staging manifests R2 no longer has, restoring the 1:1 mirror.
+
+    `pull_prefix` only ever DOWNLOADS. A manifest deleted at the SOURCE — the
+    Sheet Maker deleting a sheet removes it from the shared `manifests/` prefix
+    both tools read — therefore stays in this container's staging forever: the
+    picker keeps offering a sheet that no longer exists, and opening it re-saves
+    the stale copy, mirroring the dead manifest back into R2 and RESURRECTING a
+    sheet the author deleted (observed 2026-09-22: a sheet deleted from the Sheet
+    Maker reappeared in R2 minutes later, written by this tool). Staging is
+    ephemeral container disk that mirrors R2 1:1 by contract, so a file R2 does
+    not have is not authored work — it is a ghost.
+
+    Two rails, both load-bearing:
+      - prunes ONLY off a listing that SUCCEEDED. `list_keys` raises on a
+        throttle or a transport error, and treating that as "the bucket is
+        empty" would wipe the whole local tree — a far worse bug than the ghost
+        this fixes. Unreadable is not empty.
+      - never prunes a manifest THIS container authored (see `_AUTHORED`), so a
+        best-effort mirror that failed cannot cost the user their prompts/seeds.
+
+    `base` is DERIVED from (client, project) rather than passed in — a caller
+    that mixed the two would prune one project's staging against another's
+    listing and nothing downstream could notice — while `staging_root` is the
+    one the caller actually pulled INTO, so the prune can never scan a different
+    directory than the hydrate populated.
+
+    Returns the number pruned."""
+    base = r2_project_prefix(client_key, proj_key)
+    man_dir = Path(staging_root) / "manifests"
+    if not man_dir.is_dir():
+        return 0
+    prefix = base + "/manifests/"
+    try:
+        # One segment only: a key deeper than `manifests/<name>` is not the file
+        # `manifests/<name>`, and matching on the basename alone would let a
+        # hypothetical `manifests/sub/x.json` vouch for a local `x.json`.
+        live = {k["key"][len(prefix):] for k in storage.list_keys(prefix)
+                if "/" not in k["key"][len(prefix):]}
+    except Exception:  # noqa: BLE001 — unreadable R2 is NOT an empty R2
+        return 0
+    pruned = 0
+    # The claim check and the unlink are one critical section: a manifest being
+    # written on another thread claims itself between them otherwise, and we
+    # would delete the file its push is about to read.
+    with _AUTHORED_LOCK:
+        mine = {n for (c, p, n) in _AUTHORED if (c, p) == (client_key, proj_key)}
+        for f in man_dir.iterdir():
+            if not f.is_file() or f.name in live or f.name in mine:
+                continue
+            try:
+                f.unlink()
+                pruned += 1
+            except OSError as e:
+                print(f"[atlas] could not prune stale manifest {f.name}: {e}",
+                      flush=True)
+    return pruned
+
 
 def lazy_lock():
     """The (reentrant) lock guarding the lazy-hydrate guard set. Exposed so clearcache can
@@ -146,7 +257,7 @@ def discard_active_lazy_guards() -> None:
         _LAZY_DONE.discard((client_key, proj_key, sub))
 
 
-def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = False) -> None:
+def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = False) -> int:
     """Pull this (client, project)'s R2 subtree into staging once per process.
 
     Manifests + config are pulled SYNCHRONOUSLY (a handful of small files — the
@@ -160,11 +271,15 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
     show up without a restart, and clears the lazy guards so the heavy subtrees
     re-pull on their next access. It must NOT be wired into the per-request
     context switch — that re-pulls the whole subtree on every request and
-    exhausts threads/memory."""
+    exhausts threads/memory.
+
+    Returns the number of staging manifests PRUNED because R2 no longer has them
+    (see `prune_manifests`) — the Refresh button reports it, so a sheet deleted
+    in another tool visibly leaves this one."""
     key = (client_key, proj_key)
     with _CTX.hydrate_lock:
         if key in _CTX.hydrated and not force:
-            return
+            return 0
         _CTX.hydrated.add(key)
     if force:
         with _LAZY_LOCK:
@@ -181,6 +296,11 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
             storage.pull_prefix(base + "/" + sub, staging_root, kr)
         except Exception:  # noqa: BLE001 — first run / empty bucket is fine
             pass
+
+    # Pulling is only half a mirror — reconcile the DELETES too, or a sheet
+    # removed at the source lives on in this container's picker (and comes back
+    # if opened). See `prune_manifests`.
+    pruned = prune_manifests(client_key, proj_key, staging_root)
 
     # Background: refs + composed atlases (needed to render the project page).
     # The variant pile (batch/) and deploy/ are EXCLUDED — they grow without
@@ -204,6 +324,7 @@ def hydrate(client_key: str, proj_key: str, staging_root: Path, force: bool = Fa
                 pass
 
     threading.Thread(target=_bg, name="atlas-hydrate", daemon=True).start()
+    return pruned
 
 
 def ensure_lazy(subtree: str) -> None:

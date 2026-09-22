@@ -794,7 +794,7 @@ if __name__ == "__main__":
     # R2 is not reachable offline and every save mirrors write-through; stand in
     # for the bucket so nothing here waits on a socket. Staging is a real temp
     # tree, which is what the fixtures read back.
-    storage.push_file = lambda p, key, **kw: None       # type: ignore[assignment]
+    storage.push_file = lambda p, key, **kw: True       # type: ignore[assignment]
     storage.put = lambda key, data, **kw: None          # type: ignore[assignment]
 
     tests = [test_the_table_is_the_measured_one,

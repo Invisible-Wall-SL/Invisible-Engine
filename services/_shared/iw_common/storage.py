@@ -376,13 +376,22 @@ def push_dir(src_root: Path, key_root: str) -> int:
     return n
 
 
-def push_file(local_path: Path, key: str) -> None:
-    """Mirror one local file to R2 (used as write-through after a mutation)."""
+def push_file(local_path: Path, key: str) -> bool:
+    """Mirror one local file to R2 (used as write-through after a mutation).
+
+    Returns whether the bytes reached R2. Callers are free to ignore it — this
+    stays best-effort — but a caller that needs to know CANNOT infer it any
+    other way, because every failure is swallowed here: a missing local file, a
+    read-only token and a transport error all looked identical to a success.
+    That is what let the Atlas Maker record "I authored this" for a push that
+    never landed (see `cloud_paths.prune_manifests`)."""
     try:
-        if local_path.exists():
-            put(key, local_path.read_bytes())
+        if not local_path.exists():
+            return False
+        put(key, local_path.read_bytes())
+        return True
     except Exception:  # noqa: BLE001
-        pass
+        return False
 
 
 # --- local-disk helpers (shared by the cache-pruning endpoints) --------------

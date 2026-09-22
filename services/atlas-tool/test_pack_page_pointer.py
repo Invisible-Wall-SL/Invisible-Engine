@@ -71,10 +71,14 @@ class FakeR2:
         self.objects: dict[str, bytes] = {}
         self.fail_push = False
 
-    def push_file(self, local_path, key) -> None:
+    def push_file(self, local_path, key) -> bool:
+        # Faithful to the real one: it SWALLOWS the error and reports False —
+        # it never raises. A fake that raised let the caller's dead `except`
+        # look alive.
         if self.fail_push:
-            raise OSError("bucket unreachable")
+            return False
         self.objects[str(key)] = Path(local_path).read_bytes()
+        return True
 
     def put(self, key, body, content_type=None, **kw) -> None:
         self.objects[str(key)] = body
