@@ -732,7 +732,10 @@ def _stub_world():
     # double has to carry one or the sweep sees every session as ancient.
     video_runner.storage.list_keys = lambda p: [
         {"key": k, "mtime": _time.time()} for k in list(objects) if k.startswith(p)]
-    video_runner.storage.list_prefixes = lambda p: sorted({
+    # `complete` mirrors the real signature: this sweep opts out of fail-closed
+    # (a short listing costs a few unscanned projects; an exception ends boot
+    # recovery entirely).
+    video_runner.storage.list_prefixes = lambda p, complete=True: sorted({
         k[:len(p) + k[len(p):].index("/") + 1]
         for k in list(objects) if k.startswith(p) and "/" in k[len(p):]})
 

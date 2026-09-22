@@ -237,7 +237,7 @@ def delete(key: str) -> None:
         pass
 
 
-def list_prefixes(prefix: str) -> list[str]:
+def list_prefixes(prefix: str, complete: bool = True) -> list[str]:
     """The immediate "subfolders" of `prefix` → ["<prefix><name>/", …].
 
     A delimited listing, so it reads ONE level and never walks the objects below
@@ -255,16 +255,33 @@ def list_prefixes(prefix: str) -> list[str]:
             kw["ContinuationToken"] = token
         resp = cli.list_objects_v2(**kw)
         out += [p["Prefix"] for p in resp.get("CommonPrefixes", []) if p.get("Prefix")]
-        # A truncated page with no cursor would re-request page one for ever. That
-        # is a spin nobody would see here — this runs in a background thread at
-        # container start — so it stops instead.
-        token = resp.get("NextContinuationToken") if resp.get("IsTruncated") else None
-        if not token:
+        # A truncated page with no cursor cannot be continued. Returning what we
+        # have would present a SHORT listing as a complete one, and a caller that
+        # reads absence as meaning something — `prune_listing_ghosts` deletes the
+        # staged copy of anything this does not name — would act on it, so the
+        # default is to fail closed. `complete=False` keeps the older
+        # best-effort behaviour for a caller that is merely SWEEPING (the video
+        # runner's boot recovery), where a short list costs nothing and an
+        # exception would end the sweep.
+        if resp.get("IsTruncated"):
+            token = resp.get("NextContinuationToken")
+            if not token:
+                if not complete:
+                    return out
+                raise ObjectUnreadable(
+                    f"{prefix}: truncated listing with no continuation token")
+        else:
             return out
 
 
-def list_keys(prefix: str) -> list[dict]:
-    """List objects under a prefix → [{key, size, mtime(epoch)}]."""
+def list_keys(prefix: str, complete: bool = True) -> list[dict]:
+    """List objects under a prefix → [{key, size, mtime(epoch)}].
+
+    `complete=True` (the default) treats a truncated page with no continuation
+    token as a failure. It used to set `token = None` and loop, which re-issued
+    page ONE for ever — a hang, not a short answer, and this is called on every
+    Sheet Maker state load. `complete=False` returns what was read instead, for
+    a caller that is only sweeping."""
     out: list[dict] = []
     token: str | None = None
     cli = _client()
@@ -281,10 +298,14 @@ def list_keys(prefix: str) -> list[dict]:
                     "mtime": o["LastModified"].timestamp() if o.get("LastModified") else 0,
                 }
             )
-        if resp.get("IsTruncated"):
-            token = resp.get("NextContinuationToken")
-        else:
+        if not resp.get("IsTruncated"):
             break
+        token = resp.get("NextContinuationToken")
+        if not token:
+            if not complete:
+                break
+            raise ObjectUnreadable(
+                f"{prefix}: truncated listing with no continuation token")
     return out
 
 

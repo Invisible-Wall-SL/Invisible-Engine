@@ -17,6 +17,7 @@ Zero external deps beyond Pillow + boto3 (stdlib http.server).
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -113,6 +114,42 @@ def _mirror(p: Path) -> None:
         return
     try:
         rel = Path(p).resolve().relative_to(Path(staging_root).resolve()).as_posix()
+        # Listing state is claimed BEFORE the push and released only once the
+        # push is CONFIRMED, so the claim means "not known to be in R2" rather
+        # than "this tool wrote it once" — an add-only claim would exempt every
+        # sheet we have saved and defeat the prune in its own case. One confirmed
+        # file is enough to release a SHEET: the prune asks whether the sheet's
+        # R2 prefix has any object at all, and now it does.
+        # A claimable key is `sheets/<sheet>/<file>` or a ONE-segment
+        # `manifests/<name>` — the two shapes the prune actually iterates. A
+        # file loose at either root is neither, and must not park a bogus name.
+        parts = rel.split("/")
+        kind = name = ""
+        if parts[0] == "sheets" and len(parts) >= 3:
+            kind, name = "sheets", parts[1]
+        elif parts[0] == "manifests" and len(parts) == 2:
+            kind, name = "manifests", parts[1]
+        if name:
+            ck = project_paths.r2_slug(project_paths.client_name())
+            pk = project_paths.r2_slug(project_paths.project_name())
+            # The claim covers the write->push window and is always released;
+            # whether the bytes LANDED is recorded separately, because that
+            # outcome has to persist until a push succeeds and must not leak a
+            # unit of a balanced count when it does not.
+            #
+            # ORDER MATTERS: the flag goes on BEFORE the count comes off, or
+            # there is an instant where the key is neither counted nor flagged
+            # and a concurrent prune deletes it. `landed` is pre-bound so a push
+            # that somehow raises still records "did not land" rather than
+            # skipping the flag entirely and leaving the key unprotected.
+            landed = False
+            project_paths.note_authored(ck, pk, kind, name)
+            try:
+                landed = storage.push_file(Path(p), f"{r2_prefix}/{rel}")
+            finally:
+                project_paths.mark_pushed(ck, pk, kind, name, landed)
+                project_paths.clear_authored(ck, pk, kind, name)
+            return
         storage.push_file(Path(p), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001 — best-effort mirror
         pass
@@ -264,6 +301,68 @@ def uploads_dir(sheet: str) -> Path:
     return d
 
 
+def _sheet_key(out: Path) -> str:
+    """The name `prune_listing_ghosts` would iterate for this destination.
+
+    The TOP-LEVEL segment under `sheets/`, not the basename: an export can be
+    redirected into a nested `dest_dir`, and claiming the basename there claims
+    a name the prune never consults. "" for the sheets root itself or a path
+    outside it, so neither takes a bogus immortal claim."""
+    try:
+        rel = Path(out).resolve().relative_to(
+            Path(project_paths.resolve()["output_root"]).resolve()).as_posix()
+    except (ValueError, OSError):
+        return ""
+    name = rel.split("/")[0]
+    return "" if name in ("", ".") else name
+
+
+def _plist_sheet_name(fields: dict, files: list) -> str:
+    """The sheet an import will actually write to.
+
+    Shared with `_import_plist` rather than re-derived: the two fallbacks used
+    to differ (`"sheet"` here, the plist's stem there) and the field is normally
+    BLANK — its placeholder is "(from the .plist name)" — so the wrapper held a
+    claim on a directory the import never touched, leaving the real one exposed
+    for the whole write."""
+    named = safe_name(str(fields.get("sheet", "")).strip(), "")
+    if named:
+        return named
+    src = next((f for f in files
+                if Path(f["filename"]).suffix.lower() == ".plist"), None)
+    return safe_name(Path(src["filename"]).stem) if src else ""
+
+
+def _forget_sheet(name: str) -> None:
+    """Drop every trace of a sheet whose files are gone for good (rename step 5,
+    delete). Without it a failed push recorded under that name outlives the
+    sheet and the stuck-work line prints for ever."""
+    if not name:
+        return
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    project_paths.forget(ck, pk, "sheets", name)
+    project_paths.forget(ck, pk, "manifests", f"atlas_manifest_{name}.json")
+    project_paths.forget(ck, pk, "manifests", f"{name}.json")
+
+
+def _claim_scope(kind: str, name: str):
+    """Hold a claim on `<kind>/<name>` for a whole handler, or nothing at all.
+
+    Between a local write and its confirmed push, staging holds files while R2
+    holds nothing — the signature `prune_listing_ghosts` reads as a ghost — and
+    that prune runs on EVERY state load, so the window is live traffic. The
+    claim must span the WHOLE operation: an export writes the page, the
+    `.atlas`, the TexturePacker json and the manifest into one directory, so
+    releasing on the first confirmed push (which is all `_mirror` can know
+    about) would drop protection with three writes still to come."""
+    if not name:
+        return contextlib.nullcontext()
+    return project_paths.authored_scope(
+        project_paths.r2_slug(project_paths.client_name()),
+        project_paths.r2_slug(project_paths.project_name()), kind, name)
+
+
 def output_dir(sheet: str) -> Path:
     pp = project_paths.resolve()
     d = pp["output_root"] / safe_name(sheet)
@@ -271,24 +370,25 @@ def output_dir(sheet: str) -> Path:
     return d
 
 
-def _dest_output_dir(sheet: str, dest_dir: str) -> Path:
-    """Resolve the export destination. Empty `dest_dir` -> the sheet's default
-    output dir. Otherwise resolve the requested dir and CONFINE it to the
-    `sheets/` subtree of the staging root — anything else (e.g. a `loadedDir`
-    that points at `manifests/` after opening a sheet via its manifest) falls
-    back to the default output dir, so the page/.atlas/json always land at the
-    canonical keys the manifest back-references. Created if missing."""
+def _resolve_dest(sheet: str, dest_dir: str) -> Path:
+    """Where an export's files go, WITHOUT creating anything.
+
+    Empty `dest_dir` -> the sheet's default output dir. Otherwise resolve the
+    requested dir and CONFINE it to the `sheets/` subtree of the staging root —
+    anything else (e.g. a `loadedDir` that points at `manifests/` after opening
+    a sheet via its manifest) falls back to the default, so the page/.atlas/json
+    always land at the canonical keys the manifest back-references."""
+    pp = project_paths.resolve()
+    default = pp["output_root"] / safe_name(sheet)
     if not dest_dir:
-        return output_dir(sheet)
-    root = Path(project_paths.resolve()["staging_root"]).resolve()
-    sheets_root = (root / "sheets").resolve()
+        return default
     try:
+        sheets_root = Path(pp["output_root"]).resolve()
         d = Path(dest_dir).resolve()
     except (OSError, ValueError):
-        return output_dir(sheet)
+        return default
     if sheets_root not in d.parents and d != sheets_root:
-        return output_dir(sheet)
-    d.mkdir(parents=True, exist_ok=True)
+        return default
     return d
 
 
@@ -352,7 +452,14 @@ def _refresh_listing_subtrees(pp: dict) -> None:
     the prefixes/paths resolve() already computed. The heavy `sheet_src/` pile is
     deliberately NOT pulled (it stays lazy via ensure_lazy). Best-effort: any R2
     error leaves the local staging mirror as-is so the listing still falls back
-    to whatever is on disk."""
+    to whatever is on disk.
+
+    Pulling is only half a mirror. `pull_prefix` never deletes, so a sheet (or a
+    shared manifest) removed at the SOURCE stayed on this container's rail
+    forever no matter how often we re-pulled — the reason a deleted sheet could
+    still be opened here. `prune_listing_ghosts` reconciles the other direction;
+    it is safe to run on every load because it is guarded on successful listings
+    and skips anything not yet confirmed into R2."""
     base = pp.get("r2_project_prefix")
     staging_root = pp.get("staging_root")
     if not base or staging_root is None:
@@ -363,6 +470,22 @@ def _refresh_listing_subtrees(pp: dict) -> None:
             storage.pull_prefix(base + "/" + sub, staging_root, kr)
         except Exception:  # noqa: BLE001 — first run / empty bucket / transient R2 error
             pass
+    # Keys from the SAME resolve() that produced `base`/`staging_root` above, so
+    # the prune can never reconcile one project's staging against another's
+    # listing.
+    ck, pk = pp.get("client_key") or "", pp.get("project_key") or ""
+    if not (ck and pk):
+        return
+    sheets, mans = project_paths.prune_listing_ghosts(ck, pk, staging_root)
+    if sheets or mans:
+        print(f"[sheet] pruned {sheets} sheet(s) + {mans} manifest(s) deleted at "
+              f"the source ({ck}/{pk})", flush=True)
+    # Only genuinely STUCK work: an in-flight claim comes and goes with every
+    # ordinary export, and a line that fires constantly stops meaning anything.
+    stuck = project_paths.unpushed_count(ck, pk)
+    if stuck:
+        print(f"[sheet] {stuck} item(s) failed to mirror to R2 — kept local, so "
+              f"not prunable until a save succeeds ({ck}/{pk})", flush=True)
 
 
 def api_state() -> dict:
@@ -721,6 +844,21 @@ def api_rescale_sheet(payload: dict) -> dict:
 
 
 def api_export(payload: dict) -> dict:
+    """Claim the destination sheet for the whole export, then run it.
+
+    The destination is resolved ONCE here and handed to the body: deriving it
+    twice is how the `.plist` import came to claim a directory its own body
+    never wrote to."""
+    sheet = safe_name(payload.get("sheet", "sheet"))
+    dest = _resolve_dest(sheet, str(payload.get("dest_dir") or "").strip())
+    # The manifest is claimed too: losing it is the "sheet in the rail with no
+    # coords" failure the rest of this path works hard to prevent.
+    with (_claim_scope("sheets", _sheet_key(dest) or sheet),
+          _claim_scope("manifests", f"atlas_manifest_{sheet}.json")):
+        return _export(payload, dest)
+
+
+def _export(payload: dict, dest: Path) -> dict:
     """Compose the sheet from the client's current canvas geometry and write
     the selected formats. Stateless: geometry comes entirely from the payload."""
     sheet = safe_name(payload.get("sheet", "sheet"))
@@ -783,7 +921,10 @@ def api_export(payload: dict) -> dict:
     # not shared between sheets. A region whose file isn't in THIS sheet's folder
     # would crash compose with a raw FileNotFoundError, so surface it as an
     # actionable error naming exactly what to re-upload.
-    out = _dest_output_dir(sheet, dest_dir)
+    # Resolved by the caller (which claimed it); created only now, so a REJECTED
+    # export above leaves no empty sheets/<name>/ on the rail.
+    out = dest
+    out.mkdir(parents=True, exist_ok=True)
     image_for = {r["name"]: (up / r["src"]) for r in regions}
     missing = sorted({r["src"] for r in regions if not (up / r["src"]).exists()})
     if missing:
@@ -791,6 +932,12 @@ def api_export(payload: dict) -> dict:
                 + f"sheet_src/{safe_name(sheet)}/): " + ", ".join(missing)
                 + ". Re-upload them here — a sprite added to another sheet isn't "
                 "shared; each sheet keeps its own copies."}
+    # Claim the sheet BEFORE the first local write. An export writes the page,
+    # the .atlas, the TexturePacker json and the manifest, mirroring each as it
+    # goes — so between the first save and its push there is a window where the
+    # directory has files but R2 has nothing, which is exactly what
+    # `prune_listing_ghosts` reads as a ghost. `_mirror` releases the claim on
+    # the first CONFIRMED push.
     sheet_img = packer.compose(regions, width, height, image_for)
     sheet_png = out / f"{basename}.png"
     sheet_img.save(sheet_png)
@@ -948,6 +1095,22 @@ def _patch_session_for_rename(old: str, new: str) -> None:
 
 
 def api_rename_sheet(payload: dict) -> dict:
+    """Claim BOTH names for the whole rename, then run it.
+
+    The new one is unpushed while it is written; the old one must survive the
+    copy loop still reading it. Scoped rather than claimed-and-forgotten because
+    step 5 DELETES the old name for good — nothing would ever push under it
+    again, so a bare claim there leaks for the life of the process and makes the
+    held-claims diagnostic permanent noise."""
+    old = safe_name(payload.get("from", ""), "")
+    new = safe_name(payload.get("to", ""), "")
+    with (_claim_scope("sheets", old),
+          _claim_scope("sheets", new),
+          _claim_scope("manifests", f"atlas_manifest_{new}.json" if new else "")):
+        return _rename_sheet(payload)
+
+
+def _rename_sheet(payload: dict) -> dict:
     """Rename a saved sheet end-to-end. The sheet's identity (`safe_name`) is
     baked into FOUR R2/staging locations AND the manifest's internal back-refs:
     `sheets/<sheet>/<sheet>.{png,atlas,json}`, `sheet_src/<sheet>/*`,
@@ -1029,6 +1192,7 @@ def api_rename_sheet(payload: dict) -> dict:
     shutil.rmtree(old_out, ignore_errors=True)
     shutil.rmtree(old_src, ignore_errors=True)
     old_man.unlink(missing_ok=True)
+    _forget_sheet(old)
 
     sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
         if out_root.exists() else []
@@ -1209,6 +1373,7 @@ def api_delete_sheet(payload: dict) -> dict:
     # 4. If the deleted sheet was the persisted/open one, clear the session so a
     # refresh / restart doesn't restore a canvas pointing at the dead pile.
     _clear_session_if_sheet(sheet)
+    _forget_sheet(sheet)
 
     # 5. A deployed copy is a build artifact, not a leftover we own (see the
     # docstring) — but say it is there, so "I deleted it and the game still
@@ -1302,6 +1467,11 @@ def api_clearcache() -> dict:
         # the lazy lock re-pulls after us instead of trusting a stale guard over
         # the tree we are about to delete.
         project_paths.discard_active_lazy_guards()
+        # Claims describe local files, and every local file is about to go. A
+        # claim whose release was lost (a crashed write) would otherwise exempt
+        # its name from the prune for the life of the process, and this is the
+        # escape hatch `prune_listing_ghosts` tells people to reach for.
+        project_paths.discard_all_authored()
         # Drop every (client, project) tree entirely, the active one included —
         # guarded so we only ever rmtree a per-(client, project) subtree, never
         # STAGING_BASE itself or a stray sibling at the wrong depth.
@@ -2119,6 +2289,17 @@ def api_load_sheet(payload: dict) -> dict:
 
 
 def api_import_plist(fields: dict, files: list) -> dict:
+    """Claim the destination sheet for the whole import, then run it.
+
+    A verbatim import is the user's only copy of those bytes — it is never
+    re-derivable from anything else in staging."""
+    name = _plist_sheet_name(fields, files)
+    with (_claim_scope("sheets", name),
+          _claim_scope("manifests", f"atlas_manifest_{name}.json" if name else "")):
+        return _import_plist(fields, files)
+
+
+def _import_plist(fields: dict, files: list) -> dict:
     """Import a pre-packed cocos2d atlas (`.plist` + its page) VERBATIM.
 
     The point is REUSE, not re-authoring: the page is written byte-for-byte and
@@ -2141,8 +2322,7 @@ def api_import_plist(fields: dict, files: list) -> dict:
         return {"error": f"Expected exactly two files (.plist + its page), got "
                 f"{len(files)}: " + ", ".join(f["filename"] for f in files)}
 
-    sheet = safe_name(fields.get("sheet", "").strip()
-                      or Path(plist_file["filename"]).stem)
+    sheet = _plist_sheet_name(fields, files)
     editable = str(fields.get("editable", "0")).strip().lower() not in ("", "0", "false")
     lock = str(fields.get("lock", "1")).strip().lower() not in ("0", "false")
     if editable:

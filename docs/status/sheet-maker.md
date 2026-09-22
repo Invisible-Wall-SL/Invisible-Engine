@@ -89,9 +89,44 @@ Works today on `main` / live:
     failed. Both are idempotent — running the delete again finishes or settles it.
   - `test_delete_sheet.py` covers all of it with a fake R2 that injects per-prefix and Nth-call
     failures. The unguarded delete-phase `list_keys` was found BY that test, not before it.
-  - **Not fixed here:** this tool's own `hydrate` still has no prune, so a manifest deleted from the
-    Atlas Maker side can linger in Sheet Maker staging — the mirror image of the bug above. See the
-    Atlas Maker's status file.
+  - **The mirror image is closed too (same day).** `cloud_paths.prune_listing_ghosts` reconciles
+    this tool's own staging, called from `_refresh_listing_subtrees` — i.e. on EVERY state load, not
+    just at boot, because that function already re-pulls `sheets/` + `manifests/` there. It was only
+    ever half a mirror: re-pulling could show something NEW but never make a DELETED thing go away,
+    so a sheet removed at the source (another replica, the Atlas Maker writing to the shared
+    `manifests/` prefix, an edit straight in the bucket) kept appearing on the rail.
+    **Three rails**, the third specific to this tool: prune only off listings that SUCCEEDED;
+    never prune work not yet confirmed into R2 (`_AUTHORED`); and **never prune an EMPTY local
+    sheet directory** — `output_dir()` mkdirs `sheets/<sheet>/` the moment a sheet is NAMED, so an
+    empty one is a sheet being authored right now. It has no R2 objects for exactly the same reason
+    a ghost has none, and only the local files tell them apart.
+    The claim is **scoped to the whole handler**, not to a single write, by every path that
+    creates a sheet directory — export, `.plist` import and rename — each claiming its sheet AND
+    its manifest (`_claim_scope`, keyed on the TOP-LEVEL segment under `sheets/`, since a
+    redirected export can nest). It is a **refcount, not a flag**: the handler holds one for the
+    operation while `_mirror` takes and drops its own around each push, and with a flag `_mirror`
+    releasing after the FIRST confirmed push dropped the handler's protection with the `.atlas`,
+    the `.json` and the manifest still to write — a concurrent state load could then rmtree the
+    directory mid-export. Rename scopes BOTH names: it deletes the original in step 5, so a prune
+    inside that window would destroy the sheet outright, and a bare claim there could never be
+    released afterwards.
+    **A failed push is tracked separately** (`_UNPUSHED` + `mark_pushed`), because it is not a
+    balanced thing: as an extra unit of the refcount it leaked monotonically — one transient R2
+    error and that sheet was never prunable again on this container, which is the ghost symptom
+    returning by another door. A flag self-heals on the next confirmed push, and the flag goes ON
+    before the count comes OFF so there is no instant where a key is neither counted nor flagged.
+    Rename and delete call `forget()` for the name they remove for good, or its failure flag would
+    outlive the sheet. `api_clearcache` calls `discard_all_authored` — every project, matching the
+    rmtree's own scope.
+    Because the prune runs on every state load, the claim check and the deletes are ONE critical
+    section; a snapshot loses exactly the race it exists to win.
+    **Two costs, stated so the next "I deleted it and it's still there" is not re-investigated:**
+    an empty sheet directory is protected forever, so a sheet deleted elsewhere still shows on any
+    container that merely NAMED it (`api_clearcache` is the escape); and `sheet_src/<sheet>/` is
+    NOT reconciled — it is a lazy subtree, so "no local files" says nothing about R2 — which means
+    a pruned sheet leaves its sprite pile behind for a same-named successor to inherit.
+    `test_listing_prune.py` defeats all three rails deliberately and pins `_mirror`'s key
+    derivation.
 - 2026-09-22 — **Whole-sheet downscale (4K → 1K).** New `Downscale sheet ⤓` in the Canvas-size
   card + `POST /api/rescale-sheet`. It resamples the **art**, not just the rects, and that is the
   whole point: `packer.compose` draws each sprite at `min(cell/native, 1)` and never upscales, so
