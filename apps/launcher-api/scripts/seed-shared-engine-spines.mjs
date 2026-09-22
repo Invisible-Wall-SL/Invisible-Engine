@@ -14,9 +14,9 @@
 //
 // The cost is honest and worth stating: the split families re-copy their shared atlas page once
 // per skeleton (`symbols.webp` × 9 ≈ 6.6MB of the ~13.5MB total). That is R2-side only. A GAME
-// ships nothing it has not bound, and the Scene-Editor path (`editorArtExport`) dedups identical
-// pages content-addressed into `_pages/`; `symbolExport` does not, so a project binding many
-// engine symbol spines carries a page per symbol. Pack your own sheet if that matters.
+// ships nothing it has not bound, and both export paths (`editorArtExport` and `symbolExport`)
+// now dedup identical pages content-addressed into `_pages/`, so a project binding many engine
+// symbol spines carries ONE page rather than one per symbol.
 //
 // WHY IT MERGES. `_shared/spines/skeletons.json` also holds the engine BOOT MARK entry
 // (`R_InvisibleEngine`), which nothing else can regenerate. `r2-sync-spines.mjs` rewrites a

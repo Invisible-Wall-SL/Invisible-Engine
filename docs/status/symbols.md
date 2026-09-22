@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-17)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **a layer can opt OUT of the win dim** — `dimWithSymbol` (default ticked ⇒ byte-parity), which cost moving the dim's tint off the `SymbolWrap` container and onto each drawn piece inside `Symbol.svelte`, because Pixi's colour cascade only ever multiplies (on `main`). Before it, **cell LAYERS** — a symbol can be made of MORE THAN ONE picture, each layer with its own **blend mode** (`lighten`/`overlay` included) and an optional `behind`, array order = draw order; it reuses the EXISTING layer object (`bookVfxLayerSchema`), mounts at the ONE choke point (`Symbol.svelte`), never reports a beat, and hides the blend control on a `spine` layer because a Pixi blend cannot reach skeleton geometry (on `main`). Before it, **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
+**One-line state:** _(2026-09-22)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest: **symbols now ship GPU-COMPRESSED like every other asset class** — they were the last one loading raw WebP/PNG on phones and, measured, the LARGEST (107 MB of symbols vs 66 MB for all of editor-art on the live remake's compressed tier), which is the standing suspect for the black-box symbols reported on an S24 and an iPhone 18 while a 12 GB S25 Ultra and a 16 GB Pixel 9 Pro stay clean; the `ktx2Atlas` twins were already built and shipped, `bakedSymbolAssets()` simply never selected them, and symbol SHEETS now dedup through the shared `PageStore` and get a `ktx2Json` twin too (built + offline-verified, ⏳ owed a re-bake + runtime release and a look on a failing device). Before it, **a layer can opt OUT of the win dim** — `dimWithSymbol` (default ticked ⇒ byte-parity), which cost moving the dim's tint off the `SymbolWrap` container and onto each drawn piece inside `Symbol.svelte`, because Pixi's colour cascade only ever multiplies (on `main`). Before it, **cell LAYERS** — a symbol can be made of MORE THAN ONE picture, each layer with its own **blend mode** (`lighten`/`overlay` included) and an optional `behind`, array order = draw order; it reuses the EXISTING layer object (`bookVfxLayerSchema`), mounts at the ONE choke point (`Symbol.svelte`), never reports a beat, and hides the blend control on a `spine` layer because a Pixi blend cannot reach skeleton geometry (on `main`). Before it, **`arrivalRelease`** — default-OFF, the emerge arrival stops GATING the round (the intro still plays in full and still settles its cell; it is simply no longer awaited), which is the 1.3 s tail measured on every `test6` spin, win or not (on `main`). Beside it, **`winBeat.maxMs`** — an authored CEILING (ms) on how long ONE winning symbol may hold the round, sparse and absent by default (the art keeps setting the pace), which is the SHAPER the runaway guard `WIN_BEAT_CAP_MS` deliberately is not (on `main`). Before it, the default-OFF global **`winExplode`** means **“explode and be gone”** — a winning symbol’s explosion IS its removal, which ends the Win → Explosion → **Clear reel** double pop a board that clears itself was reading — and it now fires **once per paying SPIN, on the board that paid** (immediately before the `reveal`/`tumbleBoard` that replaces it, on both dispatch branches), where the first cut fired once per BOOK and so missed 2225 of 7480 base and 227 of 250 bonus paying spins; a detached slammed win beat no longer writes over it either, which had frozen every slammed paying spin for ~4s (on `main`). Beside it, the `tumbleExplosion` state is now **`clearReel` / “Clear reel”** (pure rename, legacy docs folded on read) — all built and offline-verified. Before them, an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame, with the Transition riding its own seat's pop. Newest of all: the **Win amount text** section gained a **Count up** group — the stamp can count up (the narration waits for it), fade in while it counts, and on a big-win round become the **big win's run-up**, counting the round total to the tier threshold before handing over to the overlay; all default OFF and verified LIVE in dev (book mock, `BIG_WIN=1`). ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -654,6 +654,55 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-22 — **Symbols were the only asset class still shipping UNCOMPRESSED to phones, and they
+  are the biggest.** Owner-reported: symbols render as a black box on an S24 and an iPhone 18,
+  while an S25 Ultra (12 GB) and a Pixel 9 Pro (16 GB) are clean. Measured on the live
+  `bookofborutremakebuild` at the compressed tier: **107 MB of `editor-symbols` textures in
+  `bgra8unorm` against 66 MB of `editor-art` in `bc7-rgba-unorm`** — symbols were 62% of all texture
+  memory on the idle base board alone, before a single feature rig mounts. A character rig page is
+  a raw 32 MB upload (`S_Character_Cowboy` 2048×4096, `S_Game_Freespin` 4096×2048).
+  Cause: `bakedSymbolAssets()` (`apps/lines/src/editor-scenes.ts`) read `spine.atlas` /
+  `sheet.json` unconditionally while its sibling `bakedEditorArtAssets()` did the
+  `preferCompressedTextures()` tier check — so **the `ktx2Atlas` twins the exporter had already
+  built, uploaded and shipped sat unused in every bundle** (confirmed by reading the deployed
+  `editor-symbols/index.json`: all 14 spines carry one). The `SymbolSpine` type never declared
+  `ktx2Atlas`, so the game could not select what the type denied existed. This was the registered
+  follow-up in [docs/design/gpu-compressed-textures.md](../design/gpu-compressed-textures.md),
+  deprioritised on the assumption that symbol pages were "smaller than the rig backgrounds" — the
+  measurement says the opposite, and that wrong assumption is why it sat.
+  Fixed in both halves: the game now applies the tier in `bakedSymbolAssets()` **and** in
+  `layerAssets()` (book-VFX / transition layers, so a fall-through can't reintroduce the raw page);
+  and `symbolExport.ts` routes symbol SHEETS through the shared `PageStore` (dedup against every rig
+  and art sheet that uses the same page) and emits a `ktx2Json` twin, its `toTexturePackerJson`
+  gaining the `sx`/`sy` rescale `editorArtExport` already had for an auto-downscaled page. No page
+  store ⇒ the old verbatim per-bundle copy, unchanged (parity).
+  **Review caught that the sheet half would have missed every shipped game.** `bake-editor-doc.mjs`
+  calls `/api/editor/export-symbols` as its OWN endpoint, and that endpoint passed no store — so a
+  baked/delivery build (which is what `new-game.mjs` scaffolds into every standalone game repo,
+  Borut included) would have taken the fallback branch and shipped raw pages, while only the
+  publish/runtime path got the fix. Confirmed against the live build, whose symbol sheet page sits
+  at `editor-symbols/S_Game_Freespin/…webp` rather than `_pages/` — i.e. its last symbols export
+  ran storeless. The endpoint now constructs one. That in turn required consolidating the
+  **`_pages/` prune to a single owner**: `editorArtExport` used to prune it whenever it made its
+  own store, which with symbols now claiming pages would delete, on every bake, pages the symbol
+  export was about to reference. `runtimeBundle`'s `prune:pages` — the one place that has seen
+  every exporter — is now the ONLY pruner, and it reclaims whatever an offline bake leaves behind.
+  `scripts/check-page-store-shared.mjs` grew claims for the sheet route, the bake endpoint and the
+  no-exporter-prunes rule (18 checks).
+  Expected: symbol VRAM 107 MB → ~27 MB, total 173 MB → ~93 MB. Offline-verified: tsc byte-identical
+  to the pre-existing baselines (45 launcher-api / 239 apps/lines errors before and after, none in
+  an edited file), `check:undefined-names`, `check-page-store-shared` 18/18, `check:symbol-state-parity`
+  132, `check:symbol-layers` 92, `check:symbol-transition` 24, `check-deployed-page` 16, eslint +
+  prettier clean.
+  ⏳ **Un-verified on a failing device** — the memory imbalance and the unused twins are measured
+  facts, but that the black box IS an out-of-memory texture upload is inference. Needs a re-bake +
+  pull + runtime release, then a look on the S24/iPhone 18.
+  Noticed in passing on the same build, NOT fixed here: `lang=it` 404s on
+  `editor-art/R_BuyBonus/rigtext-15193b22ae66e366.png` and
+  `editor-art/R_Cinematic2/rigtext-c31dfc4e1ce56742.png`, plus a missing
+  `pressToContinueText_it.png` — the Italian localized rig-text pages never reached the deploy,
+  so Buy Bonus and Cinematic2 run without their text art.
 
 - 2026-09-18 — **The tool's FX preview was offset and clipped on a scaled display — nothing to do
   with blend.** Owner-reported via their artist: an `fx` layer sat in the wrong place and got cut off

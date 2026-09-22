@@ -194,16 +194,26 @@ type BakedBundle = {
 	 * docs/design/invisible-symbols-state-machine.md. */
 	symbols?: {
 		map: SymbolInfoMap;
+		/** `ktx2Json` (sheets) / `ktx2` (images) / `ktx2Atlas` (spines) are the GPU-compressed
+		 * KTX2 variant of the page, emitted beside the WebP/PNG by the symbol export — the same
+		 * fields `editorArt` carries, read by the same tier check. Absent ⇒ the WebP/PNG loads
+		 * as before (parity). */
 		index: {
 			/** Sprite sheets. `key` is the source manifest (kept for the exporter); the
 			 * sheet's frames register under their own names — symbol bindings reference
 			 * those plain frame keys (e.g. `h1.webp`). */
-			sheets: { key: string; json: string }[];
+			sheets: { key: string; json: string; ktx2Json?: string }[];
 			/** Standalone images, registered under the binding's full `assetKey`. */
-			images: { key: string; file: string }[];
+			images: { key: string; file: string; ktx2?: string }[];
 			/** Spine bundles (atlas + skeleton, shared page on disk). `key` is the
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
-			spines: { key: string; atlas: string; skeleton: string; scale?: number }[];
+			spines: {
+				key: string;
+				atlas: string;
+				skeleton: string;
+				scale?: number;
+				ktx2Atlas?: string;
+			}[];
 			/** Bound sprite-frame names no exported sheet packs — they render blank
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
@@ -1266,21 +1276,32 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 	const index = source.symbols?.index;
 	if (!index) return out;
 	const base = srcBase();
+	// Same tier check `bakedEditorArtAssets` applies, and it matters MORE here: symbols are the
+	// largest uncompressed textures a board holds (measured on the Borut remake's compressed tier —
+	// 107 MB of symbols against 66 MB for all of editor-art, because only editor-art was selecting
+	// its KTX2 twin). A character rig page is 16–32 MB raw and every feature that mounts adds
+	// another, so the devices with the least headroom lose SYMBOL textures first — a black cell
+	// where the art should be. Registration keys stay keyed off the WebP path so lookups are
+	// tier-identical; only the resolved `src` differs. Absent variant ⇒ the WebP/PNG (parity).
+	const useKtx2 = preferCompressedTextures();
 	for (const sheet of index.sheets ?? []) {
+		const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
 		out[`editorSymbols/${sheet.json}`] = {
 			type: 'sprites',
-			src: `${base}${sheet.json}`,
+			src: `${base}${sheetPath}`,
 			preload: true,
 		};
 	}
 	for (const image of index.images ?? []) {
-		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
+		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
+		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
 	}
 	for (const spine of index.spines ?? []) {
+		const atlasPath = useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas;
 		out[spine.key] = {
 			type: 'spine',
 			src: {
-				atlas: `${base}${spine.atlas}`,
+				atlas: `${base}${atlasPath}`,
 				skeleton: `${base}${spine.skeleton}`,
 				scale: spine.scale ?? 2,
 			},
@@ -1328,6 +1349,9 @@ function layerAssets(
 	if (!index) return out;
 	const already = bakedSymbolAssets();
 	const base = srcBase();
+	// Same tier the base registration picks — a layer that DOES fall through to here must not
+	// reintroduce the uncompressed page `bakedSymbolAssets` just avoided.
+	const useKtx2 = preferCompressedTextures();
 
 	// The asset KEYS the layers name directly (`assetKey`). A spine layer's key IS a spine bundle
 	// key / a standalone image key; a sprite/flipbook layer's key is a sheet FRAME key that lives
@@ -1340,7 +1364,7 @@ function layerAssets(
 		out[spine.key] = {
 			type: 'spine',
 			src: {
-				atlas: `${base}${spine.atlas}`,
+				atlas: `${base}${useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas}`,
 				skeleton: `${base}${spine.skeleton}`,
 				scale: spine.scale ?? 2,
 			},
@@ -1349,7 +1373,8 @@ function layerAssets(
 	}
 	for (const image of index.images ?? []) {
 		if (!keys.has(image.key) || image.key in already || image.key in out) continue;
-		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
+		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
+		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
 	}
 	// A sprite/flipbook layer's `assetKey`/clip frame is a sheet FRAME, not a sheet key, and a frame
 	// can't be mapped to its sheet without reading the sheet json — so a bg/fg sprite/flipbook needs
@@ -1362,7 +1387,8 @@ function layerAssets(
 		for (const sheet of index.sheets ?? []) {
 			const key = `editorSymbols/${sheet.json}`;
 			if (key in already || key in out) continue;
-			out[key] = { type: 'sprites', src: `${base}${sheet.json}`, preload: true };
+			const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
+			out[key] = { type: 'sprites', src: `${base}${sheetPath}`, preload: true };
 		}
 	}
 	return out;

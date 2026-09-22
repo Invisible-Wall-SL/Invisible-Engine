@@ -647,9 +647,9 @@ export async function exportEditorArt(
 	// ONCE (under `_pages/`) and loads as ONE GPU texture — fixes the rig page-duplication VRAM
 	// leak. Its writes are pruned separately (they live outside `editor-art/`). Shared with the
 	// spine export so rig atlases dedup against the sheets too.
-	// The caller's store when this runs beside another exporter, else our own (and then we prune).
+	// The caller's store when this runs beside another exporter, else our own. Either way this
+	// export never prunes `_pages/` — see the prune at the bottom for why that is not ours to do.
 	const pageStore = opts?.pageStore ?? new PageStore(deployPrefix);
-	const ownsPageStore = !opts?.pageStore;
 	const usedStems = new Set<string>();
 	const coveredRegions = new Set<string>();
 	const exported = new Set<string>();
@@ -998,24 +998,19 @@ export async function exportEditorArt(
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);
 
-	// Prune leftovers from a previous export so deploy/editor-art/ mirrors the doc. The shared
-	// page store lives in a SIBLING `_pages/` prefix (outside `editor-art/`), so prune it too —
-	// against `pageStore.written`, which includes every page REUSED from a previous run (the
-	// content-cache adds reused keys to `written`), so an unchanged page is never wrongly deleted.
-	const [existing, stalePages] = await phase('prune:list', () =>
-		Promise.all([
-			listAllKeys(artPrefix),
-			// Only list `_pages/` when we are the one who will prune it.
-			ownsPageStore ? listAllKeys(`${deployPrefix}_pages/`) : Promise.resolve([] as string[]),
-		]),
-	);
-	const stale = [
-		...existing.filter((k) => !written.has(k)),
-		// A caller-owned store means another export is still claiming pages; pruning them here
-		// would delete its pages mid-write. The owner prunes once both have finished.
-		...stalePages.filter((k) => !pageStore.written.has(k)),
-	];
-	await deleteObjects(stale);
+	// Prune leftovers from a previous export so deploy/editor-art/ mirrors the doc.
+	//
+	// `_pages/` is deliberately NOT pruned here, even when this export made its own store. A page
+	// is stale only once EVERY exporter that could claim it has run, and this one cannot see the
+	// others: `symbolExport` claims pages too (rigs, and now sheets), and on the BAKE path it runs
+	// as a SEPARATE endpoint after this one — so pruning against this export's `written` alone
+	// would delete pages the symbol export is about to reference, and then delete them again on
+	// every subsequent bake. `runtimeBundle.ts`'s `prune:pages` is the one owner that sees all of
+	// them, and it reclaims whatever an offline bake leaves behind. Deleting a page that is still
+	// referenced is the worst outcome available here — the atlas keeps its page ref and the art is
+	// simply absent in-game — so this errs toward keeping bytes.
+	const existing = await phase('prune:list', () => listAllKeys(artPrefix));
+	await deleteObjects(existing.filter((k) => !written.has(k)));
 
 	return index;
 }

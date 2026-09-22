@@ -11,10 +11,10 @@
  * TWO THINGS THIS MUST NOT DO, both learned from the exporters next door:
  *
  *  1. **No `pageStore`.** `editorArtExport` dedups atlas pages into a sibling `_pages/`
- *     store and then PRUNES that store against its own written set. A boot page deduped
- *     in there would be deleted by the next art export. Per-bundle page copies (the
- *     `symbolExport` default) keep `_boot/` self-contained. It costs one duplicated
- *     texture; correctness is worth more than a boot logo's page.
+ *     store. A boot page deduped in there would be at the mercy of a prune this export does
+ *     not participate in (`runtimeBundle`'s `prune:pages`, which keeps only what the art and
+ *     symbol exporters claimed). A private per-bundle page copy keeps `_boot/` self-contained.
+ *     It costs one duplicated texture; correctness is worth more than a boot logo's page.
  *  2. **Prune only `_boot/`.** Symmetrically, this must never touch `editor-art/` or
  *     `_pages/`.
  *

@@ -43,7 +43,7 @@ import { sheetVersion } from './assetVersion';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
-import type { PageStore } from './pageStore';
+import { PAGE_REF_PREFIX, type PageStore } from './pageStore';
 import { exportSpineBundle, loadSkeletonIndexWithShared } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
@@ -63,6 +63,11 @@ export interface SymbolSheet {
 	/** Spritesheet JSON path relative to `deploy/` (= relative to `static/assets/`). */
 	json: string;
 	frames: number;
+	/** The KTX2 twin's spritesheet JSON — identical frames, `meta.image` pointing at the shared
+	 *  `.ktx2` page and rects rescaled to its (possibly auto-downscaled) dimensions. Absent when
+	 *  no twin was encoded (`KTX2_ENCODE` off, page under/over the encoder's size band, no page
+	 *  store), in which case the game ships the WebP/PNG unchanged. */
+	ktx2Json?: string;
 }
 
 /** A spine bundle a symbol binding references. `key` is the binding's full R2
@@ -75,6 +80,11 @@ export interface SymbolSpine {
 	skeleton: string;
 	/** Spine scale; defaults to 2 (the symbols convention) — emitted explicitly. */
 	scale: number;
+	/** The KTX2 twin `.atlas` (`exportSpineBundle` output) whose page-name lines point at the
+	 *  `.ktx2` pages. Written since the page store was wired in, but DECLARED only now — the game
+	 *  could not select what the type did not admit existed, so every symbol rig shipped its page
+	 *  uncompressed while the twin sat unused in the bundle. Absent ⇒ the original `.atlas`. */
+	ktx2Atlas?: string;
 }
 
 /** A frame name bound by a sprite cell that appears in MORE THAN ONE exported
@@ -90,8 +100,9 @@ export interface SymbolFrameCollision {
 export interface SymbolExportIndex {
 	sheets: SymbolSheet[];
 	/** Standalone images are not produced by v1 (sprite cells bind sheet frames),
-	 *  but the field is present so the shape matches S1's `bakedSymbolAssets()`. */
-	images: { key: string; file: string }[];
+	 *  but the field is present so the shape matches S1's `bakedSymbolAssets()` — `ktx2` included,
+	 *  so a v2 that does emit them inherits the compressed tier rather than re-opening this hole. */
+	images: { key: string; file: string; ktx2?: string }[];
 	spines: SymbolSpine[];
 	collisions: SymbolFrameCollision[];
 	/** Sprite-cell frame names a binding references that NO project atlas/sheet
@@ -395,19 +406,25 @@ interface TexturePackerFrame {
  *  manifest, so two symbols reusing a name on distinct atlases resolve to distinct textures — the
  *  symbol-path analogue of `editorArtNamespace`'s dual registration, baked into the sheet the game
  *  loads with no namespace, so no game change is needed. */
-function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
+function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy = 1): string {
 	const frames: Record<string, TexturePackerFrame> = {};
+	// `sx`/`sy` rescale every coordinate onto a page the KTX2 encoder auto-downscaled (see
+	// `ktx2Encode`'s `DEFAULT_MAX_DIMENSION`). The ratios are uniform, so UVs are unchanged and the
+	// art draws at the same size, just from a smaller page — the rule `editorArtExport` already
+	// follows. Both default to 1, so the WebP page's JSON is byte-identical to before.
+	const rx = (n: number) => Math.round(n * sx);
+	const ry = (n: number) => Math.round(n * sy);
 	for (const r of set.regions) {
 		const origW = r.origW ?? r.w;
 		const origH = r.origH ?? r.h;
 		const offX = r.offX ?? 0;
 		const offY = r.offY ?? 0;
 		const entry: TexturePackerFrame = {
-			frame: { x: r.x, y: r.y, w: r.w, h: r.h },
+			frame: { x: rx(r.x), y: ry(r.y), w: rx(r.w), h: ry(r.h) },
 			rotated: r.rotated === true,
 			trimmed: offX !== 0 || offY !== 0 || origW !== r.w || origH !== r.h,
-			spriteSourceSize: { x: offX, y: offY, w: r.w, h: r.h },
-			sourceSize: { w: origW, h: origH },
+			spriteSourceSize: { x: rx(offX), y: ry(offY), w: rx(r.w), h: ry(r.h) },
+			sourceSize: { w: rx(origW), h: ry(origH) },
 		};
 		frames[r.name] = entry;
 		frames[scopedFrameRef(set.assetKey, r.name)] = entry;
@@ -420,7 +437,7 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 				format: 'RGBA8888',
 				image: pageFile,
 				scale: '1',
-				size: { w: set.pageWidth, h: set.pageHeight },
+				size: { w: rx(set.pageWidth), h: ry(set.pageHeight) },
 			},
 		},
 		null,
@@ -526,22 +543,60 @@ export async function exportEditorSymbols(
 		if (!version) return;
 
 		const stem = claimStem(set.assetKey);
-		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
+		// Carry the page's REAL extension, as `editorArtExport` and `spine.ts` do. Defaulting
+		// anything non-`.webp` to `png` was survivable while the copy stayed inside
+		// `editor-symbols/` — one mislabelled private file. It is not survivable in the SHARED
+		// store: the filename is `<hash>.<ext>`, the content key is ETag+size only, so a `.jpg`
+		// page named `.png` here and `.jpg` by the art export becomes two objects for identical
+		// bytes that then delete and re-encode each other on every assemble.
+		const pageExt = /\.(png|webp|jpe?g)$/i.exec(set.pageKey)?.[1].toLowerCase() ?? 'png';
 		const pageFile = `${stem}.${version}.${pageExt}`;
 		const jsonRel = `${EXPORT_SUBTREE}/${stem}/${stem}.${version}.json`;
 		const pageRel = `${EXPORT_SUBTREE}/${stem}/${pageFile}`;
 
-		// Server-side copy the packed page verbatim (no bytes through this process —
-		// keeps peak memory flat); skip if the source page is missing.
-		if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
-		await putObjectText(
-			`${deployPrefix}${jsonRel}`,
-			toTexturePackerJson(set, pageFile),
-			'application/json',
-		);
-		written.add(`${deployPrefix}${jsonRel}`);
-		written.add(`${deployPrefix}${pageRel}`);
-		sheets.push({ key: set.assetKey, json: jsonRel, frames: set.regions.length });
+		// Route the packed page through the shared store when the caller supplied one — the same
+		// treatment the symbol RIGS got when they were wired to it, and the half that was left
+		// behind. Two wins, both of them VRAM: the page is deduped against every rig and art sheet
+		// that uses it (one GPU texture, not N), and it gets a KTX2 twin, without which a symbol
+		// sheet is a raw 32 MB upload on exactly the devices the compressed tier exists to protect.
+		// No store ⇒ the old verbatim per-bundle copy, unchanged (parity).
+		let ktx2Json: string | undefined;
+		if (opts?.pageStore) {
+			const shared = await opts.pageStore.ensure(set.pageKey, pageExt);
+			if (!shared) return;
+			await putObjectText(
+				`${deployPrefix}${jsonRel}`,
+				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`),
+				'application/json',
+			);
+			written.add(`${deployPrefix}${jsonRel}`);
+			// The twin is a SECOND spritesheet JSON over the same regions, pointing at the `.ktx2`
+			// page with rects rescaled to its dimensions (equal to the source unless the encoder
+			// downscaled it). The game registers it on the compressed tier; absent ⇒ WebP/PNG.
+			if (shared.ktx2File) {
+				ktx2Json = `${EXPORT_SUBTREE}/${stem}/${stem}.${version}.ktx2.json`;
+				const sx = set.pageWidth ? shared.ktx2Width / set.pageWidth : 1;
+				const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
+				await putObjectText(
+					`${deployPrefix}${ktx2Json}`,
+					toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy),
+					'application/json',
+				);
+				written.add(`${deployPrefix}${ktx2Json}`);
+			}
+		} else {
+			// Server-side copy the packed page verbatim (no bytes through this process —
+			// keeps peak memory flat); skip if the source page is missing.
+			if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
+			await putObjectText(
+				`${deployPrefix}${jsonRel}`,
+				toTexturePackerJson(set, pageFile),
+				'application/json',
+			);
+			written.add(`${deployPrefix}${jsonRel}`);
+			written.add(`${deployPrefix}${pageRel}`);
+		}
+		sheets.push({ key: set.assetKey, json: jsonRel, frames: set.regions.length, ktx2Json });
 		sheetFrameNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredFrames.add(r.name);
 	};
