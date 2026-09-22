@@ -59,7 +59,9 @@ import { exportProjectSounds } from './soundExport';
 import { exportEffects } from './effectExport';
 import { exportClips } from './flipbookExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
-import { UNASSIGNED_CLIENT } from './projectPaths';
+import { SUB, UNASSIGNED_CLIENT } from './projectPaths';
+import { PageStore } from './pageStore';
+import { deleteObjects, listAllKeys } from './r2';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
 import { exportRigFlipbooks } from './rigFlipbookExport';
@@ -535,12 +537,33 @@ export async function ensureDeployExports(
 		loadAuthoredCinematics(client, projectKey),
 	);
 	const extraSpineNames = cinematicRigNames(cinematicDocs);
+
+	/**
+	 * ONE content-addressed page store for the whole pass, owned here.
+	 *
+	 * `art` and `symbols` both export spine bundles, in the same `Promise.all` below. While each
+	 * owned its own store (or, for symbols, none at all) a page used by both was written twice, and
+	 * a page shared by eight symbol rigs was written eight times — the very duplication `pageStore`
+	 * exists to collapse, and the one that OOM-crashed iOS by loading identical bytes as separate
+	 * GPU textures. `PageStore.ensure` is single-flight per source key, so sharing it across the
+	 * parallel exports is safe.
+	 *
+	 * Owning the store means owning the `_pages/` PRUNE. It cannot stay inside the art export: it
+	 * deletes every `_pages/` key the store has not claimed, and running that while the symbol
+	 * export is still claiming pages would delete them mid-write. It happens once, below, after
+	 * both have finished.
+	 */
+	const deployPrefix = `${SUB.deploy(client, projectKey)}/`;
+	const pageStore = new PageStore(deployPrefix);
+
 	const [editorArt, fontIndex, soundIndex, symbols, flowIndex, flowV2Index, cinematicIndex] =
 		await Promise.all([
 			// `timings` goes in too: `art` dominates the assemble, and the per-PHASE breakdown it folds
 			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
 			// which loop to attack.
-			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames, timings })),
+			step('art', timings, () =>
+				exportEditorArt(client, projectKey, { extraSpineNames, timings, pageStore }),
+			),
 			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
 			step('sounds', timings, () => exportProjectSounds(client, projectKey)),
 			// `timings` goes in for the same reason `art` gets it: with `art` parallelised, `symbols`
@@ -548,7 +571,9 @@ export async function ensureDeployExports(
 			// (`symbols:sheets:pinned` / `symbols:sheets:scan` / `symbols:spines:bundles` / …) is
 			// what says which of its three loops to attack — and whether it is even the same kind
 			// of problem, since one of them is a search with an early break, not a map.
-			step('symbols', timings, () => exportEditorSymbols(client, projectKey, { timings })),
+			step('symbols', timings, () =>
+				exportEditorSymbols(client, projectKey, { timings, pageStore }),
+			),
 			step('flow', timings, () => exportEditorFlow(client, projectKey)),
 			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
 			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
@@ -558,6 +583,20 @@ export async function ensureDeployExports(
 			// share — the same reason everything else in this list is here.
 			step('bootSplash', timings, () => exportBootSplashes(client, projectKey)),
 		]);
+
+	// The `_pages/` prune, moved out of the art export because the store is now shared: a page is
+	// stale only once EVERY exporter that could claim it has run. `pageStore.written` holds reused
+	// pages as well as newly written ones (the content-cache adds them), so an unchanged page is
+	// never deleted. Deleting one that is still referenced is the worst outcome available here —
+	// the atlas keeps its page ref and the art is simply absent in-game — so this deliberately
+	// errs toward keeping bytes.
+	await step('prune:pages', timings, async () => {
+		const stale = (await listAllKeys(`${deployPrefix}_pages/`)).filter(
+			(k) => !pageStore.written.has(k),
+		);
+		await deleteObjects(stale);
+	});
+
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
 	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime

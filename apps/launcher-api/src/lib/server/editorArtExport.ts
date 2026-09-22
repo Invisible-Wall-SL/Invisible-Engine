@@ -457,6 +457,23 @@ export async function exportEditorArt(
 		 * parallelises a loop that writes shipped game art.
 		 */
 		timings?: Record<string, number>;
+		/**
+		 * The shared page store, when the CALLER owns it — which it must whenever another export
+		 * writes pages in the same pass.
+		 *
+		 * `exportEditorSymbols` runs in the same `Promise.all` as this function and exports its own
+		 * spine bundles. While it had no store, every symbol rig carried a PRIVATE copy of its atlas
+		 * page: eight symbols sharing `S_Game_Reel` shipped it eight times (12.3 MB of one delivery),
+		 * and pages this export had already deduped into `_pages/` appeared a second time under
+		 * `editor-symbols/`. That is the exact VRAM duplication this store was built to end — it
+		 * simply was not reaching symbols.
+		 *
+		 * Passing it here also moves the `_pages/` PRUNE to the caller, and that is not optional:
+		 * the prune deletes every `_pages/` key not in `pageStore.written`, so running it here while
+		 * a parallel symbol export is still claiming pages would delete pages out from under it.
+		 * Own the store, own the prune.
+		 */
+		pageStore?: PageStore;
 	},
 ): Promise<EditorArtIndex> {
 	/** Record a phase's elapsed ms under `art:<name>`, or run it untimed when no record was passed. */
@@ -630,7 +647,9 @@ export async function exportEditorArt(
 	// ONCE (under `_pages/`) and loads as ONE GPU texture — fixes the rig page-duplication VRAM
 	// leak. Its writes are pruned separately (they live outside `editor-art/`). Shared with the
 	// spine export so rig atlases dedup against the sheets too.
-	const pageStore = new PageStore(deployPrefix);
+	// The caller's store when this runs beside another exporter, else our own (and then we prune).
+	const pageStore = opts?.pageStore ?? new PageStore(deployPrefix);
+	const ownsPageStore = !opts?.pageStore;
 	const usedStems = new Set<string>();
 	const coveredRegions = new Set<string>();
 	const exported = new Set<string>();
@@ -984,10 +1003,16 @@ export async function exportEditorArt(
 	// against `pageStore.written`, which includes every page REUSED from a previous run (the
 	// content-cache adds reused keys to `written`), so an unchanged page is never wrongly deleted.
 	const [existing, stalePages] = await phase('prune:list', () =>
-		Promise.all([listAllKeys(artPrefix), listAllKeys(`${deployPrefix}_pages/`)]),
+		Promise.all([
+			listAllKeys(artPrefix),
+			// Only list `_pages/` when we are the one who will prune it.
+			ownsPageStore ? listAllKeys(`${deployPrefix}_pages/`) : Promise.resolve([] as string[]),
+		]),
 	);
 	const stale = [
 		...existing.filter((k) => !written.has(k)),
+		// A caller-owned store means another export is still claiming pages; pruning them here
+		// would delete its pages mid-write. The owner prunes once both have finished.
 		...stalePages.filter((k) => !pageStore.written.has(k)),
 	];
 	await deleteObjects(stale);

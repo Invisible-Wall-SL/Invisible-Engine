@@ -43,6 +43,7 @@ import { sheetVersion } from './assetVersion';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
+import type { PageStore } from './pageStore';
 import { exportSpineBundle, loadSkeletonIndexWithShared } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
@@ -438,6 +439,20 @@ export async function exportEditorSymbols(
 	projectKey: string,
 	opts?: {
 		/**
+		 * The shared content-addressed page store, owned by the caller.
+		 *
+		 * Without it every symbol rig shipped a PRIVATE copy of its atlas page. Eight symbols
+		 * sharing `S_Game_Reel` shipped that page eight times — 12.3 MB of one delivery, and eight
+		 * separate GPU textures for identical bytes, which is precisely the VRAM duplication
+		 * `pageStore` was built to end (see its header: the iOS OOM came from a page appearing
+		 * under multiple rig folders). Symbols were simply never wired to it.
+		 *
+		 * The store must be the SAME instance the art export uses: the two run in one
+		 * `Promise.all`, and a page deduped by one has to be visible to the other or it is written
+		 * twice under different subtrees.
+		 */
+		pageStore?: PageStore;
+		/**
 		 * Per-phase collector, surfaced as `symbols:<name>` in `/api/editor/runtime`'s
 		 * `Server-Timing` header — the same treatment `exportEditorArt` already has.
 		 *
@@ -595,6 +610,9 @@ export async function exportEditorSymbols(
 				stem: claimStem(assetKey.replace(/\/$/, '')),
 				skeletonIndex,
 				scale: SYMBOL_SPINE_LOAD_SCALE,
+				// Dedup this rig's atlas page into the shared `_pages/` store instead of copying it
+				// under `editor-symbols/<rig>/`. Undefined ⇒ the old per-bundle copy (parity).
+				pageStore: opts?.pageStore,
 			});
 			if (!result) continue;
 			for (const k of result.written) written.add(k);
