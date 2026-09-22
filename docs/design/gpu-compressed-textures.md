@@ -108,17 +108,20 @@ writes each unique page (keyed by source ETag+size) ONCE to `deploy/_pages/<hash
 and every sheet/rig references it by the base-independent relative path `../../_pages/…`
 (verified to resolve through Pixi's `path.normalize` + the spritesheet loader, baked + runtime).
 So a page shared by N rigs + the sheet becomes ONE GPU texture. `editorArtExport.ts` (sheets +
-standalone images) and `exportSpineBundle` (rigs, via a shared `pageStore` param) both dedup
-through it; `symbolExport` omits the store and keeps its per-bundle copy. A downscaled shared
+standalone images), `exportSpineBundle` (rigs, via a shared `pageStore` param) and
+`symbolExport.ts` (symbol rigs and, since the tier was wired end to end, symbol SHEETS) all dedup
+through the one store the runtime assemble owns. A downscaled shared
 ktx2 page reports its dims so every referencer rescales coords by the SAME factor (composes with
 #179). Content-cached (skip-if-exists, meta sidecar) so the per-boot `/api/editor/runtime`
-assemble stays fast; `_pages/` is pruned against `pageStore.written`.
+assemble stays fast. **`_pages/` is pruned in exactly ONE place** — `runtimeBundle.ts`'s
+`prune:pages`, against `pageStore.written`, after every exporter has joined. No individual
+exporter prunes it, not even one that made its own store: a page is stale only once every
+exporter that could claim it has run, and on the BAKE path art and symbols are separate HTTP
+endpoints that cannot see each other. Whatever an offline bake leaves behind is reclaimed by the
+next publish.
 
 ## Follow-ups
 
-- Symbol spine pages already ride `exportSpineBundle` (so they get `ktx2Atlas`), but
-  `bakedSymbolAssets()` doesn't yet SELECT it — wire the tier there too (they're smaller than
-  the rig backgrounds, so lower priority). Symbol bundles also don't dedup (no `pageStore`).
 - Optional per-device RESOLUTION downscale tier (encode a smaller ktx2 variant + scale atlas
   coords) if compression-at-full-res ever isn't enough for a very low-memory device.
 - Isolate the encode in a worker/child process (non-blocking + memory-isolated + stdout
