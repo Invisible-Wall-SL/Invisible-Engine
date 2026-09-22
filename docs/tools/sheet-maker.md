@@ -170,6 +170,34 @@ per-frame offsets *are* the animation (art that scales frame-to-frame stays
 anchored only because each frame carries its own offset). Use it only when you
 intend to re-author the sheet, never to "open and check" a shipped atlas.
 
+### Downscaling a whole sheet (4K → 1K)
+
+**Canvas size → Downscale sheet ⤓** resizes the *entire* sheet by one factor:
+the canvas, every region rect, **and this sheet's own copies of the sprites**.
+Pick a preset (½ / ¼ / ⅛) or type a target width; the dialog shows the resulting
+canvas, the sprite count and the **smallest** sprite at the new size, then asks
+you to confirm.
+
+It resamples the art rather than only shrinking the rects because the packer
+never upscales: art is drawn at `min(cell/native, 1)`, so 4K art under a 1K cell
+would *fill* the cell and every deliberately **padded** region (the uniform-cell
+trick above) would silently lose its margin. Shrinking the sources by the same
+factor keeps every margin in proportion — the downscaled sheet is the same
+picture, smaller.
+
+That makes it **destructive and one-way**: `sheet_src/<sheet>/` is overwritten
+at the new size and the full-resolution pixels are gone — re-upload the
+originals to undo. The copies are per-sheet, so no other sheet and nothing on
+your own disk is touched. When the open sheet is one you loaded from the rail,
+the downscale also **re-saves it in place** (page, `.atlas`, JSON, manifest, on
+R2) so the saved sheet can't be left at the old scale while its sprites are at
+the new one. On an unsaved sheet, nothing is written until you Save.
+
+Rects are scaled by their **edges**, not position-and-size separately, so
+sprites packed flush stay flush instead of bleeding a pixel into each other. A
+🔒 read-only (verbatim-imported) sheet refuses the whole operation — unlock it,
+or Save As a copy, first.
+
 ### Renaming a sheet
 
 Select a sheet in the rail and click **Rename…** (`/api/rename-sheet`). A sheet's

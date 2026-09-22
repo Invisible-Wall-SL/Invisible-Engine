@@ -632,6 +632,94 @@ def api_arrange(payload: dict) -> dict:
     return {"placements": out, "unplaced": res["unplaced"]}
 
 
+def api_rescale_sheet(payload: dict) -> dict:
+    """Downscale a whole sheet: resample every loose sprite in this sheet's pile
+    by `factor`. The client scales the canvas and every rect by the same factor.
+
+    Why the ART has to be resampled and not just the rects: compose() fits each
+    source image into its region box and NEVER upscales, so the drawn size is
+    `min(box/native, 1)`. Leaving 4k art under a 1k cell would make every
+    deliberately PADDED region (box larger than the art, transparent margin
+    baked into the frame) suddenly FILL its cell — the layout would change
+    silently. Shrinking the source by the same factor keeps `box > native`, so
+    every margin scales with it.
+
+    Destructive by design — the pile is overwritten in place. It is a PER-SHEET
+    pile (`sheet_src/<sheet>/`, never shared), so no other sheet and no original
+    on the author's disk is touched; the UI gates this behind an explicit
+    confirmation that says the full-resolution pixels are gone.
+    """
+    sheet = safe_name(payload.get("sheet", ""), "")
+    if not sheet:
+        return {"error": "No sheet name given."}
+    # A verbatim import promises byte-identical art at byte-identical rects.
+    blocked = _locked_error(sheet, "Downscaling")
+    if blocked:
+        return {"error": blocked}
+    try:
+        factor = float(payload.get("factor", 0))
+    except (TypeError, ValueError):
+        factor = 0.0
+    if not 0 < factor < 1:
+        return {"error": "Downscale factor must be between 0 and 1 — this resizes "
+                         "DOWN only. Scaling a sheet back up cannot restore detail "
+                         "the downscale threw away; re-upload the originals instead."}
+
+    d = uploads_dir(sheet)
+    files = sorted((p for p in d.glob("*") if p.suffix.lower() in _PAGE_EXTS),
+                   key=lambda p: natural_key(p.name))
+    if not files:
+        return {"error": f"Sheet '{sheet}' has no sprite files to downscale "
+                         f"(sheet_src/{safe_name(sheet)}/ is empty)."}
+
+    # Measure everything BEFORE writing anything: a corrupt file found halfway
+    # through would otherwise leave the pile at two different scales, which no
+    # later save can untangle (the originals are gone).
+    sizes: list[tuple[Path, int, int]] = []
+    for p in files:
+        try:
+            w, h = packer.measure(p)
+        except Exception as e:  # noqa: BLE001 — unreadable sprite, refuse the batch
+            return {"error": f"{p.name}: not a readable image ({e}). Nothing was "
+                             "downscaled — remove or re-upload that sprite first."}
+        sizes.append((p, w, h))
+
+    # Half-UP, not Python's banker's round(): the browser scales every rect with
+    # Math.round, and a source that rounded the other way would sit a pixel out
+    # of step with its own cell.
+    def _px(v: float) -> int:
+        return int(v + 0.5)
+
+    sprites, clamped, done = [], [], []
+    for p, w, h in sizes:
+        nw, nh = _px(w * factor), _px(h * factor)
+        if nw < 1 or nh < 1:
+            clamped.append(p.name)
+        nw, nh = max(1, nw), max(1, nh)
+        try:
+            with Image.open(p) as im:
+                out = im.convert("RGBA").resize((nw, nh), Image.LANCZOS)
+            # Lossless WebP: the default is lossy q80, which smears cut-out
+            # sprite edges and their alpha — exactly what packed art cannot take.
+            if p.suffix.lower() == ".webp":
+                out.save(p, lossless=True)
+            else:
+                out.save(p)
+        except Exception as e:  # noqa: BLE001 — surface WHERE it stopped
+            return {"error": f"{p.name}: downscale failed ({e}). "
+                             f"{len(done)} sprite(s) were already resampled to "
+                             f"{round(factor * 100)}% ({', '.join(done[:5])}"
+                             f"{'…' if len(done) > 5 else ''}) — this sheet's pile is "
+                             "now at two different scales. Re-upload the originals "
+                             "before saving."}
+        _mirror(p)
+        done.append(p.name)
+        sprites.append({"file": p.name, "w": nw, "h": nh, "was_w": w, "was_h": h})
+
+    return {"sheet": sheet, "factor": factor, "count": len(sprites),
+            "sprites": sprites, "clamped": clamped}
+
+
 def api_export(payload: dict) -> dict:
     """Compose the sheet from the client's current canvas geometry and write
     the selected formats. Stateless: geometry comes entirely from the payload."""
@@ -2354,6 +2442,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_rename_sheet(payload))
             elif path == "/api/unlock-sheet":
                 self._send_json(api_unlock_sheet(payload))
+            elif path == "/api/rescale-sheet":
+                self._send_json(api_rescale_sheet(payload))
             elif path == "/api/delete-sheet":
                 self._send_json(api_delete_sheet(payload))
             elif path == "/api/session":

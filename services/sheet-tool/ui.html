@@ -133,6 +133,7 @@
   button:hover{background:#3b7af0}
   button.sec{background:#33333c}button.sec:hover{background:#44444f}
   button.danger{background:#7a2d2d}button.danger:hover{background:#9a3a3a}
+  button:disabled,button:disabled:hover{background:#2a2a31;color:#666;cursor:not-allowed}
   /* New-sheet dialog (see newSheet() for why the name comes first) */
   .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:100}
   .modal[hidden]{display:none}
@@ -335,6 +336,7 @@
         <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
         <button class="sec wide" onclick="applyCanvas()">Apply size</button>
         <button class="sec wide" onclick="doArrange()" style="margin-top:8px">Auto-arrange unlocked ▦</button>
+        <button class="sec wide" onclick="openDownscale()" style="margin-top:8px" title="Resample the WHOLE sheet — canvas, every region and this sheet's sprite copies — down to a smaller size (e.g. 4K → 1K).">Downscale sheet ⤓</button>
         <span id="arrmsg" class="muted" style="display:block;margin-top:8px"></span>
       </div>
 
@@ -406,6 +408,23 @@
     <div class="field"><label for="newsheet-name">Sheet name</label><input id="newsheet-name" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" oninput="onNewSheetName()"></div>
     <div class="warn" id="newsheet-warn"></div>
     <div class="btns"><button class="sec" onclick="closeNewSheet()">Cancel</button><button onclick="confirmNewSheet()">Create</button></div>
+  </div>
+</div>
+
+<div id="downscale" class="modal" hidden onclick="if(event.target===this) closeDownscale()">
+  <div class="box" role="dialog" aria-labelledby="downscale-title" onkeydown="onDownscaleKey(event)">
+    <h2 id="downscale-title">Downscale sheet</h2>
+    <div class="hint">Resamples the <b>whole sheet</b> by one factor: the canvas, every region rect and
+      this sheet's own sprite copies. Use it to turn a 4K sheet into a 1K one without re-packing it.</div>
+    <div class="field"><label>Preset</label>
+      <span><button class="sec" onclick="dsPreset(2)">½</button>
+      <button class="sec" onclick="dsPreset(4)">¼</button>
+      <button class="sec" onclick="dsPreset(8)">⅛</button></span>
+    </div>
+    <div class="field"><label for="ds-width">Target width</label><input type="number" id="ds-width" min="16" step="1" oninput="onDownscaleInput()"></div>
+    <div class="geo" id="ds-preview" style="white-space:normal;line-height:1.5;margin-bottom:6px"></div>
+    <div class="warn" id="ds-warn"></div>
+    <div class="btns"><button class="sec" onclick="closeDownscale()">Cancel</button><button class="danger" id="ds-go" onclick="confirmDownscale()">Downscale</button></div>
   </div>
 </div>
 
@@ -1097,6 +1116,134 @@ async function doArrange(){
   m.textContent=up.size?(' '+up.size+" didn't fit — enlarge canvas"):' arranged ✓';
   render();
   markDirty();
+}
+
+/* ---------- downscale the whole sheet ----------
+   "4K sheet -> 1K sheet": the canvas, every region rect AND this sheet's own
+   sprite copies are resampled by one factor.
+
+   Scaling the rects alone would NOT be the same picture. compose() fits each
+   source image into its region box and never upscales, so the drawn size is
+   min(box/native, 1): leave 4k art under a 1k cell and every deliberately
+   PADDED region (box bigger than the art) stops being padded and fills its
+   cell instead. So the server resamples the pile first and the geometry
+   follows. That half overwrites the sheet's sprite copies for good, which is
+   what the dialog gates. */
+function dsTarget(){ return parseInt($('ds-width').value) || 0; }
+function dsFactor(){ const t = dsTarget(); return (t > 0 && canvasW > 0) ? t / canvasW : 0; }
+/* Downscale is only ever an in-place re-save of a sheet that IS saved under the
+   name in the box — the same condition doSave() uses for its in-place path. */
+function dsInPlace(){ return !!(loadedPath && isProject && currentName() === loadedName); }
+function dsPreset(div){ $('ds-width').value = Math.max(16, Math.round(canvasW / div)); onDownscaleInput(); }
+function openDownscale(){
+  const m = $('arrmsg');
+  if(!regions.length){ m.className = 'note'; m.textContent = ' Nothing to downscale — this sheet has no sprites.'; return; }
+  const name = activeSheet || sheetName;
+  if(isLocked(name)){
+    m.className = 'err';
+    m.textContent = ' "' + name + '" is read-only (imported verbatim) — downscaling would rewrite its art and every rect. Unlock it first, or Save As a copy.';
+    return;
+  }
+  $('ds-width').value = Math.max(16, Math.round(canvasW / 2));
+  onDownscaleInput();
+  $('downscale').hidden = false;
+  $('ds-width').focus();
+  $('ds-width').select();
+}
+function closeDownscale(){ $('downscale').hidden = true; }
+function onDownscaleKey(e){
+  if(e.key === 'Enter' && e.target.id === 'ds-width'){ e.preventDefault(); confirmDownscale(); }
+  else if(e.key === 'Escape'){ e.preventDefault(); closeDownscale(); }
+}
+function onDownscaleInput(){
+  const f = dsFactor(), pv = $('ds-preview'), wn = $('ds-warn'), go = $('ds-go');
+  const nw = Math.round(canvasW * f), nh = Math.round(canvasH * f);
+  let bad = '';
+  if(!(f > 0)) bad = 'Give a target width.';
+  else if(f >= 1) bad = 'Downscale only — the target must be under ' + canvasW + ' px. Scaling back up cannot bring detail back.';
+  else if(nw < 16 || nh < 16) bad = 'Too small — the canvas would be ' + nw + ' x ' + nh + ' px.';
+  go.disabled = !!bad;
+  if(bad){ pv.textContent = ''; wn.textContent = bad; return; }
+  // Smallest resulting ART, so an over-aggressive factor is visible BEFORE it runs.
+  let sm = null;
+  regions.forEach(r => {
+    const a = Math.max(1, Math.round((r.ow || r.w) * f)), b = Math.max(1, Math.round((r.oh || r.h) * f));
+    if(sm === null || a * b < sm.a * sm.b) sm = {a: a, b: b, r: r};
+  });
+  pv.innerHTML = esc(canvasW + ' x ' + canvasH + ' -> ' + nw + ' x ' + nh + ' px  (' + Math.round(f * 1000) / 10 + '%)')
+    + '<br>' + esc(regions.length + ' sprite(s)' + (sm ? '  smallest: ' + sm.r.name + ' ' + (sm.r.ow || sm.r.w) + ' x ' + (sm.r.oh || sm.r.h) + ' -> ' + sm.a + ' x ' + sm.b : ''));
+  // A cell that bottoms out at 1px can no longer hold its neighbour apart, so say
+  // so BEFORE the run rather than reporting the floor afterwards.
+  const floored = sm && (sm.a < 2 || sm.b < 2)
+    ? 'Too far: "' + sm.r.name + '" bottoms out at ' + sm.a + ' x ' + sm.b + ' px and its cell can collide with the next one. '
+    : '';
+  wn.textContent = floored + 'This OVERWRITES this sheet’s ' + regions.length + ' sprite copies at the new size — the '
+    + 'full-resolution pixels are gone, and scaling back up cannot restore them (re-upload the originals '
+    + 'to undo). Other sheets and the files on your disk are untouched.'
+    + (dsInPlace() ? ' The saved sheet is then re-written in place, on R2 too.' : ' Save when you are happy with it.');
+}
+function confirmDownscale(){
+  const f = dsFactor();
+  if(!(f > 0 && f < 1)) return;
+  const nw = Math.round(canvasW * f), nh = Math.round(canvasH * f);
+  const name = activeSheet || sheetName, inPlace = dsInPlace();
+  if(!confirm('Downscale "' + name + '" from ' + canvasW + ' x ' + canvasH + ' to ' + nw + ' x ' + nh + ' px?'
+    + '\n\nIts ' + regions.length + ' sprite copies are resampled to ' + (Math.round(f * 1000) / 10)
+    + '% and overwritten — the full-resolution pixels are gone, and scaling back up cannot restore them.'
+    + (inPlace ? '\n\nThe saved sheet "' + loadedName + '" is then re-written in place at the new size, on R2 too.' : '')
+    + '\n\nCancel to leave everything as it is.')) return;
+  closeDownscale();
+  runDownscale(f, inPlace);
+}
+/* Scale one region's rect. x/y and w/h come from the SCALED EDGES
+   (round(x*f) and round((x+w)*f)) rather than being scaled apart: rounding a
+   position and a size independently can push a rect a pixel into the neighbour
+   it was packed flush against, which at a heavy factor bleeds one cell into the
+   next. Edge-derived sizes keep every adjacency exact. A rotated region stores
+   its box upright and its FOOTPRINT swapped (h x w), so scale the footprint. */
+function scaleRegionGeom(r, f){
+  const fw = r.rotated ? r.h : r.w, fh = r.rotated ? r.w : r.h;
+  const x0 = Math.max(0, Math.round(r.x * f)), y0 = Math.max(0, Math.round(r.y * f));
+  const nfw = Math.max(1, Math.round((r.x + fw) * f) - x0);
+  const nfh = Math.max(1, Math.round((r.y + fh) * f) - y0);
+  r.x = x0; r.y = y0;
+  if(r.rotated){ r.w = nfh; r.h = nfw; } else { r.w = nfw; r.h = nfh; }
+  fitImg(r);
+}
+async function runDownscale(f, inPlace){
+  const m = $('arrmsg'); m.className = 'muted'; m.textContent = ' downscaling…';
+  const j = await jpost('/api/rescale-sheet', {sheet: activeSheet || sheetName, factor: f});
+  if(j.error){ m.className = 'err'; m.textContent = ' ' + j.error; return; }
+  const by = {}; (j.sprites || []).forEach(s => { by[s.file] = s; });
+  canvasW = Math.max(16, Math.round(canvasW * f));
+  canvasH = Math.max(16, Math.round(canvasH * f));
+  $('cw').value = canvasW; $('ch').value = canvasH;
+  regions.forEach(r => {
+    const s = by[r.src];
+    if(s){                        // native size changed -> re-fit + refetch the thumbnail
+      r.ow = s.w; r.oh = s.h;
+      r._cb = Date.now();
+      delete bboxCache[r.src];    // opaque bounds are in native px
+    }
+    scaleRegionGeom(r, f);
+  });
+  // FX cells are size-slaved to their base; scaled apart they could land a pixel adrift.
+  regions.filter(r => !isFx(r)).forEach(b => fxChildren(b).forEach(c => slaveFxGeom(c, b)));
+  Object.keys(spriteEls).forEach(src => { const r = reg(src); if(r) spriteEls[src].img.src = spriteUrl(r); });
+  sel = null;
+  fitView();
+  syncInspector();
+  markDirty();
+  const tail = (j.clamped && j.clamped.length)
+    ? ' — ' + j.clamped.length + ' sprite(s) hit the 1px floor: ' + j.clamped.slice(0, 3).join(', ')
+    : '';
+  m.className = j.clamped && j.clamped.length ? 'note' : 'ok';
+  m.textContent = ' downscaled to ' + canvasW + ' x ' + canvasH + ' ✓' + tail;
+  // The pile is now at the new scale while the SAVED sheet is still at the old
+  // one — and loading a sheet prefers the loose sprites over re-slicing its
+  // page, so that mismatch would come back as small art in huge cells. Re-save
+  // in place (the dialog said so) whenever there is a saved sheet to re-save.
+  if(inPlace) await runExport(loadedDir);
 }
 
 /* ---------- sheets rail ---------- */
