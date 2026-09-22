@@ -21,6 +21,7 @@
  */
 import { ENV } from './env';
 import { encodePageToKtx2 } from './ktx2Encode';
+import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
 import {
 	copyObject,
 	getObjectBytes,
@@ -107,14 +108,25 @@ export class PageStore {
 			this.written.add(metaKey);
 			const shared: SharedPage = { file, ktx2Width: 0, ktx2Height: 0 };
 			const metaTxt = await getObjectText(metaKey);
-			if (metaTxt) {
-				const m = JSON.parse(metaTxt) as { ktx2File?: string; w?: number; h?: number };
-				if (m.ktx2File && (await objectExists(`${this.deployPrefix}_pages/${m.ktx2File}`))) {
-					shared.ktx2File = m.ktx2File;
-					shared.ktx2Width = m.w ?? 0;
-					shared.ktx2Height = m.h ?? 0;
-					this.written.add(`${this.deployPrefix}_pages/${m.ktx2File}`);
-				}
+			const m = metaTxt
+				? (JSON.parse(metaTxt) as { ktx2File?: string; w?: number; h?: number; enc?: number })
+				: null;
+			// Reuse the twin only when it was produced by the CURRENT encoder. The cache key is the
+			// source page's ETag+size, which says nothing about how the twin was made — so without
+			// this check a fix to the encoder never reaches a project whose art has not changed, and
+			// the broken twin is served forever. See `KTX2_ENCODER_REVISION`.
+			const reusable =
+				!!m?.ktx2File &&
+				m.enc === KTX2_ENCODER_REVISION &&
+				(await objectExists(`${this.deployPrefix}_pages/${m.ktx2File}`));
+			if (reusable && m) {
+				shared.ktx2File = m.ktx2File;
+				shared.ktx2Width = m.w ?? 0;
+				shared.ktx2Height = m.h ?? 0;
+				this.written.add(`${this.deployPrefix}_pages/${m.ktx2File}`);
+			} else if (ENV.KTX2_ENCODE) {
+				await this.encodeTwin(sourceKey, hash, shared);
+				await this.writeMeta(metaKey, shared);
 			}
 			this.byContent.set(contentKey, shared);
 			return shared;
@@ -123,25 +135,38 @@ export class PageStore {
 		if (!(await copyObject(sourceKey, pageKey))) return null;
 		this.written.add(pageKey);
 		const shared: SharedPage = { file, ktx2Width: 0, ktx2Height: 0 };
-		if (ENV.KTX2_ENCODE) {
-			const src = await getObjectBytes(sourceKey);
-			const encoded = src ? await encodePageToKtx2(src.body) : null;
-			if (encoded) {
-				const ktx2File = `${hash}.ktx2`;
-				await putObjectBytes(`${this.deployPrefix}_pages/${ktx2File}`, encoded.bytes, 'image/ktx2');
-				this.written.add(`${this.deployPrefix}_pages/${ktx2File}`);
-				shared.ktx2File = ktx2File;
-				shared.ktx2Width = encoded.width;
-				shared.ktx2Height = encoded.height;
-			}
-		}
+		if (ENV.KTX2_ENCODE) await this.encodeTwin(sourceKey, hash, shared);
+		await this.writeMeta(metaKey, shared);
+		this.byContent.set(contentKey, shared);
+		return shared;
+	}
+
+	/** Encode the KTX2 twin for `sourceKey` and record it on `shared`. No-op on any failure — a
+	 *  missing twin degrades to the WebP/PNG (parity), never a broken build. */
+	private async encodeTwin(sourceKey: string, hash: string, shared: SharedPage): Promise<void> {
+		const src = await getObjectBytes(sourceKey);
+		const encoded = src ? await encodePageToKtx2(src.body) : null;
+		if (!encoded) return;
+		const ktx2File = `${hash}.ktx2`;
+		await putObjectBytes(`${this.deployPrefix}_pages/${ktx2File}`, encoded.bytes, 'image/ktx2');
+		this.written.add(`${this.deployPrefix}_pages/${ktx2File}`);
+		shared.ktx2File = ktx2File;
+		shared.ktx2Width = encoded.width;
+		shared.ktx2Height = encoded.height;
+	}
+
+	/** The sidecar the content-cache reads back. `enc` is what makes an encoder fix propagate. */
+	private async writeMeta(metaKey: string, shared: SharedPage): Promise<void> {
 		await putObjectText(
 			metaKey,
-			JSON.stringify({ ktx2File: shared.ktx2File, w: shared.ktx2Width, h: shared.ktx2Height }),
+			JSON.stringify({
+				ktx2File: shared.ktx2File,
+				w: shared.ktx2Width,
+				h: shared.ktx2Height,
+				enc: KTX2_ENCODER_REVISION,
+			}),
 			'application/json',
 		);
 		this.written.add(metaKey);
-		this.byContent.set(contentKey, shared);
-		return shared;
 	}
 }

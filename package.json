@@ -1,52 +1,53 @@
 {
-  "name": "twist-turbo",
-  "version": "0.0.0",
-  "private": true,
+	"name": "twist-turbo",
+	"version": "0.0.0",
+	"private": true,
 	"license": "MIT",
-  "scripts": {
-    "lint": "eslint apps packages services",
-    "lint:workspaces": "turbo run lint",
-    "check:path-imports": "node scripts/check-path-imports.mjs",
-    "check:ways": "node scripts/check-ways-evaluator.mjs && node scripts/check-ways-protocol.mjs",
-    "check:cluster": "node scripts/check-cluster-evaluator.mjs",
-    "check:scatter": "node scripts/check-scatter-evaluator.mjs",
-    "check:freespins": "node scripts/check-freespin-protocol.mjs",
-    "check:stake": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-stake-consistency.mjs",
-    "check:rgs": "pnpm check:ways && pnpm check:cluster && pnpm check:scatter && pnpm check:freespins && pnpm check:stake",
-    "format": "turbo run format",
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "preview": "turbo run preview",
-    "real-build-storybook": "turbo run real-build-storybook",
-    "storybook": "turbo run storybook",
-    "publish-packages": "turbo run build test && pnpm lint && changeset version && changeset publish",
-    "e2e": "turbo run e2e",
-    "e2e-smoke": "turbo run e2e-smoke",
-    "e2e-mobile": "turbo run e2e-mobile",
-    "gen:flow-vocab": "node scripts/gen-flow-vocabulary.mjs",
-    "gen:flow-vocab:check": "node scripts/gen-flow-vocabulary.mjs --check",
-    "gen:flow-v2-sounds": "node scripts/gen-flow-v2-sound-enums.mjs",
-    "gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check",
-    "check:undefined-names": "node scripts/check-undefined-names.mjs",
-    "check:big-win-cue": "node scripts/check-big-win-cue.mjs",
-    "check:page-store": "node scripts/check-page-store-shared.mjs"
-  },
-  "dependencies": {
-    "eslint": "9.39.5",
-    "eslint-config-custom": "workspace:*",
-    "prettier": "3.5.2",
-    "prettier-plugin-svelte": "3.3.3",
-    "turbo": "2.4.4",
-    "typescript": "5.8.3"
-  },
-  "engines": {
-    "node": ">=22.16.0"
-  },
-  "packageManager": "pnpm@10.5.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "svelte-preprocess"
-    ]
-  }
+	"scripts": {
+		"lint": "eslint apps packages services",
+		"lint:workspaces": "turbo run lint",
+		"check:path-imports": "node scripts/check-path-imports.mjs",
+		"check:ways": "node scripts/check-ways-evaluator.mjs && node scripts/check-ways-protocol.mjs",
+		"check:cluster": "node scripts/check-cluster-evaluator.mjs",
+		"check:scatter": "node scripts/check-scatter-evaluator.mjs",
+		"check:freespins": "node scripts/check-freespin-protocol.mjs",
+		"check:stake": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-stake-consistency.mjs",
+		"check:rgs": "pnpm check:ways && pnpm check:cluster && pnpm check:scatter && pnpm check:freespins && pnpm check:stake",
+		"format": "turbo run format",
+		"dev": "turbo run dev",
+		"build": "turbo run build",
+		"preview": "turbo run preview",
+		"real-build-storybook": "turbo run real-build-storybook",
+		"storybook": "turbo run storybook",
+		"publish-packages": "turbo run build test && pnpm lint && changeset version && changeset publish",
+		"e2e": "turbo run e2e",
+		"e2e-smoke": "turbo run e2e-smoke",
+		"e2e-mobile": "turbo run e2e-mobile",
+		"gen:flow-vocab": "node scripts/gen-flow-vocabulary.mjs",
+		"gen:flow-vocab:check": "node scripts/gen-flow-vocabulary.mjs --check",
+		"gen:flow-v2-sounds": "node scripts/gen-flow-v2-sound-enums.mjs",
+		"gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check",
+		"check:undefined-names": "node scripts/check-undefined-names.mjs",
+		"check:ktx2-alignment": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-alignment.mjs",
+		"check:big-win-cue": "node scripts/check-big-win-cue.mjs",
+		"check:page-store": "node scripts/check-page-store-shared.mjs"
+	},
+	"dependencies": {
+		"eslint": "9.39.5",
+		"eslint-config-custom": "workspace:*",
+		"prettier": "3.5.2",
+		"prettier-plugin-svelte": "3.3.3",
+		"turbo": "2.4.4",
+		"typescript": "5.8.3"
+	},
+	"engines": {
+		"node": ">=22.16.0"
+	},
+	"packageManager": "pnpm@10.5.0",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"svelte-preprocess"
+		]
+	}
 }
