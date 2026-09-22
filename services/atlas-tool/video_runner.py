@@ -1898,8 +1898,10 @@ def _project_prefixes() -> list[str]:
     folder names only, so finding which projects exist costs a handful of calls
     rather than paging the whole asset repo."""
     out: list[str] = []
-    for client in storage.list_prefixes(""):
-        out += storage.list_prefixes(client)
+    # A best-effort sweep: a short listing just means fewer projects scanned this
+    # boot, whereas an exception would end the recovery entirely.
+    for client in storage.list_prefixes("", complete=False):
+        out += storage.list_prefixes(client, complete=False)
     return out
 
 
