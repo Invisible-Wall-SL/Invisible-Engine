@@ -10,7 +10,14 @@ Works today on `main` / live:
 - **Project-file workflow (B19)** — Sheets rail with Load / Refresh / Reset, plus **Save / Save As** and blank/duplicate-name guards.
 - **New sheet names itself first** — `New sheet…` opens a name dialog before clearing anything; a name already in the rail is flagged live and confirmed on Create, and **Save As** asks before replacing an existing sheet of the same name (the server writes whatever name it is given).
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
-- **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging.
+- **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
+  clears and verifies **every tree the sheet owns alone** — `sheets/`, `sheet_src/`, and the Atlas
+  Maker's slice mirror `input/refs/atlasslices/<sheet>/` — plus both manifest spellings, asks with
+  the strict `storage.head` (never `exists`, which reads a throttle as absence), and refuses when
+  the check cannot be COMPLETED: unverifiable is not verified-clean. `input/refs/useroutput_<region>.png`
+  is deliberately left alone — it is keyed by REGION name and shared across the project, so deleting
+  it would blank a surviving sheet. `deploy/` is a build artifact and self-heals on the next Export
+  Symbols; the delete note says so when a deployed copy is still standing.
 - **FX-layer picker** — per-sprite checkboxes (`shine`/`glow`/`shadow`/`blur`/`zoom`/`colour`) spawn same-size sibling cells named for the Atlas Maker's FX convention, slaved to the base (cascade rename/resize/delete); export propagates each cell's `mode` so the Atlas Maker opens it in the matching local-FX mode.
 - **Verbatim `.plist` import** — `POST /api/import-plist` (Import tab) takes a cocos2d
   format-3 `.plist` + its page and reuses the atlas **as is**: the page is written **byte-for-byte**
@@ -45,6 +52,46 @@ Works today on `main` / live:
 - None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
 
 ## Recent changes
+- 2026-09-22 — **A deleted sheet stayed openable in the Atlas Maker — and came BACK.** Reported as
+  "I deleted a locked sheet, it left the list, but I can still open its manifest in the Atlas Maker".
+  Probing R2 directly settled what was actually true, and it was not what either half of the report
+  suggested.
+  - **The delete worked.** `sheets/S_AutomationTest/` and `sheet_src/S_AutomationTest/` were both
+    empty at the source, and there is no database row to leak — sheets live only in R2 (the
+    launcher's Drizzle schema has no sheets table), so the rail dropping the sheet was real
+    evidence. What survived was ONE object: the manifest, re-stamped with this tool's
+    `output_override`/`fit_mode` and dated **after** the delete. The Atlas Maker had put it back.
+  - **Root cause is one-way mirroring, not the delete.** `pull_prefix` only ever DOWNLOADS, so a
+    manifest deleted at the source lives on in the Atlas Maker's staging forever; its picker keeps
+    offering the sheet, and opening it re-saves and re-mirrors the stale copy into R2. Fixed on that
+    side (`cloud_paths.prune_manifests`) — see the Atlas Maker's status file.
+  - **Two real holes in the delete's verification, both closed.** It re-listed `sheets/` and the
+    manifests but **not** `sheet_src/`, so a silent failure there passed — the bucket sweep found
+    exactly that orphan sitting in `unassigned/cloud/sheet_src/S_UI_StaticElements/` (17 sprites,
+    ~2.4 MB, no page and no manifest left to reach them by). And it asked with `storage.exists`,
+    which folds EVERY error into "not there" — a throttled HEAD read as a successful delete, which
+    is the precise false-pass the re-list was added to prevent. Now: `sheet_src/` and
+    `input/refs/atlasslices/<sheet>/` are deleted and verified too, `storage.head` replaces
+    `exists`, and a check that cannot be completed (or a delete-phase listing that raises) returns
+    an actionable refusal instead of a 500 or a lie.
+  - **Sheet-name namespacing is NOT ownership.** The Atlas Maker's slice mirror
+    `input/refs/atlasslices/<sheet>/` looks sheet-owned, but `⧉ Duplicate atlas` copies
+    `shape_ref`/`style_ref` VERBATIM (`_DUPLICATE_DROP` does not clear them), so a derived atlas
+    keeps pointing at the tree of the sheet it was copied from. Not theoretical — a bucket scan
+    found `s_new_boot_idle_water` → `atlasslices/S_New_Boot` (25 refs),
+    `s_new_gallion_idle_water` → `atlasslices/S_New_Gallion_Idle` (25), and
+    `mmBG` → `atlasslices/SingleImage` (176). Deleting the tree with the sheet would have blanked
+    every one of those. It is now removed only when `_slice_tree_users` finds no other manifest
+    referencing it, and a scan that cannot be completed keeps it; the note says which case applied.
+  - **The two refusals say which state you are in**, because they are not the same state: a
+    delete-phase listing that breaks leaves R2 *half*-emptied ("stopped part-way"), while a
+    verify-phase failure means the deletes almost certainly all landed and only the confirming read
+    failed. Both are idempotent — running the delete again finishes or settles it.
+  - `test_delete_sheet.py` covers all of it with a fake R2 that injects per-prefix and Nth-call
+    failures. The unguarded delete-phase `list_keys` was found BY that test, not before it.
+  - **Not fixed here:** this tool's own `hydrate` still has no prune, so a manifest deleted from the
+    Atlas Maker side can linger in Sheet Maker staging — the mirror image of the bug above. See the
+    Atlas Maker's status file.
 - 2026-09-22 — **Whole-sheet downscale (4K → 1K).** New `Downscale sheet ⤓` in the Canvas-size
   card + `POST /api/rescale-sheet`. It resamples the **art**, not just the rects, and that is the
   whole point: `packer.compose` draws each sprite at `min(cell/native, 1)` and never upscales, so

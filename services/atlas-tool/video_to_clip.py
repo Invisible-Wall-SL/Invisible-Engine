@@ -355,7 +355,12 @@ def _write_page(
     manifest = _build_manifest(name, packed, regions, page_key, tp_key, export_prefix)
     man_dir = Path(pp["manifest_dir"])
     man_dir.mkdir(parents=True, exist_ok=True)
-    (man_dir / f"atlas_manifest_{name}.json").write_text(
+    man_name = f"atlas_manifest_{name}.json"
+    # Claimed from before the local write — see the same guard in video_to_refs.
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    project_paths.note_authored(ck, pk, man_name)
+    (man_dir / man_name).write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     storage.put(page_key, page_bytes, "image/png")
@@ -363,6 +368,7 @@ def _write_page(
     storage.put(manifest_key,
                 json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8"),
                 "application/json")
+    project_paths.clear_authored(ck, pk, man_name)
 
     return {
         "manifest_key": manifest_key,

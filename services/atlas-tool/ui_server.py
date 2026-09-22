@@ -187,6 +187,21 @@ def _mirror(p: Path) -> None:
         return
     try:
         rel = Path(p).resolve().relative_to(staging_root.resolve()).as_posix()
+        # A manifest is claimed BEFORE the push and released only once the push
+        # is CONFIRMED, so the claim means "not known to be in R2" rather than
+        # "this tool wrote it once". The difference is load-bearing: an add-only
+        # claim would exempt every manifest we have ever saved from
+        # `prune_manifests`, which is exactly the sheet the user goes on to
+        # delete in the Sheet Maker — the ghost would then survive the prune
+        # built to remove it.
+        name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
+        if name and "/" not in name:
+            ck = project_paths.r2_slug(project_paths.client_name())
+            pk = project_paths.r2_slug(project_paths.project_name())
+            project_paths.note_authored(ck, pk, name)
+            if storage.push_file(Path(p), f"{r2_prefix}/{rel}"):
+                project_paths.clear_authored(ck, pk, name)
+            return
         storage.push_file(Path(p), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001 — best-effort mirror
         pass
@@ -2184,9 +2199,14 @@ def load_manifest() -> dict:
         _load_warning = ""
         return m
     except FileNotFoundError:
-        _load_warning = (f"Manifest \"{mp.name}\" was not found (renamed or "
-                         f"deleted). Showing an empty instance — pick another "
-                         f"manifest from Settings, or Save to recreate it.")
+        # Deliberately does NOT offer "Save to recreate it". The usual reason a
+        # manifest is missing is that it was deleted AT THE SOURCE (a sheet
+        # removed in the Sheet Maker), and Saving here pushes it straight back
+        # into R2 — resurrecting the very thing the author deleted.
+        _load_warning = (f"Manifest \"{mp.name}\" is not there (renamed, or "
+                         f"deleted — possibly in another tool). Showing an "
+                         f"empty instance — pick another manifest from "
+                         f"Settings.")
     except (ValueError, OSError) as e:
         _load_warning = (f"Manifest \"{mp.name}\" could not be read "
                          f"({type(e).__name__}: {e}). Showing an empty "
@@ -2198,6 +2218,12 @@ def load_manifest() -> dict:
 def save_manifest(data: dict) -> None:
     mp = manifest_path()
     mp.parent.mkdir(parents=True, exist_ok=True)
+    # Claimed BEFORE the write, not just before the push: a prune landing between
+    # the two would unlink the file we just wrote, and the push would then find
+    # nothing to send and never release the claim.
+    project_paths.note_authored(
+        project_paths.r2_slug(project_paths.client_name()),
+        project_paths.r2_slug(project_paths.project_name()), mp.name)
     mp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     _mirror(mp)
 
@@ -2213,13 +2239,41 @@ def _refresh_manifest_from_r2(sel: str) -> None:
     may be stale. Loading — and worse, auto-seed re-SAVING — a stale staged
     manifest would push it back to R2 and overwrite the Sheet Maker's fresh
     export. Two exact GETs, only on a real switch; best-effort: an R2 miss or
-    outage keeps the local copy (never blanks a working manifest)."""
+    outage keeps the local copy (never blanks a working manifest).
+
+    This is also where a manifest DELETED at the source is caught. `hydrate`'s
+    prune only runs on boot and on ↻ Refresh, so in a long-lived container a
+    sheet deleted in the Sheet Maker stays in the picker until someone presses a
+    button — and opening it re-saves it back into R2. Activation is the moment
+    that matters, and a `head` here is authoritative in a way the GET below is
+    not: `get` folds a timeout into the same `None` as a 404, while `head`
+    returns None ONLY for a real 404. So absence confirmed by `head` drops the
+    staged copy; anything else keeps it."""
     name = Path(str(sel).replace("\\", "/")).name
     if not name:
         return
     r2_prefix = str(R2_PREFIX)
     if not r2_prefix:
         return
+    try:
+        if storage.head(f"{r2_prefix}/manifests/{name}") is None:
+            # Absent from R2 has TWO causes, and only one of them is a ghost.
+            # A manifest written here whose mirror failed is also absent — and
+            # it is the ONLY copy, so unlinking it destroys the user's work and
+            # then blames another tool for it. Every delete of a staged manifest
+            # asks the same question `prune_manifests` does.
+            ck = project_paths.r2_slug(project_paths.client_name())
+            pk = project_paths.r2_slug(project_paths.project_name())
+            if project_paths.is_authored(ck, pk, name):
+                print(f"[atlas] {name} is not in R2 but was written here and "
+                      f"never pushed — keeping the local copy", flush=True)
+                return
+            (MANIFEST_DIR / name).unlink(missing_ok=True)
+            print(f"[atlas] manifest deleted at the source, dropped stale "
+                  f"staging copy: {name}", flush=True)
+            return
+    except Exception:  # noqa: BLE001 — unreadable is not absent; fall through
+        pass
     try:
         blob = storage.get(f"{r2_prefix}/manifests/{name}")
         if blob:
@@ -3979,12 +4033,15 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
     if not prefix:
         return None  # local/dev with no bucket: nothing to point at
     key = f"{prefix}/atlas/{page.name}"
-    try:
-        storage.push_file(page, key)
-    except Exception as e:  # noqa: BLE001 — a failed PUT must not rewrite fields
-        return (f"⚠ Composed page not mirrored to R2 ({type(e).__name__}: {e}) "
-                f"— the manifest still names its previous page rather than a key "
-                f"that isn't in the bucket." + tail)
+    # A failed PUT must not rewrite the page fields. This used to be an
+    # `except` around the push, which never fired: `push_file` swallowed every
+    # error and returned None, so the guard was dead and a failed mirror still
+    # repointed the manifest at a key that is not in the bucket. It reports
+    # success now, so ask it.
+    if not storage.push_file(page, key):
+        return ("⚠ Composed page not mirrored to R2 — the manifest still names "
+                "its previous page rather than a key that isn't in the bucket."
+                + tail)
     with _manifest_lock:
         m = _read_manifest_at(mp) or {}
         atlas = m.setdefault("atlas", {})
@@ -9222,10 +9279,15 @@ class Handler(BaseHTTPRequestHandler):
         return "✓ " + (tail or "sliced")
 
     def _refresh(self) -> str:
-        """Re-pull the ACTIVE (client, project) subtree from R2 into staging on
-        demand, so manifests another tool just exported (e.g. a Sheet Maker
-        save landing in the SHARED <c>/<p>/manifests/) show up without a
-        service restart or a project switch.
+        """Re-sync the ACTIVE (client, project) subtree with R2 on demand, so a
+        manifest another tool just exported (e.g. a Sheet Maker save landing in
+        the SHARED <c>/<p>/manifests/) shows up — and one another tool DELETED
+        leaves — without a service restart or a project switch.
+
+        Both directions matter: this used to pull only, so a sheet deleted in the
+        Sheet Maker stayed in our picker and, if opened, was mirrored back into
+        R2 — resurrecting it. `hydrate` now reconciles the deletes too and
+        returns how many it dropped.
 
         The active context is already set on this request thread by
         do_POST -> _resolve_context(); we re-derive the same (client_key,
@@ -9241,8 +9303,8 @@ class Handler(BaseHTTPRequestHandler):
                 project_paths.client_name())
             proj_key = project_paths.r2_slug(
                 project_paths.project_name())
-            project_paths.hydrate(client_key, proj_key, Path(STAGING_ROOT),
-                                  force=True)
+            pruned = project_paths.hydrate(client_key, proj_key,
+                                           Path(STAGING_ROOT), force=True)
             # Also re-pull the SHARED blueprint library so a newly-seeded /
             # uploaded blueprint shows up in the pipeline picker without a
             # service restart (blueprints.hydrate() is otherwise once-per-
@@ -9256,7 +9318,18 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 — transient R2 issue, not fatal
             return ("↻ Refresh from R2 hit a snag — try again in a moment "
                     f"({type(e).__name__}: {e})")
-        return f"✓ Refreshed from R2 — {n} manifest(s) available"
+        note = f"✓ Refreshed from R2 — {n} manifest(s) available"
+        if pruned:
+            note += (f"; dropped {pruned} deleted at the source (e.g. a sheet "
+                     "removed in the Sheet Maker)")
+        # A manifest whose mirror failed is held back from the prune until a
+        # later save pushes it. Nothing retries on its own, so without this the
+        # symptom is a ghost that will not go and no way to see why.
+        held = project_paths.authored_count(client_key, proj_key)
+        if held:
+            note += (f"; {held} not yet mirrored to R2 (kept local — save again "
+                     "to push)")
+        return note
 
     @staticmethod
     def _blueprint_enum_pairs() -> set:
