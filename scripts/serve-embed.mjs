@@ -38,9 +38,16 @@
  *
  * See `docs/design/delivery-builds.md`.
  */
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+	createReadStream,
+	existsSync,
+	readFileSync,
+	readdirSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** This script lives in the engine's `scripts/`, so the delivery profiles sit beside it —
@@ -114,6 +121,34 @@ const resolveRgs = (value) => {
 };
 
 const rgsOrigin = resolveRgs(arg('--rgs', ''));
+
+/**
+ * `--record <file>`: every build file this server actually SERVES, written on exit.
+ *
+ * Recorded HERE rather than read out of the browser because the server sees every request
+ * whatever made it — howler fetches its own audio, the KTX2 transcoder pulls its wasm, a spine
+ * atlas pulls its page — and several of those never appear in a Performance entry the way a
+ * plain `fetch` does. `scripts/audit-build.mjs --fetched <file>` turns this into the list of
+ * files a build ships and never loads.
+ *
+ * It is a FLOOR, never a proof of deadness: it can only record what this session reached, so a
+ * feature nobody triggered looks identical to one nothing loads. The audit says so too.
+ */
+const recordTo = arg('--record', '');
+const served = new Set();
+
+/** Written on every NEW path rather than at exit: this server is always stopped by killing it, and
+ *  on Windows a forced kill runs no signal handler — an exit-only flush recorded nothing at all.
+ *  A few hundred small writes over a session is not a cost worth being clever about. */
+const recordServed = (rel) => {
+	if (!recordTo || served.has(rel)) return;
+	served.add(rel);
+	writeFileSync(
+		resolve(process.cwd(), recordTo),
+		`${JSON.stringify([...served].sort(), null, 1)}
+`,
+	);
+};
 
 const PREFIX = `/cdn/${brand}/games/${version}/${alias}/`;
 const PAGE_PATH = '/operator/';
@@ -234,7 +269,7 @@ const page = () => `<!doctype html>
 </html>
 `;
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
 	const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
 
 	if (path === PAGE_PATH || path === PAGE_PATH.slice(0, -1)) {
@@ -283,8 +318,13 @@ createServer((req, res) => {
 		'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
 		'cache-control': 'no-store',
 	});
+	// `normalize` hands back BACKSLASHES on Windows; the audit compares against POSIX-separated
+	// build paths, so record the same shape or every entry silently fails to match.
+	recordServed((rel || 'game.js').split(sep).join('/'));
 	createReadStream(file).pipe(res);
-}).listen(port, () => {
+});
+
+server.listen(port, () => {
 	console.info(
 		`\n  Delivery build: ${buildDir}\n` +
 			`  Operator page:  http://localhost:${port}${PAGE_PATH}\n` +
