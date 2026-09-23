@@ -443,10 +443,29 @@ function scaleAtlasCoordLine(line: string, sx: number, sy: number): string {
  * Rewrite an atlas for the KTX2 variant: swap each page-name line to its `.ktx2` twin, and — for
  * a page that was DOWNSCALED — rewrite its `size:` line and rescale every following region
  * coordinate by the same factor, so the UVs (rect ÷ page-size) are unchanged and regions render
- * identically at lower resolution. Pages that weren't encoded keep their original name + coords.
+ * identically at lower resolution.
+ *
+ * A page with NO twin falls back to `webpByPage` — the SAME shared `_pages/` ref the WebP atlas
+ * uses — and only to its original name when the bundle was not deduped at all (no `pageStore`,
+ * i.e. pages really were copied next to the atlas).
+ *
+ * **That fallback is the whole reason this takes `webpByPage`, and it shipped broken without it.**
+ * Only pages over `MIN_ENCODE_PIXELS` earn a twin, so a rig whose atlas mixes one big page with a
+ * small one — a Rigger text page (`rigtext-*.png`, e.g. 990×96) is the common case — emitted a
+ * `.ktx2.atlas` naming that small page as if it sat beside the atlas, while `PageStore` had moved
+ * it to `_pages/`. It 404'd, spine then failed the whole bundle (`key "R_BuyBonus" is not found in
+ * loadedAssets`), and because the WebP atlas rewrites EVERY page the desktop tier looked perfect —
+ * so the Buy Feature button and a cinematic were missing on the compressed tier ONLY, which is the
+ * tier that exists for iPhones. Coords are untouched on this path: the WebP page is full
+ * resolution, so `sx`/`sy` stay 1.
+ *
  * Mirrors {@link atlasPageNames}' page/property/region line classification.
  */
-function rewriteAtlasForKtx2(atlasText: string, ktx2ByPage: Map<string, Ktx2Page>): string {
+function rewriteAtlasForKtx2(
+	atlasText: string,
+	ktx2ByPage: Map<string, Ktx2Page>,
+	webpByPage: Map<string, string>,
+): string {
 	const out: string[] = [];
 	let expectPage = true;
 	let sx = 1;
@@ -476,10 +495,11 @@ function rewriteAtlasForKtx2(atlasText: string, ktx2ByPage: Map<string, Ktx2Page
 		// A non-indented, colon-free line: a page name (when a page is expected) or a region name.
 		if (expectPage) {
 			expectPage = false;
-			const twin = ktx2ByPage.get(line.trim());
+			const pageName = line.trim();
+			const twin = ktx2ByPage.get(pageName);
 			sx = sy = 1;
 			pending = twin ?? null;
-			out.push(twin ? twin.name : line);
+			out.push(twin ? twin.name : (webpByPage.get(pageName) ?? line));
 			continue;
 		}
 		out.push(line); // region name — unchanged
@@ -904,12 +924,13 @@ export async function exportSpineBundle(opts: {
 	);
 	written.push(`${deployPrefix}${dir}/${entry.atlas_file}`);
 
-	// Emit a second `.atlas` pointing at the KTX2 twins (falling back to the original page for
-	// any that weren't encoded). A downscaled page also has its region coords rescaled so UVs
-	// stay identical (see `rewriteAtlasForKtx2`). The game loads it on the low-memory tier.
+	// Emit a second `.atlas` pointing at the KTX2 twins (falling back to the shared WebP page for
+	// any that weren't encoded — see `rewriteAtlasForKtx2`, where that fallback is load-bearing).
+	// A downscaled page also has its region coords rescaled so UVs stay identical. The game loads
+	// this on the low-memory tier.
 	let ktx2Atlas: string | undefined;
 	if (ktx2ByPage.size > 0) {
-		const rewritten = rewriteAtlasForKtx2(atlasText, ktx2ByPage);
+		const rewritten = rewriteAtlasForKtx2(atlasText, ktx2ByPage, webpByPage);
 		const ktx2AtlasFile = entry.atlas_file.replace(/\.atlas$/i, '.ktx2.atlas');
 		await putObjectText(
 			`${deployPrefix}${dir}/${ktx2AtlasFile}`,
