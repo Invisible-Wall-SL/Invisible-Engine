@@ -44,6 +44,8 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
    - **✅ STEP 1 DONE — the art export runs concurrently.** Profiled: `art` was **90.2s of the 93.3s assemble** and everything else hides under it (`symbols` 29.1s, `flipbooks` 16.8s, `rigFx` 5.3s, `effects` 3.5s, rest <2.4s). Inside `art`: `art:manifests` 50.3s over 41 sheets (~1.2s each), `art:spines` 14.1s over 9 bundles, `art:images` 0, and ~26s in the untimed prologue before the first `phase()`. **None of it is compute** — `exportManifest` makes ~4-5 *sequential* R2 round-trips per sheet inside a plain `for…await`. Both loops now go through `mapWithConcurrency` (new `server/concurrency.ts`, width 6 — bounded because the launcher OOMs during bake and each task can hold a page + KTX2-encode it).
      - Three hazards had to be closed first, all real: (a) `usedStems` was a **check-then-act with two awaits inside the window**, so concurrent sheets could both claim `foo` and both write to `editor-art/foo/` — shipped art overwriting shipped art; stems are now assigned in a synchronous planning pass (`plannedStems`) so they also stay a pure function of the doc rather than of R2 completion order; (b) `PageStore.ensure` was not single-flighted, so two sheets sharing a page would both copy **and both KTX2-encode** it — now joined per source key; (c) the spine loop got the same plan-then-execute split. `scripts/verify-art-export-concurrency.mjs` asserts input-order results, bounded width, real overlap, fail-loud, and — importantly — that the OLD claim-after-await ordering genuinely collides.
      - ⚠️ Behaviour change: a sheet that bails after claiming its stem now consumes it, so a skipped sheet can leave a `_2` gap in filenames. Harmless (content-hashed, index-driven), and the alternative is the race.
+   - **MEASURED LIVE after it shipped (#756 + #757): 93.3s → 31.8s / 32.2s**, and the export's output is unchanged — 41 sheets, 9 spines, 0 missing, 0 collisions, **41 distinct stems** (the check that the stem race is really closed). The full 195,467-byte payload is now **byte-identical** across two consecutive concurrent assembles, which #757 had to add a canonical sort for: `sheets`/`spines` are filled by side-effecting `push`es, so they landed in completion order until then. That byte-stability is a prerequisite for the next item, not a nicety.
+   - **The call made here — profile `symbols` before touching it — was the right one**, and STEP 2 below says why: the assumption that it shared `art`'s sequential-R2 shape was only two thirds true, and the third that was not is the loop that must NOT be parallelised. Assumptions had already lost twice on this bug by that point.
    - **✅ STEP 2 DONE — `symbols` profiled (#762), and the result redirects the plan.** `symbols` = 28.4s, of which **`symbols:spines:bundles` = 27.9s (98%)**. Everything else is noise: prune 98ms, spines:index 79ms, doc 63ms, sheets:pinned 43ms, and **`sheets:scan` = 0ms**. The early-break candidate scan — the one loop that could NOT be safely parallelised, because it stops at the first covering set — turns out to cost nothing. So the remaining symbols work is the easy, map-shaped kind: `refs.spineKeys` through `mapWithConcurrency`, exactly as `art:spines` was done.
    - ⚠️ **But fixing `symbols` ALONE buys almost nothing, and that is the important finding.** `art` and `symbols` run in PARALLEL and are now nearly equal — art 29.6s vs symbols 28.4s — so the assemble is `max(art, symbols, flipbooks)` and would stay ~30s. **Both have to move together.** Post-#756 breakdown:
 
@@ -58,6 +60,36 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
      | flipbooks | 16.8s | 18.2s | untouched |
 
      The concurrency delivered where it was applied (manifests 5.9×, spines 3.7×). What is left is three roughly equal blocks: **symbols:spines:bundles 27.9s**, **art's untimed prologue ~17.2s** (everything before the first `phase()` at `editorArtExport.ts` — doc + config load, the component/def walk, the effects/clips walks, region boxes; it needs its own timers before anyone guesses), and **flipbooks 18.2s**. Clearing all three lands around ~20s; the **10s TTL** finish line still needs the read-path exports gone, not just more concurrency.
+   - **✅ STEP 3 DONE — the last sequential loops overlap (#776, #782, #784). The assemble is ~25.5s.**
+     Measured quiet (60s apart, because back-to-back assembles contend with each other and inflate
+     every phase at once — a 53s sample with `bootSplash` up 6× is self-inflicted load, not a
+     regression): **25.5 / 25.6 / 26.1s**.
+
+     | | assemble |
+     |---|---|
+     | before any of this | 83-97s |
+     | art concurrency (#756) | ~32s |
+     | symbols (#776) | ~35s — **no change**, art was the ceiling |
+     | reachability dedup (#782) | ~35s — **no change**, the duplicate ran in PARALLEL |
+     | sequential loops (#784) | **~25.5s** |
+
+     What #784 moved: `art:clips:walk` 10.1s → **1.8s**, `flipbooks` 19.5s → **6.2s** (its `doc`
+     9.0s → 1.4s and `write` 8.4s both fell out of the top phases).
+
+     ⚠️ **The two lessons worth keeping, because two of five changes moved nothing.** (a) A fix only
+     counts if it is on the CRITICAL PATH: `art` and `symbols` run in parallel, so halving symbols
+     while art sat at ~29s bought zero. (b) Removing DUPLICATED work that ran CONCURRENTLY saves R2
+     load and memory, not wall clock — #782 deleted a genuine duplicate (`flipbooks:reachability`
+     8.5s → 1.5s, so the join provably worked) and the total did not move, because the remaining
+     copy was still the same 10s on art. Only SEQUENTIAL work is a latency win.
+
+   - **Where it stands / what is left.** `art` is 23.6s of the 25.5s and still the ceiling, now
+     dominated by `art:manifests` at 9.1s — which is already 6-wide, so widening further is
+     diminishing and the launcher OOMs during bake. The original failure is solved regardless: at
+     25.5s the client's 150s cap and 210s budget have ~6× headroom, versus the 90s budget that could
+     not cover one 93s assemble. **The remaining prize is different in kind** — getting under the
+     **10s cache TTL**, where repeat boots become instant instead of paying 25s every time. That
+     needs the exports off the read path (this item's actual goal), not more parallelism.
    - **⚠️ The 10s cache TTL is now worthless for a real project.** It is measured from when the assemble READ its data, so a 90s assemble is already 9× past the TTL the moment it lands: it is served to its own awaiters and then discarded, and **every boot pays the full 90s**. Only near-empty projects ever see a HIT. Raising the TTL is not a free fix (the module comment explains why a naive fingerprint causes false hits, which is a subtler version of the stale-data bug) — but the current value provably buys nothing here, so the choice is a real source fingerprint or this item.
    - **Reading the breakdown: `Server-Timing` IS emitted** — an earlier note here claimed it wasn't, which was wrong. The endpoint deliberately sends **no** timings for a request that did no work (a cache hit or an in-flight join), and that is what a fast response's headers show. **Capture headers on a request that actually assembles:** `curl -D headers -o /dev/null "…/api/editor/runtime?project=<p>&k=<readToken>"`, then sort the entries by `dur=`.
 
