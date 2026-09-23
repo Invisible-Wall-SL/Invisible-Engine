@@ -28,15 +28,18 @@
 
 	const context = getContext();
 
-	const numberParam = (key: string): number | undefined => {
-		const params = getComponentParams();
-		return typeof params[key] === 'number' ? (params[key] as number) : undefined;
-	};
-	const stringParam = (key: string): string | undefined => {
-		const params = getComponentParams();
-		return typeof params[key] === 'string' ? (params[key] as string) : undefined;
-	};
-	const boolParam = (key: string): boolean => getComponentParams()[key] === true;
+	// Captured ONCE, at init: `getComponentParams()` is a Svelte `getContext`, which throws outside
+	// component initialisation — so it cannot be called from a POINTER HANDLER, which runs later and
+	// outside any component context. The object `<ComponentInstance>` provides is stable and exposes
+	// its live values through getters, so holding the reference keeps every read below reactive while
+	// making the press path legal.
+	const params = getComponentParams();
+
+	const numberParam = (key: string): number | undefined =>
+		typeof params[key] === 'number' ? (params[key] as number) : undefined;
+	const stringParam = (key: string): string | undefined =>
+		typeof params[key] === 'string' ? (params[key] as string) : undefined;
+	const boolParam = (key: string): boolean => params[key] === true;
 
 	const source = $derived(stringParam('source'));
 	const countUp = $derived(boolParam('countUp'));
@@ -74,23 +77,53 @@
 	const align = $derived(stringParam('valueAlign'));
 	const halfW = $derived((numberParam('alignWidth') ?? 0) / 2);
 	const anchorX = $derived(
-		align === 'left' ? 0 : align === 'right' ? 1 : align === 'center' ? 0.5 : (transform?.anchor?.x ?? 0.5),
+		align === 'left'
+			? 0
+			: align === 'right'
+				? 1
+				: align === 'center'
+					? 0.5
+					: (transform?.anchor?.x ?? 0.5),
 	);
 	const offsetX = $derived(align === 'left' ? -halfW : align === 'right' ? halfW : 0);
 	const anchor = $derived({ x: anchorX, y: transform?.anchor?.y ?? 0 });
 
+	// The instance's ACTION press, when it has one. `<ComponentInstance>` defines an `onpress` param
+	// only where the resolved `action` names a registered action feed, and that function already
+	// routes through the flow when an authored graph owns the press (`firePress`). So a `hud-bet`
+	// node carrying `action: 'betMenu'` opens whatever the author wired — an authored bet screen via
+	// the flow, else the registered coded fallback (the same HTML menu). Read AT PRESS TIME off the
+	// captured params object, because `ComponentInstance` exposes it as a lazy getter.
+	const actionPress = (): (() => void) | undefined => {
+		const handler = params['onpress'];
+		return typeof handler === 'function' ? (handler as () => void) : undefined;
+	};
+
 	// `bet` reproduces tap-to-open-bet-menu (disabled mid-spin); other sources are
-	// non-interactive.
+	// non-interactive unless the instance binds an action of its own.
 	const isBet = $derived(source === 'bet');
+	const hasAction = $derived(typeof params['onpress'] === 'function');
+	const pressable = $derived(isBet || hasAction);
 	const disabled = $derived(!context.stateXstateDerived.isIdle());
 	const onpress = () => {
 		if (disabled) return;
+		const routed = actionPress();
+		if (routed) {
+			// The press SOUND belongs to whoever handles the press, so it plays exactly once: the
+			// registered action broadcasts it, and when a flow owns the press instead the game's
+			// `registerFlowPress` wrapper replays it (the coded `onpress` that held it is suppressed).
+			// Broadcasting here too would be a second play of the same cue.
+			routed();
+			return;
+		}
+		// No action bound (an un-migrated doc, or a game that registers no `betMenu` feed) ⇒ the
+		// press the bet readout has always had, verbatim — sound included.
 		context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 		stateModal.modal = { name: 'betAmountMenu' };
 	};
 </script>
 
-{#if isBet}
+{#if pressable}
 	<!-- `none` while DISABLED so an inert surface does not SWALLOW the pointer — see the note in
 		 `components-pixi/Button.svelte`. -->
 	<Container

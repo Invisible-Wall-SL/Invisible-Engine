@@ -315,6 +315,30 @@
 		const guard: Guard = { ...node.guard, all };
 		onchange(setBranchGuard(doc, node.id, guard));
 	}
+	/**
+	 * The TYPE the other side of a comparison establishes, so picking `literal` beside it seeds the
+	 * matching editor. Without this a guard operand is always typed `int` (`defaultLiteral(undefined)`),
+	 * which makes a non-numeric read untestable: `eq`/`ne` are strict `===` at runtime, so comparing
+	 * `$engine.isAutoSpinning` to the number box's `1` is `true === 1` — silently always false. A
+	 * declared engine value carries its type; a stored literal states its own. Undefined ⇒ the old
+	 * `int` default, so a number-vs-number guard is unchanged.
+	 */
+	function guardSideType(other: DataSource): TypeRef | undefined {
+		if (other.kind === 'literal') return other.type;
+		if (other.kind === 'accessor' && other.path.on === 'engine') {
+			return vocab.values.find((v) => v.name === other.path.key)?.type;
+		}
+		return undefined;
+	}
+
+	/** Whether two `TypeRef`s name the same literal editor — `int` vs `float` differ, and two enums
+	 *  differ unless they are the SAME enum (both render a dropdown, of different members). */
+	function sameType(a: TypeRef, b: TypeRef): boolean {
+		if (a.t !== b.t) return false;
+		if (a.t === 'enum' && b.t === 'enum') return a.name === b.name;
+		return true;
+	}
+
 	function addGuardRow(): void {
 		if (node.kind !== 'branch') return;
 		const rows = [...(node.guard.all ?? [])];
@@ -337,7 +361,23 @@
 	}
 	function setGuardSide(i: number, side: 'left' | 'right', src: DataSource): void {
 		if (node.kind !== 'branch') return;
-		const rows = (node.guard.all ?? []).map((r, k) => (k === i ? { ...r, [side]: src } : r));
+		const other = side === 'left' ? 'right' : 'left';
+		const rows = (node.guard.all ?? []).map((r, k) => {
+			if (k !== i) return r;
+			const row = { ...r, [side]: src } as typeof r;
+			// Re-seed the OPPOSITE literal when this side establishes a different type. A row starts
+			// `int eq int`, so switching one side to a bool/enum read would otherwise leave a number box
+			// facing it — and the author cannot fix it, because re-picking "literal" in a dropdown that
+			// already reads "literal" fires no change. Only a LITERAL is re-seeded (an accessor or wire
+			// is the author's own choice), and only on a real type change, so a number-vs-number guard
+			// is untouched.
+			const want = guardSideType(row[side]);
+			const have = row[other];
+			if (want && have.kind === 'literal' && !sameType(have.type, want)) {
+				return { ...row, [other]: defaultLiteral(want) } as typeof r;
+			}
+			return row;
+		});
 		writeGuard(rows);
 	}
 
@@ -770,7 +810,7 @@
 						<div class="side">
 							{@render dataSourceEditor(
 								row.left,
-								undefined,
+								guardSideType(row.right),
 								(s) => setGuardSide(i, 'left', s),
 								false,
 							)}
@@ -787,7 +827,7 @@
 						<div class="side">
 							{@render dataSourceEditor(
 								row.right,
-								undefined,
+								guardSideType(row.left),
 								(s) => setGuardSide(i, 'right', s),
 								false,
 							)}
@@ -965,6 +1005,10 @@
 
 {#snippet accessorEditor(acc: Accessor, commit: (a: Accessor) => void)}
 	{@const collections = vocab.collections}
+	<!-- `$engine` reads BOTH halves of the engine surface: the scalar VALUES a guard tests and the
+		 COLLECTIONS a forEach walks. Values come first — a branch guard is the common case, and the
+		 collections are only meaningful inside a loop. -->
+	{@const engineValues = vocab.values}
 	<div class="acc">
 		<select
 			class="acc-on"
@@ -973,7 +1017,8 @@
 				const on = e.currentTarget.value;
 				if (on === 'item') commit({ on: 'item' });
 				else if (on === 'index') commit({ on: 'index' });
-				else if (on === 'engine') commit({ on: 'engine', key: collections[0]?.name ?? '' });
+				else if (on === 'engine')
+					commit({ on: 'engine', key: engineValues[0]?.name ?? collections[0]?.name ?? '' });
 				else if (on === 'trigger') commit({ on: 'trigger' });
 				else if (on === 'context') commit({ on: 'context' });
 				else commit({ on: 'input', name: '' });
@@ -1029,6 +1074,9 @@
 				value={acc.key}
 				onchange={(e) => commit({ on: 'engine', key: e.currentTarget.value })}
 			>
+				{#each engineValues as v (v.name)}
+					<option value={v.name} title={v.description ?? ''}>{v.name}</option>
+				{/each}
 				{#each collections as c (c.name)}
 					<option value={c.name}>{c.name}</option>
 				{/each}

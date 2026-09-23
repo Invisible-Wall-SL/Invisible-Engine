@@ -481,7 +481,8 @@
 					"params": {
 						"source": "bet",
 						"label": "Bet",
-						"countUp": false
+						"countUp": false,
+						"action": "betMenu"
 					},
 					"overrides": {
 						"landscape": {

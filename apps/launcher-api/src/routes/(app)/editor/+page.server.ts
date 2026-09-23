@@ -7,7 +7,12 @@ import {
 	type LayoutDoc,
 } from 'engine-layout';
 import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } from 'game-config';
-import type { RepeaterSourceMap } from './editorCanvas.helpers';
+import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
+import {
+	AUTO_SPINS_TEXT_OPTIONS,
+	LOSS_LIMIT_TEXT_OPTIONS,
+	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
+} from 'constants-shared/autoSpins';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -181,6 +186,28 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			})),
 		};
 	}
+	// The HUD-menu ladders. Unlike `featureCards` these aren't config-derived: the bet ladder comes
+	// from the RGS at runtime and the autoplay ladders are engine constants, so neither is knowable
+	// here. The sample is a representative ladder of the right LENGTH and shape, which is what the
+	// placeholder needs — it sizes and counts the grid an author is laying out, nothing more.
+	const optionItems = (labels: readonly string[]): RepeaterSourcePreview => ({
+		count: labels.length,
+		items: labels.map((label, index) => ({ label, selected: index === 0 })),
+	});
+	repeaterSources.betOptions = optionItems([
+		'1.00',
+		'2.00',
+		'5.00',
+		'10.00',
+		'20.00',
+		'50.00',
+		'100.00',
+		'200.00',
+		'MAX',
+	]);
+	repeaterSources.autoSpinOptions = optionItems([...AUTO_SPINS_TEXT_OPTIONS]);
+	repeaterSources.autoSpinLossLimitOptions = optionItems([...LOSS_LIMIT_TEXT_OPTIONS]);
+	repeaterSources.autoSpinWinLimitOptions = optionItems([...SINGLE_WIN_LIMIT_TEXT_OPTIONS]);
 	const warnings = template
 		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, gridDimensions)]
 		: [];

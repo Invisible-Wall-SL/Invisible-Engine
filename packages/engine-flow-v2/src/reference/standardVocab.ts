@@ -379,6 +379,31 @@ export const standardVocabulary = ({
 			params: [{ name: 'amount', type: FLOAT }],
 			category: 'effect',
 		},
+		// --- bet menu / autoplay, for an AUTHORED menu screen ---
+		// Stake the picked amount. Wire a `betOptions` repeater's `onSelect.selectedValue` straight in.
+		// It writes the stake the way the HTML bet grid does (no balance clamp), so the tile the player
+		// pressed is the tile that lights up; the spin button's own affordability gate still refuses an
+		// unpayable bet.
+		{ name: 'setBetAmount', params: [{ name: 'amount', type: FLOAT }], category: 'effect' },
+		// Pick an autoplay option WITHOUT starting a run — the three ladders the auto-spin screen
+		// shows. Each takes the option's TEXT (`'100'`, `'25×'`, `'∞'`), which is what the matching
+		// repeater's `onSelect.selectedKey` carries; an unknown string is ignored rather than stored.
+		// Pair them with `startAutoSpins`, which reads whatever is picked.
+		{
+			name: 'setAutoSpins',
+			params: [{ name: 'option', type: { t: 'string' } }],
+			category: 'effect',
+		},
+		{
+			name: 'setAutoSpinLossLimit',
+			params: [{ name: 'option', type: { t: 'string' } }],
+			category: 'effect',
+		},
+		{
+			name: 'setAutoSpinWinLimit',
+			params: [{ name: 'option', type: { t: 'string' } }],
+			category: 'effect',
+		},
 		{ name: 'setFreeGameType', params: [], category: 'effect' },
 		// Free-spin sequential reel stop — reels settle consecutively. `gaps`/`speeds` are OPTIONAL
 		// PER-REEL arrays (entry 0 = leftmost reel; a missing/short entry ⇒ the coded SPIN_OPTIONS
@@ -617,6 +642,17 @@ export const standardVocabulary = ({
 		{ name: 'openSettings', params: [], category: 'command' },
 		{ name: 'toggleSound', params: [], category: 'command' },
 		{ name: 'autoSpin', params: [], category: 'command' },
+		// Start / stop an autoplay run from an AUTHORED auto-spin screen. `startAutoSpins` is the
+		// START button's body: arm the counter + both limits from whatever `setAutoSpins*` picked,
+		// then fire the run. `stopAutoSpins` zeroes the counter, which is what the HUD auto-spin
+		// button does while a run is live — wire it behind a branch off `onAutoSpin` if you want that
+		// one button to both open the screen and stop a run.
+		{ name: 'startAutoSpins', params: [], category: 'command' },
+		{ name: 'stopAutoSpins', params: [], category: 'command' },
+		// Open the CODED bet menu (the HTML modal), for an author who wants the readout's press on a
+		// different node without authoring a screen. A flow that shows its own `betMenu` container
+		// simply doesn't wire this.
+		{ name: 'openBetMenu', params: [], category: 'command' },
 		// Fullscreen must run INSIDE the press's call stack (browsers reject `requestFullscreen`
 		// outside a user gesture). The interpreter reaches `env.effect` synchronously from the
 		// press, so wire this DIRECTLY off the button's `onFullscreen` pin — putting a `delay`
@@ -704,4 +740,32 @@ export const standardVocabulary = ({
 
 	// Collections — the engine-readable iterables a `forEach` walks (`$engine.reels`).
 	collections: [{ name: 'reels', of: REEL }],
+
+	// Values — the engine-readable SCALARS a `branch` guard tests (`$engine.isAutoSpinning`).
+	// Transcribed VERBATIM from `linesEngineReader`'s closed key set (`apps/lines/flowRuntime`), the
+	// same discipline as the events/actions above: the reader has always answered these, and this is
+	// the declaration that lets an author reach them. `win`/`totalWin` are the same read (the book
+	// event's normalised amount), kept as two names because the reader answers both.
+	values: [
+		{ name: 'balance', type: FLOAT, description: 'The player wallet balance.' },
+		{ name: 'win', type: FLOAT, description: "The current round's win." },
+		{ name: 'totalWin', type: FLOAT, description: 'Accumulated win for the round.' },
+		{ name: 'bet', type: FLOAT, description: 'The current total stake (bet × cost multiplier).' },
+		{ name: 'gameType', type: GAME_TYPE, description: 'basegame or freegame.' },
+		{ name: 'isFreeGame', type: BOOL, description: 'True while the free-spin feature is running.' },
+		{ name: 'freeSpinsRemaining', type: INT, description: 'Free spins still to play.' },
+		{ name: 'freeSpinsTotal', type: INT, description: 'Free spins awarded this feature.' },
+		// FLOAT, not INT: the `∞` autoplay option really is `Infinity`.
+		{
+			name: 'autoSpinsRemaining',
+			type: FLOAT,
+			description: 'Autoplay rounds still to play — 0 when no run is live.',
+		},
+		{
+			name: 'isAutoSpinning',
+			type: BOOL,
+			description:
+				'True while an autoplay run is live. Branch on this off the auto-spin button so one press opens the menu when idle and stops the run when it is not — what the coded button does.',
+		},
+	],
 });

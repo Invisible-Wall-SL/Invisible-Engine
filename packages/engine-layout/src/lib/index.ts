@@ -40,6 +40,7 @@ export * from './componentDesignSize';
 export * from './blendMode';
 export * from './backgroundScenes';
 export * from './buyFeatureScene';
+export * from './hudMenuScenes';
 export * from './confirmScene';
 export * from './genericMountScenes';
 export * from './layerOrder';

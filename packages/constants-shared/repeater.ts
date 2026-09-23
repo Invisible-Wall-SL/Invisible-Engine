@@ -1,5 +1,5 @@
 /**
- * Repeater SELECT vocabulary — the ONE source of the two strings the repeater's fused flow pin is
+ * Repeater SELECT vocabulary — the ONE source of the strings the repeater's fused flow pin is
  * built from, shared by the RUNTIME side (`engine-layout`'s `<Repeater>`, which routes a card press
  * through the flow) and the AUTHOR side (`engine-flow-v2`, which projects the fused `onSelect` pin +
  * its selected-key data-out). Both packages already depend on `constants-shared` and NOT on each
@@ -23,3 +23,21 @@ export const REPEATER_SELECT_EVENT = 'select';
  * (`<repeaterId>.onSelect.betModeKey`).
  */
 export const REPEATER_SELECTED_KEY = 'betModeKey';
+
+/**
+ * The GENERIC name for the same string — `betModeKey` reads as buy-feature jargon on a repeater of
+ * bet amounts or autoplay counts, so every select payload carries the item's key under BOTH names
+ * and the author wires whichever reads right. `betModeKey` stays because existing docs hold edges to
+ * it (and `selectBetMode` consumes it unmapped); new wiring should prefer this one.
+ */
+export const REPEATER_SELECTED_ID = 'selectedKey';
+
+/**
+ * The trigger-payload FIELD carrying the selected item's NUMBER — `RepeaterItem.value`, the machine
+ * reading of the key a card displays (bet amount `5`, autoplay count `100`, `Infinity` for `∞`).
+ * A key is a string, so a numeric flow action (`setBetAmount(amount)`) cannot consume it; this is the
+ * pin that feeds those. A source that has no number for an item leaves it `undefined` — the pin is
+ * declared regardless (the projection is static, the items are a runtime registry read), so an author
+ * wiring it off a key-only source simply gets nothing.
+ */
+export const REPEATER_SELECTED_VALUE = 'selectedValue';

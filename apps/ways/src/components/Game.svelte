@@ -13,6 +13,7 @@
 		Modals,
 		DebugMenu,
 		registerBuyFeature,
+		registerHudMenus,
 		BuyBonusConfirm,
 	} from 'components-ui-html';
 	import { LayoutScene, BuyFeatureScreen } from 'engine-layout/svelte';
@@ -127,6 +128,7 @@
 	// def + the `featureCards` repeater source (fed from the active `stateMeta.betModeMeta`). The
 	// `<BuyFeatureScreen>` takeover below renders it; the HTML `ModalBuyBonus` is gone.
 	registerBuyFeature();
+	registerHudMenus();
 
 	context.eventEmitter.subscribeOnMount({
 		buyBonusConfirm: () => {

@@ -29,6 +29,14 @@ export interface RepeaterItem {
 	/** Stable list key for the `{#each}` (falls back to the item's index). */
 	key?: string;
 	/**
+	 * The item's NUMBER, when its key is the display form of one — a bet amount, an autoplay
+	 * count, a limit multiplier (`Infinity` for `∞`). Seeded as the select payload's
+	 * `selectedValue` field so a numeric flow action (`setBetAmount(amount)`) can consume the
+	 * press directly; a source whose items are pure names (feature cards) leaves it unset and the
+	 * pin simply yields nothing.
+	 */
+	value?: number;
+	/**
 	 * PER-ITEM component override (distinct, authorable cards): the {@link ComponentDef} id THIS
 	 * item instantiates, instead of the repeater node's shared `componentId`. Lets one repeater
 	 * render heterogeneous items — a bespoke card per buy-feature mode — from a single source.

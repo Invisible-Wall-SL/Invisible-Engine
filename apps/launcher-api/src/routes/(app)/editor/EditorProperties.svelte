@@ -18,6 +18,8 @@
 		ENGINE_BINDING_PARAMS,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
+		REPEATER_SOURCE_CATALOG,
+		REPEATER_SOURCE_LABELS,
 		fontParamKeysOf,
 		getEditableParams,
 		isCoverFitKind,
@@ -1575,6 +1577,16 @@
 			? [...ENGINE_ACTION_CATALOG, v]
 			: ENGINE_ACTION_CATALOG;
 	}
+
+	/** Dropdown options for a repeater's `source`: the catalog of registered lists, plus the node's
+	 * current value when it's a custom source not in the catalog (so a hand-authored one isn't
+	 * silently rewritten to the first entry). */
+	const repeaterSourceOptions = $derived.by<string[]>(() => {
+		const current = node?.kind === 'repeater' ? node.source : '';
+		return current && !REPEATER_SOURCE_CATALOG.includes(current)
+			? [...REPEATER_SOURCE_CATALOG, current]
+			: REPEATER_SOURCE_CATALOG;
+	});
 
 	function setStrokeColor(n: LayoutNode, hex: string): void {
 		if (n.kind !== 'text') return;
@@ -5109,20 +5121,27 @@
 			<div class="row">
 				<label class="field wide">
 					<span>data source</span>
-					<input
-						type="text"
+					<select
 						value={node.source}
-						placeholder="featureCards"
-						oninput={(e) => {
+						onchange={(e) => {
 							node.source = e.currentTarget.value;
 							markDirty();
 						}}
-					/>
+					>
+						<!-- An explicit empty entry: without one a repeater whose `source` is unset would
+							 display as the first catalog name while the doc still holds `''`, and the field
+							 could never be cleared again. -->
+						<option value="">— none —</option>
+						{#each repeaterSourceOptions as source (source)}
+							<option value={source}>{REPEATER_SOURCE_LABELS[source] ?? source}</option>
+						{/each}
+					</select>
 				</label>
 			</div>
 			<p class="muted small">
-				Must match a source the game registers at runtime (via <code>registerRepeaterSources</code>)
-				— it resolves to the live item array. There's no dropdown: sources register in game code.
+				The live list this stamps. Each is registered by the game at runtime (via <code
+					>registerRepeaterSources</code
+				>); a source the game doesn't register simply resolves to no items.
 			</p>
 			<div class="row">
 				<label class="field wide">

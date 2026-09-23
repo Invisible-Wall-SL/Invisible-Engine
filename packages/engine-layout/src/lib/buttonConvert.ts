@@ -91,7 +91,16 @@ export function labelBindToInstance(node: ContainerNode): ComponentInstanceNode 
 		componentId: 'hudReadout',
 		x: node.x,
 		y: node.y,
-		params: { source, label: node.label ?? '', countUp: source === 'win' },
+		// The BET readout gains the `betMenu` action binding, matching the reference `readoutNode`:
+		// the press it always had (hard-coded in `HudValue`) becomes a named action, so a converted
+		// legacy doc gets the same `<id>.onBetMenu` flow pin a freshly seeded one does. Behaviour is
+		// unchanged until a flow owns that pin — the registered action opens the same HTML bet menu.
+		params: {
+			source,
+			label: node.label ?? '',
+			countUp: source === 'win',
+			...(source === 'bet' ? { action: 'betMenu' } : {}),
+		},
 	};
 	if (node.label !== undefined) instance.label = node.label;
 	if (node.anchor !== undefined) instance.anchor = node.anchor;

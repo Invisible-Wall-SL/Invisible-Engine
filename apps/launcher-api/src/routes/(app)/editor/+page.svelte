@@ -23,6 +23,11 @@
 		winTierPresentationParams,
 		resolveBucketBox,
 		normalizeLayoutProfile,
+		isSceneRole,
+		SCENE_ROLES,
+		SCENE_ROLE_LABELS,
+		defaultBetMenuScene,
+		defaultAutoSpinScene,
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
@@ -1074,13 +1079,7 @@
 	function setSceneRole(value: string): void {
 		const sc = scenes[activeSceneIdx];
 		if (!sc) return;
-		if (
-			value === 'loading' ||
-			value === 'basegame' ||
-			value === 'buyFeature' ||
-			value === 'buyConfirm'
-		)
-			sc.role = value;
+		if (isSceneRole(value)) sc.role = value;
 		else delete sc.role;
 		scenes = [...scenes];
 		markDirty();
@@ -1479,6 +1478,26 @@
 				nodes: [],
 			},
 		];
+		activeSceneIdx = scenes.length - 1;
+		clearSelection();
+		markDirty();
+	}
+
+	/** Add one of the HUD MENU screens — the bet-amount menu or the auto-spin menu — seeded with the
+	 * engine default (a dim backdrop + a repeater of option tiles, sized and centred), tagged with the
+	 * matching `role` so the screen is findable under any id. A menu is SHOWN BY THE FLOW, not by this
+	 * editor: wire the HUD bet readout's `onBetMenu` pin (or the auto-spin button's `onAutoSpin`) to a
+	 * `Show` of this container in /flow-v2, and the tiles' `onSelect` to `setBetAmount`/`setAutoSpins`.
+	 * Un-wired it simply never mounts and the coded HTML modal opens as before. Re-adding a menu that
+	 * already exists just selects it, so the button can't silently mint a second copy of the role. */
+	function addMenuScreen(kind: 'betMenu' | 'autoSpin'): void {
+		const existing = scenes.findIndex((sc) => sc.role === kind || sc.id === kind);
+		if (existing >= 0) {
+			activeSceneIdx = existing;
+			clearSelection();
+			return;
+		}
+		scenes = [...scenes, kind === 'betMenu' ? defaultBetMenuScene() : defaultAutoSpinScene()];
 		activeSceneIdx = scenes.length - 1;
 		clearSelection();
 		markDirty();
@@ -2985,6 +3004,24 @@
 						＋ New HUD screen
 					</button>
 
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create the bet-amount menu as an editable screen — a grid of the game's bet amounts. Show it from the HUD bet readout's onBetMenu pin in /flow-v2."
+						onclick={() => addMenuScreen('betMenu')}
+					>
+						＋ New bet menu screen
+					</button>
+
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create the auto-spin menu as an editable screen — round counts, both limits and a START button. Show it from the auto-spin button's onAutoSpin pin in /flow-v2."
+						onclick={() => addMenuScreen('autoSpin')}
+					>
+						＋ New auto spin screen
+					</button>
+
 					{#if missingScreens.length > 0}
 						<button
 							class="add-hud-btn"
@@ -3178,10 +3215,9 @@
 									title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
 								>
 									<option value="">— none —</option>
-									<option value="loading">loading (splash)</option>
-									<option value="basegame">base game</option>
-									<option value="buyFeature">buy feature</option>
-									<option value="buyConfirm">buy confirm</option>
+									{#each SCENE_ROLES as role (role)}
+										<option value={role}>{SCENE_ROLE_LABELS[role]}</option>
+									{/each}
 								</select>
 							</label>
 							<label

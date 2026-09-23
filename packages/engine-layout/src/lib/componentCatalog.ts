@@ -100,6 +100,30 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		label: 'Book Symbol',
 		note: 'Name of the chosen book expanding symbol (empty until one is revealed).',
 	},
+	{
+		key: 'autoSpins',
+		kind: 'string',
+		label: 'Auto Spins (picked)',
+		note: 'The autoplay count currently picked — "10" … "1000", "∞". Bind a readout on an authored auto-spin screen to show the standing choice.',
+	},
+	{
+		key: 'autoSpinsLossLimit',
+		kind: 'string',
+		label: 'Auto Spins Loss Limit',
+		note: 'The picked loss limit as a bet multiplier — "5×" … "100×", "∞".',
+	},
+	{
+		key: 'autoSpinsWinLimit',
+		kind: 'string',
+		label: 'Auto Spins Single-win Limit',
+		note: 'The picked single-win limit as a bet multiplier — "5×" … "100×", "∞".',
+	},
+	{
+		key: 'autoSpinsRemaining',
+		kind: 'number',
+		label: 'Auto Spins Remaining',
+		note: 'Autoplay rounds still to play — 0 when autoplay is not running (`∞` reads as Infinity).',
+	},
 ];
 
 /**
@@ -122,7 +146,15 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
  * they're kept OUT of the numeric-only {@link VALUE_SOURCE_CATALOG} but still listed
  * here so the editor's Source dropdown lists them.
  */
-const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'freeSpinsAddedText', 'message', 'specialSymbol'];
+const COMPOSED_STRING_SOURCE_KEYS = [
+	'freeSpins',
+	'freeSpinsAddedText',
+	'message',
+	'specialSymbol',
+	'autoSpins',
+	'autoSpinsLossLimit',
+	'autoSpinsWinLimit',
+];
 export const VALUE_SOURCE_KEYS: string[] = [
 	...VALUE_SOURCE_CATALOG.map((p) => p.key),
 	...COMPOSED_STRING_SOURCE_KEYS,
@@ -218,6 +250,9 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'decrease',
 	'increase',
 	'autoSpin',
+	'autoSpinStart',
+	'betMenu',
+	'close',
 	'turbo',
 	'menu',
 	'menuClose',
@@ -247,8 +282,37 @@ export const ENGINE_ACTION_LABELS: Record<string, string> = {
 	settings: 'settings',
 	soundToggle: 'sound on/off',
 	buyBonus: 'buy bonus',
-	autoSpin: 'auto spin',
+	autoSpin: 'auto spin (open/stop)',
+	autoSpinStart: 'auto spin — start',
+	betMenu: 'bet menu (open)',
+	close: 'close (dismiss screen)',
 	fullscreen: 'fullscreen on/off',
+};
+
+/**
+ * The live LISTS a `repeater` node's `source` param can bind to — the list sibling of
+ * {@link ENGINE_ACTION_CATALOG}. The editor renders `source` as a dropdown of these instead of a
+ * free-text box, where the exact source name is undiscoverable and a typo silently leaves the
+ * repeater empty. Same declare-≠-implement discipline as the action catalog: the GAME registers the
+ * matching arrays via `registerRepeaterSources`, and a source with nothing registered renders no
+ * items. A custom key already stored in a doc is preserved as an option.
+ */
+export const REPEATER_SOURCE_CATALOG: string[] = [
+	'featureCards',
+	'betOptions',
+	'autoSpinOptions',
+	'autoSpinLossLimitOptions',
+	'autoSpinWinLimitOptions',
+];
+
+/** Friendly DISPLAY labels for {@link REPEATER_SOURCE_CATALOG} — the stored value stays the stable
+ *  source key. Keys without an entry fall back to the raw key. */
+export const REPEATER_SOURCE_LABELS: Record<string, string> = {
+	featureCards: 'buy-feature cards (one per bet mode)',
+	betOptions: 'bet amounts (the bet menu ladder)',
+	autoSpinOptions: 'auto spin counts (10 … ∞)',
+	autoSpinLossLimitOptions: 'auto spin loss limits (5× … ∞)',
+	autoSpinWinLimitOptions: 'auto spin single-win limits (5× … ∞)',
 };
 
 /**

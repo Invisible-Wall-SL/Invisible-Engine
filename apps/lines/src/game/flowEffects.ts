@@ -27,8 +27,15 @@ import { isCameraEffectKind } from 'constants-shared/camera';
 import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
 import {
 	stateBet,
+	stateBetDerived,
 	stateUi,
 	showMessage as showGameMessage,
+	armAutoSpins,
+	openBetMenu,
+	setAutoSpinsOption,
+	setAutoSpinsLossLimitOption,
+	setAutoSpinsSingleWinLimitOption,
+	stopAutoSpins,
 	INFINITY_MARK,
 	type GameMessageKind,
 } from 'state-shared';
@@ -1448,6 +1455,65 @@ const effects: Record<string, FlowEffect> = {
 	 */
 	selectBetMode: (payload) => {
 		stateBonus.selectedBetModeKey = payload.betModeKey as string;
+	},
+
+	/**
+	 * Stake the picked amount (`setBetAmount`) — the flow analogue of a `betOptions` tile's `onSelect`
+	 * in `registerHudMenus`, so an AUTHORED bet screen commits the choice the same way the coded grid
+	 * does. Wire it off the repeater's `onSelect.selectedValue`. Raw write, not the balance-clamping
+	 * `stateBetDerived.setBetAmount`, for the reason the coded grid is raw: clamping would light up a
+	 * different tile from the one pressed, and the spin button's own affordability gate still refuses
+	 * an unpayable stake. A non-numeric payload is ignored rather than writing `NaN` into the stake.
+	 */
+	setBetAmount: (payload) => {
+		const amount = Number(payload.amount);
+		if (Number.isFinite(amount)) stateBet.betAmount = amount;
+	},
+
+	/** Open the CODED bet menu (`openBetMenu`) — the same modal the bet readout's press opens, for a
+	 *  flow that routes the press somewhere else without authoring a screen. */
+	openBetMenu: () => {
+		openBetMenu();
+	},
+
+	/**
+	 * The three AUTOPLAY pickers (`setAutoSpins` / `setAutoSpinLossLimit` / `setAutoSpinWinLimit`) —
+	 * each stores one picked option WITHOUT starting a run, so an authored auto-spin screen behaves
+	 * like the coded modal's grids (pick, pick, then START). Wire each off its repeater's
+	 * `onSelect.selectedKey`: the committers take the option TEXT and ignore an unknown one, so a
+	 * stale doc can't put the state into a value the limit maps have no entry for.
+	 */
+	setAutoSpins: (payload) => {
+		setAutoSpinsOption(String(payload.option));
+	},
+	setAutoSpinLossLimit: (payload) => {
+		setAutoSpinsLossLimitOption(String(payload.option));
+	},
+	setAutoSpinWinLimit: (payload) => {
+		setAutoSpinsSingleWinLimitOption(String(payload.option));
+	},
+
+	/**
+	 * Start an autoplay run (`startAutoSpins`) — the VERBATIM body of `AutoSpinsStartButton`: arm the
+	 * counter + both limits from whatever the pickers stored (shared `armAutoSpins`), then broadcast
+	 * `autoBet`, the SAME emitter path the coded button uses → `EnableGameActor` sends `AUTO_BET`.
+	 * XState is never touched here. The press sound stays with the pressing component.
+	 *
+	 * Guarded on affordability, which the two BUTTON paths get from their `disabled` flag: an
+	 * `autoSpinStart` button is inert when the stake is unpayable, but an author may wire this off
+	 * any pin at all (a tile's `onSelect`, a `close` press), and nothing else would stop a run being
+	 * armed against a stake the wallet can't cover.
+	 */
+	startAutoSpins: () => {
+		if (!stateBetDerived.isBetCostAvailable()) return;
+		armAutoSpins();
+		eventEmitter.broadcast({ type: 'autoBet' });
+	},
+
+	/** Stop a running autoplay (`stopAutoSpins`) — zeroing the counter, which the auto-bet machine
+	 *  reads between rounds. Inert when no run is live. */
+	stopAutoSpins: () => {
+		stopAutoSpins();
 	},
 
 	/**
