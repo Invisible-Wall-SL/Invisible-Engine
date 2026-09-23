@@ -4,6 +4,7 @@ import {
 	type FlipbookClip,
 	type FlipbookDoc,
 } from 'engine-flipbook';
+import { createSingleFlight } from './concurrency';
 import { CLIP_DOC_SUFFIX, clipDocKey, clipsPrefix, r2Slug } from './projectPaths';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import {
@@ -233,7 +234,25 @@ function anyRepairableAtlasRef(clips: FlipbookClip[]): boolean {
  * editor-art export then ships each repaired sheet SCOPED under the same full key the runtime
  * looks up.
  */
+/**
+ * Concurrent callers within one assemble share a single run. Both ship-path readers noted above
+ * (`exportClips` and the editor-art clip walk) run side by side inside `Promise.all`, and this
+ * listed + parsed every clip doc twice for them — 5.5s each on `test6`. They ask with identical
+ * arguments and want an identical answer, so joining them is free. Dropped as soon as it settles:
+ * this dedupes overlap, it does not cache across assembles.
+ */
+const joinFlipbookDoc = createSingleFlight();
+
 export async function loadFlipbookDoc(clientKey: string, projectKey: string): Promise<FlipbookDoc> {
+	return joinFlipbookDoc(`${clientKey}/${projectKey}`, () =>
+		loadFlipbookDocUncached(clientKey, projectKey),
+	);
+}
+
+async function loadFlipbookDocUncached(
+	clientKey: string,
+	projectKey: string,
+): Promise<FlipbookDoc> {
 	const prefix = `${clipsPrefix(clientKey, projectKey)}/`;
 	const listed = await listObjects(prefix, 1000);
 	const clips: unknown[] = [];

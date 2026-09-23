@@ -25,6 +25,36 @@
  * partial output would be a silently smaller (i.e. broken) bundle, so failing loudly is correct.
  * In-flight tasks are allowed to settle; no new ones start.
  */
+/**
+ * Collapse CONCURRENT calls for the same key onto one run. Each module makes its own.
+ *
+ * WHY. The runtime assemble fans its exporters out with `Promise.all`, and several of them
+ * independently load the same thing: profiled 2026-09-21 on `test6`, `art:clips:walk` (10.3s) and
+ * `flipbooks:reachability` + `flipbooks:doc` (14.1s) were computing the same clip reachability and
+ * the same flipbook doc at the same time, in two exporters running side by side. That is not a
+ * caching problem — nothing was stale — it is the same work started twice because neither caller
+ * knew about the other.
+ *
+ * NOT A CACHE, deliberately. The entry is dropped as soon as it settles, so this only ever dedupes
+ * calls that genuinely overlap. A later assemble recomputes from scratch, which is what keeps the
+ * 10s bundle TTL meaningful and avoids the false-HIT class of bug `runtimeBundleCache` warns about
+ * at length: there is no window in which a saved value can go stale, because nothing is saved.
+ *
+ * ⚠️ CALLERS THAT JOIN MUST AGREE ON THE ANSWER. Whoever arrives first runs, and everyone else gets
+ * that result — so two callers passing different inputs under one key would make the outcome depend
+ * on a race. Either key on the inputs, or make the callers pass the same ones.
+ */
+export function createSingleFlight(): <T>(key: string, run: () => Promise<T>) => Promise<T> {
+	const inflight = new Map<string, Promise<unknown>>();
+	return <T>(key: string, run: () => Promise<T>): Promise<T> => {
+		const pending = inflight.get(key) as Promise<T> | undefined;
+		if (pending) return pending;
+		const started = run().finally(() => inflight.delete(key));
+		inflight.set(key, started);
+		return started;
+	};
+}
+
 export async function mapWithConcurrency<T, R>(
 	items: readonly T[],
 	limit: number,

@@ -28,7 +28,10 @@
 // strips the types); nothing below re-implements it.
 
 import assert from 'node:assert/strict';
-import { mapWithConcurrency } from '../apps/launcher-api/src/lib/server/concurrency.ts';
+import {
+	createSingleFlight,
+	mapWithConcurrency,
+} from '../apps/launcher-api/src/lib/server/concurrency.ts';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
@@ -146,6 +149,44 @@ console.log('5. the stem claim is synchronous — two sheets can never take the 
 	check('claiming before the await gives three distinct stems', () =>
 		assert.deepEqual([...fixed].sort(), ['foo', 'foo_2', 'foo_3']),
 	);
+}
+
+console.log('6. createSingleFlight joins OVERLAPPING calls only');
+{
+	// The duplication it exists to kill: the art export and the clip export both asked for the same
+	// clip reachability + flipbook doc at the same time (10.3s and 14.1s on test6).
+	const join = createSingleFlight();
+	let runs = 0;
+	const load = (key) =>
+		join(key, async () => {
+			runs++;
+			await sleep(20);
+			return `v${runs}`;
+		});
+	const [a, b, c] = await Promise.all([load('p'), load('p'), load('p')]);
+	check('three concurrent callers run the work ONCE', () => assert.equal(runs, 1));
+	check('and all three get the same value', () => assert.deepEqual([a, b, c], ['v1', 'v1', 'v1']));
+
+	const other = await load('q');
+	check('a different key is not joined', () => assert.equal(other, 'v2'));
+
+	// NOT a cache: the entry is dropped on settle, so a LATER call recomputes. This is what keeps it
+	// free of the stale-value class of bug, and it must not silently become a cache.
+	const later = await load('p');
+	check('a call after the first settled recomputes (not a cache)', () => assert.equal(later, 'v3'));
+
+	// A rejection must not wedge the key for everyone who comes after.
+	const boom = createSingleFlight();
+	let attempts = 0;
+	const flaky = () =>
+		boom('k', async () => {
+			attempts++;
+			if (attempts === 1) throw new Error('first fails');
+			return 'ok';
+		});
+	await flaky().catch(() => {});
+	const recovered = await flaky();
+	check('a rejected run clears the key instead of wedging it', () => assert.equal(recovered, 'ok'));
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);

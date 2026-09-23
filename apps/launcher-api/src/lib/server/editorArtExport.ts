@@ -604,7 +604,17 @@ export async function exportEditorArt(
 			// `null` means reachability could NOT be determined (a doc failed to load), and then
 			// every clip ships — the old behaviour. Shipping an unused clip costs bytes; dropping a
 			// used one costs an animation that renders nothing, so the uncertain case must not prune.
-			const played = await collectPlayedClipIds(clientKey, projectKey, { doc, defs });
+			// ⚠️ DELIBERATELY NOT passing `defs`. `collectPlayedClipIds` reads component defs with
+			// `listComponents` — ALL of them, project + shared — and its own doc comment says it
+			// over-collects ON PURPOSE, because shipping a clip nothing plays costs bytes while dropping
+			// one something plays costs an animation. Handing it this export's `defs` (only the ones the
+			// doc currently instantiates) silently narrowed that set for THIS caller alone, so a clip
+			// reachable through an un-instantiated component was skipped here while `exportClips` — which
+			// passes nothing and therefore got the wide set — still SHIPPED it. That is a registered clip
+			// whose sheets were never exported, which is exactly the mismatch `exportClips` warns the bake
+			// refuses. The two callers now ask the same question, which is also what lets them share one
+			// run (`collectPlayedClipIds` single-flights concurrent callers).
+			const played = await collectPlayedClipIds(clientKey, projectKey, { doc });
 			const skipped: string[] = [];
 			for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
 				if (played && !played.has(clip.id)) {
