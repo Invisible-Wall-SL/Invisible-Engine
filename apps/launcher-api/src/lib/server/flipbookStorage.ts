@@ -4,7 +4,11 @@ import {
 	type FlipbookClip,
 	type FlipbookDoc,
 } from 'engine-flipbook';
-import { createSingleFlight } from './concurrency';
+import { createSingleFlight, mapWithConcurrency } from './concurrency';
+
+/** Width for the per-clip reads/writes. A clip doc is small JSON — no page buffers — so this is a
+ *  pure latency knob, not the memory trade the art export's fan-out makes. */
+export const CLIP_IO_CONCURRENCY = 8;
 import { CLIP_DOC_SUFFIX, clipDocKey, clipsPrefix, r2Slug } from './projectPaths';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import {
@@ -255,9 +259,13 @@ async function loadFlipbookDocUncached(
 ): Promise<FlipbookDoc> {
 	const prefix = `${clipsPrefix(clientKey, projectKey)}/`;
 	const listed = await listObjects(prefix, 1000);
+	// One GET per clip doc, and there are 36 of them on `bookofborutremake` — 9.0s of the assemble
+	// spent waiting on small reads one at a time (`flipbooks:doc`). Read in INPUT (listing) order so
+	// the resulting doc is identical to the sequential version's, corrupt-clip gaps included.
+	const keys = listed.keys.filter((k) => k.endsWith(CLIP_DOC_SUFFIX));
+	const raws = await mapWithConcurrency(keys, CLIP_IO_CONCURRENCY, (key) => getObjectText(key));
 	const clips: unknown[] = [];
-	for (const key of listed.keys.filter((k) => k.endsWith(CLIP_DOC_SUFFIX))) {
-		const raw = await getObjectText(key);
+	for (const raw of raws) {
 		if (!raw) continue;
 		try {
 			clips.push(JSON.parse(raw));
@@ -269,7 +277,9 @@ async function loadFlipbookDocUncached(
 	const doc = normalizeFlipbookDoc({ clips });
 	if (!anyRepairableAtlasRef(doc.clips)) return doc;
 	const resolve = createAtlasRefResolver(clientKey, projectKey);
-	const repaired: FlipbookClip[] = [];
-	for (const clip of doc.clips) repaired.push(await canonicalizeClipAtlasKeys(clip, resolve));
+	// Same again for the repair pass, which resolves each clip's atlas refs independently.
+	const repaired = await mapWithConcurrency(doc.clips, CLIP_IO_CONCURRENCY, (clip) =>
+		canonicalizeClipAtlasKeys(clip, resolve),
+	);
 	return { ...doc, clips: repaired };
 }
