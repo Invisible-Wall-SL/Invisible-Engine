@@ -43,6 +43,34 @@ export const ENV = {
 	get KTX2_ENCODE() {
 		return env.KTX2_ENCODE === '1' || env.KTX2_ENCODE === 'true';
 	},
+	/** Re-encode non-WebP atlas pages (PNG/JPEG) to near-lossless WebP as they enter the shared
+	 *  `_pages/` store. ON by default — a page's format is whatever the packer happened to emit,
+	 *  and a PNG page costs ~3× the download of the same art as WebP for a worst-case error of
+	 *  4/255 (measured on the Book of Borut remake: 10 PNG pages = 20.3 MB of a 59.6 MB texture
+	 *  payload). See `WEBP_OPTS` in `pageStore.ts` for why it is near-lossless and not lossy.
+	 *  Unlike `KTX2_ENCODE` this changes no pixel dimensions, so no atlas/sheet coordinate
+	 *  rescale is involved — but it is NOT free (~1–7 s/page, once per content hash), so a
+	 *  project's first assemble after enabling it pays for every page at once. Run the bake
+	 *  before serving if that matters (`gotcha_runtime_assemble_outruns_client_timeout`). Set
+	 *  `PAGE_WEBP=0` to ship pages byte-verbatim again. */
+	get PAGE_WEBP() {
+		return env.PAGE_WEBP !== '0' && env.PAGE_WEBP !== 'false';
+	},
+	/** Cap the bitrate of exported audio (`audioTranscode.ts`). ON by default — nothing else in
+	 *  the sound pipeline looks at how an upload was encoded, so a 256 kbps music bed shipped to
+	 *  every player until this existed. Re-encodes the exported COPY only; the upload in
+	 *  `sounds/files/` is never touched, so `SOUND_TRANSCODE=0` + a re-export restores the
+	 *  original bytes exactly. */
+	get SOUND_TRANSCODE() {
+		return env.SOUND_TRANSCODE !== '0' && env.SOUND_TRANSCODE !== 'false';
+	},
+	/** The ceiling {@link SOUND_TRANSCODE} encodes down to. 128 kbps is transparent for a looping
+	 *  game bed; a file already at or under it is left alone (the exporter keeps a re-encode only
+	 *  when it is actually smaller, so this can be raised without stranding anything). */
+	get SOUND_MAX_KBPS() {
+		const n = Number(env.SOUND_MAX_KBPS);
+		return Number.isFinite(n) && n > 0 ? n : 128;
+	},
 	// Atlas Maker (cloud) — the generation backend + default manifest/style ref.
 	get ATLAS_BACKEND_URL() {
 		// Code default to the current Railway service so the launcher works even

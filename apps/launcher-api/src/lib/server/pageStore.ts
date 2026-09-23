@@ -19,6 +19,7 @@
  * HEAD, no byte download; bytes are read only to encode a NEW page's KTX2 twin. A page that
  * isn't byte-identical simply doesn't dedup (safe: more copies, never a wrong merge).
  */
+import sharp from 'sharp';
 import { ENV } from './env';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
@@ -35,8 +36,50 @@ import {
 /** Relative path from any atlas/sheet at `deploy/<subtree>/<stem>/` up to `deploy/_pages/`. */
 export const PAGE_REF_PREFIX = '../../_pages/';
 
+/**
+ * WebP settings for a re-encoded page: **near-lossless**, not ordinary lossy.
+ *
+ * Measured on the Book of Borut remake's ten PNG pages. Plain lossy WebP is the obvious
+ * choice by size (q90 took 20.3 MB → 3.6 MB) and it is the wrong one: on the UI sheet it
+ * moved **51,588 fully-opaque pixels by more than 20/255**, with a worst case of 92 — visible
+ * banding inside buttons and title art, not just softened alpha edges. Raising the quality
+ * does not buy it back either; q90→q98 gained 0.9 dB for 40% more bytes, because the error is
+ * structural rather than quantization noise.
+ *
+ * `nearLossless: 40` holds the worst opaque-pixel error to **4/255** (42.6 dB) and still lands
+ * ~68% under PNG — most of the lossy win, effectively none of the risk. `alphaQuality: 100`
+ * keeps cut-out edges exact. Dimensions are untouched, so every atlas/sheet coordinate stays
+ * valid without a rescale.
+ */
+const WEBP_OPTS = { nearLossless: true, quality: 40, alphaQuality: 100, effort: 4 } as const;
+
+/**
+ * Re-encode a page to WebP at its EXACT source dimensions. Null on any failure ⇒ the caller
+ * ships the source bytes verbatim (parity), never a broken page.
+ *
+ * Deliberately not size-guarded: the filename is what the content cache probes, so making it
+ * depend on the encoded size would mean a page that WebP cannot beat gets re-downloaded and
+ * re-encoded on EVERY assemble — and that path is already close to the client's 90 s budget
+ * (`gotcha_runtime_assemble_outruns_client_timeout`). A packed page WebP loses on is a
+ * hypothetical; a blown assemble budget is a bug we have already shipped once.
+ */
+async function transcodePageToWebp(sourceKey: string): Promise<Buffer | null> {
+	try {
+		const src = await getObjectBytes(sourceKey);
+		if (!src) return null;
+		return await sharp(Buffer.from(src.body)).webp(WEBP_OPTS).toBuffer();
+	} catch {
+		return null;
+	}
+}
+
 export interface SharedPage {
-	/** The shared page filename (e.g. `<hash>.webp`) — reference it as PAGE_REF_PREFIX + this. */
+	/** The shared page filename (e.g. `<hash>.webp`) — reference it as PAGE_REF_PREFIX + this.
+	 *  Its extension is the SHIPPED format, which is not always the source's: a PNG/JPEG source
+	 *  is re-encoded to `.webp` unless `PAGE_WEBP=0` or the encode failed to beat the original.
+	 *  Callers must reference this rather than deriving a name from the source key — PIXI and
+	 *  Spine both pick their loader by extension, so a name that disagrees with the bytes only
+	 *  surfaces as a broken texture in the game. */
 	file: string;
 	/** The shared KTX2 twin filename (`<hash>.ktx2`), when it was encoded. */
 	ktx2File?: string;
@@ -92,8 +135,13 @@ export class PageStore {
 		if (cached) return cached;
 
 		const hash = contentKey.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32) || 'page';
-		const file = `${hash}.${ext}`;
-		const pageKey = `${this.deployPrefix}_pages/${file}`;
+		// A non-WebP page ships re-encoded (see `ENV.PAGE_WEBP`), so the shipped name is derived
+		// from the TARGET format, not the source's. That also migrates an already-deployed project
+		// for free: its pages live at `<hash>.png`, this probes `<hash>.webp`, misses the content
+		// cache once, re-encodes, and the stale `.png` falls out of `written` and is pruned.
+		const reEncode = ENV.PAGE_WEBP && ext !== 'webp';
+		let file = `${hash}.${reEncode ? 'webp' : ext}`;
+		let pageKey = `${this.deployPrefix}_pages/${file}`;
 		// A `_pages/<hash>.meta.json` sidecar records the KTX2 twin's filename + dims, so a cached
 		// page (below) is reused WITHOUT re-copying or re-encoding — the same skip-if-exists the
 		// per-site encoders use, so the export stays fast on the per-boot `/api/editor/runtime`
@@ -132,7 +180,21 @@ export class PageStore {
 			return shared;
 		}
 
-		if (!(await copyObject(sourceKey, pageKey))) return null;
+		if (reEncode) {
+			const webp = await transcodePageToWebp(sourceKey);
+			if (webp) {
+				await putObjectBytes(pageKey, webp, 'image/webp');
+			} else {
+				// Undecodable source ⇒ ship it byte-verbatim under its OWN extension rather than a
+				// `.webp` name that lies about its bytes. This costs a re-attempt on each assemble
+				// (the content cache probes the `.webp` name and keeps missing), which is the right
+				// trade: it stays correct, and a page `sharp` cannot read is a real problem to see
+				// rather than a state to cache.
+				file = `${hash}.${ext}`;
+				pageKey = `${this.deployPrefix}_pages/${file}`;
+				if (!(await copyObject(sourceKey, pageKey))) return null;
+			}
+		} else if (!(await copyObject(sourceKey, pageKey))) return null;
 		this.written.add(pageKey);
 		const shared: SharedPage = { file, ktx2Width: 0, ktx2Height: 0 };
 		if (ENV.KTX2_ENCODE) await this.encodeTwin(sourceKey, hash, shared);
