@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import ColorField from '$lib/ColorField.svelte';
+	import GradientBar from '$lib/GradientBar.svelte';
 	import { Application, BitmapText, Container } from 'pixi.js';
 	import {
 		fetchFontCatalog,
@@ -15,9 +16,11 @@
 	import {
 		bakeBitmapFont,
 		defaultEffects,
+		normalizeEffects,
 		parseFont,
 		type BakeEffects,
 		type BakeResult,
+		type FillMode,
 	} from './fontBake.client';
 	import { CHARSET_LABELS, charsForPreset, type CharsetPreset } from './charsets.client';
 	import type { Font } from 'opentype.js';
@@ -78,6 +81,10 @@
 	let savedNote = $state<string | null>(null);
 
 	const presets: CharsetPreset[] = ['digits', 'currency', 'alphanumeric', 'ascii', 'custom'];
+	const fillModes: { id: FillMode; label: string }[] = [
+		{ id: 'solid', label: 'Solid' },
+		{ id: 'gradient', label: 'Gradient' },
+	];
 
 	void fetchFontCatalog().then((res) => {
 		existingIds = new Set(res.fonts.map((f) => f.id));
@@ -324,7 +331,8 @@
 				pageMaxWidth = doc.pageMaxWidth;
 				pageMaxHeight = doc.pageMaxHeight;
 				kerning = doc.kerning;
-				effects = doc.effects;
+				// A recipe saved before the multi-stop fill carries the old `gradient`/`color2` pair.
+				effects = normalizeEffects(doc.effects);
 				overwrite = true;
 				await bake();
 			} catch (e) {
@@ -542,21 +550,32 @@
 					</label>
 					{#if effects.fill.enabled}
 						<div class="effect-body">
-							<label class="toggle small">
-								<input type="checkbox" bind:checked={effects.fill.gradient} /> Vertical gradient
-							</label>
-							<div class="row">
+							<div class="modes" role="radiogroup" aria-label="Fill mode">
+								{#each fillModes as mode (mode.id)}
+									<button
+										class="seg"
+										class:active={effects.fill.mode === mode.id}
+										type="button"
+										role="radio"
+										aria-checked={effects.fill.mode === mode.id}
+										onclick={() => (effects.fill.mode = mode.id)}
+									>
+										{mode.label}
+									</button>
+								{/each}
+							</div>
+							{#if effects.fill.mode === 'gradient'}
+								<GradientBar
+									bind:stops={effects.fill.stops}
+									startLabel="Glyph top"
+									endLabel="Glyph bottom"
+								/>
+							{:else}
 								<label class="color">
-									{effects.fill.gradient ? 'Top' : 'Color'}
+									Color
 									<ColorField bind:value={effects.fill.color} />
 								</label>
-								{#if effects.fill.gradient}
-									<label class="color">
-										Bottom
-										<ColorField bind:value={effects.fill.color2} />
-									</label>
-								{/if}
-							</div>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -852,6 +871,11 @@
 	}
 	.effect-body {
 		margin: 10px 0 0 22px;
+	}
+	.modes {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 12px;
 	}
 	.toggle {
 		display: flex;
