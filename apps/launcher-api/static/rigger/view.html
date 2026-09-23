@@ -230,11 +230,23 @@
   #timeline .tl-key.bez { background:#7ee0c0; } /* eased segment */
   #timeline .tl-key.slot { background:#e0a64a; } /* slot (attachment/colour) key */
   #timeline .tl-key.slot.sel { background:#ffd24a; }
+  #timeline .tl-key.seq { background:#ff9f7a; } /* image-sequence key (always a step) */
+  #timeline .tl-key.seq.sel { background:#ffd24a; }
   #timeline .tl-key.evt { background:#c98bff; } /* event key */
   #timeline .tl-key.evt.fx { box-shadow:0 0 0 2px #ffd76a inset; } /* warm ring = a bound FX effect */
   #timeline .tl-key.draw { background:#5cc8ff; } /* draw-order key */
   #timeline .tl-key.msel { background:#fff; box-shadow:0 0 0 2px var(--accent),0 0 0 3px #0c0f14; z-index:2; } /* multi-selected */
   #timeline .tl-key.ghost { opacity:.5; box-shadow:0 0 0 1px var(--accent); pointer-events:none; z-index:3; } /* Alt-drag duplicate preview */
+  /* stretch bar: the selection's time range drawn on the ruler, pinned at the anchor key */
+  #timeline .tl-scale { position:absolute; bottom:1px; height:9px; z-index:1; border-radius:3px;
+    background:rgba(126,224,192,.18); border:1px solid rgba(126,224,192,.5); pointer-events:none; }
+  #timeline .tl-scale-pin { position:absolute; bottom:0; height:11px; width:2px; margin-left:-1px;
+    background:#ffd24a; z-index:3; pointer-events:none; } /* the anchor time — it never moves */
+  #timeline .tl-scale-grip { position:absolute; bottom:0; height:11px; width:9px; margin-left:-4px;
+    background:#7ee0c0; border:1px solid #0c0f14; border-radius:2px; cursor:ew-resize; z-index:2; }
+  #timeline .tl-scale-grip:hover { background:#a6f0da; }
+  #timeline .tl-scale-grip.dead { background:var(--dim); opacity:.45; cursor:default; pointer-events:none; } /* this end IS the anchor */
+  #timeline .tl-scale.clash { background:rgba(255,91,110,.2); border-color:rgba(255,91,110,.7); } /* would overwrite unselected keys */
   #dopeMarquee { position:fixed; z-index:80; pointer-events:none;
     border:1px dashed #7ee0c0; background:rgba(126,224,192,.12); }
   #tlPlayhead { position:absolute; top:0; width:2px; background:#ff5b6e;
@@ -819,6 +831,10 @@ let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit)
 let tlSelOnly = false; // dopesheet: show only the selected bone/slot's keys
 // dopesheet multi-select: selected keys [{tid,time}] + group-drag + marquee + per-render lookups
 let dopeSel = [], dopeDrag = null, dopeMarquee = null, dopeTrackById = {}, dopeDotEls = {};
+// dopesheet STRETCH: the selection's key times scale about ONE anchor time — the selected key you
+// clicked last, else the earliest. Dragging a ⟺ grip at either end of the selection's range sets the
+// ratio; the anchor never moves, so keys on BOTH sides of it spread apart / close in together.
+let dopeAnchorT = null, dopeScale = null;
 let tlView = "dope"; // "dope" (dopesheet) | "graph" (curve editor) — separate views
 let graphDrag = null, graphMap = null; // graph keyframe drag state + value↔y mapping
 const GRAPH_CHANS = [
@@ -1213,7 +1229,7 @@ function beginTweak(info){
   playing = false; $("#play").textContent = "▶ Play";
   curAnim = info.clip || null;
   fxClearPreview();
-  tlPxPerSec = null; graphSel = []; dopeSel = []; selEvent = null;
+  tlPxPerSec = null; graphSel = []; dopeSel = []; dopeAnchorT = null; dopeScale = null; selEvent = null;
   if (tweakInline) applyInlineChrome(true); else applyTweakChrome(true);
   ensureFxOverlay("front"); // the rig's own event-driven FX preview, same as animate mode
   if (!tweakInline) renderTweakBar();
@@ -2445,6 +2461,10 @@ function importAnimation(animation, desiredName){
     const nm = uniqueAnimName(desiredName || "animation");
     rawDoc.animations = rawDoc.animations || {};
     rawDoc.animations[nm] = JSON.parse(JSON.stringify(animation));
+    // Every reader in here treats `k.time` as a number, and Spine OMITS it at 0 — the rig load path
+    // normalizes for exactly that reason, but a clip arriving from the library or the clipboard
+    // skipped it, so a key written that way would compare as NaN (never found, never retimed).
+    normalizeKeyTimes({ animations: { [nm]: rawDoc.animations[nm] } });
     animsDirty = true; markDirty();
     if (!animMode) setMode("animate");
     setCurAnim(nm); // setCurAnim re-renders the Animations section
@@ -8522,6 +8542,38 @@ function setWorkLen(name, secs){
   if (animTime > secs) animTime = secs;
   syncPlayhead(); renderTimeline();
 }
+// Scale EVERY key time under an animation node by `f`, whatever timeline it belongs to, plus the
+// two other time-valued fields a key can carry: bezier CONTROL times and a sequence key's `delay`
+// (seconds per sub-frame — see the sequence timeline section).
+//
+// It walks structurally rather than naming the timeline shapes, because naming them is how this
+// went wrong: `stretchAnimation` scaled `a.bones` and `a.slots` only, so "stretch all keys to N
+// seconds" silently left events, draw order, ik/transform/path/physics, deform and sequence keys at
+// their original times. A structural walk cannot miss a timeline added later either.
+//
+// It is safe because it guards each FIELD rather than deciding what a "key" is: `time`, bezier
+// control times and a sequence `delay` are scaled wherever they appear with the right type, and an
+// object carrying none of them is left alone. That last part is what protects draw order's
+// `offsets: [{slot, offset}]`, an array of plain objects that would otherwise scale into NaN — and
+// guarding the FIELD rather than the key is what makes a t=0 key work, since Spine OMITS `time`
+// there (`explosion.json`'s first sequence key is `{mode, delay}`, and a key-level `time` test
+// skipped it along with the delay it owns). Key objects are never recursed into, so `curve` /
+// `vertices` / `triangles` — arrays of numbers — are never walked as key lists.
+function scaleKeyTimes(node, f, parentKey){
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)){
+    const isSeq = parentKey === "sequence";
+    for (const k of node){
+      if (!k || typeof k !== "object") continue; // numbers inside curve / vertices / triangles
+      if (Array.isArray(k)){ scaleKeyTimes(k, f, parentKey); continue; }
+      if (typeof k.time === "number") k.time = roundN(k.time * f, 4);
+      if (Array.isArray(k.curve)) for (let i = 0; i < k.curve.length; i += 4){ k.curve[i] = roundN(k.curve[i] * f, 4); k.curve[i + 2] = roundN(k.curve[i + 2] * f, 4); }
+      if (isSeq && typeof k.delay === "number") k.delay = roundN(k.delay * f, 6);
+    }
+    return;
+  }
+  for (const [key, v] of Object.entries(node)) scaleKeyTimes(v, f, key);
+}
 // Stretch/squash: scale ALL key times (and bezier control times) of an animation to a new
 // duration. This is the persistent "make it N seconds" — keyed duration actually changes.
 function stretchAnimation(name, newDur){
@@ -8529,14 +8581,7 @@ function stretchAnimation(name, newDur){
   const old = animDuration(name); newDur = Number(newDur) || 0;
   if (!(old > 0) || !(newDur > 0)) return;
   const f = newDur / old;
-  const scaleGroup = (group) => { for (const ch of Object.values(group || {})) for (const keys of Object.values(ch)){
-    if (!Array.isArray(keys)) continue;
-    for (const k of keys){
-      k.time = roundN(k.time * f, 4);
-      if (Array.isArray(k.curve)) for (let i = 0; i < k.curve.length; i += 4){ k.curve[i] = roundN(k.curve[i] * f, 4); k.curve[i + 2] = roundN(k.curve[i + 2] * f, 4); }
-    }
-  } };
-  scaleGroup(a.bones); scaleGroup(a.slots);
+  scaleKeyTimes(a, f);
   animWorkLen[name] = newDur;
   animTime = Math.min(animTime * f, newDur);
   markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
@@ -8715,7 +8760,7 @@ function setCurAnim(name){
   }
   curAnim = name && animHasName(name) ? name : null;
   fxClearPreview(); // switching animation — drop any live FX preview
-  animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; // re-fit the timeline + clear selections
+  animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; dopeAnchorT = null; dopeScale = null; // re-fit the timeline + clear selections
   selEvent = null; renderEventDetail(); // events are per-animation — drop any docked event key
   $("#anim").value = curAnim || "";
   syncPlayhead();
@@ -9067,6 +9112,8 @@ function timelineTracks(){
     }
     // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
+    // sequence rows for the selected slot (the Rigger cannot author one, so only shown when keyed)
+    if (selSlot) for (const q of sequenceTracksWithKeys(a)) if (q.name === selSlot) out.push(q);
     // ik track for the selected constraint (empty row to key into)
     if (selIk && ikByName(selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
     // transform track for the selected constraint (empty row to key into)
@@ -9080,6 +9127,7 @@ function timelineTracks(){
   if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
+  for (const q of sequenceTracksWithKeys(a)) if (!out.some((t) => t.kind === "sequence" && t.name === q.name && t.att === q.att)) out.push(q);
   for (const k of ikTracksWithKeys(a)) if (!out.some((t) => t.kind === "ik" && t.name === k.name)) out.push(k);
   for (const k of transformTracksWithKeys(a)) if (!out.some((t) => t.kind === "transform" && t.name === k.name)) out.push(k);
   for (const k of pathTracksWithKeys(a)) if (!out.some((t) => t.kind === "pathch" && t.name === k.name && t.ch === k.ch)) out.push(k);
@@ -9109,6 +9157,103 @@ function deformTracksWithKeys(a){
   }
   return out;
 }
+// ---- sequence timeline (Spine 4.2 image sequences) ------------------------
+// animations.<a>.attachments.<skin>.<slot>.<att>.sequence = [{ time?, mode?, index?, delay? }] —
+// the SAME node deform lives in, so the track plumbing mirrors deform's exactly. Read off
+// spine-core@4.2.74 SkeletonJson (L975) + SequenceTimeline.apply, not from memory:
+//   · `time` defaults 0, `mode` defaults "hold", `index` defaults 0.
+//   · `delay` is SECONDS PER SUB-FRAME — `apply` does `index += ((time - before) / delay) | 0`,
+//     so it is the hold time of each image, NOT an offset. A retime that scales key times must
+//     scale `delay` with them or a stretched sequence keeps playing at its old speed.
+//   · an ABSENT `delay` INHERITS the previous key's (the loader carries `lastDelay` forward,
+//     starting at 0), so it is a real value even when the JSON does not spell it.
+//   · there is NO `curve` — a sequence key is a step. Hence not easable.
+// The Rigger does not yet AUTHOR sequences (no UI to attach one, or to change mode/index/delay);
+// this exposes the timeline so its keys can be seen, retimed, duplicated, deleted and stretched
+// instead of being invisible to the dopesheet. Validated in tools/rigger-spike/sequence.mjs.
+// Every (slot, attachment) carrying sequence keys in animation `a`, across all skins.
+function sequenceTracksWithKeys(a){
+  const out = [], seen = new Set();
+  const at = a && a.attachments; if (!at) return out;
+  for (const skName of Object.keys(at)){
+    const sk = at[skName];
+    for (const slotName of Object.keys(sk)){
+      const sl = sk[slotName];
+      for (const attName of Object.keys(sl)){
+        const am = sl[attName];
+        if (am && Array.isArray(am.sequence) && am.sequence.length){ const id = slotName + "::" + attName; if (!seen.has(id)){ seen.add(id); out.push({ kind: "sequence", name: slotName, att: attName, label: "sequence" }); } }
+      }
+    }
+  }
+  return out;
+}
+function sequenceArrForTrack(tr){
+  const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
+  const order = [activeSkinName(), "default", ...Object.keys(at)];
+  for (const skName of order){ const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att]; if (am && Array.isArray(am.sequence)) return am.sequence; }
+  return null;
+}
+// The delay a sequence key actually plays at: its own, else the nearest earlier key's (the
+// loader's `lastDelay` carry-forward). `owner` is the key the value came from — the stretch needs
+// it to know whether that provider is itself being scaled.
+function seqEffectiveDelay(arr, i){
+  for (let j = i; j >= 0; j--) if (typeof arr[j].delay === "number") return { delay: arr[j].delay, owner: arr[j] };
+  return { delay: 0, owner: null };
+}
+// What a sequence key does, for the dopesheet tooltip — the Rigger cannot edit these yet, so
+// reading them off the key is the only way to tell two keys on the row apart. An inherited delay
+// is marked, since it is not spelled in the file.
+function seqKeyLabel(tr, time){
+  const arr = sequenceArrForTrack(tr); if (!arr) return "";
+  const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4); if (i < 0) return "";
+  const k = arr[i], mode = k.mode || "hold";
+  const eff = seqEffectiveDelay(arr, i);
+  const parts = ["mode " + mode, "image " + (k.index || 0)];
+  if (mode !== "hold") parts.push((eff.delay * 1000).toFixed(1) + "ms/frame" + (typeof k.delay === "number" ? "" : " (inherited)"));
+  return parts.join(", ");
+}
+// Removing a sequence key that OWNS a `delay` re-times every later key inheriting it, so hand the
+// value to the first follower before it goes. Every path that splices a key out needs this —
+// delete, and also retime/duplicate, which drop whatever key they land on.
+function pinSequenceDelayAfter(arr, k){
+  if (!k || typeof k.delay !== "number") return;
+  const nxt = arr[arr.indexOf(k) + 1];
+  if (nxt && typeof nxt.delay !== "number") nxt.delay = k.delay;
+}
+function retimeSequenceKey(tr, oldTime, newTime){
+  const arr = sequenceArrForTrack(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
+  const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4){ pinSequenceDelayAfter(arr, arr[i]); arr.splice(i, 1); }
+  k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+// Duplicate a sequence key. Not `dupKeyInArr`: a copy overwrites whatever sits at the destination,
+// and that key may own a delay the ones after it inherit.
+function copySequenceKey(tr, srcTime, destTime){
+  const arr = sequenceArrForTrack(tr); if (!arr) return;
+  const src = arr.find((x) => Math.abs(x.time - srcTime) < 1e-4); if (!src) return;
+  destTime = Math.max(0, roundN(destTime, 4));
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== src && Math.abs(arr[i].time - destTime) < 1e-4){ pinSequenceDelayAfter(arr, arr[i]); arr.splice(i, 1); }
+  const copy = JSON.parse(JSON.stringify(src)); copy.time = destTime;
+  if (typeof copy.delay !== "number"){ const eff = seqEffectiveDelay(arr, arr.indexOf(src)); if (eff.delay > 0) copy.delay = eff.delay; } // it lands elsewhere in the chain
+  arr.push(copy); arr.sort((a, b) => a.time - b.time);
+  markDirty(); animsDirty = true;
+}
+function deleteSequenceKeyAt(tr, time){
+  const a = animOf(curAnim), at = a && a.attachments; if (!at) return;
+  for (const skName of Object.keys(at)){
+    const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att];
+    if (am && Array.isArray(am.sequence)){
+      const i = am.sequence.findIndex((k) => Math.abs(k.time - time) < 1e-3);
+      if (i >= 0) pinSequenceDelayAfter(am.sequence, am.sequence[i]);
+      am.sequence = am.sequence.filter((k) => Math.abs(k.time - time) >= 1e-3);
+      if (!am.sequence.length){ delete am.sequence; if (!Object.keys(at[skName][tr.name][tr.att]).length) delete at[skName][tr.name][tr.att]; if (!Object.keys(at[skName][tr.name]).length) delete at[skName][tr.name]; if (!Object.keys(at[skName]).length) delete at[skName]; }
+    }
+  }
+  if (!Object.keys(at).length) delete a.attachments;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
+
 // The deform key array for a deform track, resolved across skins (active skin first, then any).
 function deformArrForTrack(tr){
   const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
@@ -9121,6 +9266,7 @@ const trackKeyTimes = (tr) => {
   if (tr.kind === "events") return eventKeyTimes();
   if (tr.kind === "draworder") return drawOrderKeyTimes();
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
+  if (tr.kind === "sequence"){ const arr = sequenceArrForTrack(tr); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
   if (tr.kind === "ik") return ikKeyTimes(tr.name);
   if (tr.kind === "transform") return transformKeyTimes(tr.name);
   if (tr.kind === "physics") return physicsKeyTimes(tr.name);
@@ -9132,6 +9278,7 @@ const trackKeyCurve = (tr, time) => {
   if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
+  if (tr.kind === "sequence") return "stepped"; // a sequence key has no `curve`; it IS a step
   if (tr.kind === "physics") return physicsKeyCurve(tr.name, time);
   if (tr.kind === "pathch"){ const arr = pathChannelArr(tr.name, tr.ch); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); const k = arr && arr.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear"; if (k.curve === "stepped") return "stepped"; return Array.isArray(k.curve) ? "bezier" : "linear"; }
@@ -10113,7 +10260,7 @@ function toggleDopeSel(tid, time){
 function selectLineKeys(tr, additive){
   const tid = trackId(tr), times = trackKeyTimes(tr);
   const allSel = times.length > 0 && times.every((t) => dopeSelHas(tid, t));
-  if (!additive) dopeSel = [];
+  if (!additive){ dopeSel = []; dopeAnchorT = null; }
   if (allSel) dopeSel = dopeSel.filter((s) => s.tid !== tid);
   else for (const t of times) if (!dopeSelHas(tid, t)) dopeSel.push({ tid, time: t });
 }
@@ -10122,6 +10269,7 @@ function retimeTrackKey(tr, oldTime, newTime){
   if (tr.kind === "events") retimeEventKey(oldTime, newTime);
   else if (tr.kind === "draworder") retimeDrawOrderKey(oldTime, newTime);
   else if (tr.kind === "deform") retimeDeformKey(tr, oldTime, newTime);
+  else if (tr.kind === "sequence") retimeSequenceKey(tr, oldTime, newTime);
   else if (tr.kind === "ik") retimeIkKey(tr.name, oldTime, newTime);
   else if (tr.kind === "transform") retimeTransformKey(tr.name, oldTime, newTime);
   else if (tr.kind === "physics") retimePhysicsKey(tr.name, oldTime, newTime);
@@ -10167,6 +10315,7 @@ function copyTrackKey(tr, srcTime, destTime){
   if (tr.kind === "events") copyEventKey(srcTime, destTime);
   else if (tr.kind === "draworder") copyDrawOrderKey(srcTime, destTime);
   else if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
+  else if (tr.kind === "sequence") copySequenceKey(tr, srcTime, destTime);
   else if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); if (arr){ dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; } }
   else if (tr.kind === "physics") copyPhysicsKey(tr.name, srcTime, destTime);
@@ -10194,6 +10343,227 @@ function startDopeDrag(e, dur, anchorTid, anchorTime){
   dopeDrag = { startX: e.clientX, dur, items, moved: false, anchorStart: anchorTime, duplicate: !!e.altKey };
   if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + items.length + " key(s) — release to drop";
 }
+
+// ---- Stretch (dopesheet): scale the selection's key TIMES about one anchor -------------------
+// The time the stretch turns about: the selected key you clicked last, else the selection's
+// earliest key (so a plain marquee stretches from its left edge — the common case).
+function dopeAnchorTime(){
+  if (!dopeSel.length) return null;
+  if (dopeAnchorT != null && dopeSel.some((s) => Math.abs(s.time - dopeAnchorT) < 1e-4)) return dopeAnchorT;
+  return Math.min(...dopeSel.map((s) => s.time));
+}
+// Every keyframe array a dopesheet track owns — one row is the union of these channels. The stretch
+// needs them to reach each key's bezier CONTROL times, which `retimeTrackKey` (time only) never sees.
+function trackKeyArrays(tr){
+  const a = tr ? animOf(curAnim) : null; if (!a) return [];
+  const pick = (node, chans) => (node ? chans.map((c) => node[c]).filter(Array.isArray) : []);
+  if (tr.kind === "events") return Array.isArray(a.events) ? [a.events] : [];
+  if (tr.kind === "draworder") return Array.isArray(a.drawOrder) ? [a.drawOrder] : [];
+  if (tr.kind === "deform"){ const arr = deformArrForTrack(tr); return arr ? [arr] : []; }
+  if (tr.kind === "sequence"){ const arr = sequenceArrForTrack(tr); return arr ? [arr] : []; }
+  if (tr.kind === "ik"){ const arr = ikChannelArr(tr.name); return arr ? [arr] : []; }
+  if (tr.kind === "transform"){ const arr = tcChannelArr(tr.name); return arr ? [arr] : []; }
+  if (tr.kind === "physics") return pick(pcAnim(tr.name), PC_ALL_CHANS);
+  if (tr.kind === "pathch"){ const arr = pathChannelArr(tr.name, tr.ch); return arr ? [arr] : []; }
+  if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? [arr] : []; }
+  if (tr.kind === "slot") return pick(slotChannel(tr.name), ["attachment", "rgba", "rgba2"]);
+  return pick(a.bones && a.bones[tr.name], ["rotate", "translate", "scale", "shear"]);
+}
+// Remap every TIME-VALUED field a key carries besides `time` itself, under the same affine map:
+// a bezier key's CONTROL times, and a sequence key's `delay`. `retimeTrackKey` writes `time` and
+// nothing else, so without this a stretch keeps the old absolute control times (easing distorts)
+// and the old sub-frame delay (a stretched sequence plays at its original speed). Control times are
+// clamped into the segment, because the NEXT key is only remapped when it is selected too —
+// otherwise the far end stays put and the controls spill out.
+function scaleTrackKeyTimings(tr, tid, time, d){
+  const finalOf = (t) => { const it = d.items.find((x) => x.tid === tid && Math.abs(x.startTime - t) < 1e-4); return it ? it.newTime : t; };
+  const selectedAt = (t) => d.items.some((x) => x.tid === tid && Math.abs(x.startTime - t) < 1e-4);
+  for (const arr of trackKeyArrays(tr)){
+    const i = arr.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (i < 0) continue;
+    fitKeyCurve(arr, i, finalOf);
+    // The key BEFORE the selection eases INTO this one, so its segment just changed length while the
+    // key itself never moved — and only selected keys are visited, so nobody would re-fit it. Its
+    // control times would then sit OUTSIDE their own segment, which is an invalid bezier (the
+    // sampler bisects assuming X is monotonic), not merely a distorted one.
+    if (i > 0 && !selectedAt(roundN(arr[i - 1].time, 4))) fitKeyCurve(arr, i - 1, finalOf);
+  }
+}
+// Re-fit one key's bezier control TIMES onto its segment after either end of that segment moved:
+// map [t1, t2] affinely onto its final [t1', t2']. When both ends are selected this is exactly the
+// stretch's own map, so the easing is carried along unchanged; when only one end moved it is what
+// keeps the curve inside its segment and therefore valid.
+function fitKeyCurve(arr, i, finalOf){
+  const k = arr[i], nxt = arr[i + 1];
+  if (!Array.isArray(k.curve) || !nxt) return; // "stepped"/absent curve, or no segment after it
+  const t1 = roundN(k.time, 4), t2 = roundN(nxt.time, 4);
+  const n1 = finalOf(t1), n2 = finalOf(t2);
+  if (!(t2 > t1) || !(n2 > n1)) return;
+  const s = (n2 - n1) / (t2 - t1);
+  for (let c = 0; c < k.curve.length; c += 4){ // [cx1, cy1, cx2, cy2] per value — cx are TIMES
+    k.curve[c] = roundN(n1 + (k.curve[c] - t1) * s, 4);
+    k.curve[c + 2] = roundN(n1 + (k.curve[c + 2] - t1) * s, 4);
+  }
+}
+// `delay` is seconds per sub-frame, so it must scale with the key times or a stretched sequence
+// keeps playing at its old speed and finishes early. The catch is that `delay` is INHERITED by
+// every later key that does not spell its own, so one written value re-times a whole run of keys
+// that may not all be in the selection.
+//
+// So this resolves the WHOLE array in one left-to-right pass rather than per selected key: carry
+// the delay in force in the original file, decide what each key should play at (scaled iff that key
+// is selected), and write a value only where inheritance would otherwise deliver the wrong one. A
+// per-key version cannot be made order-independent — with an UNSELECTED inheritor between two
+// selected keys, pinning the old value on it also cut the second selected key off from the scaled
+// one, and which of the two happened depended on click order. `delay` 0 is the loader's "no delay"
+// default (the runtime divides by it) and is left alone. Proved in tools/rigger-spike/sequence.mjs.
+function scaleSequenceDelays(arr, tid, d){
+  const selected = (k) => d.items.some((x) => x.tid === tid && Math.abs(x.startTime - roundN(k.time, 4)) < 1e-4);
+  let effOld = 0, effNow = 0; // the delay in force reading the ORIGINAL file, and the rewritten one
+  for (const k of arr){
+    if (typeof k.delay === "number") effOld = k.delay;
+    const want = effOld > 0 && selected(k) ? roundN(effOld * d.ratio, 6) : effOld;
+    if (typeof k.delay === "number"){ k.delay = want; effNow = want; }             // keep an explicit value explicit
+    else if (Math.abs(want - effNow) > 1e-9){ k.delay = want; effNow = want; }     // inheritance would be wrong: pin it
+  }
+}
+// Start a stretch from a ⟺ grip: that end follows the pointer, the anchor stays put, and every
+// selected key's distance from the anchor scales by the same ratio.
+function startDopeScale(e, edge, dur){
+  const anchorT = dopeAnchorTime(); if (anchorT == null) return;
+  const times = dopeSel.map((s) => s.time);
+  const startEdgeT = edge === "r" ? Math.max(...times) : Math.min(...times);
+  if (Math.abs(startEdgeT - anchorT) < 1e-4) return; // this end IS the anchor — no lever to pull
+  const items = [];
+  for (const s of dopeSel){
+    const tr = dopeTrackById[s.tid]; if (!tr) continue;
+    items.push({ tid: s.tid, tr, startTime: s.time, newTime: s.time, el: dopeDotEls[s.tid + "@" + s.time] });
+  }
+  if (!items.length) return;
+  // Ratio limits. Upper: no key may cross t=0 (times are absolute and non-negative, and
+  // `retimeTrackKey` clamps a negative to 0, where it would merge with whatever is there). Lower:
+  // two distinct times must never squash into one — a clash DROPS a key and rig editing has no
+  // undo, so 1ms (10× the 1e-4 merge epsilon) is the floor between them.
+  //
+  // The upper wall bites hard and silently: a selection containing a key at t=0, anchored anywhere
+  // to its right, has maxRatio EXACTLY 1 — spreading it would push t=0 below zero, so the grip
+  // cannot move outward at all. That is not a bug, it is the request being impossible; `wall` says
+  // so in the hint rather than leaving a grip that looks broken.
+  let maxRatio = 200;
+  for (const it of items) if (it.startTime < anchorT - 1e-6) maxRatio = Math.min(maxRatio, anchorT / (anchorT - it.startTime));
+  const wall = maxRatio < 1.005;
+  const sorted = Array.from(new Set(times.map((t) => roundN(t, 4)))).sort((a, b) => a - b);
+  let gap = Infinity;
+  for (let i = 1; i < sorted.length; i++) gap = Math.min(gap, sorted[i] - sorted[i - 1]);
+  const minRatio = gap > 0 && gap < Infinity ? Math.min(1, 0.001 / gap) : 1;
+  dopeScale = { anchorT, startEdgeT, startX: e.clientX, dur, items, ratio: 1, moved: false, minRatio, maxRatio, wall,
+    bar: $("#timeline .tl-scale"), grips: Array.from(document.querySelectorAll("#timeline .tl-scale-grip")) };
+  $("#hint").textContent = wall
+    ? "⟺ Stretch: can only SQUASH — a selected key sits at 0s, so spreading about " + anchorT.toFixed(3) + "s would push it before the start"
+    : "⟺ Stretch: " + items.length + " key(s) about " + anchorT.toFixed(3) + "s";
+}
+// How many UNSELECTED keys the pending stretch would land on. `retimeTrackKey` DROPS a key it
+// collides with and rig editing has no undo, so a stretch quietly eating a bone's settle key three
+// seconds away — off-screen at fit zoom — is the real hazard of the gesture. Clamping it away would
+// forbid legitimate work (retiming over the top is normal, and drag-to-retime already does it), so
+// instead the hint counts them and the bar turns red for as long as it would happen.
+function dopeScaleClashes(d){
+  const byTrack = {};
+  for (const it of d.items) (byTrack[it.tid] = byTrack[it.tid] || { tr: it.tr, items: [] }).items.push(it);
+  const lost = new Set();
+  for (const tid in byTrack){
+    const { tr, items } = byTrack[tid];
+    if (tr.kind === "events") continue; // retimeEventKey moves times only — events at the destination coexist
+    const moving = new Set(items.map((it) => roundN(it.startTime, 4)));
+    // Per CHANNEL ARRAY, not per row: a bone row's key at the destination is only destroyed if it
+    // lives on the same channel as the key moving onto it, and a key whose own slot is about to
+    // vacate the destination is not a loss either.
+    for (const arr of trackKeyArrays(tr)){
+      const at = (t) => arr.some((k) => Math.abs(k.time - t) < 1e-4);
+      for (const it of items){
+        if (!at(it.startTime) || moving.has(roundN(it.newTime, 4))) continue;
+        if (at(it.newTime)) lost.add(tid + "@" + roundN(it.newTime, 4));
+      }
+    }
+  }
+  return lost.size;
+}
+// Commit a stretch: write every selected key's scaled time (and its remapped curve) into the doc.
+// Applied in an order that never writes onto a time another selected key has yet to vacate —
+// spreading (ratio > 1) moves keys outward, so go farthest from the anchor first; squashing moves
+// them inward, so go nearest first. The anchor key never moves, but its curve still remaps, because
+// the key it eases TO did. Proved in tools/rigger-spike/stretch.mjs.
+function applyDopeScale(d){
+  // TWO PHASES, and they must not interleave. Every timing remap locates its key by the key's OLD
+  // time, and `scaleSequenceDelays` decides whether a neighbour is in the selection the same way —
+  // so a single pass that retimed as it went would, once the first key had moved, read a selected
+  // follower as unselected and pin a stale unscaled `delay` on it. (That bit only when SPREADING,
+  // where the far keys move first; squashing happened to be safe. Caught in review, not by the
+  // spike, which called the remap directly instead of through here.)
+  const seqDone = new Set();
+  for (const it of d.items){
+    if (it.tr.kind !== "sequence"){ scaleTrackKeyTimings(it.tr, it.tid, it.startTime, d); continue; }
+    if (seqDone.has(it.tid)) continue; // the delay pass resolves the whole array at once
+    seqDone.add(it.tid);
+    const arr = sequenceArrForTrack(it.tr); if (arr) scaleSequenceDelays(arr, it.tid, d);
+  }
+  const out = d.ratio > 1 ? -1 : 1;
+  const ordered = d.items.slice().sort((a, b) => out * (Math.abs(a.startTime - d.anchorT) - Math.abs(b.startTime - d.anchorT)));
+  for (const it of ordered) if (Math.abs(it.newTime - it.startTime) > 1e-4) retimeTrackKey(it.tr, it.startTime, it.newTime);
+  const seen = new Set();
+  for (const it of d.items) if (!seen.has(it.tid)){ seen.add(it.tid); clampTrackCurves(it.tr); }
+  markDirty(); animsDirty = true; // a timing-only remap never reaches retimeTrackKey's markDirty
+}
+// Backstop, run once per touched track once every retime has landed. A selected key can be pushed
+// PAST an unselected one, which re-sorts the array — so a key's `curve` can end up describing a
+// segment whose far end is now a DIFFERENT key, with control times outside it. That is an invalid
+// bezier (the sampler bisects assuming X is monotonic), not merely a distorted one, so clamp them
+// in. Easing that no longer spans anything meaningful goes flat, which is the honest outcome of
+// moving a key across its neighbour. `fitKeyCurve` has already carried the shape wherever it could.
+function clampTrackCurves(tr){
+  for (const arr of trackKeyArrays(tr)){
+    for (let i = 0; i < arr.length - 1; i++){
+      const k = arr[i]; if (!Array.isArray(k.curve)) continue;
+      const t1 = k.time, t2 = arr[i + 1].time;
+      for (let c = 0; c < k.curve.length; c += 4){
+        k.curve[c] = roundN(Math.min(t2, Math.max(t1, k.curve[c])), 4);
+        k.curve[c + 2] = roundN(Math.min(t2, Math.max(t1, k.curve[c + 2])), 4);
+      }
+    }
+  }
+}
+// The stretch bar: with 2+ keys selected across 2+ distinct times, draw the selection's range on the
+// ruler with a ⟺ grip at each end and a pin at the anchor. The end that IS the anchor gets a dead
+// grip — there is nothing to pull from a point that by definition stays put.
+function syncDopeScaleBar(dur){
+  const ruler = $("#tlRuler"); if (!ruler) return;
+  const times = dopeSel.map((s) => s.time);
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  if (!(times.length >= 2 && tMax - tMin >= 1e-4)){ // one key, or one instant — nothing to stretch
+    for (const el of ruler.querySelectorAll(".tl-scale, .tl-scale-pin, .tl-scale-grip")) el.remove();
+    return;
+  }
+  let bar = ruler.querySelector(".tl-scale");
+  if (!bar){
+    bar = document.createElement("div"); bar.className = "tl-scale"; ruler.appendChild(bar);
+    const p = document.createElement("div"); p.className = "tl-scale-pin"; ruler.appendChild(p);
+    for (const edge of ["l", "r"]){ const g = document.createElement("div"); g.className = "tl-scale-grip"; g.dataset.edge = edge; ruler.appendChild(g); }
+  }
+  const anchorT = dopeAnchorTime();
+  const pc = (t) => "max(6px, " + ((t / dur) * 100).toFixed(3) + "%)"; // keep t=0 off the sticky gutter
+  bar.style.left = pc(tMin); bar.style.width = "calc(" + pc(tMax) + " - " + pc(tMin) + ")";
+  const pin = ruler.querySelector(".tl-scale-pin");
+  pin.style.left = pc(anchorT);
+  pin.title = "stretch anchor @ " + anchorT.toFixed(3) + "s — this time stays put (click another selected key to move it here)";
+  for (const g of ruler.querySelectorAll(".tl-scale-grip")){
+    const edge = g.dataset.edge, t = edge === "l" ? tMin : tMax, dead = Math.abs(t - anchorT) < 1e-4;
+    g.style.left = pc(t);
+    g.classList.toggle("dead", dead);
+    g.title = dead ? "this end is the stretch anchor — drag the other grip"
+      : "⟺ drag to stretch the " + dopeSel.length + " selected key(s) about " + anchorT.toFixed(3) + "s";
+    g.onmousedown = dead ? null : (ev) => { ev.stopPropagation(); ev.preventDefault(); startDopeScale(ev, edge, dur); };
+  }
+}
+
 function startDopeMarquee(e, track){ const tl = $("#timeline"); dopeMarquee = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, sl0: tl ? tl.scrollLeft : 0, st0: tl ? tl.scrollTop : 0, moved: false, additive: e.shiftKey || e.ctrlKey || e.metaKey, track }; }
 // The origin is captured in client coords at mousedown; if #timeline scrolls during the drag,
 // shift it by the scroll delta so the rectangle stays anchored to the same content (not the viewport).
@@ -10246,7 +10616,7 @@ function renderTimeline(){
   const lc = document.createElement("span"); lc.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;";
   if (tlView === "dope"){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
-    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
+    lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ff9f7a", "■", "sequence") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
   } else {
     GRAPH_CHANS.forEach((c) => {
       const t = document.createElement("span"); t.textContent = c.label;
@@ -10278,7 +10648,7 @@ function renderTimeline(){
   if (graphSnap) snap.className = "active";
   hg.appendChild(snap);
   head.appendChild(hg);
-  const ruler = document.createElement("div");
+  const ruler = document.createElement("div"); ruler.id = "tlRuler";
   ruler.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;background:var(--panel);border-bottom:1px solid var(--line);";
   for (let t = 0; t <= dur + 1e-6; t += niceStep(dur)){
     const tk = document.createElement("div");
@@ -10297,18 +10667,19 @@ function renderTimeline(){
     const isPathCh = tr.kind === "pathch";
     const isChan = tr.kind === "bonech" || tr.kind === "slotch" || isPathCh;
     const isDeform = tr.kind === "deform";
+    const isSeq = tr.kind === "sequence";
     const isIk = tr.kind === "ik";
     const isTc = tr.kind === "transform";
     const isPc = tr.kind === "physics";
-    const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform; // deform selects its slot
+    const isSlotKind = tr.kind === "slot" || tr.kind === "slotch" || isDeform || isSeq; // deform/sequence select their slot
     const tid = trackId(tr); dopeTrackById[tid] = tr;
     const isSel = isAnim ? false : isPathCh ? (tr.name === selPath) : isChan ? true : isIk ? (tr.name === selIk) : isTc ? (tr.name === selTc) : isPc ? (tr.name === selPc) : (tr.kind === "bone" ? tr.name === selBoneName : tr.name === selSlot);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;height:22px;border-bottom:1px solid #23262e;width:" + (gutter + contentW) + "px;" + (isSel ? "background:#2a2f3a;" : "");
     const g = document.createElement("div");
     g.style.cssText = gut("font-size:11px;color:var(--txt);display:flex;align-items:center;gap:4px;padding-left:" + (isChan ? 18 : 8) + "px;overflow:hidden;white-space:nowrap;cursor:" + (isAnim ? "default" : "pointer") + ";" + (isSel ? "background:#2a2f3a;" : ""));
-    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isIk ? "⟜" : isTc ? "⤧" : isPc ? "〜" : isPathCh ? "⟿" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
-    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isIk || isTc || isPc ? "color:var(--dim);" : "");
+    const tag = document.createElement("span"); tag.textContent = isEvents ? "⚡" : isDraw ? "▦" : isDeform ? "◈" : isSeq ? "▩" : isIk ? "⟜" : isTc ? "⤧" : isPc ? "〜" : isPathCh ? "⟿" : isChan ? "▸" : (isSlotKind ? "▤" : "⦿"); tag.style.cssText = "color:var(--dim);font-size:10px;"; tag.title = tr.kind;
+    const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isSeq ? (tr.name + " · sequence") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isSeq || isIk || isTc || isPc ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
@@ -10330,23 +10701,36 @@ function renderTimeline(){
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
       const hasFx = isEvents && eventsAt(kt).some(evtHasBinding);
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isSeq ? " seq" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
       dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete" + (hasFx ? " · plays FX / a flipbook" : ""))
         : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
+        : isSeq ? (tr.name + " · sequence @ " + kt.toFixed(3) + "s — " + seqKeyLabel(tr, kt) + " · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {
         if (e.button === 2) return; // right-click is the easing menu (contextmenu below), not a drag
         e.stopPropagation(); e.preventDefault();
-        if (e.shiftKey || e.ctrlKey || e.metaKey){ toggleDopeSel(tid, kt); renderTimeline(); return; }
-        if (!dopeSelHas(tid, kt)){ dopeSel = [{ tid, time: kt }]; renderTimeline(); }
+        if (e.shiftKey || e.ctrlKey || e.metaKey){ toggleDopeSel(tid, kt); dopeAnchorT = dopeSelHas(tid, kt) ? kt : null; renderTimeline(); return; }
+        // NEVER rebuild the dopesheet from here. `renderTimeline` does `innerHTML = ""`, which
+        // detaches this very element — Chrome then has no common ancestor for the release and
+        // dispatches neither `click` nor `dblclick`, so `dot.ondblclick` (the only mouse path to
+        // DELETE a key, and advertised in every dot's tooltip) never fires. Update the two things
+        // that actually changed instead: the selected-dot highlight and the stretch bar.
+        if (!dopeSelHas(tid, kt)){
+          dopeSel = [{ tid, time: kt }];
+          for (const el of $("#timeline").querySelectorAll(".tl-key.msel")) el.classList.remove("msel");
+          dot.classList.add("msel");
+        }
+        dopeAnchorT = kt; // clicking a key pins the stretch anchor on it
+        syncDopeScaleBar(dur);
         startDopeDrag(e, dur, tid, kt);
       };
       dot.ondblclick = (e) => { e.stopPropagation();
         if (isEvents) deleteEventKeyAt(kt);
         else if (isDraw) deleteDrawOrderKeyAt(kt);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, kt);
+        else if (tr.kind === "sequence") deleteSequenceKeyAt(tr, kt);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, kt);
         else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, kt);
         else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, kt);
@@ -10374,6 +10758,15 @@ function renderTimeline(){
     });
     row.appendChild(g); row.appendChild(track); tl.appendChild(row);
   });
+
+  // Drop any selected key whose TRACK is no longer on screen, then draw the bar. Rows come and go
+  // under a selection — the `sel` toggle swaps `bone:<n>:` for `bonech:<n>:rotate`, and changing the
+  // selected bone/slot while `sel` is on swaps them again — and a bar sized from those stale times
+  // would span keys that are not there, with grips that pull nothing. Pruning here catches every
+  // cause at once, rather than one clear per trigger.
+  const live = dopeSel.filter((sk) => dopeTrackById[sk.tid]);
+  if (live.length !== dopeSel.length){ dopeSel = live; if (!dopeSel.some((sk) => Math.abs(sk.time - dopeAnchorT) < 1e-4)) dopeAnchorT = null; }
+  syncDopeScaleBar(dur);
 
   positionPlayhead();
   tl.scrollLeft = keepSL; tl.scrollTop = keepST; // restore scroll (rows rebuilt → the scroll range exists again)
@@ -11788,7 +12181,13 @@ function wire(){
     if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
     // preventDefault MARKS the Esc as consumed — tweak mode leaves on an unconsumed one, and this
     // handler runs first, so without the mark a single Esc would clear the selection AND exit.
-    if (e.key === "Escape"){ if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; graphSel = []; renderTimeline(); } return; }
+    if (e.key === "Escape"){
+      // Abort a live stretch FIRST: without this the drag stays armed, and its mouseup would commit
+      // the scale and then restore the very selection Escape just cleared.
+      if (dopeScale){ e.preventDefault(); dopeScale = null; renderTimeline(); return; }
+      if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; dopeAnchorT = null; graphSel = []; renderTimeline(); }
+      return;
+    }
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (tlView === "graph" && graphSel.length){
       e.preventDefault();
@@ -11805,6 +12204,7 @@ function wire(){
         if (tr.kind === "events") deleteEventKeyAt(s.time);
         else if (tr.kind === "draworder") deleteDrawOrderKeyAt(s.time);
         else if (tr.kind === "deform") deleteDeformKeyAt(tr, s.time);
+        else if (tr.kind === "sequence") deleteSequenceKeyAt(tr, s.time);
         else if (tr.kind === "ik") deleteIkKeyAt(tr.name, s.time);
         else if (tr.kind === "transform") deleteTransformKeyAt(tr.name, s.time);
         else if (tr.kind === "physics") deletePhysicsKeyAt(tr.name, s.time);
@@ -11813,7 +12213,7 @@ function wire(){
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);
       }
-      dopeSel = []; renderTimeline();
+      dopeSel = []; dopeAnchorT = null; dopeScale = null; renderTimeline();
     }
   });
   window.addEventListener("mousemove", e => {
@@ -11927,15 +12327,39 @@ function wire(){
       markDirty(); animsDirty = true; renderTimeline();
       return;
     }
+    if (dopeScale){ // stretch: scale every selected key's time about the anchor (DOM-only until mouseup)
+      const d = dopeScale;
+      const t = dopeSnap(d.startEdgeT + (e.clientX - d.startX) / (tlPps || 1)); // dopeSnap is a no-op when snap is off
+      const raw = (t - d.anchorT) / (d.startEdgeT - d.anchorT);
+      d.ratio = isFinite(raw) ? Math.max(d.minRatio, Math.min(d.maxRatio, raw)) : 1;
+      if (Math.abs(e.clientX - d.startX) > 2) d.moved = true;
+      if (!d.moved) return;
+      const pc = (x) => "max(6px, " + ((x / d.dur) * 100).toFixed(3) + "%)";
+      let lo = Infinity, hi = -Infinity;
+      for (const it of d.items){
+        const nt = Math.max(0, roundN(d.anchorT + (it.startTime - d.anchorT) * d.ratio, 4));
+        it.newTime = nt; if (nt < lo) lo = nt; if (nt > hi) hi = nt;
+        if (it.el) it.el.style.left = pc(nt);
+      }
+      if (d.bar){ d.bar.style.left = pc(lo); d.bar.style.width = "calc(" + pc(hi) + " - " + pc(lo) + ")"; }
+      for (const g of d.grips) g.style.left = pc(g.dataset.edge === "r" ? hi : lo);
+      const clashes = dopeScaleClashes(d);
+      if (d.bar) d.bar.classList.toggle("clash", clashes > 0);
+      $("#hint").textContent = "⟺ Stretch ×" + d.ratio.toFixed(3) + " about " + d.anchorT.toFixed(3)
+        + "s → " + lo.toFixed(3) + "–" + hi.toFixed(3) + "s"
+        + (clashes ? "  ⚠ would OVERWRITE " + clashes + " unselected key(s)" : "");
+      return;
+    }
     if (dopeMarquee){ // dragging a box-select rectangle across the dopesheet rows
       dopeMarquee.x1 = e.clientX; dopeMarquee.y1 = e.clientY;
       if (Math.hypot(e.clientX - dopeMarquee.x0, e.clientY - dopeMarquee.y0) > 3) dopeMarquee.moved = true;
       positionDopeMarquee(); return;
     }
     if (dopeDrag){ // move every selected key together along time (DOM-only until mouseup)
-      let dT = (e.clientX - dopeDrag.startX) / (tlPps || 1);
-      if (graphSnap) dT = dopeSnap(dopeDrag.anchorStart + dT) - dopeDrag.anchorStart;
       if (Math.abs(e.clientX - dopeDrag.startX) > 2) dopeDrag.moved = true;
+      if (!dopeDrag.moved) return; // a plain click must leave the dots exactly where they are
+      let dT = (e.clientX - dopeDrag.startX) / (tlPps || 1);
+      dT = dopeSnap(dopeDrag.anchorStart + dT) - dopeDrag.anchorStart; // no-op when snap is off
       for (const it of dopeDrag.items){
         const nt = Math.max(0, roundN(it.startTime + dT, 4)); it.newTime = nt;
         const leftCss = "max(6px, " + ((nt / dopeDrag.dur) * 100).toFixed(3) + "%)";
@@ -11978,6 +12402,7 @@ function wire(){
       return;
     }
     if (graphDrag){ const g = graphDrag; graphDrag = null; if (g.isMulti && g.duplicate) finalizeGraphDuplicate(g); refreshAnimCounts(); renderTimeline(); if (selBone != null) renderBoneDetail(); return; }
+    if (dopeScale && dopeMarquee){ dopeMarquee = null; removeDopeMarquee(); } // a stale marquee must not swallow the stretch's mouseup
     if (dopeMarquee){
       const m = dopeMarquee; dopeMarquee = null; removeDopeMarquee();
       if (m.moved){ // select every key whose dot centre falls inside the box (across all rows)
@@ -11991,8 +12416,24 @@ function wire(){
             if (tid != null && !sel.some((s) => s.tid === tid && Math.abs(s.time - t) < 1e-4)) sel.push({ tid, time: t });
           }
         });
-        dopeSel = sel; renderTimeline(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
+        dopeSel = sel; if (!m.additive) dopeAnchorT = null; // a fresh box = a fresh anchor (its earliest key)
+        renderTimeline(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
       } // a modifier-click without a drag: leave the selection + playhead untouched
+      return;
+    }
+    if (dopeScale){
+      const d = dopeScale; dopeScale = null;
+      if (d.moved && Math.abs(d.ratio - 1) > 1e-6){
+        const clashes = dopeScaleClashes(d); // count BEFORE the writes that consume them
+        applyDopeScale(d);
+        dopeSel = d.items.map((it) => ({ tid: it.tid, time: it.newTime }));
+        dopeAnchorT = d.anchorT; // the anchor did not move, so it stays the anchor for the next pull
+        $("#hint").textContent = "⟺ Stretched " + d.items.length + " key(s) ×" + d.ratio.toFixed(3)
+          + " about " + d.anchorT.toFixed(3) + "s" + (clashes ? "  ⚠ overwrote " + clashes + " unselected key(s)" : "");
+      }
+      renderTimeline(); refreshAnimCounts();
+      if (selBone != null) renderBoneDetail();
+      if (selSlot) renderSlotDetail();
       return;
     }
     if (dopeDrag){
@@ -12014,9 +12455,15 @@ function wire(){
           if (evs.length){ loadProjectEffects(); selBone = null; selSlot = null; renderBoneDetail(); renderSlotDetail(); selEvent = evs[0]; renderEventDetail(); }
         }
       }
-      renderTimeline(); refreshAnimCounts();
-      if (selBone != null) renderBoneDetail();
-      if (selSlot) renderSlotDetail();
+      // Rebuild ONLY when the drag changed something. `renderTimeline` does `innerHTML = ""`, and
+      // detaching the dot DURING the mouseup makes Chrome drop the whole click — so an
+      // unconditional rebuild here kills double-click-to-delete just as surely as one on mousedown
+      // (that was the half fixed first; this is the other). A plain click changed nothing to draw.
+      if (d.moved || d.duplicate){
+        renderTimeline(); refreshAnimCounts();
+        if (selBone != null) renderBoneDetail();
+        if (selSlot) renderSlotDetail();
+      }
       return;
     }
     if (tlScrub){ tlScrub = null; renderTimeline(); return; } // refresh the under-playhead key highlight
