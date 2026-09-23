@@ -68,7 +68,7 @@ if (a < 0 || b < 0 || b < a) {
 	process.exit(2);
 }
 const shipped = html.slice(a, b);
-for (const fn of ['slotPivotCtx', 'slotArtQuad', 'rebaseSlotAttachments', 'setSlotPivotWorld']) {
+for (const fn of ['slotPivotCtx', 'pivotEditable', 'pivotBoneIsExclusive', 'slotArtQuad', 'rebaseSlotAttachments', 'setSlotPivotWorld']) {
 	if (!shipped.includes('function ' + fn)) {
 		console.error(`✗ extracted block is missing ${fn}() — the markers moved`);
 		process.exit(2);
@@ -98,8 +98,8 @@ vm.createContext(sandbox);
 vm.runInContext(shipped, sandbox, { filename: 'view.html#slot-pivot' });
 
 // ---- helpers ---------------------------------------------------------------------------
-let pass = true;
-const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
+let pass = true, checks = 0;
+const log = (ok, msg) => { checks++; console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 
 // Every world vertex of a slot's setup attachment, for the "did the art move?" comparison.
 function artWorld(sk, sd, slotName) {
@@ -171,9 +171,27 @@ function pickSlot(doc, sd, sk, want) {
 	return null;
 }
 
+// A slot with attachments in a skin but no `attachment` of its own has no SETUP attachment, so
+// nothing renders and the pivot is not offered — until the author picks the image, which is what
+// `selectSlotAttachment` writes. Do the same here, or such a rig exercises nothing at all.
+function ensureSetupAttachments(doc) {
+	let filled = 0;
+	for (const slot of doc.slots || []) {
+		if (slot.attachment) continue;
+		for (const sk of doc.skins || []) {
+			const bag = sk.attachments && sk.attachments[slot.name];
+			const first = bag && Object.entries(bag).find(([, d]) => d && !d.type);
+			if (first) { slot.attachment = first[0]; filled++; break; }
+		}
+	}
+	return filled;
+}
+
 const raw0 = JSON.parse(readFileSync(jsonPath, 'utf8'));
+const filledSetup = ensureSetupAttachments(raw0);
 const base = posed(raw0);
 console.log(`\n=== ✥ slot pivot (shipped code, official loader): ${jsonPath} ===`);
+if (filledSetup) console.log(`  (assigned a setup attachment on ${filledSetup} slot(s) that had none, as picking the image does)`);
 
 // One full placement, asserted against whichever branch the rig's own shape selects: an EXCLUSIVE
 // bone is moved in place, a SHARED one grows the slot a `<slot>-pivot` child. Both must leave the
@@ -182,7 +200,8 @@ function runPivotCase(doc, slotName, label) {
 	open(doc, slotName);
 	const ctx = sandbox.slotPivotCtx();
 	if (!ctx) { log(false, `${label}: no pivot context for "${slotName}"`); return null; }
-	console.log(`${label}: slot "${slotName}" on bone "${ctx.boneName}" (${ctx.exclusive ? 'exclusive → move it' : 'shared → new pivot bone'})`);
+	const exclusive = sandbox.pivotBoneIsExclusive(ctx.boneName); // read BEFORE the move
+	console.log(`${label}: slot "${slotName}" on bone "${ctx.boneName}" (${exclusive ? 'exclusive → move it' : 'shared → new pivot bone'})`);
 	const before = artWorld(sandbox.skeleton, sandbox.skeletonData, slotName);
 	const bonesBefore = sandbox.rawDoc.bones.length;
 	const originalBone = ctx.boneName;
@@ -197,10 +216,19 @@ function runPivotCase(doc, slotName, label) {
 	const origin = boneOrigin(sandbox.skeleton, pivotBone);
 	const tol = landingTolerance(sandbox.skeleton, pivotBone);
 	const off = origin ? Math.hypot(origin.x - target.x, origin.y - target.y) : Infinity;
-	log(!!sandbox.skeletonData, 'the official loader accepts the rig after the pivot move');
+	{
+		// Not "skeletonData is truthy" (the stub always sets it) — re-read the doc through a FRESH
+		// loader and check the ordering invariant an appended bone could break.
+		let accepted = true, why = '';
+		try { loadData(clone(sandbox.rawDoc)); } catch (e) { accepted = false; why = ' — ' + e.message; }
+		const names = sandbox.rawDoc.bones.map((b) => b.name);
+		const outOfOrder = sandbox.rawDoc.bones.filter((b, i) => b.parent && names.indexOf(b.parent) > i).map((b) => b.name);
+		log(accepted, 'a fresh official loader re-reads the rig after the pivot move' + why);
+		log(outOfOrder.length === 0, `every bone still follows its parent${outOfOrder.length ? ' (out of order: ' + outOfOrder.join(', ') + ')' : ''}`);
+	}
 	log(maxDrift(before, after) < 0.02, `the art did not move (max drift ${maxDrift(before, after).toFixed(4)}px)`);
 	log(off < tol, `the pivot landed on the requested point (off ${off.toFixed(4)}px, snap tolerance ${tol.toFixed(4)})`);
-	if (ctx.exclusive) {
+	if (exclusive) {
 		log(pivotBone === originalBone, `the slot's own bone "${originalBone}" was moved, not replaced`);
 		log(sandbox.rawDoc.bones.length === bonesBefore, `no bone was added (${bonesBefore})`);
 	} else {
@@ -355,5 +383,88 @@ else {
 	}
 }
 
-console.log(pass ? '\nPASS\n' : '\nFAIL\n');
+// ---- (6) a bone ANOTHER slot's weighted mesh is painted onto is not "exclusive" ----
+// The subtle dependency: weighted vertices name their bones by positional INDEX, so a slot can
+// depend on a bone it never mentions in `slot.bone`. Moving such a bone drags that art with it,
+// and the counter-move would have to land on the OTHER slot — which this edit cannot reach. It
+// has to take the pivot-bone branch instead. Synthesised, because no shipped rig happens to be
+// shaped this way, and the structural tests (root / children / other slot / constraint) all pass.
+{
+	const rs = pickSlot(raw0, base.sd, base.sk, 'region');
+	// Take the region straight from the ATLAS, so it is guaranteed to resolve. An attachment's own
+	// name will not do: a SEQUENCE attachment (Spine 4.2) carries a base like `expl/` and the atlas
+	// only holds the numbered frames, so the loader throws on the base.
+	const path = (() => { try { return new TextureAtlas(atlasText).regions[0].name; } catch { return null; } })();
+	if (!rs || !path) console.log('  (no region slot / atlas region — skipping the foreign-weight test)');
+	else {
+		const doc = clone(raw0);
+		// Park the slot on a fresh leaf bone so the four structural tests all call it exclusive …
+		const pivotBone = 'probe-pivot-bone';
+		doc.bones.push({ name: pivotBone, parent: doc.bones[0].name, x: 40, y: 25 });
+		const bi = doc.bones.length - 1; // weighted vertices reference bones by THIS index
+		doc.slots.find((x) => x.name === rs).bone = pivotBone;
+		// … then paint a DIFFERENT slot's weighted mesh onto it, 100% to that bone.
+		const foreign = 'probe-weighted-slot';
+		doc.slots.push({ name: foreign, bone: doc.bones[0].name, attachment: 'probe-weighted' });
+		const q = [[-30, -30], [30, -30], [30, 30], [-30, 30]];
+		const verts = [];
+		for (const [vx, vy] of q) verts.push(1, bi, vx, vy, 1); // [count,(boneIdx,x,y,weight)]
+		doc.skins[0].attachments = doc.skins[0].attachments || {};
+		doc.skins[0].attachments[foreign] = {
+			'probe-weighted': {
+				type: 'mesh', path, uvs: [0, 0, 1, 0, 1, 1, 0, 1], triangles: [0, 1, 2, 2, 3, 0],
+				vertices: verts, hull: 4, width: 60, height: 60,
+			},
+		};
+
+		open(doc, rs);
+		const ctx = sandbox.slotPivotCtx();
+		const ex = sandbox.pivotBoneIsExclusive ? sandbox.pivotBoneIsExclusive(ctx.boneName) : ctx.exclusive;
+		log(!ex, `a bone a FOREIGN weighted mesh is painted onto is not treated as exclusive (bone "${pivotBone}")`);
+
+		const before = artWorld(sandbox.skeleton, sandbox.skeletonData, foreign);
+		const art = artWorld(sandbox.skeleton, sandbox.skeletonData, rs);
+		sandbox.setSlotPivotWorld((art[0] + art[6]) / 2, (art[1] + art[7]) / 2); // bottom-centre
+		const after = artWorld(sandbox.skeleton, sandbox.skeletonData, foreign);
+		const d = maxDrift(before, after);
+		log(d < 0.02, `the foreign weighted mesh did not move (max drift ${d.toFixed(4)}px)`);
+		log(doc.slots.find((x) => x.name === rs).bone !== pivotBone
+			|| sandbox.rawDoc.slots.find((x) => x.name === rs).bone === rs + '-pivot',
+			'the slot took the pivot-bone branch instead of moving the shared bone');
+	}
+}
+
+// ---- (7) path / boundingbox / clipping / point rebase too ----
+// These take the `vertexCount` arm of the unweighted test, not the mesh `uvs.length / 2` one, and
+// no shipped rig in the corpus carries them — so without this they were never exercised.
+{
+	const rs = pickSlot(raw0, base.sd, base.sk, 'region');
+	if (!rs) console.log('  (no region slot — skipping the extra-attachment-type test)');
+	else {
+		const doc = clone(raw0);
+		const bag = doc.skins[0].attachments[rs] || (doc.skins[0].attachments[rs] = {});
+		const pts = [-20, -10, 20, -10, 20, 10, -20, 10];
+		bag['probe-box'] = { type: 'boundingbox', vertexCount: 4, vertices: pts.slice() };
+		bag['probe-clip'] = { type: 'clipping', end: rs, vertexCount: 4, vertices: pts.slice() };
+		// a path's vertexCount must divide by 3 — SkeletonJson sizes its curve-length array by
+		// vertexCount/3, and a fractional length throws out of the loader
+		const pathPts = [0, 0, 10, 10, 20, 0, 30, -10, 40, 0, 50, 10];
+		bag['probe-path'] = { type: 'path', closed: false, constantSpeed: true, vertexCount: 6, vertices: pathPts.slice(), lengths: [20, 40] };
+		bag['probe-point'] = { type: 'point', x: 7, y: -3, rotation: 0 };
+		open(doc, rs);
+		sandbox.rebaseSlotAttachments(rs, 5, -4);
+		const b = sandbox.rawDoc.skins[0].attachments[rs];
+		const allShifted = (now, was) => now.length === was.length
+			&& now.every((v, i) => Math.abs(v - (was[i] - (i % 2 ? -4 : 5))) < 1e-9);
+		log(allShifted(b['probe-box'].vertices, pts), 'a bounding box rebases by the pivot offset');
+		log(allShifted(b['probe-clip'].vertices, pts), 'a clipping polygon rebases by the pivot offset');
+		log(allShifted(b['probe-path'].vertices, pathPts), 'a path rebases by the pivot offset');
+		log(b['probe-point'].x === 2 && b['probe-point'].y === 1, 'a point attachment rebases by the pivot offset');
+	}
+}
+
+// A rig whose shape skipped every block would otherwise print PASS having proved nothing, and a
+// batch driver grepping for FAIL would count it green.
+if (!checks) { console.log('  ✗ this rig exercised NO assertion — every block skipped'); pass = false; }
+console.log(pass ? `\nPASS (${checks} checks)\n` : `\nFAIL (${checks} checks)\n`);
 process.exit(pass ? 0 : 1);

@@ -70,6 +70,40 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 
 ## Recent changes
 
+- 2026-09-23 — **Follow-up to the pivot editor below: a bone another slot's WEIGHTED mesh is painted
+  onto is no longer treated as movable.** Caught by `code-reviewer` after the first commit shipped, and
+  it was a real one. `exclusive` tested four ways a bone can be depended on — it is the root, a bone
+  parents to it, another slot hangs off it, a constraint targets it — and missed the fifth: **weighted
+  vertices reference bones by positional INDEX**, so a slot depends on every bone painted onto its
+  mesh without ever naming one in `slot.bone`. A leaf bone used by exactly one slot, that the weight
+  brush had painted onto a DIFFERENT slot's mesh, passed as exclusive, so it was moved in place — and
+  that other slot's art jumped, with no compensation possible from here (the counter-move would have
+  to land on the other slot). Measured at **34.11px** on a synthesised repro over `anticipation`.
+  Reachable from the tool's own weight brush and auto-weights, and rig editing has no undo.
+  - **Fix:** `weightedBoneNames()` walks every weighted `vertices` array in every skin and maps the
+    indices back to names; a hit routes the slot to the already-safe `<slot>-pivot` branch, which
+    moves nothing. The whole test moved out of `slotPivotCtx` into `pivotBoneIsExclusive(bone)` — the
+    ctx runs up to three times a frame while the mode is armed, and this walks every constraint and
+    every weighted vertex array, so it now runs only when the panel renders or a pivot is committed.
+  - Also from the same review: **the pivot no longer shares the canvas with another armed mode**
+    (unlike the per-attachment-type modes it applies to every slot, so it could be armed alongside the
+    mesh/path/poly/point/brush modes and the two then fought over one mousedown — arming it now stands
+    them down, as the mesh buttons already did for each other); **vertex rebasing rounds to 2 dp** like
+    every other vertex writer here, instead of accreting float noise (`-13.370000000000005`, +339 bytes
+    on an 87 KB `.irig`, compounding per move); and the panel now branches off `pivotEditable()` rather
+    than re-implementing its three tests inline.
+  - **The spike could pass having asserted nothing** — six rigs skipped every block and still printed
+    PASS, so a batch driver grepping for FAIL called them green. It now counts assertions and fails on
+    zero; the "loader accepts it" check re-reads through a FRESH loader and asserts every bone still
+    follows its parent (the ordering an appended bone could break) instead of testing a stub's own
+    output; and the run covers what the design turns on — the foreign-weight case above (proved to go
+    red without the fix: 34.11px → 0.0000px), plus `path` / `boundingbox` / `clipping` / `point`, which
+    take the `vertexCount` arm of the unweighted test and no shipped rig carries. Slots that hold an
+    attachment in a skin but no SETUP attachment now get one assigned, the way picking the image does,
+    which is what left those six rigs uncovered. **148 rigs, 148 pass, 5886 assertions, minimum 24 per
+    rig.** Re-verified live against the vendored minified runtime too.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/pivot.mjs`.
+
 - 2026-09-23 — **A slot's pivot is editable — the point its art turns and scales around.** Reported as:
   _"when I create a new slot, this slot has no pivot … I would like a button where I can edit the pivot and move
   it around where I want. Right now that pivot seems to always be in the centre of the image. It is basic
