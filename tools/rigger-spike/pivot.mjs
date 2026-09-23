@@ -4,8 +4,8 @@
 // between this test and the tool is impossible.
 //
 // The contract:
-//   (a) the pivot belongs to the IMAGE — setting it touches no bone, no slot, and does not move
-//       the art by a single pixel;
+//   (a) the pivot is the image's ANCHOR — choosing one moves the ART so that point takes the
+//       pivot's place, while the pivot itself stays put, and no bone or slot is touched;
 //   (b) it PERSISTS: `pivot: [u,v]` rides the attachment through a full round-trip of the official
 //       4.2 loader, which ignores the non-standard key, so the .irig still opens in Spine and the
 //       rendered geometry is byte-identical;
@@ -192,13 +192,33 @@ else {
 	// ---- (a) setting a pivot touches nothing but the pivot ----
 	open(raw0, rs);
 	{
+		// The anchor contract, stated so it holds for ANY bone transform (the earlier version
+		// predicted a move of h/2, which is only true on an unscaled, unrotated bone):
+		//   P = where the pivot sits now.  Q = where the point we are about to choose sits now.
+		//   After choosing it, the chosen point must BE at P — so every vertex slides by P - Q.
+		const ctx0 = sandbox.pivotEditable();
+		const P = sandbox.pivotWorldPos(ctx0);
+		const Q = sandbox.pivotWorldPos(ctx0, [0.5, 1]); // bottom centre, before we pick it
+		const slide = { x: P.x - Q.x, y: P.y - Q.y };
 		const beforeArt = artWorld(sandbox.skeleton, sandbox.skeletonData, rs);
 		const bones = JSON.stringify(sandbox.rawDoc.bones);
 		const slots = JSON.stringify(sandbox.rawDoc.slots);
-		sandbox.setPivotUV(0.5, 1); // bottom centre
+
+		sandbox.setPivotUV(0.5, 1);
 		sandbox.rebuildFromRawDoc();
+
 		const afterArt = artWorld(sandbox.skeleton, sandbox.skeletonData, rs);
-		log(maxDrift(beforeArt, afterArt) === 0, `the art did not move (drift ${maxDrift(beforeArt, afterArt).toFixed(4)}px)`);
+		const nowP = sandbox.pivotWorldPos(sandbox.pivotEditable());
+		let worst = 0;
+		for (let k = 0; k < beforeArt.length; k += 2) {
+			worst = Math.max(worst, Math.abs(afterArt[k] - beforeArt[k] - slide.x));
+			worst = Math.max(worst, Math.abs(afterArt[k + 1] - beforeArt[k + 1] - slide.y));
+		}
+		const dist = Math.hypot(slide.x, slide.y);
+		log(dist > 1, `choosing bottom-centre MOVES the image (by ${dist.toFixed(1)}px)`);
+		log(worst < 0.05, `… exactly onto the pivot — every vertex slid by the same P-Q (worst error ${worst.toFixed(4)}px)`);
+		log(Math.hypot(nowP.x - P.x, nowP.y - P.y) < 0.05,
+			'… while the PIVOT itself stayed exactly where it was');
 		log(JSON.stringify(sandbox.rawDoc.bones) === bones, 'NO bone was added, moved or renamed');
 		log(JSON.stringify(sandbox.rawDoc.slots) === slots, 'no slot was re-pointed');
 		log(JSON.stringify(sandbox.pivotUV(sandbox.pivotEditable())) === '[0.5,1]', 'the pivot is stored on the image as [u,v]');
@@ -250,6 +270,12 @@ else {
 		log((def.x || 0) === x0 && (def.y || 0) === y0,
 			'with no pivot set, rotating leaves x/y exactly as before (unchanged behaviour)');
 		log(def.pivot === undefined, 'and no `pivot` key is written for a centred pivot');
+		// re-choosing the centre on an already-centred image must also be a complete no-op
+		const artBefore = artWorld(sandbox.skeleton, sandbox.skeletonData, rs);
+		sandbox.setPivotUV(0.5, 0.5);
+		sandbox.rebuildFromRawDoc();
+		log(maxDrift(artBefore, artWorld(sandbox.skeleton, sandbox.skeletonData, rs)) === 0,
+			'setting the pivot back to centre moves nothing');
 	}
 
 	// ---- (e) the stray <slot>-pivot bone from the first version folds back ----

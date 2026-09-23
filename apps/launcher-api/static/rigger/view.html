@@ -5965,12 +5965,24 @@ function setPivotWorld(wx, wy){
   setPivotUV(roundN(cx / w + 0.5, 4), roundN(0.5 - cy / h, 4));
 }
 
-// Write the pivot. Placement is untouched, so the art does not move — only the point it turns from.
+// Write the pivot. The pivot is the image's ANCHOR — the point that sits at the slot's position —
+// so choosing a new one moves the ART, not the pivot: the point you picked takes the pivot's place
+// and the picture slides to suit. Pick bottom-centre and the image jumps up until its bottom edge
+// is on the pivot. (This is the sprite-editor behaviour; making it move nothing was the mistake.)
 function setPivotUV(u, v){
   const ctx = pivotEditable(); if (!ctx) return;
   const d = pivotRawDef(ctx); if (!d) return;
+  const held = pivotBonePos(ctx, pivotUV(ctx)); // where the pivot sits now — this is what holds
   if (Math.abs(u - 0.5) < 1e-6 && Math.abs(v - 0.5) < 1e-6) delete d.pivot; // centred is the default
   else d.pivot = [u, v];
+  // Spine places a region by its CENTRE, so anchoring by another point is an offset on x/y: shift
+  // the placement by however far the new pivot would otherwise have drifted from the old one.
+  const moved = pivotBonePos(ctx, [u, v]);
+  d.x = roundN((d.x || 0) + held.x - moved.x, 2);
+  d.y = roundN((d.y || 0) + held.y - moved.y, 2);
+  // mirror onto the live attachment so the canvas shows it without a full rig rebuild
+  ctx.att.x = d.x; ctx.att.y = d.y;
+  if (ctx.att.updateRegion) ctx.att.updateRegion();
   markDirty();
   renderSlotDetail();
 }
@@ -6029,7 +6041,7 @@ function renderSlotPivot(det){
   wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
   const hdr = document.createElement("div");
   hdr.textContent = "pivot";
-  hdr.title = "The point this image rotates and scales around. It belongs to the image, not the skeleton — setting it adds no bone and moves nothing. Spine has no pivot field, so it is stored on the attachment and applied when you change rotation or scale.";
+  hdr.title = "The image's anchor: the point of it that sits at the slot's position, and the point rotation and scale turn around. Choosing a new one MOVES the image so that point takes the pivot's place — pick bottom-centre and the picture jumps up until its bottom edge is on the pivot. It belongs to the image, not the skeleton: no bone is added or moved.";
   hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   wrap.appendChild(hdr);
   const note = (text) => {
@@ -6054,7 +6066,7 @@ function renderSlotPivot(det){
   row.style.cssText = "display:flex;gap:8px;align-items:center;";
   const btn = document.createElement("button");
   btn.textContent = pivotMode ? "✥ click image…" : "✥ Set pivot";
-  btn.title = "Click or drag on the image to move its pivot. The art does not move — only the point it turns around.";
+  btn.title = "Click or drag on the image to pick the point it hangs from. The IMAGE moves so that point lands on the pivot; the pivot itself stays where it is.";
   if (pivotMode) btn.className = "active";
   btn.onclick = () => {
     pivotMode = !pivotMode; pivotDrag = null;
@@ -6090,8 +6102,8 @@ function renderSlotPivot(det){
   wrap.appendChild(row);
 
   wrap.appendChild(note(pivotMode
-    ? "click or drag on the image to place its pivot — Esc to stop"
-    : "rotation and scale above turn the image around this point"));
+    ? "click or drag on the image to pick the point it hangs from — the image moves, the pivot stays — Esc to stop"
+    : "the image hangs from this point, and rotation and scale above turn around it"));
 
   const stray = strayPivotBone();
   if (stray){
