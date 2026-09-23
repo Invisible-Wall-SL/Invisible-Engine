@@ -252,6 +252,7 @@
   .seg button { border:none; border-radius:0; border-right:1px solid var(--line); }
   .seg button:last-child { border-right:none; }
   .seg button.active { background:var(--accent); color:#0c0f14; font-weight:700; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
   .seg button:disabled { opacity:.4; cursor:not-allowed; }
   /* floating mode switcher — top-centre of the canvas */
   #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
@@ -2215,30 +2216,10 @@ function buildInspector(entry){
   const consList = $("#consList"); clearChildren(consList);
   if (rawDoc){
     const tools = document.createElement("div");
+    tools.id = "consTools";
     tools.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin:4px 14px 6px;";
-    const addIk = document.createElement("button");
-    addIk.textContent = "＋ Add IK constraint";
-    addIk.title = "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone";
-    addIk.disabled = selBone == null;
-    addIk.onclick = addIkConstraint; tools.appendChild(addIk);
-    const addTc = document.createElement("button");
-    addTc.textContent = "＋ Add transform constraint";
-    addTc.title = "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)";
-    addTc.disabled = selBone == null;
-    addTc.onclick = addTransformConstraint; tools.appendChild(addTc);
-    const addPc = document.createElement("button");
-    addPc.textContent = "＋ Add path constraint";
-    addPc.title = "lay the selected bone(s) along a path attachment — pick a target slot that holds a path";
-    addPc.disabled = selBone == null || !slotsWithPath().length;
-    addPc.onclick = addPathConstraint; tools.appendChild(addPc);
-    const addPhys = document.createElement("button");
-    addPhys.textContent = "＋ Add physics constraint";
-    addPhys.title = "add secondary-motion physics (hair/cloth/jiggle) to the selected bone";
-    addPhys.disabled = selBone == null;
-    addPhys.onclick = addPhysicsConstraint; tools.appendChild(addPhys);
-    if (selBone == null){ const h = document.createElement("span"); h.textContent = "select a bone first"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
-    else if (!slotsWithPath().length){ const h = document.createElement("span"); h.textContent = "draw a path on a slot to enable path constraints"; h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;"; tools.appendChild(h); }
     consList.appendChild(tools);
+    renderConstraintTools();
   }
   const addCons = (arr, kind, onPick, selName) => arr.forEach(c => {
     const row = document.createElement("div");
@@ -2261,6 +2242,44 @@ function buildInspector(entry){
   if (selPath && !(skeletonData.pathConstraints || []).some((c) => c.name === selPath)) selPath = null;
   if (selPc && !(skeletonData.physicsConstraints || []).some((c) => c.name === selPc)) selPc = null;
   renderConstraintEditor();
+}
+
+// The four ＋ Add … constraint buttons, and the hint beside them, all read `selBone` — but the
+// panel they live in is built by `buildInspector`, which clicking a bone does NOT run. So they are
+// rendered on their own, and `selectBone` refreshes just this row. Without that the buttons keep
+// whatever state they had when the rig loaded — `selBone` is null then, so all four stay disabled
+// however many bones you click, and the hint goes on reading "select a bone first" after you have
+// selected one. That is the whole of "the IK button does nothing".
+function renderConstraintTools(){
+  const tools = $("#consTools");
+  if (!tools || !rawDoc) return;
+  clearChildren(tools);
+  const add = (label, title, disabled, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.title = title; b.disabled = disabled; b.onclick = fn;
+    tools.appendChild(b);
+  };
+  const noBone = selBone == null;
+  add("＋ Add IK constraint",
+    "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone",
+    noBone, addIkConstraint);
+  add("＋ Add transform constraint",
+    "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)",
+    noBone, addTransformConstraint);
+  add("＋ Add path constraint",
+    "lay the selected bone(s) along a path attachment — pick a target slot that holds a path",
+    noBone || !slotsWithPath().length, addPathConstraint);
+  add("＋ Add physics constraint",
+    "add secondary-motion physics (hair/cloth/jiggle) to the selected bone",
+    noBone, addPhysicsConstraint);
+  const hint = noBone ? "select a bone first"
+    : !slotsWithPath().length ? "draw a path on a slot to enable path constraints" : "";
+  if (hint){
+    const h = document.createElement("span");
+    h.textContent = hint;
+    h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;";
+    tools.appendChild(h);
+  }
 }
 
 // The constraints panel shares one detail box (#consDetail): show the editor for whichever
@@ -3649,6 +3668,11 @@ function selectBone(i){
   if (animMode) renderTimeline();
   selEvent = null; renderEventDetail();
   renderBoneDetail();
+  renderConstraintTools(); // the ＋ Add … constraint buttons gate on selBone
+  // The slot panel has selBone-dependent controls too — ② Auto-weight to chain is disabled and
+  // unlabelled until a bone is picked, and the panel's own hint tells you to pick one AFTER
+  // selecting the mesh. Without this refresh that documented order never works.
+  if (editMode && selSlot) renderSlotDetail();
   saveRiggerState();
 }
 
