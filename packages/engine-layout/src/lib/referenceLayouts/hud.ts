@@ -157,7 +157,17 @@ function readoutNode(
 		y: desktop.y,
 		anchor: { x: 0.5, y: 0 },
 		scale: DESKTOP_SCALE,
-		params: { source, label, countUp: source === 'win' },
+		// The BET readout carries the `betMenu` action binding, because tapping the stake to change
+		// it is what the readout DOES (the press has always been there, hard-coded inside `HudValue`).
+		// Naming it as an action is what makes it authorable: the coded press still opens the HTML
+		// bet menu, and the binding also projects a `<hud-bet>.onBetMenu` exec pin the flow can own to
+		// show an authored screen instead. balance/win have no press, so they carry no action.
+		params: {
+			source,
+			label,
+			countUp: source === 'win',
+			...(source === 'bet' ? { action: 'betMenu' } : {}),
+		},
 		overrides: {
 			landscape: { x: landscape.x, y: landscape.y },
 			tablet: { x: tablet.x, y: tablet.y, scale: TABLET_SCALE },

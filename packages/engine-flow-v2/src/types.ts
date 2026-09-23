@@ -580,6 +580,22 @@ export interface CollectionDecl {
 	of: TypeRef; // the element type (a struct), so the list type is `list<of>`.
 }
 
+/**
+ * A SCALAR the template exposes for a `$engine.<name>` read — the branch/guard sibling of
+ * {@link CollectionDecl} (which are the iterables a `forEach` walks).
+ *
+ * The engine reader has always answered these keys (`balance`, `gameType`, `isFreeGame`, …) but
+ * nothing DECLARED them, so both authoring surfaces refused one: the inspector's `$engine` picker
+ * listed only collections, and the validator errored `accessor-unresolved` on anything that wasn't
+ * one. The effect was that a `branch` could not test game state at all. Declaring them here is what
+ * makes a guard authorable — and, because each carries its `type`, connect-time-checkable.
+ */
+export interface ValueDecl {
+	name: string; // 'balance', 'isAutoSpinning'.
+	type: TypeRef;
+	description?: string;
+}
+
 export interface TemplateVocabulary {
 	templateId: string;
 	structs: StructDecl[];
@@ -588,6 +604,7 @@ export interface TemplateVocabulary {
 	actions: ActionDecl[];
 	cues: CueDecl[];
 	collections: CollectionDecl[]; // engine-readable iterables (also $engine reads, §9.5).
+	values: ValueDecl[]; // engine-readable SCALARS — the other half of $engine (§9.5).
 }
 
 // ---------------------------------------------------------------------------

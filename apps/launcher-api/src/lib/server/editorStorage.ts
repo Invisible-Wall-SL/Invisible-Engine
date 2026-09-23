@@ -3,6 +3,7 @@ import {
 	normalizeHudScenes,
 	normalizeLayoutProfile,
 	LAYOUT_NODE_KINDS,
+	isSceneRole,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
@@ -298,16 +299,12 @@ function normalizeScene(input: unknown): Scene | null {
 	if (input.space === 'standard' || input.space === 'canvas' || input.space === 'background') {
 		scene.space = input.space;
 	}
-	// Preserve the engine ROLE tag (`Scene.role`) — the id-independent identity the game
-	// resolves the loading splash / persistent base / buy-feature / buy-confirm scene by, so
-	// scene ids stay renameable. Without this whitelist entry the field is silently dropped on
-	// save (the reported bug).
-	if (
-		input.role === 'loading' ||
-		input.role === 'basegame' ||
-		input.role === 'buyFeature' ||
-		input.role === 'buyConfirm'
-	) {
+	// Preserve the engine ROLE tag (`Scene.role`) — the id-independent identity the game resolves the
+	// loading splash / persistent base / buy-feature / buy-confirm / bet-menu / auto-spin scene by, so
+	// scene ids stay renameable. Without this whitelist the field is silently dropped on save (the
+	// reported bug). The guard comes from `engine-layout`'s ONE role list rather than a copy of the
+	// literals here, so a newly added role can't be accepted by the editor and discarded by the save.
+	if (isSceneRole(input.role)) {
 		scene.role = input.role;
 	}
 	const align = normalizeAlign(input.align);

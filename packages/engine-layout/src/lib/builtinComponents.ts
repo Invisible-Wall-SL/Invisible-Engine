@@ -1858,6 +1858,124 @@ export const CONFIRM_DIALOG_DEF: ComponentDef = {
 	],
 };
 
+/** The default option-tile size — three across fit a menu grid without crowding. */
+const OPTION_CARD_WIDTH = 220;
+const OPTION_CARD_HEIGHT = 96;
+const OPTION_CARD_LABEL_SIZE = 34;
+/** Neutral plate + white label, going gold when picked — visible out of the box, restyled by art. */
+const OPTION_CARD_PLATE_FILL = 0x23233a;
+export const OPTION_CARD_LABEL_FILL = HUD_FILL;
+export const OPTION_CARD_LABEL_FILL_SELECTED = 0xffd35c;
+
+/**
+ * A GENERIC, repeated CHOICE TILE — the engine-native, authorable twin of the HTML option grids
+ * (`BetMenuAmountGrid`, `AutoSpinsOptions`, the two limit grids): a plate, a label, and a press. It
+ * carries NOTHING bet- or autoplay-specific; it is simply what a `repeater` stamps when the list is a
+ * set of values to pick from rather than a set of feature cards, so one def serves the bet ladder,
+ * the auto-spin counts and both limit ladders.
+ *
+ * PLAIN-NODE path (like {@link FEATURE_CARD_DEF}): every child is an editor-native node, so the owner
+ * restyles or replaces it in the Component Editor. With no coded `bind` part, `<ComponentInstance>`
+ * makes the WHOLE tile the hit surface once the repeater injects the item's `onSelect` — the tile is
+ * pressable with no `action` binding, exactly like a feature card.
+ *
+ * SELECTED is fed, not computed: the repeater source marks the item that is currently staked/picked
+ * (`values.selected`), which reaches the tile two ways — as the shared button-state cascade's `active`
+ * flag (so an authored `imageSelected` region paints the choice, the same knob every other button
+ * uses), and as `labelFill`, the label colour the source swaps so the pick is legible with NO art
+ * authored at all. A hand-built replacement card that declares neither param simply ignores both.
+ */
+export const OPTION_CARD_DEF: ComponentDef = {
+	id: 'optionCard',
+	name: 'Option Tile',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'optionCard-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'optionCard-plate',
+				label: 'Plate',
+				kind: 'rect',
+				x: OPTION_CARD_WIDTH * 0.5,
+				y: OPTION_CARD_HEIGHT * 0.5,
+				anchor: { x: 0.5, y: 0.5 },
+				width: OPTION_CARD_WIDTH,
+				height: OPTION_CARD_HEIGHT,
+				color: OPTION_CARD_PLATE_FILL,
+				alpha: 0.92,
+			},
+			{
+				id: 'optionCard-bg',
+				label: 'Frame',
+				kind: 'sprite',
+				x: OPTION_CARD_WIDTH * 0.5,
+				y: OPTION_CARD_HEIGHT * 0.5,
+				anchor: { x: 0.5, y: 0.5 },
+				// No static texture: the owner picks the tile art via the `image` param, and the
+				// state cascade swaps it for hover/pressed/selected. Empty ⇒ no texture resolves ⇒
+				// the plate below shows through, so art is never a blocker to start authoring.
+				assetKey: '',
+				width: OPTION_CARD_WIDTH,
+				height: OPTION_CARD_HEIGHT,
+				paramBindings: { region: 'image', tint: 'tint' },
+				preview: { w: OPTION_CARD_WIDTH, h: OPTION_CARD_HEIGHT, style: 'tile' },
+			},
+			{
+				id: 'optionCard-label',
+				label: 'Label',
+				kind: 'text',
+				x: OPTION_CARD_WIDTH * 0.5,
+				y: OPTION_CARD_HEIGHT * 0.5,
+				anchor: { x: 0.5, y: 0.5 },
+				text: '0.00',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: OPTION_CARD_LABEL_SIZE,
+					fill: OPTION_CARD_LABEL_FILL,
+					align: 'center',
+				},
+				paramBindings: {
+					text: 'label',
+					'style.fill': 'labelFill',
+					'style.fontSize': 'fontSize',
+					'style.fontFamily': 'fontFamily',
+				},
+				preview: { style: 'text', textParam: 'label' },
+			},
+		],
+	},
+	params: [
+		{ key: 'tint', kind: 'color', default: HUD_FILL, group: 'Plate', label: 'frame tint' },
+		{ key: 'fontSize', kind: 'number', default: OPTION_CARD_LABEL_SIZE },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY, label: 'font' },
+		// Per-state tile IMAGES — the SAME cascade every button resolves, so `imageSelected` paints
+		// the picked tile and hover/pressed give the press its feedback. All absent ⇒ the plate +
+		// label render unchanged. Derived from the shared source of truth so this def, the picker and
+		// the cascade key list can't drift.
+		...BUTTON_STATE_IMAGE_PARAMS.map(
+			(p): ComponentParam => ({
+				key: p.key,
+				kind: 'image',
+				group: 'State images',
+				label: p.label,
+			}),
+		),
+		// Engine-fed per-item values (the `repeater` feeds one tile per option). All `engineProvided`,
+		// so the editor renders no control — the source supplies them at runtime.
+		{ key: 'label', kind: 'string', engineProvided: true },
+		{ key: 'labelFill', kind: 'color', engineProvided: true },
+		{ key: 'selected', kind: 'boolean', engineProvided: true },
+	],
+	// The tile's press — the repeater wires it to the item's `onSelect`, and fuses the whole list into
+	// one `<repeaterId>.onSelect` flow pin, so an author wires the choice wherever it belongs.
+	signals: [{ key: 'select', note: 'Fired when the tile is pressed (pick this option).' }],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -1876,6 +1994,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 	FEATURE_CARD_DEF,
 	CONFIRM_DIALOG_DEF,
+	OPTION_CARD_DEF,
 ];
 
 /**

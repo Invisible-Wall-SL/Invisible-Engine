@@ -875,14 +875,34 @@ const validateDataSource = (
 			}
 		}
 	}
-	if (acc.on === 'engine' && !ctx.vocab.collections.some((c) => c.name === acc.key)) {
-		issues.push({
-			code: 'accessor-unresolved',
-			severity: 'error',
-			message: `accessor $engine.${acc.key} on ${node.id}.${pin.id} is not a known collection`,
-			at: { on: 'pin', node: node.id, pin: pin.id },
-		});
-		return;
+	if (acc.on === 'engine') {
+		// `$engine` reads BOTH halves of the template's engine surface: a COLLECTION (an iterable a
+		// `forEach` walks) or a VALUE (a scalar a `branch` guard tests). Only collections used to
+		// resolve here, which made every scalar the reader answers — balance, gameType, the free-spin
+		// counters — an `accessor-unresolved` error, i.e. unauthorable.
+		const value = ctx.vocab.values.find((v) => v.name === acc.key);
+		if (!value && !ctx.vocab.collections.some((c) => c.name === acc.key)) {
+			issues.push({
+				code: 'accessor-unresolved',
+				severity: 'error',
+				message: `accessor $engine.${acc.key} on ${node.id}.${pin.id} is not a known engine value or collection`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
+		// A value carries its type, so the read is checkable — same strictness as the `$trigger` field
+		// check above (a collection's element type only matters inside a `forEach`, so it is left).
+		if (value && pin.dataType && !assignable(value.type, pin.dataType)) {
+			issues.push({
+				code: 'type-mismatch',
+				severity: 'error',
+				message: `accessor $engine.${acc.key} on ${node.id}.${pin.id} is ${typeName(
+					value.type,
+				)} but the pin is ${typeName(pin.dataType)}`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
 	}
 	if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
 		if (scopeItem.t !== 'struct') {

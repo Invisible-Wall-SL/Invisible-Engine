@@ -307,6 +307,15 @@
 			liveActive = value;
 		});
 	});
+	// SELECTED, for a card the engine feeds rather than an action registers: a `<Repeater>` item whose
+	// `values` carry `selected: true` (the bet amount currently staked, the autoplay count currently
+	// picked) reads as the button cascade's `active` flag, so the def's `imageSelected` frame paints the
+	// current choice with no per-list engine code. Generic — ANY engine-fed instance can mark itself
+	// selected — and additive: an action-registered `active` still wins on its own, so every existing
+	// button is byte-identical (no feed ⇒ `boundEngineValues` is undefined ⇒ always false). Read as a
+	// FUNCTION so the live prop/binding is re-read inside the cascade's getters (reactive), not frozen.
+	const engineSelected = (): boolean =>
+		(engineValues ?? binding?.engineValues)?.['selected'] === true;
 	// Round-in-progress flag (the spin button's reels are rolling). Drives the
 	// `imageSpinning` cascade + `ButtonFrame`'s rotation. Same parity discipline as
 	// `disabled`/`active`: undefined until the action feed registers it, falls back
@@ -742,22 +751,26 @@
 			});
 		}
 	}
-	// Action feed (§16.2/§16.3): expose `onpress` as a plain function reference
-	// (`ButtonFrame` reads it lazily at click time, so no reactive getter needed)
-	// plus REACTIVE enumerable getters for `disabled`/`active` — but ONLY when the
-	// actionSource provides them, same parity discipline as `value`: an action
-	// without an `active` flag (e.g. `menu`) leaves the param to fall back to the
-	// static map. No actionSource ⇒ none of these appear ⇒ the object is exactly
-	// B1's static map.
-	if (actionSource) {
+	// The PRESS — exposed whenever the instance names an `action` AT ALL, not only when the game
+	// registered a feed for it. `firePress` consults the flow FIRST, so gating this on `actionSource`
+	// made a bound action the flow OWNS unreachable in any game that doesn't register that action:
+	// the pin showed up in `/flow-v2`, the author wired it, and the press silently did the coded
+	// thing instead. (The case that exposed it: `hud-bet`'s `betMenu` in a game whose `Game.svelte`
+	// predates `registerHudMenus` — the seeded doc carries the action, so the pin exists there.)
+	// Parity holds either way: with no registered action AND no flow ownership `firePress` calls
+	// `actionSource?.onpress?.()` on `undefined`, i.e. the same no-op as an absent param, and every
+	// coded consumer (`ButtonFrame`, `HudValue`) already hit-tests regardless of whether it resolves.
+	// A plain function reference, not a reactive getter — both read it lazily at click time.
+	if (action) {
 		Object.defineProperty(providedParams, 'onpress', {
 			enumerable: true,
-			// Route through `firePress` so an authored flow container-event OWNS the press (and
-			// suppresses the coded `onpress`); `ButtonFrame` reads this lazily at click time, by
-			// which point `firePress` is initialized. No resolver/ownership ⇒ `firePress` calls
-			// `actionSource?.onpress?.()` ⇒ byte-identical to the old `get: () => actionSource.onpress`.
 			get: () => firePress,
 		});
+	}
+	// The live FLAGS, and only the ones the actionSource actually provides — same parity discipline
+	// as `value`: an action without an `active` flag (e.g. `menu`) leaves the param to fall back to
+	// the static map. No actionSource ⇒ none of these appear.
+	if (actionSource) {
 		if (actionSource.disabled) {
 			Object.defineProperty(providedParams, 'disabled', {
 				enumerable: true,
@@ -810,7 +823,7 @@
 					hovered,
 					pressed,
 					disabled: liveDisabled === true,
-					active: liveActive === true,
+					active: liveActive === true || engineSelected(),
 					spinning: liveSpinning === true,
 				}) ?? restingImage,
 		});
@@ -906,7 +919,7 @@
 			hovered,
 			pressed,
 			disabled: liveDisabled === true,
-			active: liveActive === true,
+			active: liveActive === true || engineSelected(),
 			spinning: liveSpinning === true,
 		};
 		for (const [nodeId, map] of stateAnimNodes) {

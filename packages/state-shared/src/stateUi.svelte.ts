@@ -1,57 +1,34 @@
-export const INFINITY_MARK = '∞';
-
-export const AUTO_SPINS_TEXT_OPTIONS = [
-	'10',
-	'25',
-	'50',
-	'75',
-	'100',
-	'250',
-	'500',
-	'1000',
+import {
 	INFINITY_MARK,
-] as const;
-export type AutoSpinsText = (typeof AUTO_SPINS_TEXT_OPTIONS)[number];
-export const AUTO_SPINS_TEXT_OPTION_MAP = {
-	'10': 10,
-	'25': 25,
-	'50': 50,
-	'75': 75,
-	'100': 100,
-	'250': 250,
-	'500': 500,
-	'1000': 1000,
-	[INFINITY_MARK]: Infinity,
-};
+	AUTO_SPINS_TEXT_OPTIONS,
+	AUTO_SPINS_TEXT_OPTION_MAP,
+	LOSS_LIMIT_TEXT_OPTIONS,
+	AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP,
+	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
+	AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP,
+	type AutoSpinsText,
+	type LossLimitText,
+	type SingleWinLimitText,
+} from 'constants-shared/autoSpins';
+import { stateBet, stateBetDerived } from './stateBet.svelte';
 
-export const LOSS_LIMIT_TEXT_OPTIONS = ['5×', '10×', '25×', '50×', '100×', INFINITY_MARK] as const;
-export type LossLimitText = (typeof LOSS_LIMIT_TEXT_OPTIONS)[number];
-export const AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP = {
-	'5×': 5,
-	'10×': 10,
-	'25×': 25,
-	'50×': 50,
-	'100×': 100,
-	[INFINITY_MARK]: Infinity,
-};
-
-export const SINGLE_WIN_LIMIT_TEXT_OPTIONS = [
-	'5×',
-	'10×',
-	'25×',
-	'50×',
-	'100×',
+/**
+ * The autoplay option ladders now live in `constants-shared/autoSpins` (constants, not state — the
+ * launcher editor needs them on the server, where a `.svelte.ts` module can't be imported). They are
+ * re-exported here so every existing `state-shared` importer is unchanged.
+ */
+export {
 	INFINITY_MARK,
-] as const;
-export type SingleWinLimitText = (typeof SINGLE_WIN_LIMIT_TEXT_OPTIONS)[number];
-export const AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP = {
-	'5×': 5,
-	'10×': 10,
-	'25×': 25,
-	'50×': 50,
-	'100×': 100,
-	[INFINITY_MARK]: Infinity,
-};
+	AUTO_SPINS_TEXT_OPTIONS,
+	AUTO_SPINS_TEXT_OPTION_MAP,
+	LOSS_LIMIT_TEXT_OPTIONS,
+	AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP,
+	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
+	AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP,
+	type AutoSpinsText,
+	type LossLimitText,
+	type SingleWinLimitText,
+} from 'constants-shared/autoSpins';
 
 export type UIConfigMode = 'default' | 'replay';
 
@@ -260,4 +237,69 @@ export const cancelSpinHold = releaseSpinHold;
  * the editor-authored game settings supplying a jurisdiction preset). */
 export const setUiFeatures = (features: Partial<UIFeatureFlags>) => {
 	stateUi.config.features = { ...stateUi.config.features, ...features };
+};
+
+/**
+ * The AUTOPLAY COMMITTERS — the state half of starting an autoplay run, lifted out of
+ * `AutoSpinsStartButton` so the HTML modal, an authored Pixi auto-spin screen and a flow action all
+ * arm a run through ONE body instead of three copies that drift. They are deliberately state-only:
+ * the press sound and the `autoBet` broadcast stay with each caller, because the event emitter is
+ * Svelte-context-bound and this package is context-free.
+ *
+ * Each `set*` takes the option's TEXT (`'100'`, `'25×'`, `'∞'`) rather than a number, because that is
+ * what the option tables store and what a repeater tile's key carries; an unknown string is IGNORED
+ * rather than written, so a stale doc or a typo'd flow payload can't put the state into a value the
+ * limit maps have no entry for (which would silently make the limit `undefined` ⇒ `NaN`).
+ */
+export const setAutoSpinsOption = (option: string): void => {
+	if ((AUTO_SPINS_TEXT_OPTIONS as readonly string[]).includes(option)) {
+		stateUi.autoSpinsText = option as AutoSpinsText;
+	}
+};
+
+export const setAutoSpinsLossLimitOption = (option: string): void => {
+	if ((LOSS_LIMIT_TEXT_OPTIONS as readonly string[]).includes(option)) {
+		stateUi.autoSpinsLossLimitText = option as LossLimitText;
+	}
+};
+
+export const setAutoSpinsSingleWinLimitOption = (option: string): void => {
+	if ((SINGLE_WIN_LIMIT_TEXT_OPTIONS as readonly string[]).includes(option)) {
+		stateUi.autoSpinsSingleWinLimitText = option as SingleWinLimitText;
+	}
+};
+
+/**
+ * Arm an autoplay run from the picked options — the VERBATIM state body of `AutoSpinsStartButton`:
+ * the round counter, both limits resolved to ABSOLUTE amounts off the current `betAmount` (not
+ * `betCost()` — matching the coded button), and a one-shot `buy` mode dropped back to BASE so the
+ * run doesn't repeat a bought bonus. The caller then broadcasts `autoBet`, which is what actually
+ * starts the machine.
+ */
+export const armAutoSpins = (): void => {
+	stateBet.autoSpinsCounter = AUTO_SPINS_TEXT_OPTION_MAP[stateUi.autoSpinsText];
+	stateBet.autoSpinsLossLimitAmount = limitAmount(
+		AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP[stateUi.autoSpinsLossLimitText],
+	);
+	stateBet.autoSpinsSingleWinLimitAmount = limitAmount(
+		AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP[stateUi.autoSpinsSingleWinLimitText],
+	);
+	if (stateBetDerived.activeBetMode().type === 'buy') stateBet.activeBetModeKey = 'BASE';
+};
+
+/**
+ * A limit multiplier resolved to an absolute amount off the current stake. `∞` is a real option, so
+ * the product is `betAmount * Infinity` — which is `NaN` when the stake is 0, and EVERY comparison
+ * against `NaN` is false, so the run would never stop on that limit. A non-finite product means
+ * "no limit", which is what `Infinity` already expresses.
+ */
+const limitAmount = (multiplier: number): number => {
+	const amount = stateBet.betAmount * multiplier;
+	return Number.isNaN(amount) ? Infinity : amount;
+};
+
+/** Stop a running autoplay — zeroing the counter is what the coded auto-spin button does, and the
+ *  auto-bet machine reads it between rounds. Inert when no run is live. */
+export const stopAutoSpins = (): void => {
+	stateBet.autoSpinsCounter = 0;
 };

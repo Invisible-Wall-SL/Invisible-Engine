@@ -166,6 +166,15 @@ export const linesEngineReader = (key: string): unknown => {
 			return freeSpinsRemaining();
 		case 'freeSpinsTotal':
 			return freeSpinsTotal();
+		// Autoplay, so an authored auto-spin screen can reproduce what the coded button does. The
+		// HUD auto-spin button is DUAL — open the menu when idle, STOP a live run otherwise — and a
+		// flow that owns its press suppresses that coded body, so without a readable counter the
+		// stop half would be unauthorable. Branch on `isAutoSpinning` to route the press to
+		// `stopAutoSpins` instead of `Show`.
+		case 'autoSpinsRemaining':
+			return stateBet.autoSpinsCounter;
+		case 'isAutoSpinning':
+			return stateBet.autoSpinsCounter !== 0;
 		case 'reels': {
 			// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
 			// (post-spin), else the static reel count (boardDimensions().x) so `$engine.reels` is a
@@ -190,6 +199,8 @@ export const LINES_ENGINE_KEYS = [
 	'isFreeGame',
 	'freeSpinsRemaining',
 	'freeSpinsTotal',
+	'autoSpinsRemaining',
+	'isAutoSpinning',
 	'reels',
 ] as const;
 

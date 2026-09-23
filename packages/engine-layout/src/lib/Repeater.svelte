@@ -10,7 +10,12 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
-	import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
+	import {
+		REPEATER_SELECT_EVENT,
+		REPEATER_SELECTED_ID,
+		REPEATER_SELECTED_KEY,
+		REPEATER_SELECTED_VALUE,
+	} from 'constants-shared/repeater';
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { componentDesignSize } from './componentDesignSize';
@@ -109,8 +114,10 @@
 	// Flow press routing (Invisible Flow v2, §Part 2) — the repeater analogue of a button's fused
 	// container-event pin. When the flow OWNS the repeater's `select` event (an authored exec edge from
 	// this repeater NODE's fused `<node.id>.onSelect` pin), a card press routes to the flow ALONE,
-	// seeding the pressed item's `key` as the trigger payload (`{ betModeKey: key }`) so the pin's
-	// data-out resolves to which mode was picked. When NOT owned (every coded game — no repeater select
+	// seeding the pressed item as the trigger payload so the pin's data-outs resolve to what was
+	// picked: its `key` under BOTH the legacy `betModeKey` and the generic `selectedKey`, plus its
+	// `value` under `selectedValue` for the numeric actions (`setBetAmount`, `setAutoSpins`) that a
+	// string key can't feed. When NOT owned (every coded game — no repeater select
 	// ownership at all — and any doc that didn't author it), the coded `item.onSelect` runs EXACTLY as
 	// today (parity). Consulted AT PRESS TIME so ownership reflects the LIVE v2 handle regardless of boot
 	// timing (mirrors `<ComponentInstance>`'s `firePress`). `<node.id>` is the repeater's stable id — the
@@ -118,6 +125,8 @@
 	const selectHandler = (item: RepeaterItem) => () => {
 		const routed = getFlowPress()?.(node.id, REPEATER_SELECT_EVENT, {
 			[REPEATER_SELECTED_KEY]: item.key,
+			[REPEATER_SELECTED_ID]: item.key,
+			[REPEATER_SELECTED_VALUE]: item.value,
 		});
 		if (routed) routed();
 		else item.onSelect?.();

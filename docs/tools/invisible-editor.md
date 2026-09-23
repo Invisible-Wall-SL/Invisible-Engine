@@ -111,16 +111,113 @@ To start from something:
   Save (which converts the project) or Discard.
 - **＋ New empty screen**, **＋ New background screen**, **＋ Add / Refresh HUD
   layer**, and **＋ New HUD screen** create screens directly.
+- **＋ New bet menu screen** and **＋ New auto spin screen** seed the two player
+  menus — see [the section below](#the-bet-menu-and-the-auto-spin-screens).
 - **＋ Add missing screens** appears when the game defines screens the current
   layout lacks.
+
+### The bet menu and the auto spin screens
+
+The two menus the player opens from the HUD — tapping the **bet** readout to change the
+stake, and the **auto spin** button to set autoplay up — used to be coded dialogs with no
+authoring surface at all. Both are now ordinary screens you build here, and
+[Invisible Flow](flow.md) decides **when** each one opens.
+
+**Seed one.** Under the Screens list, **＋ New bet menu screen** creates *Bet Menu* and
+**＋ New auto spin screen** creates *Auto Spin*. Each lands in `canvas` space (positioned
+against the window edges, so it stays centred on any device) and is tagged with the
+matching role. Pressing the button again once the screen exists just selects it, so you
+cannot end up with two. What you get is deliberately plain — a starting point to restyle,
+not a fixture:
+
+- **Bet Menu** — a dim full-window backdrop, a **SELECT YOUR BET** title, a **Bet amounts**
+  repeater laying the stake ladder out as a three-column grid, and a **CANCEL** button.
+- **Auto Spin** — the same backdrop, a **NUMBER OF ROUNDS** title over the round-count
+  grid, then **LOSS LIMIT** and **SINGLE WIN LIMIT** grids, a **START AUTOPLAY** button and
+  a **CANCEL** button. The coded dialog folds the two limits away behind an **advanced**
+  toggle; here they sit in the open, so delete those four nodes — two titles, two grids —
+  if your game doesn't offer limits. A run then uses the standing limits, which default
+  to `∞`.
+
+Both screens are full-canvas takeovers, which is why each carries a **CANCEL** — it is the
+player's way back out, and the flow has to wire it (see the caveat at the end of this
+section).
+
+The seeded copy is not English typed into a text box: every title, **START AUTOPLAY** and
+**CANCEL** is the *same* string the coded dialog uses, so a game that already ships in
+other languages has them translated before you start. The `MAX` tile label goes the same
+way, which matters because the repeater feeds it and you can't reach it here at all.
+Reword a title and you simply get a new string — still collected by
+[Invisible Localization](localization.md) (it harvests the text you place on screens), but
+needing a translation of its own.
+
+Move, restyle, re-art and re-lay-out these like any other screen. Properties → Screen
+carries the **role** dropdown, which gained **bet menu** and **auto spin** beside loading
+(splash) / base game / buy feature / buy confirm. The role is how the engine finds the
+screen, so you can rename it or give it any id you like — just keep exactly one screen per
+role.
+
+**The option grids are Repeaters.** A **Repeater** (click one in the Library's
+**Elements**) stamps one copy of a component per item of a live list the game supplies.
+Select it and Properties gives you:
+
+- **data source** — which list to stamp, now a dropdown rather than a free-text box:
+  *buy-feature cards (one per bet mode)*, *bet amounts (the bet menu ladder)*, *auto spin
+  counts (10 … ∞)*, *auto spin loss limits (5× … ∞)* and *auto spin single-win limits
+  (5× … ∞)*. A custom source already saved in the document is kept in the list so it is
+  never rewritten under you. The game registers the actual arrays at runtime; a source the
+  game doesn't register simply stamps nothing.
+- **component** — which component each item becomes. It defaults to the new built-in
+  **Option Tile**.
+- **direction** (`row` / `grid`), **gap**, and **columns** when it is a grid.
+
+The canvas cannot run a live list, so it draws a **sample grid of the right length and
+shape** — enough to size and place the grid you are laying out. The real bet ladder comes
+from the RGS while the game runs, so the amounts you see here are stand-ins; the autoplay
+ladders are fixed (`10 … 1000, ∞` and `5× … 100×, ∞`) and do match.
+
+**Option Tile** is the built-in each option becomes: a plate, a label, and a press. Its
+params are a frame **tint**, **fontSize**, **font**, and the usual **State images** group
+(normal / hover / pressed / **selected** / …) — point those at your own frames and the
+tile takes your art. The label and which tile is currently picked are fed by the engine,
+not typed here. The picked one is shown two ways at once: it takes the **selected** state
+image, *and* its label turns gold — so the current stake reads correctly even before any
+art is authored. Restyle the tile in the [Invisible Component Editor](component-editor.md),
+or point the repeater's **component** dropdown at a component of your own.
+
+**Making a button on the screen do something.** Properties → **Engine bindings** →
+**Action** (and a button instance's own `action` param) gained three keys:
+
+| Action | What it does |
+|---|---|
+| **bet menu (open)** | Opens the bet menu. The seeded HUD bet readout already carries it. |
+| **auto spin — start** | Starts an autoplay run from the currently picked options. The seeded **START AUTOPLAY** button carries it. |
+| **close (dismiss screen)** | A generic dismiss. Both seeded menus carry a **CANCEL** button bound to it; use it for a ✕ of your own. |
+
+A readout can also show the standing choice: the **source** dropdown on a HUD Readout,
+text box or message bar gained `autoSpins`, `autoSpinsLossLimit` and `autoSpinsWinLimit`
+(the picked option as text, `∞` included) plus `autoSpinsRemaining` (rounds still to play,
+`0` when autoplay isn't running).
+
+> **Nothing changes in the game until the flow wires it up.** These screens show
+> themselves for nobody: a screen only mounts when Invisible Flow's `Show` runs, and the
+> HUD presses only reach the flow once you wire their pins. Until then the old coded
+> dialogs open exactly as they always did and your authored screens never appear — which
+> is why an existing game is untouched by seeding them. The wiring is a handful of nodes,
+> written up in
+> [the Flow guide](flow.md#the-bet-menu-and-the-auto-spin-menu--a-worked-example).
 
 ### 2. Place assets from the Library
 
 Open the **Library** tab. It is grouped into:
 
-- **Elements** — drag in a **Text** node or a **Rect** fill, or click
+- **Elements** — drag in a **Text** node or a **Rect** fill, click
   **Reel** to insert the board/reel-grid placeholder (one per game; the item
-  highlights and re-selects the existing reel if you already have one).
+  highlights and re-selects the existing reel if you already have one), or click
+  **Repeater** to insert a data-driven list that stamps one component per item of a
+  live source (the option grids on the
+  [bet menu / auto spin screens](#the-bet-menu-and-the-auto-spin-screens), the
+  buy-feature cards). A layout may carry as many repeaters as you like.
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Spines** — the project's spine bundles (plus shared `_shared/` bundles,
@@ -641,7 +738,11 @@ game on the next **Publish** — the same trip as the rest of your art.
 - **Some HUD parity gaps remain.** Rotation now ships for HUD elements, but the
   corner logo/game-name containers still ignore `scale` in-game, so scaling those
   two corner texts in the editor won't ship yet.
+- **A repeater's canvas preview is a stand-in, not the live list.** The editor
+  can't run a game's registered sources, so the bet ladder it draws is a
+  representative set of amounts of the right length — the real one arrives from
+  the RGS at runtime. Size the grid here; check the amounts in the running game.
 - **Interactive feel is partly unverified.** Several recent editor capabilities
-  (undo/redo, copy/paste, multi-select) build clean and type-check, but the
-  auth-gated canvas makes automated interaction testing hard — owner confirms
-  live.
+  (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
+  build clean and type-check, but the auth-gated canvas makes automated
+  interaction testing hard — owner confirms live.

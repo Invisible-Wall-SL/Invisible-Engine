@@ -984,12 +984,15 @@ export interface Scene {
 	 *   (gated on the buy modal), so an owner can tag any authored scene as THE buy screen
 	 *   without matching the magic `buyFeature` id. One per doc.
 	 * - `buyConfirm` — the buy-bonus CONFIRM dialog, mounted by the `<BuyBonusConfirm>` takeover.
+	 * - `betMenu` — the bet-amount menu the HUD bet readout opens. Flow-shown (no coded takeover
+	 *   mounts it): the role is what lets the editor and a scaffold find THE bet screen under any id.
+	 * - `autoSpin` — the autoplay menu the auto-spin button opens. Flow-shown, same as `betMenu`.
 	 * Resolution order at boot: the flow's `initial`/`start` node (when a FlowDoc is loaded)
 	 * → the scene with this `role` → the legacy scene whose `id` equals the role name
 	 * (parity for un-migrated docs). Absent ⇒ falls back to the legacy id match, so a doc
 	 * with no roles boots byte-identically to today. Additive.
 	 */
-	role?: 'loading' | 'basegame' | 'buyFeature' | 'buyConfirm';
+	role?: 'loading' | 'basegame' | 'buyFeature' | 'buyConfirm' | 'betMenu' | 'autoSpin';
 	/**
 	 * Which coordinate space this scene authors into. `<LayoutScene>` reads this
 	 * and **self-wraps** in the matching container, so a scene renders identically

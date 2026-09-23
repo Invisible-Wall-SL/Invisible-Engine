@@ -76,7 +76,8 @@ function library:
   the game emits. A flow has one, so the section disappears once you have added it. Wiring
   one of its pins hands that moment to the flow — read the trap below before you do.
 - **Actions** — the game's real effects and mechanic commands (`revealBoard`, `winShow`,
-  `stopReel`, `startSpin`, …), each tagged with its category.
+  `stopReel`, `startSpin`, `setBetAmount`, `startAutoSpins`, …), each tagged with its
+  category.
 - **Cues** — presentation signals to broadcast (`boardShow`, `specialBookReveal`,
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
   own cues **plus every signal name authored on a spine or a flipbook in this project's
@@ -250,7 +251,47 @@ palette). It shows the node's derived pins and a kind-specific editor:
   (accessors only read, they never compute).
 - **Branch** — a **Guard** as an *all-of* list of comparisons; add rows with **+ add**,
   each a left source, an operator (`eq` / `ne` / `lt` / `lte` / `gt` / `gte`), and a right
-  source. With no comparisons the branch always takes **then**.
+  source. With no comparisons the branch always takes **then**. Either side can be an
+  **accessor** reading live game state, which is what makes a branch worth having — see
+  below.
+
+#### Reading live game state (`$engine`)
+
+Set a guard operand — or any data-in — to **accessor** → **$engine** and the dropdown
+lists what the game answers at runtime. The **values** come first:
+
+| Value | Type | What it reads |
+|---|---|---|
+| `balance` | number | The player's wallet. |
+| `bet` | number | The current total stake (bet × cost multiplier). |
+| `win`, `totalWin` | number | The win the book event carried. Two names, one read. |
+| `gameType` | `basegame` / `freegame` | |
+| `isFreeGame` | true/false | The free-spin feature is running. |
+| `freeSpinsRemaining`, `freeSpinsTotal` | number | Spins left, and spins awarded. |
+| `autoSpinsRemaining` | number | Autoplay rounds left; `0` when no run is live. |
+| `isAutoSpinning` | true/false | An autoplay run is live. |
+
+Then the **collections** (`reels`) — the iterables a **ForEach** walks, rather than things
+to compare. You pick a name from the list instead of typing it, so there is nothing to
+mis-spell, and each value carries its type, so where an `$engine` read feeds a node's
+**data-in** Validation flags a mismatch.
+
+**Comparing in a guard.** Set one side and the other follows its type. Pick
+`$engine.isAutoSpinning` and the opposite operand turns into an **on / off** select; pick
+`$engine.gameType` and it turns into a `basegame` / `freegame` dropdown; leave both sides
+numeric and it stays a number box. So `isFreeGame eq on`, `gameType eq freegame`,
+`balance lt 100` and `autoSpinsRemaining ne 0` are all one row. (Only a *literal* is
+re-typed like that — an accessor on the other side is left alone, because that is a choice
+you made.)
+
+Two runtime rules decide which operator you want:
+
+- **`eq` / `ne` are exact; `lt` / `lte` / `gt` / `gte` read both sides as numbers.** The
+  exactness is why the typing above matters: a true/false value compared against a number
+  is never equal to it, and nothing warns you.
+- **An unbounded value is not a finite number.** Autoplay set to `∞` makes
+  `autoSpinsRemaining` infinite, which no `gt` / `lt` test matches — `ne 0` catches it,
+  `gt 0` silently doesn't.
 
 ### Containers (screens as z-ordered layers)
 
@@ -263,6 +304,114 @@ Scene-Editor screen is a container — a **background-space** screen too: its sp
 the coordinate frame (cover-fit to the window). When the flow drives the screens, nothing
 is on screen until you **show** it, so a background screen needs its own **show** (usually
 off `load`), and a splash on a background-space screen hides exactly when you **hide** it.
+
+#### A Show node also carries its screen's presses
+
+A **showContainer** node's pins are not just exec-in / exec-out. Everything interactive on
+the backing screen fuses onto that same node as an extra **exec-out**, captioned
+`on<Action>`: a spin button becomes `onSpin`, a confirm dialog becomes `onConfirm` and
+`onCancel`, and a whole **Repeater** of tiles becomes a single `onSelect`. Some bring
+**data-outs** with them — a repeater's `onSelect` publishes which item was pressed. Three
+things follow:
+
+- **Wiring a pin takes that press over.** The button's coded behaviour is *suppressed* and
+  your chain runs instead, so the two never both fire. Leave the pin unwired and the game
+  behaves exactly as it always has. Ownership is decided by the wire existing — not by
+  when, or whether, that Show node runs.
+- **Pins are captioned by action, not by node.** A screen with three repeaters shows three
+  exec-outs all reading `onSelect` (and three copies of each data-out caption). They are
+  listed **in the order those nodes appear on the screen**, so check the Scene Editor's
+  outline before you wire.
+- **A screen only surfaces what is configured.** A decorative sprite contributes no pin; a
+  button contributes one only once it has been given an **Action** in the Scene Editor.
+
+### The bet menu and the auto spin menu — a worked example
+
+The player's two HUD menus — tapping the **bet** readout to change the stake, pressing
+**auto spin** to set autoplay up — used to be coded dialogs with no authoring surface.
+They are now screens someone builds in the
+[Invisible Scene Editor](invisible-editor.md#the-bet-menu-and-the-auto-spin-screens)
+(**＋ New bet menu screen** / **＋ New auto spin screen**), and this flow decides *when*
+each one opens. Every Scene-Editor screen is a container, so both appear in the palette's
+**Containers** section by themselves, as **show Bet Menu** / **show Auto Spin**.
+
+> **Until you wire the two HUD pins, nothing changes in the game** — the coded dialogs keep
+> opening and the authored screens never mount. Seeding the screens is safe on a live game;
+> this graph is what switches it over.
+
+The actions involved, all in the palette's **Actions** section:
+
+| Action | Takes | What it does |
+|---|---|---|
+| `setBetAmount` | `amount` (number) | Stakes that amount. |
+| `setAutoSpins` | `option` (text) | Picks the round count, without starting a run. |
+| `setAutoSpinLossLimit` | `option` (text) | Picks the loss limit. |
+| `setAutoSpinWinLimit` | `option` (text) | Picks the single-win limit. |
+| `startAutoSpins` | — | Starts a run from whatever is currently picked. |
+| `stopAutoSpins` | — | Ends a running autoplay. |
+| `openBetMenu` | — | Opens the **coded** bet dialog — for moving that press elsewhere without authoring a screen at all. |
+
+**The bet menu, in four wires.** Drop a **show HUD — bottom bar** node (you will usually
+already have one) and a **show Bet Menu** node, then:
+
+1. The HUD node's **`onBetMenu`** exec-out — the bet readout's press — into **show Bet
+   Menu**'s exec-in.
+2. **show Bet Menu**'s own **`onSelect`** exec-out into a `setBetAmount` action, and its
+   **`selectedValue`** data-out into that action's **`amount`** data-in.
+3. `setBetAmount`'s exec-out into **hide Bet Menu**.
+4. **show Bet Menu**'s **`onClose`** exec-out — the CANCEL button — into a **second hide
+   Bet Menu** node. It has to be its own node: an exec-in takes one predecessor, so the
+   two chains cannot share a hide.
+
+```
+exec   show HUD ▸onBetMenu       ──▶  show Bet Menu
+exec   show Bet Menu ▸onSelect   ──▶  setBetAmount  ──▶  hide Bet Menu
+exec   show Bet Menu ▸onClose    ──▶  hide Bet Menu   (a second one)
+data   show Bet Menu ▸selectedValue  ──▶  setBetAmount ▸amount
+```
+
+**The auto spin menu** is the same shape, except the screen collects three picks before it
+starts anything:
+
+1. **show HUD — bottom bar**'s **`onAutoSpin`** exec-out (the auto-spin button) into **show
+   Auto Spin**.
+2. The **show Auto Spin** node carries three `onSelect` pins — one per grid, in screen
+   order: round counts, then loss limits, then single-win limits. Wire them into
+   `setAutoSpins`, `setAutoSpinLossLimit` and `setAutoSpinWinLimit`, feeding each action's
+   **`option`** data-in from that pin's **`selectedKey`** data-out.
+3. The START button projects **`onAutoSpinStart`**. Run it into `startAutoSpins`, then
+   **hide Auto Spin**.
+4. The CANCEL button projects **`onClose`**. Run it into a **hide Auto Spin** of its own.
+
+**`selectedKey` or `selectedValue`?** A repeater's `onSelect` offers both, plus
+`betModeKey`. `selectedKey` is the text on the tile that was pressed; `selectedValue` is
+the same choice as a number. Take the **number** for a bet amount, because `setBetAmount`
+wants one. Take the **text** for the three autoplay ladders: their `∞` option is a
+perfectly good `Infinity`, but it reads far better as a string, and the three pickers take
+text and quietly ignore anything they don't recognise. (`betModeKey` carries the same
+string as `selectedKey` under its original buy-feature name — old graphs wire it, new ones
+needn't.)
+
+**Stopping a run.** The HUD auto-spin button is *dual*: pressed while autoplay is running
+it stops the run, pressed when idle it opens the menu. Wiring `onAutoSpin` straight to a
+**show**, as in step 1, takes that press over wholesale and loses the stop half — so put a
+**Branch** in between and let it ask whether a run is live:
+
+```
+exec    show HUD ▸onAutoSpin  ──▶  Branch
+exec    Branch ▸then  ──▶  stopAutoSpins
+exec    Branch ▸else  ──▶  show Auto Spin
+guard   $engine.isAutoSpinning   eq   on
+```
+
+That reproduces the coded button exactly. (`autoSpinsRemaining ne 0` reads the same state
+as a number if you prefer it — but not `gt 0`, which an `∞` run fails; see
+[Reading live game state](#reading-live-game-state-engine).)
+
+**Don't skip the CANCEL wires.** Both seeds carry that button because these screens are
+full-canvas takeovers: leave `onClose` unwired and the only way off the screen is
+committing to a choice. Put `stopAutoSpins` in front of the auto-spin one if you want
+cancel to end a running autoplay as well.
 
 ### Reusable functions (Collapse to Function)
 
@@ -328,7 +477,9 @@ so authoring here is what the shipped game actually runs.
 
 - **It does not edit the platform state machine or the math.** The XState platform FSM
   (bet / balance / auto-spin / RGS protocol) and the RGS-determined outcomes are off-limits
-  — Flow rides on top of them, reacting to the lifecycle and book events they emit.
+  — Flow rides on top of them, reacting to the lifecycle and book events they emit. It can
+  *drive* them through the actions they expose (`setBetAmount`, `startAutoSpins` fire the
+  same commands the coded buttons do); it cannot change how they behave.
 - **No live visual preview.** The Preview panel is a *deterministic timeline* of the
   effects, cues and delays you authored — useful for verifying order and timing, but it
   does not show the game actually animating.
@@ -345,6 +496,10 @@ so authoring here is what the shipped game actually runs.
   definition, so they never reach this palette. Such a name is only firable from here if it
   is also one of the engine's cues or is used by a node placed directly on a screen —
   otherwise place the character on the screen itself.
+- **A guard operand can't be wired.** Each side of a **Branch** comparison is a literal or
+  an accessor chosen in the inspector, so you can't compare against something a **Compute**
+  node worked out. Compute what you need into a data-in instead, or restate the test
+  against a value `$engine` already exposes.
 - **Function inputs/outputs are fixed once created.** A function body's **Entry** / **Result**
   signature (its inputs/outputs) can't be edited yet; adding or removing a function's
   parameters is a later feature.

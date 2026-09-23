@@ -13,7 +13,12 @@
  * a full Scene-Editor component, so the editor projects its components down to this before calling in.
  */
 
-import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
+import {
+	REPEATER_SELECT_EVENT,
+	REPEATER_SELECTED_ID,
+	REPEATER_SELECTED_KEY,
+	REPEATER_SELECTED_VALUE,
+} from 'constants-shared/repeater';
 
 import type { ContainerEventDecl, ParamDecl } from './types';
 
@@ -29,11 +34,19 @@ export interface ConfiguredComponentEvent {
 
 /**
  * Project a `repeater` node into its `ConfiguredComponentEvent` — the SINGLE fused `select` decl the
- * whole list contributes (N items → one pin), carrying one `betModeKey: string` data-out for the
- * selected item's key. This is the repeater analogue of a button projecting its `action` binding: a
- * `repeater` has no per-item `action` param, so the Scene→decl projection recognises it by kind and
- * calls in here. The runtime seeds `{ betModeKey: item.key }` as the fired event's trigger payload
- * (see `constants-shared/repeater`), so the pin's data-out resolves to the pressed card's key.
+ * whole list contributes (N items → one pin), carrying the selected item's data-outs. This is the
+ * repeater analogue of a button projecting its `action` binding: a `repeater` has no per-item
+ * `action` param, so the Scene→decl projection recognises it by kind and calls in here. The runtime
+ * seeds the pressed item as the fired event's trigger payload (see `constants-shared/repeater`), so
+ * each data-out resolves to what was picked.
+ *
+ * THREE data-outs, because one repeater now serves several lists: `betModeKey` and `selectedKey` are
+ * the same string under a legacy and a generic name (buy-feature docs hold edges to the first;
+ * `selectBetMode` reads it unmapped), and `selectedValue` is the item's NUMBER — a bet amount, an
+ * autoplay count — which is what a numeric action (`setBetAmount`) needs and a string key cannot
+ * give. All three are declared unconditionally: the projection is STATIC (it reads the doc) while the
+ * items are a live registry read, so which ones actually carry a value is only knowable at runtime.
+ * An author wiring `selectedValue` off a key-only source just gets nothing.
  *
  * `string` (not a bet-mode enum) by design: the item set is a live registry read at RUNTIME
  * (`registerRepeaterSources`), so no enum is available at vocab-build time — the whitelisted-accessor
@@ -47,6 +60,17 @@ export const repeaterSelectConfiguredEvent = (componentId: string): ConfiguredCo
 			name: REPEATER_SELECTED_KEY,
 			type: { t: 'string' },
 			description: 'The selected card key (a bet-mode key for the buy-feature menu).',
+		},
+		{
+			name: REPEATER_SELECTED_ID,
+			type: { t: 'string' },
+			description: 'The selected card key — the same string, under a list-agnostic name.',
+		},
+		{
+			name: REPEATER_SELECTED_VALUE,
+			type: { t: 'float' },
+			description:
+				'The selected card as a NUMBER (bet amount, autoplay count, limit multiplier). Empty for a list whose items are names.',
 		},
 	],
 });

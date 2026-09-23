@@ -51,6 +51,7 @@
 		Modals,
 		DebugMenu,
 		registerBuyFeature,
+		registerHudMenus,
 		BuyBonusConfirm,
 	} from 'components-ui-html';
 	import {
@@ -124,6 +125,8 @@
 		collectComponentIds,
 		buyFeatureSceneId,
 		buyConfirmSceneId,
+		betMenuSceneId,
+		autoSpinSceneId,
 		formatWinText,
 		registerSceneCameraTransform,
 	} from 'engine-layout';
@@ -814,6 +817,7 @@
 	// bet mode, fed from the active `stateMeta.betModeMeta`; `select` → pick mode + `buyBonusConfirm`).
 	// The `<BuyFeatureScreen>` takeover (mounted below) renders it; the HTML `ModalBuyBonus` is gone.
 	registerBuyFeature();
+	registerHudMenus();
 	// Reel-anticipation camera bridge (`docs/design/reel-anticipation.md`): publish THIS game's
 	// shared camera transform to engine-layout, so an opted-in screen (`Scene.zoomWithAnticipation`)
 	// zooms in lockstep with the reel camera toward the SAME focal point (one coherent move). The
@@ -1300,6 +1304,7 @@
 		void stateGame.gameType;
 		void stateUi.freeSpinCounterTotal;
 		void stateUi.freeSpinCounterCurrent;
+		void stateBet.autoSpinsCounter;
 		void flow?.evaluate();
 	});
 
@@ -1336,6 +1341,14 @@
 		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
 		// (which would show the confirm dialog permanently).
 		'buyConfirm',
+		// The bet-amount and auto-spin menus are shown ONLY by the flow (a `Show` wired off the HUD
+		// bet readout's `onBetMenu` / the auto-spin button's `onAutoSpin`). Unlike the buy screens
+		// they have no coded takeover at all — with no flow wiring the coded HTML modal opens instead
+		// and these scenes mount nowhere, which is the intent. Reserved so an authored menu can never
+		// mount as an always-on generic overlay, i.e. the whole bet grid painted permanently over the
+		// game (exactly the buy-feature failure above).
+		'betMenu',
+		'autoSpin',
 	] as const;
 	const reservedSceneIds = $derived(
 		new Set<string>([
@@ -1352,6 +1365,11 @@
 			// scene shows today — cards rendered permanently over the base game).
 			buyFeatureSceneId(editorDoc.scenes),
 			buyConfirmSceneId(editorDoc.scenes),
+			// The role-resolved bet-menu / auto-spin scenes (custom ids included) — same reason as the
+			// buy pair: a menu tagged with the role but named anything must not fall through to the
+			// generic overlay mount and paint itself over the game.
+			betMenuSceneId(editorDoc.scenes),
+			autoSpinSceneId(editorDoc.scenes),
 			...(flow?.mounter.authoredScreenIds() ?? []),
 		]),
 	);

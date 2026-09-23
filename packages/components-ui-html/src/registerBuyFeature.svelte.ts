@@ -5,56 +5,15 @@ import {
 	FEATURE_CARD_DEF,
 	CONFIRM_DIALOG_DEF,
 	CONFIRM_DIALOG_NODE_ID,
-	type RepeaterItem,
-	type RepeaterSource,
-	type InstanceValueSource,
 } from 'engine-layout';
 import { stateBet, stateMeta, stateI18nDerived } from 'state-shared';
 import { getContextEventEmitter } from 'utils-event-emitter';
 import { numberToCurrencyString } from 'utils-shared/amount';
 
+import { repeaterSource, instanceValueSource } from './engineSources.svelte';
 import { stateBonus, stateBonusDerived } from './stateBonus.svelte';
 import { i18nDerived } from './i18n/i18nDerived';
 import type { EmitterEventModal } from './types';
-
-/**
- * Wrap a runes getter as a {@link RepeaterSource} — the list sibling of a value source. On
- * `subscribe(run)` it calls `run` with the current items SYNCHRONOUSLY (the Svelte store contract —
- * first paint has a real list), then spins up an `$effect.root` whose `$effect` re-reads `getter()`
- * (capturing its reactive deps) and pushes every change to `run`, returning the root's stop fn as
- * the unsubscribe. So the registered source replays the live selector to whichever `repeater` binds.
- */
-function repeaterSource(getter: () => RepeaterItem[]): RepeaterSource {
-	return {
-		subscribe(run) {
-			run(getter());
-			return $effect.root(() => {
-				$effect(() => {
-					run(getter());
-				});
-			});
-		},
-	};
-}
-
-/**
- * Wrap a runes getter as an {@link InstanceValueSource} — the MAP sibling of {@link repeaterSource},
- * replaying a live `engineProvided` values map (title/message/…) to whichever scene instance the feed
- * is keyed to. Same store contract: synchronous first emit, then an `$effect.root` pushes every
- * change (so a new bet mode picked ⇒ a new title/message threads through without re-mounting).
- */
-function instanceValueSource(getter: () => Record<string, unknown>): InstanceValueSource {
-	return {
-		subscribe(run) {
-			run(getter());
-			return $effect.root(() => {
-				$effect(() => {
-					run(getter());
-				});
-			});
-		},
-	};
-}
 
 /**
  * Register the in-canvas Select-Feature (buy-bonus) menu once at boot — the SHARED wiring every
