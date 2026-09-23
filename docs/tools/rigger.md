@@ -320,6 +320,44 @@ a rival answer to the same question. Move the box, or bind a different bone.
   toward a chosen target bone (radius / strength / subtract-to-erase), with a
   blue→red heatmap on the vertices showing the current weight map.
 
+#### Pivot — where a slot's art turns from (**✥ Set pivot**)
+
+Select a slot in Setup mode and, under the attachment tools (below **▸ Convert to mesh** / **✎
+Draw mesh**), a **pivot** section offers a **✥ Set pivot** button, a 3×3 snap grid and a readout
+like `50% × 50%`.
+
+The pivot is the point the slot's art rotates and scales around. Spine gives an attachment no
+pivot of its own — a region attachment always turns about its own image centre and is only then
+offset by x/y — so an image's real pivot is the origin of the bone its slot hangs from. That is
+why a newly created slot spins about its middle: attaching an image writes no x/y, so the image
+centre sits exactly on the bone. Setting the pivot moves that bone origin under the art and takes
+the same offset back out of the art's placement, so **the art does not move on screen** — only
+the point it turns around does.
+
+- **✥ Set pivot**, then click or drag on the canvas to place it. The mode stays on so you can
+  keep nudging; **Esc** leaves it.
+- **Or click one of the 3×3 cells** for the art's corners, edge midpoints or centre — bottom
+  centre in one click. They follow a **rotated** image, because they interpolate the region's real
+  quad rather than a screen-aligned box.
+- The **✥** marks the cell the pivot is currently on, and the percentage readout is where it sits
+  inside the art (across × down). While the mode is on, the canvas draws an orange crosshair at
+  the pivot over a faint outline of the art.
+
+**What it writes.** If the slot's bone is used by nothing else, that bone is moved. If the bone is
+shared — the root, a bone with children, a bone another slot uses, or one a constraint targets —
+the slot gets its own new child bone named `<slot>-pivot`, and nothing else in the rig moves.
+Either way the pivot bone is selected afterwards, so the rotate gizmo immediately turns the art
+from the new point. The `.irig` stays byte-valid Spine 4.2 — no new fields, no sidecar.
+
+**When it isn't offered**, the panel says why: the slot has **no image** yet; the slot carries a
+**linked mesh** (its shape lives on the mesh it links to, so set the pivot on that slot instead);
+or the attachment is a **weighted mesh** (its shape follows its weight bones, not the slot bone,
+so it has no slot pivot).
+
+> **If the slot's own bone is already keyed to rotate or scale**, moving the pivot re-aims that
+> animation — it will swing the art from the new point. The panel shows a ⚠ line when that
+> applies, and rig editing has no undo.
+
 ### Localized text (Setup mode → **Text (localized art)**)
 
 Put a **translated string into the rig as art**, then rig it like anything else. The section
