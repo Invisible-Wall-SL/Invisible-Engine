@@ -155,7 +155,7 @@ console.log('8. the KTX2 atlas resolves a page the store moved, even without a t
 // back to the ORIGINAL name names a file that sits beside the atlas — which is exactly what the
 // store moved into `_pages/`. It 404s, spine fails the WHOLE bundle, and the WebP atlas rewrites
 // every page so desktop looks perfect: the Buy Feature button and a cinematic went missing on the
-// compressed tier ONLY, the tier that exists for iPhones. Shipped that way from #179 to #777.
+// compressed tier ONLY, the tier that exists for iPhones. Shipped that way from #179 to #778.
 const spineSrc = read('spine.ts');
 ok(
 	'rewriteAtlasForKtx2 is given the shared-page map',
