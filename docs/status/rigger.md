@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,53 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-23 — **A slot's pivot is editable — the point its art turns and scales around.** Reported as:
+  _"when I create a new slot, this slot has no pivot … I would like a button where I can edit the pivot and move
+  it around where I want. Right now that pivot seems to always be in the centre of the image. It is basic
+  functionality for a rigger."_ Accurate: Spine gives an attachment **no pivot of its own** — a
+  `RegionAttachment` builds its quad symmetric about its own centre, rotates THAT by `rotation`, and only then
+  offsets by `x`/`y` — so the only real pivot an image has is the origin of the bone its slot hangs from. And
+  `attachRegion` writes `{width, height}` with no `x`/`y`, which parks the image centre exactly on the bone. Hence
+  "always in the centre", with the numeric placement fields able to move the art but never the point it turns from.
+  - **The control.** Setup mode, under the attachment tools: a **pivot** section with **✥ Set pivot** (click or
+    drag on the canvas, Esc to leave, the mode stays on for repeated nudges), a **3×3 snap grid** for the art's
+    corners / edge midpoints / centre, and an `across % × down %` readout of where the pivot sits inside the art.
+    The grid cells interpolate the region's REAL quad (via the existing `affineUV` basis), so they follow a rotated
+    image instead of a screen-aligned box. While the mode is on the canvas draws an orange crosshair at the pivot
+    over a faint outline of the art.
+  - **What it writes.** Moving the pivot moves the bone origin under the art and subtracts the same offset from the
+    art's placement, so nothing shifts on screen. A bone **nothing else depends on** is moved in place; a **shared**
+    one (root, has children, another slot uses it, a constraint targets it) instead gets the slot its own
+    `<slot>-pivot` child and nothing else in the rig moves. Either way the pivot bone is then selected, so the
+    rotate gizmo turns the art from the new point immediately — and because the pivot IS a bone, it reaches
+    animation and the game, not just this editor. No new fields, no sidecar: the `.irig` stays byte-valid Spine 4.2.
+  - **Rebasing covers every attachment the slot owns, in every skin** — region/point `x`/`y`, and unweighted
+    mesh/path/box/clip vertex arrays. **Weighted** geometry is deliberately left alone (its vertices live in the
+    WEIGHT bones' spaces, so the slot bone does not place it). A **linked mesh** borrows its geometry from another
+    mesh, so there is no array here to take the move back out of — those slots are refused outright, with the
+    panel pointing at the source slot. One predicate, `pivotEditable()`, gates the panel, the canvas hit-test and
+    the overlay together, because the selected slot and its attachment change through paths that never call
+    `selectSlot` (＋ Add slot, add/replace image) — without it the canvas went on swallowing clicks for a slot
+    that has no pivot. A ⚠ line warns when the bone is already keyed to rotate/scale, since moving the pivot
+    re-aims that animation and rig editing still has no undo.
+  - **Precision note:** the pivot is stored as a bone-local offset snapped to 2 decimals so the x/y fields stay
+    readable, and the art is rebased by that SAME snapped value, which is what makes the cancellation exact. The
+    moved bone's own `x`/`y` are written **unrounded** — they are in the PARENT's space, so a second rounding
+    there would no longer cancel and the art would creep (canvas bone drag writes full precision for the same
+    reason). Caught by the spike: two rigs missed the click by ~0.05px before the rounding came out.
+  - **Verified.** `tools/rigger-spike/pivot.mjs` extracts the SHIPPED functions out of `view.html` and runs them in
+    a `vm` sandbox against the official `spine-core@4.2.74` loader, so the test cannot drift from the tool. Across
+    **146 checked-in rigs, 146 pass**: art drift 0.0000px, the pivot lands within the snap, nothing else in the rig
+    moves, the animations stay byte-unchanged, a second placement reuses the bone instead of stacking another, and
+    after a 90° turn the pivot is the rotation's one fixed point. 6 unweighted-mesh placements, 76 weighted-mesh
+    non-interference checks, 76 linked-mesh refusals. **Also verified live in a browser** against the vendored
+    **minified** runtime (a local harness serving the real `view.html` with stub `/spine/*`): 0px art drift on both
+    branches, the pivot landing 0.0039px from a canvas click (no Y-flip — the readout tracked both axes), a
+    `slot1-pivot` bone created for a fresh slot on `root` with 0 of the other 85 bones moving, and after a 35° turn
+    the art's bottom-centre still exactly on the pivot while its far corner travelled 2852px.
+  - ⏳ Owner live-verify against real R2 still owed, as for the rest of the tool.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/pivot.mjs`.
 
 - 2026-09-18 — **The rig FX preview was offset and clipped at 150% browser zoom** — `createFxOverlay`
   set `resolution: devicePixelRatio` without `autoDensity`, so the canvas ELEMENT kept its
