@@ -1,8 +1,20 @@
 import type { SoundBindings, SoundCatalog, SoundCatalogEntry } from 'engine-layout';
 import { effectiveSoundBindings, soundCatalogEntries } from 'engine-layout';
+import { capAudioBitrate, isTranscodableAudio } from './audioTranscode';
+import { ENV } from './env';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { SUB, soundFileKey } from './projectPaths';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import {
+	copyObject,
+	deleteObjects,
+	getObjectBytes,
+	getObjectText,
+	headObject,
+	listAllKeys,
+	objectExists,
+	putObjectBytes,
+	putObjectText,
+} from './r2';
 import { loadSoundsDoc } from './soundsStorage';
 import { loadSymbolsDoc } from './symbolsStorage';
 
@@ -25,6 +37,14 @@ import { loadSymbolsDoc } from './symbolsStorage';
  *
  * File NAMES are preserved verbatim (they are minted ids, already unique) and the subtree is FLAT:
  * unlike a font, a sound has no sibling files to keep next to it.
+ *
+ * BYTES are not always verbatim: an over-encoded upload is re-encoded down to
+ * `ENV.SOUND_MAX_KBPS` on the way out (`audioTranscode.ts`), because nothing else in this
+ * pipeline has ever looked at how an upload was encoded and a 256 kbps music bed was reaching
+ * every player. The uploaded source is never touched, the container never changes, and a
+ * re-encode is kept only when it is actually smaller — so the export still converges and
+ * `SOUND_TRANSCODE=0` restores the original bytes. What was done to each file is remembered in
+ * `sounds/_transcode.json` so a re-export does not re-encode unchanged audio.
  *
  * ⚠️ **Draft sounds are exported.** The approval gate belongs at PUBLISH (design §6), not here — a
  * test build has to be able to hear what it is reviewing, and an exporter that silently dropped
@@ -71,17 +91,19 @@ export async function exportProjectSounds(
 
 	const written = new Set<string>();
 	const exported: SoundCatalogEntry[] = [];
+	const cache = await loadTranscodeCache(clientKey, projectKey);
 
 	for (const entry of soundCatalogEntries(doc)) {
 		const destKey = `${outPrefix}${entry.file}`;
-		// Server-side copy, verbatim — no bytes travel through this process, which keeps peak memory
-		// flat whatever the library weighs. A missing source is skipped rather than fatal: an ORPHANED
-		// ENTRY (a doc row whose upload never landed, or whose file was deleted underneath it) must
-		// not break the whole export, and advertising it would ship a name that plays nothing.
-		if (!(await copyObject(soundFileKey(clientKey, projectKey, entry.file), destKey))) continue;
+		const srcKey = soundFileKey(clientKey, projectKey, entry.file);
+		// A missing source is skipped rather than fatal: an ORPHANED ENTRY (a doc row whose upload
+		// never landed, or whose file was deleted underneath it) must not break the whole export,
+		// and advertising it would ship a name that plays nothing.
+		if (!(await exportOneFile(srcKey, destKey, entry.file, cache))) continue;
 		written.add(destKey);
 		exported.push(entry);
 	}
+	await saveTranscodeCache(clientKey, projectKey, cache);
 
 	const catalog: SoundCatalog = {
 		prefix: EXPORT_SUBTREE,
@@ -96,6 +118,117 @@ export async function exportProjectSounds(
 	await deleteObjects(existing.filter((k) => !written.has(k)));
 
 	return { catalog };
+}
+
+/**
+ * What the last export did to each file, so a re-export does not re-encode audio that has not
+ * changed. Essential rather than nice: this exporter runs on the per-boot `/api/editor/runtime`
+ * assemble, which is already close to the client's 90 s budget
+ * (`gotcha_runtime_assemble_outruns_client_timeout`) — re-encoding a music bed on every boot
+ * would blow it outright.
+ *
+ * It lives beside the SOURCES (`sounds/_transcode.json`), deliberately not under `deploy/`: the
+ * deploy subtree is mirrored verbatim into a game's `static/assets/` by `pull-project-assets`,
+ * so a cache kept there would ship inside every build, and the deploy prune would delete it.
+ *
+ * An entry is recorded even when the file was copied VERBATIM (`capped: false`) — otherwise a
+ * track that ffmpeg cannot beat would be re-encoded on every single export forever.
+ */
+interface TranscodeCacheEntry {
+	/** Source ETag + size: the pair that says "this upload is unchanged". */
+	etag: string | null;
+	size: number;
+	/** The cap in force when this ran — lower `SOUND_MAX_KBPS` and everything re-encodes. */
+	kbps: number;
+	/** False when the re-encode was not a win and the source shipped unchanged. */
+	capped: boolean;
+}
+
+interface TranscodeCache {
+	rev: number;
+	files: Record<string, TranscodeCacheEntry>;
+}
+
+/** Bump to force every project to re-encode — the `KTX2_ENCODER_REVISION` lesson: a cache keyed
+ *  only on the SOURCE says nothing about how the output was made, so without this a change to the
+ *  encoder settings never reaches a library whose audio has not changed. */
+const TRANSCODE_REVISION = 1;
+
+const transcodeCacheKey = (clientKey: string, projectKey: string) =>
+	`${SUB.sounds(clientKey, projectKey)}/_transcode.json`;
+
+async function loadTranscodeCache(clientKey: string, projectKey: string): Promise<TranscodeCache> {
+	const empty: TranscodeCache = { rev: TRANSCODE_REVISION, files: {} };
+	try {
+		const txt = await getObjectText(transcodeCacheKey(clientKey, projectKey));
+		if (!txt) return empty;
+		const parsed = JSON.parse(txt) as TranscodeCache;
+		// A stale revision is dropped WHOLE rather than migrated — it only ever costs one re-encode.
+		if (parsed?.rev !== TRANSCODE_REVISION || !parsed.files) return empty;
+		return parsed;
+	} catch {
+		return empty;
+	}
+}
+
+async function saveTranscodeCache(
+	clientKey: string,
+	projectKey: string,
+	cache: TranscodeCache,
+): Promise<void> {
+	// Never fatal: the cache is an optimisation, and losing it costs one re-encode, not a build.
+	await putObjectText(
+		transcodeCacheKey(clientKey, projectKey),
+		JSON.stringify(cache),
+		'application/json',
+	).catch(() => {});
+}
+
+/**
+ * Put one library file into `deploy/sounds/`, capped to {@link ENV.SOUND_MAX_KBPS} when that is
+ * a real win. False when the source is missing (an orphaned doc row).
+ *
+ * The verbatim path is a SERVER-SIDE copy — no bytes travel through this process, which is what
+ * keeps peak memory flat whatever the library weighs. Only a file that is actually being
+ * re-encoded is pulled in, one at a time.
+ */
+async function exportOneFile(
+	srcKey: string,
+	destKey: string,
+	file: string,
+	cache: TranscodeCache,
+): Promise<boolean> {
+	const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
+	if (!ENV.SOUND_TRANSCODE || !isTranscodableAudio(ext)) return copyObject(srcKey, destKey);
+
+	const head = await headObject(srcKey);
+	if (!head) return false;
+
+	const kbps = ENV.SOUND_MAX_KBPS;
+	const seen = cache.files[file];
+	if (
+		seen &&
+		seen.etag === head.etag &&
+		seen.size === head.size &&
+		seen.kbps === kbps &&
+		(await objectExists(destKey))
+	) {
+		return true; // Unchanged upload, same cap, output still there — leave it alone.
+	}
+
+	const src = await getObjectBytes(srcKey);
+	if (!src) return false;
+	const capped = await capAudioBitrate(src.body, ext, kbps);
+	const ok = capped
+		? await putObjectBytes(destKey, capped, src.contentType).then(
+				() => true,
+				() => false,
+			)
+		: await copyObject(srcKey, destKey);
+	if (!ok) return false;
+
+	cache.files[file] = { etag: head.etag, size: head.size, kbps, capped: !!capped };
+	return true;
 }
 
 /**

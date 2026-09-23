@@ -48,6 +48,23 @@
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
 
+### ⚠️ launcher build-time binary: `ffmpeg-static` (2026-09-23)
+
+The launcher caps the bitrate of exported audio (`audioTranscode.ts`), which needs an `ffmpeg`
+binary. `ffmpeg-static` does **not** vendor it — its `install.js` DOWNLOADS an ~83 MB binary from
+GitHub Releases during install. Two consequences for a deploy:
+
+- **It only runs because `ffmpeg-static` is in `onlyBuiltDependencies`** (root `package.json`).
+  pnpm 10 blocks postinstall scripts by default; without that entry the package installs, the
+  path it exports points at a file that does not exist, and the transcode silently no-ops
+  (`capAudioBitrate` returns null ⇒ audio ships verbatim — degraded, not broken).
+- **The Railway build now depends on GitHub Releases being reachable.** If that download fails
+  the build may still succeed with no binary, so the symptom is "audio stopped shrinking",
+  not a red build. Verify after a deploy by re-exporting a project's sounds and checking that a
+  known over-encoded file came back smaller.
+
+`SOUND_TRANSCODE=0` disables the whole step if the dependency ever becomes a problem.
+
 **Every repo-root service now sets Watch Paths** (2026-09-07), so a push only rebuilds the services whose own files changed:
 
 | Service                   | Watch Paths                                                 |
