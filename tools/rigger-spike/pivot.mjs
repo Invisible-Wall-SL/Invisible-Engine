@@ -203,6 +203,8 @@ else {
 		const beforeArt = artWorld(sandbox.skeleton, sandbox.skeletonData, rs);
 		const bones = JSON.stringify(sandbox.rawDoc.bones);
 		const slots = JSON.stringify(sandbox.rawDoc.slots);
+		const bonesWorld = {};
+		for (const b of sandbox.skeleton.bones) bonesWorld[b.data.name] = { x: b.worldX, y: b.worldY };
 
 		sandbox.setPivotUV(0.5, 1);
 		sandbox.rebuildFromRawDoc();
@@ -221,6 +223,17 @@ else {
 			'… while the PIVOT itself stayed exactly where it was');
 		log(JSON.stringify(sandbox.rawDoc.bones) === bones, 'NO bone was added, moved or renamed');
 		log(JSON.stringify(sandbox.rawDoc.slots) === slots, 'no slot was re-pointed');
+		// The skeleton must not follow the image. Byte-equal `bones` already implies it, but assert
+		// the POSED result too: every bone's world origin, after a full reload, unmoved.
+		let movedBone = null, worstBone = 0;
+		for (const b of sandbox.rawDoc.bones) {
+			const was = bonesWorld[b.name], now = sandbox.skeleton.findBone(b.name);
+			if (!was || !now) { movedBone = b.name; break; }
+			const d = Math.hypot(now.worldX - was.x, now.worldY - was.y);
+			if (d > worstBone) { worstBone = d; if (d > 0.01) movedBone = b.name; }
+		}
+		log(!movedBone, `every one of the ${sandbox.rawDoc.bones.length} bones stayed exactly put`
+			+ ` (worst ${worstBone.toFixed(4)}px${movedBone ? ', moved: ' + movedBone : ''})`);
 		log(JSON.stringify(sandbox.pivotUV(sandbox.pivotEditable())) === '[0.5,1]', 'the pivot is stored on the image as [u,v]');
 	}
 
