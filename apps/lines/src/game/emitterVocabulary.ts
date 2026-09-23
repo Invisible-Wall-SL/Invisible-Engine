@@ -610,6 +610,34 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'setBetAmount',
+			group: 'Effect',
+		},
+		{
+			name: 'openBetMenu',
+			group: 'Effect',
+		},
+		{
+			name: 'setAutoSpins',
+			group: 'Effect',
+		},
+		{
+			name: 'setAutoSpinLossLimit',
+			group: 'Effect',
+		},
+		{
+			name: 'setAutoSpinWinLimit',
+			group: 'Effect',
+		},
+		{
+			name: 'startAutoSpins',
+			group: 'Effect',
+		},
+		{
+			name: 'stopAutoSpins',
+			group: 'Effect',
+		},
+		{
 			name: 'commitBuyBonus',
 			group: 'Effect',
 		},
