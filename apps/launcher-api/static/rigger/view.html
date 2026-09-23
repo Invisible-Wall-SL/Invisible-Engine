@@ -5848,21 +5848,51 @@ function slotPivotCtx(){
   const bone = skeleton.slots[slotIndex] && skeleton.slots[slotIndex].bone;
   if (!bone || !bone.data) return null;
   const boneName = bone.data.name;
-  const constrained = ["ik", "transform", "path", "physics"].some((g) => (rawDoc[g] || []).some((c) =>
-    c.target === boneName || c.bone === boneName || (Array.isArray(c.bones) && c.bones.indexOf(boneName) >= 0)));
-  const exclusive = rawDoc.bones[0].name !== boneName
-    && !rawDoc.bones.some((b) => b.parent === boneName)
-    && !(rawDoc.slots || []).some((s) => s.name !== selSlot && s.bone === boneName)
-    && !constrained;
   // A linked mesh borrows its geometry from ANOTHER mesh, so there is no vertex array on this
   // slot to take the move back out of — the bone would shift the art and we could not undo it
-  // without moving the source too. Moving the pivot has to be refused for the whole slot, not
-  // just that attachment: the bone carries every attachment the slot holds.
+  // without moving the source too. Refused for the whole SLOT, not just that attachment: the bone
+  // carries every attachment the slot holds.
   const linked = (rawDoc.skins || []).some((sk) => {
     const bag = sk.attachments && sk.attachments[selSlot];
     return !!bag && Object.values(bag).some((d) => d && d.type === "linkedmesh");
   });
-  return { slotName: selSlot, slotIndex, bone, boneName, exclusive, linked };
+  return { slotName: selSlot, slotIndex, bone, boneName, linked };
+}
+
+// Every bone a WEIGHTED attachment names. Weighted vertices reference bones by positional INDEX
+// ([count,(boneIdx,x,y,weight)…]), so a slot can depend on a bone its `slot.bone` never mentions
+// — the weight brush and auto-weights both produce exactly that. Moving such a bone drags that
+// art, and the counter-move would have to land on the OTHER slot, which this edit cannot reach.
+function weightedBoneNames(){
+  const out = new Set();
+  for (const sk of rawDoc.skins || [])
+    for (const bag of Object.values(sk.attachments || {}))
+      for (const def of Object.values(bag || {})){
+        if (!def || !Array.isArray(def.vertices)) continue;
+        const n = (def.type || "region") === "mesh" ? ((def.uvs || []).length / 2) : (def.vertexCount || 0);
+        if (rawVertsUnweighted(def, n)) continue;
+        for (let i = 0; i < def.vertices.length; ){
+          const c = def.vertices[i]; i++;
+          if (!(c > 0)) break; // malformed — stop rather than spin
+          for (let j = 0; j < c; j++){ const b = rawDoc.bones[def.vertices[i]]; if (b) out.add(b.name); i += 4; }
+        }
+      }
+  return out;
+}
+
+// May this bone be MOVED, or does something else depend on where its origin sits? Five ways it can
+// be depended on: it is the root, a bone parents to it, another slot hangs off it, a constraint
+// targets it, or a weighted attachment is painted onto it. Any hit and the slot gets its own pivot
+// bone instead, which moves nothing. Deliberately NOT part of `slotPivotCtx` — that runs per frame
+// while the mode is armed, and this walks every constraint and every weighted vertex array.
+function pivotBoneIsExclusive(boneName){
+  if (!rawDoc || !rawDoc.bones || !rawDoc.bones.length) return false;
+  if (rawDoc.bones[0].name === boneName) return false;
+  if (rawDoc.bones.some((b) => b.parent === boneName)) return false;
+  if ((rawDoc.slots || []).some((s) => s.name !== selSlot && s.bone === boneName)) return false;
+  if (["ik", "transform", "path", "physics"].some((g) => (rawDoc[g] || []).some((c) =>
+    c.target === boneName || c.bone === boneName || (Array.isArray(c.bones) && c.bones.indexOf(boneName) >= 0)))) return false;
+  return !weightedBoneNames().has(boneName);
 }
 
 // Is a pivot offerable for the selected slot right now? ONE predicate behind all three surfaces —
@@ -5883,8 +5913,8 @@ function pivotEditable(){
 // The art's four world corners in the region order the rest of the tool uses (BL, UL, UR, BR),
 // so the snap grid follows a ROTATED image instead of a screen-aligned box. A mesh has no quad
 // — its world bounding box stands in.
-function slotArtQuad(){
-  const ctx = slotPivotCtx(); if (!ctx) return null;
+function slotArtQuad(ctx){
+  ctx = ctx || pivotEditable(); if (!ctx) return null;
   const sd = skeletonData.slots[ctx.slotIndex];
   const attName = sd && sd.attachmentName; if (!attName) return null;
   const att = skeleton.getAttachment(ctx.slotIndex, attName); if (!att) return null;
@@ -5947,8 +5977,11 @@ function rebaseSlotAttachments(slotName, px, py){
       }
       const n = type === "mesh" ? ((def.uvs || []).length / 2) : (def.vertexCount || 0);
       if (!rawVertsUnweighted(def, n)) continue;
+      // 2 dp like every other vertex writer here — and exact, since px/py and the existing
+      // vertices are already 2 dp, so repeated moves cannot accrete float noise.
       for (let i = 0; i < def.vertices.length; i += 2){
-        def.vertices[i] -= px; def.vertices[i + 1] -= py;
+        def.vertices[i] = roundN(def.vertices[i] - px, 2);
+        def.vertices[i + 1] = roundN(def.vertices[i + 1] - py, 2);
       }
     }
   }
@@ -5961,8 +5994,8 @@ function setSlotPivotWorld(wx, wy){
   const px = roundN(loc.x, 2), py = roundN(loc.y, 2);
   if (px === 0 && py === 0) return; // already there
   let selectName;
-  if (ctx.exclusive){
-    // Nothing else hangs off this bone, so move it. Its x/y live in the PARENT's space, so the
+  if (pivotBoneIsExclusive(ctx.boneName)){
+    // Nothing else depends on this bone, so move it. Its x/y live in the PARENT's space, so the
     // local pivot has to travel out through the runtime's own basis — the bone may carry
     // rotation, scale or shear that adding px/py raw would ignore.
     const rb = rawDoc.bones.find((b) => b.name === ctx.boneName); if (!rb) return;
@@ -5981,7 +6014,7 @@ function setSlotPivotWorld(wx, wy){
     const taken = new Set(rawDoc.bones.map((b) => b.name));
     selectName = taken.has(base) ? uniqueName(base, taken) : base;
     rawDoc.bones.push({ name: selectName, parent: ctx.boneName, x: px, y: py });
-    const sdRaw = rawDoc.slots.find((s) => s.name === ctx.slotName);
+    const sdRaw = (rawDoc.slots || []).find((s) => s.name === ctx.slotName);
     if (sdRaw) sdRaw.bone = selectName;
   }
   rebaseSlotAttachments(ctx.slotName, px, py);
@@ -5991,7 +6024,7 @@ function setSlotPivotWorld(wx, wy){
   const keep = pivotMode; // selectSlot clears the canvas modes — keep placing if we were
   if (selSlot) selectSlot(selSlot);
   pivotMode = keep;
-  renderSlotDetail();
+  renderSlotDetail(); // selectSlot rendered with pivotMode cleared; redraw with it restored
 }
 
 // Pivot panel (Setup mode) — set where this slot's art turns from. A WEIGHTED mesh is the one
@@ -6015,7 +6048,7 @@ function renderSlotPivot(det){
   const sd = skeletonData.slots[ctx.slotIndex];
   const attName = sd && sd.attachmentName;
   const att = attName ? skeleton.getAttachment(ctx.slotIndex, attName) : null;
-  if (!att || ctx.linked || (att.bones && att.bones.length)) pivotMode = false;
+  if (!pivotEditable()) pivotMode = false; // the one predicate decides; the tests below only pick the message
   if (!att){ wrap.appendChild(note("attach an image first — there is nothing to pivot yet")); det.appendChild(wrap); return; }
   if (ctx.linked){
     wrap.appendChild(note("this slot carries a linked mesh — its shape lives on the mesh it links to, so set the pivot on that slot instead"));
@@ -6026,14 +6059,25 @@ function renderSlotPivot(det){
     det.appendChild(wrap); return;
   }
 
-  const quad = slotArtQuad();
+  const quad = slotArtQuad(ctx);
   const row = document.createElement("div");
   row.style.cssText = "display:flex;gap:8px;align-items:center;";
   const btn = document.createElement("button");
   btn.textContent = pivotMode ? "✥ click canvas…" : "✥ Set pivot";
   btn.title = "Click or drag on the canvas to put the pivot there. The art does not move — only the point it turns around.";
   if (pivotMode) btn.className = "active";
-  btn.onclick = () => { pivotMode = !pivotMode; pivotDrag = null; renderSlotDetail(); };
+  btn.onclick = () => {
+    pivotMode = !pivotMode; pivotDrag = null;
+    // Unlike the per-attachment-type modes, the pivot applies to EVERY slot, so it is the one that
+    // can be armed alongside any of them — and then two modes fight over the same mousedown. Arming
+    // it stands the others down, the way the mesh buttons stand each other down.
+    if (pivotMode){
+      meshAddMode = false; meshRemoveMode = false; meshEdgeMode = false; meshHullMode = false;
+      weightBrush = false; edgePickFirst = null; pathAddMode = false; polyAddMode = false;
+      placePointMode = false;
+    }
+    renderSlotDetail();
+  };
   row.appendChild(btn);
   if (quad){
     // 3×3 of the art's own corners, edge midpoints and centre — "bottom centre" is one click.
@@ -6063,7 +6107,7 @@ function renderSlotPivot(det){
   wrap.appendChild(note(pivotMode
     ? "click or drag on the canvas to place the pivot — Esc to stop"
     : "on bone “" + ctx.boneName + "” — rotate or scale that bone and the art turns from here"));
-  if (!ctx.exclusive){
+  if (!pivotBoneIsExclusive(ctx.boneName)){
     const n = note("“" + ctx.boneName + "” carries other things too, so the pivot goes on a new bone "
       + "“" + ctx.slotName + "-pivot” for this slot alone — nothing else moves.");
     n.style.marginTop = "4px";
@@ -6084,7 +6128,7 @@ function drawPivotOverlay(){
   if (typeof renderer.circle !== "function" || !SPINE.Color) return;
   const ctx = pivotEditable(); if (!ctx) return;
   const col = new SPINE.Color(1, 0.45, 0.12, 1); // orange — the green circle is the point locator
-  const quad = slotArtQuad();
+  const quad = slotArtQuad(ctx);
   if (quad && typeof renderer.line === "function"){
     const faint = new SPINE.Color(1, 0.45, 0.12, 0.35);
     for (let i = 0; i < 4; i++){
