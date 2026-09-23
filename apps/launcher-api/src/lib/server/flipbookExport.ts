@@ -54,19 +54,44 @@ export interface FlipbookExportIndex {
 export async function exportClips(
 	clientKey: string,
 	projectKey: string,
+	opts?: {
+		/**
+		 * Per-phase collector, surfaced as `flipbooks:<name>` in `/api/editor/runtime`'s
+		 * `Server-Timing` — the same treatment `art` and `symbols` have.
+		 *
+		 * WHY. This exporter measured **18.2s** on `test6` with no internal visibility at all, which
+		 * makes it the third-largest block in the assemble and the only one nobody has looked
+		 * inside. Its shape is not obviously the latency-bound loop the other two turned out to be:
+		 * `collectPlayedClipIds` walks the whole project for reachability, and the per-clip write
+		 * loop is small JSON, so the cost could sit in either — or in the prune's `listAllKeys`.
+		 * Guessing which is what these phases exist to stop.
+		 */
+		timings?: Record<string, number>;
+	},
 ): Promise<FlipbookExportIndex> {
+	/** Record a phase's elapsed ms under `flipbooks:<name>`, or run it untimed when no record was
+	 *  passed (Publish and the desktop bake call this without one). */
+	const phase = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+		if (!opts?.timings) return run();
+		const startedAt = Date.now();
+		try {
+			return await run();
+		} finally {
+			opts.timings[`flipbooks:${name}`] = Date.now() - startedAt;
+		}
+	};
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const clipsDeployPrefix = `${deployPrefix}clips/`;
 
 	// `loadFlipbookDoc` lists + parses every `<id>.clip.json` and runs the collection normalizer
 	// (the gatekeeper — editor-only state can never reach the deploy artifact, and duplicate ids
 	// collapse last-wins). A corrupt clip is skipped there, never a hard failure.
-	const doc = await loadFlipbookDoc(clientKey, projectKey);
+	const doc = await phase('doc', () => loadFlipbookDoc(clientKey, projectKey));
 	// Ship only the clips something PLAYS, using the SAME reachability the art export uses. These
 	// two must agree: gating the art alone leaves a registered clip whose sheet was never exported,
 	// and the bake refuses that — a clip whose frames have no textures is an animation that plays
 	// short without saying so. `null` means reachability is unknown, and then every clip ships.
-	const played = await collectPlayedClipIds(clientKey, projectKey);
+	const played = await phase('reachability', () => collectPlayedClipIds(clientKey, projectKey));
 	const clips = played ? doc.clips.filter((c) => played.has(c.id)) : doc.clips;
 	const dropped = doc.clips.length - clips.length;
 	if (dropped > 0) {
@@ -82,11 +107,13 @@ export async function exportClips(
 	// Write each pure clip + the index the game registers, tracking what we wrote so stale objects
 	// from a previous export get pruned (the deploy mirror then matches the source).
 	const written = new Set<string>();
-	for (const clip of clips) {
-		const docKey = `${clipsDeployPrefix}${clip.id}.json`;
-		await putObjectText(docKey, JSON.stringify(clip, null, '\t'), 'application/json');
-		written.add(docKey);
-	}
+	await phase('write', async () => {
+		for (const clip of clips) {
+			const docKey = `${clipsDeployPrefix}${clip.id}.json`;
+			await putObjectText(docKey, JSON.stringify(clip, null, '\t'), 'application/json');
+			written.add(docKey);
+		}
+	});
 
 	const index = clips.map((c) => ({ id: c.id, name: c.name, frames: c.frames.length }));
 	const indexKey = `${clipsDeployPrefix}index.json`;
@@ -94,9 +121,11 @@ export async function exportClips(
 	written.add(indexKey);
 
 	// Prune leftovers so deploy/clips/ mirrors the project's current clips exactly.
-	const existing = await listAllKeys(clipsDeployPrefix);
-	const stale = existing.filter((k) => !written.has(k));
-	await deleteObjects(stale);
+	await phase('prune', async () => {
+		const existing = await listAllKeys(clipsDeployPrefix);
+		const stale = existing.filter((k) => !written.has(k));
+		await deleteObjects(stale);
+	});
 
 	const referenced = new Set<string>();
 	// EVERY sheet a clip touches, not just its primary: a clip may span pages via scoped

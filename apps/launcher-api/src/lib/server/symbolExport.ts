@@ -54,6 +54,16 @@ import {
 	type SymbolsDoc,
 } from './symbolsStorage';
 import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
+import { mapWithConcurrency } from './concurrency';
+
+/**
+ * How many spine bundles this export copies at once — the symbols twin of
+ * `ART_EXPORT_CONCURRENCY`, and sized the same way: the work is R2 latency per bundle, while the
+ * launcher is memory-tight enough to OOM during bake. Kept equal to art's width so the two
+ * exporters, which run CONCURRENTLY inside one assemble, cannot together fan out further than
+ * either was tuned for.
+ */
+const SYMBOL_EXPORT_CONCURRENCY = 6;
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
  *  for the exporter's dedup); the sheet's frames register under their OWN names, so
@@ -651,28 +661,44 @@ export async function exportEditorSymbols(
 		refs.spineKeys.size > 0 ? loadSkeletonIndexWithShared(clientKey, projectKey) : [],
 	);
 
+	// THE symbols exporter's whole cost. Profiled 2026-09-21 on `test6`: this loop was 27.9s of a
+	// 28.4s `symbols`, with every other phase under 100ms — it is R2 latency per bundle, exported
+	// one at a time, exactly as `art`'s loops were before #756.
+	//
+	// PLAN synchronously, in `refs.spineKeys` order, then EXECUTE concurrently. The plan pass is not
+	// ceremony: `claimStem` is a check-then-act on `usedStems`, and although it never awaits (so it
+	// cannot produce a DUPLICATE stem), calling it from concurrent tasks would hand the `_2` suffix
+	// to whichever bundle's R2 read landed first — so two assembles of an unchanged project would
+	// ship the same rig under different filenames. Deciding it up front keeps the name a pure
+	// function of the doc. `exportedSpines` dedup moves up with it for the same reason.
+	//
+	// `opts.pageStore` is shared across tasks and safe: `PageStore.ensure` single-flights per source
+	// key (#756), so two rigs on one page copy + KTX2-encode it once between them.
 	await phase('spines:bundles', async () => {
+		const plan: { assetKey: string; stem: string }[] = [];
 		for (const assetKey of refs.spineKeys) {
 			if (exportedSpines.has(assetKey)) continue;
 			exportedSpines.add(assetKey);
-
+			plan.push({ assetKey, stem: claimStem(assetKey.replace(/\/$/, '')) });
+		}
+		await mapWithConcurrency(plan, SYMBOL_EXPORT_CONCURRENCY, async ({ assetKey, stem }) => {
 			const result = await exportSpineBundle({
 				clientKey,
 				projectKey,
 				assetKey,
 				deployPrefix,
 				subtree: EXPORT_SUBTREE,
-				stem: claimStem(assetKey.replace(/\/$/, '')),
+				stem,
 				skeletonIndex,
 				scale: SYMBOL_SPINE_LOAD_SCALE,
 				// Dedup this rig's atlas page into the shared `_pages/` store instead of copying it
 				// under `editor-symbols/<rig>/`. Undefined ⇒ the old per-bundle copy (parity).
 				pageStore: opts?.pageStore,
 			});
-			if (!result) continue;
+			if (!result) return;
 			for (const k of result.written) written.add(k);
 			spines.push(result.entry);
-		}
+		});
 	});
 
 	// Cross-sheet frame-name collisions. Symbol sheet frames register with NO
@@ -702,7 +728,20 @@ export async function exportEditorSymbols(
 	// engine warns at boot) instead of surfacing only as a runtime lookup miss.
 	const missing = [...refs.frameNames].filter((f) => !coveredFrames.has(f)).sort();
 
-	const index: SymbolExportIndex = { sheets, images: [], spines, collisions, missing };
+	// CANONICAL ORDER — `spines` is filled by side-effecting `push`es from concurrent tasks, so its
+	// array order is whichever bundle finished first. Nothing downstream reads that order (the game
+	// registers each entry by `key`), but a payload that is never byte-equal to itself defeats the
+	// content fingerprint the runtime cache needs, and makes diffing two bundles noise. `sheets` is
+	// still exported sequentially and sorted here anyway, so the whole index is order-stable by
+	// construction rather than by which loops happen to be concurrent today. Learned the hard way
+	// on the art index, which shipped unsorted for one release (#757).
+	const index: SymbolExportIndex = {
+		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
+		images: [],
+		spines: [...spines].sort((a, b) => a.key.localeCompare(b.key)),
+		collisions,
+		missing,
+	};
 	const indexKey = `${symbolsPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);

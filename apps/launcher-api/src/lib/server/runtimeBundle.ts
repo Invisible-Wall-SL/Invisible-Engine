@@ -412,7 +412,9 @@ async function assembleRuntimeBundle(
 		),
 		step('effects', timings, () => exportEffects(clientKey, projectKey)),
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
-		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),
+		// `timings` goes in for the same reason `art` and `symbols` have it: at 18.2s this is the
+		// third-largest block in the assemble and the only one with no internal visibility.
+		step('flipbooks', timings, () => exportClips(clientKey, projectKey, { timings })),
 		step('rigFlipbooks', timings, () => exportRigFlipbooks(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
 	]);

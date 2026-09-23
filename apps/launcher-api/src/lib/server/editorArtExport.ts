@@ -486,11 +486,16 @@ export async function exportEditorArt(
 			opts.timings[`art:${name}`] = Date.now() - startedAt;
 		}
 	};
-	const doc = (await loadDoc(clientKey, projectKey)) as LayoutDoc;
+	// ⚠️ EVERYTHING FROM HERE TO THE `manifests` PHASE USED TO BE UNTIMED, and it is not small: with
+	// the export loops parallelised (#756) `art` still measured 29.6s while its named phases summed
+	// to only 12.5s, leaving ~17.2s invisible — bigger than either loop that had been optimised.
+	// These phases exist so the next fix is aimed rather than guessed, which is the same reason
+	// `symbols` got its own set.
+	const doc = await phase('doc', async () => (await loadDoc(clientKey, projectKey)) as LayoutDoc);
 	// Seed the def walk with the config's per-mode buy-feature card ids so each card's OWN art rides
 	// this export — those ids are chosen at runtime, so `collectComponentIds` (the static scene walk)
 	// never sees them. `loadGameConfigDoc` is null for a never-authored project ⇒ no seeds ⇒ parity.
-	const gameConfig = await loadGameConfigDoc(clientKey, projectKey);
+	const gameConfig = await phase('config', () => loadGameConfigDoc(clientKey, projectKey));
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
 	// Per-mode `cardParams` overrides can name art/spine keys on the card component (a different
 	// panel/icon/spine per card), chosen at runtime — so their DEFS must be resolvable to classify each
@@ -500,11 +505,13 @@ export async function exportEditorArt(
 	const cardParamSeedIds = cardParamRefs.some((ref) => !ref.card)
 		? [...cardComponentIds, FEATURE_CARD_DEF.id]
 		: cardComponentIds;
-	const defs = await resolveReferencedDefs(doc, projectKey, cardParamSeedIds);
+	const defs = await phase('defs', () => resolveReferencedDefs(doc, projectKey, cardParamSeedIds));
 	// `loadDoc` repaired the doc's own atlas refs; do the same for the defs BEFORE collecting, so a
 	// def whose art was authored against a sheet output prefix queues that sheet's real MANIFEST
 	// key — the key the runtime, reading the same repaired defs, will look the frame up under.
-	await repairComponentDefsAtlasRefs(Object.values(defs), clientKey, projectKey);
+	await phase('defs:repair', () =>
+		repairComponentDefsAtlasRefs(Object.values(defs), clientKey, projectKey),
+	);
 	const refs = collectArtRefs(doc, defs);
 
 	// Collect art/spine keys referenced through the config's per-mode `cardParams` overrides — the
@@ -539,29 +546,31 @@ export async function exportEditorArt(
 	// old "place the effect AND its atlas" trap. Add each effect layer's manifest `art.assetKey` so a
 	// placed/mounted effect's particles have textures in-game with no extra step. Best-effort: a
 	// listing/parse failure must never break the editor-art export.
-	try {
-		for (const row of await listEffects(clientKey, projectKey)) {
-			const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-			for (const layer of effectDoc.layers) {
-				const assetKey = layer.art?.assetKey;
-				if (!assetKey || !isManifestAssetKey(assetKey)) continue;
-				refs.manifestKeys.add(assetKey);
-				// Count this layer's FRAME names as used regions too, so a frame that no atlas packs
-				// any more shows up in `index.missing` like a dangling sprite region. Without this the
-				// dangling guard below is structurally blind to FX art: a renamed/deleted frame is
-				// reported NOWHERE (not export, bake, or boot) and degrades silently at runtime —
-				// `EffectLayer` drops missing frames from the array, and if ALL are gone
-				// `ParticleEmitter` falls back to binding the WHOLE sheet, spraying wrong textures.
-				// Guarded on a MANIFEST assetKey: that's what queues the sheet for export above, so a
-				// non-manifest layer's frames would otherwise report dangling spuriously.
-				for (const frame of layer.art?.frames ?? []) {
-					if (frame) refs.usedRegions.add(frame);
+	await phase('effects:walk', async () => {
+		try {
+			for (const row of await listEffects(clientKey, projectKey)) {
+				const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+				for (const layer of effectDoc.layers) {
+					const assetKey = layer.art?.assetKey;
+					if (!assetKey || !isManifestAssetKey(assetKey)) continue;
+					refs.manifestKeys.add(assetKey);
+					// Count this layer's FRAME names as used regions too, so a frame that no atlas packs
+					// any more shows up in `index.missing` like a dangling sprite region. Without this the
+					// dangling guard below is structurally blind to FX art: a renamed/deleted frame is
+					// reported NOWHERE (not export, bake, or boot) and degrades silently at runtime —
+					// `EffectLayer` drops missing frames from the array, and if ALL are gone
+					// `ParticleEmitter` falls back to binding the WHOLE sheet, spraying wrong textures.
+					// Guarded on a MANIFEST assetKey: that's what queues the sheet for export above, so a
+					// non-manifest layer's frames would otherwise report dangling spuriously.
+					for (const frame of layer.art?.frames ?? []) {
+						if (frame) refs.usedRegions.add(frame);
+					}
 				}
 			}
+		} catch {
+			// Effects are additive art — never let them break the sprite/spine export.
 		}
-	} catch {
-		// Effects are additive art — never let them break the sprite/spine export.
-	}
+	});
 
 	// Same idea for Invisible Flipbook CLIPS: an ordered run of frames, each either a bare region
 	// name (resolved against the clip's primary `assetKey`) or an atlas-scoped `<assetKey>::<region>`
@@ -582,43 +591,45 @@ export async function exportEditorArt(
 		clipId: string;
 		refs: { assetKey: string; region: string; entry: string }[];
 	}[] = [];
-	try {
-		// A clip is shipped only when something PLAYS it. The registry used to be its own
-		// reason to exist: every clip in the doc queued its sheets, so an ORPHANED clip — one no
-		// scene, component, symbol, effect or flow node names — dragged its whole atlas into the
-		// build. Measured on a real project: one unused 160-frame clip shipped an 8192×8192 page
-		// as an 80 MB PNG plus a 6.8 MB KTX2 — and because 67 Mpix is ~6× the encoder's 11 Mpix
-		// cap, that page was downscaled to 40%, so the dead art also set the resolution ceiling
-		// for the shared page store it was deduplicated into.
-		//
-		// `null` means reachability could NOT be determined (a doc failed to load), and then
-		// every clip ships — the old behaviour. Shipping an unused clip costs bytes; dropping a
-		// used one costs an animation that renders nothing, so the uncertain case must not prune.
-		const played = await collectPlayedClipIds(clientKey, projectKey, { doc, defs });
-		const skipped: string[] = [];
-		for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
-			if (played && !played.has(clip.id)) {
-				skipped.push(clip.id);
-				continue;
+	await phase('clips:walk', async () => {
+		try {
+			// A clip is shipped only when something PLAYS it. The registry used to be its own
+			// reason to exist: every clip in the doc queued its sheets, so an ORPHANED clip — one no
+			// scene, component, symbol, effect or flow node names — dragged its whole atlas into the
+			// build. Measured on a real project: one unused 160-frame clip shipped an 8192×8192 page
+			// as an 80 MB PNG plus a 6.8 MB KTX2 — and because 67 Mpix is ~6× the encoder's 11 Mpix
+			// cap, that page was downscaled to 40%, so the dead art also set the resolution ceiling
+			// for the shared page store it was deduplicated into.
+			//
+			// `null` means reachability could NOT be determined (a doc failed to load), and then
+			// every clip ships — the old behaviour. Shipping an unused clip costs bytes; dropping a
+			// used one costs an animation that renders nothing, so the uncertain case must not prune.
+			const played = await collectPlayedClipIds(clientKey, projectKey, { doc, defs });
+			const skipped: string[] = [];
+			for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
+				if (played && !played.has(clip.id)) {
+					skipped.push(clip.id);
+					continue;
+				}
+				for (const key of clipSheetKeys(clip)) {
+					if (isManifestAssetKey(key)) refs.manifestKeys.add(key);
+				}
+				const frameRefs = clipFrameRefs(clip).filter((r) => !!r.region);
+				for (const r of frameRefs) refs.usedRegions.add(r.region);
+				clipRefs.push({ clipId: clip.id, refs: frameRefs });
 			}
-			for (const key of clipSheetKeys(clip)) {
-				if (isManifestAssetKey(key)) refs.manifestKeys.add(key);
+			// Say what was dropped. A silently smaller export is indistinguishable from a broken one,
+			// and this is the line that explains a clip's art going missing after an edit.
+			if (skipped.length) {
+				console.log(
+					`[editor-art] skipped ${skipped.length} unplayed flipbook clip(s): ${skipped.join(', ')}` +
+						' — nothing references them, so their sheets are not exported.',
+				);
 			}
-			const frameRefs = clipFrameRefs(clip).filter((r) => !!r.region);
-			for (const r of frameRefs) refs.usedRegions.add(r.region);
-			clipRefs.push({ clipId: clip.id, refs: frameRefs });
+		} catch {
+			// Clips are additive art — never let them break the sprite/spine export.
 		}
-		// Say what was dropped. A silently smaller export is indistinguishable from a broken one,
-		// and this is the line that explains a clip's art going missing after an edit.
-		if (skipped.length) {
-			console.log(
-				`[editor-art] skipped ${skipped.length} unplayed flipbook clip(s): ${skipped.join(', ')}` +
-					' — nothing references them, so their sheets are not exported.',
-			);
-		}
-	} catch {
-		// Clips are additive art — never let them break the sprite/spine export.
-	}
+	});
 
 	/**
 	 * The project's AUTHORED region boxes (`<assetKey>::<region>` → box), read once and folded into
@@ -629,7 +640,10 @@ export async function exportEditorArt(
 	 * declared size, and the shipped TexturePacker JSON already carries that field. Nothing new
 	 * reaches R2 — there is no asset class to strand (rule 8) and no runtime registration.
 	 */
-	const artBounds = (await loadArtBoundsDoc(clientKey, projectKey)).bounds;
+	const artBounds = await phase(
+		'bounds',
+		async () => (await loadArtBoundsDoc(clientKey, projectKey)).bounds,
+	);
 	const hasArtBounds = Object.keys(artBounds).length > 0;
 	/** A per-sheet box lookup, scoped so a region name that exists on two sheets can be boxed
 	 * differently on each — the same `<assetKey>::<region>` scoping every other art surface uses. */
