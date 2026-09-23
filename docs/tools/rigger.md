@@ -441,6 +441,39 @@ Three things to know before you use it:
   copies will land while you drag; on release the copies drop there, the
   originals stay in place, and the new keys stay selected. A plain drag on a
   track scrubs the playhead (as does the ruler).
+- **Stretch the timing of a selection** — select **two or more keys** and a green
+  **range bar** appears on the ruler spanning them, with a **⟺ grip at each end**
+  and a yellow **pin** marking the **anchor**: the one time that will not move.
+  Drag either grip and every selected key's distance from the anchor scales by
+  the same amount — pull out and they spread, push in and they close up. Easing
+  scales with them, so the animation keeps its feel, just slower or faster.
+  - The anchor starts on the selection's **earliest** key, so dragging the right
+    grip stretches the whole selection to the right. **Click any selected key** to
+    move the anchor onto it (the pin follows). Anchor a key in the **middle** and
+    both sides spread out from it at once.
+  - The grip that sits *on* the anchor is greyed out — there is nothing to pull
+    from a point that by definition stays put.
+  - Only the **selected** keys move; everything else stays where it is. As with an
+    ordinary drag, a selected key landing exactly on an unselected one replaces it.
+  - If a selected key sits at **0s** and the anchor is to its right, you can only
+    squash, not spread: spreading would push that key before the start of the
+    animation. The status line says so when you grab the grip.
+  - If the stretch would land a selected key **on top of an unselected one**, that
+    key is destroyed (the same as dragging a key onto another). So you are never
+    surprised by it, the bar turns **red** while it would happen and the status line
+    counts them — `⚠ would OVERWRITE 2 unselected key(s)` — then reports what it
+    actually overwrote on release.
+- **Image-sequence rows** — a slot animated with a Spine **sequence** (a flipbook of
+  numbered images baked into the atlas) gets its own `▩ <slot> · sequence` row, with
+  **square** keys in the legend's `sequence` colour. Hover a key to read what it does:
+  its play **mode** (`hold` / `once` / `loop` / `pingpong` and the reverse variants),
+  which **image** it starts on, and how long each image is held — marked *(inherited)*
+  when the key takes that hold time from the key before it, as the format allows.
+  These keys retime, duplicate, delete and stretch exactly like any other, and a
+  stretch scales the hold time with them so the flipbook still fills its new span
+  rather than finishing early. Note the Rigger cannot yet *author* a sequence — it
+  cannot attach one to an image, or change a key's mode / image / hold time; it now
+  shows and re-times the ones your rig already has instead of hiding them.
 - A separate **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time
   curves with draggable keyframe and bezier-tangent handles. Multi-select works
   the same way — Shift-click points, marquee-drag the background, or **click a

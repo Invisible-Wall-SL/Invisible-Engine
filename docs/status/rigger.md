@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-23)_ The dopesheet can **STRETCH a selection's timing about one anchor key** — grips at each end of the selected range, the anchor pinned, easing and image-sequence speed scaling with it — and a Spine **`sequence` timeline is now a track** instead of being invisible (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,109 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-23 — **The dopesheet can STRETCH a selection's timing about one anchor key.** Asked for as
+  _"I would like to be able to resize from the keyframe time of the selected frame, so I can stretch
+  up or down the timing from that point"_ — retiming a whole beat proportionally, which the dopesheet
+  could not do: its drag TRANSLATES a selection, and `stretchAnimation` scales only a WHOLE animation
+  to a new duration.
+  - **Now:** select 2+ keys and the ruler grows a green **range bar** over the selection with a **⟺
+    grip at each end** and a yellow **pin** at the **anchor** — the one time that does not move.
+    Dragging a grip scales every selected key's distance from the anchor by the same ratio. The
+    anchor defaults to the selection's earliest key; **clicking a selected key moves it there**, so
+    anchoring mid-selection spreads both sides at once. The grip that sits on the anchor is dead.
+  - **Timing that is not `time` scales too.** A bezier key's `curve` holds CONTROL TIMES and a
+    sequence key's `delay` is seconds-per-sub-frame, while `retimeTrackKey` only ever writes `time` —
+    so a stretch built on it alone keeps the old easing shape and the old flipbook speed.
+    `scaleTrackKeyTimings` re-fits both, reaching EVERY track kind through the new `trackKeyArrays`.
+    `fitKeyCurve` maps a segment `[t1,t2]` onto its final `[t1',t2']`, which is the stretch's own map
+    when both ends are selected and is what keeps the curve VALID when only one end moved — including
+    for the unselected key immediately BEFORE the selection, which eases into it.
+  - **The apply ORDER is the whole game, and it must not interleave.** `retimeTrackKey` DROPS a key
+    it lands on, so `applyDopeScale` walks farthest-from-the-anchor first when spreading and nearest
+    first when squashing. The negative control proves the teeth: the same ×2 spread applied in plain
+    selection order **loses 30 keys** on `anticipation1_intro`; in the shipped order it loses none.
+    It also does ALL the timing remaps before ANY retime — a single interleaved pass let a moved key
+    read as unselected and pinned a stale `delay` on a sequence follower (found in review, not by the
+    spike, which was calling the remap directly instead of through `applyDopeScale`). A final
+    `clampTrackCurves` pass per touched track catches the one case re-fitting cannot: a selected key
+    pushed PAST an unselected one re-sorts the array, leaving a curve describing a different segment.
+  - **Overwrites are loud, not silent.** A selected key landing on an unselected one destroys it —
+    the same as drag-to-retime, but a ×3 stretch throws the far end seconds away, usually off-screen.
+    Clamping that away would forbid legitimate work, so `dopeScaleClashes` counts it live: the bar
+    turns red and the hint says `⚠ would OVERWRITE n unselected key(s)`, then `overwrote n` on
+    release.
+  - **Two clamps, because rig editing has no undo.** `maxRatio` stops any key crossing t=0;
+    `minRatio` keeps distinct times ≥1ms apart (10× the 1e-4 merge epsilon) so a squash can never
+    merge two keys. Worth knowing before it is reported as a bug: a selection containing a key at
+    **0s**, anchored anywhere to its right, has `maxRatio` **exactly 1** — spreading it is
+    arithmetically impossible, not broken. The grip then only squashes and the status line says so.
+  - **A plain click on a key rebuilds nothing, at either end of the press.** `renderTimeline` does
+    `innerHTML = ""`, and detaching the key under the pointer makes Chrome drop the whole click — no
+    `click`, so no `dblclick`, so no double-click-to-delete, which is the only mouse delete path and
+    is advertised in every key's tooltip. It took two passes to close: the mousedown now updates the
+    `msel` highlight and the bar in place via `syncDopeScaleBar`, and the mouseup rebuilds only when
+    the drag actually changed something. Neither drag handler touches the DOM until it has moved
+    past the 2px threshold, so a plain click leaves the dots exactly where they were.
+  - **Proved offline on 153 rigs / ~18k assertions** (`tools/rigger-spike/stretch.mjs`, which runs the
+    SHIPPED code pulled out of `view.html`): affine, lossless, order-preserving, curves inside their
+    segments, unselected keys untouched, the clash count matching the keys the commit really
+    destroys, ×4 then ×0.25 round-tripping to zero drift — including a selection PARTIAL within one
+    track, the only shape in which a clash or a one-moving-end segment can occur. **Verified live**
+    against the real page with a genuine pointer drag: four keys at 0.1/0.2/0.3/0.4 anchored on 0.2
+    became 0.0088/0.2/0.3913/0.5825 — uniform gaps, the anchor unmoved.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/stretch.mjs`.
+
+- 2026-09-23 — **The `sequence` timeline is now a dopesheet track, and `stretchAnimation` no longer
+  leaves five timeline kinds behind.** The stretch above shipped with a hole: a Spine 4.2
+  **sequence** (a flipbook of numbered atlas images) was invisible to `/rigger` — no track kind at
+  all — so 21 rigs here had key times the dopesheet simply did not show.
+  - **Now a first-class track.** `▩ <slot> · sequence` rows appear wherever a sequence is keyed, in
+    their own colour and drawn as squares (a sequence key IS a step — it carries no `curve`, so it is
+    also not easable). Selecting, retiming, duplicating, deleting and stretching all work through the
+    existing dispatch. Plumbing mirrors `deform` exactly, because a sequence lives in the SAME
+    `animations.<a>.attachments.<skin>.<slot>.<att>` node. Authoring is still NOT built: no way to
+    attach a sequence, or to edit a key's mode / index / delay — the tooltip reads them back instead.
+  - **`delay` is SECONDS PER SUB-FRAME, not an offset** — `SequenceTimeline.apply` does
+    `index += ((time - before) / delay) | 0`. So any retime that scales key times MUST scale `delay`,
+    or a stretched flipbook plays at its original speed, runs out of images early and freezes.
+    Proved by REPLAYING the animation through the official runtime: ×2 with delay scaled shows the
+    identical image at every t·2 over 40 samples; the control (times scaled, delay not) diverges.
+  - **`delay` is also INHERITED** by every later key that does not spell its own (the loader carries
+    `lastDelay` forward). So scaling one value silently re-times keys that may not be selected.
+    `scaleSequenceKeyDelay` pins both directions explicitly, and `deleteSequenceKeyAt` pins the
+    effective value on the follower before removing the key that owned it.
+  - **`stretchAnimation` was scaling `a.bones` and `a.slots` ONLY.** Every other timeline — events,
+    draw order, ik/transform/path/physics, deform, sequence — kept its original times, so "stretch
+    all keys to N seconds" desynced them. Replaced by a structural `scaleKeyTimes` walk that cannot
+    miss a timeline kind added later. Measured: the old walk left **36 key times** behind on
+    `anticipation1_intro` alone. It guards per FIELD, not per key — a key-level `time` test skipped
+    `explosion.json`'s first sequence key entirely (Spine OMITS `time` at 0) along with the `delay`
+    it owns, which is how the runtime replay first failed.
+  - `importAnimation` now runs `normalizeKeyTimes` on a clip arriving from the library or clipboard.
+    The rig LOAD path normalizes for a reason — every reader treats `k.time` as a number — and a clip
+    dropped in unnormalized would compare as NaN: never found, never retimed.
+  - **Review caught six things the spikes did not**, all fixed and re-verified live: the two rebuild
+    sites that killed double-click-to-delete; `applyDopeScale` interleaving remap and retime, which
+    pinned a stale `delay` when SPREADING a sequence; a per-key delay pass that could not be made
+    order-independent at all once an UNSELECTED inheritor sat between two selected keys, so the
+    result depended on click order (now one left-to-right pass over the whole array); a stale
+    selection surviving a row change, now pruned in `renderTimeline` against the freshly built
+    `dopeTrackById` so every cause is caught, not just the `sel` button; `retimeSequenceKey` and the
+    duplicate path dropping a collided key without the `delay` carry-forward `deleteSequenceKeyAt`
+    was careful to do; and Escape mid-drag leaving the drag armed to commit on release. The spikes
+    now cover a selection PARTIAL within one track — the only shape in which a clash or a
+    one-moving-end segment can happen, and the reason 18k green assertions had coexisted with both —
+    and drive `applyDopeScale` rather than the remap in isolation, which is how the interleaving bug
+    had stayed green.
+  - **Proved on 153 rigs** (`stretch.mjs`, 24,551 assertions) plus **21 rigs with a real sequence**
+    (`sequence.mjs`, 348 assertions, replayed through spine-core 4.2.74). Verified live: double-click
+    delete (with REAL pointer input — the first attempt at this check synthesised the very
+    `click`/`dblclick` events whose dispatch was in question, and so proved nothing), the `sel`
+    toggle, Escape-aborts, the clash warning, and a spreading stretch on a sequence row scaling an
+    owned `delay` while its inheritors correctly stayed unwritten.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/sequence.mjs`,
+  `tools/rigger-spike/stretch.mjs`.
 
 - 2026-09-23 — **The pivot is the image's ANCHOR: choosing one MOVES the image.** Reported as
   _"visually I can see I am moving my pivot around in the canvas, but when I do that I would expect
