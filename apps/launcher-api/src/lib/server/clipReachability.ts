@@ -17,6 +17,7 @@
  * between them would only work for one of the three call paths.
  */
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
+import { createSingleFlight } from './concurrency';
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
@@ -68,7 +69,27 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
  */
+/**
+ * Concurrent callers within one assemble share a single run — see {@link collectPlayedClipIds}.
+ *
+ * ⚠️ Everyone who joins gets the FIRST caller's result, so the callers must agree on the answer.
+ * They now do: the only `preloaded` field either passes is `doc`, and that is the same
+ * `loadDoc(clientKey, projectKey)` this function would fetch itself, so a join can differ in COST
+ * but never in OUTCOME. Do not reintroduce a caller-specific `defs` here (see below).
+ */
+const joinReachability = createSingleFlight();
+
 export async function collectPlayedClipIds(
+	clientKey: string,
+	projectKey: string,
+	preloaded?: { doc?: LayoutDoc; defs?: Record<string, ComponentDef> },
+): Promise<Set<string> | null> {
+	return joinReachability(`${clientKey}/${projectKey}`, () =>
+		collectPlayedClipIdsUncached(clientKey, projectKey, preloaded),
+	);
+}
+
+async function collectPlayedClipIdsUncached(
 	clientKey: string,
 	projectKey: string,
 	preloaded?: { doc?: LayoutDoc; defs?: Record<string, ComponentDef> },
