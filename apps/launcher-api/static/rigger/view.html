@@ -719,7 +719,7 @@ let boneScale = 1; // bone overlay marker size (dots + arrowheads)
 let showAttachments = true; // when false, the skin's images/meshes are hidden (bones only) for unobstructed bone editing
 let selBone = null; // index into skeleton.bones / skeletonData.bones
 let selSlot = null; // selected slot NAME (for draw-order + attachment placement)
-let pivotMode = false; // ✥ placing the selected slot's pivot (= its bone's origin) on the canvas
+let pivotMode = false; // ✥ placing the selected IMAGE's pivot on the canvas (a property of the attachment, never a bone)
 let pivotDrag = null;  // world point under the cursor while the pivot handle is being dragged
 let selEvent = null; // selected animation event object (docked event-key inspector), or null
 let projectEffects = null; // project's Invisible FX effects (lazy — null = not yet loaded), [{id,name}]
@@ -5092,7 +5092,7 @@ function selectSlot(name){
   drawMeshMode = false; drawPoints = [];
   drawPathMode = false; pathAddMode = false; pathDragIdx = null; selPathPoint = null;
   drawPolyMode = false; polyKind = null; polyAddMode = false; polyDragIdx = null; selPolyPoint = null; placePointMode = false;
-  pivotMode = false; pivotDrag = null; // the pivot handle belongs to one slot — setMode re-selects, so this clears it there too
+  pivotMode = false; pivotDrag = null; // the pivot handle belongs to one image — setMode re-selects, so this clears it there too
   meshIsolate = false; // exit isolated-mesh editing when moving to another slot
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
@@ -5681,8 +5681,7 @@ function renderSlotDetail(){
   };
   renderAtt();
 
-  // ✥ Pivot — the point this slot's art turns from. Under the attachment tools because it is a
-  // property of the placement, not of the image.
+  // ✥ Pivot — the point this image turns from. A property of the image, not of the skeleton.
   renderSlotPivot(det);
 
   // ＋ Add path attachment (§18.7): a slot can also hold a PATH attachment (a spline a path
@@ -5841,226 +5840,196 @@ function applyAttachmentEdit(key, value){
   if (!attName) return;
   const att = skeleton.getAttachment(slotIndex, attName);
   if (!isRegionAtt(att)) return;
+
+  // Turning or scaling honours the image's PIVOT: Spine always rotates the quad about its own
+  // centre and then offsets by x/y, so holding another point still means moving x/y — we just
+  // compute the offset that keeps the pivot where it is. A centred pivot cancels to a no-op, so
+  // every image that never set one behaves exactly as before.
+  const ctx = (key === "rotation" || key === "scaleX" || key === "scaleY") ? pivotEditable() : null;
+  const uv = ctx ? pivotUV(ctx) : null;
+  const held = ctx && (uv[0] !== 0.5 || uv[1] !== 0.5) ? pivotBonePos(ctx, uv) : null;
+
   att[key] = v;
+  if (held){
+    const moved = pivotBonePos(ctx, uv);          // where the pivot drifted to
+    att.x = roundN((att.x || 0) + held.x - moved.x, 2);
+    att.y = roundN((att.y || 0) + held.y - moved.y, 2);
+  }
   if (att.updateRegion) att.updateRegion();
   // mirror into the skin entry that actually defines this slot/attachment
   for (const sk of rawDoc.skins){
     const a = sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName];
-    if (a){ a[key] = v; break; }
-  }
-  markDirty();
-}
-
-// ---- ✥ slot pivot ----------------------------------------------------------
-// The pivot is the point a slot's art turns and scales around. Spine gives an attachment no
-// pivot of its own — a region attachment ALWAYS rotates about its own image centre and is
-// only then offset by x/y — so the one real pivot an image has is the origin of the bone its
-// slot hangs from. That is why a fresh slot spins about its middle: `attachRegion` writes no
-// x/y, which parks the image centre exactly on the bone. Moving the pivot therefore means
-// moving that origin under the art and taking the same offset back out of the art, so nothing
-// shifts on screen and every later rotate/scale — gizmo, keyframe, or the game — turns from
-// the new point. No sidecar, no new fields: the .irig stays byte-valid Spine 4.2.
-
-// Which bone carries the selected slot, and may we move it? A bone anything ELSE depends on
-// (the root, a parent, another slot, a constraint) would drag that with it, so such a slot
-// gets a pivot bone of its own instead.
-function slotPivotCtx(){
-  if (!rawDoc || !skeleton || selSlot == null) return null;
-  if (!Array.isArray(rawDoc.bones) || !rawDoc.bones.length) return null;
-  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
-  if (slotIndex < 0) return null;
-  const bone = skeleton.slots[slotIndex] && skeleton.slots[slotIndex].bone;
-  if (!bone || !bone.data) return null;
-  const boneName = bone.data.name;
-  // A linked mesh borrows its geometry from ANOTHER mesh, so there is no vertex array on this
-  // slot to take the move back out of — the bone would shift the art and we could not undo it
-  // without moving the source too. Refused for the whole SLOT, not just that attachment: the bone
-  // carries every attachment the slot holds.
-  const linked = (rawDoc.skins || []).some((sk) => {
-    const bag = sk.attachments && sk.attachments[selSlot];
-    return !!bag && Object.values(bag).some((d) => d && d.type === "linkedmesh");
-  });
-  return { slotName: selSlot, slotIndex, bone, boneName, linked };
-}
-
-// Every bone a WEIGHTED attachment names. Weighted vertices reference bones by positional INDEX
-// ([count,(boneIdx,x,y,weight)…]), so a slot can depend on a bone its `slot.bone` never mentions
-// — the weight brush and auto-weights both produce exactly that. Moving such a bone drags that
-// art, and the counter-move would have to land on the OTHER slot, which this edit cannot reach.
-function weightedBoneNames(){
-  const out = new Set();
-  for (const sk of rawDoc.skins || [])
-    for (const bag of Object.values(sk.attachments || {}))
-      for (const def of Object.values(bag || {})){
-        if (!def || !Array.isArray(def.vertices)) continue;
-        const n = (def.type || "region") === "mesh" ? ((def.uvs || []).length / 2) : (def.vertexCount || 0);
-        if (rawVertsUnweighted(def, n)) continue;
-        for (let i = 0; i < def.vertices.length; ){
-          const c = def.vertices[i]; i++;
-          if (!(c > 0)) break; // malformed — stop rather than spin
-          for (let j = 0; j < c; j++){ const b = rawDoc.bones[def.vertices[i]]; if (b) out.add(b.name); i += 4; }
-        }
-      }
-  return out;
-}
-
-// May this bone be MOVED, or does something else depend on where its origin sits? Five ways it can
-// be depended on: it is the root, a bone parents to it, another slot hangs off it, a constraint
-// targets it, or a weighted attachment is painted onto it. Any hit and the slot gets its own pivot
-// bone instead, which moves nothing. Deliberately NOT part of `slotPivotCtx` — that runs per frame
-// while the mode is armed, and this walks every constraint and every weighted vertex array.
-function pivotBoneIsExclusive(boneName){
-  if (!rawDoc || !rawDoc.bones || !rawDoc.bones.length) return false;
-  if (rawDoc.bones[0].name === boneName) return false;
-  if (rawDoc.bones.some((b) => b.parent === boneName)) return false;
-  if ((rawDoc.slots || []).some((s) => s.name !== selSlot && s.bone === boneName)) return false;
-  if (["ik", "transform", "path", "physics"].some((g) => (rawDoc[g] || []).some((c) =>
-    c.target === boneName || c.bone === boneName || (Array.isArray(c.bones) && c.bones.indexOf(boneName) >= 0)))) return false;
-  return !weightedBoneNames().has(boneName);
-}
-
-// Is a pivot offerable for the selected slot right now? ONE predicate behind all three surfaces —
-// the panel, the canvas hit-test and the overlay — because the selected slot and its attachment
-// change through paths that never touch `selectSlot` (＋ Add slot, add/replace image, delete an
-// attachment). Without it the canvas could go on swallowing clicks for a slot that has no pivot.
-function pivotEditable(){
-  const ctx = slotPivotCtx();
-  if (!ctx || ctx.linked) return null;
-  const sd = skeletonData.slots[ctx.slotIndex];
-  const attName = sd && sd.attachmentName;
-  const att = attName ? skeleton.getAttachment(ctx.slotIndex, attName) : null;
-  // No art to turn, or weighted geometry — which rides its weight bones, not the slot's.
-  if (!att || (att.bones && att.bones.length)) return null;
-  return ctx;
-}
-
-// The art's four world corners in the region order the rest of the tool uses (BL, UL, UR, BR),
-// so the snap grid follows a ROTATED image instead of a screen-aligned box. A mesh has no quad
-// — its world bounding box stands in.
-function slotArtQuad(ctx){
-  ctx = ctx || pivotEditable(); if (!ctx) return null;
-  const sd = skeletonData.slots[ctx.slotIndex];
-  const attName = sd && sd.attachmentName; if (!attName) return null;
-  const att = skeleton.getAttachment(ctx.slotIndex, attName); if (!att) return null;
-  const slot = skeleton.slots[ctx.slotIndex];
-  if (isRegionAtt(att)){
-    const c = new Array(8).fill(0);
-    att.computeWorldVertices(slot, c, 0, 2);
-    return c;
-  }
-  if (typeof att.computeWorldVertices !== "function" || !att.worldVerticesLength) return null;
-  const out = new Array(att.worldVerticesLength).fill(0);
-  att.computeWorldVertices(slot, 0, att.worldVerticesLength, out, 0, 2);
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (let i = 0; i < out.length; i += 2){
-    minX = Math.min(minX, out[i]); maxX = Math.max(maxX, out[i]);
-    minY = Math.min(minY, out[i + 1]); maxY = Math.max(maxY, out[i + 1]);
-  }
-  if (!isFinite(minX) || !isFinite(minY)) return null;
-  return [minX, minY, minX, maxY, maxX, maxY, maxX, minY]; // BL, UL, UR, BR (world y is up)
-}
-
-// Bilinear point inside the art quad — u across (0 left → 1 right), v down (0 top → 1 bottom),
-// the same basis `affineUV` reads back out.
-function artQuadPoint(c, u, v){
-  const tx = c[2] + (c[4] - c[2]) * u, ty = c[3] + (c[5] - c[3]) * u; // UL → UR
-  const bx = c[0] + (c[6] - c[0]) * u, by = c[1] + (c[7] - c[1]) * u; // BL → BR
-  return { x: tx + (bx - tx) * v, y: ty + (by - ty) * v };
-}
-
-// Does any animation ROTATE or SCALE this bone? Those turn the art about its origin, so moving
-// the origin re-aims them. (Translate is immune: its keys are offsets from the setup pose, and
-// the art is rebased by the same amount, so the two cancel at every frame.)
-function boneHasTurnKeys(name){
-  for (const an of Object.values((rawDoc && rawDoc.animations) || {})){
-    const t = an.bones && an.bones[name];
-    if (t && (t.rotate || t.scale || t.shear)) return true;
-  }
-  return false;
-}
-
-// An unweighted vertex array is [x,y,…] in the SLOT bone's space, so moving that bone moves it
-// and it has to be rebased too. A weighted one is [count,(boneIdx,x,y,weight)…] in each
-// INFLUENCE bone's space — the slot bone does not place it at all, so it must be left alone.
-const rawVertsUnweighted = (def, n) => Array.isArray(def.vertices) && n > 0 && def.vertices.length === n * 2;
-
-// Take `px,py` (the slot bone's local space) back out of every attachment the slot owns, in
-// every skin — the exact counter-move to putting the bone's origin there.
-function rebaseSlotAttachments(slotName, px, py){
-  for (const sk of rawDoc.skins || []){
-    const bag = sk.attachments && sk.attachments[slotName];
-    if (!bag) continue;
-    for (const def of Object.values(bag)){
-      if (!def || typeof def !== "object") continue;
-      const type = def.type || "region";
-      if (type === "linkedmesh") continue; // geometry lives on the parent mesh
-      if (type === "region" || type === "point"){
-        def.x = roundN((def.x || 0) - px, 2);
-        def.y = roundN((def.y || 0) - py, 2);
-        continue;
-      }
-      const n = type === "mesh" ? ((def.uvs || []).length / 2) : (def.vertexCount || 0);
-      if (!rawVertsUnweighted(def, n)) continue;
-      // 2 dp like every other vertex writer here — and exact, since px/py and the existing
-      // vertices are already 2 dp, so repeated moves cannot accrete float noise.
-      for (let i = 0; i < def.vertices.length; i += 2){
-        def.vertices[i] = roundN(def.vertices[i] - px, 2);
-        def.vertices[i + 1] = roundN(def.vertices[i + 1] - py, 2);
-      }
+    if (a){
+      a[key] = v;
+      if (held){ a.x = att.x; a.y = att.y; }
+      break;
     }
   }
-}
-
-// Put the selected slot's pivot at a world point, leaving the art exactly where it is.
-function setSlotPivotWorld(wx, wy){
-  const ctx = pivotEditable(); if (!ctx) return;
-  const loc = ctx.bone.worldToLocal(new SPINE.Vector2(wx, wy)); // where the click lands in bone space
-  const px = roundN(loc.x, 2), py = roundN(loc.y, 2);
-  if (px === 0 && py === 0) return; // already there
-  let selectName;
-  if (pivotBoneIsExclusive(ctx.boneName)){
-    // Nothing else depends on this bone, so move it. Its x/y live in the PARENT's space, so the
-    // local pivot has to travel out through the runtime's own basis — the bone may carry
-    // rotation, scale or shear that adding px/py raw would ignore.
-    const rb = rawDoc.bones.find((b) => b.name === ctx.boneName); if (!rb) return;
-    const w = ctx.bone.localToWorld(new SPINE.Vector2(px, py));
-    const p = ctx.bone.parent ? ctx.bone.parent.worldToLocal(new SPINE.Vector2(w.x, w.y)) : { x: w.x, y: w.y };
-    // NOT rounded — a bone's x/y are in its PARENT's space, so a second rounding here would no
-    // longer cancel the px/py the art is rebased by, and the art would creep. (Canvas bone drag
-    // writes full precision for the same reason.) The readable snap is px/py, above.
-    rb.x = p.x; rb.y = p.y;
-    selectName = ctx.boneName;
-  } else {
-    // Shared bone — give the slot a pivot bone of its own so nothing else moves. A child with no
-    // rotation/scale of its own shares its parent's basis, which is what makes the rebase below a
-    // plain subtraction and carries the art's own rotation/scale over untouched.
-    const base = ctx.slotName + "-pivot";
-    const taken = new Set(rawDoc.bones.map((b) => b.name));
-    selectName = taken.has(base) ? uniqueName(base, taken) : base;
-    rawDoc.bones.push({ name: selectName, parent: ctx.boneName, x: px, y: py });
-    const sdRaw = (rawDoc.slots || []).find((s) => s.name === ctx.slotName);
-    if (sdRaw) sdRaw.bone = selectName;
-  }
-  rebaseSlotAttachments(ctx.slotName, px, py);
   markDirty();
-  // Select the pivot bone: the rotate gizmo now turns the art from the point just placed.
-  rebuildFromRawDoc(selectName);
-  const keep = pivotMode; // selectSlot clears the canvas modes — keep placing if we were
-  if (selSlot) selectSlot(selSlot);
-  pivotMode = keep;
-  renderSlotDetail(); // selectSlot rendered with pivotMode cleared; redraw with it restored
+  if (held) renderSlotDetail(); // x/y moved under the author — show it
 }
 
-// Pivot panel (Setup mode) — set where this slot's art turns from. A WEIGHTED mesh is the one
-// exception: its vertices ride their weight bones, so the slot's bone does not position it and
-// moving that bone would change nothing.
+// ---- ✥ image pivot ---------------------------------------------------------
+// The pivot is the point an IMAGE turns and scales around, and it belongs to the image — not to
+// the skeleton. Nothing here creates, moves or deletes a bone: a bone is a separate thing you add
+// deliberately, and conflating the two put `<slot>-pivot` bones into people's rigs.
+//
+// Spine has no pivot field of its own: a RegionAttachment builds its quad symmetric about its own
+// centre, rotates THAT by `rotation`, and only then offsets by `x`/`y` — which is why a fresh
+// image turns about its middle. So the pivot is stored on the attachment as `pivot: [u, v]`
+// (across, down; 0..1 of the image; absent = centred) and HONOURED when the placement changes:
+// editing rotation/scaleX/scaleY recomputes x/y so the pivot point stays where it is. The key is
+// non-standard but inert — the official 4.2 loader ignores it and the rendered geometry is
+// byte-identical (proved in tools/rigger-spike/pivot.mjs), so the .irig still opens in Spine.
+//
+// A mesh has no rotation/scale placement — its shape lives in its vertices — so this is a region
+// attachment feature, which is also exactly what "image pivot" means.
+
+// The slot + region attachment a pivot applies to, or null. One predicate behind the panel, the
+// canvas hit-test and the overlay, because the selected slot and its attachment change through
+// paths that never call `selectSlot` (＋ Add slot, add/replace image).
+function pivotEditable(){
+  if (!rawDoc || !skeleton || selSlot == null) return null;
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  if (slotIndex < 0) return null;
+  const sd = skeletonData.slots[slotIndex];
+  const attName = sd && sd.attachmentName;
+  const att = attName ? skeleton.getAttachment(slotIndex, attName) : null;
+  if (!isRegionAtt(att)) return null;
+  const bone = skeleton.slots[slotIndex] && skeleton.slots[slotIndex].bone;
+  if (!bone) return null;
+  return { slotName: selSlot, slotIndex, attName, att, bone };
+}
+
+// The raw skin entry for the selected attachment (where the pivot is stored).
+function pivotRawDef(ctx){
+  if (!ctx) return null;
+  for (const sk of rawDoc.skins || []){
+    const a = sk.attachments && sk.attachments[ctx.slotName] && sk.attachments[ctx.slotName][ctx.attName];
+    if (a) return a;
+  }
+  return null;
+}
+
+// [u, v] across/down in 0..1 of the image; centred when unset.
+function pivotUV(ctx){
+  const d = pivotRawDef(ctx);
+  const p = d && Array.isArray(d.pivot) ? d.pivot : null;
+  return p && p.length === 2 && isFinite(p[0]) && isFinite(p[1]) ? [p[0], p[1]] : [0.5, 0.5];
+}
+
+// (u,v) → the attachment's own offset from its image centre, BEFORE rotation/scale. v is down and
+// Spine's y is up, hence the flip.
+function pivotOffset(ctx, uv){
+  const att = ctx.att;
+  const w = att.width || 0, h = att.height || 0;
+  return { x: (uv[0] - 0.5) * w, y: (0.5 - uv[1]) * h };
+}
+
+// Where the pivot sits in the BONE's space: the attachment's placement applied to that offset.
+// Spine scales the quad in the attachment's own axes and then rotates, so scale comes first.
+function pivotBonePos(ctx, uv, over){
+  const att = ctx.att;
+  const rot = (over && over.rotation !== undefined ? over.rotation : att.rotation || 0) * Math.PI / 180;
+  const sx = over && over.scaleX !== undefined ? over.scaleX : (att.scaleX === undefined ? 1 : att.scaleX);
+  const sy = over && over.scaleY !== undefined ? over.scaleY : (att.scaleY === undefined ? 1 : att.scaleY);
+  const x = over && over.x !== undefined ? over.x : att.x || 0;
+  const y = over && over.y !== undefined ? over.y : att.y || 0;
+  const c = pivotOffset(ctx, uv);
+  const cx = c.x * sx, cy = c.y * sy;
+  const cos = Math.cos(rot), sin = Math.sin(rot);
+  return { x: x + cos * cx - sin * cy, y: y + sin * cx + cos * cy };
+}
+
+// The pivot in WORLD space, for the canvas handle.
+function pivotWorldPos(ctx, uv){
+  const p = pivotBonePos(ctx, uv || pivotUV(ctx));
+  return ctx.bone.localToWorld(new SPINE.Vector2(p.x, p.y));
+}
+
+// Set the pivot from a world point, WITHOUT moving the art: invert the placement to recover the
+// image-local offset, then express it as a fraction of the image.
+function setPivotWorld(wx, wy){
+  const ctx = pivotEditable(); if (!ctx) return;
+  const att = ctx.att;
+  const w = att.width || 0, h = att.height || 0;
+  if (!w || !h) return;
+  const loc = ctx.bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  const rot = (att.rotation || 0) * Math.PI / 180;
+  const sx = att.scaleX === undefined ? 1 : att.scaleX;
+  const sy = att.scaleY === undefined ? 1 : att.scaleY;
+  if (!sx || !sy) return;
+  const dx = loc.x - (att.x || 0), dy = loc.y - (att.y || 0);
+  const cos = Math.cos(-rot), sin = Math.sin(-rot);
+  const cx = (cos * dx - sin * dy) / sx, cy = (sin * dx + cos * dy) / sy;
+  setPivotUV(roundN(cx / w + 0.5, 4), roundN(0.5 - cy / h, 4));
+}
+
+// Write the pivot. Placement is untouched, so the art does not move — only the point it turns from.
+function setPivotUV(u, v){
+  const ctx = pivotEditable(); if (!ctx) return;
+  const d = pivotRawDef(ctx); if (!d) return;
+  if (Math.abs(u - 0.5) < 1e-6 && Math.abs(v - 0.5) < 1e-6) delete d.pivot; // centred is the default
+  else d.pivot = [u, v];
+  markDirty();
+  renderSlotDetail();
+}
+
+// The art's four world corners (BL, UL, UR, BR) — the faint outline the handle sits over.
+function slotArtQuad(ctx){
+  ctx = ctx || pivotEditable(); if (!ctx) return null;
+  const c = new Array(8).fill(0);
+  ctx.att.computeWorldVertices(skeleton.slots[ctx.slotIndex], c, 0, 2);
+  return c;
+}
+
+// Did the first version of this feature leave a bone behind? It parked the slot on a `<slot>-pivot`
+// child and took the same offset out of the placement. Folding it back is the exact inverse, so the
+// art does not move — offered only when the bone is still safe to remove.
+function strayPivotBone(){
+  const ctx = pivotEditable(); if (!ctx) return null;
+  const name = ctx.bone.data.name;
+  if (name !== ctx.slotName + "-pivot" && !/-pivot\d*$/.test(name)) return null;
+  const rb = (rawDoc.bones || []).find((b) => b.name === name);
+  if (!rb || !rb.parent) return null;
+  if (rawDoc.bones.some((b) => b.parent === name)) return null;
+  if ((rawDoc.slots || []).some((s) => s.name !== ctx.slotName && s.bone === name)) return null;
+  if (["ik", "transform", "path", "physics"].some((g) => (rawDoc[g] || []).some((c) =>
+    c.target === name || c.bone === name || (Array.isArray(c.bones) && c.bones.indexOf(name) >= 0)))) return null;
+  if (Object.values(rawDoc.animations || {}).some((an) => an.bones && an.bones[name])) return null;
+  if (rb.rotation || (rb.scaleX !== undefined && rb.scaleX !== 1) || (rb.scaleY !== undefined && rb.scaleY !== 1)) return null;
+  return { name, rb, ctx };
+}
+
+function foldPivotBoneBack(){
+  const found = strayPivotBone(); if (!found) return;
+  const { name, rb, ctx } = found;
+  for (const sk of rawDoc.skins || []){
+    const bag = sk.attachments && sk.attachments[ctx.slotName];
+    if (!bag) continue;
+    for (const def of Object.values(bag)){
+      if (!def || def.type) continue; // regions only — the bone only ever offset those
+      def.x = roundN((def.x || 0) + (rb.x || 0), 2);
+      def.y = roundN((def.y || 0) + (rb.y || 0), 2);
+    }
+  }
+  const slot = (rawDoc.slots || []).find((s) => s.name === ctx.slotName);
+  if (slot) slot.bone = rb.parent;
+  rawDoc.bones = rawDoc.bones.filter((b) => b.name !== name);
+  markDirty();
+  rebuildFromRawDoc(rb.parent);
+  if (selSlot) selectSlot(selSlot);
+}
+
+// Pivot panel (Setup mode).
 function renderSlotPivot(det){
-  const ctx = slotPivotCtx(); if (!ctx) return;
+  if (selSlot == null || !skeletonData) return;
+  const ctx = pivotEditable();
   const wrap = document.createElement("div");
   wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
   const hdr = document.createElement("div");
   hdr.textContent = "pivot";
-  hdr.title = "The point this slot's art rotates and scales around. Spine has no per-image pivot — an attachment always turns about its own centre — so the pivot IS the origin of the bone the slot hangs from, which is why a new slot spins about its middle. Setting it here moves that origin under the art without moving the art.";
+  hdr.title = "The point this image rotates and scales around. It belongs to the image, not the skeleton — setting it adds no bone and moves nothing. Spine has no pivot field, so it is stored on the attachment and applied when you change rotation or scale.";
   hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   wrap.appendChild(hdr);
   const note = (text) => {
@@ -6069,32 +6038,28 @@ function renderSlotPivot(det){
     t.style.cssText = "color:var(--dim);font-size:11px;line-height:1.4;";
     return t;
   };
-  const sd = skeletonData.slots[ctx.slotIndex];
-  const attName = sd && sd.attachmentName;
-  const att = attName ? skeleton.getAttachment(ctx.slotIndex, attName) : null;
-  if (!pivotEditable()) pivotMode = false; // the one predicate decides; the tests below only pick the message
-  if (!att){ wrap.appendChild(note("attach an image first — there is nothing to pivot yet")); det.appendChild(wrap); return; }
-  if (ctx.linked){
-    wrap.appendChild(note("this slot carries a linked mesh — its shape lives on the mesh it links to, so set the pivot on that slot instead"));
-    det.appendChild(wrap); return;
-  }
-  if (att.bones && att.bones.length){
-    wrap.appendChild(note("this mesh is weighted — its shape follows its weight bones, not the slot bone, so it has no slot pivot"));
-    det.appendChild(wrap); return;
+  if (!ctx){
+    pivotMode = false;
+    const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+    const attName = slotIndex >= 0 ? skeletonData.slots[slotIndex].attachmentName : null;
+    wrap.appendChild(note(attName
+      ? "a pivot applies to an image — this slot's attachment is a mesh, whose shape lives in its vertices"
+      : "attach an image first — there is nothing to pivot yet"));
+    det.appendChild(wrap);
+    return;
   }
 
-  const quad = slotArtQuad(ctx);
+  const uv = pivotUV(ctx);
   const row = document.createElement("div");
   row.style.cssText = "display:flex;gap:8px;align-items:center;";
   const btn = document.createElement("button");
-  btn.textContent = pivotMode ? "✥ click canvas…" : "✥ Set pivot";
-  btn.title = "Click or drag on the canvas to put the pivot there. The art does not move — only the point it turns around.";
+  btn.textContent = pivotMode ? "✥ click image…" : "✥ Set pivot";
+  btn.title = "Click or drag on the image to move its pivot. The art does not move — only the point it turns around.";
   if (pivotMode) btn.className = "active";
   btn.onclick = () => {
     pivotMode = !pivotMode; pivotDrag = null;
-    // Unlike the per-attachment-type modes, the pivot applies to EVERY slot, so it is the one that
-    // can be armed alongside any of them — and then two modes fight over the same mousedown. Arming
-    // it stands the others down, the way the mesh buttons stand each other down.
+    // The pivot applies to every slot, so unlike the per-attachment-type modes it can be armed
+    // beside any of them — and then two modes fight over one mousedown. Stand the others down.
     if (pivotMode){
       meshAddMode = false; meshRemoveMode = false; meshEdgeMode = false; meshHullMode = false;
       weightBrush = false; edgePickFirst = null; pathAddMode = false; polyAddMode = false;
@@ -6103,50 +6068,47 @@ function renderSlotPivot(det){
     renderSlotDetail();
   };
   row.appendChild(btn);
-  if (quad){
-    // 3×3 of the art's own corners, edge midpoints and centre — "bottom centre" is one click.
-    // The cells interpolate the region's REAL quad, so they follow a rotated image.
-    const uvNow = affineUV(quad, ctx.bone.worldX, ctx.bone.worldY);
-    const grid = document.createElement("div");
-    grid.style.cssText = "display:grid;grid-template-columns:repeat(3,15px);grid-auto-rows:15px;gap:2px;";
-    for (let vi = 0; vi < 3; vi++) for (let ui = 0; ui < 3; ui++){
-      const cell = document.createElement("button");
-      const here = Math.abs(uvNow.u - ui / 2) < 0.02 && Math.abs(uvNow.v - vi / 2) < 0.02;
-      cell.textContent = here ? "✥" : "·";
-      cell.title = ["top", "middle", "bottom"][vi] + " " + ["left", "centre", "right"][ui];
-      if (here) cell.className = "active";
-      cell.style.cssText = "padding:0;min-width:0;width:15px;height:15px;line-height:13px;font-size:9px;";
-      cell.onclick = () => { const q = slotArtQuad(); if (q){ const p = artQuadPoint(q, ui / 2, vi / 2); setSlotPivotWorld(p.x, p.y); } };
-      grid.appendChild(cell);
-    }
-    row.appendChild(grid);
-    const at = document.createElement("span");
-    at.textContent = Math.round(uvNow.u * 100) + "% × " + Math.round(uvNow.v * 100) + "%";
-    at.title = "where the pivot sits inside the art — across × down";
-    at.style.cssText = "color:var(--dim);font-size:11px;";
-    row.appendChild(at);
+  // 3×3 of the image's corners, edge midpoints and centre — "bottom centre" in one click.
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:grid;grid-template-columns:repeat(3,15px);grid-auto-rows:15px;gap:2px;";
+  for (let vi = 0; vi < 3; vi++) for (let ui = 0; ui < 3; ui++){
+    const cell = document.createElement("button");
+    const here = Math.abs(uv[0] - ui / 2) < 0.02 && Math.abs(uv[1] - vi / 2) < 0.02;
+    cell.textContent = here ? "✥" : "·";
+    cell.title = ["top", "middle", "bottom"][vi] + " " + ["left", "centre", "right"][ui];
+    if (here) cell.className = "active";
+    cell.style.cssText = "padding:0;min-width:0;width:15px;height:15px;line-height:13px;font-size:9px;";
+    cell.onclick = () => setPivotUV(ui / 2, vi / 2);
+    grid.appendChild(cell);
   }
+  row.appendChild(grid);
+  const at = document.createElement("span");
+  at.textContent = Math.round(uv[0] * 100) + "% × " + Math.round(uv[1] * 100) + "%";
+  at.title = "where the pivot sits inside the image — across × down";
+  at.style.cssText = "color:var(--dim);font-size:11px;";
+  row.appendChild(at);
   wrap.appendChild(row);
 
   wrap.appendChild(note(pivotMode
-    ? "click or drag on the canvas to place the pivot — Esc to stop"
-    : "on bone “" + ctx.boneName + "” — rotate or scale that bone and the art turns from here"));
-  if (!pivotBoneIsExclusive(ctx.boneName)){
-    const n = note("“" + ctx.boneName + "” carries other things too, so the pivot goes on a new bone "
-      + "“" + ctx.slotName + "-pivot” for this slot alone — nothing else moves.");
-    n.style.marginTop = "4px";
+    ? "click or drag on the image to place its pivot — Esc to stop"
+    : "rotation and scale above turn the image around this point"));
+
+  const stray = strayPivotBone();
+  if (stray){
+    const n = note("An earlier version of this tool put the pivot on a bone, “" + stray.name + "”. "
+      + "That was wrong — a pivot is not a bone. Fold it back and the art stays exactly where it is.");
+    n.style.marginTop = "6px";
     wrap.appendChild(n);
-  } else if (boneHasTurnKeys(ctx.boneName)){
-    const n = note("⚠ “" + ctx.boneName + "” is already keyed to rotate or scale — moving the pivot re-aims "
-      + "that animation (it will swing the art from the new point). Rig editing has no undo.");
-    n.style.cssText += "margin-top:4px;color:var(--warn,#d9a441);";
-    wrap.appendChild(n);
+    const fix = document.createElement("button");
+    fix.textContent = "✕ Remove “" + stray.name + "” and fold it back";
+    fix.style.cssText = "margin-top:5px;";
+    fix.onclick = foldPivotBoneBack;
+    wrap.appendChild(fix);
   }
   det.appendChild(wrap);
 }
 
-// The pivot handle: a crosshair at the slot bone's origin (or under the cursor mid-drag), over a
-// faint outline of the art it turns.
+// The pivot handle: a crosshair on the image (or under the cursor mid-drag) over a faint outline.
 function drawPivotOverlay(){
   if (!pivotMode || !editMode || !skeleton) return;
   if (typeof renderer.circle !== "function" || !SPINE.Color) return;
@@ -6160,7 +6122,7 @@ function drawPivotOverlay(){
       renderer.line(quad[i * 2], quad[i * 2 + 1], quad[j * 2], quad[j * 2 + 1], faint);
     }
   }
-  const p = pivotDrag || { x: ctx.bone.worldX, y: ctx.bone.worldY };
+  const p = pivotDrag || pivotWorldPos(ctx);
   const r = renderer.camera.zoom * 7;
   renderer.circle(false, p.x, p.y, r, col, 24);
   renderer.circle(true, p.x, p.y, r * 0.24, col, 12);
@@ -11738,9 +11700,9 @@ function wire(){
   });
   window.addEventListener("mouseup", () => {
     if (boundsDrag){ boundsDrag = null; } // bounds frame committed live in applyBoundsDrag
-    // ✥ commit the pivot ONCE, on release: setSlotPivotWorld rebuilds the skeleton, so doing it
-    // per mousemove would re-parse the rig on every pixel of the drag.
-    if (pivotDrag){ const p = pivotDrag; pivotDrag = null; setSlotPivotWorld(p.x, p.y); }
+    // ✥ commit the pivot ONCE, on release: the handle previews live, and a write per mousemove
+    // would re-render the inspector on every pixel of the drag.
+    if (pivotDrag){ const p = pivotDrag; pivotDrag = null; setPivotWorld(p.x, p.y); }
     brushPainting = false;
     const wasMeshDrag = meshDragVert != null;
     if (wasMeshDrag){ meshDragVert = null; meshUVFrame = null; }

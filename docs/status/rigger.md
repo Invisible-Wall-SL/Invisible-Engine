@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,43 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-23 — **The pivot is a property of the IMAGE, not a bone. Reworked after owner feedback.**
+  Reported as _"the pivot addition is a bit strange, to me it doesn't feel like the image pivot, but
+  more like a new added bone! I think the 2 things should be very different and separated. It even
+  added an extra bone called pivot in my skeleton when I edit it."_ Correct, and the first design was
+  wrong: it realised the pivot by moving the slot's bone (or giving the slot a `<slot>-pivot` child),
+  on the reasoning that Spine's only real pivot IS a bone origin. True of the runtime, but it made a
+  skeleton edit out of an image property and left bones in people's rigs.
+  - **Now:** the pivot is stored on the attachment as `pivot: [u, v]` (across, down; 0..1 of the
+    image; absent = centred) and **nothing creates, moves or deletes a bone**. Setting it changes no
+    placement at all, so the art cannot move; `applyAttachmentEdit` then HOLDS it — editing
+    rotation / scaleX / scaleY recomputes x/y so the pivot point is the one point of the image that
+    stays put. Since Spine always rotates the quad about its own centre and then offsets by x/y,
+    holding another point is still just arithmetic on x/y; a **centred pivot cancels to a no-op**, so
+    every image authored before this is byte-unchanged.
+  - The key is non-standard but **inert**: the official 4.2 loader ignores it and the rendered
+    geometry is byte-identical (measured across 90 region attachments), so the `.irig` still opens in
+    Spine with no sidecar. Regions only — a mesh's shape lives in its vertices, which is also what
+    "image pivot" means.
+  - **Migration for the rigs the first version touched:** the panel detects a leftover
+    `<slot>-pivot` bone (child, no children, no other slot, no constraint, no timeline, identity
+    rotation/scale) and offers **✕ Remove … and fold it back** — the exact inverse of what was
+    written, so the art does not move. ⚠ Where the first version moved a slot's OWN bone rather than
+    adding one, there is nothing to detect and the bone stays where it was put.
+  - **Deleted with the old design:** `setSlotPivotWorld`, `pivotBoneIsExclusive`,
+    `weightedBoneNames`, `rebaseSlotAttachments`, `boneHasTurnKeys` — including the weighted-index
+    dependency bug that cost a follow-up commit. The feature is now ~40% smaller and touches one
+    field.
+  - **Verified:** the spike (rewritten for the new contract, still extracting the SHIPPED functions
+    into a vm sandbox against the official loader) proves the art does not move, `bones` and `slots`
+    are byte-unchanged, the key round-trips inert, rotation and scale hold the pivot, a centred pivot
+    writes nothing and changes nothing, and the stray bone folds back at 0.0000px. **148 rigs, 148
+    pass, 2368 assertions, 16 on every rig** — a rig with no image at all gets a probe region so it
+    still exercises the contract. Live against the vendored minified runtime: bone array
+    byte-identical, art drift 0, pivot held to 0.0027px through a 40° turn while the image's furthest
+    corner moved 304px, and the fold-back taking 87 bones → 86 at 0.00001px.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/pivot.mjs`.
 
 - 2026-09-23 — **The ＋ Add … constraint buttons work. Nothing was unfinished — one refresh was
   missing.** Reported as _"we added a button for creating IK, but with a click nothing happens, so

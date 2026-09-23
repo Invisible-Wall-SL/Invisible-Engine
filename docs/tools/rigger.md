@@ -320,43 +320,47 @@ a rival answer to the same question. Move the box, or bind a different bone.
   toward a chosen target bone (radius / strength / subtract-to-erase), with a
   blue→red heatmap on the vertices showing the current weight map.
 
-#### Pivot — where a slot's art turns from (**✥ Set pivot**)
+#### Pivot — where an image turns from (**✥ Set pivot**)
 
-Select a slot in Setup mode and, under the attachment tools (below **▸ Convert to mesh** / **✎
-Draw mesh**), a **pivot** section offers a **✥ Set pivot** button, a 3×3 snap grid and a readout
-like `50% × 50%`.
+Select a slot with an image in Setup mode and, under its placement fields (x / y / rotation /
+scaleX / scaleY, above **▸ Convert to mesh** / **✎ Draw mesh**), a **pivot** section offers a
+**✥ Set pivot** button, a 3×3 snap grid and a readout like `50% × 100%`.
 
-The pivot is the point the slot's art rotates and scales around. Spine gives an attachment no
-pivot of its own — a region attachment always turns about its own image centre and is only then
-offset by x/y — so an image's real pivot is the origin of the bone its slot hangs from. That is
-why a newly created slot spins about its middle: attaching an image writes no x/y, so the image
-centre sits exactly on the bone. Setting the pivot moves that bone origin under the art and takes
-the same offset back out of the art's placement, so **the art does not move on screen** — only
-the point it turns around does.
+**The pivot belongs to the image, not to the skeleton.** Setting it creates, moves and deletes
+nothing in the bone hierarchy — a bone stays a separate thing you add deliberately. The pivot is
+stored on the attachment itself as `pivot: [u, v]`: across and down, 0..1 of the image, absent
+meaning centred.
 
-- **✥ Set pivot**, then click or drag on the canvas to place it. The mode stays on so you can
-  keep nudging; **Esc** leaves it.
-- **Or click one of the 3×3 cells** for the art's corners, edge midpoints or centre — bottom
-  centre in one click. They follow a **rotated** image, because they interpolate the region's real
-  quad rather than a screen-aligned box.
-- The **✥** marks the cell the pivot is currently on, and the percentage readout is where it sits
-  inside the art (across × down). While the mode is on, the canvas draws an orange crosshair at
-  the pivot over a faint outline of the art.
+**Why it needs storing at all.** Spine has no pivot field. A region attachment always rotates its
+quad about its own image centre and only then offsets by x/y — which is why a fresh image turns
+about its middle. The key we add is non-standard but inert: the official Spine 4.2 loader ignores
+it and the rendered geometry is byte-identical, so the `.irig` still opens in Spine, with no
+sidecar.
 
-**What it writes.** If the slot's bone is used by nothing else, that bone is moved. If the bone is
-shared — the root, a bone with children, a bone another slot uses, or one a constraint targets —
-the slot gets its own new child bone named `<slot>-pivot`, and nothing else in the rig moves.
-Either way the pivot bone is selected afterwards, so the rotate gizmo immediately turns the art
-from the new point. The `.irig` stays byte-valid Spine 4.2 — no new fields, no sidecar.
+**What it does.** Setting the pivot changes no placement at all, so the art does not move a pixel.
+What changes is the **rotation / scaleX / scaleY** fields just above — they now turn and scale the
+image _around the pivot_, adjusting x/y so the pivot point is the one point of the image that stays
+put. An image whose pivot is still centred behaves exactly as it always did.
 
-**When it isn't offered**, the panel says why: the slot has **no image** yet; the slot carries a
-**linked mesh** (its shape lives on the mesh it links to, so set the pivot on that slot instead);
-or the attachment is a **weighted mesh** (its shape follows its weight bones, not the slot bone,
-so it has no slot pivot).
+- **✥ Set pivot**, then click or drag on the image on the canvas to place it. The mode stays on so
+  you can keep nudging; **Esc** leaves it.
+- **Or click one of the 3×3 cells** for the image's corners, edge midpoints or centre — bottom
+  centre in one click.
+- The **✥** marks the cell the pivot is on, and the readout (e.g. `50% × 100%`) is where it sits
+  inside the image — across × down. While the mode is on, the canvas draws an orange crosshair at
+  the pivot over a faint outline of the image.
 
-> **If the slot's own bone is already keyed to rotate or scale**, moving the pivot re-aims that
-> animation — it will swing the art from the new point. The panel shows a ⚠ line when that
-> applies, and rig editing has no undo.
+**It applies to images (region attachments).** A mesh's shape lives in its vertices, so there is no
+rotation/scale placement to pivot around — the panel says so instead of offering the control. Same
+if the slot has no image yet.
+
+**Migrating an older rig.** An earlier version of this tool implemented the pivot by adding a bone
+named `<slot>-pivot`. If a rig still has one, the pivot panel detects it and offers **✕ Remove "…"
+and fold it back** — the exact inverse of what was written, so the art stays exactly where it is.
+(It is offered only while that bone is still safe to remove: nothing else parented to it, no other
+slot on it, no constraint or animation touching it.) Where that earlier version moved a slot's
+_own_ existing bone instead of adding one, there is nothing to detect and the bone stays where it
+was put.
 
 ### Localized text (Setup mode → **Text (localized art)**)
 
