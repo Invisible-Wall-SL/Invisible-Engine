@@ -320,7 +320,7 @@ a rival answer to the same question. Move the box, or bind a different bone.
   toward a chosen target bone (radius / strength / subtract-to-erase), with a
   blue→red heatmap on the vertices showing the current weight map.
 
-#### Pivot — where an image turns from (**✥ Set pivot**)
+#### Pivot — the point an image hangs from (**✥ Set pivot**)
 
 Select a slot with an image in Setup mode and, under its placement fields (x / y / rotation /
 scaleX / scaleY, above **▸ Convert to mesh** / **✎ Draw mesh**), a **pivot** section offers a
@@ -331,24 +331,34 @@ nothing in the bone hierarchy — a bone stays a separate thing you add delibera
 stored on the attachment itself as `pivot: [u, v]`: across and down, 0..1 of the image, absent
 meaning centred.
 
-**Why it needs storing at all.** Spine has no pivot field. A region attachment always rotates its
-quad about its own image centre and only then offsets by x/y — which is why a fresh image turns
-about its middle. The key we add is non-standard but inert: the official Spine 4.2 loader ignores
-it and the rendered geometry is byte-identical, so the `.irig` still opens in Spine, with no
-sidecar.
+**Why it needs storing at all.** Spine has no pivot field. A region attachment always places and
+rotates its quad about its own image centre and only then offsets by x/y — which is why a fresh
+image hangs from, and turns about, its middle. The key we add is non-standard but inert: the
+official Spine 4.2 loader ignores it and the rendered geometry is byte-identical, so the `.irig`
+still opens in Spine, with no sidecar.
 
-**What it does.** Setting the pivot changes no placement at all, so the art does not move a pixel.
-What changes is the **rotation / scaleX / scaleY** fields just above — they now turn and scale the
-image _around the pivot_, adjusting x/y so the pivot point is the one point of the image that stays
-put. An image whose pivot is still centred behaves exactly as it always did.
+**What it does.** The pivot is the image's **anchor** — the point of the picture that sits at the
+slot's position. Choosing a new one **moves the image** so that point takes the pivot's place; the
+pivot itself stays where it is. Pick bottom-centre and the picture jumps up until its bottom edge
+rests on the pivot. (This is the sprite-editor behaviour you expect.) The **rotation / scaleX /
+scaleY** fields just above then turn and scale the image _around the pivot_, adjusting x/y so the
+pivot point is the one point of the image that stays put. An image whose pivot is still centred
+behaves exactly as it always did — centred is the default, and setting it back to centre is a
+complete no-op.
 
-- **✥ Set pivot**, then click or drag on the image on the canvas to place it. The mode stays on so
+- **✥ Set pivot**, then click or drag on the image on the canvas to pick the point it hangs from.
+  The crosshair follows the cursor and the image re-hangs when you release. The mode stays on so
   you can keep nudging; **Esc** leaves it.
 - **Or click one of the 3×3 cells** for the image's corners, edge midpoints or centre — bottom
   centre in one click.
 - The **✥** marks the cell the pivot is on, and the readout (e.g. `50% × 100%`) is where it sits
   inside the image — across × down. While the mode is on, the canvas draws an orange crosshair at
   the pivot over a faint outline of the image.
+- **The fractions are of the _untrimmed_ image** (Spine's `width` / `height`), not of the packed
+  atlas rect — so on a region the packer cropped, the rendered art's edge sits a pixel or two
+  inside the pivot box: clicking the visible top-left corner of a region trimmed by 1px reads
+  `1% × 1%`, not `0% × 0%`. That is deliberate — re-packing an atlas must never move anybody's
+  pivot.
 
 **It applies to images (region attachments).** A mesh's shape lives in its vertices, so there is no
 rotation/scale placement to pivot around — the panel says so instead of offering the control. Same
