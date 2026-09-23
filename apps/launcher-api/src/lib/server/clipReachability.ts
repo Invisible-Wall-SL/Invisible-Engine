@@ -17,7 +17,12 @@
  * between them would only work for one of the three call paths.
  */
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
-import { createSingleFlight } from './concurrency';
+import { createSingleFlight, mapWithConcurrency } from './concurrency';
+
+/** Width for the per-effect load inside the reachability walk. Small reads, no page buffers, so it
+ *  is not the memory risk the art export's fan-out is — but kept in the same family of numbers so
+ *  the assemble's total in-flight request count stays something a person can reason about. */
+const REACHABILITY_CONCURRENCY = 6;
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
@@ -96,19 +101,35 @@ async function collectPlayedClipIdsUncached(
 ): Promise<Set<string> | null> {
 	const ids = new Set<string>();
 	try {
-		collectClipIds(preloaded?.doc ?? ((await loadDoc(clientKey, projectKey)) as LayoutDoc), ids);
-		collectClipIds(preloaded?.defs ?? (await listComponents({ projectKey })), ids);
-		collectClipIds(await loadSymbolsDoc(clientKey, projectKey), ids);
-		for (const row of await listEffects(clientKey, projectKey)) {
-			const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-			collectClipIds(effectDoc, ids);
-		}
-		collectClipIds(await loadFlowV2Doc(clientKey, projectKey), ids);
-		// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
-		// manifest), so calling it here costs a listing, not a write.
-		for (const id of referencedClipIds(await exportRigFlipbooks(clientKey, projectKey))) {
-			ids.add(id);
-		}
+		// SIX INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
+		// `art:clips:walk` and, since the two callers were merged onto one run, it sits directly on
+		// the assemble's critical path — so its cost is the assemble's cost. Nothing here depends on
+		// anything else here: each source is read, then folded into one Set, and a Set union does
+		// not care what order it happens in. They were simply written one `await` after another.
+		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks] = await Promise.all([
+			preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
+			preloaded?.defs ?? listComponents({ projectKey }),
+			loadSymbolsDoc(clientKey, projectKey),
+			// The effects are a loop within the group: list them, then load each one concurrently
+			// rather than one per round-trip.
+			listEffects(clientKey, projectKey).then((rows) =>
+				mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
+					const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+					return effectDoc;
+				}),
+			),
+			loadFlowV2Doc(clientKey, projectKey),
+			// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
+			// manifest), so calling it here costs a listing, not a write — which is also why it is
+			// safe to run beside the others rather than after them.
+			exportRigFlipbooks(clientKey, projectKey),
+		]);
+		collectClipIds(docSrc, ids);
+		collectClipIds(defsSrc, ids);
+		collectClipIds(symbolsDoc, ids);
+		for (const effectDoc of effectDocs) collectClipIds(effectDoc, ids);
+		collectClipIds(flowV2Doc, ids);
+		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
 	} catch (e) {
 		// Reachability unknown — the caller ships every clip. Never prune on a guess.
 		console.log(`[clips] reachability undetermined (${e}) — treating every clip as played.`);

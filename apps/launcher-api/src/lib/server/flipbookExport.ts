@@ -37,7 +37,8 @@
  */
 import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
 import { collectPlayedClipIds } from './clipReachability';
-import { loadFlipbookDoc } from './flipbookStorage';
+import { CLIP_IO_CONCURRENCY, loadFlipbookDoc } from './flipbookStorage';
+import { mapWithConcurrency } from './concurrency';
 import { SUB } from './projectPaths';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
 
@@ -107,12 +108,16 @@ export async function exportClips(
 	// Write each pure clip + the index the game registers, tracking what we wrote so stale objects
 	// from a previous export get pruned (the deploy mirror then matches the source).
 	const written = new Set<string>();
+	// One PUT per clip, 8.4s of the assemble (`flipbooks:write`) spent issuing them one at a time.
+	// Each write is independent — a distinct key, small JSON, no shared state beyond the `written`
+	// set, which only ever gains members — so overlapping them is a pure latency win.
 	await phase('write', async () => {
-		for (const clip of clips) {
+		const keys = await mapWithConcurrency(clips, CLIP_IO_CONCURRENCY, async (clip) => {
 			const docKey = `${clipsDeployPrefix}${clip.id}.json`;
 			await putObjectText(docKey, JSON.stringify(clip, null, '\t'), 'application/json');
-			written.add(docKey);
-		}
+			return docKey;
+		});
+		for (const k of keys) written.add(k);
 	});
 
 	const index = clips.map((c) => ({ id: c.id, name: c.name, frames: c.frames.length }));
