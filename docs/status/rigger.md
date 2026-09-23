@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,32 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-23 — **The ＋ Add … constraint buttons work. Nothing was unfinished — one refresh was
+  missing.** Reported as _"we added a button for creating IK, but with a click nothing happens, so
+  maybe it was never connected … also check what happened to the constraint option."_ The feature is
+  whole: IK / transform / path / physics all have add + editor + rename + delete + dopesheet tracks,
+  and `tools/rigger-spike/ik.mjs` still passes. The four buttons gate on `selBone`, but they live in
+  the panel `buildInspector` builds — and **`selectBone` does not run it**. `selBone` is null at load,
+  so all four were rendered disabled once and stayed disabled however many bones you clicked; the
+  hint beside them went on reading "select a bone first" after you had selected one.
+  - Made worse by there being **no `button:disabled` style** outside `.seg`/`#tweakBar`: a disabled
+    button rendered at `opacity: 1` with `cursor: pointer`, identical to a live one — measured. So it
+    read as "the button does nothing" rather than "this is disabled", which is exactly how it was
+    reported.
+  - **Fix:** the tools row is its own `renderConstraintTools()` (targeted — a full `buildInspector`
+    on every bone click would rebuild the whole tree and lose its scroll/collapse state), called from
+    `buildInspector` and from `selectBone`; plus a real `button:disabled { opacity:.45;
+    cursor:not-allowed }` for the whole tool, which ~20 other buttons here were also missing.
+  - **Same root cause, also fixed:** the slot panel's **② Auto-weight to chain** is `selBone`-gated
+    too, and the panel's own hint tells you to pick the chain's root bone AFTER selecting the mesh —
+    an order that could never work, because `selectBone` did not re-render the slot panel either.
+    Measured before and after: disabled + unlabelled → `② Auto-weight to chain (82 bones)`.
+  - **Verified live** against the vendored minified runtime: all four types create constraints that
+    reach the live skeleton (`ik1` bones/target/mix, `transform1`, `physics1`, and `path1` once a slot
+    carried a path — the path button correctly stays disabled until then). Pivot spike still
+    148/148.
+  Files: `apps/launcher-api/static/rigger/view.html`.
 
 - 2026-09-23 — **Follow-up to the pivot editor below: a bone another slot's WEIGHTED mesh is painted
   onto is no longer treated as movable.** Caught by `code-reviewer` after the first commit shipped, and
