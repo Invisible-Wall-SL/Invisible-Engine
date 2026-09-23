@@ -149,4 +149,27 @@ for (const file of ['editorArtExport.ts', 'symbolExport.ts', 'bootSplashExport.t
 	);
 }
 
+console.log('8. the KTX2 atlas resolves a page the store moved, even without a twin');
+// Only pages over MIN_ENCODE_PIXELS earn a `.ktx2` twin, so a rig mixing one big page with a small
+// one (a Rigger `rigtext-*.png` is the common case) has to fall back for the small one. Falling
+// back to the ORIGINAL name names a file that sits beside the atlas — which is exactly what the
+// store moved into `_pages/`. It 404s, spine fails the WHOLE bundle, and the WebP atlas rewrites
+// every page so desktop looks perfect: the Buy Feature button and a cinematic went missing on the
+// compressed tier ONLY, the tier that exists for iPhones. Shipped that way from #179 to #778.
+const spineSrc = read('spine.ts');
+ok(
+	'rewriteAtlasForKtx2 is given the shared-page map',
+	/function rewriteAtlasForKtx2\(\s*atlasText[\s\S]{0,200}?webpByPage\s*:\s*Map/.test(spineSrc),
+	'without it a page with no twin can only fall back to its original, pre-dedup name',
+);
+ok(
+	'and the call site passes it',
+	/rewriteAtlasForKtx2\(\s*atlasText\s*,\s*ktx2ByPage\s*,\s*webpByPage\s*\)/.test(spineSrc),
+);
+ok(
+	'a page with no twin falls back to the shared ref before the original name',
+	/out\.push\(\s*twin\s*\?\s*twin\.name\s*:\s*\(?\s*webpByPage\.get\([^)]*\)\s*\?\?/.test(spineSrc),
+	'the fallback order IS the fix: shared `_pages/` ref first, original name only when undeduped',
+);
+
 console.log(`\nPASS: ${checks} checks.`);
