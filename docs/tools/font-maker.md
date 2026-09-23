@@ -86,8 +86,18 @@ a **Size** slider — drive every live preview across the View and Generate tabs
    - **ASCII printable** — `0x20`–`0x7E`.
    - **Custom** — type the exact characters in the textarea.
 4. Set **glyph size**, **page max width/height**, toggle **kerning**, and
-   configure **effects** (fill — solid or vertical gradient; outline width/color;
+   configure **effects** (fill — **Solid** or **Gradient**; outline width/color;
    drop shadow offset/blur/color), then **Bake**.
+   - **Gradient** opens a Photoshop-style ramp editor. The bar runs **glyph top →
+     glyph bottom** (each glyph's own ink box, so the whole ramp fits inside every
+     letter). **Click the rail under the bar to add a colour stop** — it starts as
+     the colour the ramp already shows there — **drag** it to move, and **drag it
+     off the rail** (or select it and press Delete) to remove it; arrow keys nudge
+     the selected stop, Shift for bigger steps. The selected stop's **Color**,
+     **Opacity** and **Location** sit under the bar, with **Delete** and
+     **Reverse**. The small **diamond** between two stops is their midpoint — drag
+     it to shift where the 50/50 blend lands, exactly like Photoshop. A stop's
+     opacity bakes into the PNG's alpha, so a ramp can fade a glyph out.
 5. The preview renders through the **same** load path a game uses (`BitmapText`
    built from the baked descriptor + page blob), so it doubles as a metrics
    self-check. The panel reports page size, page count, glyph count, kerning

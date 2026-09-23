@@ -24,13 +24,23 @@
  */
 import { parse, type Font, type Glyph } from 'opentype.js';
 import { shelfPack } from '$lib/shelfPack';
+import {
+	applyStops,
+	defaultGradientStops,
+	normalizeStops,
+	stopsFromPair,
+	type GradientStop,
+} from '$lib/gradient';
+
+export type FillMode = 'solid' | 'gradient';
 
 export interface FillEffect {
 	enabled: boolean;
-	/** When false, a solid `color`; when true, a vertical gradient `color`→`color2`. */
-	gradient: boolean;
+	/** `solid` paints `color`; `gradient` ramps `stops` down the glyph's ink box. */
+	mode: FillMode;
 	color: string;
-	color2: string;
+	/** The multi-stop ramp, top (`at: 0`) → bottom (`at: 1`). Used when `mode === 'gradient'`. */
+	stops: GradientStop[];
 }
 export interface OutlineEffect {
 	enabled: boolean;
@@ -99,10 +109,65 @@ export interface BakeResult {
 /** Default, sane-looking effects: fill on, outline + shadow off. */
 export function defaultEffects(): BakeEffects {
 	return {
-		fill: { enabled: true, gradient: false, color: '#ffffff', color2: '#9aa0ff' },
+		fill: { enabled: true, mode: 'solid', color: '#ffffff', stops: defaultGradientStops() },
 		outline: { enabled: false, width: 3, color: '#000000' },
 		shadow: { enabled: false, offsetX: 0, offsetY: 2, blur: 4, color: '#000000cc' },
 	};
+}
+
+/**
+ * Coerce a saved recipe's `effects` into the current shape before re-baking. Recipes
+ * written before the multi-stop fill landed carry `{ gradient: boolean, color, color2 }`;
+ * that pair becomes an equivalent two-stop ramp, so reopening an older font re-bakes to
+ * the same pixels. Anything missing or malformed falls back to `defaultEffects()`.
+ */
+export function normalizeEffects(raw: unknown): BakeEffects {
+	const base = defaultEffects();
+	const src = asRecord(raw);
+	const fill = asRecord(src.fill);
+	const outline = asRecord(src.outline);
+	const shadow = asRecord(src.shadow);
+	const fillColor = asString(fill.color, base.fill.color);
+	// `gradient: true` is the legacy flag; a current doc carries `mode` instead.
+	const legacyGradient = fill.gradient === true;
+	return {
+		fill: {
+			enabled: asBool(fill.enabled, base.fill.enabled),
+			mode:
+				fill.mode === 'gradient' || (fill.mode === undefined && legacyGradient)
+					? 'gradient'
+					: 'solid',
+			color: fillColor,
+			stops: Array.isArray(fill.stops)
+				? normalizeStops(fill.stops)
+				: stopsFromPair(fillColor, asString(fill.color2, '#9aa0ff')),
+		},
+		outline: {
+			enabled: asBool(outline.enabled, base.outline.enabled),
+			width: asNumber(outline.width, base.outline.width),
+			color: asString(outline.color, base.outline.color),
+		},
+		shadow: {
+			enabled: asBool(shadow.enabled, base.shadow.enabled),
+			offsetX: asNumber(shadow.offsetX, base.shadow.offsetX),
+			offsetY: asNumber(shadow.offsetY, base.shadow.offsetY),
+			blur: asNumber(shadow.blur, base.shadow.blur),
+			color: asString(shadow.color, base.shadow.color),
+		},
+	};
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+	return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+}
+function asBool(v: unknown, fallback: boolean): boolean {
+	return typeof v === 'boolean' ? v : fallback;
+}
+function asNumber(v: unknown, fallback: number): number {
+	return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+function asString(v: unknown, fallback: string): string {
+	return typeof v === 'string' && v.trim() ? v : fallback;
 }
 
 /** One placed glyph: its tile bitmap + BMFont char record (page/x/y filled by the packer). */
@@ -224,12 +289,11 @@ export async function bakeBitmapFont(opts: BakeOptions): Promise<BakeResult> {
 			ctx.shadowOffsetY = 0;
 		}
 
-		// (3) fill: solid OR a vertical gradient across the ink box (top→bottom).
+		// (3) fill: solid OR the multi-stop ramp down this glyph's own ink box (top→bottom).
 		if (effects.fill.enabled) {
-			if (effects.fill.gradient) {
+			if (effects.fill.mode === 'gradient') {
 				const grad = ctx.createLinearGradient(0, bb.y1, 0, bb.y2);
-				grad.addColorStop(0, effects.fill.color);
-				grad.addColorStop(1, effects.fill.color2);
+				applyStops(grad, effects.fill.stops);
 				ctx.fillStyle = grad;
 			} else {
 				ctx.fillStyle = effects.fill.color;
