@@ -471,9 +471,43 @@ Three things to know before you use it:
   when the key takes that hold time from the key before it, as the format allows.
   These keys retime, duplicate, delete and stretch exactly like any other, and a
   stretch scales the hold time with them so the flipbook still fills its new span
-  rather than finishing early. Note the Rigger cannot yet *author* a sequence — it
-  cannot attach one to an image, or change a key's mode / image / hold time; it now
-  shows and re-times the ones your rig already has instead of hiding them.
+  rather than finishing early.
+- **Making an image a sequence** — in **Setup** mode, a selected slot's Properties
+  gain an **▩ image sequence** section. If the atlas holds a numbered run for that
+  image (`expl_01`, `expl_02`, …) it offers **▩ Make this a sequence** and reads the
+  frame count, first number and zero-padding straight off the atlas. Picking any
+  single frame of a flipbook is enough — it strips the number and offers the whole
+  run. Once declared, four fields are editable:
+
+  - **frames** — how many images the flipbook has.
+  - **first number** — the number on the *first* region. Spine defaults this to **1**,
+    not 0, and real rigs use both.
+  - **digits** — zero-padding width; 2 makes frame 1 read as `01`.
+  - **setup frame** — which image (0-based) the setup pose shows.
+
+  Underneath, the panel names the regions the declaration resolves to and whether
+  each one is there — `✓ all 13 frames resolve: symbexpl_01 … symbexpl_13`. This is
+  not decoration. **Spine refuses to load a sequence with a missing frame**, so a
+  wrong count, first number or padding produces a rig that will not open at all.
+  The editor therefore checks every frame against the atlas and **will not write a
+  declaration that does not fully resolve**, telling you which region was missing.
+  (`setup frame` is exempt: the runtime clamps it, so it cannot break anything.)
+  **✕ Not a sequence** turns it back into an ordinary image, re-pointing the slot at
+  whichever frame the setup pose was showing. If the image is keyed as a sequence
+  anywhere, it asks first and removes those keys too — a sequence timeline left on
+  an image that is no longer a sequence stops the rig loading.
+- **Keying a sequence** — with the slot selected in **Animate** mode its `▩ sequence`
+  row appears even before it has any keys. **◆** on that row keys it at the playhead,
+  continuing from the key before it rather than restarting at image 0. Click any
+  sequence key to open its inspector in Properties:
+
+  - **Plays** — `hold` stays on one image; `once` runs to the end and stops; `loop`
+    restarts; `pingpong` bounces. The `Reverse` variants run backwards.
+  - **Starts on image** — 0-based, clamped to the declared frame count.
+  - **Hold each image (ms)** — how long one image shows, with the resulting
+    images/second underneath. Leave it **empty** to inherit from the key before it;
+    that is a different thing from **0**, which holds on a single image, and the field
+    never turns one into the other.
 - A separate **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time
   curves with draggable keyframe and bezier-tangent handles. Multi-select works
   the same way — Shift-click points, marquee-drag the background, or **click a

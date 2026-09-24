@@ -575,6 +575,7 @@
     <div id="boneDetail"></div>
     <div id="slotDetail"></div>
     <div id="eventDetail"></div>
+    <div id="seqDetail"></div>
     <!-- cinematic mode: the selected strip / key / cue lives here, where there is room for it -->
     <div id="cineProps" style="display:none;"></div>
   </aside>
@@ -734,6 +735,7 @@ let selSlot = null; // selected slot NAME (for draw-order + attachment placement
 let pivotMode = false; // ✥ placing the selected IMAGE's pivot on the canvas (a property of the attachment, never a bone)
 let pivotDrag = null;  // world point under the cursor while the pivot handle is being dragged
 let selEvent = null; // selected animation event object (docked event-key inspector), or null
+let selSeqKey = null; // selected sequence key { tr, time } for the docked sequence-key inspector
 let projectEffects = null; // project's Invisible FX effects (lazy — null = not yet loaded), [{id,name}]
 // Fetch the project's effects once (the same session-scoped list /fx + the Scene-Editor palette use),
 // so an event key can bind an effect directly. Non-blocking: renderEventDetail draws "loading…" first.
@@ -1289,7 +1291,7 @@ function applyTweakChrome(on){
   const bar = $("#tweakBar"); if (bar) bar.style.display = on ? "flex" : "none";
   $("#outline").style.display = on ? "" : "none";
   $("#cinePanel").style.display = on ? "none" : "block";
-  ["#boneDetail", "#slotDetail", "#eventDetail"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
+  ["#boneDetail", "#slotDetail", "#eventDetail", "#seqDetail"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
   { const el = $("#cineProps"); if (el) el.style.display = on ? "none" : "block"; }
   ["#grpRigFile", "#rowRigManage"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
   ["#bonesBtn", "#meshBtn", "#boundsBtn"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
@@ -1847,25 +1849,51 @@ function placeholderRegion(atlas, path){
 function makeAttachmentLoader(atlas){
   const base = new SPINE.AtlasAttachmentLoader(atlas);
   const loader = Object.create(base);
+  const found = (path) => !!(atlas.findRegion && atlas.findRegion(path));
+  // A SEQUENCE frame that is missing is worse than a missing image: Spine's own `loadSequence`
+  // THROWS on the first one it cannot find, and the whole rig then fails to open — there is no
+  // banner to repair it from, and no way back except hand-editing the JSON. Measured against the
+  // official loader (tools/rigger-spike/sequence.mjs): a `count` one too high, an off-by-one
+  // `start` and a wrong `digits` each brick the file outright. Re-packing an atlas renames
+  // regions, so this has to survive. Substitute a placeholder per missing frame and report it,
+  // exactly as a plain image does. `base.newRegionAttachment` reaches this through `this`, so the
+  // calls below are bound to `loader` rather than `base`.
+  loader.loadSequence = function(name, basePath, sequence){
+    const miss = [];
+    // Resolve everything findable FIRST. A single forward pass cannot borrow a real region for a
+    // missing frame 0 — nothing is resolved yet to borrow from — and a null region throws at
+    // render, because Sequence.apply calls updateRegion() on whatever it finds.
+    for (let i = 0; i < sequence.regions.length; i++){
+      const p = sequence.getPath(basePath, i);
+      if (found(p)) sequence.regions[i] = atlas.findRegion(p);
+      else { sequence.regions[i] = null; miss.push({ i, p }); }
+    }
+    if (!miss.length) return;
+    const stand = sequence.regions.find((r) => r) || placeholderRegion(atlas, basePath);
+    for (const m of miss){
+      missingArt.push({ name, path: m.p, type: "sequence frame" });
+      sequence.regions[m.i] = stand || placeholderRegion(atlas, m.p);
+    }
+  };
   loader.newRegionAttachment = function(skin, name, path, sequence){
-    if (sequence == null && !(atlas.findRegion && atlas.findRegion(path))){
+    if (sequence == null && !found(path)){
       missingArt.push({ name, path, type: "image" });
       const att = new SPINE.RegionAttachment(name, path);
       const ph = placeholderRegion(atlas, path);
       if (ph) att.region = ph; // the JSON reader calls updateRegion() once size is set
       return att;
     }
-    return base.newRegionAttachment(skin, name, path, sequence);
+    return base.newRegionAttachment.call(loader, skin, name, path, sequence);
   };
   loader.newMeshAttachment = function(skin, name, path, sequence){
-    if (sequence == null && !(atlas.findRegion && atlas.findRegion(path))){
+    if (sequence == null && !found(path)){
       missingArt.push({ name, path, type: "mesh" });
       const att = new SPINE.MeshAttachment(name, path);
       const ph = placeholderRegion(atlas, path);
       if (ph) att.region = ph; // the JSON reader calls updateRegion() once UVs are read
       return att;
     }
-    return base.newMeshAttachment(skin, name, path, sequence);
+    return base.newMeshAttachment.call(loader, skin, name, path, sequence);
   };
   return loader;
 }
@@ -1876,11 +1904,18 @@ function refreshArtWarn(){
   if (!missingArt.length){ el.style.display = "none"; el.innerHTML = ""; return; }
   const names = missingArt.map((m) => m.path || m.name);
   const shown = names.slice(0, 8).join(", ") + (names.length > 8 ? ", …" : "");
+  // A missing SEQUENCE frame cannot be fixed with the image dropdown — it is named by the
+  // declaration's numbers, not by the attachment — so the banner has to point somewhere else.
+  const seqMiss = missingArt.filter((m) => m.type === "sequence frame").length;
   el.innerHTML =
     '<span class="x" title="dismiss">✕</span>' +
     "<b>" + names.length + " image" + (names.length === 1 ? "" : "s") + " not in this atlas.</b> " +
-    "The rig loaded without them — pick a slot and use its <b>image</b> dropdown to re-point it, " +
-    "or use <b>source…</b> to attach a different atlas. Missing: " + shown;
+    (seqMiss === names.length
+      ? "All of them are frames of an image SEQUENCE — fix its numbers in <b>▩ image sequence</b> on the slot, or use <b>source…</b> to attach a different atlas. "
+      : "The rig loaded without them — pick a slot and use its <b>image</b> dropdown to re-point it, "
+        + "or use <b>source…</b> to attach a different atlas. "
+        + (seqMiss ? "(" + seqMiss + " of them are sequence frames — those are fixed in <b>▩ image sequence</b> instead.) " : ""))
+    + "Missing: " + shown;
   el.querySelector(".x").onclick = () => { el.style.display = "none"; };
   el.style.display = "block";
 }
@@ -4935,6 +4970,15 @@ function replaceAttachmentImage(attName, regionName){
   if (!holder){ alert("Couldn't find that attachment to replace its image."); return; }
   const def = holder.attachments[selSlot][attName];
   if (def.type === "linkedmesh"){ alert("This is a linked mesh — change the image on its parent mesh instead."); return; }
+  // A sequence names its frames off `path`, so re-pointing it here re-aims all of them at regions
+  // that do not exist (`symbexpl_` → `symbexpl_01` would start naming `symbexpl_0101`) and saves a
+  // rig that will not open. The ▩ panel is the one place a sequence's frames are chosen, and it
+  // checks them against the atlas; send the author there rather than writing the break.
+  if (def.sequence){
+    alert("This image is a sequence of " + (def.sequence.count || 0) + " frames.\n\n"
+      + "Change which frames it uses in ▩ image sequence below, or ✕ Not a sequence first — replacing the image here would re-aim every frame at a region that does not exist.");
+    return;
+  }
   const oldPath = def.path || attName;
   def.path = regionName; // keep name + geometry; only the sampled region changes
   // A REGION attachment's width/height are its display size in the region's ORIGINAL
@@ -5117,6 +5161,7 @@ function selectSlot(name){
   document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
   if (animMode) renderTimeline();
   selEvent = null; renderEventDetail();
+  selSeqKey = null; renderSeqDetail();
   renderSlotDetail();
   saveRiggerState();
 }
@@ -5704,6 +5749,9 @@ function renderSlotDetail(){
   // ✥ Pivot — the point this image turns from. A property of the image, not of the skeleton.
   renderSlotPivot(det);
 
+  // ▩ Image sequence — whether this image is a flipbook of numbered atlas regions.
+  renderSlotSequence(det);
+
   // ＋ Add path attachment (§18.7): a slot can also hold a PATH attachment (a spline a path
   // constraint walks). Offered on every slot — independent of any image/mesh. Clicking starts
   // draw mode (click the canvas to drop control points). Hidden while a path is being drawn or
@@ -6051,6 +6099,136 @@ function foldPivotBoneBack(){
   markDirty();
   rebuildFromRawDoc(rb.parent);
   if (selSlot) selectSlot(selSlot);
+}
+
+// ▩ Image sequence panel (Setup mode) — declare that this image is a flipbook of numbered atlas
+// regions, which is what makes a sequence timeline possible at all.
+//
+// Every field is resolved against the atlas as you type, and the frame list below shows exactly
+// which regions the declaration names and whether each is there. That readout is not decoration:
+// Spine's loader THROWS on the first frame it cannot find, so a declaration that does not fully
+// resolve produces a rig that will not open (see the sequence-timeline section for the measured
+// failure modes). Nothing is written until every frame resolves.
+function renderSlotSequence(det){
+  if (selSlot == null || !skeletonData) return;
+  const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
+  const attName = slotIndex >= 0 ? skeletonData.slots[slotIndex].attachmentName : null;
+  if (!attName) return;
+  const def = attachmentDefFor(selSlot, attName);
+  // Only a REGION or a MESH samples a texture, so only those can be a sequence. An allowlist,
+  // not a denylist: a boundingbox/clipping/path/point def accepts the key silently and then
+  // throws at load, because SequenceTimeline reads `attachment.sequence.id` off a type that has
+  // none. (`renderAtt` returns early for those types, but it does so before this is called.)
+  if (!def) return;
+  const kind = def.type || "region";
+  if (kind !== "region" && kind !== "mesh") return;
+  const basePath = def.path || attName;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
+  const hdr = document.createElement("div");
+  hdr.textContent = "▩ image sequence";
+  hdr.title = "A flipbook: several numbered regions in the atlas played as one image. Spine names each frame <path><number> zero-padded, so the numbers must be a contiguous run at one padding.";
+  hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
+  wrap.appendChild(hdr);
+  const note = (text, warn) => {
+    const t = document.createElement("div"); t.textContent = text;
+    t.style.cssText = "color:" + (warn ? "#ff9f7a" : "var(--dim)") + ";font-size:11px;line-height:1.4;margin:2px 0;";
+    return t;
+  };
+
+  if (!def.sequence){
+    const found = detectSequence(basePath);
+    if (!found){
+      wrap.appendChild(note("not a sequence — no run of numbered regions in the atlas for “" + basePath + "”."));
+      det.appendChild(wrap);
+      return;
+    }
+    const last = found.base + seqPad(found.start + found.count - 1, found.digits);
+    wrap.appendChild(note("found " + found.count + " frames in the atlas: " + found.base + seqPad(found.start, found.digits) + " … " + last));
+    const mk = document.createElement("button");
+    mk.textContent = "▩ Make this a sequence";
+    mk.title = "declare the " + found.count + " numbered regions as one flipbook image";
+    mk.style.cssText = "margin-top:4px;padding:3px 9px;font-size:11px;";
+    mk.onclick = () => {
+      const next = { count: found.count, start: found.start, digits: found.digits };
+      // Detection derives this from the atlas so it should always resolve — run the same gate the
+      // numeric fields use anyway, so there is exactly ONE way a declaration gets written.
+      const bad = sequenceFrames(found.base, next).filter((fr) => !fr.ok);
+      if (!found.base || bad.length){ alert("Could not read a clean run of frames out of the atlas for this image."); return; }
+      setSequenceDecl(selSlot, attName, next, found.base);
+    };
+    wrap.appendChild(mk);
+    det.appendChild(wrap);
+    return;
+  }
+
+  const seq = def.sequence;
+  const frames = sequenceFrames(basePath, seq);
+  const missing = frames.filter((f) => !f.ok);
+  const row = (label, field, min, hint) => {
+    const l = document.createElement("label");
+    l.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "width:74px;font-size:11px;";
+    if (hint) lb.title = hint;
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = "1"; inp.min = String(min);
+    if (field === "count") inp.max = "4096"; // a typo here probes the atlas once per frame, twice per edit
+    inp.value = String(seq[field] == null ? (field === "start" ? 1 : 0) : seq[field]);
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.onchange = () => {
+      const next = { ...seq, [field]: Math.max(min, Math.round(Number(inp.value) || 0)) };
+      // `setup` only picks which frame the setup pose shows and is clamped by the runtime, so it
+      // cannot make a rig unopenable and needs no resolve check. The other three name the regions.
+      if (field !== "setup"){
+        const bad = sequenceFrames(basePath, next).filter((f) => !f.ok);
+        if (bad.length){
+          alert("That would name " + bad.length + " region(s) the atlas does not have — the first is “" + bad[0].name + "”.\n\n"
+            + "Spine refuses to load a sequence with a missing frame, so this is not written.");
+          renderSlotDetail();
+          return;
+        }
+      }
+      setSequenceDecl(selSlot, attName, next);
+    };
+    l.appendChild(lb); l.appendChild(inp);
+    return l;
+  };
+  wrap.appendChild(row("frames", "count", 1, "how many images the flipbook has"));
+  wrap.appendChild(row("first number", "start", 0, "the number on the FIRST region — Spine defaults this to 1, not 0"));
+  wrap.appendChild(row("digits", "digits", 0, "zero-padding width: 2 makes frame 1 read as 01"));
+  wrap.appendChild(row("setup frame", "setup", 0, "which image (0-based) the setup pose shows"));
+
+  if (missing.length){
+    wrap.appendChild(note("⚠ " + missing.length + " of " + frames.length + " frames are not in the atlas — first missing: " + missing[0].name
+      + ". The rig still opens here (missing frames draw as a placeholder) but Spine itself refuses this. Fix the numbers, or re-sync the atlas.", true));
+  } else {
+    wrap.appendChild(note("✓ all " + frames.length + " frames resolve: " + frames[0].name + " … " + frames[frames.length - 1].name));
+  }
+
+  const keyed = animsWithSequenceKeys(selSlot, attName);
+  if (keyed.length) wrap.appendChild(note("keyed in " + keyed.length + " animation(s): " + keyed.join(", ")));
+
+  const rm = document.createElement("button");
+  rm.textContent = "✕ Not a sequence";
+  rm.title = "make this an ordinary single image again";
+  rm.style.cssText = "margin-top:6px;padding:3px 9px;font-size:11px;";
+  rm.onclick = () => {
+    if (keyed.length && !confirm("This image is keyed as a sequence in " + keyed.length + " animation(s):\n  " + keyed.join(", ")
+      + "\n\nThose keys have to go with the declaration — a sequence timeline on an image that is no longer a sequence stops the rig loading. Remove both?")) return;
+    // Re-point at the frame the setup pose was showing, so the slot keeps art rather than pointing
+    // at a base path (`symbexpl_`) that is not itself a region.
+    // The base path (`symbexpl_`) is NOT itself a region, so leaving `path` on it saves a rig that
+    // will not open. Prefer the frame the setup pose was showing; failing that any frame that
+    // resolves; failing that the first frame NAME, which at least lands in the missing-images
+    // banner where the image dropdown can re-point it.
+    const wanted = frames[Math.min(Math.max(seq.setup || 0, 0), Math.max(frames.length - 1, 0))];
+    const shown = (wanted && wanted.ok && wanted) || frames.find((fr) => fr.ok) || frames[0];
+    dropSequenceKeysFor(selSlot, attName);
+    setSequenceDecl(selSlot, attName, null, (shown && shown.name) || basePath);
+    selSeqKey = null; renderSeqDetail(); renderTimeline();
+  };
+  wrap.appendChild(rm);
+  det.appendChild(wrap);
 }
 
 // Pivot panel (Setup mode).
@@ -8461,7 +8639,7 @@ function setMode(m){
   // The right-hand inspector is the rig editor's (bone/slot/event). In cinematic mode those are
   // meaningless — it showed "select a bone or slot" over an empty column while every cinematic
   // inspector was crammed into the 280px left panel. Hand the column to the cinematic instead.
-  ["#boneDetail", "#slotDetail", "#eventDetail"].forEach((sel) => {
+  ["#boneDetail", "#slotDetail", "#eventDetail", "#seqDetail"].forEach((sel) => {
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
   { const el = $("#cineProps"); if (el) el.style.display = cineMode ? "block" : "none"; }
@@ -8485,7 +8663,7 @@ function setMode(m){
   // Preview is NOT armed here: it is entered on every rig open, and `updateFxPreview` loads the
   // overlay itself the first frame a clip with a bound keyframe runs — so a rig with no FX never
   // spends one of the browser's ~16 WebGL contexts.
-  if (!animMode){ selEvent = null; renderEventDetail(); } // event keys are an animate-mode concept
+  if (!animMode){ selEvent = null; renderEventDetail(); selSeqKey = null; renderSeqDetail(); } // key inspectors are an animate-mode concept
   if (!editMode) meshIsolate = false; // isolated-mesh editing is a setup-mode tool only
   document.querySelectorAll('#modeSeg button').forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === m);
@@ -8762,6 +8940,7 @@ function setCurAnim(name){
   fxClearPreview(); // switching animation — drop any live FX preview
   animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; dopeAnchorT = null; dopeScale = null; // re-fit the timeline + clear selections
   selEvent = null; renderEventDetail(); // events are per-animation — drop any docked event key
+  selSeqKey = null; renderSeqDetail();  // and so are sequence keys
   $("#anim").value = curAnim || "";
   syncPlayhead();
   renderTimeline();
@@ -9112,8 +9291,13 @@ function timelineTracks(){
     }
     // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
-    // sequence rows for the selected slot (the Rigger cannot author one, so only shown when keyed)
-    if (selSlot) for (const q of sequenceTracksWithKeys(a)) if (q.name === selSlot) out.push(q);
+    // sequence rows for the selected slot, plus an EMPTY row when its image declares a sequence
+    // but this animation has not keyed it yet — that row is where ◆ keys the first one.
+    if (selSlot){
+      for (const q of sequenceTracksWithKeys(a)) if (q.name === selSlot) out.push(q);
+      const st = selectedSlotSequenceTrack();
+      if (st && !out.some((t) => t.kind === "sequence" && t.name === st.name && t.att === st.att)) out.push(st);
+    }
     // ik track for the selected constraint (empty row to key into)
     if (selIk && ikByName(selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
     // transform track for the selected constraint (empty row to key into)
@@ -9134,6 +9318,10 @@ function timelineTracks(){
   for (const k of physicsTracksWithKeys(a)) if (!out.some((t) => t.kind === "physics" && t.name === k.name)) out.push(k);
   if (selBone != null){ const sn = skeletonData.bones[selBone].name; if (!out.some((t) => t.kind === "bone" && t.name === sn)) out.push({ kind: "bone", name: sn }); }
   if (selSlot && !out.some((t) => t.kind === "slot" && t.name === selSlot)) out.push({ kind: "slot", name: selSlot });
+  {
+    const st = selectedSlotSequenceTrack();
+    if (st && !out.some((t) => t.kind === "sequence" && t.name === st.name && t.att === st.att)) out.push(st);
+  }
   if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
   if (selIk && ikByName(selIk) && !out.some((t) => t.kind === "ik" && t.name === selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
   if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
@@ -9168,9 +9356,193 @@ function deformTracksWithKeys(a){
 //   · an ABSENT `delay` INHERITS the previous key's (the loader carries `lastDelay` forward,
 //     starting at 0), so it is a real value even when the JSON does not spell it.
 //   · there is NO `curve` — a sequence key is a step. Hence not easable.
-// The Rigger does not yet AUTHOR sequences (no UI to attach one, or to change mode/index/delay);
-// this exposes the timeline so its keys can be seen, retimed, duplicated, deleted and stretched
-// instead of being invisible to the dopesheet. Validated in tools/rigger-spike/sequence.mjs.
+// The ATTACHMENT (in the skin, not the animation) is what makes an image a sequence at all:
+//   attachments.<slot>.<att> = { …, sequence: { count, start = 1, digits = 0, setup = 0 } }
+// Spine names each frame's region `path + (start + i)` zero-padded to `digits`, where `path`
+// defaults to the attachment's own name. `start` is the first NUMBER, not an index; `setup` IS an
+// index (0-based, which image the setup pose shows, clamped to the last).
+//
+// GET THAT DECLARATION WRONG AND THE RIG WILL NOT OPEN. Spine's `loadSequence` throws on the
+// first frame it cannot find, and unlike a plain image there is no banner to repair it from.
+// Measured against the official loader (tools/rigger-spike/sequence.mjs), on a rig whose frames
+// are `symbexpl_01`…`_13`:
+//   count 14   → throws "Region not found in atlas: symbexpl_14"
+//   start 0    → throws "… symbexpl_00"          (off-by-one: `start` defaults to 1, not 0)
+//   digits 3   → throws "… symbexpl_001"
+//   count 12   → loads, and SILENTLY drops the last frame
+//   setup 99   → loads; Sequence.apply clamps the index to the last region
+// `start` is NOT always 1 in the wild — it is whatever number the first region carries, and rigs
+// here use both (explosion's frames are `symbexpl_01`…, tumble_win's are `expl-00`…). Which is why
+// ▩ Make this a sequence reads all four values off the atlas rather than assuming the defaults.
+// Which is why the editor resolves every frame against the atlas and will not write a declaration
+// that does not fully resolve, and why `makeAttachmentLoader` now substitutes a placeholder per
+// missing frame rather than letting the throw through.
+// Validated in tools/rigger-spike/sequence.mjs.
+const SEQ_MODES = ["hold", "once", "loop", "pingpong", "onceReverse", "loopReverse", "pingpongReverse"];
+// The skin entry that DEFINES an attachment (where a sequence declaration lives).
+function attachmentDefFor(slotName, attName){
+  for (const d of slotAttachmentList(slotName)) if (d.name === attName) return d.def;
+  return null;
+}
+const seqPad = (n, digits) => { let t = String(n); while (t.length < (digits || 0)) t = "0" + t; return t; };
+// Resolve a declaration against the loaded atlas: the region name each frame would sample, and
+// whether it is actually there. This is the check that stands between an author and a rig that
+// will not open.
+function sequenceFrames(basePath, seq){
+  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const has = (n) => !!(atlas && atlas.findRegion && atlas.findRegion(n));
+  const out = [];
+  const start = seq.start == null ? 1 : seq.start;
+  for (let i = 0; i < (seq.count || 0); i++){
+    const name = basePath + seqPad(start + i, seq.digits);
+    out.push({ name, ok: has(name) });
+  }
+  return out;
+}
+// Find a numbered run of regions in the atlas for `basePath` — and, failing that, for the same
+// path with its own trailing number stripped, so picking frame 1 of a flipbook is enough to offer
+// the whole thing. Spine can only express a CONTIGUOUS run at one zero-padding, so anything else
+// returns null rather than a declaration that would half-resolve.
+function detectSequence(basePath){
+  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const names = atlas && atlas.regions ? atlas.regions.map((r) => r.name) : [];
+  if (!names.length) return null;
+  const tryBase = (base) => {
+    const re = new RegExp("^" + base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d+)$");
+    const hits = [];
+    for (const n of names){ const m = re.exec(n); if (m) hits.push({ num: parseInt(m[1], 10), digits: m[1].length }); }
+    if (hits.length < 2) return null;
+    hits.sort((a, b) => a.num - b.num);
+    const digits = hits[0].digits;
+    if (hits.some((h) => h.digits !== digits)) return null;             // mixed padding
+    if (hits.some((h, i) => h.num !== hits[0].num + i)) return null;    // a gap in the run
+    return { base, count: hits.length, start: hits[0].num, digits };
+  };
+  return tryBase(basePath) || tryBase(basePath.replace(/\d+$/, ""));
+}
+// Write (or clear, with `seq` null) an attachment's sequence declaration. `newPath` re-points the
+// attachment when detection stripped a frame number off it.
+function setSequenceDecl(slotName, attName, seq, newPath){
+  const def = attachmentDefFor(slotName, attName); if (!def) return;
+  if (newPath && newPath !== (def.path || attName)) def.path = newPath;
+  if (seq) def.sequence = seq; else delete def.sequence;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
+  markDirty();
+}
+// Every animation holding sequence keys for one (slot, attachment).
+function animsWithSequenceKeys(slotName, attName){
+  const out = [];
+  for (const [nm, a] of Object.entries((rawDoc && rawDoc.animations) || {})){
+    for (const slots of Object.values(a.attachments || {})){
+      const am = slots[slotName] && slots[slotName][attName];
+      if (am && Array.isArray(am.sequence) && am.sequence.length){ out.push(nm); break; }
+    }
+  }
+  return out;
+}
+// Removing the declaration has to take the timeline with it: the loader builds a SequenceTimeline
+// from `attachment.sequence.id`, so keys left behind on an attachment that is no longer a sequence
+// throw at load — the same class of unopenable rig as a bad frame count.
+function dropSequenceKeysFor(slotName, attName){
+  for (const a of Object.values((rawDoc && rawDoc.animations) || {})){
+    for (const [skName, slots] of Object.entries(a.attachments || {})){
+      const am = slots[slotName] && slots[slotName][attName];
+      if (!am || !Array.isArray(am.sequence)) continue;
+      delete am.sequence;
+      if (!Object.keys(am).length) delete slots[slotName][attName];
+      if (slots[slotName] && !Object.keys(slots[slotName]).length) delete slots[slotName];
+      if (!Object.keys(slots).length) delete a.attachments[skName];
+    }
+    if (a.attachments && !Object.keys(a.attachments).length) delete a.attachments;
+  }
+}
+// Key a sequence at the playhead on `tr`'s attachment. A new key copies the one in force before
+// it, so adding a beat mid-clip continues the flipbook rather than restarting it at image 0.
+function keySequenceAtPlayhead(tr){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return null;
+  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
+  const skName = sequenceKeySkin(tr); if (!skName) return null;
+  a.attachments = a.attachments || {};
+  const sk = (a.attachments[skName] = a.attachments[skName] || {});
+  const sl = (sk[tr.name] = sk[tr.name] || {});
+  const am = (sl[tr.att] = sl[tr.att] || {});
+  const arr = (am.sequence = am.sequence || []);
+  const t = roundN(animTime, 4);
+  const prevIdx = arr.reduce((best, k, i) => (k.time <= t + 1e-4 && (best < 0 || k.time >= arr[best].time) ? i : best), -1);
+  const prev = prevIdx >= 0 ? arr[prevIdx] : null;
+  const existing = arr.find((k) => Math.abs(k.time - t) < 1e-4);
+  if (existing) return existing; // already keyed at this time — nothing written, nothing dirtied
+  const key = { time: t, mode: (prev && prev.mode) || "loop", index: (prev && prev.index) || 0 };
+  const eff = prevIdx >= 0 ? seqEffectiveDelay(arr, prevIdx) : { delay: 0 };
+  key.delay = eff.delay > 0 ? eff.delay : 0.0333; // ~1 frame at 30fps, the usual flipbook beat
+  arr.push(key); arr.sort((x, y) => x.time - y.time);
+  markDirty(); animsDirty = true; refreshAnimCounts();
+  return key;
+}
+// Which skin's node already holds this track's keys, in the SAME order `sequenceArrForTrack`
+// resolves them — otherwise, with keys under two skins, ◆ would append to one array while the
+// timeline and the inspector read the other.
+function sequenceSkinFor(tr){
+  const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
+  for (const skName of [activeSkinName(), "default", ...Object.keys(at)]){
+    const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att];
+    if (am && Array.isArray(am.sequence)) return skName;
+  }
+  return null;
+}
+// The skin a NEW sequence key belongs under. It must be one that actually DECLARES the sequence:
+// `slotAttachmentList` offers the row from the active skin falling back to `default`, so keying
+// blind into the active skin writes a timeline for an attachment that skin does not have — and
+// `SkeletonJson` then reads `attachment.sequence.id` off null and the rig never opens again, with
+// no tolerant-loader rescue because the throw is in readAnimation, not the attachment loader.
+// Mirrors the `meshInActiveSkin() ? activeSkinName() : "default"` rule used throughout.
+function sequenceKeySkin(tr){
+  const held = sequenceSkinFor(tr); if (held) return held; // keys already live somewhere
+  const declares = (skName) => {
+    const sk = rawDoc && rawDoc.skins && rawDoc.skins.find((x) => x.name === skName);
+    const d = sk && sk.attachments && sk.attachments[tr.name] && sk.attachments[tr.name][tr.att];
+    return !!(d && d.sequence);
+  };
+  const act = activeSkinName();
+  if (declares(act)) return act;
+  if (declares("default")) return "default";
+  return null;
+}
+// Edit one field of a sequence key. `time` re-sorts (and merges onto a key already there, like
+// every other retime); `index` is clamped to the declared frame count.
+function setSeqKeyField(tr, key, field, value){
+  const arr = sequenceArrForTrack(tr); if (!arr || arr.indexOf(key) < 0) return;
+  if (field === "time"){
+    const t = Math.max(0, roundN(Number(value) || 0, 4));
+    const before = seqDelaysBefore(arr); // typing a time reorders the array, same as dragging one
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== key && Math.abs(arr[i].time - t) < 1e-4){ pinSequenceDelayAfter(arr, arr[i]); arr.splice(i, 1); }
+    key.time = t; arr.sort((x, y) => x.time - y.time);
+    seqDelaysRestore(arr, before);
+  } else if (field === "mode"){
+    if (SEQ_MODES.indexOf(value) < 0) return;
+    key.mode = value;
+  } else if (field === "index"){
+    const def = attachmentDefFor(tr.name, tr.att), count = (def && def.sequence && def.sequence.count) || 1;
+    key.index = Math.max(0, Math.min(count - 1, Math.round(Number(value) || 0)));
+  } else if (field === "delay"){
+    // ABSENT and 0 are not the same thing: absent INHERITS the key before it, while an explicit 0
+    // makes `(time - before) / delay` contribute nothing, so the sequence holds on one image. An
+    // empty field is how the editor says "inherit"; any number, 0 included, is written.
+    if (value === "" || value == null) delete key.delay;
+    else key.delay = Math.max(0, roundN(Number(value) || 0, 6));
+  }
+  markDirty(); animsDirty = true;
+}
+// The selected slot's sequence track, keyed or not — a declared sequence needs a row to key INTO,
+// the same way a selected constraint gets an empty row.
+function selectedSlotSequenceTrack(){
+  if (!selSlot || !skeletonData) return null;
+  const i = skeletonData.slots.findIndex((sl) => sl.name === selSlot); if (i < 0) return null;
+  const att = skeletonData.slots[i].attachmentName; if (!att) return null;
+  const def = attachmentDefFor(selSlot, att);
+  return def && def.sequence ? { kind: "sequence", name: selSlot, att, label: "sequence" } : null;
+}
 // Every (slot, attachment) carrying sequence keys in animation `a`, across all skins.
 function sequenceTracksWithKeys(a){
   const out = [], seen = new Set();
@@ -9220,11 +9592,31 @@ function pinSequenceDelayAfter(arr, k){
   const nxt = arr[arr.indexOf(k) + 1];
   if (nxt && typeof nxt.delay !== "number") nxt.delay = k.delay;
 }
+// Every key's EFFECTIVE delay, before an edit that reorders the array. Moving a key that OWNS a
+// delay across one that inherits it re-parents that inheritance silently — the mover keeps its own
+// value while the key it jumped now inherits from somewhere else. Capture, edit, then pin anywhere
+// the effective value changed.
+function seqDelaysBefore(arr){
+  const out = new Map();
+  let eff = 0;
+  for (const k of arr){ if (typeof k.delay === "number") eff = k.delay; out.set(k, eff); }
+  return out;
+}
+function seqDelaysRestore(arr, before){
+  let eff = 0;
+  for (const k of arr){
+    const want = before.has(k) ? before.get(k) : eff;
+    if (typeof k.delay === "number"){ eff = k.delay; continue; }
+    if (Math.abs(want - eff) > 1e-9){ k.delay = want; eff = want; }
+  }
+}
 function retimeSequenceKey(tr, oldTime, newTime){
   const arr = sequenceArrForTrack(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
   const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
+  const before = seqDelaysBefore(arr);
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== k && Math.abs(arr[i].time - newTime) < 1e-4){ pinSequenceDelayAfter(arr, arr[i]); arr.splice(i, 1); }
   k.time = newTime; arr.sort((a, b) => a.time - b.time);
+  seqDelaysRestore(arr, before);
   markDirty(); animsDirty = true;
 }
 // Duplicate a sequence key. Not `dupKeyInArr`: a copy overwrites whatever sits at the destination,
@@ -9251,6 +9643,9 @@ function deleteSequenceKeyAt(tr, time){
     }
   }
   if (!Object.keys(at).length) delete a.attachments;
+  // The docked inspector must not outlive the key it edits — double-click deletes through here.
+  if (selSeqKey && selSeqKey.tr && selSeqKey.tr.name === tr.name && selSeqKey.tr.att === tr.att
+    && Math.abs(selSeqKey.time - time) < 1e-3){ selSeqKey = null; renderSeqDetail(); }
   markDirty(); animsDirty = true; refreshAnimCounts();
 }
 
@@ -9896,6 +10291,86 @@ function setEventKeyField(evtObj, field, raw){
   }
   markDirty(); animsDirty = true; refreshAnimCounts();
 }
+// Docked sequence-key inspector (#seqDetail) — what a key on a ▩ sequence row actually does.
+// Opened by a plain click on the key, mirroring the event-key inspector below. The three fields
+// are the whole of a sequence key: how it plays, which image it starts on, and how long each image
+// is held. Hidden unless a sequence key is selected (selSeqKey).
+function renderSeqDetail(){
+  const det = $("#seqDetail"); if (!det) return;
+  det.innerHTML = "";
+  const tr = selSeqKey && selSeqKey.tr;
+  const arr = tr ? sequenceArrForTrack(tr) : null;
+  const key = arr ? arr.find((k) => Math.abs(k.time - selSeqKey.time) < 1e-4) : null;
+  if (!key){ selSeqKey = null; det.style.display = "none"; return; }
+  det.style.display = "block";
+
+  const title = document.createElement("div");
+  title.textContent = "▩ Sequence key @ " + roundN(key.time, 3) + "s";
+  title.style.cssText = "color:var(--txt);margin-bottom:5px;font-weight:600;";
+  det.appendChild(title);
+  const sub = document.createElement("div");
+  sub.textContent = tr.name + " · " + tr.att;
+  sub.style.cssText = "color:var(--dim);font-size:11px;margin:-3px 0 6px;";
+  det.appendChild(sub);
+
+  const inputCss = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;box-sizing:border-box;width:100%;";
+  const fieldRow = (label, hint) => {
+    const wrap = document.createElement("label"); wrap.style.cssText = "display:flex;flex-direction:column;gap:2px;margin:3px 0;font-size:11px;color:var(--dim);";
+    const lb = document.createElement("span"); lb.textContent = label; wrap.appendChild(lb);
+    if (hint){ const h = document.createElement("span"); h.textContent = hint; h.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;"; wrap.appendChild(h); }
+    return wrap;
+  };
+  const redraw = () => { renderTimeline(); renderSeqDetail(); };
+
+  const timeWrap = fieldRow("Time (s)");
+  const timeIn = document.createElement("input"); timeIn.type = "number"; timeIn.step = "0.01"; timeIn.min = "0";
+  timeIn.value = String(roundN(key.time, 4)); timeIn.style.cssText = inputCss;
+  timeIn.onchange = () => { setSeqKeyField(tr, key, "time", timeIn.value); selSeqKey = { tr, time: roundN(key.time, 4) }; redraw(); };
+  timeWrap.appendChild(timeIn); det.appendChild(timeWrap);
+
+  const modeWrap = fieldRow("Plays", "hold stays on one image; once runs to the end and stops; loop restarts; pingpong bounces. The Reverse variants run backwards.");
+  const modeSel = document.createElement("select"); modeSel.style.cssText = inputCss;
+  for (const m of SEQ_MODES){ const o = document.createElement("option"); o.value = m; o.textContent = m; if ((key.mode || "hold") === m) o.selected = true; modeSel.appendChild(o); }
+  modeSel.onchange = () => { setSeqKeyField(tr, key, "mode", modeSel.value); redraw(); };
+  modeWrap.appendChild(modeSel); det.appendChild(modeWrap);
+
+  const def = attachmentDefFor(tr.name, tr.att);
+  const count = (def && def.sequence && def.sequence.count) || 0;
+  const idxWrap = fieldRow("Starts on image", count ? "0 – " + (count - 1) + " of the " + count + " frames this image declares" : "");
+  const idxIn = document.createElement("input"); idxIn.type = "number"; idxIn.step = "1"; idxIn.min = "0";
+  if (count) idxIn.max = String(count - 1);
+  idxIn.value = String(key.index || 0); idxIn.style.cssText = inputCss;
+  idxIn.onchange = () => { setSeqKeyField(tr, key, "index", idxIn.value); idxIn.value = String(key.index || 0); redraw(); };
+  idxWrap.appendChild(idxIn); det.appendChild(idxWrap);
+
+  // Hold time: the runtime's `delay`, in ms because that is how a flipbook beat is actually
+  // thought about. Empty INHERITS the key before it — which is a different thing from 0, where the
+  // sequence sits on one image, so the field never silently turns one into the other.
+  const i = arr.indexOf(key), eff = seqEffectiveDelay(arr, i);
+  const own = typeof key.delay === "number";
+  const holdWrap = fieldRow("Hold each image (ms)",
+    own ? "how long one image shows before the next. Clear the field to inherit from the key before this one."
+        : "inheriting " + (eff.delay * 1000).toFixed(1) + "ms from an earlier key. Type a number to set this key's own.");
+  const holdIn = document.createElement("input"); holdIn.type = "number"; holdIn.step = "1"; holdIn.min = "0";
+  holdIn.value = own ? String(roundN(key.delay * 1000, 3)) : "";
+  holdIn.placeholder = (eff.delay * 1000).toFixed(1) + " (inherited)";
+  holdIn.style.cssText = inputCss;
+  holdIn.onchange = () => { setSeqKeyField(tr, key, "delay", holdIn.value === "" ? "" : Number(holdIn.value) / 1000); redraw(); };
+  holdWrap.appendChild(holdIn); det.appendChild(holdWrap);
+  if (own){
+    const fps = key.delay > 0 ? (1 / key.delay) : 0;
+    const note = document.createElement("div");
+    note.textContent = key.delay > 0 ? "≈ " + fps.toFixed(1) + " images/second" : "0 — holds on image " + (key.index || 0);
+    note.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;margin:-1px 0 4px;";
+    det.appendChild(note);
+  }
+
+  const del = document.createElement("button");
+  del.textContent = "🗑 Delete this key"; del.style.cssText = "margin-top:6px;padding:3px 9px;font-size:11px;";
+  del.onclick = () => { deleteSequenceKeyAt(tr, roundN(key.time, 4)); selSeqKey = null; renderTimeline(); renderSeqDetail(); };
+  det.appendChild(del);
+}
+
 // Docked event-key inspector — lives in the Properties panel (#eventDetail), mirroring
 // renderBoneDetail()/renderSlotDetail(). Editable Name (the load-bearing cue name), Time,
 // and optional int/float/string payload. Hidden unless an event is selected (selEvent).
@@ -10682,6 +11157,17 @@ function renderTimeline(){
     const nm = document.createElement("span"); nm.textContent = isEvents ? "events" : isDraw ? "draw order" : isDeform ? (tr.name + " · deform") : isSeq ? (tr.name + " · sequence") : isIk ? (tr.name + " · IK mix") : isTc ? (tr.name + " · transform mix") : isPc ? (tr.name + " · physics") : isPathCh ? (tr.name + " · " + tr.label) : (isChan ? tr.label : tr.name); nm.style.cssText = "overflow:hidden;text-overflow:ellipsis;" + (isChan || isDeform || isSeq || isIk || isTc || isPc ? "color:var(--dim);" : "");
     g.appendChild(tag); g.appendChild(nm);
     if (isEvents){ const add = document.createElement("button"); add.textContent = "＋"; add.title = "add an event at the playhead"; add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; add.onclick = (e) => { e.stopPropagation(); addEventAtPlayhead(); }; g.appendChild(add); }
+    else if (isSeq){
+      const add = document.createElement("button"); add.textContent = "◆";
+      add.title = "key this sequence at the playhead (continues from the key before it)";
+      add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;";
+      add.onclick = (e) => {
+        e.stopPropagation();
+        const k = keySequenceAtPlayhead(tr);
+        if (k){ selSeqKey = { tr, time: roundN(k.time, 4) }; renderSeqDetail(); } // keySequenceAtPlayhead re-renders the timeline
+      };
+      g.appendChild(add);
+    }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
     g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isPc ? "physics constraint" : isPathCh ? "path constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
     g.onclick = (e) => {
@@ -12185,7 +12671,7 @@ function wire(){
       // Abort a live stretch FIRST: without this the drag stays armed, and its mouseup would commit
       // the scale and then restore the very selection Escape just cleared.
       if (dopeScale){ e.preventDefault(); dopeScale = null; renderTimeline(); return; }
-      if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; dopeAnchorT = null; graphSel = []; renderTimeline(); }
+      if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; dopeAnchorT = null; graphSel = []; selSeqKey = null; renderSeqDetail(); renderTimeline(); }
       return;
     }
     if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -12213,7 +12699,7 @@ function wire(){
         else if (tr.kind === "slot") deleteSlotKeyAt(tr.name, s.time);
         else deleteBoneKeyAt(tr.name, s.time);
       }
-      dopeSel = []; dopeAnchorT = null; dopeScale = null; renderTimeline();
+      dopeSel = []; dopeAnchorT = null; dopeScale = null; selSeqKey = null; renderSeqDetail(); renderTimeline();
     }
   });
   window.addEventListener("mousemove", e => {
@@ -12448,11 +12934,15 @@ function wire(){
         const anchor = d.items.find((it) => it.anchor);
         if (anchor){ animTime = anchor.newTime; syncPlayhead(); }
       } else if (d.items.length === 1 && !d.duplicate){
-        // A plain click (no drag) on an EVENT key opens its inspector for editing.
+        // A plain click (no drag) on an EVENT or SEQUENCE key opens its inspector for editing.
+        // Neither rebuilds the dopesheet, so the key under the pointer survives to be double-clicked.
         const it = d.items[0], tr = dopeTrackById[it.tid];
         if (tr && tr.kind === "events"){
           const evs = eventsAt(it.startTime);
           if (evs.length){ loadProjectEffects(); selBone = null; selSlot = null; renderBoneDetail(); renderSlotDetail(); selEvent = evs[0]; renderEventDetail(); }
+        } else if (tr && tr.kind === "sequence"){
+          selSeqKey = { tr, time: roundN(it.startTime, 4) };
+          renderSeqDetail();
         }
       }
       // Rebuild ONLY when the drag changed something. `renderTimeline` does `innerHTML = ""`, and
