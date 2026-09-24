@@ -547,10 +547,27 @@ try {
 	//
 	// A hard failure, not a warning. Everything else here refuses rather than repairs, and a
 	// delivery is handed over once — a warning in a build log is read after the zip has gone.
-	const LEAKY = ['.ts', '.tsx', '.svelte', '.map', '.env'];
-	const leaked = walkFiles(final).filter((file) =>
-		LEAKY.some((ext) => file.toLowerCase().endsWith(ext)),
-	);
+	// Two lists, because `assets/` is not a place a human drops a file.
+	//
+	// It is the R2 mirror `pull:assets` writes, and every bundle in it carries an `index.ts`
+	// manifest (`createAsset({img, rawAtlas, spines})`) that the build COMPILES — a real Borut
+	// delivery has 28 of them. They reach the output only because `static/` is copied wholesale,
+	// and a first pass at this guard refused the whole delivery over them. So source extensions
+	// are checked everywhere EXCEPT that mirrored tree.
+	//
+	// `.map` and `.env` stay checked everywhere, including under `assets/`: neither has any
+	// business in an asset bundle, and a sourcemap is the whole of our source wherever it lands.
+	const LEAKY_SOURCE = ['.ts', '.tsx', '.svelte'];
+	const LEAKY_ALWAYS = ['.map', '.env'];
+	const inAssets = (rel) => rel === 'assets' || rel.startsWith(`assets/`);
+
+	const leaked = walkFiles(final).filter((file) => {
+		const rel = relative(final, file).split(sep).join('/');
+		const lower = rel.toLowerCase();
+		if (LEAKY_ALWAYS.some((ext) => lower.endsWith(ext))) return true;
+		return !inAssets(rel) && LEAKY_SOURCE.some((ext) => lower.endsWith(ext));
+	});
+
 	if (leaked.length) {
 		throw new Error(
 			`${final} contains source files a CDN would serve verbatim:\n` +

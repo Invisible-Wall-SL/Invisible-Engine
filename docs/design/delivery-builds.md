@@ -395,7 +395,15 @@ BookOfBorut.zip
 
 **Nothing that is source may leave with the upload.** `embed.html` was one instance of that hazard;
 the general guard is a hard failure in `build-delivery.mjs` if the delivery folder contains `.ts`,
-`.tsx`, `.svelte`, `.map` or `.env`. `static/` is copied into a build wholesale, so a stray file
+`.tsx` or `.svelte` **outside `assets/`**, or `.map`/`.env` **anywhere**.
+
+The `assets/` exemption is not a loophole, it is the tree's nature: `assets/` is the R2 mirror
+`pull:assets` writes, and every bundle in it carries an `index.ts` manifest
+(`createAsset({img, rawAtlas, spines})`) that the build compiles — a real Borut delivery has 28.
+They reach the output only because `static/` is copied wholesale. The first version of this guard
+checked `.ts` everywhere and refused a real delivery over exactly those files; it had been verified
+against a fixture whose `assets/` held a single PNG, which is the lesson worth keeping. `.map` and
+`.env` stay checked inside `assets/` too, since neither has any business in an asset bundle. `static/` is copied into a build wholesale, so a stray file
 dropped there — a config kept "for reference", a scratch file — reaches the CDN with no step in
 between that would notice. `.map` is the likelier accident and the worst one: a sourcemap is the
 whole of our source, and `config-vite` disables it only for a non-dev build. It refuses rather than
