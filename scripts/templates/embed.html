@@ -1,0 +1,175 @@
+<?js 
+	//check if we are trying to launch a game from game
+	if (gwan.getArg("launch") != null)
+	{
+		var sid = gwan.getArg("sid");
+		var session = GsHelper.getSession(sid);
+		try
+		{
+			var game = APIHelper.getGameAndCheckIfItIsEnabledForCasino(gwan.getArg('gameId'), session.casino);
+			var casino = Redis.getObjectById('casino', session.casino);
+			var session = Session.create(game, casino, session.remoteId, null/*gameRoundId*/, session.demo, session.remote_data);
+			echo(session.id);
+		}
+		catch(e)
+		{
+			throw new Error('cant launch another game for session: ' + sid);
+		}
+		exit();
+	}
+
+
+var error = undefined;
+
+try {
+	
+	var sid = gwan.getArg("sid");
+	var session = GsHelper.getSession(sid);
+	if (!session)
+	{
+		throw new Error('session not found: ' + sid);
+	}
+
+	log.info("eanew embed page, referer url: " + gwan.getHeader('referer') + " cid="+ session.casino + " sid=" + sid + " ip=" + Utils.getRemoteIp());
+
+	//check if the session already contains 'state'
+	//if it does then it means that the player is re-entering the 
+	//client with a pending game round. Then we must delete 'seq' 
+	//so that the game round will be restarted from scratch (resume/replay))
+	GsHelper.restartGameRound(session);
+
+	var game = APIHelper.getGameAndCheckIfItIsEnabledForCasino(session.game, session.casino);
+	var config = Game.getConfigForGameClient(game, session);	
+	
+	if(typeof(session.gameConfig.cocosVersionPath) != "undefined"){
+		session.gameConfig.versionPath = session.gameConfig.cocosVersionPath;
+		//this is used to turn gw games into cocos games seamlessly
+	}
+	
+	var cdnUrl = Utils.throwIfCountryCodeIsNotAllowedOrReturnCDNUrl(session);
+	
+	var gameAlias = game.alias;
+	
+	var gameName = game.name;
+	
+	var allowForcing = (GsHelper.isOutcomeForcingAllowed(session) ? 'true':'false');
+	
+	var vp = session.gameConfig.versionPath ? session.gameConfig.versionPath : '';		
+
+	config['demo'] = session.demo;
+	
+	config["allowForcing"] = GsHelper.isOutcomeForcingAllowed(session) ? true : false;
+	
+	/*var gameArgs = JSON.stringify({
+		token: sid,
+		service: RequestController.getBaseUrl()+'/engine',
+		config: config
+	});/**/
+	
+	//var vp = config['versionPath'];
+	
+	var baseUrl =  cdnUrl + '/eanew/games/' + (vp ? vp : '');
+	// delete below comment if locally playing on vm 
+	//var baseUrl =  "http://127.0.0.2" + '/eanew/games/pack/' + (vp ? vp : '');
+	
+	var gameApi = '/'+RequestController.getBaseUrl()+'/engine';
+
+} catch (e)
+{
+	error = e.message;		
+}
+
+?>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1, minimum-scale=1,maximum-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="renderer" content="webkit" />
+    <meta name="force-rendering" content="webkit" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="msapplication-tap-highlight" content="no">
+    <meta name="full-screen" content="yes" />
+    <meta name="x5-fullscreen" content="true" />
+    <meta name="360-fullscreen" content="true" />
+    <meta name="screen-orientation" content="landscape" />
+    <meta name="x5-orientation" content="landscape">
+    <meta name="x5-page-mode" content="app">
+    <style> body { margin: 0; background: #000000; } * {	outline: none;	}</style>
+    <title><?=game.name?></title>
+	<script src="/gw/js/jquery-1.7.1.min.js"></script>	 
+	<script src="/gw/js/localize_min.js"></script> 
+	
+	<?js
+		// added to default to locale 'en' 
+		var defaultLocale = 'en';
+		var locale =(typeof(game.locales)!='undefined' && gwan.getArg("locale") && game.locales.indexOf(gwan.getArg("locale"))!=-1)? gwan.getArg("locale") : echo(`<script> replaceQueryArgVal('locale', '${defaultLocale}');</script>`);	
+		if(typeof(config.locale) == 'undefined')config.locale = locale;
+	
+		var gameArgs = JSON.stringify({
+			token: sid,
+			service: RequestController.getBaseUrl()+'/engine',
+			config: config
+		});
+	?>
+
+	<?js if (typeof(session) != 'undefined' && session != null && typeof(session.gameConfig.beforeGameEmbedHeadInclude)!='undefined') {
+		requireOnce(session.gameConfig.beforeGameEmbedHeadInclude);   
+	} ?>
+</head>
+
+<body>
+    <canvas id="GameCanvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+
+    <!-- INVISIBLE ENGINE: our renderer builds its own canvas, so it needs an element to build
+         INTO and cannot mount into the <canvas> above. Sized inline so your <style> block is
+         untouched - an unsized container is zero pixels high and the game draws nothing.
+         The <canvas> above is left in place in case your adapter or tournament scripts
+         reference it; it is unused by us and yours to remove. -->
+    <div id="game" style="position:fixed;inset:0"></div>
+    <script>        
+        var params = {
+            UrlGame: "<?=baseUrl?><?=gameAlias?>",
+            UrlHistory: "/rgs/history?sid=<?=gwan.getArg("sid")?>&type=gamerounds&max=1000&order=desc",
+            GameAPI: "<?=gameApi?>?sid=<?=gwan.getArg("sid")?>",
+            GameSettings: JSON.parse('<?=gameArgs?>'),
+			RemoteID: "<?=session && session.remoteId ? session.remoteId : ""?>",
+            TournUrl: "/testrgs/tournaments.js?sid=<?=gwan.getArg("sid")?>&withRanks=1&withDesc=1",
+            TournRankUrl: "/testrgs/tournaments.js?sid=<?=gwan.getArg("sid")?>&withRanks=1&offset={offset}&count={count}",
+            TournRedirectUrl: "<?=gwan.getArg("redirecturl") ? gwan.getArg("redirecturl") : ""?>",
+            TournLocale: "<?=locale ? locale : defaultLocale?>",
+            WithTourn: "<?=gwan.getArg("withtourn") ? gwan.getArg("withtourn") : false?>",
+            TournName: "<?=gwan.getArg("tournname") ? gwan.getArg("tournname") : ""?>",
+            TournRankLimit: 100
+        }
+        // INVISIBLE ENGINE: BaseGameLoader.InitGame(params, "Slot", "Hyper") was here. Our game
+        // boots itself and reads params.GameSettings (token / service / config) straight off this
+        // page, so there is no loader callback to hook. `params` above is otherwise unchanged -
+        // your tournament and adapter scripts keep every field they use.
+    </script>
+	<?js if (typeof(session) != 'undefined' && session != null && typeof(session.casinoConfig.adapterJsUrl)!='undefined') { ?>
+		<script type="text/javascript" src='<?=session.casinoConfig.adapterJsUrl?>'></script>
+	<?js } ?>
+	<?js if (typeof(session) != 'undefined' && session != null && typeof(session.gameConfig.customJs)!='undefined') { ?>
+		<script src="/gw/js/<?=session.gameConfig.customJs?>"></script>					
+	<?js } ?>
+	<?js if ((gwan.getArg("locale") == 'lt')||(config.locale == 'lt')) {?>
+		<script src="/gw/js/clock_min.js?v2"></script>
+	<?js } ?>
+
+    <!-- INVISIBLE ENGINE: replaces <script src="<?=baseUrl?>../../shared/play4fun-js-min.js?v=1"
+         onload="baseScriptLoaded()">. Same position, same job: this is the game. The path is the
+         {baseUrl}{gameAlias} folder you already compose for UrlGame. -->
+    <script charset="utf-8" src="<?=baseUrl?><?=gameAlias?>/game.js"></script>
+    <!-- Put it to end of the body-->
+    <script data-app="tournament"
+               data-locale-url="<?=cdnUrl?>/../../web/locales/v12/locale-"   
+               data-css-url="<?=cdnUrl?>/../../web/tournament/v29/assets/css/main.css" 	   
+               src="<?=cdnUrl?>/../../web/tournament/v29/tournament-bundle.min.js"></script>	
+</body>
+
+</html>
