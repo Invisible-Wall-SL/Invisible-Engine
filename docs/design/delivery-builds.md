@@ -326,10 +326,30 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 
 ### The artifact
 
-`game.js` at the root, `_app/` and `assets/` beside it. Drop it at
+`game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
+part of the runtime: `EMBED.md` (the contract) and `example.html` (a worked host page). Drop it at
 `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
 `PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
 `index.html`.
+
+**`example.html` is an example, not a page we serve** (added 2026-09-24, because the partner asked
+for "the HTML" and prose alone had not answered it). It is generated from the baked profile like
+`EMBED.md`, and it exists because three parts of the contract can each be got subtly wrong and only
+discovered at runtime: `window.params` must be assigned **before** the script tag, the container
+needs a **size** (an unstyled `<div>` is zero-high, so the game mounts and draws nothing, which
+reads as a broken build), and the script must stay a classic `<script src>`.
+
+It is deliberately **not** named `index.html` — that name is what a CDN hands out for the folder
+itself, which is the exact hazard the SvelteKit shell is deleted to avoid. `example.html` is
+reachable when you go looking for it and inert when you do not.
+
+Its `config` block lists **only keys the engine actually reads** (`betMultipliers`,
+`initialBetMultiplierIndex`, `enableTurbo`, `allowOutcomeBuy`, `showTheoreticalPayback`,
+`balanceUpdateInterval`). An example is read as a contract, so a field in it that we ignore is a
+promise we did not make — note that `serve-embed.mjs`'s fake operator page also sets
+`allowAutoplay`, `currencySymbol` and `versionPath`, which **nothing reads**. Harmless in our own
+harness, misleading in a partner's hands, so they are not copied. The generator's header names each
+key's reader, because this list rots the moment someone adds a host-config consumer.
 
 **Verified 2026-09-17** against a harness that serves the page at `/partner/` and the game at
 `/cdn/eanew/games/v1.0/BookOfBetOptions/`, i.e. paths that share nothing, so a document-relative URL
