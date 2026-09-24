@@ -393,6 +393,15 @@ BookOfBorut.zip
 
 **No `index.html` ships either.** The SvelteKit shell is still deleted and nothing replaces it.
 
+**Nothing that is source may leave with the upload.** `embed.html` was one instance of that hazard;
+the general guard is a hard failure in `build-delivery.mjs` if the delivery folder contains `.ts`,
+`.tsx`, `.svelte`, `.map` or `.env`. `static/` is copied into a build wholesale, so a stray file
+dropped there — a config kept "for reference", a scratch file — reaches the CDN with no step in
+between that would notice. `.map` is the likelier accident and the worst one: a sourcemap is the
+whole of our source, and `config-vite` disables it only for a non-dev build. It refuses rather than
+warns, because a delivery is handed over once and a warning in a build log is read after the zip
+has gone.
+
 **The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
 operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server
 declares one, so there is no "our real ladder" to put in the example and a list presented as one

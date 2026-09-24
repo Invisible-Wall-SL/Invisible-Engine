@@ -48,7 +48,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { isStandaloneGame } from '../packages/config-svelte/appSrc.js';
 import { zipDir } from './zip-dir.mjs';
@@ -285,14 +285,17 @@ const run = (command, args, env, { shell = process.platform === 'win32' } = {}) 
 	}
 };
 
+/** Every file under `dir`, absolute. Hoisted out of `measure` because the delivery is walked
+ *  twice — once to size it, once to refuse anything that is source. */
+const walkFiles = (dir) =>
+	readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const full = join(dir, entry.name);
+		return entry.isDirectory() ? walkFiles(full) : [full];
+	});
+
 /** How many files are under `dir`, and how many bytes they come to. */
 const measure = (dir) => {
-	const walk = (current) =>
-		readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
-			const full = join(current, entry.name);
-			return entry.isDirectory() ? walk(full) : [full];
-		});
-	const files = walk(dir);
+	const files = walkFiles(dir);
 	return {
 		fileCount: files.length,
 		bytes: files.reduce((total, file) => total + statSync(file).size, 0),
@@ -529,6 +532,32 @@ try {
 	// at `/webnode/views/eanew/embed.html` on the application server, which is not the CDN at all.
 	const hostPagePath = resolve(dirname(final), HOST_PAGE_FILE);
 	cpSync(HOST_PAGE_TEMPLATE, hostPagePath);
+
+	// NOTHING THAT IS SOURCE MAY LEAVE WITH THE UPLOAD.
+	//
+	// A delivery folder goes to a partner's CDN, which serves whatever is in it as bytes. The
+	// partner's own `embed.html` was one instance of that hazard; this is the general guard, because
+	// the next one will not arrive by the same route. `static/` is copied into a build wholesale, so
+	// a stray `.ts` dropped there — a config kept "for reference", a scratch file — reaches the CDN
+	// with no step in between that would notice.
+	//
+	// `.map` is in the list for the same reason and is the likelier accident: a sourcemap is the
+	// whole of our source, `config-vite` disables it only for a non-dev build, and one env var set
+	// the wrong way would publish the engine.
+	//
+	// A hard failure, not a warning. Everything else here refuses rather than repairs, and a
+	// delivery is handed over once — a warning in a build log is read after the zip has gone.
+	const LEAKY = ['.ts', '.tsx', '.svelte', '.map', '.env'];
+	const leaked = walkFiles(final).filter((file) =>
+		LEAKY.some((ext) => file.toLowerCase().endsWith(ext)),
+	);
+	if (leaked.length) {
+		throw new Error(
+			`${final} contains source files a CDN would serve verbatim:\n` +
+				leaked.map((file) => `  ${relative(final, file).split(sep).join('/')}`).join('\n') +
+				`\nA delivery is built output only. Move them out of the game's static/ folder.`,
+		);
+	}
 
 	const { fileCount, bytes } = measure(final);
 
