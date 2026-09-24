@@ -338,8 +338,14 @@ const embedDoc = (baked) => {
 		'',
 		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${new Date().toISOString().slice(0, 10)}`,
 		'',
-		`The game is \`${ENTRY_FILE}\`. \`${HOST_PAGE_FILE}\` in this folder is **your own embed`,
-		'template with our game in place of the one it used to load** — three edits, each marked',
+		'**Two destinations, and they are not the same server.** This folder is the CDN upload; the',
+		`\`${HOST_PAGE_FILE}\` beside it (at the root of the zip, OUTSIDE this folder) belongs on your`,
+		'application server, where your session API already serves it from `/webnode/views/eanew/`.',
+		'It is deliberately not inside the upload: a CDN does not execute `<?js ?>`, so serving it',
+		'from there would publish your own session, Redis and admin code as plain text.',
+		'',
+		`The game is \`${ENTRY_FILE}\`. \`${HOST_PAGE_FILE}\` is **your own embed template with our`,
+		'game in place of the one it used to load** — three edits, each marked',
 		'`INVISIBLE ENGINE:` in the file. Diff it against the copy on your server and only the',
 		'game-loading mechanism moves; every `<?js ?>` block, the session lookup, the adapter and',
 		'custom-JS includes and the tournament bundle are byte-identical.',
@@ -377,8 +383,8 @@ const embedDoc = (baked) => {
 		'',
 		'## 2. The two lines that load the game',
 		'',
-		`Already applied in \`${HOST_PAGE_FILE}\`; repeated here because they are the whole of the`,
-		'integration:',
+		`Already applied in the \`${HOST_PAGE_FILE}\` at the zip root; repeated here because they are`,
+		'the whole of the integration:',
 		'',
 		'```html',
 		`<div id="${CONTAINER_ID}"></div>`,
@@ -516,7 +522,12 @@ try {
 			`No host page template at ${HOST_PAGE_TEMPLATE} — the engine checkout is incomplete.`,
 		);
 	}
-	const hostPagePath = resolve(final, HOST_PAGE_FILE);
+	// BESIDE the delivery folder, never inside it. `final/` is uploaded to the CDN wholesale, and a
+	// CDN does not execute `<?js ?>` — it serves the bytes. Shipped inside, this template would
+	// publish the partner's OWN server-side source (their session lookup, their Redis calls, their
+	// admin launch branch) as plain text at a guessable URL. Their session API puts the real thing
+	// at `/webnode/views/eanew/embed.html` on the application server, which is not the CDN at all.
+	const hostPagePath = resolve(dirname(final), HOST_PAGE_FILE);
 	cpSync(HOST_PAGE_TEMPLATE, hostPagePath);
 
 	const { fileCount, bytes } = measure(final);
@@ -524,7 +535,12 @@ try {
 	let zip = null;
 	if (wantZip) {
 		const zipPath = resolve(dirname(final), `${alias}.zip`);
-		const { files, bytes: zipBytes } = zipDir(final, zipPath, { root: alias });
+		const { files, bytes: zipBytes } = zipDir(final, zipPath, {
+			root: alias,
+			// At the archive ROOT, outside `alias/`, so the unzip shows what goes where: the
+			// folder is the CDN upload, the page beside it is the app-server patch.
+			extra: [{ name: HOST_PAGE_FILE, file: hostPagePath }],
+		});
 		zip = { path: zipPath, files, bytes: zipBytes };
 	}
 
@@ -586,7 +602,7 @@ try {
 			`    ${final}\n` +
 			`    ${fileCount} files, ${mb(bytes)}\n` +
 			`    contract: ${docPath}\n` +
-			`    page:     ${hostPagePath}\n` +
+			`    page:     ${hostPagePath}  (their app server — NOT the CDN upload)\n` +
 			(zip ? `    zip:      ${zip.path}  (${mb(zip.bytes)})\n` : '') +
 			(jsonOut ? `    result:   ${resolve(gameRoot, jsonOut)}\n` : '') +
 			`\n  Play it the way their page will:\n` +
