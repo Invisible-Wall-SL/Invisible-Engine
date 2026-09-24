@@ -328,8 +328,8 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 ### The artifact
 
 `game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
-part of the runtime: `EMBED.md` (the contract) and `embed.html` (the partner's own host page,
-with our game swapped in for theirs). Drop it at
+part of the runtime: `EMBED.md` (the contract). `embed.html` sits BESIDE the folder, not in it
+(see below). Drop the folder at
 `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
 `PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
 `index.html`.
@@ -372,9 +372,35 @@ Two things their template confirmed we had right: `GameSettings` is `{token, ser
 `service` carries no leading slash (`RequestController.getBaseUrl()+'/engine'`), which is what
 `hostServicePath()` already assumed.
 
-**No `index.html` ships.** The SvelteKit shell is still deleted; nothing replaces it. A second page
-in the folder setting a placeholder session was the thing most likely to be served by accident, and
-`embed.html` is not a name a bare folder URL hands out.
+**`embed.html` ships BESIDE the CDN folder, never inside it** (2026-09-24). The delivery folder is
+uploaded to the CDN wholesale, and a CDN does not execute `<?js ?>` — it serves the bytes. Shipped
+inside, their own template would publish their session lookup, their Redis calls and their admin
+launch branch as plain text at a guessable URL. Their session API settles where it really belongs:
+`game_url` is `https://gs.2-complex.science/webnode/views/eanew/embed.html?sid=…`, i.e. the
+application server, which is not the CDN at all.
+
+So `zipDir` grew an `extra` option and the archive states the split by its shape:
+
+```
+BookOfBorut.zip
+├── embed.html          ← their application server (/webnode/views/eanew/)
+└── BookOfBorut/        ← the CDN upload ({cdn}/eanew/games/{versionPath}/)
+    ├── game.js
+    ├── _app/
+    ├── assets/
+    └── EMBED.md
+```
+
+**No `index.html` ships either.** The SvelteKit shell is still deleted and nothing replaces it.
+
+**Nothing that is source may leave with the upload.** `embed.html` was one instance of that hazard;
+the general guard is a hard failure in `build-delivery.mjs` if the delivery folder contains `.ts`,
+`.tsx`, `.svelte`, `.map` or `.env`. `static/` is copied into a build wholesale, so a stray file
+dropped there — a config kept "for reference", a scratch file — reaches the CDN with no step in
+between that would notice. `.map` is the likelier accident and the worst one: a sourcemap is the
+whole of our source, and `config-vite` disables it only for a non-dev build. It refuses rather than
+warns, because a delivery is handed over once and a warning in a build log is read after the zip
+has gone.
 
 **The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
 operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server

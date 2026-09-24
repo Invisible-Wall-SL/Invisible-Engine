@@ -80,11 +80,23 @@ const walk = (dir, base = dir) =>
  *
  * Returns `{ files, bytes }` — the entry count and the size of the archive on disk.
  */
-export const zipDir = (sourceDir, outFile, { root = '' } = {}) => {
-	const names = walk(sourceDir);
-	if (names.length > MAX_ENTRIES) {
+export const zipDir = (sourceDir, outFile, { root = '', extra = [] } = {}) => {
+	// Zip paths are always `/`-separated, whatever the host filesystem calls a separator.
+	const entries = [
+		...walk(sourceDir).map((name) => {
+			const posix = name.split(sep).join('/');
+			return { zipPath: root ? `${root}/${posix}` : posix, file: join(sourceDir, name) };
+		}),
+		// ABOVE `root`, not inside it — `extra` is for files that travel WITH the upload but must
+		// not be part of it. The partner's `embed.html` is the case: it belongs on their
+		// application server, and a CDN that served it would be publishing their own server-side
+		// source as plain text.
+		...extra.map(({ name, file }) => ({ zipPath: name, file })),
+	];
+
+	if (entries.length > MAX_ENTRIES) {
 		throw new Error(
-			`${sourceDir} has ${names.length} files; a non-zip64 archive holds ${MAX_ENTRIES}.`,
+			`${sourceDir} has ${entries.length} files; a non-zip64 archive holds ${MAX_ENTRIES}.`,
 		);
 	}
 
@@ -92,13 +104,9 @@ export const zipDir = (sourceDir, outFile, { root = '' } = {}) => {
 	const central = [];
 	let offset = 0;
 
-	for (const name of names) {
-		const full = join(sourceDir, name);
+	for (const { zipPath, file: full } of entries) {
 		const body = readFileSync(full);
-
-		// Zip paths are always `/`-separated, whatever the host filesystem calls a separator.
-		const posix = name.split(sep).join('/');
-		const nameBuf = Buffer.from(root ? `${root}/${posix}` : posix, 'utf8');
+		const nameBuf = Buffer.from(zipPath, 'utf8');
 
 		const deflated = deflateRawSync(body, { level: 9 });
 		const shrank = deflated.length < body.length;
@@ -163,13 +171,13 @@ export const zipDir = (sourceDir, outFile, { root = '' } = {}) => {
 	eocd.writeUInt32LE(EOCD_SIG, 0);
 	eocd.writeUInt16LE(0, 4);
 	eocd.writeUInt16LE(0, 6);
-	eocd.writeUInt16LE(names.length, 8);
-	eocd.writeUInt16LE(names.length, 10);
+	eocd.writeUInt16LE(entries.length, 8);
+	eocd.writeUInt16LE(entries.length, 10);
 	eocd.writeUInt32LE(directory.length, 12);
 	eocd.writeUInt32LE(offset, 16);
 	eocd.writeUInt16LE(0, 20);
 
 	const archive = Buffer.concat([...local, directory, eocd]);
 	writeFileSync(outFile, archive);
-	return { files: names.length, bytes: archive.length };
+	return { files: entries.length, bytes: archive.length };
 };

@@ -48,7 +48,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { isStandaloneGame } from '../packages/config-svelte/appSrc.js';
 import { zipDir } from './zip-dir.mjs';
@@ -285,14 +285,17 @@ const run = (command, args, env, { shell = process.platform === 'win32' } = {}) 
 	}
 };
 
+/** Every file under `dir`, absolute. Hoisted out of `measure` because the delivery is walked
+ *  twice — once to size it, once to refuse anything that is source. */
+const walkFiles = (dir) =>
+	readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const full = join(dir, entry.name);
+		return entry.isDirectory() ? walkFiles(full) : [full];
+	});
+
 /** How many files are under `dir`, and how many bytes they come to. */
 const measure = (dir) => {
-	const walk = (current) =>
-		readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
-			const full = join(current, entry.name);
-			return entry.isDirectory() ? walk(full) : [full];
-		});
-	const files = walk(dir);
+	const files = walkFiles(dir);
 	return {
 		fileCount: files.length,
 		bytes: files.reduce((total, file) => total + statSync(file).size, 0),
@@ -338,8 +341,14 @@ const embedDoc = (baked) => {
 		'',
 		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${new Date().toISOString().slice(0, 10)}`,
 		'',
-		`The game is \`${ENTRY_FILE}\`. \`${HOST_PAGE_FILE}\` in this folder is **your own embed`,
-		'template with our game in place of the one it used to load** — three edits, each marked',
+		'**Two destinations, and they are not the same server.** This folder is the CDN upload; the',
+		`\`${HOST_PAGE_FILE}\` beside it (at the root of the zip, OUTSIDE this folder) belongs on your`,
+		'application server, where your session API already serves it from `/webnode/views/eanew/`.',
+		'It is deliberately not inside the upload: a CDN does not execute `<?js ?>`, so serving it',
+		'from there would publish your own session, Redis and admin code as plain text.',
+		'',
+		`The game is \`${ENTRY_FILE}\`. \`${HOST_PAGE_FILE}\` is **your own embed template with our`,
+		'game in place of the one it used to load** — three edits, each marked',
 		'`INVISIBLE ENGINE:` in the file. Diff it against the copy on your server and only the',
 		'game-loading mechanism moves; every `<?js ?>` block, the session lookup, the adapter and',
 		'custom-JS includes and the tournament bundle are byte-identical.',
@@ -377,8 +386,8 @@ const embedDoc = (baked) => {
 		'',
 		'## 2. The two lines that load the game',
 		'',
-		`Already applied in \`${HOST_PAGE_FILE}\`; repeated here because they are the whole of the`,
-		'integration:',
+		`Already applied in the \`${HOST_PAGE_FILE}\` at the zip root; repeated here because they are`,
+		'the whole of the integration:',
 		'',
 		'```html',
 		`<div id="${CONTAINER_ID}"></div>`,
@@ -516,15 +525,51 @@ try {
 			`No host page template at ${HOST_PAGE_TEMPLATE} — the engine checkout is incomplete.`,
 		);
 	}
-	const hostPagePath = resolve(final, HOST_PAGE_FILE);
+	// BESIDE the delivery folder, never inside it. `final/` is uploaded to the CDN wholesale, and a
+	// CDN does not execute `<?js ?>` — it serves the bytes. Shipped inside, this template would
+	// publish the partner's OWN server-side source (their session lookup, their Redis calls, their
+	// admin launch branch) as plain text at a guessable URL. Their session API puts the real thing
+	// at `/webnode/views/eanew/embed.html` on the application server, which is not the CDN at all.
+	const hostPagePath = resolve(dirname(final), HOST_PAGE_FILE);
 	cpSync(HOST_PAGE_TEMPLATE, hostPagePath);
+
+	// NOTHING THAT IS SOURCE MAY LEAVE WITH THE UPLOAD.
+	//
+	// A delivery folder goes to a partner's CDN, which serves whatever is in it as bytes. The
+	// partner's own `embed.html` was one instance of that hazard; this is the general guard, because
+	// the next one will not arrive by the same route. `static/` is copied into a build wholesale, so
+	// a stray `.ts` dropped there — a config kept "for reference", a scratch file — reaches the CDN
+	// with no step in between that would notice.
+	//
+	// `.map` is in the list for the same reason and is the likelier accident: a sourcemap is the
+	// whole of our source, `config-vite` disables it only for a non-dev build, and one env var set
+	// the wrong way would publish the engine.
+	//
+	// A hard failure, not a warning. Everything else here refuses rather than repairs, and a
+	// delivery is handed over once — a warning in a build log is read after the zip has gone.
+	const LEAKY = ['.ts', '.tsx', '.svelte', '.map', '.env'];
+	const leaked = walkFiles(final).filter((file) =>
+		LEAKY.some((ext) => file.toLowerCase().endsWith(ext)),
+	);
+	if (leaked.length) {
+		throw new Error(
+			`${final} contains source files a CDN would serve verbatim:\n` +
+				leaked.map((file) => `  ${relative(final, file).split(sep).join('/')}`).join('\n') +
+				`\nA delivery is built output only. Move them out of the game's static/ folder.`,
+		);
+	}
 
 	const { fileCount, bytes } = measure(final);
 
 	let zip = null;
 	if (wantZip) {
 		const zipPath = resolve(dirname(final), `${alias}.zip`);
-		const { files, bytes: zipBytes } = zipDir(final, zipPath, { root: alias });
+		const { files, bytes: zipBytes } = zipDir(final, zipPath, {
+			root: alias,
+			// At the archive ROOT, outside `alias/`, so the unzip shows what goes where: the
+			// folder is the CDN upload, the page beside it is the app-server patch.
+			extra: [{ name: HOST_PAGE_FILE, file: hostPagePath }],
+		});
 		zip = { path: zipPath, files, bytes: zipBytes };
 	}
 
@@ -586,7 +631,7 @@ try {
 			`    ${final}\n` +
 			`    ${fileCount} files, ${mb(bytes)}\n` +
 			`    contract: ${docPath}\n` +
-			`    page:     ${hostPagePath}\n` +
+			`    page:     ${hostPagePath}  (their app server — NOT the CDN upload)\n` +
 			(zip ? `    zip:      ${zip.path}  (${mb(zip.bytes)})\n` : '') +
 			(jsonOut ? `    result:   ${resolve(gameRoot, jsonOut)}\n` : '') +
 			`\n  Play it the way their page will:\n` +
