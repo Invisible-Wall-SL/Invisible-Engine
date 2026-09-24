@@ -326,10 +326,39 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 
 ### The artifact
 
-`game.js` at the root, `_app/` and `assets/` beside it. Drop it at
+`game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
+part of the runtime: `EMBED.md` (the contract) and `example.html` (a worked host page). Drop it at
 `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
 `PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
 `index.html`.
+
+**`example.html` is an example, not a page we serve** (added 2026-09-24, because the partner asked
+for "the HTML" and prose alone had not answered it). It is generated from the baked profile like
+`EMBED.md`, and it exists because three parts of the contract can each be got subtly wrong and only
+discovered at runtime: `window.params` must be assigned **before** the script tag, the container
+needs a **size** (an unstyled `<div>` is zero-high, so the game mounts and draws nothing, which
+reads as a broken build), and the script must stay a classic `<script src>`.
+
+It is deliberately **not** named `index.html` — that name is what a CDN hands out for the folder
+itself, which is the exact hazard the SvelteKit shell is deleted to avoid. `example.html` is
+reachable when you go looking for it and inert when you do not.
+
+**The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
+operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server
+declares one, so there is no "our real ladder" to put in the example and a list presented as one
+would be a fabricated contract. What the example states instead is the identity that makes a ladder
+checkable, `total stake = betOptions[x] × M`, plus a worked figure from the real Play4Fun capture:
+with `betOptions: [10, 1000]` at denom `0.01`, `M = 4` is a `0.40` base spin and a `40.00` buy. The
+shipped ladder opens on that rung, so the one number in the block that is real is the captured one,
+and the surrounding list is labelled as the operator's to replace.
+
+Its `config` block otherwise lists **only keys the engine actually reads** (`betMultipliers`,
+`initialBetMultiplierIndex`, `enableTurbo`, `allowOutcomeBuy`, `showTheoreticalPayback`,
+`balanceUpdateInterval`). An example is read as a contract, so a field in it that we ignore is a
+promise we did not make — note that `serve-embed.mjs`'s fake operator page also sets
+`allowAutoplay`, `currencySymbol` and `versionPath`, which **nothing reads**. Harmless in our own
+harness, misleading in a partner's hands, so they are not copied. The generator's header names each
+key's reader, because this list rots the moment someone adds a host-config consumer.
 
 **Verified 2026-09-17** against a harness that serves the page at `/partner/` and the game at
 `/cdn/eanew/games/v1.0/BookOfBetOptions/`, i.e. paths that share nothing, so a document-relative URL
