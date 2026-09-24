@@ -16,8 +16,8 @@
  *
  * WHAT A DELIVERY BUILD IS, AND HOW IT DIFFERS FROM `pnpm build`:
  *
- *   PUBLIC_DELIVERY_EMBED=1     stop inlining the bundle into an index.html. A delivery has no
- *                               index.html — their server-rendered page includes our `game.js`.
+ *   PUBLIC_DELIVERY_EMBED=1     stop inlining the bundle into the page. A delivery ships game.js
+ *                               plus a host page that includes it, not one inlined blob.
  *   PUBLIC_DELIVERY_PROFILE     bake which RGS this build belongs to. `operator-embed` names no host
  *                               at all, because the operator's own page is the origin.
  *   PUBLIC_RGS_TRANSPORT        the Play4Fun facade instead of the stock transport.
@@ -73,14 +73,29 @@ const CONTAINER_ID = 'game';
 const ENTRY_FILE = 'game.js';
 
 /**
- * The worked host page shipped for the partner's integrator to copy.
+ * The partner's own embed page, with our game swapped in for theirs.
  *
- * DELIBERATELY NOT `index.html`. That name is what a CDN serves for the folder itself, which is the
- * exact hazard the shell is deleted to avoid further down: a URL that loads our game outside their
- * page, fails the session check, and reads as our bug. A name nobody requests by accident is
- * reachable when you go looking for it and inert when you do not.
+ * NOT A PAGE WE INVENTED, AND NOT ONE WE GENERATE. It is THEIR G-WAN template — `<?js ?>` blocks,
+ * `gwan.getArg`, Redis session lookups, their tournament bundle — which they gave us. Everything a
+ * delivery could want to vary is already a server-side expression in it (`<?=baseUrl?>`,
+ * `<?=gameAlias?>`, the `config` their own RGS composes), so it is byte-identical for every game
+ * and every profile. Generating it from the baked profile would add nothing and could only drift
+ * from the file they actually run.
+ *
+ * So it is VENDORED at `scripts/templates/embed.html` and copied. Three edits mark themselves
+ * `INVISIBLE ENGINE:` in the file; `diff` it against theirs and only the game-loading mechanism
+ * moves.
+ *
+ * THE NAME IS THEIRS. It is `embed.html` because that is what they call it. A static `index.html`
+ * of our own was shipped for one afternoon and removed: their server renders this page, and a
+ * second page in the folder setting a placeholder session is the one most likely to get served by
+ * accident. Not being `index.html` also means a bare folder URL does not hand it out.
  */
-const EXAMPLE_FILE = 'example.html';
+const HOST_PAGE_FILE = 'embed.html';
+
+/** The vendored copy. Beside the script that ships it, not in `packages/`, because nothing imports
+ *  it — it is an artifact to copy, not a module to build. */
+const HOST_PAGE_TEMPLATE = resolve(ENGINE_ROOT, 'scripts/templates', HOST_PAGE_FILE);
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
@@ -323,14 +338,26 @@ const embedDoc = (baked) => {
 		'',
 		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${new Date().toISOString().slice(0, 10)}`,
 		'',
-		'This folder is **not a website**. There is no `index.html`: your page includes',
-		`\`${ENTRY_FILE}\` and the game mounts into a container you provide. Opening the folder`,
-		'directly will not boot it — that is deliberate, not a fault.',
+		`The game is \`${ENTRY_FILE}\`. \`${HOST_PAGE_FILE}\` in this folder is **your own embed`,
+		'template with our game in place of the one it used to load** — three edits, each marked',
+		'`INVISIBLE ENGINE:` in the file. Diff it against the copy on your server and only the',
+		'game-loading mechanism moves; every `<?js ?>` block, the session lookup, the adapter and',
+		'custom-JS includes and the tournament bundle are byte-identical.',
 		'',
-		`A complete worked page ships as \`${EXAMPLE_FILE}\` — the whole of §2 and §3 below, in one`,
-		'file you can open and diff against your own. It is an **example to copy, not a page to**',
-		'**serve**: nothing loads it, and it is named so your CDN will never hand it out as the',
-		'folder index. Delete it before publishing if you would rather it did not ship at all.',
+		'**The three edits:**',
+		'',
+		'| # | Was | Is |',
+		'| --- | --- | --- |',
+		`| 1 | — | a \`<div id="${CONTAINER_ID}">\` beside your \`<canvas>\` |`,
+		'| 2 | `BaseGameLoader.InitGame(params, "Slot", "Hyper")` | removed — our game boots itself |',
+		`| 3 | \`<script src=…/shared/play4fun-js-min.js>\` | \`<script src="<?=baseUrl?><?=gameAlias?>/${ENTRY_FILE}">\` |`,
+		'',
+		'Why the `<div>`: our renderer builds its **own** canvas and needs an element to build into,',
+		'so it cannot mount into `GameCanvas`. Yours is left in the page untouched in case your',
+		'adapter or tournament scripts reference it — it is unused by us and yours to remove.',
+		'',
+		'`params` is unchanged, and we read only `GameSettings` out of it. Every other field',
+		'(`UrlGame`, `UrlHistory`, `TournUrl`, `RemoteID`, …) is still there for your own scripts.',
 		'',
 		'## 1. Where the folder goes',
 		'',
@@ -348,7 +375,10 @@ const embedDoc = (baked) => {
 		`\`${ENTRY_FILE}\`'s own URL, so the whole folder can move per release — which is what makes`,
 		'`versionPath` work as your cache-buster.',
 		'',
-		'## 2. The two lines for your page',
+		'## 2. The two lines that load the game',
+		'',
+		`Already applied in \`${HOST_PAGE_FILE}\`; repeated here because they are the whole of the`,
+		'integration:',
 		'',
 		'```html',
 		`<div id="${CONTAINER_ID}"></div>`,
@@ -365,9 +395,10 @@ const embedDoc = (baked) => {
 		'',
 		'Include it as a plain `<script src>` — **not** `type="module"`.',
 		'',
-		'## 3. What your page must set first',
+		'## 3. What the page must set first',
 		'',
-		'`window.params`, before the script tag:',
+		'`window.params`, before the script tag — **your template already does this**, and the shape',
+		'below is the part of it we read:',
 		'',
 		'```js',
 		'var params = {',
@@ -386,9 +417,22 @@ const embedDoc = (baked) => {
 		}`,
 		'- **`service`** — the RGS path, resolved against your page. It must be a **path**: anything',
 		`  carrying a scheme or a \`//host\` is refused and \`${endpoint}\` is used instead.`,
-		'- **`config`** — your brand settings (bet ladder, jurisdiction flags). Fields we do',
-		`  not recognise are ignored, so adding one is safe. \`${EXAMPLE_FILE}\` lists every key this`,
-		'  build actually reads, with what each one does.',
+		'- **`config`** — what `Game.getConfigForGameClient` composes. Fields we do not recognise are',
+		'  ignored, so adding one is safe. These are the ones this build **reads**:',
+		'',
+		'  | Key | Type | Effect |',
+		'  | --- | --- | --- |',
+		'  | `betMultipliers` | `number[]` | the bet ladder: total stake = `betOptions[x] × M` |',
+		'  | `initialBetMultiplierIndex` | `number` | which rung the game opens on |',
+		'  | `enableTurbo` | `boolean` | false disables turbo |',
+		'  | `allowOutcomeBuy` | `boolean` | false hides the buy-feature button |',
+		'  | `showTheoreticalPayback` | `boolean` | true displays RTP |',
+		'  | `balanceUpdateInterval` | `number` | wallet re-poll in ms; clamped to 5000, absent = never |',
+		'',
+		'  A key you omit leaves our default alone — stating `false` is not the same as saying',
+		'  nothing. Please re-confirm the stake identity above against your own figures before',
+		'  launch: a per-line-vs-total misread gives a game that plays correctly with every number',
+		'  wrong.',
 		'',
 		'`params` is read from this window and, failing that, from the parent — so the client may run',
 		'inside a frame your page hosts.',
@@ -396,129 +440,6 @@ const embedDoc = (baked) => {
 		'## 4. How it reaches the RGS',
 		'',
 		...reach,
-		'',
-	].join('\n');
-};
-
-/**
- * A working host page, generated from the profile actually baked.
- *
- * WHY A FILE AND NOT JUST THE SNIPPET IN `EMBED.md`. The contract has three parts an integrator can
- * each get subtly wrong and only discover at runtime: `window.params` has to be set BEFORE the
- * script tag (a `defer`'d or bottom-of-body assignment is too late), the container needs a SIZE (an
- * empty `<div>` is zero-high, so the game mounts and renders nothing — which looks like a broken
- * build, not a missing stylesheet), and the script must stay a classic `<script src>`. Prose can
- * state all three; a file they can open, serve and diff against their own page demonstrates them.
- *
- * THE `config` KEYS ARE THE ONES WE ACTUALLY READ — no more. An example is read as a contract, so a
- * field in here that the engine ignores is a promise we did not make. Current readers, which is
- * where this list must be kept in step:
- *
- *   `betMultipliers`, `initialBetMultiplierIndex`  → `rgs-translator-eagaming/betOptions.ts`
- *   `enableTurbo`, `allowOutcomeBuy`, `showTheoreticalPayback` → `…/engineFacade.ts` (jurisdiction)
- *   `balanceUpdateInterval`                        → `components-shared/Authenticate.svelte`
- *
- * (`serve-embed.mjs`'s fake page also sets `allowAutoplay`, `currencySymbol` and `versionPath`.
- * Nothing reads them. They are harmless there — it is our own harness — and would be misleading
- * here, so they are not copied.)
- */
-const examplePage = (baked) => {
-	const endpoint = typeof baked.rgs?.endpoint === 'string' ? baked.rgs.endpoint : '/webnode/engine';
-	const required = baked.session?.required === true;
-
-	return [
-		'<!doctype html>',
-		'<!--',
-		`  ${alias} — Invisible Engine, profile '${baked.id ?? profile}'.`,
-		'',
-		'  AN EXAMPLE, NOT PART OF THE GAME. Nothing loads this file; it is here to be copied into',
-		'  your own server-rendered page. Delete it before publishing the folder if you prefer.',
-		'',
-		...(required
-			? [
-					'  Opening it as-is will NOT boot: `token` below is a placeholder, and this build',
-					'  refuses to run without a real session rather than falling back to a demo wallet.',
-					'  Substitute a token your RGS minted and serve it from the game folder.',
-					'',
-				]
-			: []),
-		'  The three things worth copying exactly are marked (1) (2) (3).',
-		'-->',
-		'<html lang="en">',
-		'\t<head>',
-		'\t\t<meta charset="utf-8" />',
-		`\t\t<title>${alias}</title>`,
-		'\t\t<meta name="viewport" content="width=device-width, initial-scale=1" />',
-		'',
-		'\t\t<style>',
-		'\t\t\t/* (1) The container needs a size. The game fills whatever box you give it, so an',
-		'\t\t\t   unstyled <div> is zero pixels high and renders nothing at all. */',
-		'\t\t\thtml,',
-		'\t\t\tbody {',
-		'\t\t\t\tmargin: 0;',
-		'\t\t\t\tpadding: 0;',
-		'\t\t\t\theight: 100%;',
-		'\t\t\t\tbackground: #000;',
-		'\t\t\t}',
-		`\t\t\t#${CONTAINER_ID} {`,
-		'\t\t\t\tposition: fixed;',
-		'\t\t\t\tinset: 0;',
-		'\t\t\t}',
-		'\t\t</style>',
-		'',
-		'\t\t<!-- (2) This must run BEFORE the script tag at the bottom. The game reads these once,',
-		'\t\t     at boot, from this window or from the parent if you frame it. -->',
-		'\t\t<script>',
-		'\t\t\twindow.params = {',
-		'\t\t\t\tGameSettings: {',
-		'\t\t\t\t\t// The session your RGS minted. Required — replace it.',
-		"\t\t\t\t\ttoken: 'REPLACE_WITH_SESSION_TOKEN',",
-		'',
-		"\t\t\t\t\t// The RGS path, resolved against THIS page's origin. Must be a path: anything",
-		`\t\t\t\t\t// carrying a scheme or '//host' is refused and '${endpoint}' used instead.`,
-		`\t\t\t\t\tservice: '${endpoint.replace(/^\//, '')}',`,
-		'',
-		'\t\t\t\t\t// Your brand settings. Every key below is one the game reads; unrecognised',
-		'\t\t\t\t\t// keys are ignored, so adding your own is safe. Omit a key to leave the',
-		"\t\t\t\t\t// game's own default alone — stating `false` is not the same as saying nothing.",
-		'\t\t\t\t\tconfig: {',
-		'\t\t\t\t\t\t// The bet ladder — the multipliers a player may pick, and which one the',
-		'\t\t\t\t\t\t// game opens on. THIS LIST IS YOURS: we never declare one, we only read',
-		'\t\t\t\t\t\t// what you send, so the values below are an illustration to replace.',
-		'\t\t\t\t\t\t//',
-		'\t\t\t\t\t\t//   total stake = betOptions[x] * M',
-		'\t\t\t\t\t\t//',
-		'\t\t\t\t\t\t// where `betOptions` is the per-option credit cost your RGS declares in',
-		'\t\t\t\t\t\t// its boot config and M is a rung below. Worked example: with',
-		'\t\t\t\t\t\t// betOptions [10, 1000] at a 0.01 denomination, M = 4 is a 0.40 base spin',
-		'\t\t\t\t\t\t// and a 40.00 buy. Please re-confirm that identity against your own',
-		'\t\t\t\t\t\t// figures before launch — a per-line-vs-total misread gives a game that',
-		'\t\t\t\t\t\t// plays correctly with every number wrong.',
-		'\t\t\t\t\t\tbetMultipliers: [1, 2, 4, 8, 20, 40],',
-		'\t\t\t\t\t\tinitialBetMultiplierIndex: 2,',
-		'',
-		'\t\t\t\t\t\t// Jurisdiction flags — what this launch is licensed to offer.',
-		'\t\t\t\t\t\tenableTurbo: true,',
-		'\t\t\t\t\t\tallowOutcomeBuy: true,',
-		'\t\t\t\t\t\tshowTheoreticalPayback: true,',
-		'',
-		'\t\t\t\t\t\t// How often to re-poll the wallet, in ms. Clamped to 5000 at the low end;',
-		'\t\t\t\t\t\t// omit it entirely and the game never polls.',
-		'\t\t\t\t\t\tbalanceUpdateInterval: 30000,',
-		'\t\t\t\t\t},',
-		'\t\t\t\t},',
-		'\t\t\t};',
-		'\t\t</script>',
-		'\t</head>',
-		'',
-		'\t<body>',
-		`\t\t<div id="${CONTAINER_ID}"></div>`,
-		'',
-		'\t\t<!-- (3) A plain classic script — NOT type="module". In your page the URL is composed',
-		'\t\t     server-side; both the id above and this filename are fixed for every game. -->',
-		`\t\t<script src="${ENTRY_FILE}"></script>`,
-		'\t</body>',
-		'</html>',
 		'',
 	].join('\n');
 };
@@ -559,11 +480,14 @@ try {
 
 	// The shell SvelteKit emits has now been read — `build-embed.mjs` generated `game.js` out of it —
 	// and a delivery must not carry it onward. Embed mode only switches `bundleStrategy`, so the
-	// `index.html` still lands in the build folder, and shipping it would contradict the one thing a
-	// partner is told about this folder: that it is not a site. Left in place it is a URL on their
-	// CDN that loads our game outside their page, fails the session check and looks like our bug.
+	// shell still lands in the build folder, and it is a bundle loader that sets no `window.params`
+	// at all: served on the partner's CDN it boots the game with no session and fails, which reads
+	// as our bug. We overwrite that same name below with a host page that DOES set them.
 	//
-	// Deleted from the DELIVERY copy, after the copy — never from the source build. Everything that
+	// Still a delete rather than a plain overwrite, because the two files are unrelated and the
+	// delete states that: whatever the shell contained is gone, not merged into ours.
+	//
+	// Removed from the DELIVERY copy, after the copy — never from the source build. Everything that
 	// can still fail (the `game.js` check, the profile read, `EMBED.md`, the zip) runs below this
 	// point, and taking the shell out of `build/` would leave that folder permanently unpackageable:
 	// a `--skip-build` retry would then die claiming the build was never an embed build, which by
@@ -581,10 +505,19 @@ try {
 	const docPath = resolve(final, 'EMBED.md');
 	writeFileSync(docPath, embedDoc(baked), 'utf8');
 
-	// Before `measure()` and before the zip, so the example is counted in the summary and actually
-	// travels in the archive — the two ways a generated file silently fails to be delivered.
-	const examplePath = resolve(final, EXAMPLE_FILE);
-	writeFileSync(examplePath, examplePage(baked), 'utf8');
+	// Before `measure()` and before the zip, so the page is counted in the summary and actually
+	// travels in the archive — the two ways a shipped file silently fails to be delivered.
+	//
+	// Checked rather than assumed: this is the one delivery file that is a COPY, so a rename or a
+	// half-applied submodule update takes it away silently, and a handover missing the page that
+	// boots the game is worth failing the build over.
+	if (!existsSync(HOST_PAGE_TEMPLATE)) {
+		throw new Error(
+			`No host page template at ${HOST_PAGE_TEMPLATE} — the engine checkout is incomplete.`,
+		);
+	}
+	const hostPagePath = resolve(final, HOST_PAGE_FILE);
+	cpSync(HOST_PAGE_TEMPLATE, hostPagePath);
 
 	const { fileCount, bytes } = measure(final);
 
@@ -615,7 +548,7 @@ try {
 					entry: ENTRY_FILE,
 					containerId: CONTAINER_ID,
 					embedDoc: docPath,
-					examplePage: examplePath,
+					hostPage: hostPagePath,
 					endpoint,
 					fileCount,
 					bytes,
@@ -653,7 +586,7 @@ try {
 			`    ${final}\n` +
 			`    ${fileCount} files, ${mb(bytes)}\n` +
 			`    contract: ${docPath}\n` +
-			`    example:  ${examplePath}\n` +
+			`    page:     ${hostPagePath}\n` +
 			(zip ? `    zip:      ${zip.path}  (${mb(zip.bytes)})\n` : '') +
 			(jsonOut ? `    result:   ${resolve(gameRoot, jsonOut)}\n` : '') +
 			`\n  Play it the way their page will:\n` +

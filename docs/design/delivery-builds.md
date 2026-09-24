@@ -308,10 +308,11 @@ From the MONOREPO, for the reference game: `pnpm --filter lines build:embed`.
 
 ### Playing one before it ships
 
-A delivery build **cannot be opened**. There is no `index.html`, and it reads its session and RGS
-path from `window.params.GameSettings`, which only the partner's page provides — so it refuses to
-boot anywhere else, correctly. Without a harness the only way to find out whether a delivery works is
-to hand it over and wait.
+A delivery build **cannot be played by opening it**. The `embed.html` it ships is a G-WAN template
+— `<?js ?>` blocks a browser cannot execute — and the session and RGS path come from
+`window.params.GameSettings`, which only the partner's server can fill in. So it refuses to boot
+anywhere else, correctly. Without a harness the only way to find out whether a delivery works is to
+hand it over and wait.
 
 ```bash
 node engine/scripts/serve-embed.mjs <build-dir> --sid <token> --rgs https://gs.2-complex.science
@@ -327,21 +328,53 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 ### The artifact
 
 `game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
-part of the runtime: `EMBED.md` (the contract) and `example.html` (a worked host page). Drop it at
+part of the runtime: `EMBED.md` (the contract) and `embed.html` (the partner's own host page,
+with our game swapped in for theirs). Drop it at
 `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
 `PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
 `index.html`.
 
-**`example.html` is an example, not a page we serve** (added 2026-09-24, because the partner asked
-for "the HTML" and prose alone had not answered it). It is generated from the baked profile like
-`EMBED.md`, and it exists because three parts of the contract can each be got subtly wrong and only
-discovered at runtime: `window.params` must be assigned **before** the script tag, the container
-needs a **size** (an unstyled `<div>` is zero-high, so the game mounts and draws nothing, which
-reads as a broken build), and the script must stay a classic `<script src>`.
+**`embed.html` is THEIR page, not ours** (settled 2026-09-24, after two wrong turns worth
+recording because the reasoning keeps re-surfacing).
 
-It is deliberately **not** named `index.html` — that name is what a CDN hands out for the folder
-itself, which is the exact hazard the SvelteKit shell is deleted to avoid. `example.html` is
-reachable when you go looking for it and inert when you do not.
+The first pass shipped no HTML at all — correct for the contract as we understood it, since
+`EMBED.md` said their page includes `game.js`. Asked for "the HTML", the second pass generated a
+standalone host page of our own, named `example.html` so a CDN could never serve it as the folder
+index. Renamed to `index.html` when the owner pointed out the partner's server composes a path into
+this folder. **Both were wrong for the same reason: we were inventing a page the partner already
+has.**
+
+The partner (Emanuele) then supplied the real one — a G-WAN template with `<?js ?>` blocks, Redis
+session lookups, `gwan.getArg`, an adapter include, a custom-JS include and a tournament bundle.
+What a delivery ships is now **that file with our game in place of theirs**, vendored at
+`scripts/templates/embed.html` and copied verbatim. Three edits, each marked `INVISIBLE ENGINE:`:
+
+| # | Was | Is |
+| --- | --- | --- |
+| 1 | — | a `<div id="game">` beside their `<canvas id="GameCanvas">` |
+| 2 | `BaseGameLoader.InitGame(params, "Slot", "Hyper")` | removed — our game boots itself |
+| 3 | `<script src=…/shared/play4fun-js-min.js>` | `<script src="<?=baseUrl?><?=gameAlias?>/game.js">` |
+
+**Copied, never generated.** Every value a delivery could vary is already a server-side expression
+in their template (`<?=baseUrl?>`, `<?=gameAlias?>`, the `config` their own RGS composes), so the
+file is byte-identical for every game and every profile. Generating it from the baked profile would
+add nothing and could only drift from the file they actually run.
+
+**Why the `<div>` and not their `<canvas>`:** our renderer builds its *own* canvas and needs an
+element to build *into*, so it cannot mount into `GameCanvas`. Theirs is left in place in case the
+adapter or tournament scripts reference it. Note this was a live mismatch — `build-embed.mjs` does
+`document.getElementById('game') || document.body`, so without the added div we would have silently
+mounted into `<body>`.
+
+**`params` is untouched and we read only `GameSettings`.** Their page sets twelve fields; the other
+eleven (`UrlGame`, `UrlHistory`, `TournUrl`, `RemoteID`, …) are still there for their own scripts.
+Two things their template confirmed we had right: `GameSettings` is `{token, service, config}`, and
+`service` carries no leading slash (`RequestController.getBaseUrl()+'/engine'`), which is what
+`hostServicePath()` already assumed.
+
+**No `index.html` ships.** The SvelteKit shell is still deleted; nothing replaces it. A second page
+in the folder setting a placeholder session was the thing most likely to be served by accident, and
+`embed.html` is not a name a bare folder URL hands out.
 
 **The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
 operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server
