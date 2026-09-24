@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-23)_ The dopesheet can **STRETCH a selection's timing about one anchor key** — grips at each end of the selected range, the anchor pinned, easing and image-sequence speed scaling with it — and a Spine **`sequence` timeline is now a track** instead of being invisible (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-24)_ **Image sequences are authorable** — declare a numbered run of atlas regions as one flipbook image, key it, and edit each key's mode / starting image / hold time; the editor refuses any declaration Spine would refuse to load (see Recent changes). Was: _(2026-09-23)_ The dopesheet can **STRETCH a selection's timing about one anchor key** — grips at each end of the selected range, the anchor pinned, easing and image-sequence speed scaling with it — and a Spine **`sequence` timeline is now a track** instead of being invisible (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,55 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-24 — **Image sequences became authorable, and a wrong declaration can no longer brick a rig.**
+  The timeline shipped the day before could only SHOW sequences; nothing could make an image a
+  sequence or change what a key does.
+  - **Setup mode** gains an **▩ image sequence** section on the selected slot: detect a numbered run
+    in the atlas and declare it (`▩ Make this a sequence`), edit frames / first number / digits /
+    setup frame, or `✕ Not a sequence` to go back to an ordinary image. Picking any single frame of
+    a flipbook is enough — detection strips the trailing number and offers the whole run.
+  - **Animate mode** gains a `◆` on the sequence row (keys at the playhead, continuing from the key
+    before rather than restarting at image 0) and a docked **key inspector**: plays / starts on
+    image / hold each image, with the resulting images-per-second shown.
+  - **The reason this needed care:** Spine's `loadSequence` THROWS on the first frame it cannot
+    find, and the Rigger's tolerant loader explicitly excluded sequences — so a wrong declaration
+    produced a rig that would not open **in the only tool that could repair it**. Measured against
+    the official loader on a rig whose frames are `symbexpl_01`…`_13`: `count` 14, `start` 0 and
+    `digits` 3 each throw; `count` 12 loads and silently drops a frame; `setup` 99 loads (clamped).
+    So the editor resolves every frame against the atlas and **refuses to write** a declaration that
+    does not fully resolve, naming the first missing region — and `makeAttachmentLoader` now
+    substitutes a placeholder per missing frame and reports it, exactly as a missing image does.
+    `setup` is deliberately NOT gated, because the runtime clamps it.
+  - **Two distinctions the format makes that a UI could quietly destroy.** An absent `delay`
+    INHERITS the key before it while an explicit `0` holds on one image, so the field treats empty
+    and 0 as different. And removing a declaration has to take the timeline with it: a sequence
+    timeline on an attachment that is no longer a sequence throws at load — the negative control
+    confirms the rig is unopenable with the keys left behind, and loads once they go.
+  - **`start` is NOT always 1** — it is whatever number the first region carries, and rigs here use
+    both (`symbexpl_01…` vs tumble_win's `expl-00…`). An early spike assertion hardcoded the default
+    and called a correct rig broken; detection now reads all four values off the atlas.
+  - **Review found a way to still brick a rig, in the one shape the suite never exercised.** `◆`
+    wrote keys under the ACTIVE skin, while the row is offered from whichever skin DECLARES the
+    sequence (active, falling back to `default`) — so on a multi-skin rig, keying with a skin
+    selected that does not define the attachment produced a timeline for a null attachment, and the
+    rig never opened again. `sequenceKeySkin` now only writes into a skin that declares it, and
+    `sequenceSkinFor` resolves in the same order `sequenceArrForTrack` reads. Four more doors onto
+    the same cliff are closed: `replace image (keep mesh)` re-pointed `path` out from under a live
+    declaration; `▩ Make this a sequence` was the one write path with no resolve check; removal left
+    `path` on the base name (which is not itself a region) when no frame resolved; and the panel
+    gated on a denylist, so a boundingbox or clipping def could be made a “sequence”.
+  - **Proved on all 153 rigs / 2,646 assertions**, 21 of which carry a real sequence
+    (`node tools/rigger-spike/sequence-all.mjs`, which is new — the per-rig spike takes one
+    json+atlas pair, so the sweep had been living in a shell history rather than the repo).
+    **Verified live** in a browser against the real `explosion.json` + its atlas: the three bricking
+    edits each refused by name, the harmless one accepted, `◆` keying at 0.9s and inheriting
+    mode/index/delay, and every inspector edit reaching the renderer — halving the hold time doubled
+    the rate, `pingpong` made the image index come back down (`0,2,4,6,8,10,12,10,8,6,4,2`), `hold`
+    sat on image 7. The whole round trip sequence → plain image → sequence loads through Spine's
+    STOCK loader at every step.
+  Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/sequence.mjs`,
+  `tools/rigger-spike/sequence-all.mjs`.
 
 - 2026-09-23 — **The dopesheet can STRETCH a selection's timing about one anchor key.** Asked for as
   _"I would like to be able to resize from the keyframe time of the selected frame, so I can stretch

@@ -46,7 +46,8 @@ const SPINE_CORE = (() => {
 	console.error(`✗ spine-core 4.2.74 not found — run pnpm install (looked for ${SUB})`);
 	process.exit(2);
 })();
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = await import(SPINE_CORE);
+const SPINE_NS = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = SPINE_NS;
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {
@@ -92,29 +93,49 @@ function pullConst(name) {
 	return html.slice(i, end + 3);
 }
 const shipped = [
-	pullConst('animOf'), pullConst('activeSkinName'),
+	pullConst('animOf'), pullConst('activeSkinName'), pullConst('SEQ_MODES'), pullConst('seqPad'),
 	...['scaleKeyTimes', 'sequenceTracksWithKeys', 'sequenceArrForTrack', 'seqEffectiveDelay',
-		'seqKeyLabel', 'pinSequenceDelayAfter', 'retimeSequenceKey', 'copySequenceKey',
+		'seqKeyLabel', 'pinSequenceDelayAfter', 'seqDelaysBefore', 'seqDelaysRestore',
+		'retimeSequenceKey', 'copySequenceKey', 'sequenceKeySkin',
 		'deleteSequenceKeyAt', 'scaleSequenceDelays', 'applyDopeScale', 'retimeTrackKey', 'clampTrackCurves',
 		'fitKeyCurve', 'dupKeyInArr',
-		'trackId', 'trackKeyArrays', 'scaleTrackKeyTimings', 'normalizeKeyTimes'].map(pullFn),
+		'trackId', 'trackKeyArrays', 'scaleTrackKeyTimings', 'normalizeKeyTimes',
+		'sequenceFrames', 'detectSequence', 'keySequenceAtPlayhead', 'setSeqKeyField',
+		'sequenceSkinFor', 'attachmentDefFor', 'slotAttachmentList', 'ensureCurAnim',
+		'animsWithSequenceKeys', 'dropSequenceKeysFor', 'makeAttachmentLoader', 'placeholderRegion',
+		'animHasName'].map(pullFn),
 ].join('\n');
 // A `const` binding lives in the script's declarative scope, NOT on the sandbox object, so a spike
 // can only reach `function` declarations unless the consts are published onto it explicitly.
-const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName });';
+const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName, SEQ_MODES, seqPad });';
+// One real TextureAtlas, so the authoring helpers resolve frame names against actual regions.
+const sandboxAtlas = (() => {
+	const a = new TextureAtlas(atlasText);
+	const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
+	for (const p of a.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
+	return a;
+})();
 const sandbox = {
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
-	$: () => null,
-	markDirty() {}, refreshAnimCounts() {},
-	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false,
+	// `activeSkinName` reads the skin picker through `$`; `activeSkin` is what it reports.
+	$: (sel) => (sel === '#skin' ? { value: activeSkin } : null),
+	markDirty() {}, refreshAnimCounts() {}, renderSeqDetail() {},
+	selSeqKey: null,
+	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false, animMode: true, animTime: 0,
 	// trackKeyArrays reaches these for other track kinds; a sequence track never uses them.
 	chArr: () => null, ikChannelArr: () => null, tcChannelArr: () => null, pathChannelArr: () => null,
 	pcAnim: () => null, PC_ALL_CHANS: [], slotChannel: () => null, deformArrForTrack: () => null,
+	// The authoring helpers resolve frame names against the LOADED atlas; hand them the real one.
+	selected: { atlas_file: 'atlas' },
+	missingArt: [],
+	SPINE: SPINE_NS,
+	assetMgr: { require: () => sandboxAtlas },
 };
 vm.createContext(sandbox);
 vm.runInContext([shipped, PUBLISH].join('\n'), sandbox, { filename: 'view.html#sequence' });
 
 let pass = true, checks = 0;
+let activeSkin = 'default'; // what the sandbox's skin picker reports to `activeSkinName`
 const log = (ok, msg) => { checks++; console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 
 // ---- sample what the RUNTIME actually shows ---------------------------------------------
@@ -269,6 +290,185 @@ log(/mode /.test(sandbox.seqKeyLabel(tr, r4(arr[arr.length - 1].time || 0))), 's
 
 	out = run([{ time: 0, mode: 'loop' }, { time: 1, mode: 'loop' }], [0, 1]);
 	log(typeof out[0].delay !== 'number', 'delay 0 (the loader default) is left alone — the runtime divides by it');
+}
+
+// ---- D. AUTHORING: the declaration, and why a wrong one is dangerous ---------------------
+// Only meaningful on a rig that has a sequence attachment to reason about.
+if (withSeq.length) {
+	sandbox.rawDoc = norm(clone(doc0));
+	sandbox.curAnim = withSeq[0][0];
+	const decl = (() => {
+		for (const sk of sandbox.rawDoc.skins || [])
+			for (const [slot, atts] of Object.entries(sk.attachments || {}))
+				for (const [att, d] of Object.entries(atts)) if (d.sequence) return { slot, att, def: d };
+		return null;
+	})();
+
+	if (decl) {
+		const basePath = decl.def.path || decl.att;
+		const seq = decl.def.sequence;
+
+		// Every frame the SHIPPED resolver names is really in the atlas.
+		const frames = sandbox.sequenceFrames(basePath, seq);
+		log(frames.length === seq.count && frames.every((f) => f.ok),
+			`sequenceFrames resolves all ${frames.length} frames of ${basePath} (${frames[0].name} … ${frames[frames.length - 1].name})`);
+
+		// THE DANGER, measured against the OFFICIAL loader rather than asserted from the docs: three
+		// of these make the rig unopenable, and the editor refuses to write exactly those three.
+		const setSeq = (patch) => {
+			const d = clone(doc0);
+			for (const sk of d.skins) for (const atts of Object.values(sk.attachments || {})) for (const a of Object.values(atts)) if (a.sequence) Object.assign(a.sequence, patch);
+			return d;
+		};
+		const loads = (obj) => { try { loadSkeleton(obj); return true; } catch { return false; } };
+		const resolves = (patch) => sandbox.sequenceFrames(basePath, { ...seq, ...patch }).every((f) => f.ok);
+		// Perturb each field RELATIVE to what this rig actually declares — `start` is not always 1
+		// in the wild (tumble_win's frames are `expl-00`…`expl-17`, so it declares 0), and an
+		// assertion that hardcoded the default would call a correct rig broken.
+		const realStart = seq.start == null ? 1 : seq.start;
+		for (const [label, patch, canLoad] of [
+			['count +1', { count: seq.count + 1 }, false],
+			[`start ${realStart - 1} (off-by-one from ${realStart})`, { start: realStart - 1 }, false],
+			['digits +1', { digits: (seq.digits || 0) + 1 }, false],
+		]) {
+			log(loads(setSeq(patch)) === canLoad, `${label}: the official loader THROWS — a rig saved that way would not open`);
+			log(!resolves(patch), `${label}: the editor's resolve check catches it, so it is never written`);
+		}
+		// `setup` is clamped by the runtime and cannot brick anything, which is why the editor does
+		// not gate it. `count` one SHORT loads too — it silently drops the tail rather than throwing.
+		log(loads(setSeq({ setup: 999 })), 'setup past the end still loads (Sequence.apply clamps it) — correctly not gated');
+		log(loads(setSeq({ count: Math.max(1, seq.count - 1) })), 'count one short loads and silently drops the last frame — a truncation, not a crash');
+
+		// Detection re-derives the shipped declaration from the atlas alone, from the base path AND
+		// from a single frame of it (picking frame 1 should offer the whole flipbook).
+		const d1 = sandbox.detectSequence(basePath);
+		log(!!d1 && d1.count === seq.count && d1.start === (seq.start == null ? 1 : seq.start) && d1.digits === seq.digits,
+			`detectSequence(${basePath}) re-derives the shipped declaration ${JSON.stringify(d1)}`);
+		const oneFrame = frames[0].name;
+		const d2 = sandbox.detectSequence(oneFrame);
+		log(!!d2 && d2.base === basePath && d2.count === seq.count,
+			`detectSequence("${oneFrame}") strips the frame number and offers the whole run`);
+		log(sandbox.detectSequence('definitely_not_a_region_') === null, 'detectSequence returns null when there is no numbered run');
+
+		// THE TOLERANT LOADER. Spine throws on a missing frame; the Rigger must still open the rig,
+		// or a re-packed atlas leaves it unrepairable in the only tool that could repair it.
+		const held = sandbox.missingArt;
+		sandbox.missingArt = [];
+		let opened = true;
+		try {
+			const bad = new TextureAtlas(atlasText);
+			const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
+			for (const p of bad.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
+			new SkeletonJson(sandbox.makeAttachmentLoader(bad)).readSkeletonData(setSeq({ count: seq.count + 1 }));
+		} catch { opened = false; }
+		log(opened, 'makeAttachmentLoader OPENS a rig whose sequence names a frame the atlas lacks (Spine alone throws)');
+		log(sandbox.missingArt.some((m) => m.type === 'sequence frame'), `and reports it as a missing frame (${sandbox.missingArt.length} recorded) so the banner can name it`);
+		sandbox.missingArt = held;
+
+		// KEYING at the playhead, through the shipped writer.
+		const T = { kind: 'sequence', name: decl.slot, att: decl.att };
+		sandbox.rawDoc = norm(clone(doc0));
+		sandbox.curAnim = '__new';
+		sandbox.rawDoc.animations.__new = { bones: {} };
+		sandbox.animTime = 0.75;
+		const k1 = sandbox.keySequenceAtPlayhead(T);
+		log(!!k1 && Math.abs(k1.time - 0.75) < 1e-4, 'keySequenceAtPlayhead writes a key at the playhead');
+		log(k1 && typeof k1.delay === 'number' && k1.delay > 0, `and gives a first key a real hold time (${k1 && k1.delay}s) rather than 0, which would never advance`);
+		sandbox.animTime = 1.5;
+		const k2 = sandbox.keySequenceAtPlayhead(T);
+		log(sandbox.sequenceArrForTrack(T).length === 2, 'a second key lands beside the first, in the same skin node');
+		log(k2 && k2.mode === k1.mode && k2.index === k1.index, 'and continues the flipbook rather than restarting it at image 0');
+		sandbox.animTime = 0.75;
+		sandbox.keySequenceAtPlayhead(T);
+		log(sandbox.sequenceArrForTrack(T).length === 2, 'keying the same time twice updates rather than duplicating');
+
+		// FIELD EDITS, including the one distinction the format makes and a UI could destroy.
+		const arr = sandbox.sequenceArrForTrack(T);
+		sandbox.setSeqKeyField(T, arr[0], 'mode', 'pingpong');
+		log(arr[0].mode === 'pingpong', 'setSeqKeyField writes a valid mode');
+		sandbox.setSeqKeyField(T, arr[0], 'mode', 'nonsense');
+		log(arr[0].mode === 'pingpong', 'and refuses one the runtime does not have');
+		sandbox.setSeqKeyField(T, arr[0], 'index', 9999);
+		log(arr[0].index === seq.count - 1, `index is clamped to the declared frame count (${arr[0].index})`);
+		sandbox.setSeqKeyField(T, arr[0], 'delay', 0);
+		log(arr[0].delay === 0, 'an explicit 0 hold time is WRITTEN (the sequence then sits on one image)');
+		sandbox.setSeqKeyField(T, arr[0], 'delay', '');
+		log(!('delay' in arr[0]), 'and an empty field REMOVES it, so the key inherits — the two are never conflated');
+
+		// REMOVING the declaration must take the timeline with it: the loader builds a
+		// SequenceTimeline from `attachment.sequence.id`, so keys left on an attachment that is no
+		// longer a sequence are the same class of unopenable rig as a missing frame.
+		// Strip the declaration from EVERY sequenced attachment (there may be several) so the only
+		// variable is whether the keys went too.
+		const stripDecls = (doc) => {
+			const out = clone(doc);
+			for (const sk of out.skins) for (const atts of Object.values(sk.attachments || {})) for (const a of Object.values(atts)) if (a.sequence){ delete a.sequence; a.path = frames[0].name; }
+			return out;
+		};
+		sandbox.rawDoc = norm(clone(doc0));
+		log(!loads(stripDecls(sandbox.rawDoc)),
+			'control: dropping the declaration and LEAVING the keys makes the rig unopenable — which is why removal clears both');
+
+		const before = sandbox.animsWithSequenceKeys(decl.slot, decl.att);
+		log(before.length > 0, `animsWithSequenceKeys finds the ${before.length} animation(s) that would be orphaned`);
+		for (const sk of sandbox.rawDoc.skins || [])
+			for (const [slot, atts] of Object.entries(sk.attachments || {}))
+				for (const [att, d] of Object.entries(atts)) if (d.sequence) sandbox.dropSequenceKeysFor(slot, att);
+		log(sandbox.animsWithSequenceKeys(decl.slot, decl.att).length === 0, 'dropSequenceKeysFor clears every one of them');
+		log(loads(stripDecls(sandbox.rawDoc)), 'and the rig loads again once the declaration goes with them');
+	}
+}
+
+// ---- E. MULTI-SKIN — where a new key is allowed to land -----------------------------------
+// The sequence row is offered from whichever skin DECLARES the sequence (active, falling back to
+// default), so keying blind into the ACTIVE skin writes a timeline for an attachment that skin has
+// not got. SkeletonJson then reads `attachment.sequence.id` off null and the rig never opens again
+// — and the tolerant loader cannot rescue it, because that throw is in readAnimation, not the
+// attachment loader. Every other assertion here runs on a single-skin rig, which is exactly why
+// this one builds its own two-skin doc.
+{
+	const T = { kind: 'sequence', name: 's', att: 'art_' };
+	const ATLAS = 'probe.png\nsize:64,64\nfilter:Linear,Linear\nart_01\nbounds:0,0,8,8\nart_02\nbounds:8,0,8,8\n';
+	const mkDoc = () => ({
+		skeleton: { spine: '4.2' },
+		bones: [{ name: 'root' }],
+		slots: [{ name: 's', bone: 'root', attachment: 'art_' }],
+		skins: [
+			{ name: 'default', attachments: { s: { art_: { width: 10, height: 10, sequence: { count: 2, start: 1, digits: 2 } } } } },
+			// A legitimate override skin for the SAME slot that simply does not define `art_`.
+			{ name: 'gold', attachments: { s: { plain_: { path: 'art_01', width: 4, height: 4 } } } },
+		],
+		animations: { a: { bones: {} } },
+	});
+	const loadsWith = (doc, loaderFor) => {
+		const at = new TextureAtlas(ATLAS);
+		const stub = { getImage: () => ({ width: 64, height: 64 }), setFilters() {}, setWraps() {}, dispose() {} };
+		for (const pg of at.pages) { pg.width = pg.width || 64; pg.height = pg.height || 64; try { pg.setTexture(stub); } catch { pg.texture = stub; } }
+		try { new SkeletonJson(loaderFor(at)).readSkeletonData(clone(doc)); return true; } catch (e) { return String(e.message); }
+	};
+
+	for (const skin of ['gold', 'default']) {
+		activeSkin = skin;
+		sandbox.rawDoc = mkDoc();
+		sandbox.curAnim = 'a';
+		sandbox.animTime = 0.5;
+		const k = sandbox.keySequenceAtPlayhead(T);
+		const nodes = Object.keys(sandbox.rawDoc.animations.a.attachments || {});
+		log(!!k && nodes.length === 1 && nodes[0] === 'default',
+			`active skin "${skin}": the key lands under the skin that DECLARES the sequence (${nodes.join(',') || 'nowhere'})`);
+		log(loadsWith(sandbox.rawDoc, (at) => new AtlasAttachmentLoader(at)) === true,
+			`active skin "${skin}": and the rig still opens in stock Spine`);
+	}
+
+	// The control: writing into a skin that does not declare it really is fatal, and really is
+	// beyond the tolerant loader's reach.
+	const broken = mkDoc();
+	broken.animations.a.attachments = { gold: { s: { art_: { sequence: [{ time: 0.5, mode: 'loop', delay: 0.04 }] } } } };
+	const why = loadsWith(broken, (at) => new AtlasAttachmentLoader(at));
+	log(why !== true, `control: a key under a skin that does not declare the sequence DOES brick the rig (${String(why).slice(0, 46)})`);
+	log(loadsWith(broken, (at) => sandbox.makeAttachmentLoader(at)) !== true,
+		'control: and the tolerant loader cannot rescue that one — the throw is in readAnimation');
+	activeSkin = 'default';
 }
 
 console.log(pass ? `\nPASS (${checks} checks)\n` : `\nFAIL (${checks} checks)\n`);
