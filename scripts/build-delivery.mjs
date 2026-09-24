@@ -503,6 +503,33 @@ try {
 	// then is untrue and costs a five-minute rebuild to disprove.
 	rmSync(resolve(final, 'index.html'), { force: true });
 
+	// NOTHING THAT IS NOT THE GAME LEAVES WITH THE DELIVERY.
+	//
+	// `static/` is copied into a build wholesale, so the output carries things the running game
+	// never touches. They are small, but "small" is not the test — a partner's CDN serves whatever
+	// is in the folder, and every file in it is one we are implicitly saying belongs there.
+	//
+	//  - `assets/**/*.ts` — the R2 mirror's bundle manifests (`createAsset({img, rawAtlas, spines})`).
+	//    The build COMPILES them into `bundle.js`; a browser cannot execute a `.ts`, so shipping
+	//    them hands over source that does nothing. 28 of them in a real Borut delivery.
+	//  - `favicon.svg`, `loader.gif` — reachable only from an `index.html` of ours, and a delivery
+	//    has none: the partner's page owns the document head, and the boot splash is
+	//    `BootSplashSequence` reading `deploy/_boot/`. Verified as 0 references in a real built
+	//    bundle rather than assumed.
+	//
+	// STRIPPED, not tolerated. The first version of this guard merely exempted the manifests, which
+	// stopped the build failing and left them in the zip — solving the error instead of the problem.
+	//
+	// Reported below rather than removed silently: a delete nobody sees is how a file that DID
+	// matter goes missing without anyone connecting it to this list.
+	const STRIP_NAMES = ['favicon.svg', 'loader.gif'];
+	const stripped = walkFiles(final).filter((file) => {
+		const rel = relative(final, file).split(sep).join('/');
+		return rel.toLowerCase().endsWith('.ts') || STRIP_NAMES.includes(rel);
+	});
+	const strippedBytes = stripped.reduce((total, file) => total + statSync(file).size, 0);
+	for (const file of stripped) rmSync(file, { force: true });
+
 	if (!existsSync(resolve(final, ENTRY_FILE))) {
 		throw new Error(
 			`${final} has no ${ENTRY_FILE} — the embed build did not produce one. ` +
@@ -547,26 +574,18 @@ try {
 	//
 	// A hard failure, not a warning. Everything else here refuses rather than repairs, and a
 	// delivery is handed over once — a warning in a build log is read after the zip has gone.
-	// Two lists, because `assets/` is not a place a human drops a file.
+	// One list, checked EVERYWHERE — the mirrored `assets/` tree included. It needed an exemption
+	// only while its `index.ts` manifests were still being shipped; now that they are stripped
+	// above, a `.ts` anywhere in a delivery is a file nobody put there on purpose.
 	//
-	// It is the R2 mirror `pull:assets` writes, and every bundle in it carries an `index.ts`
-	// manifest (`createAsset({img, rawAtlas, spines})`) that the build COMPILES — a real Borut
-	// delivery has 28 of them. They reach the output only because `static/` is copied wholesale,
-	// and a first pass at this guard refused the whole delivery over them. So source extensions
-	// are checked everywhere EXCEPT that mirrored tree.
-	//
-	// `.map` and `.env` stay checked everywhere, including under `assets/`: neither has any
-	// business in an asset bundle, and a sourcemap is the whole of our source wherever it lands.
-	const LEAKY_SOURCE = ['.ts', '.tsx', '.svelte'];
-	const LEAKY_ALWAYS = ['.map', '.env'];
-	const inAssets = (rel) => rel === 'assets' || rel.startsWith(`assets/`);
+	// `.map` is the likeliest accident and the worst: a sourcemap is the whole of our source, and
+	// `config-vite` disables it only for a non-dev build, so one env var set the wrong way would
+	// publish the engine.
+	const LEAKY = ['.ts', '.tsx', '.svelte', '.map', '.env'];
 
-	const leaked = walkFiles(final).filter((file) => {
-		const rel = relative(final, file).split(sep).join('/');
-		const lower = rel.toLowerCase();
-		if (LEAKY_ALWAYS.some((ext) => lower.endsWith(ext))) return true;
-		return !inAssets(rel) && LEAKY_SOURCE.some((ext) => lower.endsWith(ext));
-	});
+	const leaked = walkFiles(final).filter((file) =>
+		LEAKY.some((ext) => relative(final, file).toLowerCase().endsWith(ext)),
+	);
 
 	if (leaked.length) {
 		throw new Error(
@@ -610,6 +629,11 @@ try {
 					entry: ENTRY_FILE,
 					containerId: CONTAINER_ID,
 					embedDoc: docPath,
+					stripped: {
+						files: stripped.length,
+						bytes: strippedBytes,
+						paths: stripped.map((file) => relative(final, file).split(sep).join('/')),
+					},
 					hostPage: hostPagePath,
 					endpoint,
 					fileCount,
@@ -647,6 +671,10 @@ try {
 		`\n  Delivery build ready — profile '${profile}'\n` +
 			`    ${final}\n` +
 			`    ${fileCount} files, ${mb(bytes)}\n` +
+			(stripped.length
+				? `    stripped: ${stripped.length} build-time file${stripped.length === 1 ? '' : 's'}` +
+					` (${mb(strippedBytes)}) the running game never loads\n`
+				: '') +
 			`    contract: ${docPath}\n` +
 			`    page:     ${hostPagePath}  (their app server — NOT the CDN upload)\n` +
 			(zip ? `    zip:      ${zip.path}  (${mb(zip.bytes)})\n` : '') +
