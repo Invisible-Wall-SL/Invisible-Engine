@@ -343,7 +343,16 @@ It is deliberately **not** named `index.html` — that name is what a CDN hands 
 itself, which is the exact hazard the SvelteKit shell is deleted to avoid. `example.html` is
 reachable when you go looking for it and inert when you do not.
 
-Its `config` block lists **only keys the engine actually reads** (`betMultipliers`,
+**The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
+operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server
+declares one, so there is no "our real ladder" to put in the example and a list presented as one
+would be a fabricated contract. What the example states instead is the identity that makes a ladder
+checkable, `total stake = betOptions[x] × M`, plus a worked figure from the real Play4Fun capture:
+with `betOptions: [10, 1000]` at denom `0.01`, `M = 4` is a `0.40` base spin and a `40.00` buy. The
+shipped ladder opens on that rung, so the one number in the block that is real is the captured one,
+and the surrounding list is labelled as the operator's to replace.
+
+Its `config` block otherwise lists **only keys the engine actually reads** (`betMultipliers`,
 `initialBetMultiplierIndex`, `enableTurbo`, `allowOutcomeBuy`, `showTheoreticalPayback`,
 `balanceUpdateInterval`). An example is read as a contract, so a field in it that we ignore is a
 promise we did not make — note that `serve-embed.mjs`'s fake operator page also sets
