@@ -393,6 +393,52 @@ BookOfBorut.zip
 
 **No `index.html` ships either.** The SvelteKit shell is still deleted and nothing replaces it.
 
+**Nothing that is not the game leaves with the delivery.** `static/` is copied into a build
+wholesale, so the output carries files the running game never touches. They are small; "small" is
+not the test, because a partner's CDN serves whatever is in the folder and every file in it is one
+we are implicitly saying belongs there. `build-delivery.mjs` STRIPS them:
+
+- `assets/**/*.ts` — the R2 mirror's bundle manifests (`createAsset({img, rawAtlas, spines})`). The
+  build **compiles** them into `bundle.js`; a browser cannot execute a `.ts`, so shipping them hands
+  over source that does nothing. 28 in a real Borut delivery.
+- `favicon.svg`, `loader.gif` — reachable only from an `index.html` of ours, and a delivery has
+  none: the partner's page owns the document head and the boot splash is `BootSplashSequence`
+  reading `deploy/_boot/`. Verified as 0 references in a real built bundle, not assumed.
+
+**Stripped, not tolerated — that distinction is the whole lesson here.** The first version of this
+was a guard that refused a delivery containing `.ts`; it blocked a real build over those manifests.
+The second exempted `assets/`, which stopped the error and left the files in the zip — solving the
+error instead of the problem. Only the third removes them.
+
+The guard remains as the backstop, now checked everywhere with no exemption: `.ts`, `.tsx`,
+`.svelte`, `.map` or `.env` anywhere in the folder fails the build. `.map` is the likeliest accident
+and the worst — a sourcemap is the whole of our source, and `config-vite` disables it only for a
+non-dev build.
+
+Every strip is **reported** in the summary and listed in `--json`. A delete nobody sees is how a
+file that did matter goes missing with nothing connecting it to this list.
+
+**`embed.html` ships BESIDE the CDN folder, never inside it** (2026-09-24). The delivery folder is
+uploaded to the CDN wholesale, and a CDN does not execute `<?js ?>` — it serves the bytes. Shipped
+inside, their own template would publish their session lookup, their Redis calls and their admin
+launch branch as plain text at a guessable URL. Their session API settles where it really belongs:
+`game_url` is `https://gs.2-complex.science/webnode/views/eanew/embed.html?sid=…`, i.e. the
+application server, which is not the CDN at all.
+
+So `zipDir` grew an `extra` option and the archive states the split by its shape:
+
+```
+BookOfBorut.zip
+├── embed.html          ← their application server (/webnode/views/eanew/)
+└── BookOfBorut/        ← the CDN upload ({cdn}/eanew/games/{versionPath}/)
+    ├── game.js
+    ├── _app/
+    ├── assets/
+    └── EMBED.md
+```
+
+**No `index.html` ships either.** The SvelteKit shell is still deleted and nothing replaces it.
+
 **Nothing that is source may leave with the upload.** `embed.html` was one instance of that hazard;
 the general guard is a hard failure in `build-delivery.mjs` if the delivery folder contains `.ts`,
 `.tsx` or `.svelte` **outside `assets/`**, or `.map`/`.env` **anywhere**.
