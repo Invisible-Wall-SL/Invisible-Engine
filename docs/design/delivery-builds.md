@@ -308,10 +308,11 @@ From the MONOREPO, for the reference game: `pnpm --filter lines build:embed`.
 
 ### Playing one before it ships
 
-A delivery build **cannot be opened**. There is no `index.html`, and it reads its session and RGS
-path from `window.params.GameSettings`, which only the partner's page provides — so it refuses to
-boot anywhere else, correctly. Without a harness the only way to find out whether a delivery works is
-to hand it over and wait.
+A delivery build **cannot be played by opening it**. It ships an `index.html`, so it will render —
+but the session and RGS path come from `window.params.GameSettings`, and the shipped page carries a
+placeholder token, so it refuses to take a spin anywhere but a host that renders a real one. That
+refusal is correct. Without a harness the only way to find out whether a delivery works is to hand
+it over and wait.
 
 ```bash
 node engine/scripts/serve-embed.mjs <build-dir> --sid <token> --rgs https://gs.2-complex.science
@@ -327,21 +328,32 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 ### The artifact
 
 `game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
-part of the runtime: `EMBED.md` (the contract) and `example.html` (a worked host page). Drop it at
+part of the runtime: `EMBED.md` (the contract) and `index.html` (the host page). Drop it at
 `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
 `PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
 `index.html`.
 
-**`example.html` is an example, not a page we serve** (added 2026-09-24, because the partner asked
-for "the HTML" and prose alone had not answered it). It is generated from the baked profile like
-`EMBED.md`, and it exists because three parts of the contract can each be got subtly wrong and only
-discovered at runtime: `window.params` must be assigned **before** the script tag, the container
-needs a **size** (an unstyled `<div>` is zero-high, so the game mounts and draws nothing, which
-reads as a broken build), and the script must stay a classic `<script src>`.
+**`index.html` is the host page, and the name is the partner's call** (2026-09-24). It was briefly
+`example.html`, on the reasoning that the folder index is a URL which loads our game outside their
+page and fails the session check. That hazard is real, but it was traded against the wrong thing:
+the partner's server composes a path into this folder, so a folder with no index disrupts *their
+server* rather than a stray player, and the filename is theirs to dictate. It can be served as the
+folder index or cribbed into their own server-rendered page — the marked parts are identical either
+way.
 
-It is deliberately **not** named `index.html` — that name is what a CDN hands out for the folder
-itself, which is the exact hazard the SvelteKit shell is deleted to avoid. `example.html` is
-reachable when you go looking for it and inert when you do not.
+It is generated from the baked profile like `EMBED.md`, and it exists because three parts of the
+contract can each be got subtly wrong and only discovered at runtime: `window.params` must be
+assigned **before** the script tag, the container needs a **size** (an unstyled `<div>` is
+zero-high, so the game mounts and draws nothing, which reads as a broken build), and the script must
+stay a classic `<script src>`.
+
+The SvelteKit shell is still deleted, and this page is written **afterwards** under the same name.
+The two are unrelated: the shell is a bundle loader that sets no `window.params` at all, which is
+the thing that must not ship; ours sets them and includes `game.js`.
+
+**The session token is the one value a static file cannot carry.** If the partner serves this page,
+that token has to be rendered server-side per launch — left literal, every player shares one session
+string and the RGS rejects them. `EMBED.md` says so in the same words.
 
 **The bet ladder is the one key we cannot supply.** `betMultipliers` is read *only* from the
 operator's page (`betOptions.ts`) — nothing in the engine, in any game repo, or in the test server

@@ -16,8 +16,8 @@
  *
  * WHAT A DELIVERY BUILD IS, AND HOW IT DIFFERS FROM `pnpm build`:
  *
- *   PUBLIC_DELIVERY_EMBED=1     stop inlining the bundle into an index.html. A delivery has no
- *                               index.html — their server-rendered page includes our `game.js`.
+ *   PUBLIC_DELIVERY_EMBED=1     stop inlining the bundle into the page. A delivery ships game.js
+ *                               plus a host page that includes it, not one inlined blob.
  *   PUBLIC_DELIVERY_PROFILE     bake which RGS this build belongs to. `operator-embed` names no host
  *                               at all, because the operator's own page is the origin.
  *   PUBLIC_RGS_TRANSPORT        the Play4Fun facade instead of the stock transport.
@@ -73,14 +73,19 @@ const CONTAINER_ID = 'game';
 const ENTRY_FILE = 'game.js';
 
 /**
- * The worked host page shipped for the partner's integrator to copy.
+ * The host page shipped with the delivery.
  *
- * DELIBERATELY NOT `index.html`. That name is what a CDN serves for the folder itself, which is the
- * exact hazard the shell is deleted to avoid further down: a URL that loads our game outside their
- * page, fails the session check, and reads as our bug. A name nobody requests by accident is
- * reachable when you go looking for it and inert when you do not.
+ * `index.html`, because the PARTNER'S SERVER EXPECTS ONE. It was briefly `example.html`, on the
+ * reasoning that the folder index is a URL which would load our game outside their page and fail
+ * the session check — a real hazard, but one that was traded against the wrong thing. Their side
+ * composes a path into this folder, so a folder with no index disrupts the server rather than the
+ * player, and the name is theirs to dictate, not ours.
+ *
+ * NOTE THE ORDERING BELOW: the SvelteKit shell is still deleted from the delivery, and this page is
+ * written AFTERWARDS. Ours is a host page that sets `window.params` and includes `game.js`; the
+ * shell is a bundle loader that sets nothing, which is the thing that must not ship.
  */
-const EXAMPLE_FILE = 'example.html';
+const HOST_PAGE_FILE = 'index.html';
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
@@ -323,14 +328,16 @@ const embedDoc = (baked) => {
 		'',
 		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${new Date().toISOString().slice(0, 10)}`,
 		'',
-		'This folder is **not a website**. There is no `index.html`: your page includes',
-		`\`${ENTRY_FILE}\` and the game mounts into a container you provide. Opening the folder`,
-		'directly will not boot it — that is deliberate, not a fault.',
+		`The game itself is \`${ENTRY_FILE}\`, which mounts into a container the host page provides.`,
+		`\`${HOST_PAGE_FILE}\` ships beside it as that host page, carrying the whole of §2 and §3 in`,
+		'one file. **You can use it either way:** serve it as the folder index, or copy its three',
+		'marked parts into your own server-rendered page. The parts are identical either way, so the',
+		'choice is yours and nothing here depends on it.',
 		'',
-		`A complete worked page ships as \`${EXAMPLE_FILE}\` — the whole of §2 and §3 below, in one`,
-		'file you can open and diff against your own. It is an **example to copy, not a page to**',
-		'**serve**: nothing loads it, and it is named so your CDN will never hand it out as the',
-		'folder index. Delete it before publishing if you would rather it did not ship at all.',
+		`**One thing it cannot do for you:** \`${HOST_PAGE_FILE}\` carries a placeholder session`,
+		'token, and it is the one value that cannot be shipped in a static file. If you serve this',
+		'page, render that token server-side per launch. Left literal, every player would share one',
+		'session string and the RGS would reject them.',
 		'',
 		'## 1. Where the folder goes',
 		'',
@@ -387,7 +394,7 @@ const embedDoc = (baked) => {
 		'- **`service`** — the RGS path, resolved against your page. It must be a **path**: anything',
 		`  carrying a scheme or a \`//host\` is refused and \`${endpoint}\` is used instead.`,
 		'- **`config`** — your brand settings (bet ladder, jurisdiction flags). Fields we do',
-		`  not recognise are ignored, so adding one is safe. \`${EXAMPLE_FILE}\` lists every key this`,
+		`  not recognise are ignored, so adding one is safe. \`${HOST_PAGE_FILE}\` lists every key this`,
 		'  build actually reads, with what each one does.',
 		'',
 		'`params` is read from this window and, failing that, from the parent — so the client may run',
@@ -422,7 +429,7 @@ const embedDoc = (baked) => {
  * Nothing reads them. They are harmless there — it is our own harness — and would be misleading
  * here, so they are not copied.)
  */
-const examplePage = (baked) => {
+const hostPage = (baked) => {
 	const endpoint = typeof baked.rgs?.endpoint === 'string' ? baked.rgs.endpoint : '/webnode/engine';
 	const required = baked.session?.required === true;
 
@@ -431,18 +438,20 @@ const examplePage = (baked) => {
 		'<!--',
 		`  ${alias} — Invisible Engine, profile '${baked.id ?? profile}'.`,
 		'',
-		'  AN EXAMPLE, NOT PART OF THE GAME. Nothing loads this file; it is here to be copied into',
-		'  your own server-rendered page. Delete it before publishing the folder if you prefer.',
+		'  The host page for this game folder. Either serve it as-is, or copy its three marked',
+		'  parts into your own server-rendered page — both are supported, and the parts are the',
+		'  same either way.',
 		'',
 		...(required
 			? [
-					'  Opening it as-is will NOT boot: `token` below is a placeholder, and this build',
-					'  refuses to run without a real session rather than falling back to a demo wallet.',
-					'  Substitute a token your RGS minted and serve it from the game folder.',
+					'  IF YOU SERVE THIS FILE, `token` below must stop being a literal. This build',
+					'  requires a real session and refuses to boot without one, rather than falling',
+					'  back to a demo wallet — so substitute the token your RGS minted, server-side,',
+					'  wherever this page is rendered.',
 					'',
 				]
 			: []),
-		'  The three things worth copying exactly are marked (1) (2) (3).',
+		'  The three things that matter are marked (1) (2) (3).',
 		'-->',
 		'<html lang="en">',
 		'\t<head>',
@@ -559,11 +568,14 @@ try {
 
 	// The shell SvelteKit emits has now been read — `build-embed.mjs` generated `game.js` out of it —
 	// and a delivery must not carry it onward. Embed mode only switches `bundleStrategy`, so the
-	// `index.html` still lands in the build folder, and shipping it would contradict the one thing a
-	// partner is told about this folder: that it is not a site. Left in place it is a URL on their
-	// CDN that loads our game outside their page, fails the session check and looks like our bug.
+	// shell still lands in the build folder, and it is a bundle loader that sets no `window.params`
+	// at all: served on the partner's CDN it boots the game with no session and fails, which reads
+	// as our bug. We overwrite that same name below with a host page that DOES set them.
 	//
-	// Deleted from the DELIVERY copy, after the copy — never from the source build. Everything that
+	// Still a delete rather than a plain overwrite, because the two files are unrelated and the
+	// delete states that: whatever the shell contained is gone, not merged into ours.
+	//
+	// Removed from the DELIVERY copy, after the copy — never from the source build. Everything that
 	// can still fail (the `game.js` check, the profile read, `EMBED.md`, the zip) runs below this
 	// point, and taking the shell out of `build/` would leave that folder permanently unpackageable:
 	// a `--skip-build` retry would then die claiming the build was never an embed build, which by
@@ -583,8 +595,8 @@ try {
 
 	// Before `measure()` and before the zip, so the example is counted in the summary and actually
 	// travels in the archive — the two ways a generated file silently fails to be delivered.
-	const examplePath = resolve(final, EXAMPLE_FILE);
-	writeFileSync(examplePath, examplePage(baked), 'utf8');
+	const hostPagePath = resolve(final, HOST_PAGE_FILE);
+	writeFileSync(hostPagePath, hostPage(baked), 'utf8');
 
 	const { fileCount, bytes } = measure(final);
 
@@ -615,7 +627,7 @@ try {
 					entry: ENTRY_FILE,
 					containerId: CONTAINER_ID,
 					embedDoc: docPath,
-					examplePage: examplePath,
+					hostPage: hostPagePath,
 					endpoint,
 					fileCount,
 					bytes,
@@ -653,7 +665,7 @@ try {
 			`    ${final}\n` +
 			`    ${fileCount} files, ${mb(bytes)}\n` +
 			`    contract: ${docPath}\n` +
-			`    example:  ${examplePath}\n` +
+			`    page:     ${hostPagePath}\n` +
 			(zip ? `    zip:      ${zip.path}  (${mb(zip.bytes)})\n` : '') +
 			(jsonOut ? `    result:   ${resolve(gameRoot, jsonOut)}\n` : '') +
 			`\n  Play it the way their page will:\n` +
