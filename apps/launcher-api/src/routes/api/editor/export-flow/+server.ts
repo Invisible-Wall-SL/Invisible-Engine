@@ -2,6 +2,11 @@ import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
 import { exportEditorFlow } from '$lib/server/flowExport';
 import { exportEditorFlowV2 } from '$lib/server/flowV2Export';
+import {
+	checkFlowV2ForPublish,
+	describeFlowErrors,
+	invalidFlowMessage,
+} from '$lib/server/flowV2Validation';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
@@ -14,6 +19,12 @@ import type { RequestHandler } from './$types';
  * — a build runner has the token, no launcher session. The FlowDoc carries no
  * binary assets, so this is a single JSON copy + normalize. Idempotent; safe to
  * re-run per build. An un-authored project exports an empty doc (parity, §7).
+ *
+ * The v2 flow is VALIDATED first — the desktop half of the online publish's flow gate — and a flow
+ * with errors is refused with a 409 `{ error, reason: 'invalid-flow', details }` before anything is
+ * written. `&allowInvalidFlow=1` is the explicit override (the bake's `--allow-invalid-flow`). This
+ * route has no user session, only the deploy token, so the override is as restricted as that token
+ * (a publisher credential), not to the owner role like the online Publish.
  */
 export const POST: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
@@ -22,6 +33,21 @@ export const POST: RequestHandler = async ({ url }) => {
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+
+	const flowCheck = await checkFlowV2ForPublish(clientKey, projectKey);
+	if (flowCheck.status === 'invalid') {
+		const details = describeFlowErrors(flowCheck.errors);
+		if (url.searchParams.get('allowInvalidFlow') !== '1') {
+			return json(
+				{ error: invalidFlowMessage(flowCheck.errors), reason: 'invalid-flow', details },
+				{ status: 409 },
+			);
+		}
+		console.warn(
+			`[export-flow] ${projectKey}: baked with ${flowCheck.errors.length} flow error(s) by ` +
+				`override: ${details.join(' | ')}`,
+		);
+	}
 
 	try {
 		// v1 flow + v2 flow are both exported here so ONE bake call covers both. The v2

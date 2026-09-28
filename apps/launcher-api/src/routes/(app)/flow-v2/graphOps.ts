@@ -58,14 +58,19 @@ export const freshNodeIdIn = (graph: Graph, kind: NodeKind): string => {
 	return id;
 };
 
-/** Append an exec edge (source exec-out → target exec-in) to a graph. */
+/**
+ * Wire an exec-out to an exec-in, REPLACING any wire already leaving that exec-out (Blueprint's
+ * rule). The runtime follows one wire per exec-out, so a second one would never run — and nothing on
+ * the canvas would say so. Replacing is what the author meant by drawing it.
+ */
 export const addExecEdgeIn = (
 	graph: Graph,
 	from: { node: string; pin: string },
 	to: { node: string; pin: string },
 ): Graph => {
 	const edge: ExecEdge = { from, to };
-	return { ...graph, exec: [...graph.exec, edge] };
+	const kept = graph.exec.filter((e) => e.from.node !== from.node || e.from.pin !== from.pin);
+	return { ...graph, exec: [...kept, edge] };
 };
 
 /**

@@ -4,6 +4,7 @@
  * so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
+import { freshDrivenSeedDoc } from 'engine-flow-v2';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { normalizeDoc } from './localization';
@@ -12,6 +13,7 @@ import {
 	SUB,
 	atlasConfigKey,
 	editorDocKey,
+	flowV2DocKey,
 	localizationDocKey,
 	sheetConfigKey,
 } from './projectPaths';
@@ -74,6 +76,14 @@ function buildSeeds(
 		{
 			key: editorDocKey(client, project),
 			body: JSON.stringify(scenes, null, 2),
+			contentType: 'application/json',
+		},
+		// The game type's starter flow — the SAME doc `/flow-v2` opens an unsaved project on. It has to
+		// be STORED, not just offered by the editor: the free-spin intro/outro are the flow's screens
+		// now, so a project nobody opened in Invisible Flow would publish without them.
+		{
+			key: flowV2DocKey(client, project),
+			body: JSON.stringify(freshDrivenSeedDoc(gameType), null, 2),
 			contentType: 'application/json',
 		},
 	];

@@ -19,8 +19,9 @@ import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
  *  - {@link loadFlowV2DocForEditor} NEVER returns null — a project with no stored doc is SEEDED with
  *    a deep clone of its GAME TYPE's fully FLOW-DRIVEN starter (`freshDrivenSeedDoc`), so the `/flow-v2`
  *    editor opens on a real, editable, saveable loading→tap→basegame flow that drives the whole game
- *    (reel + HUD + free-spins) once saved (not a throwaway sample). Seeding is editor-only; it never
- *    reaches the ship chain until the author actually saves.
+ *    (reel + HUD + free-spins) once saved (not a throwaway sample). This read never writes; a project
+ *    created since the scaffold seeds `flow-v2.json` (`projectScaffold.ts`) already has the same doc
+ *    stored, so only an older, never-edited project reaches this fallback.
  *
  * OUT OF SCOPE (later increment): the template VOCABULARY + shared FUNCTION LIBRARY still come
  * from the client-side `sample.ts` (`BOOK_OF_VOCAB`, `LIBRARY`); only the project's FlowDoc

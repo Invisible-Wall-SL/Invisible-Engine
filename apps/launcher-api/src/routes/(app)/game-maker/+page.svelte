@@ -399,9 +399,10 @@
 		if (project) await publish(project.key);
 	}
 
-	async function publish(projectKey: string, allowUnapproved = false) {
+	async function publish(projectKey: string, allowUnapproved = false, allowInvalidFlow = false) {
 		publishing = { ...publishing, [projectKey]: true };
 		publishErr = { ...publishErr, [projectKey]: '' };
+		publishNote = { ...publishNote, [projectKey]: '' };
 		try {
 			const res = await fetch('/api/game-maker/publish', {
 				method: 'POST',
@@ -409,13 +410,14 @@
 				body: JSON.stringify({
 					project: projectKey,
 					...(allowUnapproved ? { allowUnapproved } : {}),
+					...(allowInvalidFlow ? { allowInvalidFlow } : {}),
 				}),
 			});
 			const out = await res.json().catch(() => ({}));
-			// An UNAPPROVED-SOUNDS refusal is the one blocked publish an author may legitimately push
-			// past — it protects a review step, not a real game's files. So it asks, once, naming the
-			// sounds. Every other block (a game with its own desktop build) stays final: overriding it
-			// would overwrite something that cannot be rebuilt from here.
+			// An UNAPPROVED-SOUNDS refusal is one an author may legitimately push past — it protects a
+			// review step, not a real game's files. So it asks, once, naming the sounds. A game with its
+			// own desktop build stays final: overriding it would overwrite something that cannot be
+			// rebuilt from here.
 			if (res.status === 409 && out?.reason === 'unapproved-sounds' && !allowUnapproved) {
 				const names: string[] = Array.isArray(out.details) ? out.details : [];
 				const ok = await askConfirm({
@@ -430,7 +432,33 @@
 					publishErr = { ...publishErr, [projectKey]: out.error };
 					return;
 				}
-				await publish(projectKey, true);
+				await publish(projectKey, true, allowInvalidFlow);
+				return;
+			}
+			// An INVALID-FLOW refusal lists the validator's errors. Only the owner role gets the override
+			// (`canOverride`); everyone else is sent back to the flow's Validation panel.
+			if (res.status === 409 && out?.reason === 'invalid-flow' && !allowInvalidFlow) {
+				const errors: string[] = Array.isArray(out.details) ? out.details : [];
+				if (!out.canOverride) {
+					publishErr = {
+						...publishErr,
+						[projectKey]: `${out.error} Fix it in Invisible Flow, or ask an admin to publish anyway.`,
+					};
+					return;
+				}
+				const ok = await askConfirm({
+					title: 'Publish with flow errors?',
+					message:
+						`${out.error}\n\n` +
+						`Players may see a round that hangs or skips a step:\n  ${errors.join('\n  ')}`,
+					confirmLabel: 'Publish anyway',
+					danger: true,
+				});
+				if (!ok) {
+					publishErr = { ...publishErr, [projectKey]: out.error };
+					return;
+				}
+				await publish(projectKey, allowUnapproved, true);
 				return;
 			}
 			if (!res.ok) throw new Error(out?.error ?? `Publish failed (${res.status}).`);
@@ -452,6 +480,15 @@
 					[projectKey]:
 						`Shipped ${sounds.bound} project sound${sounds.bound === 1 ? '' : 's'}. ` +
 						`No licence recorded for: ${sounds.missingLicence.join(', ')}.`,
+				};
+			}
+			if (out?.flow === 'absent') {
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						'This game has no saved flow, so it plays without the free-spin intro and outro. ' +
+						'Open Invisible Flow and save to give it the starter flow.',
 				};
 			}
 			// Reload so the project row shows the new play URL + "published" state.

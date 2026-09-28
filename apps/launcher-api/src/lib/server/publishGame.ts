@@ -17,6 +17,12 @@
  */
 import type { SoundLicenceSummary } from '$lib/soundUsage';
 import { ENV } from './env';
+import {
+	checkFlowV2ForPublish,
+	describeFlowErrors,
+	invalidFlowMessage,
+	type FlowPublishCheck,
+} from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { resolveMockContract } from './mockContract';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -36,6 +42,9 @@ export interface PublishResult {
 	/** What this publish shipped, licence-wise — surfaced ONCE, here, because the moment a build
 	 *  goes out is when "who owns this audio" stops being paperwork. Never blocking. */
 	sounds: SoundLicenceSummary;
+	/** What this publish shipped, flow-wise. `absent` = no stored flow, so the game runs without
+	 *  the flow's screens (free-spin intro/outro); `overridden` = shipped despite validation errors. */
+	flow: FlowPublishCheck['status'] | 'overridden';
 }
 
 /**
@@ -48,8 +57,9 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — while `unapproved-sounds` is a deliberate-override case. */
-		readonly reason: 'own-bundle' | 'unapproved-sounds' = 'own-bundle',
+		 *  clobber a real game — while `unapproved-sounds` and `invalid-flow` are deliberate-override
+		 *  cases (the flow one for the owner role only; see the publish endpoint). */
+		readonly reason: 'own-bundle' | 'unapproved-sounds' | 'invalid-flow' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
 		readonly details: string[] = [],
 	) {
@@ -105,7 +115,7 @@ function runtimeFor(_gameType: string): string {
 export async function publishGame(
 	projectKey: string,
 	launcherOrigin: string,
-	options: { allowUnapproved?: boolean } = {},
+	options: { allowUnapproved?: boolean; allowInvalidFlow?: boolean } = {},
 ): Promise<PublishResult> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const gameType = await projectGameType(projectKey);
@@ -122,6 +132,24 @@ export async function publishGame(
 				`${soundCheck.unapproved.join(', ')}. Approve them in Invisible Sound, or publish anyway.`,
 			'unapproved-sounds',
 			soundCheck.unapproved,
+		);
+	}
+
+	// 1b. THE FLOW GATE. The v2 flow drives the game's screens, and the editor's Validation panel is
+	// advisory — so an error there (a hold nothing releases, a dead second wire, an unresolved ref)
+	// would otherwise reach players as a hung or silently skipped round.
+	const flowCheck = await checkFlowV2ForPublish(clientKey, projectKey);
+	if (flowCheck.status === 'invalid') {
+		if (!options.allowInvalidFlow) {
+			throw new PublishBlockedError(
+				invalidFlowMessage(flowCheck.errors),
+				'invalid-flow',
+				describeFlowErrors(flowCheck.errors),
+			);
+		}
+		console.warn(
+			`[publish] ${projectKey}: published with ${flowCheck.errors.length} flow error(s) by ` +
+				`override: ${describeFlowErrors(flowCheck.errors).join(' | ')}`,
 		);
 	}
 
@@ -225,5 +253,11 @@ export async function publishGame(
 		// ignore — the test server re-hydrates on its own cadence too.
 	}
 
-	return { key, url, playUrl: url, sounds: soundCheck.licences };
+	return {
+		key,
+		url,
+		playUrl: url,
+		sounds: soundCheck.licences,
+		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
+	};
 }

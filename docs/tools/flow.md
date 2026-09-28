@@ -129,8 +129,8 @@ not otherwise drive — `reveal`, say — and the board stops revealing, because
 it and the flow does nothing else with it. So take a chain the flow already drives and splice
 the cue node *into* it: delete an existing exec wire, run it into the cue's exec-in, and run
 the cue's exec-out on to the node that used to follow. You would have to anyway — **an exec-out
-only ever runs the first wire you drew from it**, so exec never fans out, and nothing warns you
-about the second wire.
+carries one wire**: drawing a second one from the same pin replaces the first, so wire the cue in
+series rather than beside the existing step.
 
 **Trap 2 — the character's screen has to be showing.** A cue fired while its screen is not
 mounted is **lost**, not queued: there is no replay when the screen later appears. If the
@@ -214,7 +214,11 @@ canvas to drop the node at the cursor, or **click** it to add near the centre of
 Drag from a pin on one node to a pin on another. Two wire classes:
 
 - **Exec wires** (white, arrow-headed) sequence control: an exec-out → an exec-in. An
-  exec-in accepts at most one incoming exec edge.
+  exec-in accepts at most one incoming exec edge, and an exec-out drives at most one: drawing
+  a new wire from an exec-out that already has one **replaces** it (the game only ever runs one
+  wire per exec-out). To run two things, chain them in series or use a **Sequence** node. A flow
+  saved before this rule that still has two wires on one exec-out shows `exec-out-fanout` in
+  Validation — delete the one you don't want.
 - **Data wires** (thin, dashed, colored by type) carry a value: a data-out → a data-in. A
   data-in accepts at most one incoming data edge; a data-out can fan out to many.
 
@@ -347,8 +351,12 @@ has no timeout, so a held Show whose screen has no tap is the `hold-without-rele
 [Validation](#validation). Don't show either screen from a start-up chain: a screen shown at start
 stays up, and with a Tap to Continue on it, it sits over the idle game waiting for a tap.
 
-**What a new project starts with.** The starter flow and the scaffold screens already have this
-shape:
+**What a new project starts with.** Creating (or duplicating) a project saves its game type's
+starter flow as `editor/flow-v2.json` straight away, so it ships even if nobody opens this editor.
+A project created before that, never opened here, has **no** flow: it publishes with a note that
+it plays without the free-spin intro and outro. Open it here and make any edit to save the starter,
+or have an admin **Rescaffold** it in `/admin`. The starter flow and the scaffold screens already
+have this shape:
 
 - The **Free-spin intro** and **Free-spin outro** screens each carry a **Tap to Continue** (**Tap
   to continue** on, **Dim opacity** `0.5`) and the engine's coded visual — `FreeSpinIntroVisual` /
@@ -530,6 +538,13 @@ function-vocabulary requirement, …) as a code + message. Node- and pin-located
 **click-to-focus** — clicking one selects and highlights the offending node on the canvas.
 The sub-bar's **⚠ N issues** / **✓ valid** pill mirrors the count. Validation never blocks
 authoring; it is a running honesty check.
+
+**Errors block Publish.** Game Maker's **Publish** (and the bulk republish) and the desktop
+launcher's build run the same validation over the saved flow and refuse a flow with any **red**
+error, listing them. Warnings and blue hints never block. An admin can publish anyway from the
+refusal dialog; a desktop build takes `--allow-invalid-flow` (or `ALLOW_INVALID_FLOW=1`). The
+check uses the project's saved screens and the shared function library the game ships with, so
+fix what the panel shows and save.
 
 Two of them read your **screens**, not just the graph. A Show Container with **Hold until this
 screen completes (tap)** ticked holds the round until that screen completes, and there is no

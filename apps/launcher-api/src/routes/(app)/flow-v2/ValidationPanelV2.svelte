@@ -23,6 +23,7 @@
 	const ICON: Record<string, string> = {
 		'ref-unresolved': '✗',
 		'exec-in-fanin': '⇉',
+		'exec-out-fanout': '⇶',
 		'data-in-fanin': '⇉',
 		'entry-has-exec-in': '⤳',
 		'edge-endpoint': '⊘',
