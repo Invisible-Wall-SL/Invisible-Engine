@@ -5,6 +5,7 @@ import {
 	requireStorybookAccess,
 	resolveStorybookKey,
 } from '$lib/server/storybooks';
+import { extOf, userContentHeaders } from '$lib/server/userContent';
 import type { RequestHandler } from './$types';
 
 /**
@@ -14,17 +15,47 @@ import type { RequestHandler } from './$types';
  * siblings — `iframe.html`, `assets/…` — at the same URL directory).
  */
 
-/** R2's stored type wins (the publish script sets it); fallback for old objects. */
-const FALLBACK_TYPE: Record<string, string> = {
+/**
+ * A published build is a set of live pages, so unlike other R2 content its HTML and scripts are
+ * served inline. The type still comes from the extension, never the stored metadata; anything
+ * outside the map gets the shared user-content headers (download, locked down).
+ */
+const PAGE_TYPES: Record<string, string> = {
 	html: 'text/html; charset=utf-8',
 	js: 'text/javascript; charset=utf-8',
 	mjs: 'text/javascript; charset=utf-8',
 	css: 'text/css; charset=utf-8',
-	json: 'application/json; charset=utf-8',
 	svg: 'image/svg+xml',
-	png: 'image/png',
-	woff2: 'font/woff2',
+	ico: 'image/x-icon',
+	map: 'application/json; charset=utf-8',
 };
+
+/**
+ * The build runs its own scripts, and stories reach HTTPS hosts (web fonts, asset CDNs, an RGS),
+ * so the policy fences what a page could be turned into rather than where it may connect: no
+ * plugins, no plain-HTTP loads, no form posts, no `<base>` rewrite, no framing by other sites (the
+ * manager frames its own `iframe.html`, hence `'self'`). Only `publish-storybook.mjs` writes these
+ * trees; the file browser refuses them (`ftpScope.assertWritable`).
+ */
+const STORYBOOK_CSP = [
+	"default-src 'self' https: wss: data: blob:",
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+	"style-src 'self' 'unsafe-inline' https:",
+	"worker-src 'self' blob:",
+	"frame-src 'self'",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"form-action 'none'",
+	"frame-ancestors 'self'",
+].join('; ');
+
+function storybookHeaders(key: string, rel: string): Record<string, string> {
+	const pageType = PAGE_TYPES[extOf(rel)];
+	const base = pageType
+		? { 'content-type': pageType, 'x-content-type-options': 'nosniff' }
+		: userContentHeaders(key);
+	return { ...base, 'content-security-policy': STORYBOOK_CSP };
+}
 
 /**
  * Vite/storybook content-hash suffix (`ModeBase.stories-D4GBCXCx.js`): a dash +
@@ -64,13 +95,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 	if (!obj) throw error(404, 'not found');
 
 	const rel = segments.slice(segments[0] === PROJECT_STORYBOOK_SEGMENT ? 2 : 1).join('/');
-	const ext = rel.split('.').pop()?.toLowerCase() ?? '';
-	const contentType =
-		obj.contentType !== 'application/octet-stream'
-			? obj.contentType
-			: (FALLBACK_TYPE[ext] ?? 'application/octet-stream');
-
 	return new Response(obj.body, {
-		headers: { 'content-type': contentType, 'cache-control': cacheControl(rel) },
+		headers: { ...storybookHeaders(key, rel), 'cache-control': cacheControl(rel) },
 	});
 };

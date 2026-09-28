@@ -1,47 +1,18 @@
 import { error } from '@sveltejs/kit';
 import { getObjectBytes } from './r2';
+import { extOf, userContentHeaders } from './userContent';
 
 /**
  * Shared byte-streamer for the gated R2 asset endpoints (the editor's
  * `/api/editor/asset` + the Font Maker's `/api/fonts/asset`). Extracted so the two
- * endpoints share ONE implementation of the content-type map, the BMFont
+ * endpoints share ONE implementation of the response headers (`userContent`), the BMFont
  * `?font=1` descriptor page-rewrite, and the response/headers — with no copy-paste
  * drift. Each endpoint owns its own gate (tool grant + prefix allow-list) and
  * passes its own `assetUrl` base so rewritten page refs route back through ITSELF.
  */
 
-const EXT_CONTENT_TYPES: Record<string, string> = {
-	png: 'image/png',
-	jpg: 'image/jpeg',
-	jpeg: 'image/jpeg',
-	webp: 'image/webp',
-	gif: 'image/gif',
-	svg: 'image/svg+xml',
-	json: 'application/json',
-	atlas: 'text/plain; charset=utf-8',
-	skel: 'application/octet-stream',
-	xml: 'application/xml',
-	fnt: 'text/plain; charset=utf-8',
-	woff2: 'font/woff2',
-	woff: 'font/woff',
-	ttf: 'font/ttf',
-	otf: 'font/otf',
-};
-
-function contentTypeFor(key: string, fallback: string): string {
-	const dot = key.lastIndexOf('.');
-	if (dot === -1) return fallback;
-	const ext = key.slice(dot + 1).toLowerCase();
-	return EXT_CONTENT_TYPES[ext] ?? fallback;
-}
-
 /** BMFont descriptor extensions whose `<page file>` references must be rewritten. */
 const BITMAP_DESCRIPTOR_EXT = new Set(['fnt', 'xml', 'json']);
-
-function extOf(key: string): string {
-	const dot = key.lastIndexOf('.');
-	return dot === -1 ? '' : key.slice(dot + 1).toLowerCase();
-}
 
 /** R2 directory of a key (everything up to and including the final `/`). */
 function dirOf(key: string): string {
@@ -136,10 +107,7 @@ export async function streamAsset(opts: StreamAssetOptions): Promise<Response> {
 			assetUrlBase,
 		);
 		return new Response(rewritten, {
-			headers: {
-				'content-type': contentTypeFor(key, obj.contentType),
-				'cache-control': 'no-store',
-			},
+			headers: { ...userContentHeaders(key), 'cache-control': 'no-store' },
 		});
 	}
 
@@ -147,7 +115,7 @@ export async function streamAsset(opts: StreamAssetOptions): Promise<Response> {
 	// ETag identifies the exact bytes, so a matching `If-None-Match` means the
 	// client already holds this object — answer `304` (no body) after the gate.
 	const headers: Record<string, string> = {
-		'content-type': contentTypeFor(key, obj.contentType),
+		...userContentHeaders(key),
 		'cache-control': VERBATIM_CACHE_CONTROL,
 	};
 	if (obj.etag) {

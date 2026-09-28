@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { assertAllowed, gate } from '$lib/server/ftpScope';
+import { assertAllowed, assertWritable, gate } from '$lib/server/ftpScope';
 import { copyObject, deleteObjects, listAllKeys } from '$lib/server/r2';
 import type { RequestHandler } from './$types';
 
@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	if (from === to) throw error(400, 'from and to are identical');
 	assertAllowed(from, scope);
-	assertAllowed(to, scope);
+	assertWritable(to, scope);
 
 	if (from.endsWith('/')) {
 		if (!to.endsWith('/')) throw error(400, 'folder destination must end with /');
@@ -39,7 +39,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const toDelete: string[] = [];
 		for (const key of keys) {
 			const dest = to + key.slice(from.length);
-			assertAllowed(dest, scope);
+			assertWritable(dest, scope);
 			await copyObject(key, dest);
 			toDelete.push(key);
 		}

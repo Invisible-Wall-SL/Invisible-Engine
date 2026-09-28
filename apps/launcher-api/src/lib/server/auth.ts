@@ -41,6 +41,14 @@ export async function verifyPassword(password: string, stored: string): Promise<
 	return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
 }
 
+let dummyHashPromise: Promise<string> | null = null;
+
+/** A real-shaped hash of a random secret, compared against when no account matches. */
+function dummyHash(): Promise<string> {
+	dummyHashPromise ??= hashPassword(randomBytes(32).toString('hex'));
+	return dummyHashPromise;
+}
+
 /** True when an account's login window has lapsed (expiry set and in the past). */
 function isExpired(expiresAt: Date | null): boolean {
 	return expiresAt !== null && expiresAt.getTime() < Date.now();
@@ -56,9 +64,11 @@ export async function verifyCredentials(
 		.from(users)
 		.where(and(eq(users.email, email.toLowerCase().trim()), eq(users.active, true)));
 
-	if (!row || !row.passwordHash) return null;
+	// Always run one scrypt, even with no usable account, so the response time doesn't reveal
+	// whether the email exists.
+	const passwordOk = await verifyPassword(password, row?.passwordHash || (await dummyHash()));
+	if (!row || !row.passwordHash || !passwordOk) return null;
 	if (isExpired(row.expiresAt)) return null;
-	if (!(await verifyPassword(password, row.passwordHash))) return null;
 
 	return { id: row.id, email: row.email, name: row.name, role: row.role };
 }

@@ -16,6 +16,8 @@ Live in the launcher at `/files` (full page, `admin` + `developer` + `pipelineTe
 ### Scope / security model
 - `gate()` (`src/lib/server/ftpScope.ts`, a thin wrapper over the shared `toolScope.gate`) requires an authed user with the `ftpBrowser` entitlement, resolves `(client, project)` from the **session row** (never a request param), and flags `full` for the built-in `admin` role. `gateFull()` additionally requires `full`.
 - **Scoped:** `allowedPrefixes(client, project)` is the only key set in scope. **Full:** the whole bucket, `assertAllowed` only enforcing escape-free keys.
+- **Writes** (upload, move destinations) go through `assertWritable`: `assertAllowed` plus a refusal of storybook trees (`_shared/storybook/`, `<client>/<project>/storybook/`), which are served as live pages and only published by `publish-storybook.mjs`.
+- **Content types:** an upload is stored with the type derived from its extension (`$lib/server/userContent.ts`), never the browser's `File.type`; downloads are always `attachment` + `nosniff`.
 - `assertAllowed(key, scope)` rejects empty / leading-`/` / `..` / (scoped) out-of-prefix keys → 403, applied to every supplied key **and** every server-enumerated key (recursive delete/move re-validate each — defense in depth).
 
 ## Open items / next
@@ -28,5 +30,6 @@ Live in the launcher at `/files` (full page, `admin` + `developer` + `pipelineTe
 - Admin full-server view + Railway/Postgres tab (code only, 2026-06-02) — not yet browser-tested live.
 
 ## Recent changes
+- 2026-09-28 — upload stores the extension-derived type; storybook trees refused as write targets; download headers from the shared `userContent` helper (see [launcher status](launcher.md) same date)
 - 2026-06-02 — admin two-tab **full-server view**: whole-bucket browse + Railway/Postgres inspector (`/api/db/{tables,rows}`, `gateFull`, secrets redacted) — code only ([detail in history](../history.md))
 - 2026-05-31 — project-scoped R2 file manager shipped (`ftpBrowser` tool, `/files`, `ftpScope.ts` gate, `r2.ts` put/delete/copy/list helpers); registered + doc ([detail in history](../history.md))

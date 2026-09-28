@@ -45,17 +45,50 @@ function bootSplashTag(pathname: string): string | null {
 	);
 }
 
+/**
+ * Sent on every dynamic response. Tools are full pages, never framed by another site; a
+ * page may still frame its own origin (a published storybook frames its `iframe.html`).
+ * A response's own `content-security-policy` (streamed R2 content) is left in place.
+ */
+const BASELINE_HEADERS: Record<string, string> = {
+	'strict-transport-security': 'max-age=31536000; includeSubDomains',
+	'x-content-type-options': 'nosniff',
+	'referrer-policy': 'strict-origin-when-cross-origin',
+	'x-frame-options': 'SAMEORIGIN',
+};
+const FRAME_ANCESTORS = "frame-ancestors 'self'";
+
+function applyBaseline(headers: Headers): void {
+	for (const [key, value] of Object.entries(BASELINE_HEADERS)) headers.set(key, value);
+	if (!headers.has('content-security-policy'))
+		headers.set('content-security-policy', FRAME_ANCESTORS);
+}
+
+/** A `fetch()` response passed straight through has immutable headers — re-wrap that one. */
+function withBaselineHeaders(response: Response): Response {
+	try {
+		applyBaseline(response.headers);
+		return response;
+	} catch {
+		const copy = new Response(response.body, response);
+		applyBaseline(copy.headers);
+		return copy;
+	}
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
 	const splash = bootSplashTag(event.url.pathname);
-	const response = await resolve(
-		event,
-		splash
-			? {
-					transformPageChunk: ({ html }) => html.replace('<!--iw-boot-splash-->', splash),
-				}
-			: undefined,
+	const response = withBaselineHeaders(
+		await resolve(
+			event,
+			splash
+				? {
+						transformPageChunk: ({ html }) => html.replace('<!--iw-boot-splash-->', splash),
+					}
+				: undefined,
+		),
 	);
 	// The read-only deploy asset tree is fetched cross-origin by the game runtime
 	// (games.invisiblewall.org → app.invisiblewall.org). The handlers set CORS on the
