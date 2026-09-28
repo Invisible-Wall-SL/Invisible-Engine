@@ -44,6 +44,9 @@
  * timings `buildRuntimeBundle` now logs are the data for that work.
  */
 import { buildRuntimeBundle, type RuntimeBundle } from './runtimeBundle';
+import { runtimeSourceFingerprint } from './runtimeSourceFingerprint';
+import { projectClientKey } from './projects';
+import { UNASSIGNED_CLIENT } from './projectPaths';
 
 /**
  * How long a bundle may be served, measured from when its data was READ.
@@ -52,7 +55,24 @@ import { buildRuntimeBundle, type RuntimeBundle } from './runtimeBundle';
  * flips to the game tab takes seconds, and must never be served a pre-edit bundle. Do NOT
  * raise this without a real source fingerprint — see the module comment.
  */
+/**
+ * How long a bundle may be served WITHOUT a source check.
+ *
+ * Unchanged at 10s, and deliberately: it is now the floor, not the ceiling. A hit inside this
+ * window skips even the fingerprint listing, which is what makes a burst of concurrent boots cheap.
+ * Past it the entry is not discarded — it is REVALIDATED against
+ * {@link runtimeSourceFingerprint}, and only a genuine source change costs an assemble.
+ */
 const TTL_MS = 10_000;
+
+/**
+ * Absolute ceiling on serving a fingerprint-validated entry. The fingerprint is the correctness
+ * mechanism and this is the belt to its braces: if it ever develops a blind spot — an input tree
+ * nobody thought of, an exporter that starts writing outside `deploy/` — this bounds the damage to
+ * an hour instead of forever. It should never be the thing that expires an entry in practice; if
+ * cache hits stop at exactly this age, the fingerprint has stopped noticing something.
+ */
+const MAX_VALIDATED_AGE_MS = 60 * 60_000;
 
 /**
  * Cap on retained projects. The bundle is small (~85KB for `bookofborutremake`), but the
@@ -72,6 +92,12 @@ interface CacheEntry {
 	 * "reload and it'll be fresh" should have been true. Freshness is a property of the READ.
 	 */
 	readAt: number;
+	/**
+	 * The source digest at the moment this bundle was assembled, or `undefined` when it could not
+	 * be computed. `undefined` means the entry can only ever be served inside {@link TTL_MS} — it
+	 * has nothing to revalidate against, so it must not outlive the timer.
+	 */
+	fingerprint?: string;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -123,6 +149,26 @@ export async function getRuntimeBundle(
 		);
 		return hit.bundle;
 	}
+	// Past the timer, an entry is REVALIDATED rather than discarded: re-fingerprint the sources and
+	// serve it if nothing has changed. This is the whole point of the exercise — an unchanged
+	// project used to pay a full ~25s assemble on every boot because the assemble is slower than
+	// any freshness window measured from the read. `null` means the fingerprint could not be
+	// computed, which is never a hit.
+	if (hit && hit.fingerprint && Date.now() - hit.readAt < MAX_VALIDATED_AGE_MS) {
+		const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+		const now = await runtimeSourceFingerprint(clientKey, projectKey);
+		if (now && now === hit.fingerprint) {
+			console.info(
+				`[runtime] bundle cache HIT for "${projectKey}" — sources unchanged ` +
+					`(data ${Date.now() - hit.readAt}ms old, revalidated)`,
+			);
+			return hit.bundle;
+		}
+		console.info(
+			`[runtime] sources changed for "${projectKey}" — reassembling` +
+				(now ? '' : ' (fingerprint unavailable)'),
+		);
+	}
 
 	const pending = inflight.get(cacheKey);
 	if (pending) {
@@ -134,11 +180,20 @@ export async function getRuntimeBundle(
 	const epoch = epochOf(projectKey);
 	const run = (async () => {
 		try {
+			// ⚠️ SAMPLED BEFORE THE ASSEMBLE READS, never after. The digest has to describe the
+			// sources as they were when this bundle was built, and the assemble takes ~25s — long
+			// enough for an author to save into the middle of it. Fingerprinting afterwards would
+			// stamp that save as "already included", and the next boot would revalidate clean and
+			// serve a bundle that predates the edit. Same reasoning as `readAt` above: freshness is
+			// a property of the READ. Sampling early can only cost an extra assemble, never a stale
+			// serve, which is the direction this has to fail in.
+			const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+			const fingerprint = (await runtimeSourceFingerprint(clientKey, projectKey)) ?? undefined;
 			const bundle = await buildRuntimeBundle(projectKey, includeUnreviewed, timings);
 			// A publish that landed mid-assemble bumped the epoch: this bundle was read BEFORE it,
 			// so serve it to the callers already waiting but never cache it for anyone else.
 			if (epochOf(projectKey) === epoch) {
-				cache.set(cacheKey, { bundle, readAt });
+				cache.set(cacheKey, { bundle, readAt, fingerprint });
 				trim();
 			} else {
 				console.info(`[runtime] discarding pre-invalidation assemble for "${projectKey}"`);
