@@ -38,10 +38,21 @@ available.
   `gameEnd.win`, `gameRoundOver.win`, `platform.balance`).
 - **`requestEndRound` is a local no-op** (no second network call) — interim + final balance both
   come from the single Play4Fun round-trip; the two-step split can't be observed on a zero-win.
-- **Animation completion / return-to-idle is NOT observable under automation** → treat as
-  **human-eyes**, never FAIL it. Reel-stop is a `svelte/motion` Tween on Svelte's rAF loop; the
-  Browser pane backgrounds the tab (`document.hidden`), freezing rAF, so the machine parks in
-  `bet`. Pumping `app.ticker.update()` advances Pixi's ticker but not the Svelte rAF clock.
+- **Animation completion / return-to-idle is NOT observable in the Browser pane** → there, treat it
+  as **human-eyes**, never FAIL it. Reel-stop is a `svelte/motion` Tween on Svelte's rAF loop; the
+  pane backgrounds the tab (`document.hidden`), freezing rAF, so the machine parks in `bet`.
+  Pumping `app.ticker.update()` advances Pixi's ticker but not the Svelte rAF clock — and do NOT
+  step Svelte's `raf.tasks` by hand to get past it: a stepped clock manufactured a count-up "stall"
+  that a real clock never shows (2026-09-28, `docs/status/engine.md`). Claude in Chrome is `hidden`
+  at 0 fps too unless the owner's Chrome window is in front.
+- **A real frame clock under automation:** Playwright's `chrome-headless-shell`
+  (`%LOCALAPPDATA%\ms-playwright\chromium_headless_shell-*`) driven over `--remote-debugging-pipe`
+  with `--use-angle=d3d11 --enable-gpu --ignore-gpu-blocklist` and
+  `Emulation.setFocusEmulationEnabled` is `visible`, focused, **60 fps** (without the GPU flags it
+  renders in software at ~12 fps). CDP `Input.dispatchMouseEvent` clicks are trusted input: in a
+  1456×814 viewport the loading screen takes a centre click and the spin button (`BET`) is at
+  (749, 755). Read state with `import('/src/game/winState.svelte.ts')` / `actor.ts` and the
+  `?flowlog=1` trace, read-only.
 
 ## Scenarios
 
