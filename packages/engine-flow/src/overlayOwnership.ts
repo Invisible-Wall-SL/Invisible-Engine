@@ -6,8 +6,8 @@
  *
  * NO game literals. `engine-flow` knows nothing of "free spins" — a game (or the editor, from a
  * per-gameType table) supplies its OWN step table (`OverlayStep[]`) naming each step's screen id +
- * bookEvent type + an optional content rule. `apps/lines`' free-spin steps are one such table; a
- * future flow-first game supplies a different one. This mirrors `mounter.ts`'s structural-typing
+ * bookEvent type + an optional content rule. `apps/lines`' book reveal (`bookOwnership.ts`) is one
+ * such table; a future flow-first game supplies a different one. This mirrors `mounter.ts`'s structural-typing
  * discipline: it declares its own minimal node/scene shapes so it needn't import the full
  * `engine-layout` `Scene`/`LayoutNode` at this boundary (the game passes its real objects through).
  *

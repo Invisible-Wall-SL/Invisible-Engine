@@ -3,11 +3,9 @@
  *
  *   pnpm --filter flow-spike run fs4
  *
- * Proves, HEADLESSLY, that the "extra free spins won mid-feature" retrigger is now AUTHORABLE online:
+ * Proves, HEADLESSLY, that the "extra free spins won mid-feature" retrigger is AUTHORABLE online:
  * the `freeSpinRetrigger` book event is surfaced to the v2 vocabulary (so it projects a `gameSignals`
- * signal an author can wire to a "+N extra free spins" celebration + tap-to-continue), AND the seam is
- * reconciled — `freeSpinRetrigger` is a first-class optional free-spin STEP (owned/stripped per-step
- * like intro/counter/outro), no longer an always-stripped inert seam.
+ * signal an author can wire to a "+N extra free spins" celebration + tap-to-continue).
  *
  *  1. VOCAB / PIN PROJECTION (engine-flow-v2) — `derivePins(gameSignals, { vocab: BOOK_OF_VOCAB })`
  *     yields an exec-out `freeSpinRetrigger` (book event → surfaced) with typed data-outs
@@ -18,14 +16,9 @@
  *                    └(data) freeSpinRetrigger.extraFs ─────────────────→ (count)
  *     `runFlowEvent(doc, ctx, 'freeSpinRetrigger', { extraFs: 10, total: 22 })` shows the container
  *     and the "+N" readout receives `count: 10` (the payload resolved THROUGH the gameSignals data-out).
- *  3. SEAM RECONCILED (engine-flow / apps/lines ownership) — over the REAL `LINES_FLOW_FREESPIN_DOC`:
- *       - the LAYER edge into `freeSpinRetrigger` now triggers on the `freeSpinRetrigger` book event
- *         (the facade's real event type), NOT the phantom `retrigger` it named while inert.
- *       - UN-AUTHORED (no retrigger scene) ⇒ `ownsRetrigger` false ⇒ `gateFreeSpinOwnership` STRIPS
- *         the screen + its transitions, so the event falls through to the coded no-op (parity: an
- *         un-authored game shows NO retrigger celebration — the shipped Book-of-Borut behaviour).
- *       - AUTHORED (a retrigger scene with real content) ⇒ `ownsRetrigger` true ⇒ the gate KEEPS the
- *         screen + the LAYER edge + the self-complete return edge, so the flow owns the event.
+ *  3. The v1 `LINES_FLOW_FREESPIN_DOC` fixture's LAYER edge into `freeSpinRetrigger` triggers on the
+ *     `freeSpinRetrigger` book event (the facade's real event type), NOT the phantom `retrigger` it
+ *     named while inert.
  */
 
 import {
@@ -40,15 +33,8 @@ import {
 	type PinContext,
 	type RunContext,
 } from 'engine-flow-v2';
-import type { FlowDoc } from 'engine-flow';
-import type { LayoutNode, Scene } from 'engine-layout';
 
 import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
-import {
-	FREE_SPIN_STEPS,
-	gateFreeSpinOwnership,
-	resolveFreeSpinOwnership,
-} from '../../apps/lines/src/game/freeSpinOwnership';
 
 const LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
 
@@ -69,17 +55,6 @@ const execOutIds = (pins: Pin[]): string[] =>
 	pins.filter((p) => p.dir === 'out' && p.kind === 'exec').map((p) => p.id);
 const findDataOut = (pins: Pin[], id: string): Pin | undefined =>
 	pins.find((p) => p.id === id && p.dir === 'out' && p.kind === 'data');
-
-// A scene carrying REAL authored content (an author-placed sprite) — satisfies the content rule (iii).
-const authoredScene = (id: string): Scene =>
-	({
-		id,
-		name: id,
-		space: 'canvas',
-		nodes: [
-			{ id: `${id}-art`, kind: 'sprite', x: 0, y: 0, asset: 'fs.png' } as unknown as LayoutNode,
-		],
-	}) as Scene;
 
 // ---------------------------------------------------------------------------
 // The v2 authoring doc for parts 1 & 2: ONE gameSignals node whose `freeSpinRetrigger` exec-out layers
@@ -184,17 +159,9 @@ const main = async () => {
 		);
 	}
 
-	// --- 3. seam reconciled — the LAYER edge fires on the REAL event; owned/stripped per-step ---
-	console.log('\n3. seam reconciled (LINES_FLOW_FREESPIN_DOC — LAYER edge + per-step ownership):');
+	// --- 3. the v1 fixture's LAYER edge fires on the REAL event ---
+	console.log('\n3. LINES_FLOW_FREESPIN_DOC — the LAYER edge triggers on the real event:');
 	{
-		const { screen, event } = FREE_SPIN_STEPS.retrigger;
-		assert(
-			'the retrigger step maps screen=freeSpinRetrigger, event=freeSpinRetrigger',
-			screen === 'freeSpinRetrigger' && event === 'freeSpinRetrigger',
-		);
-
-		// The LAYER edge into the retrigger screen now triggers on the REAL `freeSpinRetrigger` event
-		// (the facade's type), NOT the phantom `retrigger` it named while inert.
 		const layerEdge = LINES_FLOW_FREESPIN_DOC.transitions.find(
 			(t) => t.to === 'freeSpinRetrigger' && t.trigger.kind === 'bookEvent',
 		);
@@ -203,49 +170,6 @@ const main = async () => {
 			layerEdge?.trigger.kind === 'bookEvent' && layerEdge.trigger.event === 'freeSpinRetrigger',
 			JSON.stringify(layerEdge?.trigger),
 		);
-
-		// UN-AUTHORED (no retrigger scene) ⇒ un-owned ⇒ gate STRIPS the screen + its transitions (parity).
-		{
-			const ownership = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, []);
-			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC as FlowDoc, ownership);
-			assert('un-authored ⇒ ownsRetrigger false', !ownership.ownsRetrigger);
-			const screenGone = !gated.screens.some((s) => s.id === 'freeSpinRetrigger');
-			const edgesGone = !gated.transitions.some(
-				(t) => t.from === 'freeSpinRetrigger' || t.to === 'freeSpinRetrigger',
-			);
-			assert(
-				'un-authored ⇒ gate strips the freeSpinRetrigger screen + its transitions (coded no-op parity)',
-				screenGone && edgesGone,
-			);
-			// The other overlays are untouched by the retrigger decision (basegame always survives).
-			assert(
-				'un-authored ⇒ basegame still present (non-retrigger content untouched)',
-				gated.screens.some((s) => s.id === 'basegame'),
-			);
-		}
-
-		// AUTHORED (a real retrigger scene) ⇒ owned ⇒ gate KEEPS the screen + LAYER edge + return edge.
-		{
-			const ownership = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, [
-				authoredScene('freeSpinRetrigger'),
-			]);
-			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC as FlowDoc, ownership);
-			assert('authored ⇒ ownsRetrigger true', ownership.ownsRetrigger);
-			const screenKept = gated.screens.some((s) => s.id === 'freeSpinRetrigger');
-			const layerKept = gated.transitions.some(
-				(t) =>
-					t.to === 'freeSpinRetrigger' &&
-					t.trigger.kind === 'bookEvent' &&
-					t.trigger.event === 'freeSpinRetrigger',
-			);
-			const returnKept = gated.transitions.some(
-				(t) => t.from === 'freeSpinRetrigger' && t.trigger.kind === 'complete',
-			);
-			assert(
-				'authored ⇒ gate keeps the screen + LAYER edge + self-complete return edge',
-				screenKept && layerKept && returnKept,
-			);
-		}
 	}
 
 	console.log(`\n${failed ? 'FS-4 RETRIGGER HARNESS: FAILED' : 'FS-4 RETRIGGER HARNESS: PASSED'}`);

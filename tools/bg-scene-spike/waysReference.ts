@@ -82,9 +82,8 @@ assert(
 		{},
 		{ buttons: true },
 		{ transition: true },
-		{ freeSpinOverlays: true },
 		{ winInstance: true },
-		{ buttons: true, transition: true, freeSpinOverlays: true, winInstance: true },
+		{ buttons: true, transition: true, winInstance: true },
 	].every((o) => defaultLayout('lines', o).scenes.length > 0),
 );
 assert(

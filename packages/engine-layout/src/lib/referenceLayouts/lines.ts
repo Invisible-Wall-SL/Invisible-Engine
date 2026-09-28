@@ -1,5 +1,6 @@
 import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import { defaultConfirmScene } from '../confirmScene';
+import { defaultFreeSpinIntroScene, defaultFreeSpinOutroScene } from '../freeSpinScenes';
 import { linesTemplate } from '../templates/lines';
 import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
 import { hudScenes } from './hud';
@@ -97,17 +98,9 @@ export interface DefaultLayoutOptions {
 	 */
 	transition?: boolean;
 	/**
-	 * §17 Phase 3 — split the free-spin INTRO/OUTRO into a full-screen GATE (`canvas`
-	 * `bind:FreeSpin{Intro,Outro}Gate`) + an editor-positioned VISUAL (a `game`-space
-	 * `componentInstance(freeSpin{Intro,Outro}Visual)`, defaulted to board-centre). Default-OFF
-	 * = the single composer `bind:FreeSpin{Intro,Outro}` (parity); `apps/lines` forwards its
-	 * `FREE_SPIN_OVERLAY_INSTANCES` flag.
-	 */
-	freeSpinOverlays?: boolean;
-	/**
 	 * Split the WIN overlay (big-win presentation) into a full-screen GATE (`canvas`
 	 * `bind:WinGate`) + an editor-positioned VISUAL (a `game`-space `componentInstance(win)`,
-	 * defaulted to board-centre), mirroring `freeSpinOverlays`. Default-OFF = the single composer
+	 * defaulted to board-centre). Default-OFF = the single composer
 	 * `bind:Win` in `basegameOverlays` (parity); `apps/lines` forwards its `WIN_INSTANCE` flag.
 	 */
 	winInstance?: boolean;
@@ -170,68 +163,11 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				children: [],
 			};
 
-	// §17 Phase 3 — the free-spin INTRO scene's node. The full-screen GATE (dim + press +
-	// the round-blocking await) is now ALWAYS mounted by the engine (`Game.svelte` renders one
-	// `<FreeSpinIntroGate>`), so the doc owns only the VISUAL — never a gate. This keeps the
-	// round held for ANY intro (this doc-driven visual OR an authored gated screen) while never
-	// double-mounting the gate (two `waitForResolve` subscribers would hang the round). OFF:
-	// the board-centred VISUAL bind (parity with the old composer's drawn output, minus its
-	// gate). ON: no node here — the positionable `freeSpinIntroVisual` instance scene below
-	// draws the visual instead.
-	const fsIntroNode: LayoutNode | undefined = options.freeSpinOverlays
-		? undefined
-		: {
-				id: 'fs-intro',
-				slotId: 'freeSpinIntro',
-				label: 'Free-spin intro',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: {
-					component: 'FreeSpinIntroVisual',
-					props: {
-						boundToInstance: false,
-						introSpine: 'fsIntroNumber',
-						introAnimation: 'intro',
-						idleAnimation: 'idle',
-						slotName: 'slot_number',
-					},
-				},
-				children: [],
-			};
-
-	// §17 Phase 3 — the free-spin OUTRO scene's node, mirroring the intro: the full-screen GATE
-	// is engine-owned (one `<FreeSpinOutroGate>` in `Game.svelte`), so the doc owns only the
-	// VISUAL. OFF: the board-centred VISUAL bind (parity, gate-free); ON: no node (the
-	// `freeSpinOutroVisual` instance scene below draws it).
-	const fsOutroNode: LayoutNode | undefined = options.freeSpinOverlays
-		? undefined
-		: {
-				id: 'fs-outro',
-				slotId: 'freeSpinOutro',
-				label: 'Free-spin outro',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: {
-					component: 'FreeSpinOutroVisual',
-					props: {
-						boundToInstance: false,
-						outroSpine: 'fsOutroNumber',
-						outroAnimation: 'intro',
-						idleAnimation: 'idle',
-						slotName: 'slot_number',
-					},
-				},
-				children: [],
-			};
-
 	// The WIN overlay node in `basegameOverlays`: the direct coded composer `bind:Win` by default
 	// (parity), or the full-screen GATE `bind:WinGate` when `options.winInstance` is set. Both are
 	// `canvas`-space container binds at (0,0) — the coded part self-positions in canvas coords. The
 	// positionable VISUAL is a SEPARATE `game`-space `componentInstance(win)` scene below (emitted
-	// only ON). Mirrors the free-spin gate/visual split; the win level / amount / count-up bridge
-	// via `winState`. Reversible (drop the flag).
+	// only ON); the win level / amount / count-up bridge via `winState`. Reversible (drop the flag).
 	const winNode: LayoutNode = options.winInstance
 		? {
 				id: 'bound-win-gate',
@@ -277,59 +213,6 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 							params: {
 								winSpine: 'bigwin',
 								slotName: 'slot_win_count',
-							},
-						},
-					],
-				},
-			]
-		: [];
-
-	// The positionable VISUAL scene(s), emitted only when the overlays are split (ON).
-	// `game`-space so the scene's `<MainContainer>` scales them; the instance is defaulted to
-	// board-centre (its `FreeSpinAnimation` renders at the node origin under `boundToInstance`),
-	// so the ON default reproduces the OFF board-centred placement. The owner drags to move it.
-	const freeSpinVisualScenes: Scene[] = options.freeSpinOverlays
-		? [
-				{
-					id: 'freeSpinIntroVisual',
-					name: sceneName('freeSpinIntroVisual'),
-					space: 'game',
-					nodes: [
-						{
-							id: 'fs-intro-visual',
-							slotId: 'freeSpinIntroVisual',
-							label: 'Free-spin intro',
-							kind: 'componentInstance',
-							componentId: 'freeSpinIntroVisual',
-							x: centre.x,
-							y: centre.y,
-							params: {
-								introSpine: 'fsIntroNumber',
-								introAnimation: 'intro',
-								idleAnimation: 'idle',
-								slotName: 'slot_number',
-							},
-						},
-					],
-				},
-				{
-					id: 'freeSpinOutroVisual',
-					name: sceneName('freeSpinOutroVisual'),
-					space: 'game',
-					nodes: [
-						{
-							id: 'fs-outro-visual',
-							slotId: 'freeSpinOutroVisual',
-							label: 'Free-spin outro',
-							kind: 'componentInstance',
-							componentId: 'freeSpinOutroVisual',
-							x: centre.x,
-							y: centre.y,
-							params: {
-								outroSpine: 'fsOutroNumber',
-								outroAnimation: 'intro',
-								idleAnimation: 'idle',
-								slotName: 'slot_number',
 							},
 						},
 					],
@@ -455,13 +338,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				nodes: [winNode, transitionNode],
 			},
 			...winVisualScenes,
-			{
-				id: 'freeSpinIntro',
-				name: sceneName('freeSpinIntro'),
-				space: 'canvas',
-				nodes: fsIntroNode ? [fsIntroNode] : [],
-			},
-			...freeSpinVisualScenes,
+			defaultFreeSpinIntroScene(sceneName('freeSpinIntro')),
 			{
 				id: 'freeSpinCounter',
 				name: sceneName('freeSpinCounter'),
@@ -491,12 +368,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
-			{
-				id: 'freeSpinOutro',
-				name: sceneName('freeSpinOutro'),
-				space: 'canvas',
-				nodes: fsOutroNode ? [fsOutroNode] : [],
-			},
+			defaultFreeSpinOutroScene(sceneName('freeSpinOutro')),
 			{
 				// Free-spin board glow: the reel-house backdrop BEHIND the reels. A `game`-space
 				// bind anchor — the coded `BoardFrame` self-shows/animates off the

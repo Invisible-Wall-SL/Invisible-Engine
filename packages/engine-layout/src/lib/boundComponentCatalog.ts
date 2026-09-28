@@ -122,16 +122,6 @@ export interface BoundComponentDefault {
 	zIndex?: number;
 	/** layoutTypes the component is shown for (absent = all). */
 	visibleFor?: LayoutType[];
-	/**
-	 * EDITOR-PREVIEW ONLY: declares that this coded component dims the WHOLE window
-	 * behind its centred art when it plays — the full-screen 50% black scrim a coded
-	 * overlay gate (`CanvasSizeRectangle`) draws behind its frame in-game. The number
-	 * is the scrim's alpha (0..1). The editor draws a full-frame translucent-black
-	 * quad behind this component's preview (only on its OWN scene) so authors SEE the
-	 * dim; the runtime/layout doc are untouched (the game draws its real gate). Absent
-	 * = no scrim (the default for non-overlay binds + LoadingScreen/Transition).
-	 */
-	overlayDim?: number;
 }
 
 /**
@@ -182,34 +172,17 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		placement: 'boardLeft',
 		preview: { kind: 'sprite', region: BUILTIN_REGION.freeSpinCounterFrame },
 	},
-	FreeSpinIntro: {
-		space: 'canvas',
-		placement: 'centre',
-		preview: { kind: 'spine', bundle: 'fsIntro' },
-		// In-game the intro gate darkens the whole window (50% black) behind the centred
-		// frame; mirror that in the editor preview so the full-screen effect is visible.
-		overlayDim: 0.5,
-	},
-	// §17 Phase 3 — the board-relative VISUAL half of the intro split (a `game`-space
-	// componentInstance the owner positions). Previews the `fsIntro` frame spine at board
-	// centre (the def's default node position), so the editor preview matches the in-game
-	// default; dragging the instance moves it.
+	// The board-relative free-spin intro VISUAL (a bare scene bind, or the `game`-space
+	// `freeSpinIntroVisual` componentInstance the owner positions). Previews the `fsIntro` frame
+	// spine at board centre (the def's default node position), so the editor preview matches the
+	// in-game default; dragging the instance moves it.
 	FreeSpinIntroVisual: {
 		space: 'game',
 		placement: 'boardCentre',
 		preview: { kind: 'spine', bundle: 'fsIntro' },
 	},
-	FreeSpinOutro: {
-		space: 'canvas',
-		placement: 'centre',
-		// Most "book-of" games render the outro on the shared free-spin frame and ship
-		// no dedicated `fsOutro` spine — fall back to the intro frame so it previews.
-		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
-		// Same full-window 50% dim as the intro gate (see `FreeSpinIntro.overlayDim`).
-		overlayDim: 0.5,
-	},
-	// §17 Phase 3 — the board-relative VISUAL half of the outro split (a `game`-space
-	// componentInstance the owner positions), previewed at board centre.
+	// The board-relative free-spin outro VISUAL (a bare scene bind, or the `game`-space
+	// `freeSpinOutroVisual` componentInstance the owner positions), previewed at board centre.
 	FreeSpinOutroVisual: {
 		space: 'game',
 		placement: 'boardCentre',
@@ -337,19 +310,6 @@ export function boundComponentTileImage(name: string | undefined): TileImageBind
 }
 
 /**
- * EDITOR-PREVIEW ONLY: the full-screen dim alpha a `bind` anchor declares via its
- * catalog {@link BoundComponentDefault.overlayDim} (e.g. the free-spin intro/outro
- * gates), or `undefined` for a bind with no dim / a non-bind node. The editor reads
- * this to draw a scrim behind the component's preview. Keyed off `bind.component`
- * only — it's a preview affordance, never written to the layout doc.
- */
-export function boundComponentOverlayDim(node: LayoutNode): number | undefined {
-	const component = node.bind?.component;
-	if (!component) return undefined;
-	return boundComponentDefault(component)?.overlayDim;
-}
-
-/**
  * One editable parameter a coded (bound) component exposes to the editor — the
  * UNIVERSAL generalization of the per-component appearance knob (it subsumes the
  * bespoke HUD-text override in `hudText.ts`). The editor auto-renders a control
@@ -409,12 +369,12 @@ const TILE_PARAMS: EditableParam[] = [
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
-	// Free-spin intro overlay — swap the coded spine bundle + animation names + the
+	// Free-spin intro VISUAL — swap the coded spine bundle + animation names + the
 	// number slot the count is injected into. The component reads these as $props()
 	// with the coded values as defaults, so an unauthored game renders identically.
 	// NB: a custom `introSpine` bundle MUST expose a slot matching `slotName`, else
 	// the count BitmapText has nowhere to mount.
-	FreeSpinIntro: [
+	FreeSpinIntroVisual: [
 		{
 			key: 'introSpine',
 			kind: 'string',
@@ -425,24 +385,10 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
 	],
-	// Free-spin outro overlay — same shape as the intro, for the outro spine. The
-	// component reads these as $props() with the coded values as defaults, so an
-	// unauthored game renders identically. A custom `outroSpine` bundle MUST expose a
-	// slot matching `slotName`, else the count BitmapText has nowhere to mount.
-	FreeSpinOutro: [
-		{
-			key: 'outroSpine',
-			kind: 'string',
-			label: 'Outro spine bundle',
-			placeholder: 'fsOutroNumber',
-		},
-		{ key: 'outroAnimation', kind: 'string', label: 'Outro animation', placeholder: 'intro' },
-		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
-		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
-	],
-	// §17 Phase 3 outro VISUAL — the outro spine/animation knobs (as the composer). The headless
-	// authored-outro driver emits NO coin fountain; an author who wants coins places their own
-	// (FX / particle / spine), so there are no fountain params here.
+	// Free-spin outro VISUAL — same shape as the intro, for the outro spine. A custom
+	// `outroSpine` bundle MUST expose a slot matching `slotName`, else the count BitmapText has
+	// nowhere to mount. The engine's headless outro driver emits NO coin fountain; an author who
+	// wants coins places their own (FX / particle / spine), so there are no fountain params here.
 	FreeSpinOutroVisual: [
 		{
 			key: 'outroSpine',

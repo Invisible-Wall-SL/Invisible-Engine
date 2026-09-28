@@ -32,7 +32,7 @@
 	// pre-split standalone Win overlay. The ON path mounts the gate (`WinGate`) and an
 	// editor-positioned `win` componentInstance as SEPARATE scene nodes instead (gated by
 	// `WIN_INSTANCE`). Both subscribe to the `win*` events; the win level / amount / count-up
-	// bridge via `winState`. Mirrors `FreeSpinOutro`.
+	// bridge via `winState`.
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
 

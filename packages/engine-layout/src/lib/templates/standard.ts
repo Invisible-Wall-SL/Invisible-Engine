@@ -107,10 +107,8 @@ export const standardTemplate = (gameType: string): GameTemplate => ({
 					slotId: 'freeSpinIntro',
 					name: 'Free-spin intro',
 					kind: 'mount',
-					// VISUAL only — the full-screen press-to-continue GATE is engine-owned
-					// (always mounted in `Game.svelte`). Seeding the gate-bundling composer
-					// (`FreeSpinIntro`) here would mount a SECOND gate in an authored doc and
-					// hang the round (two `waitForResolve` subscribers).
+					// VISUAL only — the dim, tap and round-block belong to the flow's intro
+					// screen (its `tapToContinue` + a `showContainer{awaitComplete}`).
 					mountComponent: 'FreeSpinIntroVisual',
 				},
 			],
@@ -135,7 +133,7 @@ export const standardTemplate = (gameType: string): GameTemplate => ({
 					slotId: 'freeSpinOutro',
 					name: 'Free-spin outro',
 					kind: 'mount',
-					// VISUAL only — the GATE is engine-owned (see the intro slot above).
+					// VISUAL only — the flow's outro screen owns the dim, tap and round-block.
 					mountComponent: 'FreeSpinOutroVisual',
 				},
 			],

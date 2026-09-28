@@ -81,12 +81,12 @@ other screen**, so its list position stops mattering; rows pinned this way show 
 `TOP` badge in the Screens list. Use it for something transient that must never
 be buried — a loading splash, a big-win celebration — and leave it off for
 anything persistent you want to stack normally (a progress bar, an overlay).
-Round-blocking engine gates always draw above both. A screen ticked **Behind the
+The engine's own top band (the info overlay) always draws above both. A screen ticked **Behind the
 reels** shows an `UNDER` badge instead; the two ticks are mutually exclusive.
 
 Bottom to top, the game draws: background screens → the coded background →
 **Behind the reels** screens → the reel board → the Screens list → **Always on
-top** screens → engine gates.
+top** screens → the engine's top band.
 
 ### Zoom with anticipation
 

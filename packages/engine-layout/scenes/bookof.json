@@ -223,7 +223,20 @@
 			"id": "freeSpinIntro",
 			"name": "Free-spin intro",
 			"space": "canvas",
+			"alwaysOnTop": true,
 			"nodes": [
+				{
+					"id": "fs-intro-tap",
+					"label": "Tap to continue",
+					"kind": "componentInstance",
+					"componentId": "tapToContinue",
+					"x": 0,
+					"y": 0,
+					"params": {
+						"tapToContinue": true,
+						"tapDimAlpha": 0.5
+					}
+				},
 				{
 					"id": "fs-intro",
 					"slotId": "freeSpinIntro",
@@ -232,8 +245,9 @@
 					"x": 0,
 					"y": 0,
 					"bind": {
-						"component": "FreeSpinIntro",
+						"component": "FreeSpinIntroVisual",
 						"props": {
+							"boundToInstance": false,
 							"introSpine": "fsIntroNumber",
 							"introAnimation": "intro",
 							"idleAnimation": "idle",
@@ -248,7 +262,21 @@
 			"id": "freeSpinOutro",
 			"name": "Free-spin outro",
 			"space": "canvas",
+			"alwaysOnTop": true,
 			"nodes": [
+				{
+					"id": "fs-outro-tap",
+					"label": "Tap to continue",
+					"kind": "componentInstance",
+					"componentId": "tapToContinue",
+					"x": 0,
+					"y": 0,
+					"params": {
+						"tapToContinue": true,
+						"tapDimAlpha": 0.5,
+						"tapArmAfterSignal": "freeSpinOutroCountUpComplete"
+					}
+				},
 				{
 					"id": "fs-outro",
 					"slotId": "freeSpinOutro",
@@ -257,7 +285,14 @@
 					"x": 0,
 					"y": 0,
 					"bind": {
-						"component": "FreeSpinOutro"
+						"component": "FreeSpinOutroVisual",
+						"props": {
+							"boundToInstance": false,
+							"outroSpine": "fsOutroNumber",
+							"outroAnimation": "intro",
+							"idleAnimation": "idle",
+							"slotName": "slot_number"
+						}
 					},
 					"children": []
 				}

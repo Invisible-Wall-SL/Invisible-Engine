@@ -433,14 +433,11 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 };
 
 // ---------------------------------------------------------------------------
-// FS-1 + FS-6 (design doc §14) — the FREE-SPIN lifecycle as author-controlled Flow overlays.
-//
-// A SEPARATE committed fixture (NOT folded into `LINES_FLOW_DOC`, which authors zero
-// transitions so the default boot stays parity-inert, §7). Reached ONLY via the dev hook
-// `window.__IE_FLOW_FREESPIN__` (see `flowRuntime.svelte.ts`), never on a normal boot; the ship
-// path is the baked `flow` slot. Ownership is decided PER STEP by the auto-derived
-// `resolveFreeSpinOwnership` (see `flowRuntime.svelte.ts`) — an un-owned step's event falls through
-// to its coded handler exactly as today (byte-parity), an owned step's stays authored.
+// FS-1 (design doc §14) — the FREE-SPIN lifecycle as v1 Flow overlays: a HEADLESS fixture for the
+// engine-flow interpreter's active-set layer model (`tools/flow-spike/fs1FreeSpins.ts`,
+// `fs4Retrigger.ts`). The game never runs it: a v1 doc's free-spin overlays are stripped at runtime
+// (`withoutFreeSpinOverlays` in `flowRuntime.svelte.ts`) — a v1 screen cannot hold the round on a
+// tap, so free-spin screens are a v2 flow's containers.
 //
 // THE MODEL (owner decision 2026-07-03, "same basegame + overlays"): there is NO distinct
 // `freeGame` screen node. The `basegame` screen PERSISTS throughout free spins; the free-spin
@@ -472,41 +469,13 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 // base-game invariant. Every free-spin edge is a LAYER (leaves the source) or a self-`complete`
 // (removes only the overlay), so `basegame` is active from the loading handoff onward, unbroken.
 //
-// SCENE-ID CONTRACT (owner authors these four scenes online with these EXACT ids):
-//   - `freeSpinIntro`     — the "you won N free spins" intro flourish (id already used by the
-//                           reference layout's feed-driven intro overlay).
-//   - `freeSpinCounter`   — the "X OF Y" persistent counter panel (reference-layout id; its
-//                           `freeSpinCounter` component reads `source:'freeSpins'`).
-//   - `freeSpinRetrigger` — NEW: the "extra free spins" retrigger flourish (owner authors it).
-//   - `freeSpinOutro`     — the free-spin total count-up outro (reference-layout id).
+// SCENE IDS: `freeSpinIntro`, `freeSpinCounter`, `freeSpinRetrigger`, `freeSpinOutro` — the
+// canonical scaffold ids.
 //
-// FS-6 — FLOW OWNS THE VISUALS (owner decision 2026-07-03, corrected). The free-spin events ARE
-// AUTHORED here, with the FULL, unmodified Phase-5 choreographies (`freeSpinTriggerChoreography` /
-// `updateFreeSpinChoreography` / `freeSpinEndChoreography` above — byte-parity-proven at 29/8/27
-// ops, turbo on/off, by `phase5Migration.ts`). These are NOT presentation-stripped: they KEEP
-// broadcasting `freeSpinIntroShow`/`Hide`/`Update` + `freeSpinOutroShow`/`Hide`/`CountUp`, which is
-// LOAD-BEARING — those events ARM the engine-owned round-gates (`FreeSpinIntroGate`/
-// `FreeSpinOutroGate`: the dim + the round-blocking `waitForResolve` press-to-continue + the outro
-// count-up), which FS-6 KEEPS. They also carry the load-bearing `gameType`/counter/sound state.
-//
-// PER-STEP ownership (owner direction 2026-07-03): each overlay step — intro (`freeSpinTrigger` /
-// `freeSpinIntro`), counter (`updateFreeSpin` / `freeSpinCounter`), outro (`freeSpinEnd` /
-// `freeSpinOutro`) — is owned INDEPENDENTLY (`freeSpinOwnership.ts` `resolveFreeSpinOwnership`). A
-// step is flow-owned only when ITS screen is placed AND ITS bookEvent edge is wired AND ITS scene has
-// authored content. For an OWNED step the authored event runs + the coded scene is mount-gated off;
-// for an UN-OWNED step the event is STRIPPED (falls through to the coded handler) + the coded scene
-// mounts as today. MIXED states are valid (authored intro + coded outro, …). No-double is achieved
-// WITHOUT touching these choreographies: `Game.svelte` PER-SCENE mount-gates each coded VISUAL/COUNTER
-// off ITS step's ownership (the SAME per-step ownership that authored that step's event — an ATOMIC
-// per-step flip). Load-bearing state runs regardless: each event runs EITHER its authored choreography
-// OR its coded handler, each of which does THAT step's own `gameType`/counter/sound state, so the
-// cross-event chain (intro → `freegame`, outro → `basegame`) holds under any mix. Deletes NO plumbing
-// (stateUi / registrations / `bookEventHandlerMap` remain, re-activatable).
-//
-// FS-7 (future, NOT this pass): move the round-blocking gate + outro count-up OWNERSHIP itself into
-// the authored screens (a flow-driven `waitForResolve` / press-to-continue / count-up), retiring the
-// engine-owned `FreeSpinIntroGate`/`FreeSpinOutroGate`. Only then would the `*Show`/`*CountUp`
-// broadcasts become droppable. Deliberately deferred — the schema doesn't express it yet.
+// The free-spin events are authored here with the FULL Phase-5 choreographies
+// (`freeSpinTriggerChoreography` / `updateFreeSpinChoreography` / `freeSpinEndChoreography` above —
+// byte-parity-proven by `phase5Migration.ts`), so the harness drives the interpreter, not a coded
+// handler.
 // ---------------------------------------------------------------------------
 
 /** A layer edge INTO a free-spin overlay: a `bookEvent` trigger that activates the overlay over
@@ -528,9 +497,8 @@ const freeSpinReturnEdge = (from: string): FlowDoc['transitions'][number] => ({
 	trigger: { kind: 'complete' },
 });
 
-/** Tiny enter/exit beats so the layer + handoff order is observable in the harness. The screen's
- *  VISUAL is the owner's authored scene content (mounted by the generic mounter) + the kept gate;
- *  the presentation TIMELINE (broadcasts + state) is the authored EVENT choreography below. These
+/** Tiny enter/exit beats so the layer + handoff order is observable in the harness. The
+ *  presentation TIMELINE (broadcasts + state) is the authored EVENT choreography below. These
  *  beats are just active-set lifecycle markers, distinct from the presentation. */
 const fsBeat = (event: string): ChoreographyNode => broadcast(event);
 
@@ -571,11 +539,7 @@ export const LINES_FLOW_FREESPIN_DOC: FlowDoc = {
 		freeSpinReturnEdge('freeSpinRetrigger'),
 		freeSpinReturnEdge('freeSpinOutro'),
 	],
-	// FS-6 — the free-spin events ARE AUTHORED with the FULL Phase-5 choreographies (unmodified, so
-	// they still arm the kept round-gates + do the load-bearing gameType/counter/sound state). The
-	// full set of `LINES_FLOW_DOC.events` is reused verbatim, including `freeSpinTrigger`/
-	// `updateFreeSpin`/`freeSpinEnd` — the flow now OWNS the free-spin presentation timeline while
-	// `Game.svelte` mount-gates the coded visual/counter scenes off (no double). A step's event is
-	// only engaged when `resolveFreeSpinOwnership` owns it PER STEP; otherwise it is stripped.
+	// The full set of `LINES_FLOW_DOC.events`, reused verbatim — including `freeSpinTrigger`/
+	// `updateFreeSpin`/`freeSpinEnd` with their Phase-5 choreographies.
 	events: LINES_FLOW_DOC.events,
 };

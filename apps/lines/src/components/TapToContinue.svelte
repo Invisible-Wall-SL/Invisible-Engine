@@ -18,8 +18,7 @@
 	// `{kind:'signal'}` edge. Both are SAFE no-ops with no active interpreter / no
 	// listener (the holder helpers return false). An empty signal only completes.
 	//
-	// The dim + prompt reuse the SAME primitives as the engine-owned free-spin gate
-	// (`FreeSpinIntroGate`): a full-screen `CanvasSizeRectangle` behind the hit area +
+	// The dim + prompt are a full-screen `CanvasSizeRectangle` behind the hit area +
 	// `PressToContinue` (which owns the `OnPressFullScreen` + Space hotkey + the prompt
 	// graphic). PARITY: `dimAlpha` defaults to 0 ⇒ a fully transparent backdrop ⇒ an
 	// instance with no dim params renders byte-identically to today's transparent tap.

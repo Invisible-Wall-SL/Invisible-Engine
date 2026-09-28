@@ -167,7 +167,7 @@ const slices = [
 	sliceBetween(symbolBeatSource, 'TRANSIT_BEAT_CAP_MS', 'export const TRANSIT_BEAT_CAP_MS = ', ';\n'), // prettier-ignore
 	sliceBetween(symbolBeatSource, 'resolveWinBeatBudget', 'export const resolveWinBeatBudget = (', '\n};\n'), // prettier-ignore
 	// The slam policy the coded handler and `animateSymbols` reach every cue through.
-	sliceBetween(unskippableSource, 'PLAYER_GATED_CUES', 'export const PLAYER_GATED_CUES', ']);\n'),
+	sliceBetween(unskippableSource, 'RACED_HOLD_CUES', 'export const RACED_HOLD_CUES', ']);\n'),
 	sliceBetween(unskippableSource, 'SLAM_MINIMUM_DISPLAY_CUES', 'export const SLAM_MINIMUM_DISPLAY_CUES', ';\n'), // prettier-ignore
 	sliceBetween(unskippableSource, 'SLAM_SYMBOL_HOLD_MS', 'export const SLAM_SYMBOL_HOLD_MS = ', ';\n'), // prettier-ignore
 	sliceBetween(unskippableSource, 'SLAM_MESSAGE_HOLD_MS', 'export const SLAM_MESSAGE_HOLD_MS = ', ';\n'), // prettier-ignore

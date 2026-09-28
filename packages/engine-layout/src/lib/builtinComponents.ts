@@ -868,8 +868,8 @@ export const TRANSITION_DEF: ComponentDef = {
  * frame spine + the count spine, count in its slot) as a `bind` child with
  * `boundToInstance:true`, so the coded part renders at THIS instance's node position
  * instead of self-centring on the board — drag/scale the instance to move the intro art.
- * The full-screen GATE (dim + press-to-continue + the round-blocking await) stays a coded
- * `canvas` bind (`FreeSpinIntroGate`), so it isn't editor-positioned. Placed `game`-space,
+ * The dim, the tap and the round-blocking hold belong to the flow's intro screen (its
+ * `tapToContinue` + a `showContainer{awaitComplete}`), not to this visual. Placed `game`-space,
  * defaulted to board-centre (the scene node sets `x/y = boardLayout`), so parity holds at
  * the default position. Params forward the spine bundle / animations / slot to the part.
  */
@@ -926,9 +926,9 @@ export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
  * The board-relative VISUAL of the free-spin OUTRO (§17 Phase 3) — the editor-positioned
  * half of the outro/gate split, mirroring {@link FREE_SPIN_INTRO_VISUAL_DEF}. Wraps the
  * coded `FreeSpinOutroVisual` (the `FreeSpinAnimation` frame spine + win sprites + the
- * count spine, count in its slot reading the gate's published count-up amount) as a `bind`
- * child with `boundToInstance:true`. The full-screen GATE (dim + count-up driver + WinCoins
- * + press + round-await) stays the coded `canvas` bind `FreeSpinOutroGate`.
+ * count spine, count in its slot reading the count-up amount the engine's outro driver
+ * publishes) as a `bind` child with `boundToInstance:true`. The dim, the tap and the
+ * round-blocking hold belong to the flow's outro screen, not to this visual.
  */
 export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 	id: 'freeSpinOutroVisual',

@@ -19,10 +19,12 @@
  * or v2-flow — and every wait inside it consults {@link inUnskippablePresentation}.
  *
  * THE HANG RULE. Making a wait unskippable is only safe when the promise settles on its OWN — a
- * timer, a spine `complete`, a `Promise.all` of those. A wait released only by a player PRESS must
- * stay raced: after a slam the spin button is inert and is drawn above the overlay, so it swallows
- * the very tap that would release the hold and the round never completes (the bug fixed in 350b473).
- * {@link PLAYER_GATED_CUES} is that exemption, and it applies INSIDE the scope.
+ * timer, a spine `complete`, a `Promise.all` of those. A wait that is not guaranteed to settle must
+ * stay raced: a player PRESS is the classic case — after a slam the spin button is inert and is drawn
+ * above the overlay, so it swallows the very tap that would release the hold and the round never
+ * completes (the bug fixed in 350b473). {@link RACED_HOLD_CUES} is that exemption, and it applies
+ * INSIDE the scope. (A flow's `showContainer{awaitComplete}` tap hold is a node, not a cue — the
+ * slam-aware mount in `flowV2Runtime` releases it.)
  *
  * THE SPIN IS THE SKIPPABLE UNIT, not the round (owner direction 2026-07-20, reversing the original
  * whole-feature choice). One press used to fast-forward every remaining free spin, because the token
@@ -52,10 +54,10 @@
  * outro panel and the retrigger flourish must play in FULL after a slam — a slam snaps the reels, it
  * does not fast-forward the show. These are NOT added to {@link UNSKIPPABLE_BOOK_EVENTS}: that
  * mechanism keeps the token TRIPPED and only makes cues/delays run long, so it can't protect the
- * outro's player-gated count-up or a `showContainer{awaitComplete}` hold (both are deliberately
+ * outro's raced count-up or a `showContainer{awaitComplete}` hold (both are deliberately
  * released-on-skip to avoid the slam hang). Instead the token is RE-ARMED right before a celebration
  * ({@link startsCelebration}), so it presents with a fresh token — byte-identical to a round nobody
- * slammed: cues wait in full, player-gated holds wait for the real tap, and nothing can hang because
+ * slammed: cues wait in full, tap holds wait for the real tap, and nothing can hang because
  * the hang only exists while the token is tripped. The button stays inert over the celebration via the
  * celebration LOCK (`isCelebrationLocked` in `spinStop.ts`), so the player still can't slam the
  * celebration itself. ORDINARY wins (win line + amount count-up) are NOT celebrations and keep
@@ -102,8 +104,9 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeS
  *
  *  - `freeSpinTrigger` — the free-spin INTRO. It is ALSO in {@link UNSKIPPABLE_BOOK_EVENTS}, but that
  *    alone does not protect it: its scatter-match animation runs BEFORE the intro screen mounts (so
- *    the screen-driven celebration lock is still open) and its `freeSpinIntroUpdate` tap-hold is
- *    player-gated (races the token), so an upstream reel-roll slam collapsed the intro. Re-arming here
+ *    the screen-driven celebration lock is still open) and the intro screen's tap hold
+ *    (`showContainer{awaitComplete}`) is released on skip, so an upstream reel-roll slam collapsed
+ *    the intro. Re-arming here
  *    clears that upstream trip; the button lock over the whole unskippable window
  *    (`hasUnskippablePresentation`) stops a fresh slam during the scatter match.
  *  - `freeSpinEnd` — the free-spin OUTRO panel ("You won X"), always a celebration.
@@ -131,16 +134,14 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 };
 
 /**
- * Cues whose awaited hold is resolved ONLY by a player press. These keep racing the token even
- * inside an unskippable presentation — see "THE HANG RULE" above. Each is a `waitForResolve` held by
- * a `PressToContinue` gate: `freeSpinIntroUpdate` (`FreeSpinIntroGate` / `FreeSpinIntroFlowGate`),
- * `bookRevealGateShow` (`BookRevealGate`), `freeSpinOutroCountUp` (`FreeSpinOutroGate`).
+ * Cues whose awaited hold is not guaranteed to settle on its own, so they keep racing the token even
+ * inside an unskippable presentation — see "THE HANG RULE" above. A DEFENSIVE guard: no shipped
+ * choreography fires one inside an unskippable event (the outro count-up runs in `freeSpinEnd`,
+ * which races every cue anyway), but an authored flow may. `freeSpinOutroCountUp` is held by
+ * `<FreeSpinOutroDriver>` until its count-up completes, and a count-up that never mounts (an outro
+ * whose win level resolves to no data) would hold it forever.
  */
-export const PLAYER_GATED_CUES: ReadonlySet<string> = new Set([
-	'freeSpinIntroUpdate',
-	'bookRevealGateShow',
-	'freeSpinOutroCountUp',
-]);
+export const RACED_HOLD_CUES: ReadonlySet<string> = new Set(['freeSpinOutroCountUp']);
 
 /**
  * Cues a slam SHORTENS instead of collapsing — the minimum-display set.
@@ -234,11 +235,12 @@ export const runBookEventPresentation = async (
 	}
 };
 
-/** Await an emitter cue's subscribers: fully inside an unskippable presentation (unless the cue is
- *  player-gated), raced against the slam token everywhere else. The single wrapper every awaited
- *  `broadcastAsync` in the game goes through — coded handler, effect registry, both flow runtimes. */
+/** Await an emitter cue's subscribers: fully inside an unskippable presentation (unless the cue's
+ *  hold must stay raced), raced against the slam token everywhere else. The single wrapper every
+ *  awaited `broadcastAsync` in the game goes through — coded handler, effect registry, both flow
+ *  runtimes. */
 export const awaitCue = (cue: string, subscribers: Promise<unknown>): Promise<void> => {
-	if (inUnskippablePresentation() && !PLAYER_GATED_CUES.has(cue)) {
+	if (inUnskippablePresentation() && !RACED_HOLD_CUES.has(cue)) {
 		return subscribers.then(() => undefined);
 	}
 	// Already slammed AND this cue owns a minimum display ⇒ hold for a fixed beat instead of

@@ -1,5 +1,6 @@
 import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import { defaultConfirmScene } from '../confirmScene';
+import { defaultFreeSpinIntroScene, defaultFreeSpinOutroScene } from '../freeSpinScenes';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
@@ -15,9 +16,9 @@ import { hudScenes } from './hud';
  * grid + the coded-overlay bind anchors + the HUD. We OMIT the board-frame sprites
  * (artist art the scaffold drops, and whose geometry differs per game) to stay lean.
  *
- * All three games mount the identical engine set (verified in each
- * `apps/<kind>/src/components/Game.svelte`): `Background`, `LoadingScreen`,
- * `Win`, `Transition`, `FreeSpinIntro`, `FreeSpinCounter`, `FreeSpinOutro`. The
+ * A scaffolded project runs on the shared runtime, so all three kinds get the same
+ * engine set: `Background`, `LoadingScreen`, `Win`, `Transition`, `FreeSpinCounter`,
+ * and the flow-held free-spin intro/outro screens (`freeSpinScenes.ts`). The
  * only per-kind variation is the board shape, so the skeleton is parameterised on
  * the reel grid (`reels`/`rows`/`cellSize`, derived from each game's
  * `constants.ts`).
@@ -173,35 +174,7 @@ export function engineSkeletonLayout({
 					},
 				],
 			},
-			{
-				id: 'freeSpinIntro',
-				name: 'Free-spin intro',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-intro',
-						slotId: 'freeSpinIntro',
-						label: 'Free-spin intro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						// Props reproduce the original hardcodes so the STANDALONE intro renders
-						// unchanged. This is the standalone, board-centred free-spin intro overlay
-						// (it self-centres via `FreeSpinAnimation`'s own `<MainContainer>`) and owns
-						// the free-spin intro; the props pick its spine/animations/slot.
-						bind: {
-							component: 'FreeSpinIntro',
-							props: {
-								introSpine: 'fsIntroNumber',
-								introAnimation: 'intro',
-								idleAnimation: 'idle',
-								slotName: 'slot_number',
-							},
-						},
-						children: [],
-					},
-				],
-			},
+			defaultFreeSpinIntroScene(),
 			{
 				id: 'freeSpinCounter',
 				name: 'Free-spin counter',
@@ -219,23 +192,7 @@ export function engineSkeletonLayout({
 					},
 				],
 			},
-			{
-				id: 'freeSpinOutro',
-				name: 'Free-spin outro',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-outro',
-						slotId: 'freeSpinOutro',
-						label: 'Free-spin outro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'FreeSpinOutro' },
-						children: [],
-					},
-				],
-			},
+			defaultFreeSpinOutroScene(),
 			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene, so a
 			// fresh project of this kind ships an authorable buy-feature page (`buyFeatureScene.ts`).
 			defaultBuyFeatureScene(),

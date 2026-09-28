@@ -11,10 +11,11 @@
  * (`activeScreenIds`), because a flow-v2 doc can drive its intro/outro purely with
  * `showContainer`/`hideContainer` and broadcast no `freeSpinIntroShow` cue at all — verified live on
  * the Book-of-Borut remake, where a cue subscription stayed deaf for the intro's full duration. But
- * the canonical `drivenSeed`, and therefore every project seeded from it, authors the OPPOSITE model:
- * it shows `freeSpinIntro`/`freeSpinOutro` ONCE at start-up, never hides them, and toggles their
- * internal visibility with the `*Show`/`*Hide` cues their bound components already subscribe to. There
- * the mount is true for the whole session, so a mount-only lock latches at boot and never clears.
+ * projects seeded from the starter `drivenSeed` before 2026-09-28 author the OPPOSITE model: they
+ * show `freeSpinIntro`/`freeSpinOutro` ONCE at start-up, never hide them, and toggle their internal
+ * visibility with the `*Show`/`*Hide` cues their bound components already subscribe to. There the
+ * mount is true for the whole session, so a mount-only lock latches at boot and never clears. (The
+ * current starter flow shows and hides them around their moment — the mount model above.)
  *
  * That is exactly what shipped: on `invisible_wall/test6` the turbo button was greyed from the first
  * frame, slam-stop was dead for the entire session, and a rolling spin rendered a greyed STOP —
@@ -33,10 +34,11 @@
  * (`flowV2DrivesScreens` false) the rule collapses to the bare mount test ⇒ byte-identical.
  */
 
-import { FREE_SPIN_STEPS } from './freeSpinOwnership';
-
 /** The engine's canonical big-win flow screen id (`flowDoc.ts`) — the coded / v1 celebration. */
 const BIG_WIN_SCREEN = 'bigWin';
+/** The canonical free-spin intro / outro container ids (the scaffold scene ids). */
+const FREE_SPIN_INTRO_SCREEN = 'freeSpinIntro';
+const FREE_SPIN_OUTRO_SCREEN = 'freeSpinOutro';
 
 export type CelebrationLockInput = {
 	/** The flow containers currently MOUNTED, in render order. */
@@ -94,8 +96,8 @@ export const resolveCelebrationLock = ({
 		flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id));
 
 	return {
-		intro: locks(FREE_SPIN_STEPS.intro.screen, introCueShown),
-		outro: locks(FREE_SPIN_STEPS.outro.screen, outroCueShown),
+		intro: locks(FREE_SPIN_INTRO_SCREEN, introCueShown),
+		outro: locks(FREE_SPIN_OUTRO_SCREEN, outroCueShown),
 		win: mounted.has(BIG_WIN_SCREEN) || flowHoldsPresentation,
 		flowHoldsPresentation,
 	};
