@@ -103,7 +103,6 @@ async function atlasPreferPng(text: string, bundlePrefix: string): Promise<strin
 
 export interface SpineFile {
 	body: Uint8Array | string;
-	contentType: string;
 }
 
 /**
@@ -149,12 +148,12 @@ export async function fetchSpineBundleFile(
 		}
 
 		if (preferPng) text = await atlasPreferPng(text, prefix);
-		return { body: text, contentType: 'text/plain; charset=utf-8' };
+		return { body: text };
 	}
 
 	const obj = await getObjectBytes(key);
 	if (!obj) return null;
-	return { body: obj.body, contentType: obj.contentType };
+	return { body: obj.body };
 }
 
 /** Region geometry for synthesising a `.atlas` (matches `EditorRegion` from

@@ -11,4 +11,11 @@
 // A value already in the environment WINS, so the dashboard can still raise or lower it.
 process.env.BODY_SIZE_LIMIT ??= '32M';
 
+// `ADDRESS_HEADER` + `XFF_DEPTH` make `getClientAddress()` read the client IP Railway's edge puts in
+// `X-Forwarded-For` (one trusted hop; `app.` is DNS-only on Cloudflare, so nothing sits in front of
+// Railway). Unset, every request reports the proxy's address and the login throttle's per-IP bucket
+// collapses into one global counter.
+process.env.ADDRESS_HEADER ??= 'x-forwarded-for';
+process.env.XFF_DEPTH ??= '1';
+
 await import('../build/index.js');

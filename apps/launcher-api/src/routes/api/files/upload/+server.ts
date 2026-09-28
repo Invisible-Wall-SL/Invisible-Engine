@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import { assertAllowed, gate } from '$lib/server/ftpScope';
+import { assertAllowed, assertWritable, gate } from '$lib/server/ftpScope';
 import { putObjectBytes } from '$lib/server/r2';
+import { userContentHeaders } from '$lib/server/userContent';
 import type { RequestHandler } from './$types';
 
 /** Per-request cap so a runaway upload can't exhaust memory (binary held in RAM). */
@@ -40,9 +41,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const name = safeName(file.name);
 		if (!name) throw error(400, `invalid file name: ${file.name}`);
 		const destKey = prefix + name;
-		assertAllowed(destKey, scope);
+		assertWritable(destKey, scope);
 		const bytes = new Uint8Array(await file.arrayBuffer());
-		await putObjectBytes(destKey, bytes, file.type || 'application/octet-stream');
+		// The type comes from the extension, never the browser's `File.type`.
+		await putObjectBytes(destKey, bytes, userContentHeaders(destKey)['content-type']);
 		uploaded.push(destKey);
 	}
 

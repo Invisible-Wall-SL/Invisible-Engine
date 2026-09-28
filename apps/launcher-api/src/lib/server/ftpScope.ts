@@ -48,6 +48,20 @@ export function assertAllowed(key: string, scope: FtpScope): void {
 	if (!isKeyAllowed(key, scope)) throw error(403, 'forbidden');
 }
 
+/** `_shared/storybook/…` or `<client>/<project>/storybook/…` — a published storybook build. */
+const STORYBOOK_TREE = /^(?:_shared|[^/]+\/[^/]+)\/storybook\//;
+
+/**
+ * Throw 403 unless the browser may WRITE `key`: inside the scope, and not in a storybook tree.
+ * Storybooks are served as live pages, so they only arrive through `publish-storybook.mjs`.
+ */
+export function assertWritable(key: string, scope: FtpScope): void {
+	assertAllowed(key, scope);
+	if (STORYBOOK_TREE.test(key)) {
+		throw error(403, 'Storybooks are published with publish-storybook.mjs, not uploaded here.');
+	}
+}
+
 /**
  * Auth + role gate for the page loader and every `/api/files/*` endpoint. Gates
  * on `ftpBrowser` and resolves the session-bound active project, then flags

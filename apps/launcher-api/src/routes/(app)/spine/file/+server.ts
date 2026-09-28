@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { fetchSpineBundleFile, requireSpineAccess } from '$lib/server/spine';
 import { sessionProjectScope } from '$lib/server/toolScope';
+import { userContentHeaders } from '$lib/server/userContent';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
@@ -35,6 +36,6 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	});
 	if (!file) throw error(404, 'not found');
 	return new Response(file.body, {
-		headers: { 'content-type': file.contentType, 'cache-control': 'no-store' },
+		headers: { ...userContentHeaders(name), 'cache-control': 'no-store' },
 	});
 };

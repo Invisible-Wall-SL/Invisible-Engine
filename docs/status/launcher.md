@@ -50,6 +50,27 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Recent changes
 
+### 2026-09-28 — response headers for served R2 content, baseline headers, login defaults
+- **Served project content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,
+  `/api/files/download`) now takes its headers from ONE helper, `$lib/server/userContent.ts`: the
+  `Content-Type` comes from an extension allow-list (the stored R2 type is ignored), every response
+  carries `X-Content-Type-Options: nosniff` and a locked-down `sandbox` CSP, and HTML / SVG / XML /
+  unknown types are sent as `Content-Disposition: attachment`. `fetch()`, `<img>`, `<audio>` and
+  `FontFace` ignore the disposition, so tool loading is unchanged; only opening such a URL directly
+  now downloads it. The FTP upload stores the allow-list type instead of the browser's `File.type`.
+- **Storybook view** keeps serving its HTML/JS inline (types by extension, never the stored type)
+  under its own CSP: no plugins, HTTPS-only external loads, no form posts, no `<base>` rewrite,
+  framed only by itself. Checked against the published engine storybook: no CSP violations.
+  Storybook trees (`_shared/storybook/`, `<client>/<project>/storybook/`) are no longer writable
+  through the file browser — `publish-storybook.mjs` is their only writer.
+- **Baseline headers** in `hooks.server.ts` on every dynamic response: HSTS (1 y, subdomains),
+  `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN` +
+  `frame-ancestors 'self'` (a route's own CSP, e.g. streamed content, is kept). No full page CSP —
+  the tools were not audited for one. Static files served by adapter-node don't pass through hooks.
+- **Login:** `ADDRESS_HEADER=x-forwarded-for` / `XFF_DEPTH=1` now default in `scripts/start.mjs`
+  (the dashboard still wins), and `verifyCredentials` runs one scrypt even when no account matches,
+  so response time is uniform.
+
 ### 2026-09-28 — a revoked project grant reaches the open session
 `sessions.activeProjectKey` was access-checked only when it was SET (`setProject`, an explicit
 `?project=` in `resolveToolScope`, publish). Everything that later READ it trusted it: the R2
