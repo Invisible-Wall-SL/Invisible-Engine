@@ -340,7 +340,9 @@ Each screen is shown only around its moment, as four beats on its event's chain:
    inspector, stops the chain until the screen completes.
 4. **hide Free-spin intro** takes it down once the player has tapped.
 
-The screen completes when the player taps the **Tap to Continue** component placed on it. The hold
+The screen completes when the player taps the **Tap to Continue** component placed on it. Only a
+tap that *starts* after the component is armed counts: a press already down when it arms — or a
+Space key already held — is ignored, so the player lifts and taps again. The hold
 has no timeout, so a held Show whose screen has no tap is the `hold-without-release` error in
 [Validation](#validation). Don't show either screen from a start-up chain: a screen shown at start
 stays up, and with a Tap to Continue on it, it sits over the idle game waiting for a tap.
@@ -364,16 +366,19 @@ first can arm its tap on the previous bonus's count.
 
 **The outro's count-up.** The engine still runs it: the `freeSpinOutroCountUp` action counts the
 total up and lets the chain move on once the count lands. Waiting for the player is the held
-Show's job. Two settings stop a tap from cutting the total short:
+Show's job. The outro is a two-tap screen — the first tap shows the total, the second continues:
 
+- The count-up action's `tapToSkip` input is **on** in the starter flow, so a tap during the count
+  jumps it to the total.
 - The outro's Tap to Continue has **Arm tap after signal** set to `freeSpinOutroCountUpComplete`,
   so it ignores taps until the count has finished. Its dim arrives with it — the outro is not
   dimmed while it counts.
-- The count-up action's `tapToSkip` input is **off** in the starter flow, and should stay off
-  while the screen's tap arms on the count: the skip fires on the press, the count lands and arms
-  the tap, and the release of that same press then dismisses the outro — one tap skips the total
-  AND closes the screen. `holdToSpeedUp` (a held press fast-forwards the count) is safe to turn
-  on.
+
+The skip happens as the finger goes down, and that lands the count and arms the Tap to Continue
+while the finger is still on the screen. Because a tap only counts if it starts after the arming,
+lifting that finger does not close the outro — the player sees the total, and the next tap
+continues. The same holds for `holdToSpeedUp` (a held press fast-forwards the count): letting go
+after the count lands does not close the screen.
 
 **Loading screens that auto-advance.** The first Tap to Continue tap of a session is the player's
 "tap to start": it fires the Game Signals **tapToStart** pin, which the starter flow uses to start
@@ -409,8 +414,8 @@ to date:
 4. Here, older starter flows showed both screens on their start-up chains (after
    `complete:loading` and off `tapToStart`). Splice those Show nodes out — wire the node before
    each one to the node after it — then add the show, hold and hide beats to `freeSpinTrigger` and
-   `freeSpinEnd` at the points listed above, and leave `tapToSkip` off on the
-   `freeSpinOutroCountUp` action.
+   `freeSpinEnd` at the points listed above, and set the `freeSpinOutroCountUp` action's
+   `tapToSkip` to true for the two-tap outro.
 
 ### The bet menu and the auto spin menu — a worked example
 

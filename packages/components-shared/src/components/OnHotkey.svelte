@@ -14,6 +14,11 @@
 		onpressend?: () => void;
 		onhold?: () => void;
 		onholdend?: () => void;
+		/** Act only on a press that STARTS while this hotkey is listening, and once per press: a key
+		 *  already held when it mounted (or was re-enabled) auto-repeats `keyDown`, and neither that nor
+		 *  the repeat of a press it did see is a new press. For a surface that arms mid-press — a
+		 *  tap-to-continue must not take the held Space that armed it. */
+		ignorePressInProgress?: boolean;
 	};
 
 	const props: Props = $props();
@@ -22,6 +27,8 @@
 	const WAIT_TO_HOLD_TIMEOUT = 400;
 	let isHolding = $state(false);
 	let isWaitingToHold = $state(false);
+	// From a press's first `keyDown` this hotkey received until its `keyUp`.
+	let pressSeen = false;
 
 	const holdTimeoutStart = async () => {
 		isWaitingToHold = true;
@@ -39,11 +46,13 @@
 	};
 
 	const keyDown = () => {
+		pressSeen = true;
 		if (!isWaitingToHold) holdTimeoutStart();
 		if (!isHolding) props.onpress?.();
 	};
 
 	const keyUp = () => {
+		pressSeen = false;
 		if (isWaitingToHold) holdTimeoutStop();
 
 		if (isHolding) {
@@ -59,6 +68,10 @@
 		hotKey: (emitterEvent) => {
 			if (props.disabled) return;
 			if (emitterEvent.key !== props.hotkey) return;
+			if (props.ignorePressInProgress) {
+				if (emitterEvent.repeat) return;
+				if (emitterEvent.action === 'keyUp' && !pressSeen) return;
+			}
 			if (emitterEvent.action === 'keyUp') return keyUp();
 			if (emitterEvent.action === 'keyDown') return keyDown();
 		},

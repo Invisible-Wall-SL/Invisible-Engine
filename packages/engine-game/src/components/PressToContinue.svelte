@@ -48,5 +48,5 @@
 		/>
 	</MainContainer>
 {/if}
-<OnHotkey hotkey="Space" onpress={() => props.onpress()} />
+<OnHotkey hotkey="Space" ignorePressInProgress onpress={() => props.onpress()} />
 <OnPressFullScreen onpress={() => props.onpress()} />
