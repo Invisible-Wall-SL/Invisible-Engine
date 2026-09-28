@@ -55,7 +55,9 @@ before — an un-authored project still runs the compiled template.
   modes: math + presentation_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
-  **in play** / **unused** badge (see below).
+  **in play** / **unused** badge (see below). **Import paytable from server** fills
+  the paytable from what the game's server actually pays — see _Importing the
+  paytable from the server_ below.
 - **How wins are decided** — the **win model**: whether this game pays by **lines**,
   **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
   direction and the fewest reels; cluster: fewest cells and how they connect;
@@ -364,6 +366,34 @@ Order choices as you edit, exactly as the game will build the menu.
 The copy is authored here as **source text** only. It's translated in the
 **Invisible Localization** tool, which auto-collects these strings into its "Bet
 modes" section; a translation you write there lands in-game.
+
+## Importing the paytable from the server
+
+The info page shows the paytable authored **here**; the server pays its **own** math.
+When they disagree the game warns in the browser console at boot, but it never fixes
+it for you. **Import paytable from server** (Symbols panel, above the table) is how
+you fix it on purpose:
+
+1. Click **Import paytable from server**. The tool reads the paytable your published
+   game's server declares (a read-only heartbeat — no bet, no round). If the project
+   has several published games, pick which server in the dialog.
+2. Review. Each dictionary symbol the server prices shows **Now** → **Server**, or
+   **unchanged** when they already agree. The server's own name is shown next to
+   yours (e.g. `H1 PIC1`). Below the table:
+   - **Skipped** — symbols the server prices that this project's dictionary does not
+     have. They are never added; add the symbol first if you want it.
+   - **Left as authored** — symbols you price that the server declares no line row
+     for. The import doesn't touch them.
+   - **Scatter** — what the server pays for its scatter, and whether that matches the
+     scatter row the info page shows. That row is fixed in the game, not authored
+     here, so it is information only.
+3. **Apply N changes** writes the changed rows into the page (the page shows
+   **Unsaved**). Nothing is stored until you **Save**, which runs the same
+   conflict check as any other edit. **Cancel** changes nothing.
+
+The button is disabled — with _Publish the game first_ — until the project has a
+published game on the Invisible Test Server. Only line rows are imported, as
+`count:multiplier` pairs in ascending order, with zero pays dropped.
 
 ## Pasting in a config from the math team
 

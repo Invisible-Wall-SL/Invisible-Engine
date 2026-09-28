@@ -1,48 +1,43 @@
 import { ENV } from './env';
+import { listGamesOwnedByProject } from './games';
+import type { TestServerManifest } from './testServerManifest';
 
 /**
- * Best-effort read of a game's REAL paylines straight from its mock RGS, for the Invisible Game
- * Config tool's read-only Paylines preview. The game is server-authoritative for paylines at
- * runtime (it reads its active lines from the RGS), so the tool showing the SAVED doc's lines (e.g.
- * 20 authored) can disagree with what the server actually deals (e.g. Book of Borut = 10). This
- * fetches the live set so the panel reflects the server.
+ * Reads of a published game's boot `config` straight from its RGS on the Invisible Test Server, for
+ * the Invisible Game Config tool: the read-only Paylines preview and the paytable import.
  *
  * Why a global-reachable fetch is safe here: the target is OUR OWN Invisible Test Server
  * (`TEST_SERVER_URL`, default `games.invisiblewall.org`) — not the Cloudflare-challenged production
- * Play4Fun edge that bounces server-side fetches. And it DEGRADES GRACEFULLY: a fresh heartbeat is
- * a read-only, side-effect-free probe, and ANY failure (network, timeout, 404, non-JSON, no config
- * event) returns `null` so the page falls back to rendering the saved doc — the preview is additive,
- * never load-bearing.
+ * Play4Fun edge that bounces server-side fetches. An empty-body heartbeat is a read-only,
+ * side-effect-free probe: no bet, no round.
  */
 
-/** How long to wait on the RGS before giving up and falling back to the saved doc. */
-const FETCH_TIMEOUT_MS = 3000;
-
-interface RgsConfigContext {
-	availablePayLines?: number[][];
-	paylines?: number[][];
-}
+/** How long the Paylines preview waits before falling back to the saved doc. */
+const PREVIEW_TIMEOUT_MS = 3000;
 
 interface RgsEngineResponse {
-	events?: { event?: string; context?: RgsConfigContext }[];
+	events?: { event?: string; context?: unknown }[];
 }
 
+export type ServerBootConfig =
+	| { ok: true; config: Record<string, unknown> }
+	| { ok: false; reason: string };
+
 /**
- * Fetch the server's paylines for `gameKey` (== the launcher project key; see `publishGame.ts`,
- * where the game key is the project key verbatim). Sends an empty-body heartbeat with a FRESH `sid`
- * per call: both mocks emit the boot `config` event on a session's first call (the lines mock ONLY
- * then), so a never-seen sid guarantees the config comes back. The BOOK mock names the field
- * `availablePayLines`; the LINES mock names it `paylines` — read either.
- *
- * Returns `null` on any failure — this is a preview convenience, not a hard dependency.
+ * The boot `config` context `gameKey`'s RGS declares. Sends an empty-body heartbeat with a FRESH
+ * `sid` per call: both mocks emit the `config` event on a session's first call (the lines mock ONLY
+ * then), so a never-seen sid guarantees it comes back. Never throws — a failure names its cause.
  */
-export async function fetchServerPaylines(gameKey: string): Promise<number[][] | null> {
+export async function fetchServerBootConfig(
+	gameKey: string,
+	timeoutMs: number,
+): Promise<ServerBootConfig> {
 	const base = ENV.TEST_SERVER_URL.replace(/\/+$/, '');
-	const sid = `cfg-preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+	const sid = `cfg-read-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 	const url = `${base}/api/${encodeURIComponent(gameKey)}/rgs/engine?sid=${sid}&seq=0`;
 
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
 		const res = await fetch(url, {
 			method: 'POST',
@@ -50,16 +45,59 @@ export async function fetchServerPaylines(gameKey: string): Promise<number[][] |
 			body: '[]',
 			signal: controller.signal,
 		});
-		if (!res.ok) return null;
-		const body = (await res.json()) as RgsEngineResponse;
+		if (!res.ok) return { ok: false, reason: `the server answered HTTP ${res.status}` };
+		let body: RgsEngineResponse;
+		try {
+			body = (await res.json()) as RgsEngineResponse;
+		} catch {
+			return { ok: false, reason: 'the server did not answer with JSON' };
+		}
 		const config = body.events?.find((e) => e.event === 'config')?.context;
-		if (!config) return null;
-		const lines = config.availablePayLines ?? config.paylines ?? null;
-		// Empty ⇒ null so the page falls back to the saved doc rather than previewing "0 lines".
-		return Array.isArray(lines) && lines.length > 0 ? lines : null;
-	} catch {
-		return null;
+		if (!config || typeof config !== 'object') {
+			return { ok: false, reason: 'the server sent no boot config' };
+		}
+		return { ok: true, config: config as Record<string, unknown> };
+	} catch (e) {
+		return {
+			ok: false,
+			reason: controller.signal.aborted
+				? `no answer within ${Math.round(timeoutMs / 1000)}s`
+				: `the server could not be reached (${e instanceof Error ? e.message : String(e)})`,
+		};
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/**
+ * The server's paylines for `gameKey`, or `null` on any failure — the preview is a convenience, not
+ * a hard dependency. The BOOK mock names the field `availablePayLines`; the LINES mock names it
+ * `paylines` — read either. Empty ⇒ null so the page falls back to the saved doc rather than
+ * previewing "0 lines".
+ */
+export async function fetchServerPaylines(gameKey: string): Promise<number[][] | null> {
+	const boot = await fetchServerBootConfig(gameKey, PREVIEW_TIMEOUT_MS);
+	if (!boot.ok) return null;
+	const lines = boot.config.availablePayLines ?? boot.config.paylines ?? null;
+	return Array.isArray(lines) && lines.length > 0 ? (lines as number[][]) : null;
+}
+
+/**
+ * The test-server game keys whose RGS plays `projectKey`'s math, the online Game Maker's own
+ * (`key = projectKey`, see `publishGame.ts`) first. A desktop-published title names its own key
+ * (`waysofwavesbuild` is project `test6`), so the manifest's `projectKey` pin and the games table's
+ * ownership count too. Only keys the manifest registers: the test server serves no other RGS.
+ */
+export async function projectServerGameKeys(
+	projectKey: string,
+	manifest: TestServerManifest,
+): Promise<string[]> {
+	const owned = new Set((await listGamesOwnedByProject(projectKey)).map((g) => g.key));
+	const keys = Object.entries(manifest.games)
+		.filter(([key, entry]) => entry.projectKey === projectKey || owned.has(key))
+		.map(([key]) => key)
+		.filter((key) => key !== projectKey)
+		.sort();
+	const own = manifest.games[projectKey];
+	return own && (own.projectKey ?? projectKey) === projectKey ? [projectKey, ...keys] : keys;
 }

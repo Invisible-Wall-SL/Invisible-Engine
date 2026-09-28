@@ -17,6 +17,10 @@
 		"./game-mappings": {
 			"types": "./src/gameMappings.ts",
 			"default": "./src/gameMappings.ts"
+		},
+		"./paytable": {
+			"types": "./src/paytable.ts",
+			"default": "./src/paytable.ts"
 		}
 	},
 	"scripts": {

@@ -178,10 +178,10 @@ the docs were just stale — remaining tail = live-verify). See each tool's
   local GPU. ([status/atlas-maker](status/atlas-maker.md))
 - ~~**FLUX ref/ControlNet path**~~ — resolved the same way: proven on RunPod 2026-08-18, so the
   "only SDXL ControlNets are installed locally" constraint no longer gates it.
-- **Book of Borut remake quotes the wrong paytable** (owner, 2026-09-28) — its authored config still
-  has the template's prices while its server pays Book-of-Ra's (five `H1`: shown 20× line bet, paid
-  5000×). Author the server's numbers in `/config`, or change the math. The new boot warning lists
-  every disagreeing row. ([status/engine](status/engine.md))
+- ~~**Book of Borut remake quotes the wrong paytable**~~ — resolved 2026-09-28: its `/config` now
+  authors exactly the server's table (re-measured from R2), and the book mock pays whatever
+  `/config` authors once `services/test-server` is redeployed, so the two cannot drift apart again.
+  ([status/engine](status/engine.md))
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04) — the one
   imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
   same API export bakes them in. No env var needed (⟳ and the reader discover a running pod

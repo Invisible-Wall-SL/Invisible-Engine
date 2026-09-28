@@ -477,6 +477,50 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
   mock (`availablePayLines`), **5** from the lines mock (`paylines`), and **`null`** for an unreachable
   host — exactly as intended.
 
+## Paytable import from the game server (2026-09-28)
+
+The Symbols panel's **Import paytable from server** button reads the paytable the project's
+published game server DECLARES and offers it as a reviewed edit. Built on the boot cross-check
+(#799): that one only WARNS when the info page and the server disagree; this is the deliberate
+authoring action that fixes it. It never saves and the game never adopts a server paytable at
+runtime. Fixture-verified + build-green; the dialog itself is owner-verify-owed in a browser.
+
+- **Server read.** `GET /api/game-config/server-paytable?project=[&game=]`
+  (`routes/api/game-config/server-paytable/+server.ts`), same session gate as `/api/game-config`
+  (now shared: `$lib/server/gameConfigAccess.ts`). Finds the project's test-server game keys
+  (`projectServerGameKeys` in `rgsConfig.ts`: the Game Maker's own `key = projectKey` first, then
+  any key the manifest pins to the project or the games table says it owns), posts an empty-body
+  heartbeat with a fresh sid and a 10 s timeout (`fetchServerBootConfig`, now also behind the
+  Paylines preview), maps names with the vocabulary-picked mapping, and returns
+  `{ gameKey, gameKeys, mapping, mappingDetected, serverSymbols, serverNames, lines, scatter,
+  skipped }`. Failures are `json({ error }, { status })` — 404 "publish it first", 502 unreachable /
+  bad answer (the cause is named), 422 no paytable declared.
+- **One reading of the wire.** `pickMappingForConfig` moved from `engineFacade.ts` into
+  `gameMappings.ts`, and the facade's scatter-symbol + name-mapping read became
+  `readMappedPaytable` in `paytable.ts` (new `rgs-translator-eagaming/paytable` export) — the facade
+  and the launcher now make the same call, no behaviour change in the facade.
+- **Stored shape.** `toImportedPaytable` + `planPaytableImport` in `game-config/serverPaytable.ts`:
+  line rows as `doc.symbols[name].paytable` (single-key rows, ascending, zero pays dropped); scatter
+  rows kept apart and compared with `SHOWN_SCATTER_ROWS`, the info page's synthesized row. The plan
+  updates dictionary symbols only — server symbols with no entry are `skipped`, authored rows the
+  server does not price are `undeclared` and left alone.
+- **Page.** The review is the canonical `ConfirmDialog` with a `body` snippet (not another hand-rolled
+  `.modal-backdrop`): per symbol `now → server` or *unchanged*, the skipped/left-as-authored lists,
+  one scatter information line, and **Apply N changes** (locked when nothing differs). The plan is
+  made against the page's LIVE doc, so unsaved edits count; Apply writes only changed rows and the
+  page goes dirty. Disabled with "Publish the game first" when the project has no server.
+- **Verified:** `node scripts/verify-server-paytable-import.mts` (31 checks — both real wire shapes,
+  engine names, stored shape, zero dropping, scatter apart, the plan, and "after Apply the boot
+  cross-check finds no line drift"); `verify-server-paytable.mts` still 21/21; svelte-check clean on
+  every touched file; `pnpm --filter launcher-api build` green. Live read of
+  `games.invisiblewall.org/api/bookofborutremake` through the same helpers: book mapping detected,
+  nine line symbols in engine names, scatter `3:2 4:20 5:200` matching the shown row; planned against
+  the lines template it lists 9 changes, and 9/9 unchanged after applying. **Not verified:** the
+  endpoint against the live DB/manifest, and the dialog in a browser.
+- **Duplicate on purpose:** `SHOWN_SCATTER_ROWS` restates `scatterEntry`'s `[2, 20, 200]`
+  (`apps/lines/src/game/paytable.ts`). Making the game import it is an engine change (a runtime
+  release), so it waits for the next engine PR that touches that file.
+
 ## Sounds panel — the game-wide sound SLOTS (2026-08-25)
 
 New `sounds` block on `GameConfigDoc` + a **Sounds** section in `/config`: which cue the game plays
@@ -524,7 +568,10 @@ What is specific to this tool:
    verification couldn't reach is closed.
 2. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
-   would have caught the wild on the first spin.
+   would have caught the wild on the first spin. (The PAYTABLE half is done: the boot cross-check
+   warns, and **Import paytable from server** fixes it — see above.)
+3. **Owner-verify the paytable import dialog** in a browser on a published project (Book of Borut
+   remake should show nine *unchanged* rows now that its config was authored from the server).
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -536,6 +583,14 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-09-28 — **Import paytable from server.** A reviewed, never-auto-saved way to author the
+  paytable a published game's server declares: button in the Symbols panel → `ConfirmDialog` with
+  `now → server` per symbol → Apply writes the changed rows → Save as usual. New endpoint
+  `GET /api/game-config/server-paytable`; `pickMappingForConfig` and `readMappedPaytable` moved into
+  `rgs-translator-eagaming` so the facade and the launcher share one reading of the wire; the
+  `/api/game-config` gate extracted to `gameConfigAccess.ts`. Full write-up: _Paytable import from
+  the game server_ above. Fixture `scripts/verify-server-paytable-import.mts` (31).
 
 - 2026-09-10 (follow-up) — **The desktop publish path now pins itself, with no change to the desktop launcher.** The fix below gave the manifest a `projectKey` and taught both of OUR producers to write it — which left the producer that needs it most untouched. `publish_game()` lives in `Invisible_Launcher.py`, a separate app: it writes `test_server/games.json` itself with `{protocol, name, updatedAt}` and **replaces** the entry, so every desktop publish shipped unpinned *and* wiped any pin a CLI run had just set. Owner asked the right question — _"if I publish the game build now is it pinned or do I have to set anything?"_ — and the honest answer was "no, and the preferred button will keep un-pinning it". **The fix needs no Python at all:** `POST /api/launcher/register-game`, which that same launcher calls moments after its manifest write, already requires a validated `project`, so it re-stamps the pointer there. That makes the repair **idempotent** — whatever the manifest write dropped, the registration puts back, every publish, forever. New `pinTestServerGameToProject()` beside `upsertTestServerGame` (same If-Match + retry CAS). **Four rules it holds, each with a test that fails without it:** it PATCHES and never CREATES (an entry with no uploaded bundle would have the test server serve zero files — `no-entry` is reported instead); it spreads the existing entry so `grid`/`cascade`/`runtime`/`updatedAt` survive; it writes NOTHING when the pin is already right (this runs on every publish, and the `/refresh` it triggers re-hydrates every bundle); and it is entirely NON-FATAL — a pin failure rides back as `pin` in the response, never as a failed registration, because a publish with no card is worse than a publish with a wrong board. Known seam, documented rather than papered over: `/refresh` answers 202 and coalesces, so a pin written while the launcher's own refresh is in flight lands on the server's NEXT hydrate — durable in R2 either way, self-healing on the following publish. **Verification:** `verify-test-server-project-pin.mjs` 7 → **14 checks**, the new seven driving the REAL function (TypeScript stripped, not re-typed) against an in-memory R2 with an injectable lost-CAS. Mutation-tested four ways — wholesale replace, create-instead-of-skip, no short-circuit, unconditional write — all four fail it. **Two process lessons worth keeping.** The first mutation run reported a MISS that was the mutation script's own bug: both writers share the `precondition(...)` line and `upsertTestServerGame` comes first, so an unscoped `replace(…, 1)` mutated the wrong function and the suite passed for the right reason on the wrong code — scope a mutation to the function under test. And the launcher `build` earned its keep for once: it caught `const url` colliding with the handler's existing game-url binding (now `url: launcherUrl`), which no amount of reading had.
 

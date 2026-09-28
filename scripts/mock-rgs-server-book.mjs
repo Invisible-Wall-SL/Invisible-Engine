@@ -74,6 +74,25 @@ const PAY_TABLE_LINE = {
 };
 const SCATTER_PAY = { 3: 2, 4: 20, 5: 200 }; // SCAT (the Book), × total stake
 
+/**
+ * The line table an instance ACTUALLY pays, declares and expands with: the PROJECT's authored row
+ * per symbol (`symbolPaytable`, server vocabulary, from its Invisible Game Config), else the captured
+ * `PAY_TABLE_LINE` row — the lines mock's `payRowOf` rule, whole row per symbol, never merged per
+ * count. One table feeds the payline pass, the expanding special and the boot `config` event, so
+ * what the mock declares is what it pays. No table ⇒ `PAY_TABLE_LINE` exactly.
+ */
+const effectivePayTable = (symbolPaytable) =>
+	Object.fromEntries(
+		PAY_SYMBOLS.map((symbol) => [symbol, symbolPaytable?.[symbol] ?? PAY_TABLE_LINE[symbol]]),
+	);
+
+/**
+ * A payout in whole CENTS, the protocol's only denomination — the lines mock's `payCents`. An
+ * authored multiplier may be fractional (`0.4 × 1¢`); rounded, with a one-cent floor so a win the
+ * player can see never pays nothing. Inert for the captured integer table.
+ */
+const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
+
 /** pickRandomly probabilities for the special symbol, from the capture. */
 const SPECIAL_WEIGHTS = {
 	PIC1: 0.09,
@@ -100,8 +119,9 @@ function hashStr(s) {
 }
 
 /** Build the boot `config` event faithful to the live Book of Thermopylae wire
- *  shape (availablePayLines + nested paytable {line,scatter}). */
-const buildConfigContext = () => ({
+ *  shape (availablePayLines + nested paytable {line,scatter}). `payTable` is the instance's
+ *  `effectivePayTable`, so the declared line rows are the rows it pays. */
+const buildConfigContext = (payTable) => ({
 	symbols: SYMBOLS,
 	availablePayLines: PAYLINES,
 	betOptions: [10, 1000],
@@ -111,12 +131,12 @@ const buildConfigContext = () => ({
 	maxWinMp: [10000],
 	paytable: {
 		line: PAY_SYMBOLS.map((of) => {
-			const counts = Object.keys(PAY_TABLE_LINE[of])
+			const counts = Object.keys(payTable[of])
 				.map(Number)
 				.sort((a, b) => a - b);
 			return {
 				on: { occurs: counts, of, mode: 'line' },
-				pay: counts.map((c) => PAY_TABLE_LINE[of][c]),
+				pay: counts.map((c) => payTable[of][c]),
 			};
 		}),
 		scatter: [
@@ -137,26 +157,26 @@ const buildConfigContext = () => ({
 
 // ---------- pure win evaluation ----------
 
-const evaluatePaylines = (reels, betPerLine) => {
+const evaluatePaylines = (reels, betPerLine, payTable) => {
 	const wins = [];
 	for (let p = 0; p < PAYLINES.length; p++) {
 		const line = PAYLINES[p];
 		const seq = line.map((row, reel) => reels[reel][row]);
 		const first = seq[0];
-		if (!PAY_TABLE_LINE[first]) continue;
+		if (!payTable[first]) continue;
 		let count = 1;
 		for (let i = 1; i < seq.length; i++) {
 			if (seq[i] === first || seq[i] === 'SCAT')
 				count++; // SCAT is wild
 			else break;
 		}
-		const mult = PAY_TABLE_LINE[first][count];
-		if (mult) {
+		const mult = payTable[first][count];
+		if (mult > 0) {
 			wins.push({
 				what: first,
 				occurs: count,
 				mode: 'line',
-				pay: mult * betPerLine,
+				pay: payCents(mult * betPerLine),
 				mpInfo: { mp: 1, replacements: 0 },
 				mpBonusInfo: null,
 				context: { paylineId: p + 1, payline: line, direction: 'left' },
@@ -257,12 +277,14 @@ const expandSpecialBoard = (reels, special) => {
  *  payline), at its line-paytable value × TOTAL stake. `mult × totalStake`
  *  equals `mult × betPerLine × NUM_LINES` — the symbol paying that N-of-a-kind
  *  on all ten lines at once. Positions are every cell of every covered reel
- *  (post-expansion the whole reel). Returns null below the expand gate. */
-const evaluateExpandingSpecial = (reels, special, totalStake) => {
+ *  (post-expansion the whole reel). Returns null below the expand gate, and also when the special's
+ *  row prices nothing at that reel count (an authored row may omit it) — the spin then pays as a
+ *  natural board, though the client's reel-count morph gate still expands it on screen. */
+const evaluateExpandingSpecial = (reels, special, totalStake, payTable) => {
 	const reelsWith = reelsCovering(reels, special);
 	if (!specialExpandsAt(special, reelsWith.length)) return null;
-	const mult = PAY_TABLE_LINE[special]?.[reelsWith.length];
-	if (!mult) return null;
+	const mult = payTable[special]?.[reelsWith.length];
+	if (!(mult > 0)) return null;
 	const positions = [];
 	for (const reel of reelsWith)
 		for (let row = 0; row < reels[reel].length; row++) positions.push({ reel, row });
@@ -270,7 +292,7 @@ const evaluateExpandingSpecial = (reels, special, totalStake) => {
 		what: special,
 		occurs: reelsWith.length,
 		mode: 'scatter',
-		pay: mult * totalStake,
+		pay: payCents(mult * totalStake),
 		mpInfo: { mp: 1, replacements: 0 },
 		mpBonusInfo: null,
 		context: positions,
@@ -381,7 +403,11 @@ const pathEndsWith = (pathname, route) => {
  * session store + RNG.
  *
  * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
- *           bigWin?: boolean, autoCollect?: boolean, label?: string }} [opts]
+ *           bigWin?: boolean, autoCollect?: boolean, label?: string,
+ *           symbolPaytable?: Record<string, Record<string, number>> }} [opts]
+ *
+ * `symbolPaytable` is the project's authored line table in SERVER names (`PIC1`…`TEN`), as the
+ * Invisible Test Server receives it in the project's live mock contract (`grid.symbolPaytable`).
  */
 export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
@@ -393,6 +419,7 @@ export function createMockRgs(opts = {}) {
 	const bigWin = opts.bigWin ?? process.env.BIG_WIN === '1';
 	const autoCollectAllowed = opts.autoCollect ?? process.env.AUTO_COLLECT !== '0';
 	const label = opts.label ?? 'mock-book';
+	const payTable = effectivePayTable(opts.symbolPaytable);
 
 	const sessions = new Map();
 	const getSession = (sid) => {
@@ -471,7 +498,7 @@ export function createMockRgs(opts = {}) {
 		const isConfigCall = actions.length === 1 && actions[0].action === 'config';
 		if (!session.configSent || actions.length === 0 || isConfigCall) {
 			session.configSent = true;
-			const config = { event: 'config', context: buildConfigContext() };
+			const config = { event: 'config', context: buildConfigContext(payTable) };
 			if (session.round) {
 				config.actions = session.round.stored.map((s) => s.action);
 				config.resume = true;
@@ -559,16 +586,16 @@ export function createMockRgs(opts = {}) {
 						// paid twice. Below the gate it is a plain symbol: normal line
 						// evaluation on the natural board.
 						const special = round.bonus.special;
-						const specialWin = evaluateExpandingSpecial(reels, special, round.total);
+						const specialWin = evaluateExpandingSpecial(reels, special, round.total, payTable);
 						let wins;
 						if (specialWin) {
 							const paidBoard = expandSpecialBoard(reels, special);
-							const lineWins = evaluatePaylines(paidBoard, round.betPerLine).filter(
+							const lineWins = evaluatePaylines(paidBoard, round.betPerLine, payTable).filter(
 								(w) => w.what !== special,
 							);
 							wins = [specialWin, ...lineWins];
 						} else {
-							wins = evaluatePaylines(reels, round.betPerLine);
+							wins = evaluatePaylines(reels, round.betPerLine, payTable);
 						}
 						for (const w of wins) {
 							events.push({
@@ -627,7 +654,7 @@ export function createMockRgs(opts = {}) {
 								]
 							: spinReels();
 					events.push(spinStartEvent(round));
-					const lineWins = evaluatePaylines(reels, round.betPerLine);
+					const lineWins = evaluatePaylines(reels, round.betPerLine, payTable);
 					const scat = evaluateScatterTrigger(reels);
 					const wins = scat ? [...lineWins, scat.win] : lineWins;
 					for (const w of wins) {

@@ -1,3 +1,5 @@
+import type { GameMapping } from './gameMappings';
+
 /**
  * The paytable a boot `config` DECLARES, read into one shape — `{ on: { occurs, of, mode }, pay }`,
  * the same shape the game's info page is built from (`utils-shared`'s `ServerPayEntry`).
@@ -73,3 +75,30 @@ export const readDeclaredPaytable = (
 	}
 	return out.length ? out : null;
 };
+
+/** The server's scatter symbols, in ITS vocabulary: `symbolsPay.scatter` when declared, else every
+ *  server name `mapping` sends to its scatter. Decides the mode of a mode-less paytable row. */
+const declaredScatterSymbols = (cfg: { symbolsPay?: unknown }, mapping: GameMapping): string[] => {
+	const declared = (cfg.symbolsPay as { scatter?: unknown } | undefined)?.scatter;
+	if (Array.isArray(declared)) return declared.filter((s): s is string => typeof s === 'string');
+	return Object.keys(mapping.symbols).filter(
+		(server) => mapping.symbols[server] === mapping.scatter,
+	);
+};
+
+/**
+ * A boot `config`'s declared paytable with every `of` named in ENGINE symbols (`H1`, not `PIC1`) —
+ * the facade publishes it to the engine and the launcher's `/config` import reads it, so the two
+ * cannot disagree on what a server declared. Null when nothing usable was declared.
+ *
+ * The name lookup is `mapSymbol` inlined (unmapped names pass through): this module takes no runtime
+ * imports so `node` can load it directly (`scripts/verify-server-paytable.mts`).
+ */
+export const readMappedPaytable = (
+	cfg: { paytable?: unknown; symbolsPay?: unknown },
+	mapping: GameMapping,
+): DeclaredPayEntry[] | null =>
+	readDeclaredPaytable(cfg.paytable, declaredScatterSymbols(cfg, mapping))?.map((entry) => ({
+		...entry,
+		on: { ...entry.on, of: mapping.symbols[entry.on.of] ?? entry.on.of },
+	})) ?? null;
