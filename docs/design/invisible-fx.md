@@ -147,8 +147,8 @@ The docked **⚡ Event key** panel gains, above the payload:
 1. **Rigger authoring + storage** (`view.html`) — dropdowns + `evtObj.fx`; ships verbatim, no runtime
    effect yet (safe, reversible). 2. **Bake manifest + register** (`bake-editor-doc.mjs` /
    `effectExport`-style server + `editor-scenes.ts` `registerRigFx`/`resolveRigFx`). 3. **Runtime
-   `RiggedEffect` + `LayoutNodeView` wiring.** 4. Owner live-verify on a published game; then Borut
-   bumps its `engine` submodule. Deferred: stop-event, continuous effects, spine-particle bound ship,
+   `RiggedEffect` + `LayoutNodeView` wiring.** 4. Owner live-verify on a published game. Deferred:
+   stop-event, continuous effects, spine-particle bound ship,
    `docs/tools/rigger.md` refresh (docs-keeper).
 
 ### Rigger LIVE FX preview — faithful overlay (2026-07-10, building)

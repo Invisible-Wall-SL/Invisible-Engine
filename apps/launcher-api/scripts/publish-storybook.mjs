@@ -25,11 +25,11 @@
 //   cd apps/lines && pnpm build-storybook
 //   node ../launcher-api/scripts/publish-storybook.mjs --shared --dir storybook-static
 //
-//   # Book of Borut (its own repo, engine as submodule) — from the game repo root.
+//   # A game repo (engine as submodule) — from the game repo root.
 //   # Needs @aws-sdk/client-s3 installed in the GAME repo (pnpm add -D
 //   # @aws-sdk/client-s3) and a pre-built storybook dir:
 //   node ./engine/apps/launcher-api/scripts/publish-storybook.mjs \
-//     --project borut/bookofborut --dir storybook-static
+//     --project invisible_wall/bookofborutremake --dir storybook-static
 //
 //   # Preview what would be uploaded/pruned, no writes:
 //   node apps/launcher-api/scripts/publish-storybook.mjs --shared --dir storybook-static --dry-run

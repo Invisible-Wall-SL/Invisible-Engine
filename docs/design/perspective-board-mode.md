@@ -281,7 +281,7 @@ explode effects on a win become available. This is a small addition and is liste
    same seat in the editor as in the game.
 4. **Tiles from the lattice** (optional) + per-tile win highlight.
 5. **Ship.** Nothing new to bake — this is `reelGrid` node data, which already travels the layout doc.
-   Runtime release + reconcile to reach online games; the standalone bundles need a submodule bump.
+   Runtime release + reconcile to reach online games.
 6. **The `emerge` style + the `intro` symbol state** (added 2026-08-27, after 0–5 shipped). Nothing
    new to bake here either: the style is a `reelBehaviour` field and `intro` is an ordinary member of
    the symbol doc, so both ride chains that already exist (`z.enum(SYMBOL_STATES)` in

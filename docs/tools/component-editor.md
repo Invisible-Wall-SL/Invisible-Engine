@@ -317,8 +317,7 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   separate manual save, warned about the same way.
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into
-  its bundle — so re-publish (or re-bake) the game after changing them, and a game
-  vendoring the engine as a submodule also needs its usual bump.
+  its bundle — so re-publish (or re-bake) the game after changing them.
 - **Save writes a project component; promote-to-shared is now exposed.** The primary
   **Save component** always writes a **project** component (which shadows a shared one
   of the same id). A separate **Promote to shared** button — gated on the

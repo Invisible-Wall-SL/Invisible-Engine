@@ -397,8 +397,7 @@ once with the first wave, as it always has; a symbol's own per-symbol cue (Invis
 Per-symbol cues) now lands with **that symbol's** pop rather than with the step.
 
 Stored as one optional top-level field, `tumblePattern: { pattern, stepMs? }`. Nothing is written
-for `All at once` or for the default gap, so an untouched project is byte-identical. Reaches a
-standalone game (Book of Borut) only with an `engine` submodule bump.
+for `All at once` or for the default gap, so an untouched project is byte-identical.
 
 ### Transition (explosion → intro)
 
@@ -433,7 +432,7 @@ of the seam, not the round. It draws **above the symbols**, centred on the seat 
 The binding is one optional top-level field, `transition: { kind, …, delayMs? }`; nothing is written
 unless you set it, so an untouched project is byte-identical. A spine or clip bound here travels the
 same export/bake chain as a per-symbol cell; an FX effect is kept reachable at bake like a Book-VFX
-effect. Reaches a standalone game (Book of Borut) only with an `engine` submodule bump.
+effect.
 
 #### Let the next spin start as soon as the symbols are back
 
@@ -1015,11 +1014,10 @@ that is the art to change rather than the text.
 
 - **S5 (prove end-to-end) is still pending.** S1–S4 (engine contract, doc schema +
   endpoints, the tool page, and the export/bake/pull chain) have landed, but the full
-  round-trip has not yet been proven on Book of Borut. That requires (1) mirroring the S1
-  engine contract (`symbolMap.ts` / `getSymbolInfo`) into Book of Borut's own `src/game/*`,
-  (2) keeping its symbol frame names unique across bound sheets (the bake step warns on
-  collisions), (3) verifying the shared-spine fallback, and (4) actually rebinding a symbol
-  online, rebuilding, republishing, and confirming the new asset/animation appears in-game.
+  round-trip has not yet been proven on a shipped game. That requires (1) keeping its symbol
+  frame names unique across bound sheets (the bake step warns on collisions), (2) verifying
+  the shared-spine fallback, and (3) actually rebinding a symbol online, rebuilding,
+  republishing, and confirming the new asset/animation appears in-game.
 - **Preview endpoints are still `editor`-gated.** The sprite/spine preview endpoints
   (`/api/editor/regions`, `/api/editor/spine`) are gated on the `editor` tool, so a user
   who holds **only** the `symbols` tool will get a 403 on previews. The default roles
@@ -1035,7 +1033,7 @@ that is the art to change rather than the text.
   Payline geometry, adding/removing symbols or states, and creating/editing spine
   animations are all out of scope (the tool only references existing animations).
 - **Existing standalone games must build once to publish their symbols.** A game that
-  predates this tool needs the S1 contract mirrored into its own source plus one tokened
-  build (or a manual `publish:symbols` run) before the grid shows its real symbols;
+  predates this tool needs one tokened build (or a manual `publish:symbols` run) before the
+  grid shows its real symbols;
   otherwise it falls back to the coded `lines` set. New games get this from the scaffolder
   automatically.

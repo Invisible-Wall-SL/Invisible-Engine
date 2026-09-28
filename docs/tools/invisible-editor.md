@@ -732,9 +732,6 @@ game on the next **Publish** — the same trip as the rest of your art.
 - **`EDITOR_DOC_SECRET` must be set on the launcher** for the live-doc fetch to
   serve; when unset the endpoint refuses and games fall back to the checked-in
   `editor-scenes.ts` fixture.
-- **Engine submodule bump required for shipped games.** Book of Borut and other
-  shipped games vendor the engine as a git submodule, so editor/engine parity
-  fixes only reach them after the submodule is bumped and the game rebuilt.
 - **Some HUD parity gaps remain.** Rotation now ships for HUD elements, but the
   corner logo/game-name containers still ignore `scale` in-game, so scaling those
   two corner texts in the editor won't ship yet.

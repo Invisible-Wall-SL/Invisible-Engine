@@ -114,9 +114,9 @@ wired. Mind `bake:doc` before `pull:assets` and the build-env token trap.
 - **Reuse the registries — don't invent a parallel vocabulary.** Engine values,
   visibility gates, signals, and actions already have registries; a new param that
   needs live data binds a registered source key, it does not grow a new channel.
-- **Engine changes on `main`, mirror to shipped games.** Component/engine changes go
-  in this repo on a feature branch off `main`; when one must reach Book of Borut, bump
-  its `engine` submodule pointer + push (team convention — don't ask).
+- **Engine changes on `main`.** Component/engine changes go in this repo on a feature
+  branch off `main`. There is no game submodule to bump — desktop builds advance it
+  themselves.
 - **A new/renamed component or tool ships its doc in the SAME change (rule 9).** When
   the component story changes the Component Editor's behaviour, refresh
   `docs/tools/component-editor.md` (and the `docs/tools/README.md` row) — use
@@ -141,4 +141,4 @@ Read the root `CLAUDE.md`, `docs/STATUS.md`, `docs/design/invisible-editor.md`, 
 the target file before editing — the plan is in the files, not memory. Prefer small,
 verifiable changes that hold parity. When you finish meaningful work, update the
 design doc's relevant section and `docs/STATUS.md`. Report a concise summary of what
-changed, how you verified parity, and whether a shipped game's submodule needs a bump.
+changed and how you verified parity.

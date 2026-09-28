@@ -138,6 +138,6 @@ A doc that doesn't place this component is byte-identical to before: ownership s
 
 ## Shipping
 
-Engine capability reaches online/shipped games only via the runtime-bundle republish
-(`publish-runtime-bundle.mjs`) + the game's engine submodule bump (Book of Borut). The
-FlowDoc/scene the author builds travels the R2 export→bake chain as usual.
+Engine capability reaches online games via the runtime-bundle republish
+(`publish-runtime-bundle.mjs`). The FlowDoc/scene the author builds travels the R2 export→bake
+chain as usual.

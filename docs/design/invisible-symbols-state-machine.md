@@ -73,8 +73,7 @@ tool is once again only about _which asset maps to each symbol×state_.
 - **Resolution order (at render):** baked per-cell `sizeRatios` (legacy override) > reel
   `reelGrid.symbolSizeRatios` > coded `SYMBOL_INFO_MAP` size > `{ width: 1, height: 1 }`.
 - **Scope reality.** cluster / scatter / ways / price keep self-contained `SYMBOL_INFO_MAP`s
-  and don't use the baked symbols pipeline. Book of Borut (separate repo, lines/`bookOf`
-  stack) takes the reel-size render path when it bumps the engine submodule.
+  and don't use the baked symbols pipeline.
 
 ## Global highlight (win frame) — added 2026-06-17
 
@@ -674,15 +673,13 @@ done when it travels **export → `deploy/` → bake → pull → register**.
 - **S3 — Tool page.** `/symbols` grid UI with live previews + library picker + save.
 - **S4 — Export + bake + pull (spine-aware).** `symbolExport.ts`, `export-symbols`
   endpoint, `bake-editor-doc.mjs` wiring, `pull-project-assets.mjs` prune entry.
-- **S5 — Prove end-to-end** on Book of Borut: rebind a symbol state online → `pnpm build`
+- **S5 — Prove end-to-end:** rebind a symbol state online → `pnpm build`
   → republish → new asset/animation shows in the game.
 - **S6 — Global config (post-v1).** The doc-level globals authored on top of the fixed grid:
   `highlight` (2026-06-17) and `winLine` (2026-06-17, styled 2026-06-18) — see their sections
   above. Each is sparse (absent = byte-identical to before), forwarded verbatim through
   `symbolExport.ts` → `bake-editor-doc.mjs` → `bundle.symbols.*`, and consumed by the per-game
-  engine accessor (`bakedWinLineConfig()`). Book of Borut needs the same mirror as a follow-up
-  (bump the engine submodule for the
-  launcher/bake changes). (Symbol _size_ was briefly a doc global here too —
+  engine accessor (`bakedWinLineConfig()`). (Symbol _size_ was briefly a doc global here too —
   `defaultSizeRatios` — but it has since moved to `reelGrid.symbolSizeRatios` on the reel,
   edited in the Scene Editor; see "Symbol size lives on the reel" above.)
 
@@ -714,7 +711,7 @@ tool reads it. No hand-maintained per-game JSON.
    so every new game publishes its symbol map on build with zero per-game wiring.
 3. **Read (tool)** — `symbols/+page.server.ts` prefers `loadPublishedSymbolDefaults(...)`
    (R2) and falls back to the committed `symbolDefaultsFor(gameType)` (`lines.json`) for an
-   un-published project or `apps/lines` dev. So Book of Borut shows ITS symbols once it has
+   un-published project or `apps/lines` dev. So a game shows ITS symbols once it has
    built once with a deploy token; an un-published project shows the coded `lines` set.
 
 `lines.json` stays committed as the offline fallback / dev parity.
@@ -737,12 +734,11 @@ chips until the art is seeded. Two sibling syncs (run from the engine repo with 
 
 ## Open decisions
 
-- **Existing standalone games must build once to publish.** Book of Borut (and any game that
-  predates this) needs (a) the S1 engine contract mirrored in (its own `src/game/*`), and
-  (b) one tokened build (or a manual `publish:symbols` run) to populate
+- **Existing standalone games must build once to publish.** Any game that predates this needs
+  one tokened build (or a manual `publish:symbols` run) to populate
   `symbols/defaults.json`. New games get it from the scaffolder automatically.
 - **Per-game `getSymbolInfo`** — each `apps/<game>/src/game/utils.ts` has its own copy;
-  S1 lands in `apps/lines` first, then mirrors into Book of Borut (record-every-engine-change
-  rule) and the other reference games.
+  S1 lands in `apps/lines` first, then mirrors into the other reference games
+  (record-every-engine-change rule).
 - **Spine in editor-art convergence** — once spine export exists here, the editor-art
   exporter's parked spine support (live-assets.md open decision) can share this code.

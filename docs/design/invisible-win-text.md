@@ -299,8 +299,6 @@ localize-then-interpolate incl. token reordering, unknown-token robustness).
 
 ## 8. Open questions
 
-- **Book of Borut standalone** runs its own bundle (not `runtime:lines`), so W4's engine edits
-  reach the remake automatically but the standalone needs a submodule bump.
 - **Runtime-mode merge** — the known localization gap (i18n initialises at module-eval, before
   the live bundle fetch) applies to win text too: on the Game Maker path the *templates* bake
   fine, but their *translations* hit the same unwired merge. Shared fix, tracked in

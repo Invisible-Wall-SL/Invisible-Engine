@@ -963,8 +963,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
     and **how the baked text LOOKS** (a bitmap font's premultiply halo, the size relative to the
     rig) has never been eyeballed. In `/rigger`: open a rig with a project font and a localized
     key, ＋ Add text, then re-open the rig and confirm the regions survive; then publish and
-    confirm `deploy/` carries the `rigtext-*.png` page. **Shipped games need an `engine`
-    submodule bump** to receive the runtime swap.
+    confirm `deploy/` carries the `rigtext-*.png` page.
 - 2026-08-10 — **Stale manifest geometry could rotate/mis-place a region (fixed at the read
   layer).** A rig bundle's `.atlas` is synthesised from the source sheet's `atlas_manifest_*.json`
   `regions`, whose `x/y/w/h/rotated` are a CACHE of the packed page. That cache can drift from the
@@ -979,8 +978,8 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   packed rect; un-swap a rotated frame's axes back to upright), overriding a drifted `x/y/w/h/
 rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landmine. Heals via the
   same `ensureBundleAtlasFresh` used on the Symbols/Editor read path, the bake path, and the
-  Rigger's **⟳ Re-sync atlas** button. Launcher-server only (`editorRegions.ts`) — no engine change,
-  no submodule bump. Headless proof: replicated the reconcile against the real `S_VFX` manifest +
+  Rigger's **⟳ Re-sync atlas** button. Launcher-server only (`editorRegions.ts`) — no engine change.
+  Headless proof: replicated the reconcile against the real `S_VFX` manifest +
   TP JSON → base/zoom/shine/glow all match the packer ground truth (4/4). **⏳ Live-verify owed
   (owner):** open `R_AnticipationColumn` in `/rigger`, click **⟳ Re-sync atlas**, reload — the
   `_shine`/`_zoom` meshes should render as the upright glowing frame (no rotation, no circle-burst
@@ -997,7 +996,7 @@ rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landm
   `removeMeshVertex[Fallback]` renumbered verts but never permuted deform, so removing/merging a
   vertex silently mis-aligned existing deform keys (fine at rest, corrupt on playback / re-import);
   all four now call `reorderDeform`. Hull-loop _reordering_ deferred to 3.6d. Launcher-static only
-  (`view.html`) — no engine change, no submodule bump. Offline proof:
+  (`view.html`) — no engine change. Offline proof:
   `tools/rigger-spike/hulledit.mjs` — posed deform is byte-preserved through a permutation on BOTH
   an unweighted and a weighted (varied influence-count) mesh via spine-core, hull stays a simple
   polygon (9/9). **⏳ Live-verify owed (owner):** ⬡ Hull promote/demote on a real mesh; and a mesh
@@ -1012,7 +1011,7 @@ rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landm
   **re-derives** `rd.edges = hull loop ∪ author interior edges` (`cdtWithConstraints`) — also giving
   a lossless desktop-Spine outline round-trip. Constraint edges draw **amber** in both the WebGL
   overlay and the 3.6a UV panel. Hull reordering is deferred to 3.6c (open item #3). Launcher-static
-  only (`view.html`) — no engine/`packages` change, no submodule bump. Offline proof:
+  only (`view.html`) — no engine/`packages` change. Offline proof:
   `tools/rigger-spike/hulledges.mjs` — `forceConstraintEdge` makes a missing diagonal present
   fold-free + area-preserving, collinear guard refuses cleanly, `hull`/`edges` round-trip
   byte-identical through spine-core (`hullLength === hull*2`), remap-on-removal correct (8/8).
@@ -1026,7 +1025,7 @@ rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landm
   so the panel only reasons about the upright art. Selection (`selMeshVert`), the numeric u/v
   fields, and the main-canvas overlay all share one write path (`applyVertexUV`) so they stay in
   sync. Launcher-static only (`apps/launcher-api/static/rigger/view.html`) — no engine/`packages`
-  change, no submodule bump. Offline proof: `tools/rigger-spike/uvpanel.mjs` (letterbox fit,
+  change. Offline proof: `tools/rigger-spike/uvpanel.mjs` (letterbox fit,
   uv↔pixel round-trip, clamp, hit-test, rotated-pack aspect swap — 12/12). **⏳ Live-verify owed
   (owner):** the `degrees===90` rotated-art blit (`drawRegionUpright`) is a canvas transform a
   headless spike can't render — open `/rigger` on a rig with a **rotated-packed** region and

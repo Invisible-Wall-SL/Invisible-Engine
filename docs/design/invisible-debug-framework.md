@@ -176,12 +176,10 @@ portal; the **desktop launcher** (separate app) fetches it and runs the build, t
   in `apps/lines/Game.svelte`. Verify byte-identical when off; menu+tools work in `pnpm dev`.
 - **D5 — Mirror to the other reference games** (`cluster`, `scatter`, `ways`, `number-picker`,
   `price`) per the record-every-engine-change rule, to the extent each has debug-worthy tools.
-- **D6 — Book of Borut.** Mirror D4 into the Book-of-Borut repo (its own `Game.svelte`,
-  `SymbolDebugOverlay`, win-probe) + add the `define` to its `vite.config`. This is the game the
-  owner is actively publishing.
+- ~~**D6 — Book of Borut.** Mirror D4 into the Book-of-Borut repo.~~ — retired.
 - **D7 — Launcher checkbox.** "Include debug tools" in the Build & publish dialog → sets
   `PUBLIC_IE_DEBUG=1` in the build env. (Desktop-launcher app, separate repo; portal exposes the
-  per-publish flag if needed.) Prove end-to-end: publish Borut with debug on → open the deployed
+  per-publish flag if needed.) Prove end-to-end: publish a game with debug on → open the deployed
   game → on-screen button → Symbol overlay shows H1·win / L2·win → `T_Icon_Pear`.
 
 ## Open decisions

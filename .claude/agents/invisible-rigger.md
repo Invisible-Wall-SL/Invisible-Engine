@@ -57,8 +57,8 @@ launcher/auth/R2/tool-registry foundation).
 - **Ship-from-Rigger is NOT built yet (rule 8).** An `.irig` currently only saves to R2 —
   there is no export→deploy→bake→pull→register wiring, so a rig doesn't reach a game. That is
   the recommended next build (see `docs/status/rigger.md`). "Saves in `/rigger`" ≠ "ships".
-- **Engine changes on `main`, mirror to shipped games.** When a change must reach Book of
-  Borut, bump its `engine` submodule + push ([[feedback_bump_game_submodule]]).
+- **Engine changes on `main`.** There is no game submodule to bump — desktop builds advance
+  it themselves.
 - **Reuse, don't rebuild** — launcher auth/scope/R2/registry, the `/spine` stage fork, the
   atlas-listing pattern. Check the `reuse-check` skill before a new shared surface.
 
@@ -71,5 +71,4 @@ Branding: **Invisible Rigger**; brand pages with the Invisible Wall emblem.
 Read the root `CLAUDE.md`, `docs/status/rigger.md`, and `docs/design/invisible-rigger.md`
 before acting — the plan is in the files. Prefer small, verifiable increments. When you finish
 meaningful work, update `docs/status/rigger.md` (and the design doc only if the *plan*
-changed). Report what changed, how you verified it headlessly, and whether a game's submodule
-needs a bump.
+changed). Report what changed and how you verified it headlessly.

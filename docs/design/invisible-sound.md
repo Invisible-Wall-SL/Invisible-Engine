@@ -401,6 +401,3 @@ library with a read-only index and left the choices in three other tools, which 
 - **Builtin bank provenance.** The 53 shipped sounds inherit from the Stake Engine fork and their
   licensing has never been recorded. They should enter the index as `origin: 'builtin'` with an
   explicitly unknown license rather than being silently marked clean.
-- **Book of Borut standalone** runs its own bundle, so S1's `utils-sound` change reaches the remake
-  via an engine submodule bump, while anything touching `src/game/*` or `src/components/*` needs the
-  usual mirror.

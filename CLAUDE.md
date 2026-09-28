@@ -108,7 +108,7 @@ pnpm storybook    # Storybook on port 6001
 
 ### One unified repo + games as submodules (see `docs/design/games-deploy.md`)
 - **Engine + pipeline + cloud tools + launcher stay in this ONE repo** (`apps/*`, `packages/*`, `services/*`). They share `packages/*` via `workspace:*`, so splitting them back into separate repos re-introduces version-coordination hell — the reason the old engine/tools/launcher split was retired. Don't re-separate them or push pieces to old per-area remotes.
-- **Shipped games get their OWN repo**, each vendoring this engine as a **git submodule** pinned to a `main` commit, deploying on its own cadence (e.g. Book of Borut). The `apps/{lines,cluster,…}` here are **dev/reference** games, not shipped artifacts. Spin a new one up with `node scripts/new-game.mjs --name "…"`.
+- **A standalone build gets its OWN thin repo**, vendoring this engine as a **git submodule** and carrying no game source — the build compiles the submodule's `apps/lines/src`, and the desktop launcher's ☁ Publish / 📦 Deliver advance the submodule to `origin/main` before every build. **Never bump a game repo's engine submodule or mirror engine code into one by hand**, and never list that as a to-do: online games get an engine change from the runtime release on merge, desktop builds get it on their next build. The `apps/{lines,cluster,…}` here are **dev/reference** games, not shipped artifacts. Spin a new repo up with `node scripts/new-game.mjs --name "…"`.
 - The single `main` is kept **filterable per area** by scoped commit subjects (enforced) + squash-merge + CODEOWNERS — NOT by splitting repos. See "History hygiene" in the design doc.
 
 ### Conventions

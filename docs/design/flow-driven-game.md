@@ -180,14 +180,11 @@ mounting.
 ## 5. Phase 5 — Ship a real game on a FlowDoc (the end-to-end proof)
 
 **Goal:** the acceptance scenario runs in a **baked, shipped** game. Nothing above is real
-until this lands — **no shipped game runs a FlowDoc today** (Borut not authored/baked/bumped;
-`invisible-flow.md` §0).
+until this lands — **no shipped game runs a FlowDoc today** (`invisible-flow.md` §0).
 
 - Author the complete `loading → basegame → win-branch` FlowDoc in the editor for a real
   project (lines reference first, then Borut), bake it (`BakedBundle.flow`, the Phase-6
   pipeline that already exists), and verify the interpreter boots ACTIVE off the baked slot.
-- Bump Borut's `engine` submodule once the engine pieces (Phases 1–4) land (owner's mirror
-  step; memory: "bump the game's engine submodule yourself").
 - Verify on the running WebGPU bundle via the `app.stage` scene-graph read / dynamic-import
   override (memory: `preview_screenshot` times out on WebGPU), not a screenshot.
 
@@ -435,8 +432,7 @@ making *value* dataflow explicit (engine signal → HUD display), the symmetric 
   tool doc, only `component-editor.md` exists. Rule 9: write it (grounded in the real route
   UI) as part of this work, and refresh `component-editor.md` + `flow.md` as the authoring
   surface changes (the pending Flow Phase-3/7 `docs-keeper` audit).
-- Record each phase in `docs/STATUS.md` as it lands (rule 6), and bump Borut's `engine`
-  submodule when engine pieces must reach it (Phase 5).
+- Record each phase in `docs/STATUS.md` as it lands (rule 6).
 
 ---
 
@@ -686,8 +682,7 @@ chain is "just works once the serializer knows the trigger", with a round-trip s
    green; RULE 9: refresh `docs/tools/flow.md` (value pins + value edges) in the SAME change via
    `docs-keeper`.
 6. **Ship (owner step).** Bake a project authoring a value override, confirm the shipped game
-   resolves the override off the baked slot; bump Borut's `engine` submodule if the engine
-   `ComponentInstance` indirection must reach it.
+   resolves the override off the baked slot.
 
 ### 11.9 Rough size / lift estimate per area
 
