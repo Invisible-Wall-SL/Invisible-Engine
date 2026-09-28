@@ -172,7 +172,7 @@ writeFileSync(
 	}),
 );
 
-// `--max-old-space-size`: checking ~2000 files in one program needs more than Node's default heap,
+// `--max-old-space-size`: checking ~1550 files in one program needs more than Node's default heap,
 // and a compiler that dies mid-run prints nothing this parser recognises. The first version of this
 // script had exactly that failure — tsc OOM'd, the filter found no diagnostics, and it reported a
 // clean pass while missing the very regression it was written for. Hence the heap, and the

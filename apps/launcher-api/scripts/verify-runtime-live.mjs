@@ -35,7 +35,7 @@ if (!runtimeId || !buildDir) {
 }
 
 const ORIGIN = process.env.GAMES_ORIGIN ?? 'https://games.invisiblewall.org';
-const DEADLINE_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 15 * 60_000);
+const DEADLINE_MS = Number(process.env.VERIFY_TIMEOUT_MS || 15 * 60_000);
 const POLL_MS = 10_000;
 /** Gaps between re-POSTs of /refresh — a hydrate that began before the upload finished can
  *  complete without it, and a rebooting server drops the request entirely. */
@@ -63,17 +63,31 @@ const s3 = new S3Client({
 	endpoint: R2_ENDPOINT,
 	credentials: { accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY },
 });
-const manifestObject = await s3.send(
-	new GetObjectCommand({ Bucket: R2_BUCKET, Key: 'test_server/games.json' }),
-);
-const manifest = JSON.parse(await manifestObject.Body.transformToString());
+/** One transient R2 error must not turn a release that shipped into a red run. */
+async function readManifest() {
+	for (const wait of [0, 5_000, 15_000, 30_000]) {
+		await new Promise((r) => setTimeout(r, wait));
+		try {
+			const object = await s3.send(
+				new GetObjectCommand({ Bucket: R2_BUCKET, Key: 'test_server/games.json' }),
+			);
+			return JSON.parse(await object.Body.transformToString());
+		} catch (e) {
+			console.info(`  reading test_server/games.json failed (${e.message})`);
+		}
+	}
+	console.error('Could not read test_server/games.json from R2 — cannot pick a game to probe.');
+	process.exit(1);
+}
+const manifest = await readManifest();
 const probe = Object.entries(manifest?.games ?? {})
 	.filter(([, meta]) => meta?.runtime === runtimeId)
 	.map(([key]) => key)
 	.sort()[0];
 if (!probe) {
 	console.info(
-		`No game in test_server/games.json uses runtime '${runtimeId}' — nothing serves it.`,
+		`::warning title=Runtime not verified::No game in test_server/games.json uses runtime ` +
+			`'${runtimeId}', so nothing serves it and there is nothing to verify.`,
 	);
 	process.exit(0);
 }
@@ -96,7 +110,17 @@ async function served() {
 			signal: AbortSignal.timeout(25_000),
 		});
 		if (!res.ok) return `HTTP ${res.status}`;
-		return MARKER_RE.exec(await res.text())?.[0] ?? 'no bundle marker';
+		const name = MARKER_RE.exec(await res.text())?.[0] ?? 'no bundle marker';
+		if (name !== marker) return name;
+		// The upload is not ordered, so a hydrate that ran mid-upload can hold the new index.html
+		// without the bundle it names. Only a served bundle counts. `?cb=` keeps this off the bare
+		// immutable URL's cache key (see the header).
+		const bundle = await fetch(`${ORIGIN}/${probe}/_app/immutable/${marker}?cb=${Date.now()}`, {
+			method: 'HEAD',
+			cache: 'no-store',
+			signal: AbortSignal.timeout(25_000),
+		});
+		return bundle.ok ? name : `${name} in index.html, but the bundle file is HTTP ${bundle.status}`;
 	} catch (e) {
 		return `unreachable (${e.message})`;
 	}

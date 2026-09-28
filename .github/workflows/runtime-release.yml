@@ -44,7 +44,7 @@ on:
         default: 'lines'
         required: true
       refresh:
-        description: 'POST /refresh so the test server re-hydrates immediately'
+        description: 'POST /refresh and verify the new bundle is served (unticked: no live check)'
         type: boolean
         default: true
 
