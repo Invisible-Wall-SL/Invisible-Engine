@@ -141,7 +141,9 @@
 		captureServerGrid,
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
+		warnOnServerPaytableMismatch,
 	} from '../game/gameConfig';
+	import { paytable } from '../game/paytable';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
@@ -333,6 +335,10 @@
 	// project fetches its config live while the mock RGS follows a copy synced at publish, so a grid
 	// changed without republishing shows up here rather than as a game that stopped working.
 	warnOnServerGridMismatch();
+
+	// The same for PRICES: the info page quotes the authored paytable, the server pays its own. After
+	// the runtime-bundle branch above, so it compares the paytable the player will actually be shown.
+	warnOnServerPaytableMismatch(paytable());
 
 	// Build the bet-selector / buy-bonus menu from the ACTIVE config (Invisible Game Config Phase 6),
 	// replacing the shared `DEFAULT_BET_MODE_META` placeholder for this game. Runs after the

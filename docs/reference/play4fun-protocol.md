@@ -165,7 +165,7 @@ was an open question in the delivery plan. It does:
 | `betOptions` | Credit cost per option — the bet menu. |
 | `oneCreditBuysLines` | Lines one credit buys (their "cost per line"). |
 | `costPerReel` | Per-reel cost, for buy-a-reel games. |
-| `paytable` | `{symbol: [{on: {of, occurs}, pay: [...]}]}` — `occurs[i]` pays `pay[i]`. |
+| `paytable` | `occurs[i]` pays `pay[i]`, in one of three wire shapes — see "The paytable is cross-checked" below. |
 | `symbolsPay.scatter` | Which symbols are scatters. |
 
 Alongside `context`, the `config` EVENT itself carries the resume contract:
@@ -180,21 +180,57 @@ A missing `config` event is **fatal** in their client (it throws). Ours should b
 
 ### Most of it reaches nothing (audited 2026-09-17)
 
-The facade bridges exactly three fields to the engine — `__IE_SERVER_CONFIG__` carries
-`availablePayLines`, `symbols` and `window` — plus `betOptions` and `gameCost` consumed separately by
-`betOptions.ts`. Everything else the server declares is read by nothing:
+The facade bridges three fields to the engine — `__IE_SERVER_CONFIG__` carries `availablePayLines`,
+`symbols` and `window` — plus `betOptions` and `gameCost` consumed separately by `betOptions.ts`, and
+since 2026-09-28 `paytable`, which is COMPARED rather than adopted (below). Everything else the server
+declares is read by nothing:
 
 | Declared, unread | Why it matters |
 | --- | --- |
-| `paytable` | **The divergence risk.** It is in `Play4FunConfigContext` and mentioned in comments, but never read: the game's paytable screen comes from the AUTHORED config. So a delivery can show a player one paytable while the operator's server pays another, and nothing anywhere would notice. |
 | `symbolsPay.scatter` | Which symbols are scatters — currently a client-side assumption. |
 | `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way. |
 | `maxWays` | Ways count; we take the payline count instead. |
 
-None of this is urgent for Book-of, whose authored config and the server's declaration agree today.
-It matters the moment a partner changes a paytable on their side, which is precisely the kind of
-change nobody tells the client team about. Reading `paytable` and comparing it to the authored one at
-boot — warn on mismatch, do not "fix" it — would be cheap and would catch that class of drift.
+### The paytable is cross-checked, not adopted (2026-09-28)
+
+The game's info page is built from the AUTHORED config, so a partner who changes a price on their side
+— the kind of change nobody tells the client team about — used to leave the game quoting one
+paytable while the server paid another. Now `readDeclaredPaytable`
+(`packages/rgs-translator-eagaming/src/paytable.ts`) reads the declared table, the facade publishes
+it in engine symbol names, and `warnOnServerPaytableMismatch` (`engine-game`) compares it with the
+paytable the game shows and logs one `[game-config] warning` per boot, row by row. It warns and does
+not "fix": which side is wrong is a question for the math. Proven offline by
+`node scripts/verify-server-paytable.mts`.
+
+The wire shape is not one thing, and the field table above was written from one of them:
+
+- `{ line: [entry…], scatter: [entry…] }`, each entry `{ on: { occurs, of, mode }, pay }` — the live
+  Book of Thermopylae wire, mirrored by our book mock;
+- `{ PIC1: { occurs, pay } }` — our lines mock — or `{ PIC1: [entry…] }`, the shape their client
+  names;
+- a flat array of entries.
+
+A row with no `mode` is `scatter` when its symbol is in `symbolsPay.scatter` and `line` otherwise.
+Every mode but `scatter` is compared as one class, because the info page labels every per-symbol row
+`line` whatever the win model — a ways server's `ways` rows are the same claim under another name.
+
+Both sides quote the same stake, so raw multipliers compare directly: a `line` row pays
+`pay × betPerLine` on the wire and `multiplier × totalBet / lines` on the info page; a `scatter` row
+multiplies the total bet on both. A row the server does not declare is reported only when the server
+declared rows of that mode at all — our lines mock pays its scatter off a table it never announces,
+and flagging that on every game would train everyone to ignore the warning.
+
+**This audit said Book-of's authored config and the server agreed. They do not.** Measured
+2026-09-28: the live `bookofborutremake` authored config (R2) still carries the template's
+paytable — `H1` `3:5 4:10 5:20` — while its server (`games.invisiblewall.org`, i.e.
+`scripts/mock-rgs-server-book.mjs`) declares and pays `PIC1` `2:10 3:100 4:1000 5:5000`. Nine of the
+ten rows disagree, most by one to two orders of magnitude; only the scatter row matches. The new
+check names all nine on boot.
+
+Expect it locally too: the BUNDLED `apps/lines` template quotes placeholder prices, so booting it
+against either mock warns (7 rows against the lines mock, 9 against the book mock). That is true, not
+noise. Online LINES-protocol test-server games stay quiet, because that mock is fed each project's
+own authored table (`symbolPaytable`); the book mock is not, which is how the Borut remake drifted.
 
 ## Resume — smaller than it looks, and here is the measurement
 

@@ -37,6 +37,7 @@ import {
 	serverBetOptionEntries,
 	type ServerBetOptions,
 } from './betOptions';
+import { readDeclaredPaytable, type DeclaredPayEntry } from './paytable';
 import { createPlay4FunSessionState, type Play4FunSessionState } from './sessionState';
 import { createPlay4FunFetcher } from './eagamingFetcher';
 import {
@@ -117,7 +118,9 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
  * so a global is the only bridge. It makes the RGS's own declaration SERVER-AUTHORITATIVE for the
  * game's derived display data — paylines / line count, the in-play symbol GATE, the cosmetic reel
  * strips, per-line colour indexing, anticipation reach — instead of the compiled/authored template.
- * Only the three fields the engine reads (`availablePayLines`, `symbols`, `window`).
+ * Only the fields the engine reads (`availablePayLines`, `symbols`, `window`), plus `paytable` — which
+ * is NOT adopted, only compared against the paytable the game shows (`warnOnServerPaytableMismatch`
+ * in `engine-game`). Omitted when the server declares none, which leaves that check off.
  * Never written when no `config` event arrives ⇒ the global stays undefined ⇒ every engine accessor
  * falls back to the authored doc, byte-identical to before (parity).
  *
@@ -126,20 +129,37 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
  * (`PIC1`/`ACE`/`SCAT`), because `mapSymbol` translates every reveal cell (see the `reveal` push).
  * Publishing the raw names would make the in-play GATE and the auto-generated strips speak a
  * vocabulary the client dictionary and symbol-art map don't know — a blank paytable and undrawable
- * reels. `availablePayLines` (row indices per reel) is symbol-agnostic, so it is NOT mapped. */
+ * reels. `availablePayLines` (row indices per reel) is symbol-agnostic, so it is NOT mapped. The
+ * paytable's `of` names ARE, for the same reason: it is compared against rows named `H1`, not `PIC1`. */
 type EngineServerConfig = {
 	availablePayLines: number[][];
 	symbols: string[];
 	window?: { reels: number; rows: number };
+	paytable?: DeclaredPayEntry[];
+};
+
+/** The server's scatter symbols, in ITS vocabulary: `symbolsPay.scatter` when declared, else every
+ *  server name the active mapping sends to its scatter. Decides the mode of a mode-less paytable row. */
+const serverScatterSymbols = (cfg: Play4FunConfigContext): string[] => {
+	const declared = (cfg.symbolsPay as { scatter?: unknown } | undefined)?.scatter;
+	if (Array.isArray(declared)) return declared.filter((s): s is string => typeof s === 'string');
+	return Object.keys(activeMapping.symbols).filter(
+		(server) => mapSymbol(activeMapping, server) === activeMapping.scatter,
+	);
 };
 
 const publishServerConfig = (cfg: Play4FunConfigContext): void => {
 	const mapNames = (names: unknown): string[] =>
 		Array.isArray(names) ? [...new Set(names.map((n) => mapSymbol(activeMapping, n)))] : [];
+	const paytable = readDeclaredPaytable(cfg.paytable, serverScatterSymbols(cfg))?.map((entry) => ({
+		...entry,
+		on: { ...entry.on, of: mapSymbol(activeMapping, entry.on.of) },
+	}));
 	(globalThis as { __IE_SERVER_CONFIG__?: EngineServerConfig }).__IE_SERVER_CONFIG__ = {
 		availablePayLines: Array.isArray(cfg.availablePayLines) ? cfg.availablePayLines : [],
 		symbols: mapNames(cfg.symbols),
 		window: cfg.window,
+		...(paytable ? { paytable } : {}),
 	};
 };
 

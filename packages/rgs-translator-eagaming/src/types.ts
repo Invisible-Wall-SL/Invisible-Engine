@@ -41,14 +41,6 @@ export interface Play4FunRequestQuery {
 
 // ---------- Inbound (response) ----------
 
-/** Per-symbol paytable entry. Play4Fun expresses payouts as parallel arrays:
- *  `occurs[i]` matches `pay[i]`. Both are typically length 3 ([3,4,5] of-a-kind),
- *  but lower-tier symbols may include `[2,3,4,5]` if they pay on 2-of-a-kind. */
-export interface Play4FunPaytableEntry {
-	occurs: number[];
-	pay: number[];
-}
-
 /** Boot-time game declaration. The real Play4Fun server emits this as the first
  *  event of every session — symbols, grid, paylines, paytable, all in one
  *  place. We use it for two purposes in the facade:
@@ -71,8 +63,9 @@ export interface Play4FunConfigContext {
 	availablePayLines: number[][];
 	/** Wild-acting symbols. Hot Fruits sends []. */
 	wildSymbols: string[];
-	/** Per-symbol payout table. */
-	paytable: Record<string, Play4FunPaytableEntry>;
+	/** Payout table as parallel arrays (`occurs[i]` pays `pay[i]`). Its wire shape varies by server —
+	 *  read it only through `readDeclaredPaytable` (`./paytable.ts`), which names the variants. */
+	paytable?: unknown;
 	/** Open bag of additional fields the server may include (RTP, jurisdiction,
 	 *  freegame structure, etc.). We don't model them — they pass through. */
 	[extra: string]: unknown;

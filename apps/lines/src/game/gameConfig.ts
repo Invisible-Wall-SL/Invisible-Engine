@@ -52,4 +52,5 @@ export const {
 	warnOnGameConfigIssues,
 	captureServerGrid,
 	warnOnServerGridMismatch,
+	warnOnServerPaytableMismatch,
 } = gameConfig;
