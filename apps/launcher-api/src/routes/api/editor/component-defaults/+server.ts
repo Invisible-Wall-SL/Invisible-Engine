@@ -7,6 +7,7 @@ import {
 	saveComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireOptionalProjectKey } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -15,15 +16,17 @@ import type { RequestHandler } from './$types';
  * Auth + role gate matching the component route: logged-in and entitled to the
  * `editor` tool (role + per-user overrides applied). Defaults are keyed by project
  * (`editor/<projectKey>/component-defaults/`), so the project is a request param —
- * there is no session-bound project scope here, exactly like the component route.
+ * there is no session-bound project scope here, exactly like the component route —
+ * and `requireOptionalProjectKey` 403s one the user cannot access.
  */
-async function gate(locals: App.Locals): Promise<void> {
+async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Editor.');
 	}
+	return locals.user;
 }
 
 /**
@@ -33,8 +36,8 @@ async function gate(locals: App.Locals): Promise<void> {
  * project, used once to hydrate the page.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
-	const project = url.searchParams.get('project');
+	const user = await gate(locals);
+	const project = await requireOptionalProjectKey(user, url.searchParams.get('project'));
 	if (!project) throw error(400, 'missing project');
 	const id = url.searchParams.get('id');
 	if (!id) {
@@ -56,7 +59,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Body: `{ project, id, params, baseEtag: string | null }` (or `force: true`).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	await gate(locals);
+	const user = await gate(locals);
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -64,8 +67,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		throw error(400, 'Invalid JSON body.');
 	}
 	if (!isRecord(body)) throw error(400, 'Body must be an object.');
-	const { project, id, params } = body;
-	if (typeof project !== 'string' || !project) throw error(400, 'missing project');
+	const { id, params } = body;
+	const project = await requireOptionalProjectKey(
+		user,
+		typeof body.project === 'string' ? body.project : undefined,
+	);
+	if (!project) throw error(400, 'missing project');
 	if (typeof id !== 'string' || !id) throw error(400, 'missing id');
 	if (!isRecord(params)) throw error(400, '`params` must be a plain object.');
 	const baseEtag = writeBaseEtagJson(body);

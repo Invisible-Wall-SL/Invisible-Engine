@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { gameConfigScope, requireGameConfigAccess } from '$lib/server/gameConfigAccess';
+import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import {
 	ConflictError,
 	InvalidGameConfigError,
@@ -7,6 +7,7 @@ import {
 	saveGameConfigDoc,
 } from '$lib/server/gameConfigStorage';
 import { invalidateRuntimeBundle } from '$lib/server/runtimeBundleCache';
+import { requireProjectScope } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -14,7 +15,8 @@ import type { RequestHandler } from './$types';
  * Authoring endpoints for the Invisible Game Config (`/config`) doc.
  *
  * Session-gated by `requireGameConfigAccess` — the SAME entitlement gate the `/config` page uses,
- * NOT the deploy-token gate (that is the sibling `doc` route, for the build-time bake). REST rather
+ * NOT the deploy-token gate (that is the sibling `doc` route, for the build-time bake) — and then
+ * scoped by `requireProjectScope`, which 403s a `?project=` the user cannot access. REST rather
  * than form actions because the client is a rich `$state` doc, mirroring `/api/win-text`.
  *
  * See `docs/design/invisible-game-config.md`.
@@ -23,8 +25,11 @@ import type { RequestHandler } from './$types';
  *  page then shows the template default it loaded separately. The ETag is the precondition the
  *  client sends back on save. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await requireGameConfigAccess(locals);
-	const { clientKey, projectKey } = await gameConfigScope(url.searchParams.get('project'));
+	const user = await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	try {
 		const { doc, etag } = await loadGameConfigDocWithEtag(clientKey, projectKey);
 		return json({ clientKey, projectKey, doc, etag });
@@ -47,8 +52,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * page can surface a config that renders but lies (an unwinnable advertised payout).
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
-	await requireGameConfigAccess(locals);
-	const { clientKey, projectKey } = await gameConfigScope(url.searchParams.get('project'));
+	const user = await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
 	try {
 		body = await request.json();

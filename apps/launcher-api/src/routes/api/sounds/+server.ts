@@ -1,8 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
 import { ConflictError } from '$lib/server/r2';
-import { requireSoundAccess, resolveSoundScope } from '$lib/server/soundAccess';
+import { requireSoundAccess } from '$lib/server/soundAccess';
 import { loadSoundsDocWithEtag, saveSoundsDoc } from '$lib/server/soundsStorage';
+import { requireProjectScope } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -14,8 +15,9 @@ import type { RequestHandler } from './$types';
  * sibling `/api/editor/export-sounds` route, for the build-time bake). REST rather than form actions
  * because the client is a rich `$state` doc, mirroring `/api/win-text` and `/api/editor/symbols`.
  *
- * The gate + scope live in `soundAccess.ts` — shared with the sibling `/api/sounds/file` route, so
- * a second route cannot ship a slightly different gate.
+ * The gate lives in `soundAccess.ts` — shared with the sibling `/api/sounds/file` route, so a second
+ * route cannot ship a slightly different gate — and the scope is `requireProjectScope`, which 403s a
+ * `?project=` the user cannot access.
  *
  * See `docs/design/invisible-sound.md`.
  */
@@ -23,8 +25,11 @@ import type { RequestHandler } from './$types';
 /** Read a project's sound library + its ETag (empty valid doc when never authored). The ETag is
  *  the precondition the client sends back on save. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await requireSoundAccess(locals);
-	const { clientKey, projectKey } = await resolveSoundScope(url.searchParams.get('project'));
+	const user = await requireSoundAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	try {
 		const { doc, etag } = await loadSoundsDocWithEtag(clientKey, projectKey);
 		return json({ clientKey, projectKey, doc, etag });
@@ -46,8 +51,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * project does not have.
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
-	await requireSoundAccess(locals);
-	const { clientKey, projectKey } = await resolveSoundScope(url.searchParams.get('project'));
+	const user = await requireSoundAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
 	try {
 		body = await request.json();

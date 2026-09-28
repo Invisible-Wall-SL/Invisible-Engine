@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { userHasCapability } from '$lib/server/launcherAuth';
-import { DEFAULT_PROJECT_KEY, projectExists } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { PublishBlockedError, publishGame } from '$lib/server/publishGame';
 import type { RequestHandler } from './$types';
 
@@ -34,8 +34,14 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 	}
 	const project = typeof body.project === 'string' ? body.project.trim() : '';
 	if (!project) return json({ error: 'Missing project' }, { status: 400, headers: NO_STORE });
-	if (!(await projectExists(project))) {
-		return json({ error: 'Unknown project' }, { status: 400, headers: NO_STORE });
+	// The SAME rule as the Game Maker list and `publish-all`: a publisher may ship only the projects
+	// they can reach. Existence alone let a crafted body publish another client's project and then
+	// pin this session to it below, handing every session-scoped tool that project.
+	if (!(await canAccessProject(locals.user.id, locals.user.role, project))) {
+		return json(
+			{ error: 'Unknown project, or you do not have access to it.' },
+			{ status: 403, headers: NO_STORE },
+		);
 	}
 
 	// The explicit "ship it anyway" for a sound the game plays that nobody has approved. Only ever

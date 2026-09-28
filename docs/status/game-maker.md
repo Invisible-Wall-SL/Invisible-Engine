@@ -99,6 +99,13 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-09-28 (security) — **Publish accepts only a project the publisher can access.**
+  `POST /api/game-maker/publish` and the desktop launcher's `POST /api/launcher/register-game`
+  checked only that the project EXISTED, while the hub, `publish-all` and `/api/launcher/projects`
+  offer only accessible ones. Single publish then pins the session to the project it built, so a
+  crafted body handed a `gamePublish` holder another client's project in every session-scoped tool.
+  Both now require `canAccessProject` (403 otherwise; unchanged for admins). Details:
+  [launcher.md](launcher.md) Recent changes, 2026-09-28.
 - 2026-09-08 — **the THIRD writer of `test_server/games.json` is guarded too.** The 2026-08-04 entry below hardened the portal's `upsertTestServerGame` and `scripts/publish-game-bundle.mjs`; the desktop launcher's `publish_game()` (separate `invisible-launcher` repo) was still doing an unguarded read-modify-write of the same global key. It now mirrors the identical `If-Match`/retry loop — [detail in launcher.md](launcher.md).
 - 2026-08-24 — **bulk republish** on the project hub (see Current state): `Republish N stale games` / `Republish all`, a background sequential job + `/api/game-maker/publish-all`, and the shared `engineStaleness.ts` index behind both the badge and the run. Launcher-side only; no runtime release.
 - 2026-08-21 — **Publish stopped being how a config change reaches the RGS.** The mock's math contract used to travel only inside the manifest entry Publish writes, so editing `/config` and not republishing left the client drawing one board against a server dealing another. `publishGame` now writes `docBase` + `readToken` (a pointer to the project's live config, not a copy of it) and its whole grid/cascade/protocol derivation moved into the shared `mockContract.ts` — the test server re-reads it and rebuilds the mock on its own. Publish still snapshots the contract as the offline fallback. Full write-up in [game-config.md](game-config.md); the tool guide's Publish step no longer claims a republish is needed for a math change.

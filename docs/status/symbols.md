@@ -650,6 +650,12 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-28 (security) — **`/api/editor/symbols` refuses a project the caller cannot access.** It
+  resolved any `?project=` once the role had `symbols`, so a `PUT` could overwrite another client's
+  symbols doc. It now scopes through the launcher-wide `requireProjectScope` (403 on an inaccessible
+  or unknown key; the page always sends its own project, so authors see no change). Details:
+  [launcher.md](launcher.md) Recent changes, 2026-09-28.
+
 - 2026-09-22 — **Symbols were the only asset class still shipping UNCOMPRESSED to phones, and they
   are the biggest.** Owner-reported: symbols render as a black box on an S24 and an iPhone 18,
   while an S25 Ultra (12 GB) and a Pixel 9 Pro (16 GB) are clean. Measured on the live

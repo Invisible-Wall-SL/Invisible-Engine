@@ -1,10 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
 import { roleHasTool } from '$lib/roles';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { ConflictError } from '$lib/server/r2';
+import { requireProjectScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { loadWinTextDocWithEtag, saveWinTextDoc } from '$lib/server/winTextStorage';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -15,33 +14,30 @@ import type { RequestHandler } from './$types';
  *
  * Session-gated (logged-in + entitled to the `winText` tool, role + per-user overrides applied)
  * — the SAME entitlement gate the `/win-text` page uses, NOT the deploy-token gate (that is the
- * sibling `doc` route, for the build-time bake). REST rather than form actions because the
- * client is a rich `$state` doc, mirroring `/api/editor/symbols`.
+ * sibling `doc` route, for the build-time bake) — then scoped by `requireProjectScope`, which 403s
+ * a `?project=` the user cannot access. REST rather than form actions because the client is a rich
+ * `$state` doc, mirroring `/api/editor/symbols`.
  *
  * See `docs/design/invisible-win-text.md`.
  */
-async function gate(locals: App.Locals): Promise<void> {
+async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	if (!roleHasTool(locals.user.role, 'winText', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Win Text.');
 	}
-}
-
-async function resolveScope(
-	project: string | null,
-): Promise<{ clientKey: string; projectKey: string }> {
-	const projectKey = project || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	return { clientKey, projectKey };
+	return locals.user;
 }
 
 /** Read a project's win-text doc + its ETag (empty valid doc when never authored). The ETag is
  *  the precondition the client sends back on save. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
-	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
+	const user = await gate(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	try {
 		const { doc, etag } = await loadWinTextDocWithEtag(clientKey, projectKey);
 		return json({ clientKey, projectKey, doc, etag });
@@ -59,8 +55,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * An absent `baseEtag` writes unconditionally, so an older client still saves rather than 409s.
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
-	await gate(locals);
-	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
+	const user = await gate(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
 	try {
 		body = await request.json();

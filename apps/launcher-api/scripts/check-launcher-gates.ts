@@ -167,6 +167,72 @@ for (const file of handlers) {
 	);
 }
 
+/**
+ * A handler that takes a project from the request — `?project=` or a body `project` — must check
+ * that the caller may reach THAT project. The tool grant is not a project grant: game-config,
+ * win-text, symbols, sounds and the component routes once resolved any key they were handed, and
+ * single publish took any key that merely existed, so anyone with the tool could read and write
+ * another client's project by editing the request. Accepted checks: `requireProjectScope` /
+ * `requireOptionalProjectKey` (their behaviour is `check-project-scope.ts`), `canAccessProject`,
+ * or a token — `projectAllowsRead` is per project, the deploy token is the build runner's and spans
+ * them all.
+ *
+ * Judged PER HANDLER, not per file, so a checked GET cannot vouch for an unchecked PUT beside it.
+ */
+const PROJECT_READS = [
+	/searchParams\.get\(\s*['"`]project['"`]\s*\)/,
+	/\bbody\.project\b/,
+	/\{[^}]*\bproject\b[^}]*\}\s*=\s*body\b/,
+];
+const PROJECT_CHECKS = [
+	'requireProjectScope(',
+	'requireOptionalProjectKey(',
+	'canAccessProject(',
+	'projectAllowsRead(',
+	'getDeployToken(',
+];
+const PROJECT_READ_EXEMPT: Record<string, string> = {
+	'admin/project-footprint': 'gated on adminPanel, which spans every project',
+	'admin/spines': 'gated on adminPanel, which spans every project',
+	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
+	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
+};
+/** Each exported handler's source (the module preamble dropped). */
+const handlerBlocks = (src: string): string[] =>
+	src.split(/^(?=export const (?:GET|POST|PUT|PATCH|DELETE)\b)/m).slice(1);
+const readsProject = new Set<string>();
+for (const file of handlers) {
+	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
+	const blocks = handlerBlocks(readFileSync(`${api}${file}`, 'utf8'));
+	for (const block of blocks) {
+		if (!PROJECT_READS.some((re) => re.test(block))) continue;
+		readsProject.add(route);
+		if (route in PROJECT_READ_EXEMPT) continue;
+		const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		check(
+			`api/${route} ${method} checks access to the project it takes from the request`,
+			PROJECT_CHECKS.some((c) => block.includes(c)),
+			true,
+		);
+	}
+}
+const FIXED = [
+	'game-config',
+	'game-config/server-paytable',
+	'win-text',
+	'editor/symbols',
+	'sounds',
+	'sounds/file',
+	'editor/component',
+	'editor/component-defaults',
+	'editor/components',
+	'game-maker/publish',
+	'launcher/register-game',
+];
+for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
+	check(`the scan sees api/${route} take a project`, readsProject.has(route), true);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} launcher-gate checks FAILED`);

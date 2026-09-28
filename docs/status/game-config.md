@@ -584,6 +584,20 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-09-28 (security) — **`/api/game-config` and `server-paytable` now refuse a project the
+  caller cannot access.** Both resolved whatever `?project=` they were handed once the ROLE had the
+  `gameConfig` tool, so any Game Config user could read — and, through `PUT`, overwrite in R2 —
+  another client's math contract by editing one query param. `gameConfigScope` is gone; the routes
+  call the launcher-wide `requireProjectScope(user, project)` (`toolScope.ts`) after
+  `requireGameConfigAccess`, which now returns the user. The rule is the selector's own
+  `canAccessProject`; an inaccessible or unknown key is a **403** (never a 404, so the endpoint is
+  no oracle for which keys exist). The no-`?project=` default (`cloud`) is checked like any other
+  key: every user is granted it, so it is refused only when its row is gone, and then there is
+  nothing to write. The `/config` page always sends `?project=` from its loader, so an author on a
+  project they can reach sees no change. Shared with win-text, symbols, sounds, the component
+  routes and publish — the whole story, the checks and what is still owed are in
+  [launcher.md](launcher.md) Recent changes.
+
 - 2026-09-28 — **Import paytable from server.** A reviewed, never-auto-saved way to author the
   paytable a published game's server declares: button in the Symbols panel → `ConfirmDialog` with
   `now → server` per symbol → Apply writes the changed rows → Save as usual. New endpoint
