@@ -15,6 +15,11 @@
 > Edit/Atlas/Fonts/Symbols/Localization launch links + a Publish confirmation
 > (project + scenes' last-edited time). `ToolTopBar` shows `<client> / <project>`.
 > Open-question #4 (retire the global selector) deferred.
+>
+> **API counterpart (2026-09-28):** endpoints that take `?project=` scope through
+> `requireProjectScope(user, project)` (same file) — the same `canAccessProject` rule, but a
+> **403** instead of a silent fallback, since an API call writes the project it names. See
+> `docs/status/launcher.md` 2026-09-28.
 
 ## The flaw (a real incident)
 

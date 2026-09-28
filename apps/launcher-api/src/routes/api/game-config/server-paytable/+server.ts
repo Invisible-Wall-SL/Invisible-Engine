@@ -7,11 +7,12 @@ import {
 	pickMappingForConfig,
 } from 'rgs-translator-eagaming/game-mappings';
 import { readMappedPaytable } from 'rgs-translator-eagaming/paytable';
-import { gameConfigScope, requireGameConfigAccess } from '$lib/server/gameConfigAccess';
+import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import { resolveGameConfigDoc } from '$lib/server/gameConfigDefaults';
 import { projectGameType } from '$lib/server/projects';
 import { fetchServerBootConfig, projectServerGameKeys } from '$lib/server/rgsConfig';
 import { loadTestServerManifest } from '$lib/server/testServerManifest';
+import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /** The import is a deliberate click, so it can wait longer than the page-load paylines preview. */
@@ -31,8 +32,11 @@ const IMPORT_TIMEOUT_MS = 10_000;
  * Every failure is `json({ error }, { status })` so the page can show the cause in the dialog.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await requireGameConfigAccess(locals);
-	const { clientKey, projectKey } = await gameConfigScope(url.searchParams.get('project'));
+	const user = await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 
 	let gameKeys: string[];
 	try {

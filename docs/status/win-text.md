@@ -290,6 +290,12 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-09-28 (security) — **`/api/win-text` refuses a project the caller cannot access.** It
+  resolved any `?project=` once the role had `winText`, so a `PUT` could overwrite another client's
+  win copy. It now scopes through the launcher-wide `requireProjectScope` (403 on an inaccessible or
+  unknown key; the page always sends its own project, so authors see no change). Details:
+  [launcher.md](launcher.md) Recent changes, 2026-09-28.
+
 - 2026-09-08 — **the inline symbol image holds its first frame instead of animating.** "Show the
   symbol as an image" renders through the `<Symbol>` state machine, so on a project whose symbols are
   bound to Invisible Flipbook clips the toast played the clip — a looping animation where the sentence

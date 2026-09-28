@@ -28,6 +28,22 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
 6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
+8. **The component routes still resolve a project on the `editor` grant alone** (found 2026-09-28,
+   see Recent changes). `/api/editor/component` (GET/DELETE `?project=`, POST body `project`),
+   `/api/editor/component-defaults` (GET `?project=`, POST body `project`) and
+   `/api/editor/components` (GET) — the POSTs and DELETE WRITE. Different shape from the six that
+   were fixed: the project is optional (absent = the shared library) and sometimes rides in the
+   body, so the fix is `if (project) await requireProjectScope(user, project)` rather than the
+   drop-in. They sit on `PROJECT_PARAM_KNOWN_GAPS` in `check-launcher-gates.ts`; delete each entry
+   as it is fixed (the check goes red until you do).
+9. **A revoked project grant does not reach an open session.** `setProject` checks
+   `canAccessProject` when the active project is SET, and `(app)/+layout.server.ts` stops DISPLAYING
+   a project that is no longer accessible — but `getActiveScope` (the fallback of every tool
+   loader's `resolveToolScope`) and the R2 `gate()` read the stored `sessions.activeProjectKey`
+   without re-checking. A user whose grant is revoked keeps reading and writing that project through
+   the session-scoped tools until they switch project or the session ends, even though the layout's
+   selector has already fallen back to `cloud`. Narrower than the `?project=` gap (it needs a real
+   grant first), but the fix belongs in `getActiveScope`/`gate()`.
 
 ## Blocked (owner / external)
 - **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
@@ -39,6 +55,45 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-28 — a tool grant is no longer a project grant on the `?project=` APIs
+Six session-gated authoring endpoints resolved whatever `?project=` they were handed once the
+caller's ROLE had the tool: `/api/game-config` (GET + **PUT**) and `/api/game-config/server-paytable`,
+`/api/win-text` (GET + **PUT**), `/api/editor/symbols` (GET + **PUT**), `/api/sounds` (GET + **PUT**)
+and `/api/sounds/file` (**POST** mints a presigned upload into the project, GET streams). Anyone with
+one of those tools could read and write any client's project by editing the query string — the
+per-user project grants the selector enforces were never consulted. Each route carried its own
+copy of the same two-line "default it, resolve its client" helper, which is why the gap was
+everywhere at once.
+
+- **One resolver:** `requireProjectScope(user, project)` in `$lib/server/toolScope.ts`, the API
+  counterpart of `resolveToolScope`. It applies the SAME `canAccessProject` rule, and unlike the page
+  resolver it never falls back — a page can land on the session's project because it shows which
+  one it chose, an API call writes the one it names. Refusal is a **403**, including for an unknown
+  key (no oracle for which keys exist).
+- **The default** (no `?project=` → `cloud`) is access-checked like any other key. Every user is
+  granted `cloud`, so it is refused only when that row is gone — and then there is no project to
+  write, so failing closed beats writing to an orphan prefix.
+- The tool gates (`requireGameConfigAccess`, `requireSoundAccess`, the local `gate` in win-text and
+  symbols) now return the non-null user, which the resolver takes — so it cannot be called before
+  the entitlement gate has run. `gameConfigScope`, `resolveSoundScope` and the two local
+  `resolveScope`s are deleted. Every page already sends `?project=` from its loader's scope, so an
+  author on a project they can reach sees no change.
+- **Checks:** `pnpm --filter launcher-api check:project-scope` (10) runs the REAL `toolScope.ts`
+  with only the Postgres boundary (`projects.ts`) stubbed via `node:test`'s `mock.module` — granted
+  → scope, another client's / unassigned / unknown → 403, the default is checked, the checked key
+  is the returned one. `check:launcher-gates` (149 → 188) gained a source scan: every `src/routes/api`
+  handler that reads `?project=` must call `requireProjectScope` or be token-gated
+  (`projectAllowsRead` / the deploy token), else it is on a named exempt list with its reason. Both
+  mutation-tested (access check removed → 6 of 10 fail; one route's call removed → the scan names
+  it). Both now run in CI (`lint.yml`).
+- **Audit of the other `?project=` routes:** token-gated by design — `deploy`, `editor/doc`,
+  `editor/runtime`, `editor/export-*`, `editor/symbol-defaults`, `game-config/doc`,
+  `game-config/mock`, `localization/strings`, `win-text/doc` (the per-project read token, or the
+  deploy token that the build runner holds for every project). Exempt with a reason —
+  `admin/project-footprint` and `admin/spines` (gated on `adminPanel`, which spans every project);
+  `flipbook/clip` and `fx/effect` (scoped by the SESSION; `?project=` only refuses a stale tab).
+  **Still open** — see Open items.
 
 - 2026-09-18 — **Granting "Build & publish games" now actually lets someone publish.** `gamePublish` opened `GET /api/launcher/deploy-token` and nothing else: every *next* step of a publish was gated somewhere the grant could not reach, so a granted developer got the token and then a 403. Two distinct shapes, both fixed:
   - **Gated on the wrong capability.** `POST /api/game-maker/publish` and `/publish-all` checked `ADMIN_PANEL_CAPABILITY` ("Phase 1 keeps publish an admin operation"), so the only way to let a developer publish was to hand them the whole admin panel. Both now check `GAME_PUBLISH_CAPABILITY`.

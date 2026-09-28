@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { MAX_SOUND_BYTES } from 'engine-layout';
-import { requireSoundAccess, resolveSoundScope } from '$lib/server/soundAccess';
+import { requireSoundAccess } from '$lib/server/soundAccess';
 import {
 	getSoundFile,
 	mintSoundId,
@@ -10,6 +10,7 @@ import {
 	soundExtension,
 	soundFileName,
 } from '$lib/server/soundFiles';
+import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
@@ -52,8 +53,11 @@ const PUT_TTL_SECONDS = 600;
  * non-positive duration, which is the guard that keeps a wrong one from becoming a silent sprite.
  */
 export const POST: RequestHandler = async ({ request, url, locals }) => {
-	await requireSoundAccess(locals);
-	const { clientKey, projectKey } = await resolveSoundScope(url.searchParams.get('project'));
+	const user = await requireSoundAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 
 	let body: { name?: unknown; bytes?: unknown };
 	try {
@@ -111,8 +115,11 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
  * review must never hear a cached copy of something they just changed.
  */
 export const GET: RequestHandler = async ({ url, request, locals }) => {
-	await requireSoundAccess(locals);
-	const { clientKey, projectKey } = await resolveSoundScope(url.searchParams.get('project'));
+	const user = await requireSoundAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
 
 	const file = url.searchParams.get('file');
 	if (!file) throw error(400, 'missing file');

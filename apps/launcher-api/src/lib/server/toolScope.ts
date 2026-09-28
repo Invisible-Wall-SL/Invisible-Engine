@@ -174,3 +174,30 @@ export async function resolveToolScope({
 	}
 	return getActiveScope(sessionToken);
 }
+
+/**
+ * The API counterpart of {@link resolveToolScope}, for the session-gated authoring endpoints that
+ * take their project from the request (`/api/game-config`, `/api/win-text`, `/api/editor/symbols`,
+ * `/api/sounds`): the `(client, project)` that `?project=` names — the default project when it
+ * names none — refused with **403** unless `user` may access it under the SAME `canAccessProject`
+ * rule the selector and `resolveToolScope` apply. Call it AFTER the tool's entitlement gate, which
+ * is what hands back the non-null `user`.
+ *
+ * Unlike the page resolver it never falls back: a page may land on the session's project because
+ * it SHOWS which one it chose, but an API call reads or writes the project it names, so an
+ * inaccessible one must fail rather than quietly hit another. The default is checked like any other
+ * key — every user is granted it, so it is refused only when its row is gone, and then there is no
+ * project to write. An unknown key is a 403 rather than a 404 so the endpoint is not an oracle for
+ * which project keys exist.
+ */
+export async function requireProjectScope(
+	user: NonNullable<App.Locals['user']>,
+	project: string | null,
+): Promise<{ clientKey: string; projectKey: string }> {
+	const projectKey = project?.trim() || DEFAULT_PROJECT_KEY;
+	if (!(await canAccessProject(user.id, user.role, projectKey))) {
+		throw error(403, `You do not have access to the project "${projectKey}".`);
+	}
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	return { clientKey, projectKey };
+}

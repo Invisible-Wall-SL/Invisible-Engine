@@ -136,7 +136,8 @@ is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`
 ### 8. Server gate + active-scope resolution (not UI, but the #1 duplicated thing)
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
-| Shared `gate()` + `assertAllowed` + `allowedPrefixes` | A | `lib/server/ftpScope.ts` | **canonical — use this** |
+| Shared `gate()` + `assertAllowed` + `allowedPrefixes` (session-bound R2 routes) | A | `lib/server/toolScope.ts` (`ftpScope.ts` is the FTP browser's thin wrapper over it) | **canonical — use this** |
+| `resolveToolScope` (tool page loaders) · `requireProjectScope(user, project)` (API routes that take `?project=` — 403 unless `canAccessProject`) | A | `lib/server/toolScope.ts` | **canonical — use this**; never resolve a request's project on the tool grant alone (`check:launcher-gates` scans for it) |
 | Inline duplicate gates (editor, localization, atlas, sheet, spine, storybook) | A | each route's `+page.server.ts` / `+server.ts`; `lib/server/storybooks.ts` (`requireStorybookAccess`, mirrors spine's) | duplicated; consolidate (health-eval #4) |
 
 → Two divergent `allowedPrefixes()` exist (editor allows `spines/_shared/`, ftp doesn't). Reconcile into one parameterized definition.

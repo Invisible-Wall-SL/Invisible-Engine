@@ -167,6 +167,64 @@ for (const file of handlers) {
 	);
 }
 
+/**
+ * A handler that reads `?project=` must check that the caller may reach THAT project. The tool
+ * grant is not a project grant: `/api/game-config`, `/api/win-text`, `/api/editor/symbols` and
+ * `/api/sounds` once resolved any key they were handed, so anyone with the tool could read and
+ * write another client's project by editing the query string. The accepted checks are
+ * `requireProjectScope` (session callers; its behaviour is `check-project-scope.ts`), or a token —
+ * `projectAllowsRead` is per project, the deploy token is the build runner's and spans them all.
+ */
+const PROJECT_PARAM = /searchParams\.get\(\s*['"]project['"]\s*\)/;
+const PROJECT_CHECKS = ['requireProjectScope(', 'projectAllowsRead(', 'getDeployToken('];
+const PROJECT_PARAM_EXEMPT: Record<string, string> = {
+	'admin/project-footprint': 'gated on adminPanel, which spans every project',
+	'admin/spines': 'gated on adminPanel, which spans every project',
+	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
+	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
+};
+/**
+ * The same gap, still open: the component routes resolve `?project=` (and a body `project`) on
+ * the `editor` grant alone. Listed so a NEW route with the gap fails here; delete an entry when
+ * its route is fixed — the check below goes red until you do.
+ */
+const PROJECT_PARAM_KNOWN_GAPS = [
+	'editor/component',
+	'editor/component-defaults',
+	'editor/components',
+];
+const readsProject = new Set<string>();
+for (const file of handlers) {
+	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
+	const s = readFileSync(`${api}${file}`, 'utf8');
+	if (!PROJECT_PARAM.test(s)) continue;
+	readsProject.add(route);
+	const checked = PROJECT_CHECKS.some((c) => s.includes(c));
+	if (PROJECT_PARAM_KNOWN_GAPS.includes(route)) {
+		check(`api/${route} is still a known ?project= gap (fixed? delete it)`, checked, false);
+	} else if (!(route in PROJECT_PARAM_EXEMPT)) {
+		check(`api/${route} checks access to the ?project= it reads`, checked, true);
+	}
+}
+const FIXED = [
+	'game-config',
+	'game-config/server-paytable',
+	'win-text',
+	'editor/symbols',
+	'sounds',
+	'sounds/file',
+];
+for (const route of FIXED) {
+	check(
+		`api/${route} reads ?project= (so the scan above covered it)`,
+		readsProject.has(route),
+		true,
+	);
+}
+for (const route of [...Object.keys(PROJECT_PARAM_EXEMPT), ...PROJECT_PARAM_KNOWN_GAPS]) {
+	check(`listed route api/${route} still reads ?project=`, readsProject.has(route), true);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} launcher-gate checks FAILED`);
