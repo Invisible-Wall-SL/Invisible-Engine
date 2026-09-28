@@ -219,10 +219,10 @@ RUN python /verify-deps.py
 
 # --- Pod tools --------------------------------------------------------------------
 # BAKED so no pod ever has to fetch it. The runbook used to say `curl … from
-# raw.githubusercontent.com`, which silently 404s: this repo is PRIVATE and GitHub
-# answers 404 rather than 401 for those, so it reads as "file missing" (see
+# raw.githubusercontent.com`, which silently 404s whenever this repo is private (GitHub
+# answers 404 rather than 401 for those, so it reads as "file missing" — see
 # services/atlas-tool/runpod/README.md). Shipping the script in the image removes the
-# credential problem entirely — `python /fetch-models.py --list` just works.
+# dependency on repo visibility and credentials entirely — `python /fetch-models.py --list` just works.
 #
 # The file LIVES here (./tools/) rather than beside its siblings in
 # services/atlas-tool/runpod/ because Docker COPY cannot escape the build context. The
