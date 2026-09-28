@@ -1,4 +1,4 @@
-import type { ComponentParam } from './types';
+import type { ComponentParam, LayoutNode } from './types';
 
 /**
  * Tap-to-continue — a reusable per-instance capability any `overlay`-category
@@ -99,6 +99,20 @@ export function tapDimColorOf(params: Record<string, unknown>): number {
 export function tapDimAlphaOf(params: Record<string, unknown>): number {
 	const value = params[TAP_DIM_ALPHA_PARAM];
 	return typeof value === 'number' ? value : 0;
+}
+
+/**
+ * EDITOR-PREVIEW ONLY: the full-screen dim a top-level `tapToContinue` instance draws in-game (its
+ * `tapDimAlpha`), or `undefined` for any other node / an undimmed tap. The editor mirrors it as a
+ * scrim behind the scene's preview — the free-spin intro/outro screens carry their dim on the tap
+ * instance. Never written to the layout doc.
+ */
+export function tapOverlayDim(node: LayoutNode): number | undefined {
+	if (node.kind !== 'componentInstance') return undefined;
+	const params = node.params ?? {};
+	if (!isTapToContinueEnabled(params)) return undefined;
+	const alpha = tapDimAlphaOf(params);
+	return alpha > 0 ? alpha : undefined;
 }
 
 /** Read the named signal a tap surface must wait for before arming (trimmed; '' ⇒ arm on mount). */

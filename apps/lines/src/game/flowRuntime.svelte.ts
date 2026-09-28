@@ -22,10 +22,12 @@
  *     Phase-4 ad-hoc live-verify hook), `window.__IE_FLOW_LOADING__` (the committed
  *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1),
  *     `window.__IE_FLOW_WIN__` (the committed `LINES_FLOW_WIN_DOC` win-presentation-transitions
- *     fixture, flow-driven-game §2), `window.__IE_FLOW_FREESPIN__` (the committed
- *     `LINES_FLOW_FREESPIN_DOC` free-spin-lifecycle fixture, design doc §14 FS-1), and
- *     `window.__IE_FLOW_LINES__` (the committed full `LINES_FLOW_DOC` fixture), none set on a
- *     normal boot.
+ *     fixture, flow-driven-game §2), and `window.__IE_FLOW_LINES__` (the committed full
+ *     `LINES_FLOW_DOC` fixture), none set on a normal boot.
+ *
+ * A v1 FlowDoc does not present free spins: its free-spin overlay screens and events are stripped
+ * (`withoutFreeSpinOverlays`), so each free-spin book event reaches its coded handler, which carries
+ * the feature's state. Free-spin screens are a v2 flow's containers.
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
@@ -36,11 +38,6 @@ import { createFlowInterpreter } from 'engine-flow';
 import type { LayoutDoc, Scene } from 'engine-layout';
 import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
 
-import {
-	gateFreeSpinOwnership,
-	resolveFreeSpinOwnership,
-	type FreeSpinOwnership,
-} from './freeSpinOwnership';
 import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
 import { freeSpinsRemaining, freeSpinsTotal } from 'engine-game';
 import { stateBet, stateBetDerived } from 'state-shared';
@@ -57,7 +54,6 @@ import { flowEffect } from './flowEffects';
 import {
 	LINES_FLOW_COND_DOC,
 	LINES_FLOW_DOC,
-	LINES_FLOW_FREESPIN_DOC,
 	LINES_FLOW_LOADING_DOC,
 	LINES_FLOW_WIN_DOC,
 } from './flowDoc';
@@ -73,8 +69,6 @@ declare global {
 	var __IE_FLOW_WIN__: boolean | undefined;
 
 	var __IE_FLOW_COND__: boolean | undefined;
-
-	var __IE_FLOW_FREESPIN__: boolean | undefined;
 	/**
 	 * Dev-only live-verify hook for value dataflow (design doc §11 step 4). Re-point a HUD value
 	 * display at a DIFFERENT engine feed at runtime WITHOUT authoring/baking a FlowDoc, so the
@@ -235,13 +229,6 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
 		// live-verify of branching on LIVE engine state (a `$engine.*` guard) without a deploy/bake.
 		// Checked before the full `LINES_FLOW_DOC`. Unset on a normal boot ⇒ inert (parity, §7).
 		if (globalThis.__IE_FLOW_COND__) return LINES_FLOW_COND_DOC;
-		// FS-1 + FS-6 (design doc §14) — the free-spin lifecycle as author-controlled overlays layered
-		// over the persistent basegame, for live-verify of the intro/counter/retrigger/outro active-set
-		// transitions + the FS-6 PER-STEP ownership flip without a deploy/bake. Checked before the full
-		// `LINES_FLOW_DOC`. Each free-spin event is authored (full Phase-5 choreographies); per-step,
-		// `resolveFreeSpinOwnership` decides whether a step's event stays authored + its coded scene is
-		// mount-gated off, or falls through to coded (see below). Unset on a normal boot ⇒ inert (§7).
-		if (globalThis.__IE_FLOW_FREESPIN__) return LINES_FLOW_FREESPIN_DOC;
 		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
 	}
 	return bakedFlowDoc();
@@ -318,10 +305,7 @@ const withDefaultLoadingLeg = (
 
 /**
  * Resolve the ACTIVE FlowDoc the game runs: the sourced doc (`loadFlowDoc`) with the default
- * loading leg applied exactly as `createLinesFlow` does. Extracted so `createLinesFlow` (which
- * builds the interpreter) AND `resolveFlowOwnsFreeSpins` (the FS-6 mount-gate) read ONE source of
- * truth — the SAME resolved doc drives event-authoring and the coded-mount suppression, so they
- * flip atomically. Returns `undefined` when no doc is authored (inert / coded path, parity §7).
+ * loading leg applied. Returns `undefined` when no doc is authored (inert / coded path, parity §7).
  */
 const resolveActiveFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => {
 	const authoredDoc = loadFlowDoc();
@@ -336,16 +320,35 @@ const resolveActiveFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => {
 		: (withDefaultLoadingLeg(editorDoc, authoredDoc) ?? authoredDoc);
 };
 
+/** The free-spin overlay screens a v1 FlowDoc may declare, and the book events that drive them. */
+const FREE_SPIN_SCREENS = new Set([
+	'freeSpinIntro',
+	'freeSpinCounter',
+	'freeSpinRetrigger',
+	'freeSpinOutro',
+]);
+const FREE_SPIN_EVENTS = new Set([
+	'freeSpinTrigger',
+	'updateFreeSpin',
+	'freeSpinRetrigger',
+	'freeSpinEnd',
+]);
+
 /**
- * FS-6 (design doc §14) — resolve the AUTO-DERIVED PER-STEP free-spin ownership from the SAME active
- * doc `createLinesFlow` builds the interpreter from (via `resolveActiveFlowDoc`) + the live editor
- * scenes. `Game.svelte` calls this to gate each coded fs scene mount PER STEP, so the mount-gate and
- * the interpreter's per-event authoring flip together off ONE source of truth (the atomic-flip
- * invariant, per step). The predicate lives in the pure `freeSpinOwnership.ts` (shared with the
- * headless spike). Absent doc ⇒ every step un-owned (coded, byte-parity).
+ * Strip a v1 doc's free-spin overlays — the screens, every transition touching one, and the events
+ * that drive them — so each free-spin book event reaches its coded handler (the feature's state).
+ * A v1 screen cannot hold the round on a tap without an engine gate, and the engine has none: a
+ * v1-mounted intro would run its choreography straight through and then sit on screen until tapped.
+ * Free-spin screens are a v2 flow's containers (`showContainer{awaitComplete}` owns the hold).
  */
-export const resolveFlowOwnsFreeSpins = (editorDoc: LayoutDoc): FreeSpinOwnership =>
-	resolveFreeSpinOwnership(resolveActiveFlowDoc(editorDoc), editorDoc.scenes);
+const withoutFreeSpinOverlays = (doc: FlowDoc): FlowDoc => ({
+	...doc,
+	screens: doc.screens.filter((s) => !FREE_SPIN_SCREENS.has(s.id)),
+	transitions: doc.transitions.filter(
+		(t) => !FREE_SPIN_SCREENS.has(t.from) && !FREE_SPIN_SCREENS.has(t.to),
+	),
+	events: (doc.events ?? []).filter((e) => !FREE_SPIN_EVENTS.has(e.event)),
+});
 
 /** The interpreter handle the game holds (or `undefined` when no FlowDoc ⇒ pure coded path). */
 export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookEventContext>>;
@@ -378,23 +381,13 @@ export const createLinesFlow = (
 ): LinesFlow | undefined => {
 	const resolvedDoc = resolveActiveFlowDoc(editorDoc);
 	if (!resolvedDoc) return undefined;
-	// FS-6 PER-STEP ATOMIC FLIP: each free-spin step (intro/counter/outro) is owned INDEPENDENTLY —
-	// an un-owned step's event + overlay screen/transitions are STRIPPED so it falls through to its
-	// coded handler + coded scene (byte-identical to a doc that never wired it), while an OWNED step
-	// keeps its authored event + overlay. `Game.svelte` gates each coded scene mount off the SAME
-	// per-step ownership, so event-authoring + mount-suppression flip together per step (no double /
-	// empty window). All steps un-owned ⇒ the whole free-spin lifecycle is coded (byte-parity §7).
-	const fsGatedDoc = gateFreeSpinOwnership(
-		resolvedDoc,
-		resolveFreeSpinOwnership(resolvedDoc, editorDoc.scenes),
-	);
 	// Book-reveal authoring — the SAME per-step ownership flip for the single `reveal` step: an
 	// un-owned reveal's `setExpandingSymbol` event + `specialBook` overlay is STRIPPED so it falls
 	// through to the coded `SpecialBook` shuffle (byte-parity), while an OWNED reveal keeps its
 	// authored event + screen. `Game.svelte` gates the coded `SpecialBook` mount off the SAME
 	// ownership (`hasAuthoredBookReveal`), so event-authoring + mount-suppression flip together.
 	const flowDoc = gateBookOwnership(
-		fsGatedDoc,
+		withoutFreeSpinOverlays(resolvedDoc),
 		resolveBookOwnership(resolvedDoc, editorDoc.scenes),
 	);
 

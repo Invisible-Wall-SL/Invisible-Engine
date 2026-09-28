@@ -42,6 +42,7 @@ export * from './backgroundScenes';
 export * from './buyFeatureScene';
 export * from './hudMenuScenes';
 export * from './confirmScene';
+export * from './freeSpinScenes';
 export * from './genericMountScenes';
 export * from './layerOrder';
 export * from './resolveTransform';

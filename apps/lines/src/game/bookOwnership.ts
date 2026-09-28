@@ -1,9 +1,10 @@
 /**
  * Invisible Flow — the book-reveal AUTO-DERIVED ownership + doc gate (book-reveal authoring),
- * the single-step sibling of `freeSpinOwnership.ts`. PURE + dependency-light (types only), so it
- * is the SINGLE source of truth shared by `flowRuntime.svelte.ts` (which builds the interpreter)
- * AND `Game.svelte` (the `hasAuthoredBookReveal` coded-mount suppression), both reading the SAME
- * ownership so event-authoring and coded-mount suppression flip together (atomic).
+ * a single step over the generic `engine-flow` overlay-ownership core. PURE + dependency-light
+ * (types only), so it is the SINGLE source of truth shared by `flowRuntime.svelte.ts` (which
+ * builds the interpreter) AND `Game.svelte` (the `hasAuthoredBookReveal` coded-mount
+ * suppression), both reading the SAME ownership so event-authoring and coded-mount suppression
+ * flip together (atomic).
  *
  * The book reveal is ONE overlay step: `reveal` (screen `specialBook`, event `setExpandingSymbol`).
  * It is flow-owned iff ALL THREE hold — its `specialBook` screen is placed in the active FlowDoc,
@@ -12,8 +13,8 @@
  * Owned ⇒ the authored choreography runs (`effect('setSpecialSymbol')` + the `specialBookReveal`
  * broadcast) and the coded `SpecialBook` shuffle is suppressed; un-owned ⇒ the `setExpandingSymbol`
  * event is STRIPPED and falls through to the coded handler (reference parity preserved). This is the
- * generic `resolveOverlayOwnership`/`gateOverlayOwnership` core, exactly as free spins uses it — no
- * game literals leak into `engine-flow`.
+ * generic `resolveOverlayOwnership`/`gateOverlayOwnership` core — no game literals leak into
+ * `engine-flow`.
  */
 
 import type { FlowDoc } from 'engine-flow';
@@ -68,7 +69,7 @@ export const resolveBookOwnership = (flowDoc: FlowDoc | undefined, scenes: reado
  * Strip the `setExpandingSymbol` event + `specialBook` overlay screen/transitions when the reveal
  * is NOT flow-owned, so an un-owned reveal falls through to the coded `SpecialBook` handler
  * (byte-identical to a doc that never wired it); an OWNED reveal keeps its authored event + screen.
- * Delegates to the generic `gateOverlayOwnership` (parity with the free-spin gate's logic).
+ * Delegates to the generic `gateOverlayOwnership`.
  */
 export const gateBookOwnership = (
 	doc: FlowDoc,

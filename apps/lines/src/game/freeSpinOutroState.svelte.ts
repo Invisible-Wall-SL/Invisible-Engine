@@ -1,9 +1,9 @@
 import type { WinLevelData } from 'engine-game';
 
 /**
- * Shared reactive bridge for the free-spin OUTRO gate/driver → visual split (§17 Phase 3, FS-7).
- * The GATE (fallback) or the HEADLESS DRIVER (`FreeSpinOutroDriver`, when the authored screen owns
- * the outro) owns the `WinCountUpProvider` (the count-up tween) + the round-blocking await, and
+ * Shared reactive bridge for the free-spin OUTRO driver → visual split (§17 Phase 3, FS-7).
+ * The engine's HEADLESS DRIVER (`FreeSpinOutroDriver`) owns the `WinCountUpProvider` (the count-up
+ * tween) + the `freeSpinOutroCountUp` hold, and
  * WRITES the win level (on the `freeSpinOutroCountUp` event) and the live tweened `countUpAmount`
  * (per frame, via `OutroStatePublisher`) here. The count text READS `countUpAmount` — the coded
  * `FreeSpinOutroVisual`'s spine slot, OR an authored text node bound to the `freeSpinOutroTotalWin`

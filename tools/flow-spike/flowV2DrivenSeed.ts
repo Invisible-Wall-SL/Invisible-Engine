@@ -20,7 +20,13 @@
  *   5. `validateFlowDoc` reports NO errors (warnings tolerated), and it owns every book event it
  *      authors (reveal/winInfo/… via gameSignals) so v2 drives their presentation.
  *   6. Actually MOUNTS at runtime: dispatching `load` then `complete:loading` through a recording
- *      env leaves basegame + hudBar + hudCorners (+ overlays) shown.
+ *      env leaves basegame + hudBar + hudCorners (+ the cue-driven overlays) shown — and NOT the
+ *      round-holding free-spin intro/outro, which would leave a full-screen tap surface over idle.
+ *   7. The free-spin intro / outro HOLD THE ROUND with no engine gate: against the REAL scaffold
+ *      scenes the validator finds a release for every hold, and at runtime `freeSpinTrigger` /
+ *      `freeSpinEnd` show their screen, block on it until it completes (the tap), then hide it. The
+ *      intro mounts before its show cue; the outro after its (the driver resets the tap-arm latch
+ *      there); the outro count-up leaves `tapToSkip` off (one press would skip AND dismiss).
  *
  * Prints PASS/FAIL per assertion + a final `V2 DRIVEN SEED HARNESS: PASSED`.
  */
@@ -32,15 +38,20 @@ import {
 	BOOK_OF_VOCAB,
 	WAYS_DRIVEN_SEED_DOC,
 	WAYS_VOCAB,
+	awaitCompleteContainerIds,
 	createContainerMountModel,
 	createFlowV2Env,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
 	runFlowEvent,
 	validateFlowDoc,
+	type FlowDoc,
 	type FlowV2Env,
 	type RunContext,
 } from 'engine-flow-v2';
+import { bookofReferenceLayout, waysReferenceLayout } from 'engine-layout';
+
+import { collectContainerTaps } from '../../apps/launcher-api/src/lib/containerTaps';
 
 let failures = 0;
 const check = (label: string, cond: boolean): void => {
@@ -152,19 +163,122 @@ await runFlowEvent(doc, ctx, 'load', {});
 check('after `load`: loading is shown', mount.isShown('loading'));
 await runFlowEvent(doc, ctx, 'complete:loading', {});
 check('after `complete:loading`: loading hidden', !mount.isShown('loading'));
-for (const id of [
-	'basegame',
-	'hudBar',
-	'hudCorners',
-	'specialBook',
-	'freeSpinCounter',
-	'freeSpinIntro',
-	'freeSpinOutro',
-]) {
+for (const id of ['basegame', 'hudBar', 'hudCorners', 'specialBook', 'freeSpinCounter']) {
 	check(`after complete:loading: ${id} is shown`, mount.isShown(id));
 }
+for (const id of ['freeSpinIntro', 'freeSpinOutro']) {
+	check(`after complete:loading: ${id} is NOT shown (no tap surface at idle)`, !mount.isShown(id));
+}
 
-// --- 7. The ways seed: same spine, no book mechanic, validates against its OWN vocab -------------
+// --- 7. The intro / outro hold the round on their own tap -------------------------------------
+{
+	// Against the REAL scaffold scenes, every `showContainer{awaitComplete}` has a release.
+	const holdsReleased = (
+		seed: FlowDoc,
+		vocab: typeof BOOK_OF_VOCAB,
+		scenes: Parameters<typeof collectContainerTaps>[1],
+	) => {
+		const taps = collectContainerTaps(seed.containers, scenes);
+		const holdErrors = validateFlowDoc(
+			seed,
+			vocab,
+			BOOK_OF_DRIVEN_SEED_LIBRARY,
+			BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+			taps,
+		).filter((i) => i.code === 'hold-without-release');
+		for (const e of holdErrors) console.log(`   ${e.code} — ${e.message}`);
+		return { taps, holdErrors };
+	};
+	const book = holdsReleased(doc, BOOK_OF_VOCAB, bookofReferenceLayout().scenes);
+	check(
+		'book-of scaffold: freeSpinIntro scene can complete itself',
+		book.taps.freeSpinIntro === true,
+	);
+	check(
+		'book-of scaffold: freeSpinOutro scene can complete itself',
+		book.taps.freeSpinOutro === true,
+	);
+	check('book-of seed: no hold-without-release against its scaffold', book.holdErrors.length === 0);
+	const ways = holdsReleased(WAYS_DRIVEN_SEED_DOC, WAYS_VOCAB, waysReferenceLayout().scenes);
+	check('ways seed: no hold-without-release against its scaffold', ways.holdErrors.length === 0);
+	check(
+		'the seed holds exactly on the intro + outro',
+		[...awaitCompleteContainerIds(doc)].sort().join(',') === 'freeSpinIntro,freeSpinOutro',
+	);
+
+	// Runtime: each event shows its screen, blocks on it until completed, then hides it.
+	const log: string[] = [];
+	const payloads: Record<string, Record<string, unknown>> = {};
+	const holdMount = createContainerMountModel(
+		doc.containers.map((c) => ({ id: c.id, sceneId: c.sceneId, z: c.z })),
+		undefined,
+		awaitCompleteContainerIds(doc),
+	);
+	const holdEnv: FlowV2Env = createFlowV2Env({
+		mount: {
+			...holdMount,
+			show: (id) => {
+				log.push(`show ${id}`);
+				holdMount.show(id);
+			},
+			hide: (id) => {
+				log.push(`hide ${id}`);
+				holdMount.hide(id);
+			},
+		},
+		effect: (name) => (payload) => {
+			payloads[name] = payload;
+		},
+		broadcast: (cue) => {
+			log.push(`cue ${cue}`);
+		},
+		waitForTimeout: () => Promise.resolve(),
+		timeScale: () => 1,
+		engineRead: () => undefined,
+	});
+	const holdCtx: RunContext = {
+		vocab: BOOK_OF_VOCAB,
+		library: BOOK_OF_DRIVEN_SEED_LIBRARY,
+		env: holdEnv,
+	};
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	const holds = async (event: string, screen: string, payload: Record<string, unknown>) => {
+		log.length = 0;
+		let done = false;
+		const run = runFlowEvent(doc, holdCtx, event, payload).then(() => (done = true));
+		await settle();
+		check(`${event}: ${screen} is shown`, holdMount.isShown(screen));
+		check(
+			`${event}: the round HOLDS on ${screen}`,
+			!done && holdMount.heldContainers().includes(screen),
+		);
+		holdMount.complete(screen);
+		await run;
+		check(`${event}: completing ${screen} resumes the chain`, done);
+		check(`${event}: ${screen} is hidden afterwards`, !holdMount.isShown(screen));
+	};
+
+	await holds('freeSpinTrigger', 'freeSpinIntro', { positions: [], totalFs: 10 });
+	check(
+		'intro mounts BEFORE its `freeSpinIntroShow` cue',
+		log.indexOf('show freeSpinIntro') < log.indexOf('cue freeSpinIntroShow'),
+	);
+
+	await holds('freeSpinEnd', 'freeSpinOutro', { amount: 5, winLevel: 3 });
+	check(
+		'outro mounts AFTER its `freeSpinOutroShow` cue (the driver resets the tap-arm latch there)',
+		log.indexOf('cue freeSpinOutroShow') < log.indexOf('show freeSpinOutro'),
+	);
+	// One press would otherwise skip the count on pointer-DOWN and complete the just-armed screen on
+	// pointer-UP — dismissing the outro the player never saw land.
+	check(
+		'outro count-up leaves `tapToSkip` OFF (one press must not skip AND dismiss)',
+		payloads.freeSpinOutroCountUp !== undefined && payloads.freeSpinOutroCountUp.tapToSkip !== true,
+	);
+}
+
+// --- 8. The ways seed: same spine, no book mechanic, validates against its OWN vocab -------------
 // The point of deriving it rather than hand-writing one: the seed a new project opens on must
 // type-check against the palette that project is authored with, or the canvas opens on errors.
 {

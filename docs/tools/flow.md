@@ -325,6 +325,93 @@ things follow:
 - **A screen only surfaces what is configured.** A decorative sprite contributes no pin; a
   button contributes one only once it has been given an **Action** in the Scene Editor.
 
+### Free-spin intro and outro — the flow holds the round
+
+The engine no longer draws a free-spin intro or outro of its own, and it no longer waits for the
+player's tap on either. Both are screens this flow shows, and the pause is a **Show** node that
+holds. A game whose screens are not driven by a flow gets no intro or outro at all: the feature
+still starts and ends, but nothing is drawn and nothing waits.
+
+Each screen is shown only around its moment, as four beats on its event's chain:
+
+1. **show Free-spin intro** mounts the screen.
+2. The presentation runs — the cues and actions that animate it.
+3. A second **show Free-spin intro**, with **Hold until this screen completes (tap)** ticked in the
+   inspector, stops the chain until the screen completes.
+4. **hide Free-spin intro** takes it down once the player has tapped.
+
+The screen completes when the player taps the **Tap to Continue** component placed on it. The hold
+has no timeout, so a held Show whose screen has no tap is the `hold-without-release` error in
+[Validation](#validation). Don't show either screen from a start-up chain: a screen shown at start
+stays up, and with a Tap to Continue on it, it sits over the idle game waiting for a tap.
+
+**What a new project starts with.** The starter flow and the scaffold screens already have this
+shape:
+
+- The **Free-spin intro** and **Free-spin outro** screens each carry a **Tap to Continue** (**Tap
+  to continue** on, **Dim opacity** `0.5`) and the engine's coded visual — `FreeSpinIntroVisual` /
+  `FreeSpinOutroVisual` — which draws the spins won or the total. Both are **Always on top**, so
+  the dim covers the HUD.
+- `freeSpinTrigger` shows the intro just before its `freeSpinIntroShow` cue, holds after the
+  `freeSpinIntroUpdate` cue, and hides after the `freeSpinIntroHide` action.
+- `freeSpinEnd` shows the outro just after its `freeSpinOutroShow` cue, holds after the
+  `freeSpinOutroCountUp` action, and hides after the `freeSpinOutroHide` cue.
+
+Keep that order if you rewire them. The intro is shown *before* its show cue, or its visual misses
+the cue ([Trap 2](#scene-cues--animate-a-placed-character) — a cue is not replayed). The outro is
+shown *after* its show cue, because that cue resets the "count finished" signal; an outro shown
+first can arm its tap on the previous bonus's count.
+
+**The outro's count-up.** The engine still runs it: the `freeSpinOutroCountUp` action counts the
+total up and lets the chain move on once the count lands. Waiting for the player is the held
+Show's job. Two settings stop a tap from cutting the total short:
+
+- The outro's Tap to Continue has **Arm tap after signal** set to `freeSpinOutroCountUpComplete`,
+  so it ignores taps until the count has finished. Its dim arrives with it — the outro is not
+  dimmed while it counts.
+- The count-up action's `tapToSkip` input is **off** in the starter flow, and should stay off
+  while the screen's tap arms on the count: the skip fires on the press, the count lands and arms
+  the tap, and the release of that same press then dismisses the outro — one tap skips the total
+  AND closes the screen. `holdToSpeedUp` (a held press fast-forwards the count) is safe to turn
+  on.
+
+**Loading screens that auto-advance.** The first Tap to Continue tap of a session is the player's
+"tap to start": it fires the Game Signals **tapToStart** pin, which the starter flow uses to start
+the base music. A loading screen normally spends it. If yours has **On loaded** ticked instead of a
+tap, the first tap-to-continue the player meets later — the free-spin intro — fires it, and the
+base music starts over the bonus. Keep a tap on the loading screen, or don't wire music to
+**tapToStart**.
+
+**The book reveal plays through.** The chosen symbol's reveal (the coded `SpecialBook` shuffle, or
+your own reveal on the `specialBook` screen) plays and the round moves on when it ends — the
+starter flow's `setExpandingSymbol` chain fires `specialBookReveal` with **Wait for this cue to
+finish** on. There is no press gate any more, and the `bookRevealGateShow` cue that armed one is
+gone. A **Fire Cue** node that still names it shows in Validation as an unresolved reference; in
+the game it reaches nothing and holds nothing, so delete it. To make the player tap on the reveal,
+use the pattern above with a screen shown just for that beat. Don't put the tap on `specialBook`
+itself: the starter flow shows that screen at start-up and never hides it (the chosen book stays
+on it through the bonus), so its tap would sit over the idle game.
+
+**Projects created before this change** need a one-time update. Their intro and outro screens were
+scaffolded for the engine's old press-to-continue screens, so the bonus now plays with no pause —
+and, where the screen binds the retired `FreeSpinIntro` / `FreeSpinOutro` (the Book-of scaffold
+and the engine skeleton did), with no intro or outro drawn at all. Nothing hangs. To bring one up
+to date:
+
+1. In the [Scene Editor](invisible-editor.md), open **Free-spin intro**, delete its existing
+   *Free-spin intro* node (if any), and place the **Free-spin intro** component from the
+   [**Components**](invisible-editor.md#advanced-modes-optional) tab in its place.
+2. Place a **Tap to Continue** on the same screen, tick **Tap to continue**, and set **Dim opacity
+   (0–1)** (the scaffold uses `0.5`). Tick the screen's
+   [**Always on top**](invisible-editor.md#layer-order-and-always-on-top).
+3. Do the same on **Free-spin outro** with the **Free-spin outro** component, and set its Tap to
+   Continue's **Arm tap after signal** to `freeSpinOutroCountUpComplete`.
+4. Here, older starter flows showed both screens on their start-up chains (after
+   `complete:loading` and off `tapToStart`). Splice those Show nodes out — wire the node before
+   each one to the node after it — then add the show, hold and hide beats to `freeSpinTrigger` and
+   `freeSpinEnd` at the points listed above, and leave `tapToSkip` off on the
+   `freeSpinOutroCountUp` action.
+
 ### The bet menu and the auto spin menu — a worked example
 
 The player's two HUD menus — tapping the **bet** readout to change the stake, pressing
@@ -439,15 +526,15 @@ function-vocabulary requirement, …) as a code + message. Node- and pin-located
 The sub-bar's **⚠ N issues** / **✓ valid** pill mirrors the count. Validation never blocks
 authoring; it is a running honesty check.
 
-Two of them read your **screens**, not just the graph. A Show Container with **Wait for this
-screen** on holds the round until that screen completes, and there is no timeout by design — so
-`hold-without-release` (red) means nothing can ever complete it: its screen has no *Tap to
-continue* (or *On loaded*) component, no Hide Container for it can run while the chain is
-waiting — one further down the SAME chain cannot, it never gets there — and there is no
-`complete:<screen>` event. `tap-without-hold` is the blue **hint** for the mirror: the screen
-has a tap surface but nothing waits for it, so the tap advances nothing (it still fires its
-tap signal). Both stay silent for a screen the editor could not resolve, so a brand-new project
-is never reddened by them.
+Two of them read your **screens**, not just the graph. A Show Container with **Hold until this
+screen completes (tap)** ticked holds the round until that screen completes, and there is no
+timeout by design — so `hold-without-release` (red) means nothing can ever complete it: its
+screen has no *Tap to continue* (or *On loaded*) component, no Hide Container for it can run
+while the chain is waiting — one further down the SAME chain cannot, it never gets there — and
+there is no `complete:<screen>` event. `tap-without-hold` is the blue **hint** for the mirror: the
+screen has a tap surface but nothing waits for it, so the tap advances nothing (it still fires its
+tap signal); the hint's "Wait for this screen" is that same **Hold until…** tick. Both stay silent
+for a screen the editor could not resolve, so a brand-new project is never reddened by them.
 
 ### Preview (deterministic timeline)
 
@@ -525,6 +612,10 @@ so authoring here is what the shipped game actually runs.
   `ValidationPanelV2.svelte` and `PreviewPanelV2.svelte` are the two panels; `graphOps.ts`
   holds the pure graph mutations; `dnd.ts` is the palette→canvas drag contract; `palette.ts`
   is the type → color/label map.
+- **The starter flow and the free-spin screens:**
+  `packages/engine-flow-v2/src/reference/drivenSeed.ts` (`withFreeSpinScreenHolds` splices the
+  intro/outro show → hold → hide) and
+  `packages/engine-layout/src/lib/freeSpinScenes.ts` (the scaffold intro/outro screens).
 - **Save endpoints:** `POST /api/flow-v2/save` (FlowDoc → project `editor/flow-v2.json`)
   and `POST /api/flow-v2/library/save` (the shared library → `_shared/flow-v2/functions.json`),
   both `flow`-gated.

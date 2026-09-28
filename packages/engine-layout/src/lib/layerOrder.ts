@@ -11,14 +11,13 @@ import type { Scene } from './types';
  * paint order (PixiJS sorts a container's children by `zIndex`; equal zIndex keeps
  * insertion order).
  *
- * It is deliberately SCOPED: the reel board (`<MainContainer>`) and the engine-owned
- * full-screen free-spin gates + their `waitForResolve` subscriber are NOT layerable — they
- * stay at their fixed engine-owned z (outside the bands below), so no editor ordering can
- * move the board out from between the below/above-reel slices or duplicate a gate.
- * Background scenes also stay outside (behind the band).
+ * It is deliberately SCOPED: the reel board (`<MainContainer>`) and the engine-owned top
+ * layer are NOT layerable — they stay at their fixed engine-owned z (outside the bands
+ * below), so no editor ordering can move the board out from between the below/above-reel
+ * slices. Background scenes also stay outside (behind the band).
  *
  * The bands: a screen gets `LAYER_BAND_BASE + docIndex`, which sits ABOVE the base game
- * (default 0) and BELOW the engine gates (`LAYER_BAND_TOP`). `docIndex` is the scene's
+ * (default 0) and BELOW the engine top layer (`LAYER_BAND_TOP`). `docIndex` is the scene's
  * position in `scenes[]`, so the editor's top-to-bottom list order maps to back-to-front
  * paint order. A screen the author ticked "Always on top" ({@link Scene.alwaysOnTop})
  * instead gets `LAYER_BAND_TAKEOVER + docIndex` — above every list-ordered screen, still
@@ -51,7 +50,7 @@ export const LAYER_BAND_BASE = 100;
  *  base-game overlays, the author's own overlays), so no board-game layer can bury the line or
  *  its amount. It used to ride the board's `<MainContainer>` at the implicit 0, which put it
  *  under the whole {@link LAYER_BAND_BASE} band. Still BELOW the pinned band, so a takeover
- *  celebration and the engine's round-blocking gates continue to cover it. */
+ *  celebration and the engine's top layer continue to cover it. */
 export const LAYER_BAND_WIN_PRESENTATION = 8_000;
 /** Base zIndex of the PINNED band — where a screen the author ticked "Always on top"
  *  ({@link Scene.alwaysOnTop}) mounts, above every list-ordered screen and below the engine
@@ -59,8 +58,8 @@ export const LAYER_BAND_WIN_PRESENTATION = 8_000;
  *  a mid-round `bigWin` celebration). 1000 of headroom below {@link LAYER_BAND_TOP}, so a
  *  pinned screen still carries its doc index and pinned screens keep their list order. */
 export const LAYER_BAND_TAKEOVER = 9_000;
-/** Fixed z for the engine-owned top layer (free-spin gates, info overlay) — always above
- *  every list-ordered AND pinned screen, so no authoring can bury a round-blocking gate. */
+/** Fixed z for the engine-owned top layer (the info overlay; the coded path's free-spin
+ *  counter) — always above every list-ordered AND pinned screen, so no authoring can bury it. */
 export const LAYER_BAND_TOP = 10_000;
 /** Fixed z for the press-to-continue INPUT MASK — the one layer above {@link LAYER_BAND_TOP}
  *  itself. While a `tapToContinue` overlay is up, a full-canvas hit rect mounts here so the tap

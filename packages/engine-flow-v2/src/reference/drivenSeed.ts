@@ -7,8 +7,7 @@
  * has. `buildDrivenSeed` therefore PROJECTS the canonical choreography onto the target template's
  * own vocabulary (`choreoForVocabulary`) rather than carrying a hand-written copy per type — a copy
  * would drift, and a seed that references a surface the palette does not declare opens the canvas on
- * validation errors. `BOOK_OF_DRIVEN_SEED_DOC` is byte-identical to the doc this file produced when
- * it built only that one; `WAYS_DRIVEN_SEED_DOC` is the same flow without the expanding-symbol
+ * validation errors. `WAYS_DRIVEN_SEED_DOC` is the book-of flow without the expanding-symbol
  * mechanic or its `specialBook` screen.
  *
  * The prose below describes the book-of seed, which remains the reference shape.
@@ -38,21 +37,20 @@
  *     `freeSpinTrigger`/`updateFreeSpin`/`freeSpinEnd`/`setWin`) → its canonical `BOOK_OF_CHOREO`
  *     choreography, wired off the matching `gameSignals` pin.
  *
- * OVERLAY VISIBILITY MODEL (mirrors the coded path, avoids the show-then-cue race —
- * see gotcha "reveal cue before host screen"): the free-spin + special-book screens are MOUNTED
- * once (on start) and their internal visibility is toggled by the book-event cues their bound
- * components already subscribe to (`freeSpinCounterShow`, `specialBookReveal`, `freeSpinIntroShow`,
- * `freeSpinOutroShow`, …). So there is no per-event show/hide timing to get wrong: a mounted-but-idle
- * overlay renders nothing until its cue fires. The HUD BUTTONS are NOT wired to flow intents — the
- * canonical bind-based `hudBar` buttons carry no universal `action` param, so they surface no fused
- * pins; their coded `onpress` fires when `hudBar` is mounted (parity), which is what makes Spin work.
+ * OVERLAY VISIBILITY MODEL. The free-spin COUNTER and the special-book screens are MOUNTED once (on
+ * start) and their internal visibility is toggled by the book-event cues their bound components
+ * already subscribe to (`freeSpinCounterShow`, `specialBookReveal`, …): a mounted-but-idle overlay
+ * renders nothing until its cue fires, so there is no per-event show/hide timing to get wrong.
  *
- * ⚠️ Needs a runtime release + LIVE owner verification before it is trusted, since it becomes the
- * default for EVERY new project. Legs to verify live: the free-spin OUTRO COUNT-UP in particular
- * (`freeSpinEnd` fires `freeSpinOutroCountUp`, whose subscriber historically lived in the coded
- * `FreeSpinOutroGate` that is suppressed under a driven flow — Borut renders it, but whether the
- * CANONICAL `freeSpinOutro` scene's bound `FreeSpinOutro` component carries the count-up is unproven
- * headlessly).
+ * The free-spin INTRO and OUTRO are different: they HOLD the round on the player's tap, and the
+ * engine has no gate to do that for them. Each is shown only around its moment — `showContainer`,
+ * the presentation, `showContainer{awaitComplete}` (the hold, released by the screen's
+ * `tapToContinue`), `hideContainer` — see {@link withFreeSpinScreenHolds}. Mounting them at start
+ * would leave a full-screen tap surface over the idle game.
+ *
+ * The HUD BUTTONS are NOT wired to flow intents — the canonical bind-based `hudBar` buttons carry no
+ * universal `action` param, so they surface no fused pins; their coded `onpress` fires when `hudBar`
+ * is mounted (parity), which is what makes Spin work.
  */
 
 import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
@@ -95,15 +93,80 @@ const FS_INTRO = 'freeSpinIntro';
 const FS_OUTRO = 'freeSpinOutro';
 
 /** Every screen the driven game shows once play begins (mounted; cue-driven internal visibility). */
-const GAME_SCREENS = [
-	BASEGAME,
-	HUD_BAR,
-	HUD_CORNERS,
-	SPECIAL_BOOK,
-	FS_COUNTER,
-	FS_INTRO,
-	FS_OUTRO,
-] as const;
+const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] as const;
+
+/** The round-holding free-spin screens — shown only around their moment, never at start. */
+const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
+
+/** The linear run a seed chain is built from: mount/unmount a container (optionally holding the
+ *  round until it completes), or run a choreography fragment. */
+type Beat =
+	| { k: 'show'; id: string; awaitComplete?: boolean }
+	| { k: 'hide'; id: string }
+	| { k: 'steps'; steps: ChoreoStep[] };
+
+/** Index of the step `k`/`ref` in `steps` — a structural anchor the seed splices around, so a
+ *  choreography that lost it is a build-time error, not a seed that silently never holds. */
+const stepIndex = (
+	steps: ChoreoStep[],
+	k: 'action' | 'cue',
+	ref: string,
+	event: string,
+): number => {
+	const index = steps.findIndex((step) => step.k === k && 'ref' in step && step.ref === ref);
+	if (index < 0) throw new Error(`drivenSeed: '${event}' has no ${k} '${ref}' to anchor on`);
+	return index;
+};
+
+/**
+ * Splice the free-spin INTRO / OUTRO screens into their events' choreographies, so each screen is
+ * shown for its moment and HOLDS the round on the player's tap:
+ *
+ *   freeSpinTrigger: … ▶ Show(intro) ▶ intro cues + count ▶ Show(intro, awaitComplete) ▶
+ *                    free-game state + intro hide ▶ Hide(intro) ▶ …
+ *   freeSpinEnd:     … ▶ outro show cue ▶ Show(outro) ▶ count-up ▶ Show(outro, awaitComplete) ▶
+ *                    sounds stop + outro hide ▶ Hide(outro) ▶ …
+ *
+ * The intro mounts BEFORE its `freeSpinIntroShow` cue, so its bound visual is subscribed when the
+ * cue fires. The outro mounts AFTER its `freeSpinOutroShow` cue, because the engine's outro driver
+ * resets the count-up-complete latch on that cue — and the outro's tap arms off that latch, so a
+ * screen mounted first would arm on the PREVIOUS outro's stale latch. The count-up deliberately
+ * leaves `tapToSkip` OFF: it skips on pointer-DOWN, the count then completes and arms the screen's
+ * tap within the same press, and that press's pointer-UP completes the screen — one tap would both
+ * skip the count and dismiss the outro. Any other event's choreography passes through as one beat.
+ */
+const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => {
+	const slice = (from: number, to?: number): Beat => ({ k: 'steps', steps: steps.slice(from, to) });
+	if (event === 'freeSpinTrigger') {
+		const show = stepIndex(steps, 'cue', 'freeSpinIntroShow', event);
+		const hold = stepIndex(steps, 'cue', 'freeSpinIntroUpdate', event) + 1;
+		const hide = stepIndex(steps, 'action', 'freeSpinIntroHide', event) + 1;
+		return [
+			slice(0, show),
+			{ k: 'show', id: FS_INTRO },
+			slice(show, hold),
+			{ k: 'show', id: FS_INTRO, awaitComplete: true },
+			slice(hold, hide),
+			{ k: 'hide', id: FS_INTRO },
+			slice(hide),
+		];
+	}
+	if (event === 'freeSpinEnd') {
+		const show = stepIndex(steps, 'cue', 'freeSpinOutroShow', event) + 1;
+		const countUp = stepIndex(steps, 'action', 'freeSpinOutroCountUp', event);
+		const hide = stepIndex(steps, 'cue', 'freeSpinOutroHide', event) + 1;
+		return [
+			slice(0, show),
+			{ k: 'show', id: FS_OUTRO },
+			slice(show, countUp + 1),
+			{ k: 'show', id: FS_OUTRO, awaitComplete: true },
+			slice(countUp + 1, hide),
+			{ k: 'hide', id: FS_OUTRO },
+			slice(hide),
+		];
+	}
+	return [{ k: 'steps', steps }];
+};
 
 const BUY_FEATURE = 'buyFeature';
 const BUY_CONFIRM = 'buyConfirm';
@@ -119,9 +182,8 @@ const CONFIRM_DIALOG = 'confirm-dialog';
  * Parameterised by CHOREOGRAPHY and SCREEN SET rather than duplicated per game type: the whole
  * lifecycle spine (loading splash → tap-to-start → mount the game → the buy-bonus subgraph) is
  * identical for every type built on the shared runtime, and the only things that vary are which
- * book events the type receives and which overlay screens it has. Everything below is the original
- * book-of construction verbatim, reading `choreo`/`gameScreens` where it used to read the book-of
- * constants — so `BOOK_OF_DRIVEN_SEED_DOC` is unchanged, byte for byte.
+ * book events the type receives and which overlay screens it has, reading `choreo`/`gameScreens`
+ * rather than book-of constants.
  *
  * All state is LOCAL to a call, so building one template's seed can never leak nodes into
  * another's (the arrays used to be module-level, which made a second seed impossible).
@@ -139,9 +201,6 @@ const buildDrivenSeedGraph = ({
 	const exec: ExecEdge[] = [];
 	const data: DataEdge[] = [];
 
-	/** One linear beat: mount/unmount a container, or run a choreography fragment. */
-	type Beat = { k: 'show' | 'hide'; id: string } | { k: 'steps'; steps: ChoreoStep[] };
-
 	interface BuiltBeat {
 		entry: string;
 		tail: { node: string; pin: string };
@@ -158,20 +217,27 @@ const buildDrivenSeedGraph = ({
 			return { entry: sub.entry!, tail: sub.tails[0] };
 		}
 		const id = uid(beat.k);
-		nodes.push({
-			id,
-			kind: beat.k === 'show' ? 'showContainer' : 'hideContainer',
-			pos: { x: 0, y: row * 40 },
-			ref: beat.id,
-		});
+		nodes.push(
+			beat.k === 'show'
+				? {
+						id,
+						kind: 'showContainer',
+						pos: { x: 0, y: row * 40 },
+						ref: beat.id,
+						...(beat.awaitComplete ? { awaitComplete: true } : {}),
+					}
+				: { id, kind: 'hideContainer', pos: { x: 0, y: row * 40 }, ref: beat.id },
+		);
 		return { entry: id, tail: { node: id, pin: 'exec' } };
 	};
 
-	/** Chain `beats` linearly and wire the run's entry off `fromPin` of `fromNode`. */
+	/** Chain `beats` linearly and wire the run's entry off `fromPin` of `fromNode`. An empty
+	 *  choreography fragment (a splice point at the very start or end) contributes nothing. */
 	const wireChain = (fromNode: string, fromPin: string, beats: Beat[], row: number): void => {
 		let firstEntry: string | null = null;
 		let prevTail: { node: string; pin: string } | null = null;
 		for (const beat of beats) {
+			if (beat.k === 'steps' && beat.steps.length === 0) continue;
 			const built = buildBeat(beat, row);
 			if (!firstEntry) firstEntry = built.entry;
 			if (prevTail) exec.push({ from: prevTail, to: { node: built.entry, pin: 'exec' } });
@@ -181,7 +247,7 @@ const buildDrivenSeedGraph = ({
 			exec.push({ from: { node: fromNode, pin: fromPin }, to: { node: firstEntry, pin: 'exec' } });
 	};
 
-	/** Mount every game screen (basegame reel + HUD + free-spin/special overlays). Idempotent. */
+	/** Mount every game screen (basegame reel + HUD + counter/special-book overlays). Idempotent. */
 	const showGame = (): Beat[] => gameScreens.map((id) => ({ k: 'show', id }) as Beat);
 
 	// --- Lifecycle chains -------------------------------------------------------
@@ -219,13 +285,14 @@ const buildDrivenSeedGraph = ({
 	);
 
 	// --- Book-event choreography (canonical BOOK_OF_CHOREO, wired off each gameSignals pin) ----------
-	// The overlays are already mounted (above), so these choreos' cues toggle the components' internal
-	// visibility — no per-event showContainer needed. `reveal` is wired SEPARATELY below (its chain is
+	// The cue-driven overlays are already mounted (above), so these choreos' cues toggle the
+	// components' internal visibility; the round-holding intro/outro screens are spliced in around
+	// their moment (`withFreeSpinScreenHolds`). `reveal` is wired SEPARATELY below (its chain is
 	// prefixed with the "Good luck" message flash), so skip it here — an exec-out fans to only ONE edge,
 	// so the message show + the choreo cannot both hang off `gameSignals.reveal` directly.
 	Object.entries(choreo).forEach(([event, steps], i) => {
 		if (event === 'reveal') return;
-		wireChain(GS_NODE, event, [{ k: 'steps', steps }], 4 + i);
+		wireChain(GS_NODE, event, withFreeSpinScreenHolds(event, steps), 4 + i);
 	});
 
 	// --- §6.3 In-game Text Messages (the two editable, auto-localized defaults) -----------------------
@@ -369,12 +436,14 @@ export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEvent
 };
 
 /**
- * Every container the driven seed mounts, in z order. `z` is a fallback tiebreak only — the runtime
- * re-stamps each container's z from the Scene-Editor order (`layeredContainers`). Base low, overlays
- * high, the buy takeovers above the HUD (modal), splash on top.
+ * Every container the driven seed declares, in z order. `z` is a fallback tiebreak only — the
+ * runtime re-stamps each container's z from the Scene-Editor order (`layeredContainers`, which also
+ * honours a scene's "Always on top"). Base low, overlays high, the buy takeovers above the HUD
+ * (modal), splash on top.
  *
- * A template mounts the subset its screen set covers; the loading splash and the two buy takeovers
- * are part of the shared lifecycle spine, so they are always present.
+ * A template declares the subset its screen set covers; the loading splash, the two buy takeovers
+ * and the two round-holding free-spin screens are part of the shared spine, so they are always
+ * present.
  */
 const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: BASEGAME, z: 0 },
@@ -389,8 +458,9 @@ const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: LOADING, z: 100 },
 ];
 
-/** Mounted for every template regardless of screen set — the splash and the two buy takeovers. */
-const LIFECYCLE_CONTAINERS = [LOADING, BUY_FEATURE, BUY_CONFIRM];
+/** Declared for every template regardless of screen set — the splash, the two buy takeovers and the
+ *  two round-holding free-spin screens, each shown by its own chain rather than at start. */
+const LIFECYCLE_CONTAINERS = [LOADING, BUY_FEATURE, BUY_CONFIRM, ...HOLD_SCREENS];
 
 /**
  * The fully flow-driven new-project starter flow for one template. Owns `load` ⇒ drives every screen.

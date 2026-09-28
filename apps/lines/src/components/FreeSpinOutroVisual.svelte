@@ -13,10 +13,10 @@
 
 	// The board-relative VISUAL of the free-spin outro (§17 Phase 3): the `FreeSpinAnimation`
 	// frame spine + win/total-win sprites + the count spine (count in its slot, reading the
-	// live count-up amount the GATE publishes to `freeSpinOutroState`). `boundToInstance`
-	// makes it render at the `freeSpinOutroVisual` instance node's position; absent (the OFF
-	// composer) ⇒ it self-centres on the board. The gate owns the dim / press / round-await /
-	// count-up driver / `WinCoins`; the win level + amount arrive via the shared state.
+	// live count-up amount the engine's `FreeSpinOutroDriver` publishes to `freeSpinOutroState`).
+	// `boundToInstance` makes it render at the `freeSpinOutroVisual` instance node's position;
+	// absent (a bare scene bind) ⇒ it self-centres on the board. It holds nothing: the flow's
+	// outro screen owns the dim, the tap and the round-block.
 	const {
 		boundToInstance = false,
 		outroSpine: outroSpineProp = 'fsOutroNumber',

@@ -1,5 +1,6 @@
 import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import { defaultConfirmScene } from '../confirmScene';
+import { defaultFreeSpinIntroScene, defaultFreeSpinOutroScene } from '../freeSpinScenes';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
@@ -241,52 +242,8 @@ export function bookofReferenceLayout(): LayoutDoc {
 					},
 				],
 			},
-			{
-				id: 'freeSpinIntro',
-				name: 'Free-spin intro',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-intro',
-						slotId: 'freeSpinIntro',
-						label: 'Free-spin intro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						// Props reproduce the original hardcodes so the STANDALONE intro renders
-						// unchanged. This is the standalone, board-centred free-spin intro overlay
-						// (it self-centres via `FreeSpinAnimation`'s own `<MainContainer>`) and owns
-						// the free-spin intro; the props pick its spine/animations/slot.
-						bind: {
-							component: 'FreeSpinIntro',
-							props: {
-								introSpine: 'fsIntroNumber',
-								introAnimation: 'intro',
-								idleAnimation: 'idle',
-								slotName: 'slot_number',
-							},
-						},
-						children: [],
-					},
-				],
-			},
-			{
-				id: 'freeSpinOutro',
-				name: 'Free-spin outro',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'fs-outro',
-						slotId: 'freeSpinOutro',
-						label: 'Free-spin outro',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'FreeSpinOutro' },
-						children: [],
-					},
-				],
-			},
+			defaultFreeSpinIntroScene(),
+			defaultFreeSpinOutroScene(),
 			{
 				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
 				// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`

@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	export type EmitterEventFreeSpinIntro =
+		| { type: 'freeSpinIntroShow' }
+		| { type: 'freeSpinIntroHide' }
+		| { type: 'freeSpinIntroUpdate'; totalFreeSpins: number };
+</script>
+
 <script lang="ts">
 	import { stateUrlDerived } from 'state-shared';
 	import { FadeContainer } from 'components-pixi';
@@ -10,12 +17,12 @@
 	type AnimationName = string;
 
 	// The board-relative VISUAL of the free-spin intro (§17 Phase 3): the
-	// `FreeSpinAnimation` frame spine + the count spine with the count in its slot. Split
-	// out of `FreeSpinIntro` so it can be an editor-positioned `componentInstance`
-	// (`freeSpinIntroVisual`). `boundToInstance` (set on the def's bind child) makes it
-	// render at the instance node's position; absent (the OFF composer) ⇒ it self-centres
-	// on the board, byte-identical. The full-screen gate (dim + press + round-await) lives
-	// in `FreeSpinIntroGate`; the count value arrives on `freeSpinIntroUpdate`.
+	// `FreeSpinAnimation` frame spine + the count spine with the count in its slot. Usable as
+	// an editor-positioned `componentInstance` (`freeSpinIntroVisual`): `boundToInstance` (set
+	// on the def's bind child) makes it render at the instance node's position; absent (a bare
+	// scene bind) ⇒ it self-centres on the board. The count value arrives on
+	// `freeSpinIntroUpdate`. It holds nothing — the flow's intro screen owns the dim, the tap
+	// and the round-block (its `tapToContinue` + a `showContainer{awaitComplete}`).
 	const {
 		boundToInstance = false,
 		introSpine: introSpineProp = 'fsIntroNumber',
@@ -52,7 +59,6 @@
 	context.eventEmitter.subscribeOnMount({
 		freeSpinIntroShow: () => (show = true),
 		freeSpinIntroHide: () => (show = false),
-		// Just set the count — the GATE owns the round-blocking await, not the visual.
 		freeSpinIntroUpdate: (emitterEvent) => {
 			freeSpinsFromEvent = emitterEvent.totalFreeSpins;
 		},

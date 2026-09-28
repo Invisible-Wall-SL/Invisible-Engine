@@ -36,26 +36,10 @@ export const HUD_BUTTON_INSTANCES = true;
 export const TRANSITION_INSTANCE = false;
 
 /**
- * §17 Phase 3 — split the free-spin INTRO/OUTRO into a full-screen coded GATE (dim +
- * press-to-continue + round-await, stays a `canvas` bind) and an editor-positioned VISUAL
- * (`freeSpinIntroVisual`/`freeSpinOutroVisual` `game`-space componentInstance). Gates the
- * `defaultLayout` scene shapes:
- *   OFF — the `freeSpinIntro`/`freeSpinOutro` scenes mount the single composer
- *         `bind:FreeSpinIntro`/`bind:FreeSpinOutro` (board-centred), byte-identical to today.
- *   ON  — those scenes mount the GATE bind (`FreeSpinIntroGate`/`FreeSpinOutroGate`), and a
- *         separate `freeSpinIntroVisual`/`freeSpinOutroVisual` `game`-space scene mounts the
- *         positionable visual (defaulted to board-centre; drag in the editor to move it).
- *
- * DEFAULT OFF (parity gate). Flip to `true` to verify locally; Book of Borut opts in by
- * authoring the visual component in the editor (the shared defs carry `boundToInstance`).
- */
-export const FREE_SPIN_OVERLAY_INSTANCES = false;
-
-/**
  * Split the WIN overlay (big-win presentation) into a full-screen coded GATE (dim + count-up
  * driver + WinCoins + press + round-await, stays a `canvas` bind) and an editor-positioned VISUAL
- * (the tier spine + count number as a `game`-space `componentInstance(win)`), mirroring
- * `FREE_SPIN_OVERLAY_INSTANCES`. Gates the `basegameOverlays` Win node shape:
+ * (the tier spine + count number as a `game`-space `componentInstance(win)`). Gates the
+ * `basegameOverlays` Win node shape:
  *   OFF — the single composer `bind:Win` (board-centred), byte-identical to today.
  *   ON  — a `canvas` `bind:WinGate` (the full-screen gate) + a `game`-space
  *         `componentInstance(win)` VISUAL (defaulted to board-centre; drag in the editor to move it).

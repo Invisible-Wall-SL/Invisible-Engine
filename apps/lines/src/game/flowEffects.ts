@@ -1269,9 +1269,10 @@ const effects: Record<string, FlowEffect> = {
 		winLevelSoundsStop();
 	},
 
-	/** Awaited free-spin outro count-up (`freeSpinEnd`). Carries the win-level data the gate reads.
-	 *  The gate's hold is released ONLY by a player tap, so this MUST be raced (see
-	 *  `awaitPresentation`) or a slammed round stalls here waiting for one. */
+	/** Awaited free-spin outro count-up (`freeSpinEnd`). Carries the win-level data the engine's
+	 *  `FreeSpinOutroDriver` counts from; the driver releases it when the count finishes. Raced (see
+	 *  `awaitPresentation`), so a slam releases it — including a count-up that never mounts (a win
+	 *  level with no data), which otherwise holds until the player slams. */
 	freeSpinOutroCountUp: async (payload) => {
 		await awaitPresentation({
 			type: 'freeSpinOutroCountUp',

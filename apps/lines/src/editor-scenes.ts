@@ -36,12 +36,7 @@ import type { MessagesMap } from 'utils-shared/i18n';
 import bakedBundleJson from './baked-editor-bundle.json';
 import { gameAssetsBase } from './game/assets';
 import { defaultLayout } from './game/defaultLayout';
-import {
-	HUD_BUTTON_INSTANCES,
-	TRANSITION_INSTANCE,
-	FREE_SPIN_OVERLAY_INSTANCES,
-	WIN_INSTANCE,
-} from './game/editorFlags';
+import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE, WIN_INSTANCE } from './game/editorFlags';
 import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
 
 /**
@@ -1483,7 +1478,6 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
 export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	buttons: HUD_BUTTON_INSTANCES,
 	transition: TRANSITION_INSTANCE,
-	freeSpinOverlays: FREE_SPIN_OVERLAY_INSTANCES,
 	winInstance: WIN_INSTANCE,
 });
 

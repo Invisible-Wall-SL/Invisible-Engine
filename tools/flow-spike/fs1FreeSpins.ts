@@ -18,11 +18,11 @@
  *  D. The retrigger LAYER edge (FS-4, landed) fires on the REAL `freeSpinRetrigger` book event: an
  *     unrelated event never layers it (parity), while a `freeSpinRetrigger` DOES layer it over the
  *     persistent base + counter, and its Complete dismisses it — the reconciled seam wiring.
- *  E. EVENT-AUTHORING — since FS-6, the RAW `LINES_FLOW_FREESPIN_DOC` AUTHORS the free-spin book
- *     events (the full Phase-5 choreographies), so `dispatchBookEvent` runs the interpreter (not the
- *     coded handler) — the flow owns the presentation. The OWNERSHIP GATING (OFF ⇒ these fall
- *     through) is proven separately by `fs6FreeSpinOwnership.ts`; this harness drives the RAW fixture
- *     (= the ownership-ON doc). `reveal`/`winInfo` are authored too (base flow).
+ *  E. EVENT-AUTHORING — the `LINES_FLOW_FREESPIN_DOC` fixture AUTHORS the free-spin book events (the
+ *     full Phase-5 choreographies), so `dispatchBookEvent` runs the interpreter (not the coded
+ *     handler). This is the engine-flow interpreter's behaviour over the fixture; the game itself
+ *     strips a v1 doc's free-spin overlays (`withoutFreeSpinOverlays`). `reveal`/`winInfo` are
+ *     authored too (base flow).
  *  F. Parity — the default `LINES_FLOW_DOC` authors ZERO transitions (inert by default, §7); the
  *     free-spin doc's edge shape is exactly 4 LAYER (bookEvent) + 4 HANDOFF (complete), and
  *     `basegame` has NO outgoing complete edge (it is PERSISTENT).
@@ -342,9 +342,7 @@ const main = async () => {
 				overlayTargets.has(id),
 			),
 		);
-		// Since FS-6, the free-spin book events ARE authored in events[] (the full Phase-5
-		// choreographies — flow owns the presentation). Ownership GATING (stripping them when OFF)
-		// is proven by fs6FreeSpinOwnership.ts; the raw fixture is the ownership-ON doc.
+		// The free-spin book events ARE authored in events[] (the full Phase-5 choreographies).
 		assert(
 			'free-spin book events ARE authored in events[] (full Phase-5 choreographies, flow owns)',
 			['freeSpinTrigger', 'updateFreeSpin', 'freeSpinEnd'].every((event) =>

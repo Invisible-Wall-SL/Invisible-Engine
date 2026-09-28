@@ -9,7 +9,6 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
-import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
@@ -176,20 +175,13 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
-		// Flow-is-sole-authority (owner direction 2026-07-14). When a v2 flow DRIVES the game's
-		// screens (`ownsEvent('load')` — the SAME signal Game.svelte reads as `flowV2DrivesScreens`)
-		// the flow owns ALL presentation. A free-spin intro is then EITHER authored — v2 owns
-		// `freeSpinTrigger`, so this coded handler never runs (`playBook.ts`) — OR deliberately
-		// removed from the flow, in which case this coded handler runs but must NOT paint the coded
-		// intro: under a screen-driving v2 flow the coded intro gate + visual are BOTH suppressed
-		// (`flowV2DrivesScreens` in Game.svelte), so the intro half-executes (transition wipe +
-		// jingles + a `freeSpinIntroUpdate` round-block with no gate) and reads as broken. So when the
-		// flow drives screens we run STATE-ONLY — enter free-game (`gameType`), arm the counter, and
-		// the free-game ambiance that PERSISTS through the feature (board glow, music, drawer) — and
-		// skip every momentary intro-celebration broadcast. A non-v2 / book-events-only flow leaves
-		// `presentIntro` true ⇒ every block below runs in its original order, byte-identical to
-		// before (parity §7).
-		const presentIntro = !(getFlowV2()?.ownsEvent('load') ?? false);
+		// STATE-ONLY. The free-spin intro is a flow screen (the flow's `freeSpinIntro` container, its
+		// tap-to-continue and a `showContainer{awaitComplete}` hold); the engine has no coded intro to
+		// fall back to. A flow that owns `freeSpinTrigger` never reaches this handler (`playBook.ts`);
+		// one that leaves it un-owned — or a game with no flow — gets the feature's STATE here: enter
+		// free-game (`gameType`), arm the counter, and the free-game ambiance that PERSISTS through the
+		// feature (board glow, music, drawer). No momentary intro broadcasts: with nothing to draw them
+		// they would half-execute (a transition wipe + jingles over an empty screen) and read as broken.
 
 		// Info-bar note: the scatter/book match is the TRIGGER for the feature (it no longer pays out),
 		// so tell the player what it awarded — "N Scatters award N Free Spins". This is the CODED /
@@ -205,46 +197,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			{ kind: 'info' },
 		);
 
-		if (presentIntro) {
-			// animate scatters
-			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
-			await animateSymbols({ positions: bookEvent.positions });
-			// show free spin intro
-			eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_superfreespin' });
-			await awaitCue('uiHide', eventEmitter.broadcastAsync({ type: 'uiHide' }));
-			await awaitCue('transition', eventEmitter.broadcastAsync({ type: 'transition' }));
-		}
-		// Set the awarded-count BEFORE the intro shows, so a `freeSpinsWon`-bound readout in
-		// an authored intro screen has the total while the intro is on screen (the counter
-		// total is otherwise set further down, after the intro hides).
 		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
-		if (presentIntro) {
-			eventEmitter.broadcast({ type: 'freeSpinIntroShow' });
-			stateUi.freeSpinIntroShow = true;
-			eventEmitter.broadcast({ type: 'soundOnce', name: 'jng_intro_fs' });
-		}
-		// Free-game background music plays THROUGH the whole feature (not part of the momentary
-		// intro), so it switches whether or not the coded intro celebration runs. The TRACK is the
-		// project's `freeSpinMusic` slot rather than a literal, so a game with its own audio sounds
-		// like itself in the feature too.
+		// Free-game background music plays THROUGH the whole feature. The TRACK is the project's
+		// `freeSpinMusic` slot rather than a literal, so a game with its own audio sounds like itself
+		// in the feature too.
 		broadcastMusicCue('freeSpinMusic');
-		if (presentIntro) {
-			// PLAYER-GATED (`PLAYER_GATED_CUES`): `FreeSpinIntroGate` holds this until a
-			// press-to-continue, so it stays released-on-skip even though the intro is otherwise
-			// unskippable — after a slam the spin button is inert and swallows that very tap.
-			await awaitCue(
-				'freeSpinIntroUpdate',
-				eventEmitter.broadcastAsync({
-					type: 'freeSpinIntroUpdate',
-					totalFreeSpins: bookEvent.totalFs,
-				}),
-			);
-		}
 		stateGame.gameType = 'freegame';
-		if (presentIntro) {
-			eventEmitter.broadcast({ type: 'freeSpinIntroHide' });
-			stateUi.freeSpinIntroShow = false;
-		}
 		eventEmitter.broadcast({ type: 'boardFrameGlowShow' });
 		eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
 		stateUi.freeSpinCounterShow = true;
@@ -253,10 +211,6 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			current: undefined,
 			total: bookEvent.totalFs,
 		});
-		stateUi.freeSpinCounterTotal = bookEvent.totalFs;
-		if (presentIntro) {
-			await awaitCue('uiShow', eventEmitter.broadcastAsync({ type: 'uiShow' }));
-		}
 		await awaitCue('drawerButtonShow', eventEmitter.broadcastAsync({ type: 'drawerButtonShow' }));
 		eventEmitter.broadcast({ type: 'drawerFold' });
 	},
@@ -280,36 +234,19 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// present nothing.
 		stateUi.freeSpinCounterTotal = bookEvent.total;
 	},
-	freeSpinEnd: async (bookEvent: BookEventOfType<'freeSpinEnd'>) => {
-		const winLevelData = activeWinLevelData(bookEvent.winLevel);
-
-		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiHide' }));
+	freeSpinEnd: async () => {
+		// STATE-ONLY, the mirror of `freeSpinTrigger`: the free-spin outro is a flow screen, so a flow
+		// that owns `freeSpinEnd` never reaches this handler, and one that leaves it un-owned — or a
+		// game with no flow — gets only the teardown of the feature's state and ambiance. No outro
+		// broadcasts: with nothing to draw them they would half-execute (a transition wipe + the
+		// win-level jingles over an empty screen).
 		stateGame.gameType = 'basegame';
 		eventEmitter.broadcast({ type: 'boardFrameGlowHide' });
-		eventEmitter.broadcast({ type: 'freeSpinOutroShow' });
-		stateUi.freeSpinOutroShow = true;
-		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_youwon_panel' });
-		winLevelSoundsPlay({ winLevelData });
-		// The outro gate is PLAYER-GATED (it only resolves on a press-to-continue), so the race is
-		// what releases the round on a slam; the count-up itself has already jumped to the final
-		// total via `WinCountUpProvider`'s own skip hook, so nothing is lost.
-		await roundSkip.race(
-			eventEmitter.broadcastAsync({
-				type: 'freeSpinOutroCountUp',
-				amount: bookEvent.amount,
-				winLevelData,
-			}),
-		);
-		winLevelSoundsStop();
-		eventEmitter.broadcast({ type: 'freeSpinOutroHide' });
-		stateUi.freeSpinOutroShow = false;
 		eventEmitter.broadcast({ type: 'freeSpinCounterHide' });
 		eventEmitter.broadcast({ type: 'specialBookHide' });
 		stateGame.specialSymbol = null;
 		stateGame.expandedSymbol = null;
 		stateUi.freeSpinCounterShow = false;
-		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'transition' }));
-		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiShow' }));
 		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'drawerUnfold' }));
 		eventEmitter.broadcast({ type: 'drawerButtonHide' });
 	},

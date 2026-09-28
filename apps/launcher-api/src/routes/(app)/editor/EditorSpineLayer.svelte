@@ -4,7 +4,6 @@
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
-		boundComponentOverlayDim,
 		boundComponentRidesBone,
 		computeOverlayPlacement,
 		coverTransform,
@@ -13,6 +12,7 @@
 		resolveBoundValue,
 		resolveComponentParams,
 		resolveTransform,
+		tapOverlayDim,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
 		type CoverFit,
@@ -98,9 +98,9 @@
 		 * order — not always on top. Unset = render every non-hidden scene (legacy). */
 		sceneFilter?: Set<string> | null;
 		/** Editor-only: the id of the ACTIVE (selected) scene. A full-screen-dim overlay
-		 * (free-spin intro/outro — `overlayDim` in the catalog) draws its scrim ONLY when
-		 * THIS layer is filtered to the active scene, so the "see all screens" composite
-		 * never stacks several dims into a black-out. Unset = no scrim. */
+		 * (a dimmed `tapToContinue` instance, e.g. the free-spin intro/outro) draws its
+		 * scrim ONLY when THIS layer is filtered to the active scene, so the "see all
+		 * screens" composite never stacks several dims into a black-out. Unset = no scrim. */
 		activeSceneId?: string | null;
 		/**
 		 * Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested spines
@@ -863,9 +863,9 @@
 	}
 
 	/**
-	 * EDITOR-PREVIEW ONLY scrim alpha for THIS layer. A full-screen-dim overlay (the
-	 * free-spin intro/outro gates — `overlayDim` in the catalog) darkens the whole
-	 * window behind its centred frame in-game; the editor mirrors that by clearing this
+	 * EDITOR-PREVIEW ONLY scrim alpha for THIS layer. A full-screen-dim overlay (a top-level
+	 * `tapToContinue` instance's `tapDimAlpha` — the free-spin intro/outro screens) darkens the
+	 * whole window behind its centred frame in-game; the editor mirrors that by clearing this
 	 * spine canvas to translucent black BEFORE drawing the scene's own spines. Because
 	 * this WebGL canvas sits (by scene-order z-index) ABOVE every earlier scene's 2D +
 	 * spine group, the translucent clear dims the base-game board AND any spine-drawn
@@ -881,7 +881,7 @@
 		if (!sc || hiddenSceneIds.has(sc.id)) return 0;
 		let dim = 0;
 		for (const n of sc.nodes) {
-			const d = boundComponentOverlayDim(n);
+			const d = tapOverlayDim(n);
 			if (d === undefined || !(d > 0)) continue;
 			if (!resolveTransform(n, layoutType).visible) continue;
 			if (d > dim) dim = d;

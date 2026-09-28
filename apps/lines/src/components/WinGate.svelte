@@ -96,7 +96,7 @@
 	// `finishCountUp` (tap-to-skip). PER-INSTANCE: the two toggles are authored on the `winUpdate`
 	// action node and arrive in that event's payload (below), NOT a global setting. Enabled ONLY on the
 	// authored/flow path (`!codedPressOwned`): the coded fallback keeps its byte-identical single-tween
-	// count-up + tap-to-slam `PressToContinue`, exactly as the coded `FreeSpinOutroGate` fallback does.
+	// count-up + tap-to-slam `PressToContinue`.
 	let holdToSpeedUp = $state(false);
 	let tapToSkip = $state(false);
 	// PARK the overlay on the player once the count lands (`waitForPress`). Per-instance like the
