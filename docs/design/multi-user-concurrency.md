@@ -247,8 +247,9 @@ The correctness floor. Contained because of the linchpin above.
 > surface still writing unconditionally: it now takes `baseEtag` (read via `GET
 > /api/rigger/save` BEFORE the tab loads the bytes, since the Spine AssetManager hides the
 > response ETag — the order fails toward a spurious prompt, never a silent overwrite) plus
-> `projectKey` (non-forceable `409 scope-mismatch`), answers `409 conflict` with the
-> cinematic-style overwrite prompt, and creates with `If-None-Match`. The `rigger/new` and
+> `projectKey` (non-forceable `409 scope-mismatch`), answers `409 conflict` carrying the current
+> ETag — the overwrite prompt retries `If-Match` on it rather than dropping the precondition — and
+> creates with `If-None-Match`. The `rigger/new` and
 > `rigger/upload` creates claim the `.irig` with `If-None-Match` before writing the page or atlas.
 > Every overwrite is preceded by a rolling backup (`riggerIrig.ts`, 20 per rig, restorable from
 > the rig's 🕘 History — the `editorDocBackups.ts` design). The studio-wide rig LIBRARY save

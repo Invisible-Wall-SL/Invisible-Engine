@@ -79,7 +79,12 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     `.irig`'s ETag and the project (BEFORE the bytes load — the AssetManager hides headers, and
     this order fails toward a spurious prompt, never a silent overwrite). The save sends
     `baseEtag` + `projectKey`; a stale tag answers 409 and the tab asks *Overwrite with your
-    version?* (mirrors the cinematic prompt); a project mismatch is refused outright. A first save
+    version?* (mirrors the cinematic prompt). Unlike the cinematic, "overwrite" does NOT drop the
+    precondition — the 409 carries the current ETag and the retry is `If-Match` on exactly the
+    version the author was shown, so a third save landing meanwhile prompts again instead of being
+    eaten. A project mismatch (the tab's project vs the session's) is refused outright. Once a save
+    lands, the open rig IS the `.irig` (a later text re-bake or refresh no longer reopens the
+    source `.json` and drops the saved edits); a second save while one is in flight is ignored. A first save
     of a source `.json` creates with `If-None-Match`; opening the source `.json` while a
     `<stem>.irig` already exists asks once before replacing it. `rigger/new` / `rigger/upload`
     claim the `.irig` with `If-None-Match` before writing any page or atlas.
@@ -90,22 +95,25 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     readable reason; the stored rig is untouched.
   - **Rolling backups + restore.** Every overwrite first copies the previous `.irig` to
     `<client>/<project>/rigger-backups/<dir>/<stem>/` (outside `spines/`, which the skeleton scan
-    would list), 20 kept per rig. **🕘** next to 💾 Save lists them; Restore goes through the same
+    would list), 20 kept per rig. A write whose precondition already fails takes no copy, so a
+    run of refused saves cannot push real versions out of retention. **🕘** next to 💾 Save lists them; Restore goes through the same
     guarded write, so it backs up what it replaces and keeps the CAS. `/api/rigger/backups`.
   - **beforeunload guard** when the rig or the cinematic (`RiggerCinematic.isDirty()`) has
     unsaved changes.
   - **Rig library save** creates only; a taken name shows who saved it and when, and the
     confirmed retry is `If-Match` on that entry.
-  - Verified: `tools/rigger-spike/irig-save.mjs` (44/44 — the check agrees with spine-core on
+  - Verified: `tools/rigger-spike/irig-save.mjs` (45/45 — the check agrees with spine-core on
     every reference break and passes all 153 skeletons checked into the repo; CAS, backup-before-
     PUT ordering, retention, atlas-missing etag hand-back), the other rigger-spike suites
     unchanged (`rigtext-panel` 8/9 and the `$lib`-alias build failure of `cinematic-storage` are
     pre-existing on `main`), `check:launcher-gates` 297/297, and the REAL `view.html` driven in a
     browser against a mock API (create → CAS update → conflict declined/forced → invalid refused
     with no request → scope mismatch refused → json-over-irig confirm → History restore →
-    beforeunload → library exists/confirm/decline). Owner live-verify against R2 owed.
-  - Not in this change: **rig undo** (separate task — item 6), and the animation-library save is
-    still unconditional.
+    beforeunload → library exists/confirm/decline → conflict-retry on the returned tag), after a
+    `pipeline-concurrency` review whose findings are folded in. Owner live-verify against R2 owed.
+  - Not in this change: **rig undo** (separate task — item 6); the animation-library save is
+    still unconditional; two `＋ New rig` creates whose names differ only by CASE can both pass the
+    `If-None-Match` claim (the name check is case-insensitive, the key is not).
 
 - 2026-09-24 — **Image sequences became authorable, and a wrong declaration can no longer brick a rig.**
   The timeline shipped the day before could only SHOW sequences; nothing could make an image a
