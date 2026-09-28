@@ -64,6 +64,20 @@
 		isHolding = false;
 	};
 
+	// A window that loses focus never gets the key's `keyUp` (it goes to whatever took focus), so a hold
+	// would outlive the key — for `EnableSpaceHold`, paid rounds with nobody at the game. End a hold
+	// there and drop a press that is not one yet, rather than completing it as a release.
+	const cancelPress = () => {
+		pressSeen = false;
+		if (isWaitingToHold) holdTimeoutStop();
+		if (isHolding) props.onholdend?.();
+		isHolding = false;
+	};
+
+	const onVisibilityChange = () => {
+		if (document.visibilityState === 'hidden') cancelPress();
+	};
+
 	context.eventEmitter.subscribeOnMount({
 		hotKey: (emitterEvent) => {
 			if (props.disabled) return;
@@ -87,3 +101,6 @@
 		if (isHolding) props.onhold?.();
 	});
 </script>
+
+<svelte:window onblur={cancelPress} />
+<svelte:document onvisibilitychange={onVisibilityChange} />

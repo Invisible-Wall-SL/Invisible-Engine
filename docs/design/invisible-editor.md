@@ -1051,9 +1051,11 @@ is NOT a config flag.
 ### 22.3 Config-gated speed features ("defang via config, never gut")
 `stateUi.config.features { turbo, autoplay, spaceHold }` (all default-on) gate the entry points while
 the machinery stays intact: `UIDefault.svelte` hides the turbo/autospin buttons and skips
-`<EnableSpaceHold/>` per flag. `UI_FEATURES_UK` + `setUiFeatures(...)` express the UK Gambling
-Commission profile (UKGC prohibits autoplay, turbo/quick-spin and player-led spin-stop on licensed
-slots), so a UK build forces the trio off; other jurisdictions stay on.
+`<EnableSpaceHold/>` per flag. When the coded `<UI>` is not mounted (an authored or flow-driven HUD),
+the game mounts the same flag-gated `<EnableSpaceHold/>` itself (`apps/lines` `Game.svelte`).
+`UI_FEATURES_UK` + `setUiFeatures(...)` express the UK Gambling Commission profile (UKGC prohibits
+autoplay, turbo/quick-spin and player-led spin-stop on licensed slots), so a UK build forces the
+trio off; other jurisdictions stay on.
 
 ### 22.4 Authorable in the editor (the pipeline)
 `LayoutDoc` gains optional `settings?: GameSettings` (`{ jurisdiction?: 'default'|'UK'; features?: {
