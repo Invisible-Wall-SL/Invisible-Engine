@@ -528,10 +528,11 @@
 		importError = '';
 		importSource = null;
 		importPlan = null;
-		const params = new URLSearchParams({ project: data.projectKey });
-		if (game) params.set('game', game);
+		const query =
+			`project=${encodeURIComponent(data.projectKey)}` +
+			(game ? `&game=${encodeURIComponent(game)}` : '');
 		try {
-			const res = await fetch(`/api/game-config/server-paytable?${params}`);
+			const res = await fetch(`/api/game-config/server-paytable?${query}`);
 			const body = (await res.json().catch(() => ({}))) as Partial<ServerPaytable> & {
 				error?: string;
 				message?: string;
@@ -2080,13 +2081,16 @@
 				{#if importPlan.skipped.length}
 					<p class="import-note">
 						<strong>Skipped</strong> — not in this project's dictionary, so not added:
-						{#each importPlan.skipped as symbol (symbol)}<code>{symbol}</code>{' '}{/each}
+						{#each importPlan.skipped as symbol, i (symbol)}{#if i},&#32;{/if}<code>{symbol}</code
+							>{/each}
 					</p>
 				{/if}
 				{#if importPlan.undeclared.length}
 					<p class="import-note">
 						<strong>Left as authored</strong> — the server prices no line row for:
-						{#each importPlan.undeclared as symbol (symbol)}<code>{symbol}</code>{' '}{/each}
+						{#each importPlan.undeclared as symbol, i (symbol)}{#if i},&#32;{/if}<code
+								>{symbol}</code
+							>{/each}
 					</p>
 				{/if}
 				{#each importPlan.scatter as scatter (scatter.symbol)}
