@@ -78,6 +78,7 @@ import type {
 export type FlowIssueCode =
 	| 'ref-unresolved'
 	| 'exec-in-fanin'
+	| 'exec-out-fanout'
 	| 'data-in-fanin'
 	| 'entry-has-exec-in'
 	| 'edge-endpoint'
@@ -565,9 +566,10 @@ const validateGraph = (
 		}
 	}
 
-	// --- (b + c) edge endpoints + fan-in + entry-has-no-exec-in ---
-	const execInCount = new Map<string, number>(); // key = `${node}${pin}`.
-	const key = (p: PinPath) => `${p.node}${p.pin}`;
+	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
+	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.
+	const execOutCount = new Map<string, number>();
+	const key = (p: PinPath) => `${p.node}\u0000${p.pin}`;
 
 	const endpointOk = (p: PinPath, wantKind: PinKind, wantDir: PinDir): boolean => {
 		const pins = pinsById.get(p.node);
@@ -586,6 +588,7 @@ const validateGraph = (
 			continue;
 		}
 		execInCount.set(key(edge.to), (execInCount.get(key(edge.to)) ?? 0) + 1);
+		execOutCount.set(key(edge.from), (execOutCount.get(key(edge.from)) ?? 0) + 1);
 		// (c) an `event` (entry) node must have no incoming exec edge.
 		const target = nodeById.get(edge.to.node);
 		if (target?.kind === 'event') {
@@ -599,11 +602,24 @@ const validateGraph = (
 	}
 	for (const [k, count] of execInCount) {
 		if (count > 1) {
-			const [node, pin] = k.split('');
+			const [node, pin] = k.split('\u0000');
 			issues.push({
 				code: 'exec-in-fanin',
 				severity: 'error',
 				message: `exec-in ${node}.${pin} has ${count} incoming exec edges (at most one predecessor allowed)`,
+				at: { on: 'pin', node, pin },
+			});
+		}
+	}
+	// The runtime follows ONE wire out of an exec-out (`nextExec` takes the first it finds), so every
+	// further wire from the same pin is dead: it never runs, in the editor preview or in the game.
+	for (const [k, count] of execOutCount) {
+		if (count > 1) {
+			const [node, pin] = k.split('\u0000');
+			issues.push({
+				code: 'exec-out-fanout',
+				severity: 'error',
+				message: `exec-out ${node}.${pin} has ${count} outgoing exec wires, but only the first one runs — chain the steps in series (or through a Sequence node) instead`,
 				at: { on: 'pin', node, pin },
 			});
 		}
@@ -639,7 +655,7 @@ const validateGraph = (
 	}
 	for (const [k, count] of dataInCount) {
 		if (count > 1) {
-			const [node, pin] = k.split('');
+			const [node, pin] = k.split('\u0000');
 			issues.push({
 				code: 'data-in-fanin',
 				severity: 'error',

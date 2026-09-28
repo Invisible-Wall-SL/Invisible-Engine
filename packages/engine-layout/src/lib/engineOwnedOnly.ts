@@ -44,7 +44,9 @@ function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
  * §19.4 classifier. KEEP a node iff it carries a `bind` (any kind — `bind`
  * lives on `BaseNode`, so it is the discriminator regardless of node kind), is
  * a `reelGrid`, or is a `componentInstance` (the engine-bound parametric HUD
- * readouts/buttons + freeSpinCounter). A `slotId` ALONE does not keep a node —
+ * readouts/buttons + freeSpinCounter) or a `repeater` (a list of them — the
+ * buy-feature cards, whose `onSelect` the starter flow wires; without it the
+ * scaffolded flow's buy chain has no endpoint). A `slotId` ALONE does not keep a node —
  * an artist board frame sprite has a `slotId` but no `bind`, so it drops.
  *
  * Otherwise: a plain `container` recurses (kept only if it still has surviving
@@ -52,7 +54,9 @@ function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
  */
 function filterNode(node: LayoutNode): LayoutNode | undefined {
 	if (node.bind) return cloneNode(node);
-	if (node.kind === 'reelGrid' || node.kind === 'componentInstance') return cloneNode(node);
+	if (node.kind === 'reelGrid' || node.kind === 'componentInstance' || node.kind === 'repeater') {
+		return cloneNode(node);
+	}
 
 	if (node.kind === 'container') {
 		const children = filterNodes(node.children);
