@@ -235,6 +235,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Found, not changed:**
     1. `EnableSpaceHold` is mounted only by the coded `UIDefault`/`UIReplay`, so a game with an authored HUD (`suppressCodedHud`, incl. the `?flowV2=lines` reference) has no hold-Space continuous play at all.
     2. Since #810, a Space held for continuous play no longer taps through each big win's press-to-continue, so every big win plays out in full before the next spin starts. On the coded HUD a `BIG_WIN` round's overlay stayed up 33 s with Space held, against ~0.5 s before #810 (with or without this change). That is #810's `PressToContinue`/`CountUpInteraction` gate; the bet hotkey is disabled while any press-to-continue is up, so this change cannot affect it. Whether continuous play should fast-forward a big win is a product call.
+  - **LIVE (2026-09-28), #813 `062970aa`.** Runtime release green (`bundle.BlK1AdvS.js`). The test server kept serving the previous bundle after the release's own refresh, and caught up after one more `POST /refresh`. `games.invisiblewall.org/bookofborutremake/` then served that bundle with both bindings present: `ButtonBet`'s (`hotkeyDisabled` … `ignorePressInProgress:!0`) and the `Game.svelte` replacement.
 
 - 2026-09-28 — **Press-to-continue surfaces act only on a press that STARTED after they armed** (`ContinuePressMask`, `OnPressFullScreen`, `PressToContinue`/`CountUpInteraction` Space via `OnHotkey`'s `ignorePressInProgress`). Full write-up in [flow.md](flow.md) (2026-09-28, the two-stage outro tap).
 
