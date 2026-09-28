@@ -35,8 +35,10 @@ name: Lint
 # tsc pass, a codegen check, and Node fixtures — so a docs commit can only ever pass, and every run
 # costs a full billed runner minute (47 of August 2026’s 420 commits to main were docs-only).
 # A change touching docs AND code still runs: paths-ignore skips only when EVERY changed file
-# matches. Safe to skip runs because this is NOT a required status check — branch protection
-# needs Pro/Team and the org is on Free — so a skipped run cannot wedge a PR as pending.
+# matches. Safe to skip runs only because this is NOT a required status check today, so a skipped
+# run cannot wedge a PR as pending. (Branch protection is free on a PUBLIC repo; on Free it needs
+# Pro/Team only while the repo is private.) If Lint is ever made required, drop paths-ignore or
+# add a docs-only no-op job with the same name — a required check that never runs blocks merge.
 on:
   pull_request:
     paths-ignore:
