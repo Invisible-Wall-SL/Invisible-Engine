@@ -55,6 +55,9 @@ const updateIsTurbo = (value: boolean, options: { persistent: boolean }) => {
 	stateBet.isTurbo = value;
 };
 
+/** The turbo last set persistently — the player's own choice, not a temporary slam speed-up. */
+const isTurboPersistent = () => isTurboLocked;
+
 /** A licence that forbids turbo forbids every route to it — the button is hidden by the feature
  *  flag, but holding Space and the flow's turbo action set it through {@link updateIsTurbo} too. */
 const forbidTurbo = (forbidden: boolean) => {
@@ -79,6 +82,7 @@ export const stateBetDerived = {
 	setBetAmount,
 	updateBetAmount,
 	updateIsTurbo,
+	isTurboPersistent,
 	forbidTurbo,
 	activeBetMode,
 	isContinuousBet,
