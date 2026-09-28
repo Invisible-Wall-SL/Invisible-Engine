@@ -1788,8 +1788,7 @@
 	// alongside the coded button's own hotkey while the cluster is still coded.
 	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
-	// runs the continue-press only. And like `ButtonBet` it binds `ignorePressInProgress`: a Space
-	// still held when it stands back up auto-repeats keyDown, which must not bet or slam.
+	// runs the continue-press only. `ignorePressInProgress` as on `ButtonBet`: bet on a fresh press.
 	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(

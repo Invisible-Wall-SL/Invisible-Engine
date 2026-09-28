@@ -15,9 +15,7 @@
 
 <ButtonBetProvider>
 	{#snippet children({ key, onpress, disabled, hotkeyDisabled })}
-		<!-- A bet starts only from a press that began while this hotkey listened: a Space still held
-			 when it stands back up (a press-to-continue closing, the loading tap) auto-repeats keyDown,
-			 and that repeat used to place a bet no one pressed for. -->
+		<!-- A bet needs a fresh press: a Space held while this stood down must not bet on repeat. -->
 		<OnHotkey hotkey="Space" disabled={hotkeyDisabled} ignorePressInProgress {onpress} />
 		<Button {...props} {sizes} {onpress} {disabled}>
 			{#snippet children({ center, hovered })}
