@@ -116,6 +116,14 @@ stays put).
   reopen it either; unassigned projects resolve to `unassigned/`; the old gate refusals are
   unchanged; and a runtime `assetBase` round-trips to the tree it names, including across a client
   move. Against the old route it fails 7 of 30.
+- **Live (#812, deployed 15:04Z).** The Book of Borut remake boots on live data, with no stale
+  fallback. All 74 `/api/deploy/f/` requests return 200, every one under
+  `invisible_wall/bookofborutremake` (the same count as the pre-deploy baseline). All 28 texture
+  pages named inside its atlases, spritesheets and bitmap fonts resolve relative to their parent
+  and return 200. The console shows no errors, and the base game renders.
+  The deploy marker: the game's own read token under a wrong client segment went from 404 to 200.
+  Pixi 8 fetches page images in a worker, so they appear in neither the page's resource timing
+  nor the pane's network log. They were checked by resolving the pages from the parents by hand.
 
 ### 2026-09-28 — a tool grant is no longer a project grant on the authoring APIs
 Session-gated authoring endpoints resolved whatever project the request named once the caller's
