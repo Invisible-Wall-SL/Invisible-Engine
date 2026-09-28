@@ -20,7 +20,7 @@
  * releases the hold (no bet — the book is paid for — and no slam). One button, one meaning, and the
  * Space hotkey / flow `spin` action / invoked intent inherit it for free.
  *
- * WHERE IT RUNS. At the `playBookEvents` seam in `utils.ts`, AFTER the event's whole presentation
+ * WHERE IT RUNS. At the `playBookEvents` seam (`playBook.ts`), AFTER the event's presentation
  * has been awaited, on both dispatch branches — so it behaves the same whether the big win was
  * presented by the coded handler, a v1 flow or a v2-authored `bigWin` container.
  *

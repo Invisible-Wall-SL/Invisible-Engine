@@ -137,7 +137,7 @@ Working on `main`:
   spin's `reveal` and the reels rolled on their own over a board the player had not read (owner
   report). On, the book is HELD at that seam — the resting replay narrates the spin's paying lines
   and the next free spin only starts on a spin press. Engine: `apps/lines/src/game/freeSpinHold.ts`,
-  awaited at the `playBookEvents` seam in `game/utils.ts` on BOTH dispatch branches (coded + flow),
+  awaited at the `playBookEvents` seam in `engine-game`'s `playBook.ts` on BOTH dispatch branches (coded + flow),
   so it behaves the same whether the overlay was the coded handler, a v1 flow or a v2 `bigWin`
   container. Gated on "a later `reveal` exists in this book" rather than `gameType`, which scopes it
   to free spins by construction (a base round has one reveal), survives a retrigger, and skips the

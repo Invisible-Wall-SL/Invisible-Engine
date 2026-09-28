@@ -192,13 +192,11 @@ need nothing — they are deliberately decoupled bridges to the Play4Fun facade.
   "components remaining" count overstates how much of Phase A is left.
 - **Bet mode and game type.** They stay bound to the compiled config, unlike the symbol vocabulary,
   so they stay in the app.
-- **The play pipeline** — `playBookEvent` / `playBookEvents` / `playBet`, all that remains of
-  `utils`. It waits on Phase B's second half rather than on a seam: its dispatch reads book-event
-  ARMS, and a factory generic over the app's `BookEvent` union cannot discriminate them, so moving
-  it before the engine DECLARES which book events it handles would buy a relocation with the
-  precise typing the shipped game already has.
+- **The presentation the play pipeline calls** — the coded handler map, the flow effects, the win
+  cycle, the between-spins hold, the slam policy, the sound bindings. They read this game's baked
+  editor data and its mechanic events; the pipeline takes them as named hooks (Phase A7).
 
-### The `editor-scenes` seam, measured rather than assumed
+### Phase A6 — the symbol layer, and the `editor-scenes` seam measured rather than assumed
 
 An earlier version of this plan parked `utils` and `symbolMap` "until `editor-scenes` and `assets`
 have seams of their own", which read as a large inversion of a 52-export module and was the reason
@@ -208,6 +206,31 @@ play pipeline. So the seam is one injected getter per reader, not an inversion, 
 settles is worth stating generally: **a seam is sized by what the mover actually consumes, not by
 the module it consumes it from.** Inverting the whole surface would have coupled `engine-game` to a
 game's baked bundle to deliver one function.
+
+### Phase A7 — the play pipeline, once the book-event contract exists
+
+`playBookEvent` / `playBookEvents` / `playBet` were the last type-agnostic module, and they could not
+move as a plain factory: the round seam reads book-event ARMS (`winInfo.totalWin`,
+`setWin.{amount,winLevel}`, …), and TypeScript does not narrow a type parameter by `bookEvent.type`,
+so a factory generic over the app's `BookEvent` could only read them through casts. That is Phase B's
+second half arriving early, exactly as the context was its first half.
+
+So the engine **declares** the arms it reads (`EngineBookEventFields`) and the app **registers** its
+union through a second declaration-merging seam, `BookEventRegistry`, wrapped in
+`ImplementsEngineBookEvents` so a union missing a contract arm fails with that arm's name. Once
+registered, the engine's `GameBookEvent` is a concrete union, not a type parameter, and narrows as
+precisely as the app does. The pipeline itself becomes `createPlayBook(deps)`, its deps being the
+presentation hooks above — named as the game names them and typed by what the seam consumes.
+
+Two constraints are specific to this slice:
+
+- **A factory reads its deps eagerly.** The old module read its imports lazily, inside function
+  bodies; a composition root passes them at module init. Any dep on an import cycle through the
+  composition root would therefore hit a TDZ at boot — check the cycle set before moving, do not
+  assume it.
+- **The round seam is asserted as SOURCE TEXT** by several harnesses. Destructuring the deps at the
+  top of the factory keeps every function body textually identical, so those harnesses are
+  re-pointed rather than rewritten.
 
 ## Phase B — the mechanic contract
 
@@ -233,8 +256,10 @@ class or a registry of mechanic objects. The reasons are the two constraints abo
 import from an app, and the app must stay the composition root so the precise typing the components
 already rely on survives the move instead of being widened to satisfy a shared interface.
 
-What B still owes: the seam is currently discovered one slice at a time as a `deps` object per
-factory, rather than declared once as a single mechanic interface. That is fine while `lines` is the
+Both halves are now declared: state and events through `GameContext` and the factories' `deps`, book
+events through `BookEventRegistry` and `createPlayBook`'s `deps` (Phase A7). What B still owes: the
+seam is still discovered one slice at a time as a `deps` object per factory plus two registries,
+rather than declared once as a single mechanic interface. That is fine while `lines` is the
 only mechanic; it becomes the thing to consolidate the moment a second one exists.
 
 ## Phase C — the config states how a game pays
@@ -490,12 +515,7 @@ The honest list of what this plan has not delivered, in the order it matters:
    the RGS. The only place it evaluates a board is anticipation, which is why that was the whole of
    the work here.
 
-3. **The last Phase A module — the play pipeline**, which is really Phase B work: the engine has to
-   declare its book-event contract before `playBookEvent`/`playBookEvents`/`playBet` can move
-   without casting away the arm typing they read today. Nothing is gated behind it — no component
-   imports it. The symbol layer that WAS gated (`symbolMap`, `getSymbolInfo`, the symbol-state rule)
-   moved in Phase A6.
-4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
+3. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board
    whose symbol frequencies mean nothing — not fine shipped for money.
 

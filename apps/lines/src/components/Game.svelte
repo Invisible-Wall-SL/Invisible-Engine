@@ -692,7 +692,8 @@
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
-		// (`game/utils.ts`) so it's populated whether the flow or the coded path presents the retrigger.
+		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
+		// presents the retrigger.
 		// `freeSpinsAdded` is the bare COUNT (e.g. `10` — add your own "+" in a label); bind
 		// `freeSpinsAddedText` for the whole localized sentence (the win-text `freeSpins.retrigger`
 		// template, localize-then-interpolate — e.g. "You won +10 Extra Free Spins").
@@ -1110,7 +1111,7 @@
 	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
 	// ⇒ `createLinesFlow` returns `undefined`), so the interpreter is inert and every screen
 	// mounts via the coded path below — byte-identical to current `main` (§7). When active,
-	// it drives book-event dispatch (via `flowInterpreterHolder`, read in `game/utils.ts`)
+	// it drives book-event dispatch (via `flowInterpreterHolder`, read by `playBook.ts`)
 	// and the generic mounter resolves which authored screen mounts here.
 	let flow = $state<LinesFlow | undefined>(undefined);
 	// Invisible Flow v2 (Phase 4b) — the DEV-gated v2 handle + its z-ordered mounted containers,

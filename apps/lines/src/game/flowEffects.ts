@@ -236,7 +236,7 @@ const rememberedWinSymbol = (kind: number | undefined): SymbolName | undefined =
 
 /**
  * The free-spin count the CURRENT book awards (`freeSpinTrigger.totalFs`), looked up ahead of the
- * trigger spin's `winInfo` by `dispatchBookEvent` (game/utils.ts) — because the scatter's `winInfo`
+ * trigger spin's `winInfo` by `dispatchBookEvent` (`playBook.ts`) — because the scatter's `winInfo`
  * entry arrives BEFORE `freeSpinTrigger` yet is the moment we announce the award on the base board
  * (see {@link showWinInfoMessage}). `undefined` on any book that doesn't trigger free spins, so a
  * plain zero-pay entry stays suppressed. Not load-bearing game state — display only, one set point.
@@ -289,7 +289,7 @@ export const showWinInfoMessage = ({
 			// player still sees the info bar is HERE, on the base board while the scatters animate (the
 			// same slot the old "$0.00" toast used). So repurpose this zero-pay scatter toast into the
 			// free-spin AWARD line. `pendingScatterAwardFs` is the round's `freeSpinTrigger.totalFs`, set
-			// in `dispatchBookEvent` (game/utils.ts); `gameType==='basegame'` scopes it to the TRIGGER
+			// by `dispatchBookEvent` (playBook.ts); `gameType==='basegame'` scopes it to the TRIGGER
 			// spin, never a free-spin retrigger's scatters. The coded (non-flow) path keeps showing this
 			// from the `freeSpinTrigger` handler instead, so this branch is flow-only to avoid doubling.
 			const flowOwnsTrigger = getFlowV2()?.ownsEvent('freeSpinTrigger') ?? false;
@@ -1296,7 +1296,7 @@ const effects: Record<string, FlowEffect> = {
 
 	/** Show the win presentation flags (`setWin`). The big-win RUN-UP is NOT run here: an authored
 	 *  choreography does `broadcast('winShow')` BEFORE this effect, so the overlay would already be
-	 *  on screen. It runs at the dispatch seam instead (`utils.ts`), ahead of every path. */
+	 *  on screen. It runs at the dispatch seam instead (`playBook.ts`), ahead of every path. */
 	winShow: (payload) => {
 		const winLevelData = winLevelDataOf(payload.winLevel as number);
 		stateUi.winShow = true;

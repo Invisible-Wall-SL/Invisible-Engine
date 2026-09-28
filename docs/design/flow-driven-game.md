@@ -40,7 +40,7 @@
 - **Scene Editor**: full screen CRUD + a component palette + per-instance param overrides.
 - **Flow is built end-to-end**: macro graph + choreography editor + interpreter + the full
   export→bake→register pipeline; `bookEvent` transitions are live at runtime
-  (`presentation.ts`, `apps/lines/src/game/utils.ts:30`).
+  (`presentation.ts`, `packages/engine-game/src/game/playBook.ts`).
 
 ### The three structural gaps (the review's findings)
 1. **Flow pins are cosmetic.** `deriveScreenPins` is consumed only by the editor model

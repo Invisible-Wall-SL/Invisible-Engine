@@ -179,7 +179,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// Flow-is-sole-authority (owner direction 2026-07-14). When a v2 flow DRIVES the game's
 		// screens (`ownsEvent('load')` — the SAME signal Game.svelte reads as `flowV2DrivesScreens`)
 		// the flow owns ALL presentation. A free-spin intro is then EITHER authored — v2 owns
-		// `freeSpinTrigger`, so this coded handler never runs (`game/utils.ts`) — OR deliberately
+		// `freeSpinTrigger`, so this coded handler never runs (`playBook.ts`) — OR deliberately
 		// removed from the flow, in which case this coded handler runs but must NOT paint the coded
 		// intro: under a screen-driving v2 flow the coded intro gate + visual are BOTH suppressed
 		// (`flowV2DrivesScreens` in Game.svelte), so the intro half-executes (transition wipe +

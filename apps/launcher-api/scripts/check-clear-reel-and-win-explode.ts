@@ -268,7 +268,7 @@ const reelSymbol = read(`${root}apps/lines/src/components/ReelSymbol.svelte`);
 const tumbleBoard = read(`${root}apps/lines/src/components/TumbleBoard.svelte`);
 const flowEffects = read(`${root}apps/lines/src/game/flowEffects.ts`);
 const winCycle = read(`${root}apps/lines/src/game/winSymbolCycle.ts`);
-const playUtils = read(`${root}apps/lines/src/game/utils.ts`);
+const playBook = read(`${root}packages/engine-game/src/game/playBook.ts`);
 const freeSpinHold = read(`${root}apps/lines/src/game/freeSpinHold.ts`);
 const reelFactory = read(`${root}packages/utils-slots/src/createReelForSpinning.svelte.ts`);
 const gameState = read(`${root}packages/engine-game/src/game/gameState.svelte.ts`);
@@ -423,7 +423,8 @@ check(
 	[
 		flowEffects,
 		winCycle,
-		playUtils,
+		playBook,
+		read(`${root}apps/lines/src/game/utils.ts`),
 		read(`${root}apps/lines/src/game/bookEventHandlerMap.ts`),
 	].filter((source) => source.includes("type: 'boardExplodeWinSymbols'")).length,
 	1,
@@ -434,10 +435,10 @@ check(
 // `finally` and the between-spins hold cover the book's last spin, which no board change follows.
 // Those two run it awaited and BEFORE the replay, or the replay would light seats about to vanish.
 const playBookEventsBody = slice(
-	playUtils,
+	playBook,
 	'playBookEvents',
-	'export const playBookEvents = async (',
-	'\n};\n',
+	'\tconst playBookEvents = async (',
+	'\n\t};\n',
 );
 check(
 	'the per-spin seam runs on BOTH dispatch branches',
@@ -467,15 +468,12 @@ check(
 );
 check(
 	'…and playBet drops the previous round’s wins before the book starts',
-	slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('forgetWinCycleWins();') < // prettier-ignore
-		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('await playBookEvents(bet.state);'), // prettier-ignore
+	slice(playBook, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n').indexOf('forgetWinCycleWins();') < // prettier-ignore
+		slice(playBook, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n').indexOf('await playBookEvents(bet.state);'), // prettier-ignore
 	true,
 );
 for (const [what, source] of [
-	[
-		'playBet',
-		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n'),
-	],
+	['playBet', slice(playBook, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n')],
 	['the between-spins hold', slice(freeSpinHold, 'holdAfterBigWin', 'export const holdAfterBigWin = async (', '\n};\n')], // prettier-ignore
 ] as const) {
 	check(`${what} awaits the pop`, source.includes('await explodeSpinWinners();'), true);
@@ -487,8 +485,8 @@ for (const [what, source] of [
 }
 check(
 	'…and playBet runs it in the finally, so a slammed or aborted round reaches it',
-	slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('} finally {') < // prettier-ignore
-		slice(playUtils, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n').indexOf('await explodeSpinWinners();'), // prettier-ignore
+	slice(playBook, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n').indexOf('} finally {') < // prettier-ignore
+		slice(playBook, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n').indexOf('await explodeSpinWinners();'), // prettier-ignore
 	true,
 );
 

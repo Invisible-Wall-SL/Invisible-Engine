@@ -303,11 +303,6 @@
       "count": 1
     }
   },
-  "apps/lines/src/game/utils.ts": {
-    "turbo/no-undeclared-env-vars": {
-      "count": 1
-    }
-  },
   "apps/lines/src/stories/ButtonComponentInstance.stories.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 1
@@ -435,6 +430,11 @@
   },
   "packages/config-lingui/index.ts": {
     "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/engine-game/src/game/playBook.ts": {
+    "turbo/no-undeclared-env-vars": {
       "count": 1
     }
   },

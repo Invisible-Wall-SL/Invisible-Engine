@@ -77,7 +77,7 @@ export const stateUi = $state({
 	freeSpinCounterTotal: 0,
 	// Extra free spins won on the most recent mid-feature retrigger (the `freeSpinRetrigger` book
 	// event's `extraFs`). Feeds the `freeSpinsAdded` number + `freeSpinsAddedText` sentence value
-	// sources a retrigger celebration screen binds. Set universally at dispatch (game `utils.ts`).
+	// sources a retrigger celebration screen binds. Set universally at dispatch (`playBook.ts`).
 	freeSpinsAdded: 0,
 	// Round-lifecycle gates for screen/component visibility (a `Scene.visibleSource` or a
 	// component `visibleSource` param binds to these): true only while that presentation

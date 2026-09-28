@@ -13,7 +13,7 @@
  * baked bundle (`bakedFlowV2Doc()`) — so an authored v2 flow ships — with dev escape hatches on top
  * (`__IE_FLOW_V2_DOC__` ad-hoc; `__IE_FLOW_V2_LINES__` the committed reference flow). Unset + un-baked
  * ⇒ v2 stays inert and the v1/coded path owns the game (parity); v1 remains the incumbent until an
- * explicit cutover. EVENT OWNERSHIP (`ownsEvent` + `game/utils.ts`): a v2 flow drives ONLY the events
+ * explicit cutover. EVENT OWNERSHIP (`ownsEvent` + `playBook.ts`): a v2 flow drives ONLY the events
  * it authors — each SUPPRESSES its coded/v1 twin (no doubling) — so the game migrates to v2 one event
  * at a time, with everything un-owned still coded (parity). Cues broadcast AWAITED (`broadcastAsync`),
  * so a `fireCue` blocks on its subscribers' completion like the coded handlers' awaited broadcasts.

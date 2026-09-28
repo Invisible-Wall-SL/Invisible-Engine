@@ -122,7 +122,7 @@ for (let i = 0; i < ROUNDS; i++) {
 		}
 
 		// …AND IT LANDS ON THE ROUND TOTAL. The client's meter now climbs with every `winInfo`
-		// (`advanceWinMeter`, apps/lines/src/game/utils.ts) instead of waiting for `setTotalWin`, so
+		// (`advanceWinMeter`, engine-game's playBook.ts) instead of waiting for `setTotalWin`, so
 		// the last figure a chain announces has to BE the figure the round closes on — otherwise the
 		// meter visibly corrects itself once the board has already settled. Only where no collect
 		// ran: that beat deliberately multiplies the chain afterwards (asserted separately below).
