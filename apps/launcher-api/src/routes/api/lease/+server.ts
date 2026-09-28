@@ -1,7 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
+import { leaseEntitlingTool } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { getDb } from '$lib/server/db';
+import { userHasTool } from '$lib/server/launcherAuth';
 import { users } from '$lib/server/db/schema';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { canAccessProject, projectClientKey } from '$lib/server/projects';
@@ -26,7 +28,7 @@ import type { RequestHandler } from './$types';
  *
  * The lease is a COORDINATION HINT, not authz — `toolScope.gate()` remains the
  * real gate — but we still require a logged-in user so a holder is attributable,
- * and one who may access the project, because a lease raises a "someone is
+ * and one who holds the tool and may access the project, because a lease raises a "someone is
  * editing" banner on that project's doc and the answer names who holds it.
  * Not-held is a valid ANSWER, not a failure: acquire/heartbeat that can't grant
  * return `200 { held: false, … }`, never an error status. Errors (`json({error})`,
@@ -104,9 +106,17 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	const key = readKey(body);
 	if (!key) return json({ error: 'bad-request' }, { status: 400 });
 
-	// Only a project the caller can reach, keyed on its own client — never a made-up one.
+	// Only a tool the caller holds, on a project they can reach, keyed on its own client — never a
+	// made-up one.
+	const tool = leaseEntitlingTool(key.toolId);
+	const user = locals.user;
+	const [toolHeld, projectReachable] = await Promise.all([
+		tool !== null && userHasTool(user, tool),
+		canAccessProject(user.id, user.role, key.projectKey),
+	]);
 	if (
-		!(await canAccessProject(locals.user.id, locals.user.role, key.projectKey)) ||
+		!toolHeld ||
+		!projectReachable ||
 		key.clientKey !== ((await projectClientKey(key.projectKey)) ?? UNASSIGNED_CLIENT)
 	) {
 		return json({ error: 'forbidden' }, { status: 403 });

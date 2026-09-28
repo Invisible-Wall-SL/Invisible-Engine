@@ -1,6 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
 import { resolveEmitterVocabulary } from '$lib/emitterVocabularies';
-import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
@@ -42,7 +41,7 @@ interface FxAtlas {
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
-	if (!roleHasTool(locals.user.role, 'fx')) {
+	if (!tools.some((t) => t.id === 'fx')) {
 		throw error(403, 'Your role does not have access to Invisible FX.');
 	}
 	const { clientKey, projectKey } = await resolveToolScope({

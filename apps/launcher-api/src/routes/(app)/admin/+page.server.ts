@@ -8,8 +8,10 @@ import {
 	TOOLS,
 	ROLE_TOOLS,
 	roleHasCapability,
+	type Role,
 } from '$lib/roles';
-import { hashPassword } from '$lib/server/auth';
+import { adminAccountDenial } from '$lib/accessRules';
+import { hashPassword, SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { getEngineBootSplash, setEngineBootSplash } from '$lib/server/bootSplash';
 import { loadSharedSkeletonIndex } from '$lib/server/spine';
 import { PromoteError, promoteSpineToShared } from '$lib/server/sharedSpinePromote';
@@ -22,7 +24,10 @@ import {
 	isValidRole,
 	listUsers,
 	normalizeEmail,
+	revokeUserSessions,
+	sessionOwner,
 	sessionsForUser,
+	userRole,
 	wouldRemoveLastAdmin,
 } from '$lib/server/admin';
 import {
@@ -122,6 +127,23 @@ async function requireAdmin(locals: App.Locals) {
 }
 
 const MIN_PASSWORD = 8;
+
+/**
+ * The refusal for an action on `targetId`'s account (and, for a role change, `newRole`), or
+ * `null` to go ahead. See `adminAccountDenial`: only an actual admin may confer the admin role
+ * or act on an admin's account.
+ */
+async function adminAccountRefusal(
+	actor: NonNullable<App.Locals['user']>,
+	action: string,
+	targetId: string | null,
+	newRole?: Role,
+) {
+	if (actor.role === 'admin') return null;
+	const targetRole = targetId ? await userRole(targetId) : null;
+	const denial = adminAccountDenial(actor.role, { targetRole, newRole });
+	return denial ? fail(403, { action, error: denial }) : null;
+}
 
 function parseExpiry(raw: string): Date | null | undefined {
 	const value = raw.trim();
@@ -276,7 +298,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	createUser: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const email = normalizeEmail(String(data.get('email') ?? ''));
 		const name = String(data.get('name') ?? '').trim() || null;
@@ -285,6 +307,8 @@ export const actions: Actions = {
 
 		if (!isValidEmail(email)) return fail(400, { action: 'createUser', error: 'Invalid email.' });
 		if (!isValidRole(role)) return fail(400, { action: 'createUser', error: 'Invalid role.' });
+		const refused = await adminAccountRefusal(admin, 'createUser', null, role);
+		if (refused) return refused;
 		if (password.length < MIN_PASSWORD) {
 			return fail(400, {
 				action: 'createUser',
@@ -309,6 +333,8 @@ export const actions: Actions = {
 		const role = String(data.get('role') ?? '');
 
 		if (!isValidRole(role)) return fail(400, { action: 'setRole', error: 'Invalid role.' });
+		const refused = await adminAccountRefusal(admin, 'setRole', userId, role);
+		if (refused) return refused;
 		if (userId === admin.id && role !== 'admin') {
 			return fail(400, { action: 'setRole', error: 'You cannot demote your own account.' });
 		}
@@ -325,6 +351,8 @@ export const actions: Actions = {
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const active = data.get('active') === 'true';
+		const refused = await adminAccountRefusal(admin, 'setActive', userId);
+		if (refused) return refused;
 
 		if (userId === admin.id && !active) {
 			return fail(400, { action: 'setActive', error: 'You cannot disable your own account.' });
@@ -335,7 +363,7 @@ export const actions: Actions = {
 
 		await getDb().update(users).set({ active }).where(eq(users.id, userId));
 		// Disabling kills the user's sessions immediately.
-		if (!active) await getDb().delete(sessions).where(eq(sessions.userId, userId));
+		if (!active) await revokeUserSessions(userId);
 		return { action: 'setActive', ok: active ? 'User enabled.' : 'User disabled.' };
 	},
 
@@ -344,6 +372,8 @@ export const actions: Actions = {
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const expiresAt = parseExpiry(String(data.get('expiresAt') ?? ''));
+		const refused = await adminAccountRefusal(admin, 'setExpiry', userId);
+		if (refused) return refused;
 
 		if (expiresAt === undefined) {
 			return fail(400, { action: 'setExpiry', error: 'Invalid date.' });
@@ -360,11 +390,13 @@ export const actions: Actions = {
 		return { action: 'setExpiry', ok: expiresAt ? 'Expiry set.' : 'Expiry cleared.' };
 	},
 
-	resetPassword: async ({ request, locals }) => {
-		await requireAdmin(locals);
+	resetPassword: async ({ request, locals, cookies }) => {
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const password = String(data.get('password') ?? '');
+		const refused = await adminAccountRefusal(admin, 'resetPassword', userId);
+		if (refused) return refused;
 
 		if (password.length < MIN_PASSWORD) {
 			return fail(400, {
@@ -377,13 +409,19 @@ export const actions: Actions = {
 			.update(users)
 			.set({ passwordHash: await hashPassword(password) })
 			.where(eq(users.id, userId));
-		return { action: 'resetPassword', ok: 'Password reset.' };
+		// A reset ends every session signed in with the old password — all but the admin's own
+		// when they reset themselves.
+		const keep = userId === admin.id ? await sessionIdFromToken(cookies.get(SESSION_COOKIE)) : null;
+		await revokeUserSessions(userId, keep);
+		return { action: 'resetPassword', ok: 'Password reset; existing sessions signed out.' };
 	},
 
 	setToolAccess: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
+		const refused = await adminAccountRefusal(admin, 'setToolAccess', userId);
+		if (refused) return refused;
 		const toolKey = String(data.get('toolKey') ?? '');
 		// 'grant' | 'revoke' | 'default'
 		const mode = String(data.get('mode') ?? '');
@@ -399,7 +437,7 @@ export const actions: Actions = {
 	},
 
 	setRoleToolAccess: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const role = String(data.get('role') ?? '');
 		const toolKey = String(data.get('toolKey') ?? '');
@@ -408,6 +446,8 @@ export const actions: Actions = {
 
 		if (!isValidRole(role))
 			return fail(400, { action: 'setRoleToolAccess', error: 'Invalid role.' });
+		const denial = adminAccountDenial(admin.role, { targetRole: role });
+		if (denial) return fail(403, { action: 'setRoleToolAccess', error: denial });
 
 		const isCapability = CAPABILITIES.some((c) => c.key === toolKey);
 		if (!isCapability && !TOOLS[toolKey]) {
@@ -811,22 +851,30 @@ export const actions: Actions = {
 	},
 
 	revokeSession: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const sessionId = String(data.get('sessionId') ?? '');
 		if (!sessionId) return fail(400, { action: 'revokeSession', error: 'Missing session.' });
+		const refused = await adminAccountRefusal(
+			admin,
+			'revokeSession',
+			await sessionOwner(sessionId),
+		);
+		if (refused) return refused;
 
 		await getDb().delete(sessions).where(eq(sessions.id, sessionId));
 		return { action: 'revokeSession', ok: 'Session revoked.' };
 	},
 
 	revokeAllSessions: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'revokeAllSessions', error: 'Missing user.' });
+		const refused = await adminAccountRefusal(admin, 'revokeAllSessions', userId);
+		if (refused) return refused;
 
-		await getDb().delete(sessions).where(eq(sessions.userId, userId));
+		await revokeUserSessions(userId);
 		return { action: 'revokeAllSessions', ok: 'All sessions revoked.' };
 	},
 
@@ -838,6 +886,8 @@ export const actions: Actions = {
 		if (userId === admin.id) {
 			return fail(400, { action: 'deleteUser', error: 'You cannot delete your own account.' });
 		}
+		const refused = await adminAccountRefusal(admin, 'deleteUser', userId);
+		if (refused) return refused;
 		if (await wouldRemoveLastAdmin(userId)) {
 			return fail(400, { action: 'deleteUser', error: 'Cannot delete the last admin.' });
 		}
@@ -848,10 +898,12 @@ export const actions: Actions = {
 	},
 
 	loadSessions: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'loadSessions', error: 'Missing user.' });
+		const refused = await adminAccountRefusal(admin, 'loadSessions', userId);
+		if (refused) return refused;
 
 		const rows = await sessionsForUser(userId);
 		return { action: 'loadSessions', userId, sessions: rows };

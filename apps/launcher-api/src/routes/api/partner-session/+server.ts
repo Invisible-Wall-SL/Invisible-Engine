@@ -1,6 +1,7 @@
 import { json, redirect } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { getGame } from '$lib/server/games';
+import { canAccessProject } from '$lib/server/projects';
 import {
 	PartnerRgsError,
 	mintPartnerSession,
@@ -47,8 +48,14 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		);
 	}
 
+	// Only a card the caller could be shown: a global one, or one owned by a project they can reach
+	// (the home grid's `listGamesForProject` rule). Anything else answers as if it did not exist.
 	const game = await getGame(key);
-	if (!game) {
+	if (
+		!game ||
+		(game.projectKey !== null &&
+			!(await canAccessProject(locals.user.id, locals.user.role, game.projectKey)))
+	) {
 		return json({ error: `No game card for key "${key}"` }, { status: 404, headers: NO_STORE });
 	}
 

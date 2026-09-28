@@ -223,7 +223,7 @@
 		dupName = `${p.name} copy`;
 		dupKey = slugify(`${p.key} copy`);
 		dupKeyTouched = false;
-		dupClient = p.clientKey ?? '';
+		dupClient = data.clients.some((c) => c.key === p.clientKey) ? (p.clientKey ?? '') : '';
 		dupScope = 'setup';
 		dupErr = '';
 		dupMsg = '';

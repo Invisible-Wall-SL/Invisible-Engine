@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
-import { clientExists } from '$lib/server/clients';
+import { clientExists, mayCreateUnderClient } from '$lib/server/clients';
 import {
 	DuplicateTooLargeError,
 	duplicateProjectData,
@@ -34,7 +34,8 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *
  * Gated like the page's own "Create a game" action — any holder of the `gameMaker` tool may create
  * a project — plus the source must be a project the caller can actually access, so this can't be
- * used to read another client's game out through a copy.
+ * used to read another client's game out through a copy, and the destination must be a client they
+ * may create under (`mayCreateUnderClient`).
  *
  * The new project is created FIRST and deleted again if the copy throws, so a failed duplicate does
  * not leave an empty project row behind for someone to publish by mistake. The copy itself is not
@@ -94,6 +95,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 	if (clientKey !== null && !(await clientExists(clientKey))) {
 		return json({ error: 'Unknown client.' }, { status: 400, headers: NO_STORE });
+	}
+	if (!(await mayCreateUnderClient(locals.user.id, locals.user.role, clientKey))) {
+		return json(
+			{ error: 'You do not have access to that client.' },
+			{ status: 403, headers: NO_STORE },
+		);
 	}
 
 	const sourceClient = (await projectClientKey(source)) ?? UNASSIGNED_CLIENT;

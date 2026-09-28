@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { settingValueVisible } from '$lib/accessRules';
 import { getDb } from '$lib/server/db';
 
 /**
@@ -6,7 +7,7 @@ import { getDb } from '$lib/server/db';
  * "Railway" tab of the FTP browser. Only the `public` schema's base tables are
  * exposed, table names are validated against the live catalogue before they ever
  * reach a query, and secret-bearing columns are redacted server-side so a browse
- * can never leak password hashes or live session tokens.
+ * can never leak password hashes, live session tokens or secret app settings.
  */
 
 /**
@@ -22,12 +23,34 @@ const PARTIAL_MASK: Record<string, Set<string>> = {
 	login_attempts: new Set(['key']),
 };
 
-function redact(table: string, column: string, value: unknown): unknown {
-	if (SECRET_COLUMN_PATTERN.test(column)) return value == null ? value : '••••••';
+/**
+ * Whether a column's value is a secret in this ROW. Most secrets live in a column that names
+ * them; `app_settings` is a key/value table, so there it is the row's key that says so (the
+ * deploy token is one of its values).
+ */
+function secretInRow(table: string, column: string, row: Record<string, unknown>): boolean {
+	if (SECRET_COLUMN_PATTERN.test(column)) return true;
+	return table === 'app_settings' && column === 'value' && !settingValueVisible(row.key);
+}
+
+function redact(
+	table: string,
+	column: string,
+	value: unknown,
+	row: Record<string, unknown>,
+): unknown {
+	if (secretInRow(table, column, row)) return value == null ? value : '••••••';
 	if (PARTIAL_MASK[table]?.has(column) && typeof value === 'string' && value.length > 8) {
 		return `${value.slice(0, 8)}…`;
 	}
 	return value;
+}
+
+/** A row as the browser may show it: every secret value masked. */
+function redactRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const col of Object.keys(row)) out[col] = redact(table, col, row[col], row);
+	return out;
 }
 
 /** Coerce a drizzle/postgres-js result into a plain array of row objects. */
@@ -84,11 +107,7 @@ export async function readTable(table: string, limit: number, offset: number): P
 		sql`select * from ${id} order by ${orderBy} limit ${limit} offset ${offset}`,
 	);
 
-	const redacted = rows(dataResult).map((row) => {
-		const out: Record<string, unknown> = {};
-		for (const col of Object.keys(row)) out[col] = redact(table, col, row[col]);
-		return out;
-	});
+	const redacted = rows(dataResult).map((row) => redactRow(table, row));
 
 	return { columns, rows: redacted, total };
 }

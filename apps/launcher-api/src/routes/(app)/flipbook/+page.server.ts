@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
+import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { listClips, loadClip, type FlipbookClipRow } from '$lib/server/flipbookStorage';
@@ -38,7 +38,7 @@ interface FlipbookAtlas {
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
-	if (!roleHasTool(locals.user.role, 'flipbook')) {
+	if (!tools.some((t) => t.id === 'flipbook')) {
 		throw error(403, 'Your role does not have access to Invisible Flipbook.');
 	}
 	const { clientKey, projectKey } = await resolveToolScope({

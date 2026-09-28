@@ -1,6 +1,12 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
-import { clientExists, listClients } from '$lib/server/clients';
+import { mayTargetClient } from '$lib/accessRules';
+import {
+	clientExists,
+	clientGrantsOf,
+	listClients,
+	mayCreateUnderClient,
+} from '$lib/server/clients';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
@@ -41,13 +47,14 @@ async function scenesLastModified(clientKey: string, projectKey: string): Promis
 }
 
 /** Auth + role gate for the actions (the loader reuses the parent layout's `tools`). */
-async function gate(locals: App.Locals): Promise<void> {
+async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
 	if (!locals.user) throw redirect(303, '/login');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	if (!roleHasTool(locals.user.role, 'gameMaker', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Game Maker.');
 	}
+	return locals.user;
 }
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -56,17 +63,27 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	if (!tools.some((t) => t.id === 'gameMaker')) {
 		throw error(403, 'Your role does not have access to Invisible Game Maker.');
 	}
+	const { role } = locals.user;
 
-	const [clients, gameKinds, accessible, games, manifest, roleOverrides, toolOverrides] =
-		await Promise.all([
-			listClients(),
-			selectableGameKinds(),
-			accessibleProjectsWithClient(locals.user.id, locals.user.role),
-			listGames(),
-			loadTestServerManifest(),
-			getRoleOverrides(locals.user.role),
-			getToolOverrides(locals.user.id),
-		]);
+	const [
+		clients,
+		clientGrants,
+		gameKinds,
+		accessible,
+		games,
+		manifest,
+		roleOverrides,
+		toolOverrides,
+	] = await Promise.all([
+		listClients(),
+		clientGrantsOf(locals.user.id),
+		selectableGameKinds(),
+		accessibleProjectsWithClient(locals.user.id, locals.user.role),
+		listGames(),
+		loadTestServerManifest(),
+		getRoleOverrides(locals.user.role),
+		getToolOverrides(locals.user.id),
+	]);
 
 	// The "purge edge cache" fallback lever lives in /admin — only surface the link
 	// to users who can actually use it (the same admin-panel capability publish needs).
@@ -139,7 +156,10 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	);
 
 	return {
-		clients: clients.map((c) => ({ key: c.key, name: c.name })),
+		// Only the clients this user may create a game under (the create + duplicate pickers).
+		clients: clients
+			.filter((c) => mayTargetClient(role, c.key, clientGrants))
+			.map((c) => ({ key: c.key, name: c.name })),
 		gameKinds,
 		projects,
 		canPurgeCache,
@@ -148,7 +168,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 
 export const actions: Actions = {
 	create: async ({ request, locals }) => {
-		await gate(locals);
+		const user = await gate(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
 			.toLowerCase()
@@ -178,6 +198,9 @@ export const actions: Actions = {
 		}
 		if (clientKey !== null && !(await clientExists(clientKey))) {
 			return fail(400, { action: 'create', error: 'Unknown client.' });
+		}
+		if (!(await mayCreateUnderClient(user.id, user.role, clientKey))) {
+			return fail(403, { action: 'create', error: 'You do not have access to that client.' });
 		}
 
 		await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);

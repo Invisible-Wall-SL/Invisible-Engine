@@ -265,7 +265,7 @@ export const ENV = {
 	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by
-	// GET /api/launcher/git-credentials to authenticated launchers. Use a fine-grained
+	// GET /api/launcher/git-credentials to launchers signed in with `gamePublish`. Use a fine-grained
 	// PAT (read-only "Contents" on the org's game repos) or a GitHub App installation
 	// token. Secret: no code default. Empty → the endpoint 404s and the launcher falls
 	// back to interactive git auth. Treat it as a shared, rotatable deploy secret.

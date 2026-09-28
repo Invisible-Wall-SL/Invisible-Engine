@@ -3,7 +3,6 @@ import { collectSceneCueNames } from '$lib/sceneCues';
 import { collectContainerTaps } from '$lib/containerTaps';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2DocForEditor } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
@@ -45,9 +44,10 @@ import type { PageServerLoad } from './$types';
  */
 export const ssr = false;
 
-export const load: PageServerLoad = async ({ locals, cookies, url }) => {
+export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	if (!roleHasTool(locals.user.role, 'flow')) {
+	const { tools } = await parent();
+	if (!tools.some((t) => t.id === 'flow')) {
 		throw error(403, 'Your role does not have access to Invisible Flow.');
 	}
 	const { clientKey, projectKey } = await resolveToolScope({

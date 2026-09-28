@@ -90,6 +90,10 @@ press — fetch + hard-reset to `origin/main`, advance the engine submodule to i
 branch tip, `pnpm install && pnpm build` (assets pull live from R2), upload the
 bundle, register the game card, verify it's live.
 
+Sync clones private game repos with no GitHub sign-in only for accounts that hold
+**Build & publish games** (`gamePublish`) — the same grant ☁ Publish needs. Without
+it, a clone falls back to Git's own sign-in prompt.
+
 **If your connection can't reach R2, ☁ Publish re-routes itself.** Spanish ISPs
 null-route whole Cloudflare address ranges during LaLiga matches, and R2's storage
 endpoint sits inside them — so on those lines a publish used to die instantly with

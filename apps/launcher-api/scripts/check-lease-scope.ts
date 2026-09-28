@@ -25,7 +25,11 @@ const PROJECTS = new Map<string, string | null>([
 	['hotfruits', 'eagaming'],
 ]);
 /** userId → the project keys `accessibleProjects` would list for them. */
-const ACCESS = new Map<string, Set<string>>([['artist-borut', new Set(['cloud', 'bookofborut'])]]);
+const ACCESS = new Map<string, Set<string>>([
+	['artist-borut', new Set(['cloud', 'bookofborut'])],
+	['animator-borut', new Set(['cloud', 'bookofborut'])],
+	['artist-no-fx', new Set(['cloud', 'bookofborut'])],
+]);
 
 const server = (path: string): string => new URL(`../src/lib/server/${path}`, import.meta.url).href;
 mock.module(server('projects.ts'), {
@@ -36,7 +40,17 @@ mock.module(server('projects.ts'), {
 	},
 });
 mock.module(server('auth.ts'), {
-	namedExports: { SESSION_COOKIE: 'session', sessionIdFromToken: async () => 'session-1' },
+	namedExports: {
+		SESSION_COOKIE: 'session',
+		sessionIdFromToken: async () => 'session-1',
+		validateSession: async () => null,
+	},
+});
+/** userId → per-user tool overrides (the /admin per-user panel). No role overrides. */
+const USER_OVERRIDES = new Map<string, Record<string, boolean>>([['artist-no-fx', { fx: false }]]);
+mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
+mock.module(server('userToolAccess.ts'), {
+	namedExports: { getToolOverrides: async (userId: string) => USER_OVERRIDES.get(userId) ?? {} },
 });
 const HOLDER_ROW = { name: 'Holder', email: 'holder@eagaming' };
 const query = {
@@ -94,7 +108,12 @@ function check(label: string, actual: unknown, expected: unknown): void {
 }
 
 type User = NonNullable<App.Locals['user']>;
-const user = (id: string): User => ({ id, email: `${id}@test`, name: null, role: 'artist' });
+const user = (id: string, role: User['role'] = 'artist'): User => ({
+	id,
+	email: `${id}@test`,
+	name: null,
+	role,
+});
 const borutArtist = user('artist-borut');
 
 /** The status and body the handler answered with, and the lease operations it reached. */
@@ -119,8 +138,8 @@ async function post(
 		throw e;
 	}
 }
-const key = (clientKey: string, projectKey: string) => ({
-	toolId: 'editor',
+const key = (clientKey: string, projectKey: string, toolId = 'editor') => ({
+	toolId,
 	clientKey,
 	projectKey,
 	docKey: 'editor',
@@ -176,6 +195,38 @@ for (const action of ['heartbeat', 'release', 'takeover']) {
 		'an unassigned project is keyed on the unassigned client, as its loader keys it',
 		[unassigned.status, unassigned.reached],
 		[200, ['acquire']],
+	);
+}
+
+// ── The tool half: the caller must hold the tool the lease is for ────────────
+for (const action of ['acquire', 'heartbeat', 'release', 'takeover']) {
+	check(
+		`${action} by a role without the tool is refused, even on a reachable project`,
+		await post(user('animator-borut', 'animator'), { action, ...key('borut', 'bookofborut') }),
+		REFUSED,
+	);
+}
+check(
+	'a per-user revoke of the tool is honoured',
+	await post(user('artist-no-fx'), { action: 'acquire', ...key('borut', 'bookofborut', 'fx') }),
+	REFUSED,
+);
+check(
+	'the same user still leases a tool they hold',
+	(await post(user('artist-no-fx'), { action: 'acquire', ...key('borut', 'bookofborut') })).reached,
+	['acquire'],
+);
+check(
+	'a toolId that names no tool is refused',
+	await post(borutArtist, { action: 'acquire', ...key('borut', 'bookofborut', 'probe') }),
+	REFUSED,
+);
+for (const toolId of ['componentEditor', 'flow', 'gameConfig', 'winText', 'localization']) {
+	check(
+		`the ${toolId} page's lease still reaches the lease for a role that opens it`,
+		(await post(borutArtist, { action: 'acquire', ...key('borut', 'bookofborut', toolId) }))
+			.reached,
+		['acquire'],
 	);
 }
 
