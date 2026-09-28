@@ -30,6 +30,8 @@ export interface ScopeOptions {
 	includeSharedSpines?: boolean;
 	/** Editor-only: also allow the cross-project `_shared/fonts/` library. */
 	includeSharedFonts?: boolean;
+	/** Also allow the cross-project `_shared/sheets/` art library (read — see `GateOptions`). */
+	includeSharedSheets?: boolean;
 	/** Atlas-only: also allow the cross-project `_shared/blueprints/` library (read). */
 	includeBlueprints?: boolean;
 }
@@ -177,11 +179,10 @@ export async function resolveToolScope({
 
 /**
  * The API counterpart of {@link resolveToolScope}, for the session-gated authoring endpoints that
- * take their project from the request (`/api/game-config`, `/api/win-text`, `/api/editor/symbols`,
- * `/api/sounds`): the `(client, project)` that `?project=` names — the default project when it
- * names none — refused with **403** unless `user` may access it under the SAME `canAccessProject`
- * rule the selector and `resolveToolScope` apply. Call it AFTER the tool's entitlement gate, which
- * is what hands back the non-null `user`.
+ * take their project from the request: the `(client, project)` that `?project=` names — the default
+ * project when it names none — refused with **403** unless `user` may access it under the SAME
+ * `canAccessProject` rule the selector and `resolveToolScope` apply. Call it AFTER the tool's
+ * entitlement gate, which is what hands back the non-null `user`.
  *
  * Unlike the page resolver it never falls back: a page may land on the session's project because
  * it SHOWS which one it chose, but an API call reads or writes the project it names, so an
@@ -200,4 +201,18 @@ export async function requireProjectScope(
 	}
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	return { clientKey, projectKey };
+}
+
+/**
+ * {@link requireProjectScope} for routes whose project is OPTIONAL — where naming none means a
+ * project-less scope such as the shared component library, never the default project. `undefined`
+ * when `project` is absent or blank; otherwise the access-checked (trimmed) key, refused with 403
+ * exactly as above. Use the returned key, not the raw param, so the key checked is the key used.
+ */
+export async function requireOptionalProjectKey(
+	user: NonNullable<App.Locals['user']>,
+	project: string | null | undefined,
+): Promise<string | undefined> {
+	if (!project?.trim()) return undefined;
+	return (await requireProjectScope(user, project)).projectKey;
 }

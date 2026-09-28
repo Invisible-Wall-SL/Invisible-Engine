@@ -14,7 +14,7 @@ import {
 	type GameBuildInfo,
 } from '$lib/server/games';
 import { requireLauncherPublisher } from '$lib/server/launcherAuth';
-import { getOrMintReadToken, projectExists } from '$lib/server/projects';
+import { canAccessProject, getOrMintReadToken } from '$lib/server/projects';
 import { pinTestServerGameToProject, type PinOutcome } from '$lib/server/testServerManifest';
 import type { RequestHandler } from './$types';
 
@@ -60,7 +60,7 @@ const REFRESH_TIMEOUT_MS = 5_000;
 async function pinToProject(key: string, projectKey: string, docBase: string): Promise<PinReport> {
 	try {
 		const readToken = await getOrMintReadToken(projectKey);
-		// `projectExists` already ran, so this is the "row vanished under us" case rather than a
+		// `canAccessProject` already ran, so this is the "row vanished under us" case rather than a
 		// caller error. Nothing to pin with; say so instead of writing a half-pointer the test
 		// server would reject anyway.
 		if (!readToken) {
@@ -192,8 +192,14 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 	if (!project) {
 		return json({ error: 'Missing project' }, { status: 400, headers: NO_STORE });
 	}
-	if (!(await projectExists(project))) {
-		return json({ error: 'Unknown project' }, { status: 400, headers: NO_STORE });
+	// The desktop launcher only ever lists the caller's accessible projects
+	// (`/api/launcher/projects`), so hold the registration to the same rule — existence alone let
+	// a publisher register a card under another client's project.
+	if (!(await canAccessProject(auth.user.id, auth.user.role, project))) {
+		return json(
+			{ error: 'Unknown project, or you do not have access to it.' },
+			{ status: 403, headers: NO_STORE },
+		);
 	}
 	const projectKey = project;
 

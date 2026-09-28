@@ -594,8 +594,9 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   no oracle for which keys exist). The no-`?project=` default (`cloud`) is checked like any other
   key: every user is granted it, so it is refused only when its row is gone, and then there is
   nothing to write. The `/config` page always sends `?project=` from its loader, so an author on a
-  project they can reach sees no change. Shared with win-text, symbols and sounds — the whole
-  story, the checks and the routes still owed are in [launcher.md](launcher.md) Recent changes.
+  project they can reach sees no change. Shared with win-text, symbols, sounds, the component
+  routes and publish — the whole story, the checks and what is still owed are in
+  [launcher.md](launcher.md) Recent changes.
 
 - 2026-09-28 — **Import paytable from server.** A reviewed, never-auto-saved way to author the
   paytable a published game's server declares: button in the Symbols panel → `ConfirmDialog` with

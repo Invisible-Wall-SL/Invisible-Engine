@@ -168,42 +168,52 @@ for (const file of handlers) {
 }
 
 /**
- * A handler that reads `?project=` must check that the caller may reach THAT project. The tool
- * grant is not a project grant: `/api/game-config`, `/api/win-text`, `/api/editor/symbols` and
- * `/api/sounds` once resolved any key they were handed, so anyone with the tool could read and
- * write another client's project by editing the query string. The accepted checks are
- * `requireProjectScope` (session callers; its behaviour is `check-project-scope.ts`), or a token —
- * `projectAllowsRead` is per project, the deploy token is the build runner's and spans them all.
+ * A handler that takes a project from the request — `?project=` or a body `project` — must check
+ * that the caller may reach THAT project. The tool grant is not a project grant: game-config,
+ * win-text, symbols, sounds and the component routes once resolved any key they were handed, and
+ * single publish took any key that merely existed, so anyone with the tool could read and write
+ * another client's project by editing the request. Accepted checks: `requireProjectScope` /
+ * `requireOptionalProjectKey` (their behaviour is `check-project-scope.ts`), `canAccessProject`,
+ * or a token — `projectAllowsRead` is per project, the deploy token is the build runner's and spans
+ * them all.
+ *
+ * Judged PER HANDLER, not per file, so a checked GET cannot vouch for an unchecked PUT beside it.
  */
-const PROJECT_PARAM = /searchParams\.get\(\s*['"]project['"]\s*\)/;
-const PROJECT_CHECKS = ['requireProjectScope(', 'projectAllowsRead(', 'getDeployToken('];
-const PROJECT_PARAM_EXEMPT: Record<string, string> = {
+const PROJECT_READS = [
+	/searchParams\.get\(\s*['"`]project['"`]\s*\)/,
+	/\bbody\.project\b/,
+	/\{[^}]*\bproject\b[^}]*\}\s*=\s*body\b/,
+];
+const PROJECT_CHECKS = [
+	'requireProjectScope(',
+	'requireOptionalProjectKey(',
+	'canAccessProject(',
+	'projectAllowsRead(',
+	'getDeployToken(',
+];
+const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/project-footprint': 'gated on adminPanel, which spans every project',
 	'admin/spines': 'gated on adminPanel, which spans every project',
 	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
 };
-/**
- * The same gap, still open: the component routes resolve `?project=` (and a body `project`) on
- * the `editor` grant alone. Listed so a NEW route with the gap fails here; delete an entry when
- * its route is fixed — the check below goes red until you do.
- */
-const PROJECT_PARAM_KNOWN_GAPS = [
-	'editor/component',
-	'editor/component-defaults',
-	'editor/components',
-];
+/** Each exported handler's source (the module preamble dropped). */
+const handlerBlocks = (src: string): string[] =>
+	src.split(/^(?=export const (?:GET|POST|PUT|PATCH|DELETE)\b)/m).slice(1);
 const readsProject = new Set<string>();
 for (const file of handlers) {
 	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
-	const s = readFileSync(`${api}${file}`, 'utf8');
-	if (!PROJECT_PARAM.test(s)) continue;
-	readsProject.add(route);
-	const checked = PROJECT_CHECKS.some((c) => s.includes(c));
-	if (PROJECT_PARAM_KNOWN_GAPS.includes(route)) {
-		check(`api/${route} is still a known ?project= gap (fixed? delete it)`, checked, false);
-	} else if (!(route in PROJECT_PARAM_EXEMPT)) {
-		check(`api/${route} checks access to the ?project= it reads`, checked, true);
+	const blocks = handlerBlocks(readFileSync(`${api}${file}`, 'utf8'));
+	for (const block of blocks) {
+		if (!PROJECT_READS.some((re) => re.test(block))) continue;
+		readsProject.add(route);
+		if (route in PROJECT_READ_EXEMPT) continue;
+		const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		check(
+			`api/${route} ${method} checks access to the project it takes from the request`,
+			PROJECT_CHECKS.some((c) => block.includes(c)),
+			true,
+		);
 	}
 }
 const FIXED = [
@@ -213,16 +223,14 @@ const FIXED = [
 	'editor/symbols',
 	'sounds',
 	'sounds/file',
+	'editor/component',
+	'editor/component-defaults',
+	'editor/components',
+	'game-maker/publish',
+	'launcher/register-game',
 ];
-for (const route of FIXED) {
-	check(
-		`api/${route} reads ?project= (so the scan above covered it)`,
-		readsProject.has(route),
-		true,
-	);
-}
-for (const route of [...Object.keys(PROJECT_PARAM_EXEMPT), ...PROJECT_PARAM_KNOWN_GAPS]) {
-	check(`listed route api/${route} still reads ?project=`, readsProject.has(route), true);
+for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
+	check(`the scan sees api/${route} take a project`, readsProject.has(route), true);
 }
 
 console.log();

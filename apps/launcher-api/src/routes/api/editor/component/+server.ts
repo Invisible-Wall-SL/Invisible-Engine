@@ -11,6 +11,7 @@ import {
 } from '$lib/server/componentStorage';
 import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireOptionalProjectKey } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -20,15 +21,16 @@ import type { RequestHandler } from './$types';
  * the `editor` tool (role + per-user overrides applied). Components are keyed by
  * scope (`_shared/` or `editor/<projectKey>/`), so the project, when given, is a
  * request param — there is no session-bound project scope here, exactly like the
- * template route.
+ * template route. `requireOptionalProjectKey` 403s one the user cannot access.
  */
-async function gate(locals: App.Locals): Promise<void> {
+async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
 	if (!locals.user) throw error(401, 'Not authenticated');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
 		throw error(403, 'Your role does not have access to Invisible Editor.');
 	}
+	return locals.user;
 }
 
 /**
@@ -61,14 +63,17 @@ async function gateSharedWrite(locals: App.Locals): Promise<void> {
  * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	await gate(locals);
+	const user = await gate(locals);
 	let body: unknown;
 	try {
 		body = await request.json();
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const projectKey = isRecord(body) && typeof body.project === 'string' ? body.project : undefined;
+	const projectKey = await requireOptionalProjectKey(
+		user,
+		isRecord(body) && typeof body.project === 'string' ? body.project : undefined,
+	);
 	// A `scope:'shared'` def writes the repo-wide `_shared/editor-components/` key —
 	// gate it on `componentPublish` before persisting. A `scope:'project'` save (the
 	// common case) needs only the `editor` tool gate already applied above.
@@ -121,10 +126,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
  * gate; never mutates R2.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
+	const user = await gate(locals);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
-	const projectKey = url.searchParams.get('project') || undefined;
+	const projectKey = await requireOptionalProjectKey(user, url.searchParams.get('project'));
 	if (url.searchParams.get('list') === 'versions') {
 		// Resolve the scope to list history for: explicit `?scope=`, else `project` when a
 		// `?project=` is present (its own history), else the shared library.
@@ -168,10 +173,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 /** Delete a component from its scope's R2 key (project shadow or shared library). */
 export const DELETE: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
+	const user = await gate(locals);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
-	const projectKey = url.searchParams.get('project') || undefined;
+	const projectKey = await requireOptionalProjectKey(user, url.searchParams.get('project'));
 	const scopeParam = url.searchParams.get('scope');
 	const scope =
 		scopeParam === 'shared' || scopeParam === 'project'
