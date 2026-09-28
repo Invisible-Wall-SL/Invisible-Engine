@@ -248,7 +248,9 @@ export interface TestServerGameEntry {
 		 *  `/config` authored rather than its captured Hot Fruits values, and so the symbols only the
 		 *  extended mapping reaches (`PIC8`/`PIC9`/`PIC10`) have a price row at all. A symbol absent
 		 *  here falls back to the mock's own table. Scatter additionally needs it because its pricing
-		 *  is by COUNT, which a run-length table cannot express. See `projectSymbolPaytable`. */
+		 *  is by COUNT, which a run-length table cannot express. See `projectSymbolPaytable`.
+		 *  A `book` game's grid carries ONLY this beyond the required shape, in the book vocabulary
+		 *  (`PIC1`…`PIC4`, `ACE`…`TEN`); the book mock owns its board and ignores the rest. */
 		symbolPaytable?: Record<string, Record<string, number>>;
 		/** `true` when the project declares a multiplier symbol IN PLAY (`special_properties`
 		 *  contains `multiplier`, and it appears on a strip). A cascading scatter game then lands

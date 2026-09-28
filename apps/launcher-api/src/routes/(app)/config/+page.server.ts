@@ -7,7 +7,7 @@ import { listComponents } from '$lib/server/componentStorage';
 import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
-import { fetchServerPaylines } from '$lib/server/rgsConfig';
+import { fetchServerPaylines, projectServerGameKeys } from '$lib/server/rgsConfig';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -74,12 +74,17 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// server manifest — otherwise there's nothing to reach, so skip and let the page fall back to the
 	// saved doc. Best-effort: `fetchServerPaylines` never throws and returns `null` on any failure, so
 	// this can't block or fail the page.
+	//
+	// `serverGameKeys` — every published game whose RGS plays this project's math — only decides
+	// whether the paytable's "Import from server" button is live; the import itself re-resolves them.
 	let serverPaylines: number[][] | null = null;
+	let serverGameKeys: string[] = [];
 	try {
 		const manifest = await loadTestServerManifest();
 		if (manifest.games[projectKey]) {
 			serverPaylines = await fetchServerPaylines(projectKey);
 		}
+		serverGameKeys = await projectServerGameKeys(projectKey, manifest).catch(() => []);
 	} catch {
 		// A manifest read hiccup must never break the config page — keep the saved-doc fallback.
 		serverPaylines = null;
@@ -98,6 +103,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The RGS's real payline set (server-authoritative at runtime), or `null` when the project has
 		// no mock / the RGS was unreachable — the page renders the saved doc's lines in that case.
 		serverPaylines,
+		serverGameKeys,
 		// id/name/category + PARAMS — the dropdown needs id/name/category; the per-mode card-param editor
 		// needs each component's declared params (key/kind/label/group/options/default/engineProvided) so
 		// it can render a typed input per authorable param and write chosen values into `cardParams`. The

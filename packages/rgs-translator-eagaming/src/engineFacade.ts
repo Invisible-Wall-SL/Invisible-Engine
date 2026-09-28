@@ -37,7 +37,7 @@ import {
 	serverBetOptionEntries,
 	type ServerBetOptions,
 } from './betOptions';
-import { readDeclaredPaytable, type DeclaredPayEntry } from './paytable';
+import { readMappedPaytable, type DeclaredPayEntry } from './paytable';
 import { createPlay4FunSessionState, type Play4FunSessionState } from './sessionState';
 import { createPlay4FunFetcher } from './eagamingFetcher';
 import {
@@ -60,7 +60,7 @@ import {
 	engineToPlay4Fun,
 	play4FunToEngine,
 	resolveActiveMapping,
-	linesMapping,
+	pickMappingForConfig,
 	bookMapping,
 	type GameMapping,
 } from './gameMappings';
@@ -72,16 +72,6 @@ import {
  *  event — the most reliable signal, since env exposure differs across build
  *  setups (SvelteKit routes PUBLIC_* through $env, not import.meta.env). */
 let activeMapping: GameMapping = resolveActiveMapping();
-
-/** Detect the right mapping from the server's declared symbol vocabulary.
- *  Book-of games declare royal symbols (ACE/KING/QUEEN); Hot-Fruits-style
- *  lines games declare PIC5-PIC7. Returns null if undecidable. */
-const pickMappingForConfig = (cfg: Play4FunConfigContext): GameMapping | null => {
-	const syms = new Set(cfg.symbols ?? []);
-	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
-	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
-	return null;
-};
 
 // ---------- boot-config capture & defence ----------
 
@@ -138,23 +128,10 @@ type EngineServerConfig = {
 	paytable?: DeclaredPayEntry[];
 };
 
-/** The server's scatter symbols, in ITS vocabulary: `symbolsPay.scatter` when declared, else every
- *  server name the active mapping sends to its scatter. Decides the mode of a mode-less paytable row. */
-const serverScatterSymbols = (cfg: Play4FunConfigContext): string[] => {
-	const declared = (cfg.symbolsPay as { scatter?: unknown } | undefined)?.scatter;
-	if (Array.isArray(declared)) return declared.filter((s): s is string => typeof s === 'string');
-	return Object.keys(activeMapping.symbols).filter(
-		(server) => mapSymbol(activeMapping, server) === activeMapping.scatter,
-	);
-};
-
 const publishServerConfig = (cfg: Play4FunConfigContext): void => {
 	const mapNames = (names: unknown): string[] =>
 		Array.isArray(names) ? [...new Set(names.map((n) => mapSymbol(activeMapping, n)))] : [];
-	const paytable = readDeclaredPaytable(cfg.paytable, serverScatterSymbols(cfg))?.map((entry) => ({
-		...entry,
-		on: { ...entry.on, of: mapSymbol(activeMapping, entry.on.of) },
-	}));
+	const paytable = readMappedPaytable(cfg, activeMapping);
 	(globalThis as { __IE_SERVER_CONFIG__?: EngineServerConfig }).__IE_SERVER_CONFIG__ = {
 		availablePayLines: Array.isArray(cfg.availablePayLines) ? cfg.availablePayLines : [],
 		symbols: mapNames(cfg.symbols),

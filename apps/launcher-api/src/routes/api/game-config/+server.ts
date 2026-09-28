@@ -1,52 +1,30 @@
 import { error, json } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { gameConfigScope, requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import {
 	ConflictError,
 	InvalidGameConfigError,
 	loadGameConfigDocWithEtag,
 	saveGameConfigDoc,
 } from '$lib/server/gameConfigStorage';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { invalidateRuntimeBundle } from '$lib/server/runtimeBundleCache';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
  * Authoring endpoints for the Invisible Game Config (`/config`) doc.
  *
- * Session-gated (logged-in + entitled to the `gameConfig` tool, role + per-user overrides applied)
- * — the SAME entitlement gate the `/config` page uses, NOT the deploy-token gate (that is the
- * sibling `doc` route, for the build-time bake). REST rather than form actions because the client
- * is a rich `$state` doc, mirroring `/api/win-text`.
+ * Session-gated by `requireGameConfigAccess` — the SAME entitlement gate the `/config` page uses,
+ * NOT the deploy-token gate (that is the sibling `doc` route, for the build-time bake). REST rather
+ * than form actions because the client is a rich `$state` doc, mirroring `/api/win-text`.
  *
  * See `docs/design/invisible-game-config.md`.
  */
-async function gate(locals: App.Locals): Promise<void> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'gameConfig', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Game Config.');
-	}
-}
-
-async function resolveScope(
-	project: string | null,
-): Promise<{ clientKey: string; projectKey: string }> {
-	const projectKey = project || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	return { clientKey, projectKey };
-}
-
 /** Read a project's AUTHORED config + its ETag. `doc` is null for a never-authored project — the
  *  page then shows the template default it loaded separately. The ETag is the precondition the
  *  client sends back on save. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
-	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
+	await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await gameConfigScope(url.searchParams.get('project'));
 	try {
 		const { doc, etag } = await loadGameConfigDocWithEtag(clientKey, projectKey);
 		return json({ clientKey, projectKey, doc, etag });
@@ -69,8 +47,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * page can surface a config that renders but lies (an unwinnable advertised payout).
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
-	await gate(locals);
-	const { clientKey, projectKey } = await resolveScope(url.searchParams.get('project'));
+	await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await gameConfigScope(url.searchParams.get('project'));
 	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
 	try {
 		body = await request.json();

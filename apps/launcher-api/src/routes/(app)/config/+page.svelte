@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ColorField from '$lib/ColorField.svelte';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -13,6 +14,8 @@
 		resolveWinModel,
 		resolveCascade,
 		cascadeDefaultFor,
+		formatPayRow,
+		planPaytableImport,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 		SWAP_STYLES,
 		swapStyleUsesColumnStagger,
@@ -21,6 +24,8 @@
 		type BetModeKind,
 		type GameConfigDoc,
 		type GameConfigIssue,
+		type ImportedPaytable,
+		type PaytableImportPlan,
 	} from 'game-config';
 	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
@@ -493,6 +498,63 @@
 			});
 		if (rows.length) doc.symbols[name].paytable = rows;
 		else delete doc.symbols[name].paytable;
+	}
+
+	/**
+	 * "Import from server": read the paytable the published game's RGS declares, review it against
+	 * this page's LIVE doc, and on Apply write only the changed rows into `doc` — dirty like a typed
+	 * edit, saved through the same Save (and ETag guard). Nothing here saves, and the game never adopts
+	 * a server paytable on its own: the boot cross-check only warns.
+	 *
+	 * `$state.raw` because the plan is replaced whole, never mutated, and its rows are copied into
+	 * `doc` on Apply.
+	 */
+	type ServerPaytable = ImportedPaytable & {
+		gameKey: string;
+		gameKeys: string[];
+		mappingDetected: boolean;
+		serverNames: Record<string, string>;
+	};
+	let importOpen = $state(false);
+	let importBusy = $state(false);
+	let importError = $state('');
+	let importSource = $state.raw<ServerPaytable | null>(null);
+	let importPlan = $state.raw<PaytableImportPlan | null>(null);
+	const importChanges = $derived(importPlan?.rows.filter((row) => !row.unchanged) ?? []);
+
+	async function openServerImport(game?: string) {
+		importOpen = true;
+		importBusy = true;
+		importError = '';
+		importSource = null;
+		importPlan = null;
+		const params = new URLSearchParams({ project: data.projectKey });
+		if (game) params.set('game', game);
+		try {
+			const res = await fetch(`/api/game-config/server-paytable?${params}`);
+			const body = (await res.json().catch(() => ({}))) as Partial<ServerPaytable> & {
+				error?: string;
+				message?: string;
+			};
+			if (!res.ok) {
+				importError = body.error ?? body.message ?? `The import failed (HTTP ${res.status}).`;
+				return;
+			}
+			const source = body as ServerPaytable;
+			importSource = source;
+			importPlan = planPaytableImport($state.snapshot(doc).symbols, source);
+		} catch (e) {
+			importError = `Couldn't reach the launcher: ${e instanceof Error ? e.message : String(e)}`;
+		} finally {
+			importBusy = false;
+		}
+	}
+	function applyServerImport() {
+		for (const row of importChanges) {
+			const symbol = doc.symbols[row.symbol];
+			if (symbol) symbol.paytable = row.server.map((r) => ({ ...r }));
+		}
+		importOpen = false;
 	}
 
 	// ── Payline colours ────────────────────────────────────────────────────────────
@@ -1408,6 +1470,19 @@
 				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
 				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>.
 			</p>
+			<div class="server-import">
+				<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
+					Import paytable from server
+				</button>
+				<span class="hint-inline">
+					{#if data.serverGameKeys.length}
+						Reads what <code>{data.serverGameKeys[0]}</code>'s server pays and shows the difference
+						before anything changes.
+					{:else}
+						Publish the game first — there is no game server to read for this project yet.
+					{/if}
+				</span>
+			</div>
 			<div class="grid-wrap">
 				<table class="grid">
 					<thead>
@@ -1927,6 +2002,104 @@
 			</div>
 		</div>
 	{/if}
+
+	<ConfirmDialog
+		open={importOpen}
+		title="Import paytable from server"
+		busy={importBusy}
+		busyLabel="Reading the server's paytable…"
+		blocked={!importChanges.length}
+		error={importError}
+		confirmLabel={importChanges.length
+			? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'}`
+			: 'Nothing to apply'}
+		cancelLabel={importChanges.length ? 'Cancel' : 'Close'}
+		onconfirm={applyServerImport}
+		oncancel={() => (importOpen = false)}
+	>
+		{#snippet body()}
+			{#if importSource && importPlan}
+				<p class="import-note">
+					What <code>{importSource.gameKey}</code>'s server pays per line, against this page's
+					paytable. <strong>Apply</strong> writes the changed rows into the page; nothing is saved
+					until you <strong>Save</strong>.
+				</p>
+				{#if importSource.gameKeys.length > 1}
+					<label>
+						<span>Game server</span>
+						<select
+							value={importSource.gameKey}
+							onchange={(e) => openServerImport(e.currentTarget.value)}
+						>
+							{#each importSource.gameKeys as key (key)}
+								<option value={key}>{key}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
+				{#if !importSource.mappingDetected}
+					<p class="inline-issue warning">
+						The server's symbol names match no known game, so they were read with the lines naming
+						(PIC1 → H1 …). Check the rows below name the symbols you expect.
+					</p>
+				{/if}
+				{#if importPlan.rows.length}
+					<div class="grid-wrap">
+						<table class="grid">
+							<thead>
+								<tr><th>Symbol</th><th>Now</th><th>Server</th></tr>
+							</thead>
+							<tbody>
+								{#each importPlan.rows as row (row.symbol)}
+									{@const serverName = importSource.serverNames[row.symbol]}
+									<tr>
+										<th class="row-head">
+											{row.symbol}
+											{#if serverName && serverName !== row.symbol}
+												<span class="server-name">{serverName}</span>
+											{/if}
+										</th>
+										<td class="pays">{formatPayRow(row.current)}</td>
+										<td class="pays">
+											{#if row.unchanged}
+												<span class="badge in">unchanged</span>
+											{:else}
+												<span class="changed">{formatPayRow(row.server)}</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else}
+					<p class="inline-issue warning">
+						None of the symbols the server prices are in this project's dictionary.
+					</p>
+				{/if}
+				{#if importPlan.skipped.length}
+					<p class="import-note">
+						<strong>Skipped</strong> — not in this project's dictionary, so not added:
+						{#each importPlan.skipped as symbol (symbol)}<code>{symbol}</code>{' '}{/each}
+					</p>
+				{/if}
+				{#if importPlan.undeclared.length}
+					<p class="import-note">
+						<strong>Left as authored</strong> — the server prices no line row for:
+						{#each importPlan.undeclared as symbol (symbol)}<code>{symbol}</code>{' '}{/each}
+					</p>
+				{/if}
+				{#each importPlan.scatter as scatter (scatter.symbol)}
+					<p class="import-note">
+						<strong>Scatter</strong> <code>{scatter.symbol}</code> pays
+						<code>{formatPayRow(scatter.rows)}</code> × total bet on the server —
+						{scatter.matchesShown ? 'the same as' : 'NOT the same as'} the scatter row the info page
+						shows. That row is fixed in the game, not authored here, so it is not imported.
+					</p>
+				{/each}
+			{/if}
+		{/snippet}
+	</ConfirmDialog>
 </div>
 
 <style>
@@ -2517,6 +2690,7 @@
 		width: 240px;
 	}
 	.add button,
+	.server-import button,
 	.modal-actions button,
 	.conflict-actions button {
 		background: #1b2a24;
@@ -2527,9 +2701,38 @@
 		font-size: 12px;
 		cursor: pointer;
 	}
-	.add button:disabled {
+	.add button:disabled,
+	.server-import button:disabled {
 		opacity: 0.4;
 		cursor: default;
+	}
+	.server-import {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 0 0 12px;
+		flex-wrap: wrap;
+	}
+	.hint-inline {
+		font-size: 12px;
+		color: #8b8b98;
+	}
+	.pays {
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+		white-space: nowrap;
+	}
+	.pays .changed {
+		color: #e0b070;
+	}
+	.server-name {
+		margin-left: 6px;
+		font-size: 10px;
+		color: #6f6f7d;
+	}
+	.import-note {
+		margin: 0;
+		font-size: 12px;
 	}
 	.del {
 		background: none;

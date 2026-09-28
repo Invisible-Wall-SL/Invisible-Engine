@@ -169,7 +169,7 @@ const linesGrid = (() => {
 // `grid` is THIS project's own board, from its Game Config — read LIVE by `refreshContract` below,
 // with the manifest entry's copy as the fallback. When present it deals the project's real
 // numReels/numRows/paylines so the mock matches the client that authored e.g. 5 rows; absent ⇒ the
-// shared `linesGrid` default (apps/lines). Book keeps its own shape.
+// shared `linesGrid` default (apps/lines). Book keeps its own shape and takes only the paytable.
 /**
  * Protocols that cascade BY DEFAULT. A `cluster` / `scatter` game IS a tumble game — the cells that
  * paid leave the board and the survivors fall into the gap — so for those the cascade is the
@@ -217,7 +217,9 @@ const cascadeEnabledFor = (gameKey, protocol, authored) => {
 };
 
 const makeMock = (protocol, label, grid, gameKey, cascade) => {
-	if (protocol === 'book') return createBookMock({ label });
+	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
+	// authored line table, so it pays (and declares) what `/config` set rather than its captured one.
+	if (protocol === 'book') return createBookMock({ label, symbolPaytable: grid?.symbolPaytable });
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).

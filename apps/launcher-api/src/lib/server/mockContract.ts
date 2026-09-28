@@ -23,7 +23,12 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import { resolveWinModel, symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
-import { linesMapping, mapSymbol } from 'rgs-translator-eagaming/game-mappings';
+import {
+	bookMapping,
+	linesMapping,
+	mapSymbol,
+	type GameMapping,
+} from 'rgs-translator-eagaming/game-mappings';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { protocolFor } from './mockProtocol';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -156,14 +161,17 @@ function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
  * `WILD` and `SCAT` are both excluded — each is paid by its own pass in the mock (the `wild` field
  * and `evaluateScatters`), and giving the scatter a LINE price row made a scatter run pay twice.
  *
- * In-play gate + client→server translation, same as `projectLineSymbols`.
+ * In-play gate + client→server translation, same as `projectLineSymbols`. `mapping` is the
+ * protocol's vocabulary: `bookMapping` for the book mock (`PIC1`…`PIC4`, `ACE`…`TEN`), the lines
+ * facade's table for everything else.
  */
 function projectSymbolPaytable(
 	doc: GameConfigDoc,
+	mapping: GameMapping,
 ): Record<string, Record<string, number>> | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const out: Record<string, Record<string, number>> = {};
-	for (const server of Object.keys(linesMapping.symbols)) {
+	for (const server of Object.keys(mapping.symbols)) {
 		// NEITHER SPECIAL GETS A LINE PRICE ROW. `WILD` was already excluded because the `wild` field
 		// governs it. `SCAT` has to be excluded for the same reason and was not: the mock pays scatters
 		// through its own `evaluateScatters` pass, and the templates all author a paytable on `S`, so
@@ -173,7 +181,7 @@ function projectSymbolPaytable(
 		// Harmless while only the `scatter` model received this table (that model never runs the payline
 		// evaluator); a real double-pay the moment every model does.
 		if (server === 'WILD' || server === 'SCAT') continue;
-		const client = mapSymbol(linesMapping, server);
+		const client = mapSymbol(mapping, server);
 		if (!inPlay.has(client)) continue;
 		const rows = doc.symbols[client]?.paytable;
 		if (!rows?.length) continue;
@@ -217,9 +225,10 @@ async function projectGrid(
 	// the shared `apps/lines` 5×3 no matter what it authored (the live `test3` drew 8×4 against a 5×3
 	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
 	//
-	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and is
-	// handed no grid at all, so deriving one for it would be dead data.
-	if (protocol === 'book') return undefined;
+	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and
+	// paylines, and reads only `symbolPaytable` — so that is all it gets beyond the shape the test
+	// server's `validGrid` requires. Without it the book mock paid and DECLARED its captured table
+	// whatever `/config` authored, so the info page and the payouts could disagree.
 	try {
 		const doc = await loadGameConfigDoc(clientKey, projectKey);
 		if (!doc) return undefined;
@@ -239,6 +248,11 @@ async function projectGrid(
 		// such a project fall back to the shared lines grid and pay line wins. The mock generates a
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
+		if (protocol === 'book') {
+			// No authored table ⇒ no grid ⇒ the contract is exactly what it was before this existed.
+			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
+			return symbolPaytable ? { reels, rows, paylines, symbolPaytable } : undefined;
+		}
 		if (protocol === 'lines' && !paylines.length) return undefined;
 		const wild = projectWild(doc);
 		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
@@ -270,7 +284,7 @@ async function projectGrid(
 		// newly-mapped symbols (`H5`/`L3`/`L4` → `PIC8`/`PIC9`/`PIC10`) with no price row at all,
 		// since the mock's own table has none for them. Same gap, one fix: the mock prices what the
 		// project authored, and falls back to its own table per-symbol for anything unpriced.
-		const symbolPaytable = projectSymbolPaytable(doc);
+		const symbolPaytable = projectSymbolPaytable(doc, linesMapping);
 		return {
 			reels,
 			rows,
