@@ -563,6 +563,8 @@ left alone.
 - **`--alias`**, because the alias is the partner's and a wrong one is a 404 on their CDN. Derived
   from the repo name when omitted, and the guess is stated rather than assumed.
 - **`--list-profiles` / `--print-env` / `--json` / `--skip-build`** — the seams a UI needs.
+- **`--allow-missing-assets`** — the override for the missing-art refusal: without it, a baked
+  bundle that reports placed or symbol-bound regions/spines resolving to nothing fails the delivery.
 
 ### The button
 

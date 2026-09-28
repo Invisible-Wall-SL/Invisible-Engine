@@ -6,6 +6,7 @@
  *     node engine/scripts/build-delivery.mjs --list-profiles     # for a UI's profile picker
  *     node engine/scripts/build-delivery.mjs --print-env         # env a caller's own build must set
  *     node engine/scripts/build-delivery.mjs --skip-build …      # package a build it already made
+ *     node engine/scripts/build-delivery.mjs --allow-missing-assets …  # ship despite missing art
  *
  * WHY IT LIVES IN THE ENGINE AND TAKES NO SETUP. `scripts/new-game.mjs` writes a repo's scripts
  * ONCE, at scaffold time, and nothing ever refreshes them — the same snapshot problem that had every
@@ -50,7 +51,7 @@ import {
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
-import { isStandaloneGame } from '../packages/config-svelte/appSrc.js';
+import { appSrcDir, isStandaloneGame } from '../packages/config-svelte/appSrc.js';
 import { zipDir } from './zip-dir.mjs';
 
 const arg = (flag, fallback) => {
@@ -162,6 +163,38 @@ const DELIVERY_ENV = {
 /** Package an existing `build/` — the caller ran `pnpm build` with `--print-env`'s variables set.
  *  `build-embed.mjs` still runs, and refuses loudly if that build was not an embed build. */
 const skipBuild = flag('--skip-build');
+
+/** Package a build whose baked bundle reports missing art or spines. Off by default: see
+ *  {@link missingAssets}. */
+const allowMissingAssets = flag('--allow-missing-assets');
+
+/**
+ * What the editor bake reported as referenced-but-not-shipped, read back from the bundle it wrote.
+ *
+ * The bake only WARNS about these (a blank sprite is obvious on screen during authoring), and its
+ * warnings scroll past inside `pnpm build`'s output. A delivery is handed over once, to a partner
+ * who will not be looking at our build log, so here the same report is a refusal. Read from the
+ * written bundle rather than re-derived, so it is exactly what the game will warn about at boot, and
+ * so `--skip-build` checks the build it is actually packaging. A repo with no baked doc (the bake
+ * did not run) has nothing to check.
+ */
+const missingAssets = () => {
+	const bundlePath = resolve(appSrcDir(), 'baked-editor-bundle.json');
+	if (!existsSync(bundlePath)) return [];
+	const bundle = readJson(bundlePath);
+	const list = (value) => (Array.isArray(value) ? value : []);
+	return [
+		['placed region(s) in no shipped atlas', list(bundle.editorArt?.missing)],
+		['placed spine bundle(s) that resolved to nothing', list(bundle.editorArt?.spinesMissing)],
+		['bound symbol frame(s) in no shipped atlas', list(bundle.symbols?.index?.missing)],
+		[
+			'bound symbol spine bundle(s) that resolved to nothing',
+			list(bundle.symbols?.index?.spinesMissing),
+		],
+	]
+		.filter(([, keys]) => keys.length)
+		.map(([what, keys]) => ({ what, keys }));
+};
 
 if (flag('--print-env')) {
 	console.log(JSON.stringify(DELIVERY_ENV, null, 2));
@@ -461,6 +494,21 @@ try {
 		run('pnpm', ['build'], DELIVERY_ENV);
 	}
 
+	const missing = missingAssets();
+	if (missing.length) {
+		const detail = missing
+			.map(({ what, keys }) => `  ${keys.length} ${what}: ${keys.join(', ')}`)
+			.join('\n');
+		if (!allowMissingAssets) {
+			throw new Error(
+				`The baked game references art that will not ship:\n${detail}\n` +
+					'Re-pick or re-pack them in the editor and rebuild, or pass --allow-missing-assets to ' +
+					'deliver anyway.',
+			);
+		}
+		console.warn(`\n⚠ Delivering with missing art (--allow-missing-assets):\n${detail}\n`);
+	}
+
 	// `process.execPath`, no shell: the same Node that is running this, spawned directly, so an
 	// engine path containing spaces is never handed to a command-line parser at all.
 	run(
@@ -636,6 +684,7 @@ try {
 						paths: stripped.map((file) => relative(final, file).split(sep).join('/')),
 					},
 					hostPage: hostPagePath,
+					missingAssets: missing,
 					endpoint,
 					fileCount,
 					bytes,

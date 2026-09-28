@@ -491,6 +491,22 @@
 						'Open Invisible Flow and save to give it the starter flow.',
 				};
 			}
+			const spinesMissing = out?.spinesMissing as
+				| { scene: string[]; symbols: string[] }
+				| undefined;
+			const strandedSpines = [
+				...new Set([...(spinesMissing?.scene ?? []), ...(spinesMissing?.symbols ?? [])]),
+			];
+			if (strandedSpines.length) {
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						`⚠ ${strandedSpines.length} spine bundle${strandedSpines.length === 1 ? '' : 's'} ` +
+						`resolved to nothing and will be missing in-game: ${strandedSpines.join(', ')}. ` +
+						'Re-pick the rig in the Scene Editor or Invisible Symbols.',
+				};
+			}
 			// Reload so the project row shows the new play URL + "published" state.
 			await invalidateAll();
 		} catch (e) {

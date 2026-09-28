@@ -101,8 +101,9 @@ project's library.
 - **Both bundle assemblies** carry it: `bake-editor-doc.mjs` (offline freeze) and `runtimeBundle.ts`
   (live Game Maker path, via `ensureDeployExports` — which `publishGame` also calls, so a publish
   gets sounds with no further change).
-- **`pull-project-assets.mjs`** gained `sounds` in `GENERATED_SUBTREES`, so a removed sound is
-  pruned from the mirror rather than lingering.
+- **`pull-project-assets.mjs`** mirrors `sounds/` and, since 2026-09-28, prunes it too (`sounds`
+  in `GENERATED_SUBTREES`), so a removed or renamed sound no longer lingers in a desktop/delivery
+  build. Until then this line claimed the prune existed; it did not (see Recent changes).
 - **`bakedSounds.ts`** (engine-layout, beside `bakedFonts.ts`) turns the catalog into one BANK per
   file, appended AFTER the shipped audiosprite so a project sound of the same name overrides it.
   `EnableSound.svelte` is the seam.
@@ -233,6 +234,15 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 - _None._
 
 ## Recent changes
+
+- 2026-09-28 — **A removed or renamed sound no longer ships in desktop/delivery builds.** This file
+  said twice that `pull-project-assets.mjs` had `sounds` in `GENERATED_SUBTREES`; `git log -S`
+  shows it never did, so the pull mirrored `deploy/sounds/` but never converged the local copy on
+  it and every superseded file stayed in `static/assets/sounds/` and shipped. Added, and verified
+  against a mock `/api/deploy`: with the origin/main script two stale sounds survive a pull; with
+  this one they are pruned, the current sound and `index.json` stay, and the committed
+  `audio/` audiosprite is untouched (no game commits into `sounds/`, so the subtree is wholly
+  export-owned). Online games were never affected: they read `deploy/` directly.
 
 - 2026-09-28 (security) — **`/api/sounds` and `/api/sounds/file` refuse a project the caller cannot
   access.** Both resolved any `?project=` once the role had `sound`, so a caller could overwrite
@@ -649,7 +659,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   bake → pull → register. Design step S4. `soundExport.ts` copies each entry's file into
   `deploy/sounds/` and writes `index.json`; `/api/editor/export-sounds` triggers it on the
   deploy-token gate; **both** bundle assemblies embed the catalog; `pull-project-assets.mjs` mirrors
-  and prunes the subtree; `bakedSounds.ts` turns the catalog into banks and `EnableSound.svelte`
+  the subtree (the prune this entry originally claimed only landed on 2026-09-28); `bakedSounds.ts` turns the catalog into banks and `EnableSound.svelte`
   appends them after the shipped audiosprite.
 
   **What ships is stripped.** `SoundCatalog` carries only `name`/`file`/`durationMs`/`volume`/`loop`.

@@ -51,6 +51,20 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Recent changes
 
+### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
+- **Stranded symbol spines are reported** (`SymbolExportIndex.spinesMissing`, twin of
+  `EditorArtIndex.spinesMissing`) — bake warning, publish log, boot warning. Detail in
+  [symbols.md](symbols.md).
+- **The online publish now tells the author, not just the server log.** `PublishResult` gained
+  `spinesMissing: { scene, symbols }` and the Game Maker appends a ⚠ note listing them after a
+  publish. Previously both reports reached only `console.warn` on the server.
+- **`POST /api/editor/export-boot`** (deploy-token gate, like the other `export-*` routes) runs
+  `exportBootSplashes`, and `bake-editor-doc.mjs` calls it before the pull. The boot splash was
+  exported only inside `ensureDeployExports` (online path), so a desktop/delivery build shipped
+  whatever `_boot/` the last online publish had left, or nothing. Best-effort in the bake: a
+  launcher without the route answers 404 and a broken splash never blocks a build.
+- **`pull-project-assets.mjs` prunes `sounds/`** — detail in [sound.md](sound.md).
+
 ### 2026-09-28 — access checks tightened on six more launcher surfaces
 One pass over the remaining launcher routes that decided access from a login alone, or from
 something the request named. The pure decisions live in `$lib/accessRules.ts` so the fixture can

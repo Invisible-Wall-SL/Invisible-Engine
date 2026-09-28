@@ -55,6 +55,7 @@ import {
 } from './symbolsStorage';
 import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
+import { parseSpineBundleKey } from '$lib/spineBundleKey';
 
 /**
  * How many spine bundles this export copies at once — the symbols twin of
@@ -121,6 +122,12 @@ export interface SymbolExportIndex {
 	 *  (the dangling-binding guard) so a re-authored atlas that dropped/renamed a
 	 *  bound frame is caught at publish instead of silently in-game. */
 	missing: string[];
+	/** Spine `assetKey`s the symbols doc binds (cells, highlight, board glow, anticipation, rig
+	 *  layers) that name an R2 bundle prefix which resolved to nothing — a bundle since
+	 *  renamed/deleted, or one under another project's prefix. The spine half of `missing`, and
+	 *  the twin of `EditorArtIndex.spinesMissing`: the export ships nothing while the doc keeps
+	 *  the prefix as its lookup key, so the symbol is simply absent in-game. */
+	spinesMissing: string[];
 }
 
 /** The global win-frame highlight, passed through to the bundle so the game can
@@ -656,6 +663,7 @@ export async function exportEditorSymbols(
 	// `PIXI.Assets.load` can parse it), preserving page names so the atlas refs resolve
 	// once mirrored. Dedup by assetKey (W.win + W.land share one bundle → copy once).
 	const spines: SymbolSpine[] = [];
+	const spinesMissing: string[] = [];
 	const exportedSpines = new Set<string>();
 	const skeletonIndex = await phase('spines:index', async () =>
 		refs.spineKeys.size > 0 ? loadSkeletonIndexWithShared(clientKey, projectKey) : [],
@@ -695,7 +703,12 @@ export async function exportEditorSymbols(
 				// under `editor-symbols/<rig>/`. Undefined ⇒ the old per-bundle copy (parity).
 				pageStore: opts?.pageStore,
 			});
-			if (!result) return;
+			if (!result) {
+				// Only a key that ADDRESSES a bundle is reportable — the same rule the editor-art
+				// guard applies, so a coded key the game registers itself is never a false alarm.
+				if (parseSpineBundleKey(assetKey)) spinesMissing.push(assetKey);
+				return;
+			}
 			for (const k of result.written) written.add(k);
 			spines.push(result.entry);
 		});
@@ -741,6 +754,7 @@ export async function exportEditorSymbols(
 		spines: [...spines].sort((a, b) => a.key.localeCompare(b.key)),
 		collisions,
 		missing,
+		spinesMissing: spinesMissing.sort(),
 	};
 	const indexKey = `${symbolsPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
