@@ -212,6 +212,8 @@ type BakedBundle = {
 			/** Bound sprite-frame names no exported sheet packs — they render blank
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
+			/** Bound spine `assetKey`s that resolved to no R2 bundle. Same guard, spine half. */
+			spinesMissing?: string[];
 		};
 		/** Symbol DISPLAY NAMES (Invisible Symbols State Machine output) — the human word the game
 		 * says for an id (`H1` → "Banana"), singular + plural. Pure text, no asset. Invisible Win
@@ -590,7 +592,8 @@ function warnMissingAssets(source: BakedBundle): void {
 	const art = source.editorArt?.missing ?? [];
 	const spine = source.editorArt?.spinesMissing ?? [];
 	const sym = source.symbols?.index?.missing ?? [];
-	if (art.length === 0 && spine.length === 0 && sym.length === 0) return;
+	const symSpine = source.symbols?.index?.spinesMissing ?? [];
+	if (art.length === 0 && spine.length === 0 && sym.length === 0 && symSpine.length === 0) return;
 	warnedMissingAssets = true;
 	if (art.length) {
 		console.warn(
@@ -609,6 +612,12 @@ function warnMissingAssets(source: BakedBundle): void {
 		console.warn(
 			`[invisible] ${sym.length} bound symbol frame(s) are in NO shipped atlas and will render blank: ` +
 				`${sym.join(', ')}. Re-pack the atlas so it contains them, or re-bind the symbol.`,
+		);
+	}
+	if (symSpine.length) {
+		console.warn(
+			`[invisible] ${symSpine.length} bound symbol spine bundle(s) shipped with NO files and will ` +
+				`be missing: ${symSpine.join(', ')}. Re-bind the symbol, or promote the rig to the shared library.`,
 		);
 	}
 }

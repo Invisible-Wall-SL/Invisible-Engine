@@ -607,39 +607,28 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Open items / next
 
-1. **`symbolExport` still drops an unresolvable spine in silence** (`symbolExport.ts`, the
-   `if (!result) continue` after `exportSpineBundle`). The editor-art side grew a report for
-   exactly this on 2026-09-18 — `EditorArtIndex.spinesMissing`, warned by the CLI bake, the
-   online publish and the game at boot ([launcher status](./launcher.md)) — after a shared
-   component pinned to another project's prefix shipped a missing free-spin cage with nothing
-   said between authoring and the browser console. Symbol cells, `highlight`, `boardGlow`,
-   `anticipation.spineKey` and rig layers all feed the SAME helper and still have no such
-   report, so a rebound symbol whose bundle was renamed or deleted ships as nothing. Same asset
-   class, same rule 8; reuse `parseSpineBundleKey` / `staticSpineKeyIsReachable`
-   (`$lib/spineBundleKey.ts`) so the false-alarm rules stay identical.
-
-2. **S5 — prove end-to-end.** Keep symbol frame names unique across bound sheets, verify the
+1. **S5 — prove end-to-end.** Keep symbol frame names unique across bound sheets, verify the
    shared-spine fallback, then actually rebind a symbol online → tokened rebuild → republish →
    confirm the new asset/animation in-game.
-3. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/spine`)
+2. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/spine`)
    — a user holding **only** the `symbols` tool gets a 403 on previews. Default roles hold
    both, so it only bites a narrowly-scoped role.
-4. **Default-art cells render as placeholder chips until project assets are seeded into R2**
+3. **Default-art cells render as placeholder chips until project assets are seeded into R2**
    (sprites under `sheets/`/`manifests/`, spines under `spines/`). Spine _default_ cells stay
    chips regardless — only a rebind stores a full bundle prefix that previews.
-5. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
+4. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
    (see the four-surfaces model in `docs/status/README.md`).
-6. **`bookVfx` + `transition` can carry a `blendMode` but no control offers one.** Cell layers
+5. **`bookVfx` + `transition` can carry a `blendMode` but no control offers one.** Cell layers
    put the field on the SHARED layer schema (deliberately — one shape, one renderer), so the two
    older layer consumers accept, persist, sign and render a mode today; only their panels never ask
    for one. Adding two `<select>`s gated on `canBlendLayerKind` is the whole job.
-7. **Cell layers are not composited in any preview.** The grid says `+N layers`; the panel previews
+6. **Cell layers are not composited in any preview.** The grid says `+N layers`; the panel previews
    each layer alone; no blend result is shown anywhere. The blocker is the grid's ONE shared WebGL
    canvas (a context-count limit) — a faithful composite of a spine base with a blended sprite over
    it is not available there. A panel-only DOM composite (sprite/flipbook layers over a sprite base,
    CSS `mix-blend-mode`) IS achievable and is the obvious next increment; it would still not cover a
    spine base.
-8. **A stacked picture's `art`/`winArt` reuses `symbolCellSchema`, so it now ACCEPTS `layers`** —
+7. **A stacked picture's `art`/`winArt` reuses `symbolCellSchema`, so it now ACCEPTS `layers`** —
    but nothing authors them there and `stackedArt()` strips them at export, so they would not ship.
    Either wire them through or narrow that schema; today it is a silent no-op, not a bug.
 
@@ -649,6 +638,18 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-09-28 — **A symbol spine that resolves to nothing is now reported instead of shipping as
+  nothing.** `symbolExport.ts` returned in silence when `exportSpineBundle` found no bundle, so a
+  cell, `highlight`, `boardGlow`, `anticipation.spineKey` or rig layer bound to a renamed/deleted
+  bundle (or one under another project's prefix) exported nothing while the doc kept the key.
+  `SymbolExportIndex.spinesMissing` now carries every such key, filtered by the same
+  `parseSpineBundleKey` rule as `EditorArtIndex.spinesMissing` so a coded key the game registers
+  itself is never a false alarm. Surfaced everywhere the editor-art report is: the CLI bake
+  (`⚠ bake-doc: … bound symbol spine bundle(s) …`), the online publish (server log AND the Game
+  Maker's post-publish note, via `PublishResult.spinesMissing`), `warnMissingAssets` at game boot,
+  and `build-delivery.mjs`, which now refuses a delivery with any of these (see
+  [engine status](./engine.md)).
 
 - 2026-09-28 — **A manual Save asks before overwriting a colleague's newer save again.** The Save button was bound `onclick={save}` where `save(force = false)`, so the click event arrived as a truthy `force`: the transport sent `force` instead of the base ETag, `writeGuard` skipped its conflict check, and every manual Save was an unconditional overwrite. Now `onclick={() => save()}`. Same fix in /fx and /localization (one change). New guard `pnpm --filter launcher-api check:event-bound-flags` (wired into the Lint workflow's *launcher gates hold* step) fails on any function whose first parameter is a boolean bound straight to an `on…` attribute or `addEventListener`; it carries a self-test so a regex drift fails loudly, and it flags all three pre-fix pages. Verified by running the real `SaveState` (Svelte-compiled) against a stub server holding a newer ETag: the old binding sent `{force:true}` with no prompt, the new one sends the stale `baseEtag`, gets the conflict and reaches the overwrite prompt; the three pages compile to `(event, save) => save()`. Not driven in a browser (the tools are auth + Postgres + R2 gated). **SHIPPED 2026-09-28** — merged as `3354b50e` (#821); verified live by reading the served client chunks for all three pages: before the deploy each Save button compiled to a direct `__click=<save>`, after it to the wrapped `__click=[handler, <save>]`.
 - 2026-09-28 (security) — **`/api/editor/symbols` refuses a project the caller cannot access.** It

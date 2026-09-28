@@ -660,6 +660,7 @@ async function main() {
 					collisions: Array.isArray(s?.index?.collisions) ? s.index.collisions : [],
 					// Bound frames no shipped atlas packs — carried so the game warns at boot.
 					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
+					spinesMissing: Array.isArray(s?.index?.spinesMissing) ? s.index.spinesMissing : [],
 				},
 				names,
 				symbolSounds,
@@ -685,6 +686,14 @@ async function main() {
 					`⚠ bake-doc: ${symMissing.length} bound symbol frame(s) are in NO shipped atlas and will ` +
 						`render BLANK in-game: ${symMissing.join(', ')}. Re-pack the atlas so it contains them, ` +
 						'or re-bind the symbol in the Invisible Symbols State Machine.',
+				);
+			}
+			if (symbols.index.spinesMissing.length) {
+				console.warn(
+					`⚠ bake-doc: ${symbols.index.spinesMissing.length} bound symbol spine bundle(s) resolved ` +
+						`to NOTHING and will be MISSING in-game: ${symbols.index.spinesMissing.join(', ')}. ` +
+						'The bundle was renamed/deleted or lives under another project — re-bind the symbol ' +
+						'in Invisible Symbols, or promote the rig to the shared library.',
 				);
 			}
 			// Loud (non-fatal) warning when a bound frame name lives in two sheets.
@@ -771,6 +780,32 @@ async function main() {
 			if (err instanceof BakeBail) throw err;
 			bail(
 				`Could not reach ${base}/api/editor/export-flow — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
+	// Boot splash — refresh `deploy/_boot/` (both splash bundles + `boot.json`) so the deploy
+	// mirror that runs next carries the CURRENT splash. Nothing is embedded: the splash paints
+	// before the bundle is read and fetches `assets/_boot/boot.json` itself. Best-effort for the
+	// cinematic reason (a launcher that predates the endpoint answers 404) and for the splash's
+	// own rule — a broken boot logo must never block a build.
+	const bootUrl =
+		`${base}/api/editor/export-boot?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the boot splash export — it writes to R2 deploy/.');
+	} else
+		try {
+			const res = await fetchRetry(bootUrl, { method: 'POST' }, 'boot splash export');
+			if (res.ok) {
+				const b = await res.json();
+				const tiers = ['engine', 'game'].filter((t) => b?.index?.[t]);
+				console.info(`  boot splash: ${tiers.length ? tiers.join(' + ') : 'none configured'}`);
+			} else if (res.status !== 404) {
+				console.warn(`  boot splash export returned HTTP ${res.status} — continuing without it.`);
+			}
+		} catch (err) {
+			console.warn(
+				`  could not reach ${base}/api/editor/export-boot — continuing without it (${err instanceof Error ? err.message : err}).`,
 			);
 		}
 

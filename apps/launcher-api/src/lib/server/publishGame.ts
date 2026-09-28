@@ -45,6 +45,10 @@ export interface PublishResult {
 	/** What this publish shipped, flow-wise. `absent` = no stored flow, so the game runs without
 	 *  the flow's screens (free-spin intro/outro); `overridden` = shipped despite validation errors. */
 	flow: FlowPublishCheck['status'] | 'overridden';
+	/** Spine bundles the scene or the symbols doc references that resolved to nothing, so they
+	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
+	 *  Never blocking — shown next to the publish so the author re-binds them. */
+	spinesMissing: { scene: string[]; symbols: string[] };
 }
 
 /**
@@ -160,13 +164,23 @@ export async function publishGame(
 	// was the browser console at boot, right next to the throw it was meant to pre-empt. Logged,
 	// not thrown: a missing spine is visible on screen like a blank sprite, so it warns the way
 	// the region guard does rather than blocking a publish on legacy data.
-	const spinesMissing = exports.editorArt.spinesMissing ?? [];
-	if (spinesMissing.length > 0) {
+	const spinesMissing = {
+		scene: exports.editorArt.spinesMissing ?? [],
+		symbols: exports.symbols.index.spinesMissing ?? [],
+	};
+	if (spinesMissing.scene.length > 0) {
 		console.warn(
-			`[publish] ${projectKey}: ${spinesMissing.length} placed spine bundle(s) resolved to ` +
-				`NOTHING and will be MISSING in-game: ${spinesMissing.join(', ')}. A bundle under ` +
+			`[publish] ${projectKey}: ${spinesMissing.scene.length} placed spine bundle(s) resolved to ` +
+				`NOTHING and will be MISSING in-game: ${spinesMissing.scene.join(', ')}. A bundle under ` +
 				"another project's prefix is not exported into this game — re-pick the rig from this " +
 				'project, or promote it to the shared library (/admin → Spines).',
+		);
+	}
+	if (spinesMissing.symbols.length > 0) {
+		console.warn(
+			`[publish] ${projectKey}: ${spinesMissing.symbols.length} bound symbol spine bundle(s) ` +
+				`resolved to NOTHING and will be MISSING in-game: ${spinesMissing.symbols.join(', ')}. ` +
+				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
 		);
 	}
 	// A bundle assembled moments before this publish landed would keep being served for the
@@ -259,5 +273,6 @@ export async function publishGame(
 		playUrl: url,
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
+		spinesMissing,
 	};
 }

@@ -99,6 +99,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-09-28 — **Publish lists spine bundles that will be missing in-game.** The publish response carries `spinesMissing: { scene, symbols }` (scene-placed and symbol-bound bundles that resolved to nothing) and the post-publish note shows them with a ⚠, next to the licence and flow notes. Never blocking, like the region guard. Detail in [symbols.md](symbols.md).
 - 2026-09-28 — **Publish refuses a flow with validation errors** (admin override; bulk skips it), and warns (`flow: 'absent'`) when a project has no saved flow. Create/Duplicate now scaffold `editor/flow-v2.json`. Full write-up in [flow.md](flow.md).
 - 2026-09-28 (security) — **Publish accepts only a project the publisher can access.**
   `POST /api/game-maker/publish` and the desktop launcher's `POST /api/launcher/register-game`

@@ -234,6 +234,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-09-28 — **A delivery refuses to package a game whose baked bundle names art that will not
+  ship.** The bake reports placed regions / spines and bound symbol frames / spines that resolved
+  to nothing, but only as warnings buried in `pnpm build` output, and a delivery is handed over
+  once. `build-delivery.mjs` now reads those four lists back from the written
+  `baked-editor-bundle.json` (so `--skip-build` checks the build it is actually packaging) and
+  fails with each list named; `--allow-missing-assets` ships anyway with the lists printed, and
+  `--json` carries them as `missingAssets` either way. Verified from a scratch game repo with
+  `--skip-build`: refused with all three seeded lists named and `ok:false` in the result file;
+  with the flag it warns and continues into `build-embed.mjs`. Same change, bake side: the boot
+  splash (`_boot/`) now exports on the offline path too (`/api/editor/export-boot`, see
+  [launcher status](./launcher.md)), so a desktop/delivery build carries the current splash.
+
 - 2026-09-28 — **#807 (coded free-spin intro/outro/book-reveal retired) and #810 (press-after-arm, two-stage outro tap) checked live on the published runtime games.** Played on a real 60 fps clock (headless shell over a CDP pipe, `&flowlog=1`).
   - **`bookofborutremake` passes:** the intro draws, holds, and releases on a tap after its prompt arms. The book reveal runs. The outro counts up, tap 1 lands the total and still holds, tap 2 dismisses, and the game returns to idle credited.
   - **test2–test5** still bind the retired `FreeSpinIntro`/`FreeSpinOutro` composers with the old starter flow, so they get no intro/outro and no hold (seen live on test4).
