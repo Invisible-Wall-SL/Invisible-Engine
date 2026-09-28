@@ -10,6 +10,15 @@
 // The regression auto-released to every online game and killed the first free spin of every
 // Book-of round with `ReferenceError: linePay is not defined`. `tsc` reports it instantly.
 //
+// `.svelte` FILES TOO. The same bug blanked the shared runtime's reels twice more, both times in a
+// component: #549 (`rigBeatKey()` called in an `{#each}` KEY in the markup, never imported) and
+// #567 (`getContextSpineLoadScale()` called in a `<script>`, never imported). The Svelte compiler
+// reads a bare unknown identifier as a global, so the build stays green and the throw happens at
+// mount. Each component is converted with `svelte2tsx` — the transform `svelte-check` itself uses —
+// which turns the script AND every template expression into plain TypeScript, so a name used only
+// in the markup is checked as well. Hits are mapped back to the `.svelte` line through the
+// transform's source map.
+//
 // SCOPE, deliberately narrow. This is NOT a full type-check: it runs `tsc --noResolve` and reports
 // only the "this name does not exist" family —
 //
@@ -28,16 +37,28 @@
 // measured debt that would have to be fixed or baselined first.
 //
 // AMBIENT NAMES: `--noResolve` also means nothing pulls in the declarations for globals, so the
-// program is seeded with the repo's own `.d.ts` files (they declare `__IE_DEBUG__`) plus Svelte's
-// real rune declarations. Using Svelte's own file rather than a hand-written shim is the point — a
-// typo'd rune (`$stat`) is exactly what this should catch, and a shim would declare it away.
+// program is seeded with the repo's own `.d.ts` files (they declare `__IE_DEBUG__`), Svelte's real
+// rune declarations, and svelte2tsx's shims (the `__sveltets_*` helpers and `svelteHTML` its output
+// calls). Using Svelte's own file rather than a hand-written shim is the point — a typo'd rune
+// (`$stat`) is exactly what this should catch, and a shim would declare it away.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
+import { svelte2tsx } from 'svelte2tsx';
 
 // fileURLToPath, not `new URL(...).pathname` — this repo's path contains spaces, which stay
 // percent-encoded in `pathname`, so the walk silently finds nothing and the check passes vacuously.
@@ -62,40 +83,78 @@ const CODES = new Set(['TS2304', 'TS2552', 'TS18004']);
 /** tsc emits native separators; tsconfig and the rest of this repo talk in POSIX paths. */
 const posix = (value) => value.split(sep).join('/');
 
-function collect(dir, out) {
+function collect(dir, ts, svelte) {
 	for (const entry of readdirSync(dir)) {
 		if (SKIP_DIRS.has(entry)) continue;
 		const full = join(dir, entry);
-		if (statSync(full).isDirectory()) collect(full, out);
-		else if (entry.endsWith('.ts')) out.push(full);
+		if (statSync(full).isDirectory()) collect(full, ts, svelte);
+		else if (entry.endsWith('.ts')) ts.push(full);
+		else if (entry.endsWith('.svelte')) svelte.push(full);
 	}
 }
 
-const files = [];
+const tsFiles = [];
+const svelteFiles = [];
 for (const root of ROOTS) {
 	const dir = join(ROOT, root);
-	if (existsSync(dir)) collect(dir, files);
+	if (existsSync(dir)) collect(dir, tsFiles, svelteFiles);
 }
-if (files.length === 0) {
-	console.error('check-undefined-names: found no TypeScript files — the walk is broken.');
+if (tsFiles.length === 0 || svelteFiles.length === 0) {
+	console.error('check-undefined-names: found no TypeScript or Svelte files — the walk is broken.');
 	process.exit(1);
 }
 
-const tsc = createRequire(join(ROOT, 'package.json')).resolve('typescript/lib/tsc.js');
+const rootRequire = createRequire(join(ROOT, 'package.json'));
+const tsc = rootRequire.resolve('typescript/lib/tsc.js');
 
-// Svelte's own rune declarations. Resolved from a workspace that depends on Svelte rather than from
-// the root, because pnpm does not hoist a workspace dependency into the root `node_modules`.
-const sveltePkg = createRequire(join(ROOT, 'apps/lines/package.json')).resolve(
-	'svelte/package.json',
-);
-const svelteRunes = join(dirname(sveltePkg), 'types', 'index.d.ts');
-if (!existsSync(svelteRunes)) {
-	console.error(`check-undefined-names: no Svelte rune declarations at ${svelteRunes}.`);
-	console.error('Without them every `$state`/`$derived`/`$effect` would report as undefined.');
-	process.exit(1);
+const svelteDir = dirname(rootRequire.resolve('svelte/package.json'));
+const svelteVersion = JSON.parse(readFileSync(join(svelteDir, 'package.json'), 'utf8')).version;
+const svelteRunes = join(svelteDir, 'types', 'index.d.ts');
+const s2tDir = dirname(rootRequire.resolve('svelte2tsx/package.json'));
+const ambient = [
+	svelteRunes,
+	join(s2tDir, 'svelte-shims-v4.d.ts'),
+	join(s2tDir, 'svelte-jsx-v4.d.ts'),
+];
+for (const file of ambient) {
+	if (!existsSync(file)) {
+		console.error(`check-undefined-names: missing ambient declarations at ${file}.`);
+		console.error('Without them every rune and every svelte2tsx helper would report as undefined.');
+		process.exit(1);
+	}
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'undef-names-'));
+
+/** Converted component path → { source, map } so a hit is reported at its `.svelte` line. */
+const converted = new Map();
+const unconvertible = [];
+for (const file of svelteFiles) {
+	const rel = relative(ROOT, file);
+	let result;
+	try {
+		result = svelte2tsx(readFileSync(file, 'utf8'), {
+			filename: file,
+			isTsFile: true,
+			mode: 'ts',
+			version: svelteVersion,
+		});
+	} catch (error) {
+		unconvertible.push(`  ${posix(rel)} — ${error.message.split('\n')[0]}`);
+		continue;
+	}
+	const out = join(tmp, `${rel}.ts`);
+	mkdirSync(dirname(out), { recursive: true });
+	writeFileSync(out, result.code);
+	converted.set(resolve(out), { source: posix(rel), map: new TraceMap(result.map) });
+}
+if (unconvertible.length > 0) {
+	rmSync(tmp, { recursive: true, force: true });
+	console.error(`✗ ${unconvertible.length} component(s) svelte2tsx could not convert:`);
+	for (const line of unconvertible) console.error(line);
+	process.exit(1);
+}
+
 const configPath = join(tmp, 'tsconfig.json');
 writeFileSync(
 	configPath,
@@ -109,20 +168,20 @@ writeFileSync(
 			module: 'esnext',
 			moduleResolution: 'bundler',
 		},
-		files: [svelteRunes, ...files].map(posix),
+		files: [...ambient, ...tsFiles, ...converted.keys()].map(posix),
 	}),
 );
 
-// `--max-old-space-size`: checking ~850 files in one program needs more than Node's default heap,
+// `--max-old-space-size`: checking ~2000 files in one program needs more than Node's default heap,
 // and a compiler that dies mid-run prints nothing this parser recognises. The first version of this
 // script had exactly that failure — tsc OOM'd, the filter found no diagnostics, and it reported a
 // clean pass while missing the very regression it was written for. Hence the heap, and the
 // exit-status check below: an unfinished check must never look like a passing one.
-const run = spawnSync(process.execPath, ['--max-old-space-size=8192', tsc, '-p', configPath], {
-	cwd: ROOT,
-	encoding: 'utf8',
-	maxBuffer: 64 * 1024 * 1024,
-});
+const run = spawnSync(
+	process.execPath,
+	['--max-old-space-size=8192', tsc, '-p', configPath, '--pretty', 'false'],
+	{ cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+);
 rmSync(tmp, { recursive: true, force: true });
 
 const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
@@ -139,19 +198,37 @@ if (![0, 1, 2].includes(run.status)) {
 	process.exit(1);
 }
 
-// Only OUR files: `--noResolve` still parses the Svelte declaration file, whose own unresolved
-// imports are noise this check does not own.
-const hits = output.split(/\r?\n/).filter((line) => {
-	const match = /error (TS\d+):/.exec(line);
-	return match && CODES.has(match[1]) && !line.includes('node_modules');
-});
+/** A converted component's hit, rewritten to name the `.svelte` file and its original line. */
+function toSource(line) {
+	const match = /^(.+?)\((\d+),(\d+)\): (.*)$/.exec(line);
+	if (!match) return line;
+	const entry = converted.get(resolve(ROOT, match[1]));
+	if (!entry) return line;
+	const pos = originalPositionFor(entry.map, {
+		line: Number(match[2]),
+		column: Number(match[3]) - 1,
+	});
+	const where = pos.line == null ? '?' : `${pos.line},${pos.column + 1}`;
+	return `${entry.source}(${where}): ${match[4]}`;
+}
 
+// Only OUR files: `--noResolve` still parses the Svelte and svelte2tsx declaration files, whose own
+// unresolved imports are noise this check does not own.
+const hits = output
+	.split(/\r?\n/)
+	.filter((line) => {
+		const match = /error (TS\d+):/.exec(line);
+		return match && CODES.has(match[1]) && !line.includes('node_modules');
+	})
+	.map(toSource);
+
+const scanned = `${tsFiles.length} TypeScript + ${converted.size} Svelte files`;
 if (hits.length === 0) {
-	console.log(`✓ no undefined identifiers in ${files.length} TypeScript files`);
+	console.log(`✓ no undefined identifiers in ${scanned}`);
 	process.exit(0);
 }
 
-console.error(`✗ ${hits.length} undefined identifier(s) — these throw at RUNTIME, not at build:`);
+console.error(`✗ ${hits.length} undefined identifier(s) in ${scanned} — these throw at RUNTIME:`);
 console.error('');
 for (const hit of hits) console.error(`  ${posix(hit)}`);
 console.error('');
