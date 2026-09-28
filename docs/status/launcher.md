@@ -105,6 +105,15 @@ session ended, while the layout's selector already showed `cloud`.
   each fails by name.
 - svelte-check `--workspace apps/launcher-api`: COMPLETED, 2975 files, 65 errors — identical to
   `main`, none in a changed file.
+- **Live (#818, `14a5ec14`; Railway deployment success 15:21:46 UTC).** The running build is the
+  merge commit: the signed-out `/editor` shell loads `boot-splash.js?v=14a5ec140b42`, and that
+  `BUILD_ID` is `RAILWAY_GIT_COMMIT_SHA`. Every touched route boots and refuses a signed-out caller
+  as before: `/spine/skeletons`, `/spine/file`, `/api/editor/assets`, `/api/editor/regions` and
+  `/api/files/list` all return `401 Not authenticated`. The `editor`, `localization` and `symbols`
+  data loads return `redirect → /login`, and `/api/health` is 200. **Not probed live:** the
+  revocation itself. That needs a signed-in non-admin session whose grant an admin removes and
+  restores, and the browser pane here holds no launcher sign-in. It is pinned offline by
+  `check:project-scope`.
 
 ### 2026-09-28 — `/api/lease` only coordinates on a project the caller can reach
 `POST /api/lease` required a login and nothing else, so anyone signed in could acquire or take over
