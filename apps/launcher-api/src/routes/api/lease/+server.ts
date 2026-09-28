@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { getDb } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { canAccessProject, projectClientKey } from '$lib/server/projects';
 import {
 	acquire,
 	heartbeat,
@@ -23,7 +25,9 @@ import type { RequestHandler } from './$types';
  * projectKey, docKey)`.
  *
  * The lease is a COORDINATION HINT, not authz — `toolScope.gate()` remains the
- * real gate — but we still require a logged-in user so a holder is attributable.
+ * real gate — but we still require a logged-in user so a holder is attributable,
+ * and one who may access the project, because a lease raises a "someone is
+ * editing" banner on that project's doc and the answer names who holds it.
  * Not-held is a valid ANSWER, not a failure: acquire/heartbeat that can't grant
  * return `200 { held: false, … }`, never an error status. Errors (`json({error})`,
  * never `error()` on the not-held path) are reserved for genuinely bad requests.
@@ -99,6 +103,14 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 
 	const key = readKey(body);
 	if (!key) return json({ error: 'bad-request' }, { status: 400 });
+
+	// Only a project the caller can reach, keyed on its own client — never a made-up one.
+	if (
+		!(await canAccessProject(locals.user.id, locals.user.role, key.projectKey)) ||
+		key.clientKey !== ((await projectClientKey(key.projectKey)) ?? UNASSIGNED_CLIENT)
+	) {
+		return json({ error: 'forbidden' }, { status: 403 });
+	}
 
 	const holder: LeaseHolder = { userId: locals.user.id, sessionId };
 
