@@ -95,6 +95,14 @@ assert them without a database.
   the tool, a per-user revoke, an unknown `toolId`, and five real page `toolId`s still reaching the
   lease. Against `main`'s route sources, 16+ gate checks and 6 lease checks fail by name.
   svelte-check: 62 errors, none in a changed file. `build` green.
+- **Live (#826, `c8b2954c`; served build ID flipped 18:29:18 UTC).** The signed-out `/editor` shell
+  loads `boot-splash.js?v=c8b2954c0f2d`. Every touched route boots and refuses a signed-out caller:
+  `git-credentials` answers 401 with no bearer and with a bad one (so does `deploy-token`),
+  `partner-session` and `/api/lease` answer 401, and the `admin`, `game-maker`, `flipbook`, `fx`
+  and `flow-v2` data loads redirect to `/login`. `/api/health` is 200. **Not probed live:** the
+  signed-in refusals (a non-admin `adminPanel` holder, a user without a client grant, a role
+  without the lease's tool). They need non-admin test accounts, and the browser pane here holds no
+  launcher sign-in. They are pinned offline by `check:launcher-gates` and `check:lease-scope`.
 - Items already closed earlier the same day, with their own entries below: the session project
   re-check (#818), `/api/lease` project scope (#814), and `/api/deploy/f/` serving from the
   project's own client (#812).
