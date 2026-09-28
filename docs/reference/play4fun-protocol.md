@@ -200,7 +200,8 @@ boot — warn on mismatch, do not "fix" it — would be cheap and would catch th
 
 Their client keeps a `resumeData` queue and, before every request, replays any stored actions the
 server still expects (`getResumeActions(untilAction)`), recovering the stake from the stored `bet`
-and the round from `platform.gameRound.id`. We implement none of it.
+and the round from `platform.gameRound.id`. We implement the part of it a Book-of needs — see
+"What we built" at the end of this section.
 
 **That reads like the most dangerous gap in this document. Measured against the live node, it is
 not**, and the reason is worth stating because it is not obvious from the protocol alone.
@@ -249,14 +250,54 @@ otherwise, and the earlier collect bug in `requestEndRound` was in this same cod
 ever reports an uncredited win, start here. Reading the response bodies rather than the request URLs
 would settle it; the browser pane only captured the latter.
 
-### So what is still worth building
+### What we built (2026-09-28)
 
-Not the replay queue. Read `config.resume` / `config.actions` at boot and either continue that round
-or close it, so the wallet the player sees is the wallet the server has. That is the whole remaining
-exposure, and it is cosmetic rather than financial.
+The boot now finishes a round the session left open, instead of starting over beside it. The
+mechanism is the partner's own, read off their client (`processResumeData` / `getResumeActions`):
 
-The full queue only earns its keep if a future game keeps a round open across actions the player has
-to drive — a pickup, or a gamble — where the server genuinely waits on input. Book-of does not.
+1. **Detect.** The boot `config` event carries `resume: true` and the round's stored `actions`, and
+   the response names the round on `platform.gameRound.id`. All three are required; `replay: true`
+   alone is their history viewer, not a round owed to anyone.
+2. **Replay.** Bind that `gid` and re-post the stored actions from `seq=0`, grouped the way they were
+   first sent — each request ends at a player-driven action (`play`, `collect`, a pick, a gamble)
+   with a `bet` riding ahead of its `play`. Every position is occupied, so the server answers each
+   with the result it already dealt: **no stake is taken twice, no board is re-dealt.** Their client
+   groups and numbers them the same way (`sequence` advances by the stored-action count).
+3. **Continue.** A feature cut off between free spins is played out live from the next free position
+   and collected, exactly as `requestBet` carries a fresh bonus.
+4. **Present.** The facade returns the whole round as an `active` round from `authenticate` — the
+   shape of a Stake resumed bet — so the engine's existing `resumeBet` path presents it from its
+   first event and ends it through `requestEndRound`, which collects a base win like any spin. The
+   player sees the outcome they paid for and ends on the wallet the server holds.
+
+Always resumed on the **base** mode: the stake was debited when the round began, and the resume
+machine never drops a bought mode back to base the way a fresh bet does — so a resumed buy would
+leave the next spin buying again.
+
+**Every replayed response must name the round it was aimed at.** Anything else means the server took
+the re-posted `bet` as a new stake — the one way this can charge twice — and the resume stops with an
+error rather than present a second round. That, a refused step, or a dropped request all abandon it
+the same way: no round is presented, the `gid` is released, and the balance is re-read.
+
+**Owed: one check on the live node.** That the partner replays a re-posted `bet` under its `gid` is
+read off their client and proven against our mock, not yet against their server. Before a partner
+delivery: leave a base win open with a raw `bet+play`, reload, and confirm the balance does not move.
+
+It also fixed a quieter bug: before this, the boot's `config` response auto-bound the open round's
+`gid` and nothing ever released it, so `requestBalance` (which stands down mid-round) skipped every
+cashier-deposit poll until the player's next spin.
+
+Proven by `packages/rgs-translator-eagaming/resume.fixture.ts` — `pnpm check:resume`, in CI (real
+facade over the real book mock in `AUTO_COLLECT=0` partner mode, a reload simulated by a fresh facade
+instance) and in the browser on
+`apps/lines`: a base win and a buy cut off after two free spins both presented, collected and landed
+on the server's balance to the cent, with the wire walk `0:bet+play · 2 · 3` (replay) `· 4…11:play ·
+12:collect`.
+
+**Still not built — the full queue.** Their client keeps replaying across player-driven steps (a
+pickup, a gamble) where the server genuinely waits on input mid-round. We replay everything stored
+at boot and then drive the rest ourselves, which is right for a game whose rounds need no input.
+A game with a pick or gamble would need the queue.
 
 ## Where the host glue lives (and why we did not find it)
 
@@ -273,7 +314,7 @@ request against the same origin.
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:
 
-- **Resume** — see its own section above. The biggest gap.
+- **Resume across player input** — a round waiting on a pick or gamble; see "Resume" above.
 - **The retry/reconnect model** — see "Their resilience model" above.
 - **Gamble** (double-up on a finished round).
 - **Free rounds** — a separate `freerounds` endpoint with `&action=choose&frid=&betid=`, plus

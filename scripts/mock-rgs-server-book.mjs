@@ -12,6 +12,10 @@
  *     (the special expanding symbol). Each subsequent `play` is one free spin
  *     (playedBonusSpin); the last adds playedBonusSpins + gameEnd; `collect`
  *     closes the round (gameRoundOver) and credits the accumulated win.
+ *   - RESUME: every stored action is kept at its `seq` position. A boot `config` while a round is
+ *     open carries `actions` + `resume: true` and names the round on `platform.gameRound`, and
+ *     re-posting an occupied position under the round's `gid` REPLAYS the result already dealt —
+ *     the partner's contract (docs/reference/play4fun-protocol.md, "Resume").
  *
  * Kept separate from mock-rgs-server.mjs so the Hot Fruits mock stays untouched.
  *
@@ -23,7 +27,9 @@
  *
  * Env (CLI): PORT=7788, START_BALANCE=500000 (cents = $5000), SEED=anything,
  *      FORCE_TRIGGER=1 (every base play triggers the bonus — handy for testing),
- *      BIG_WIN=1 (force a top-tier base win to verify the win presentation).
+ *      BIG_WIN=1 (force a top-tier base win to verify the win presentation),
+ *      AUTO_COLLECT=0 (the partner's rule: a winning base round stays open until `collect`,
+ *      whatever `play.context` says — the only way a round is left open to resume).
  */
 
 import { createServer } from 'node:http';
@@ -375,7 +381,7 @@ const pathEndsWith = (pathname, route) => {
  * session store + RNG.
  *
  * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
- *           bigWin?: boolean, label?: string }} [opts]
+ *           bigWin?: boolean, autoCollect?: boolean, label?: string }} [opts]
  */
 export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
@@ -385,6 +391,7 @@ export function createMockRgs(opts = {}) {
 	// big/mega/max WIN presentation can be verified on demand. Ignored when a
 	// bonus is triggered.
 	const bigWin = opts.bigWin ?? process.env.BIG_WIN === '1';
+	const autoCollectAllowed = opts.autoCollect ?? process.env.AUTO_COLLECT !== '0';
 	const label = opts.label ?? 'mock-book';
 
 	const sessions = new Map();
@@ -451,22 +458,51 @@ export function createMockRgs(opts = {}) {
 		);
 
 		const events = [];
+		const openRound = (round) => ({
+			updating: true,
+			id: round.id,
+			...(round.bonus ? { outcome: 'bonus', inGameBet: round.baseBet } : {}),
+		});
 		// Send the boot `config` on the first call AND on every heartbeat (empty
 		// body = the auth call). A real server sends it once per session, but the
 		// facade module resets on each browser reload while this mock keeps the
 		// session — re-sending on heartbeat ensures every (re)load re-captures it
 		// (and re-selects the book symbol mapping).
-		if (!session.configSent || actions.length === 0) {
+		const isConfigCall = actions.length === 1 && actions[0].action === 'config';
+		if (!session.configSent || actions.length === 0 || isConfigCall) {
 			session.configSent = true;
-			events.push({ event: 'config', context: buildConfigContext() });
+			const config = { event: 'config', context: buildConfigContext() };
+			if (session.round) {
+				config.actions = session.round.stored.map((s) => s.action);
+				config.resume = true;
+			}
+			events.push(config);
 		}
-		if (actions.length === 0) {
-			return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
+		if (actions.length === 0 || isConfigCall) {
+			const platform = { balance: session.balance };
+			if (session.round) platform.gameRound = openRound(session.round);
+			return sendJson(req, res, 200, { events, platform });
 		}
 
 		let round = session.round;
 
-		for (const a of actions) {
+		for (const [offset, a] of actions.entries()) {
+			// An occupied position under the round's own gid is a REPLAY: answer with what was dealt.
+			const position = seq + offset;
+			const stored = round && gid === round.id ? round.stored[position] : undefined;
+			if (stored) {
+				if (stored.action.action !== a.action) {
+					return sendJson(req, res, 200, {
+						result: 0,
+						error: `replay mismatch at ${position}: stored ${stored.action.action}, got ${a.action}`,
+						errorCode: 110,
+						platform: {},
+					});
+				}
+				events.push(...stored.events);
+				continue;
+			}
+			const dealtFrom = events.length;
 			switch (a.action) {
 				case 'bet': {
 					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
@@ -495,6 +531,7 @@ export function createMockRgs(opts = {}) {
 						win: 0,
 						bonus: null,
 						closed: false,
+						stored: [],
 					};
 					events.push({ event: 'bet', context: { total, betPerLine, paylines: PAYLINES } });
 					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
@@ -633,7 +670,7 @@ export function createMockRgs(opts = {}) {
 					// No trigger → base round resolves now.
 					events.push({ event: 'playedSpin', context: reels });
 					events.push({ event: 'gameEnd', context: { win: round.win } });
-					const autoCollect = a.context === '' || a.context === undefined;
+					const autoCollect = autoCollectAllowed && (a.context === '' || a.context === undefined);
 					if (autoCollect || round.win === 0) {
 						session.balance += round.win;
 						events.push({ event: 'gameRoundOver', context: { win: round.win } });
@@ -665,15 +702,14 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
+			round?.stored.push({ action: a, events: events.slice(dealtFrom) });
 		}
 
 		session.round = round && round.closed ? null : round;
 
 		const platform = { balance: session.balance };
 		if (round && !round.closed) {
-			platform.gameRound = { updating: true, id: round.id };
-			if (round.bonus) platform.gameRound.outcome = 'bonus';
-			if (round.bonus) platform.gameRound.inGameBet = round.baseBet;
+			platform.gameRound = openRound(round);
 		}
 		return sendJson(req, res, 200, { events, platform });
 	};
@@ -699,7 +735,7 @@ export function createMockRgs(opts = {}) {
 		return sendJson(req, res, 404, { error: 'not found' });
 	};
 
-	return { handle, sessions, startBalance, seed, forceTrigger };
+	return { handle, sessions, startBalance, seed, forceTrigger, autoCollect: autoCollectAllowed };
 }
 
 // ---------- standalone CLI entry (local dev) ----------
@@ -727,7 +763,7 @@ if (isMainModule) {
 			].join('\n'),
 		);
 		console.log(
-			`[mock-book] listening on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'} forceTrigger=${mock.forceTrigger}`,
+			`[mock-book] listening on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'} forceTrigger=${mock.forceTrigger} autoCollect=${mock.autoCollect}`,
 		);
 	});
 }

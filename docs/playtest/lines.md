@@ -83,3 +83,20 @@ available.
 - **Do:** open `SymbolDebugOverlay` (`d`); step each symbol through Static/Spin/Land/Win/Post-win.
 - **Expect:** every symbol×state resolves to a sprite/spine (no missing-glyph black screen, no
   placeholder dots); win states inherit the effective win binding. **human-eyes:** per-state art.
+
+### S7 — A round left open is finished on the next boot (resume)
+- **Force:** start the mock in the partner's no-auto-collect mode with a known win —
+  `AUTO_COLLECT=0 BIG_WIN=1 PORT=7788 node scripts/mock-rgs-server-book.mjs` — and leave a round
+  open on it with raw POSTs (the game itself collects too fast to interrupt):
+  - base win: `[]` then `[{"action":"bet","context":[0,10]},{"action":"play","context":""}]` at
+    `?sid=resume-base&seq=0`;
+  - feature cut off: `[{"action":"bet","context":[100,10]},{"action":"play","context":""}]` at
+    `?sid=resume-feat&seq=0`, then `[{"action":"play"}]` at `seq=2` and `seq=3` with `&gid=` set to
+    the returned `platform.gameRound.id`.
+- **Do:** boot the game with `sessionID=resume-base` (then `resume-feat`); tap through the gates.
+- **Expect:** the mock log shows the stored actions re-posted under the round's `gid` at the
+  positions they were stored at (`0:bet+play`, then `2`, `3`), the rest of the round continuing from
+  the next free position, and one `collect`. The game presents the round (state `resumeBet`), starts
+  on the INTERIM balance (stake debited, win not shown) and ends `idle` on exactly the mock's
+  `/state?sid=…` balance. The next spin is a fresh $1 round at `seq=0` with no `gid` — not a re-buy.
+- **Offline gate:** `pnpm check:resume`.
