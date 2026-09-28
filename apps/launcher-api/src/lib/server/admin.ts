@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { getDb } from './db';
 import { sessions, users } from './db/schema';
 import { ROLES, type Role } from '$lib/roles';
@@ -73,6 +73,32 @@ export async function activeAdminCount(): Promise<number> {
 
 	const now = Date.now();
 	return rows.filter((r) => r.expiresAt === null || r.expiresAt.getTime() >= now).length;
+}
+
+/** A user's role, or `null` when there is no such user. */
+export async function userRole(userId: string): Promise<Role | null> {
+	const [row] = await getDb().select({ role: users.role }).from(users).where(eq(users.id, userId));
+	return row?.role ?? null;
+}
+
+/** The user owning a session, or `null` when there is no such session. */
+export async function sessionOwner(sessionId: string): Promise<string | null> {
+	const [row] = await getDb()
+		.select({ userId: sessions.userId })
+		.from(sessions)
+		.where(eq(sessions.id, sessionId));
+	return row?.userId ?? null;
+}
+
+/** Sign a user out everywhere, except `keepSessionId` (the caller's own, on a self-service reset). */
+export async function revokeUserSessions(
+	userId: string,
+	keepSessionId?: string | null,
+): Promise<void> {
+	const own = eq(sessions.userId, userId);
+	await getDb()
+		.delete(sessions)
+		.where(keepSessionId ? and(own, ne(sessions.id, keepSessionId)) : own);
 }
 
 /**

@@ -24,7 +24,8 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 1. **Onboarding** is a basic first version — a fuller per-role walkthrough is planned (backlog B6).
 2. **Local-tool install paths not persisted** (backlog B5) — local tool cards describe the tool but per-user install paths / download bookmarks aren't stored yet.
 3. **Refactor debt** — the gate + "resolve active (client,project)" prelude is copy-pasted across ~9 cookie-authed routes and there are two divergent `allowedPrefixes()` kept in lockstep by hand; per-request DB fan-out (~4 sequential queries, resolved twice per navigation) is a known perf cost. *(The desktop-facing half of this item is DONE: the `Bearer` parser + `validateSession` + role check that sat in six routes is now `requireLauncherAdmin` / `requireLauncherPublisher` in `$lib/server/launcherAuth.ts` — 2026-09-18 below.)*
-4. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. The CODE half landed 2026-09-18 (every publish endpoint now reads the capability, so the grant actually reaches them); the grant itself is still owed in /admin → Roles.
+4. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. The CODE half landed 2026-09-18 (every publish endpoint now reads the capability, so the grant actually reaches them); the grant itself is still owed in /admin → Roles. It now also opens the desktop Sync's
+   zero-login clone (`git-credentials`, 2026-09-28).
 5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
 6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
@@ -49,6 +50,54 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-28 — access checks tightened on six more launcher surfaces
+One pass over the remaining launcher routes that decided access from a login alone, or from
+something the request named. The pure decisions live in `$lib/accessRules.ts` so the fixture can
+assert them without a database.
+
+- **`GET /api/launcher/git-credentials`** now goes through `requireLauncherPublisher` — the
+  `gamePublish` gate `deploy-token` already had. The desktop launcher fetches both in the same
+  Sync, and its `fetch_git_credentials` already treats any non-200 as "not configured" and falls
+  back to Git's own sign-in, so a non-publisher's Sync still works; it just prompts. Until Open
+  item 4's grant is made, only admins get the zero-login clone.
+- **`POST /api/lease`** also requires the caller to hold the tool the lease is for
+  (`leaseEntitlingTool` + the new `userHasTool` in `launcherAuth.ts`, which reads both override
+  tables). `componentEditor` maps to `editor`, because that page and its APIs gate on `editor`. A
+  `toolId` naming no tool is refused. The project/client checks from #814 are unchanged. Cost: two
+  override reads per request, run in parallel with `canAccessProject`. The `flipbook`, `fx` and
+  `flow-v2` page gates used to read the role alone and ignore per-user overrides. They now gate on
+  the layout's resolved `tools`, as Game Maker does, so a page and its lease agree on who holds
+  the tool.
+- **`GET /api/partner-session`** only mints for a card the caller could be shown on home: a global
+  card (`projectKey` null) or one whose project passes `canAccessProject`. Anything else is the
+  same 404 as an unknown key.
+- **Game Maker `?/create` and `POST /api/game-maker/duplicate`** require that the caller may create
+  under the destination client (`mayCreateUnderClient` in `clients.ts`). Admins may use any client,
+  and unassigned is open to everyone (it is the form's default). Anyone else needs a client grant.
+  The create and duplicate pickers now list only those clients, and the duplicate dialog falls back
+  to Unassigned when the source's client is not among them. A refusal is a 403 with a message.
+- **`/admin`**: holders of the `adminPanel` capability who are not admins can no longer confer the
+  admin role (`createUser`, `setRole`). They also can no longer act on an admin's account
+  (`setRole`, `setActive`, `setExpiry`, `resetPassword`, `setToolAccess`, `revokeSession`,
+  `revokeAllSessions`, `deleteUser`, `loadSessions`), or change the admin role's tool matrix
+  (`setRoleToolAccess`). The rule is `adminAccountDenial`; admins are unaffected.
+- **`resetPassword` signs the user out everywhere** (`revokeUserSessions` in `admin.ts`). An admin
+  resetting their own password keeps the session they are using. `setActive` and
+  `revokeAllSessions` use the same helper.
+- **DB browser**: `app_settings.value` is masked unless the row's key is on an allow-list
+  (`settingValueVisible`). Column-name redaction could not see that `value` holds the deploy token.
+  A new setting stays hidden until it is added to the list.
+- **Checks:** `check:launcher-gates` 221 → 292. It covers the rule decisions (every `TOOLS` id's
+  lease entitlement, prototype keys, client targeting, the admin-account rule for every non-admin
+  role, setting visibility), plus a source scan confirming each route/action applies them.
+  `git-credentials` joins the publish-gated list. `check:lease-scope` 14 → 26: a role without
+  the tool, a per-user revoke, an unknown `toolId`, and five real page `toolId`s still reaching the
+  lease. Against `main`'s route sources, 16+ gate checks and 6 lease checks fail by name.
+  svelte-check: 62 errors, none in a changed file. `build` green.
+- Items already closed earlier the same day, with their own entries below: the session project
+  re-check (#818), `/api/lease` project scope (#814), and `/api/deploy/f/` serving from the
+  project's own client (#812).
 
 ### 2026-09-28 — response headers for served R2 content, baseline headers, login defaults
 - **Served project content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,

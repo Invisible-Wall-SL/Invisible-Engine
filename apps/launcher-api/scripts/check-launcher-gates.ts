@@ -25,7 +25,19 @@ import {
 	NO_SESSION_DENIAL,
 	OWNER_ROLE,
 } from '../src/lib/launcherGates.ts';
-import { GAME_PUBLISH_CAPABILITY, ROLES, ROLE_TOOLS, roleHasCapability } from '../src/lib/roles.ts';
+import {
+	adminAccountDenial,
+	leaseEntitlingTool,
+	mayTargetClient,
+	settingValueVisible,
+} from '../src/lib/accessRules.ts';
+import {
+	GAME_PUBLISH_CAPABILITY,
+	ROLES,
+	ROLE_TOOLS,
+	TOOLS,
+	roleHasCapability,
+} from '../src/lib/roles.ts';
 
 let checks = 0;
 let failures = 0;
@@ -119,6 +131,7 @@ const source = (route: string): string => readFileSync(`${api}${route}/+server.t
 /** Every step of a game publish, bearer-authed from the desktop launcher. */
 const PUBLISH_BEARER = [
 	'launcher/deploy-token',
+	'launcher/git-credentials',
 	'launcher/register-game',
 	'launcher/game-upload',
 	'launcher/projects',
@@ -321,6 +334,120 @@ for (const page of ['editor', 'localization']) {
 		true,
 	);
 }
+
+// ── Access rules (`$lib/accessRules`) ─────────────────────────────────────────
+for (const id of Object.keys(TOOLS)) {
+	check(
+		`a lease on '${id}' is entitled by ${id === 'componentEditor' ? "'editor', its page's gate" : 'itself'}`,
+		leaseEntitlingTool(id),
+		id === 'componentEditor' ? 'editor' : id,
+	);
+}
+for (const id of ['probe', '', 'constructor', '__proto__', 'toString']) {
+	check(`a lease toolId '${id}' names no tool`, leaseEntitlingTool(id), null);
+}
+
+check('an admin may create under any client', mayTargetClient('admin', 'eagaming', []), true);
+check('anyone may create unassigned', mayTargetClient('developer', null, []), true);
+check(
+	'a non-admin may create under a client they are granted',
+	mayTargetClient('developer', 'borut', ['borut']),
+	true,
+);
+check(
+	'but not under one they are not',
+	mayTargetClient('pipelineTester', 'eagaming', ['borut']),
+	false,
+);
+
+check('an admin may act on any account', adminAccountDenial('admin', { newRole: 'admin' }), null);
+for (const role of ROLES.filter((r) => r !== 'admin')) {
+	check(
+		`an adminPanel holder with role '${role}' cannot grant the admin role`,
+		adminAccountDenial(role, { newRole: 'admin' }) !== null,
+		true,
+	);
+	check(
+		`nor act on an admin's account`,
+		adminAccountDenial(role, { targetRole: 'admin', newRole: 'artist' }) !== null &&
+			adminAccountDenial(role, { targetRole: 'admin' }) !== null,
+		true,
+	);
+	check(
+		`but may still manage a '${role}' account`,
+		adminAccountDenial(role, { targetRole: 'artist', newRole: 'developer' }),
+		null,
+	);
+}
+
+check('the deploy token setting is never shown', settingValueVisible('deployToken'), false);
+check('an unknown setting is hidden until allow-listed', settingValueVisible('newSecret'), false);
+check('an operational setting is shown', settingValueVisible('runpodIdleMinutes'), true);
+check('a non-string key is hidden', settingValueVisible(null), false);
+
+// ── And the routes apply them ─────────────────────────────────────────────────
+const routeSource = (path: string): string => readFileSync(`${srcRoot}routes/${path}`, 'utf8');
+check(
+	'the lease checks the tool through leaseEntitlingTool + userHasTool',
+	['leaseEntitlingTool(', 'userHasTool('].every((c) => source('lease').includes(c)),
+	true,
+);
+check(
+	'partner-session only mints for a card whose project the caller can reach',
+	source('partner-session').includes('canAccessProject('),
+	true,
+);
+check(
+	'duplicate checks the destination client',
+	source('game-maker/duplicate').includes('mayCreateUnderClient('),
+	true,
+);
+check(
+	'Game Maker ?/create checks the destination client',
+	routeSource('(app)/game-maker/+page.server.ts').includes('mayCreateUnderClient('),
+	true,
+);
+{
+	const admin = routeSource('(app)/admin/+page.server.ts');
+	const actionBlock = (name: string): string => {
+		const start = admin.indexOf(`\t${name}: async`);
+		const next = admin.slice(start + 1).search(/\n\t[a-zA-Z]+: async/);
+		return start < 0 ? '' : admin.slice(start, next < 0 ? undefined : start + 1 + next);
+	};
+	for (const action of [
+		'createUser',
+		'setRole',
+		'setActive',
+		'setExpiry',
+		'resetPassword',
+		'setToolAccess',
+		'revokeSession',
+		'revokeAllSessions',
+		'deleteUser',
+		'loadSessions',
+	]) {
+		check(
+			`admin ?/${action} refuses a non-admin acting on the admin role`,
+			actionBlock(action).includes('adminAccountRefusal('),
+			true,
+		);
+	}
+	check(
+		"admin ?/setRoleToolAccess refuses a non-admin editing the admin role's tools",
+		actionBlock('setRoleToolAccess').includes('adminAccountDenial('),
+		true,
+	);
+	check(
+		'admin ?/resetPassword signs the user out',
+		actionBlock('resetPassword').includes('revokeUserSessions('),
+		true,
+	);
+}
+check(
+	'the DB browser redacts by row as well as by column',
+	readFileSync(`${srcRoot}lib/server/dbBrowser.ts`, 'utf8').includes('settingValueVisible('),
+	true,
+);
 
 console.log();
 if (failures) {
