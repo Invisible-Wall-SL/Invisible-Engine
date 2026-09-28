@@ -6,7 +6,7 @@
 	 * scene-only (a reel grid doesn't belong in a reusable component): it renders
 	 * only when a `reel` prop is supplied.
 	 *
-	 * Carries its own `<style>` (canonical = the Scene Editor's palette CSS) so the
+	 * Carries its own style block (canonical = the Scene Editor's palette CSS) so the
 	 * rows look identical in both pages — Svelte scoped styles do not cross the
 	 * component boundary, so the parent pages' `.name`/`.tag`/`li` rules wouldn't
 	 * otherwise apply here.

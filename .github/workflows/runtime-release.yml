@@ -12,6 +12,16 @@
 # runtime id. Note the blast radius: a release re-points EVERY online game on that runtime at the new
 # engine code, so an unverified engine commit on `main` goes live to all of them.
 #
+# GATED, then VERIFIED. Nothing is uploaded until the gates that catch a shipped-game crash pass
+# (the same ones Lint runs, which is not a required check, so a merge can land with it red) and
+# the build succeeds. After the upload, the job is green only once games.invisiblewall.org SERVES
+# the bundle it just built — a 202 from /refresh and a `released` stamp prove the upload, not the
+# serving (see apps/launcher-api/scripts/verify-runtime-live.mjs).
+#
+# ROLLBACK (the upload overwrites `_runtime/<id>/` in place; there is no older copy to point back
+# at): revert the bad commit on `main`, which re-releases through this workflow, or dispatch it
+# with "Use workflow from" set to a known-good branch/tag. See docs/status/engine.md.
+#
 # One-time setup — add these under Settings → Secrets and variables → Actions:
 #   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (Railway → Invisible launcher
 #   → production → Variables), plus TEST_SERVER_SECRET only if the test server sets one.
@@ -34,7 +44,7 @@ on:
         default: 'lines'
         required: true
       refresh:
-        description: 'POST /refresh so the test server re-hydrates immediately'
+        description: 'POST /refresh and verify the new bundle is served (unticked: no live check)'
         type: boolean
         default: true
 
@@ -47,7 +57,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     # One knob both triggers read: the dispatched runtime id, or 'lines' for an auto push-release.
     env:
       RUNTIME: ${{ inputs.runtime || 'lines' }}
@@ -62,6 +72,22 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Release gates — the Lint workflow's crash-class checks, run HERE because this job publishes
+      # to every online game and Lint is advisory (not a required check). A failure stops the job
+      # before anything is stamped or uploaded, so the games keep the previous engine.
+      #
+      # `check:undefined-names` is the one that matters most: the build cannot catch a name that
+      # was never imported, and three such misses (#373 in a `.ts`, #549 and #567 in a `.svelte`)
+      # each auto-released and broke every online board.
+      - name: 'Gate: no undefined identifiers'
+        run: pnpm check:undefined-names
+
+      - name: 'Gate: engine-game fixtures pass'
+        run: pnpm check:engine-game
+
+      - name: 'Gate: rgs win models agree on money'
+        run: pnpm check:rgs
 
       # Advisory: mark the runtime as "building" BEFORE the (multi-minute) build so the launcher can
       # show "Releasing engine…" while it runs. `continue-on-error` — the stamp must never fail a
@@ -109,38 +135,23 @@ jobs:
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
             "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"
 
-      # The test server hydrates every bundle from R2 on boot; this pokes it to re-hydrate NOW instead
-      # of on its next lazy refresh. It answers 202 immediately and hydrates in the background.
-      #
-      # BEST-EFFORT, NEVER FATAL: by this point the bundle is uploaded AND the release is stamped
-      # `released` (the Publish step above), so the release has already SUCCEEDED. This endpoint 502s
-      # while the server is mid-rehydrate (it flaps as it reloads), so we retry with backoff to ride
-      # that window out — but if it still won't take we WARN and exit 0. Failing the whole job on a
-      # cache poke made a green release read as a broken publish (and hid that the engine actually
-      # shipped). DO NOT SHORTEN THE LADDER TO SAVE CI MINUTES: it looks like idle sleeping (~93s
-      # a run, the single most expensive step in this repo’s CI) but it is the ONLY thing that
-      # makes a published bundle visible. services/test-server/server.mjs calls hydrate() from
-      # exactly two places — this endpoint and boot — so there is NO timer and NO lazy re-hydrate.
-      # If every attempt 502s the bundle sits in R2 and every online game keeps serving the OLD
-      # engine until someone redeploys the server or POSTs /refresh by hand, while this job
-      # stays GREEN.
-      - name: Refresh the test server
-        # Auto push-releases always refresh; a manual dispatch honours its refresh checkbox.
+      # The test server hydrates every bundle from R2 on boot and on POST /refresh — nowhere else,
+      # there is no timer — and /refresh answers 202 before the hydrate runs. So this step POSTs
+      # /refresh, then polls a game on this runtime until its served index.html names the
+      # `bundle.<hash>.js` this job just built, re-POSTing /refresh with backoff (a hydrate that
+      # began mid-upload can finish without the new files; a rebooting server drops the request).
+      # If it never matches, the job FAILS: the bundle is in R2 but every online game is still on
+      # the previous engine, which must read as red, not as a green run with a warning. The
+      # deadline (15 min) outlasts a test server reboot, which can coincide with a merge to main.
+      - name: Refresh the test server and verify the served bundle
+        # Auto push-releases always verify; a manual dispatch honours its refresh checkbox.
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.refresh }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          url="https://games.invisiblewall.org/refresh"
-          if [ -n "$TEST_SERVER_SECRET" ]; then url="$url?secret=$TEST_SERVER_SECRET"; fi
-          # 9 attempts over ~4.5 min (sleep BEFORE all but the first), backing off to ride out a
-          # Railway restart / rehydrate window. `-m 25` so a hung socket during reload can't stall.
-          attempt=0
-          for wait in 0 10 15 20 30 30 45 45 60; do
-            [ "$wait" -gt 0 ] && sleep "$wait"
-            attempt=$((attempt + 1))
-            code=$(curl -sS -m 25 -o /dev/stderr -w '%{http_code}' -X POST "$url" || echo 000)
-            echo "refresh attempt $attempt → HTTP $code"
-            case "$code" in 200|202) echo "refreshed"; exit 0 ;; esac
-          done
-          echo "::warning title=Test server refresh did not take::Runtime bundle IS published and the release is stamped, but the test server did NOT pick it up and will NOT re-hydrate on its own — online games keep serving the previous engine until someone POSTs /refresh or the server redeploys. Not failing the release."
-          exit 0
+          node apps/launcher-api/scripts/verify-runtime-live.mjs \
+            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"

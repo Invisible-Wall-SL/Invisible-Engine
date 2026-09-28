@@ -26,6 +26,16 @@ importers:
       typescript:
         specifier: 5.8.3
         version: 5.8.3
+    devDependencies:
+      '@jridgewell/trace-mapping':
+        specifier: 0.3.29
+        version: 0.3.29
+      svelte:
+        specifier: 5.35.1
+        version: 5.35.1
+      svelte2tsx:
+        specifier: 0.7.40
+        version: 0.7.40(svelte@5.35.1)(typescript@5.8.3)
 
   apps/cluster:
     dependencies:
