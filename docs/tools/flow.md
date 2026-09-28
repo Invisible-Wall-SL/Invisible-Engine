@@ -355,7 +355,8 @@ stays up, and with a Tap to Continue on it, it sits over the idle game waiting f
 starter flow as `editor/flow-v2.json` straight away, so it ships even if nobody opens this editor.
 A project created before that, never opened here, has **no** flow: it publishes with a note that
 it plays without the free-spin intro and outro. Open it here and make any edit to save the starter,
-or have an admin **Rescaffold** it in `/admin`. The starter flow and the scaffold screens already
+or have an admin **Rescaffold** it in `/admin` (then check Validation: an older project's screens
+may not match the starter, and Publish refuses a flow with errors). The starter flow and the scaffold screens already
 have this shape:
 
 - The **Free-spin intro** and **Free-spin outro** screens each carry a **Tap to Continue** (**Tap
@@ -544,7 +545,8 @@ launcher's build run the same validation over the saved flow and refuse a flow w
 error, listing them. Warnings and blue hints never block. An admin can publish anyway from the
 refusal dialog; a desktop build takes `--allow-invalid-flow` (or `ALLOW_INVALID_FLOW=1`). The
 check uses the project's saved screens and the shared function library the game ships with, so
-fix what the panel shows and save.
+fix what the panel shows and save. A game that is already published loads the saved flow each
+time it starts, so a later save reaches players without a new Publish — keep the panel green.
 
 Two of them read your **screens**, not just the graph. A Show Container with **Hold until this
 screen completes (tap)** ticked holds the round until that screen completes, and there is no

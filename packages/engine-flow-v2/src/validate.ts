@@ -619,7 +619,9 @@ const validateGraph = (
 			issues.push({
 				code: 'exec-out-fanout',
 				severity: 'error',
-				message: `exec-out ${node}.${pin} has ${count} outgoing exec wires, but only the first one runs — chain the steps in series (or through a Sequence node) instead`,
+				message:
+					`exec-out ${node}.${pin} has ${count} outgoing exec wires, but only the first one ` +
+					'runs — chain the steps in series (or through a Sequence node) instead',
 				at: { on: 'pin', node, pin },
 			});
 		}

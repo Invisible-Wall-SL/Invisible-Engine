@@ -17,7 +17,8 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * operation"), which made the only way to let a developer publish be handing them the
  * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
- *   POST /api/game-maker/publish   { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true }
+ *   POST /api/game-maker/publish
+ *     { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true }
  *   → 200 { ok, key, url, playUrl, sounds, flow }
  *   → 409 { error, reason, details, canOverride }   — blocked; `unapproved-sounds` is overridable by
  *     any publisher, `invalid-flow` by the owner role only (`canOverride` says which applies here)

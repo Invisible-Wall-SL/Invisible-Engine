@@ -34,22 +34,22 @@ export const POST: RequestHandler = async ({ url }) => {
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
-	const flowCheck = await checkFlowV2ForPublish(clientKey, projectKey);
-	if (flowCheck.status === 'invalid') {
-		const details = describeFlowErrors(flowCheck.errors);
-		if (url.searchParams.get('allowInvalidFlow') !== '1') {
-			return json(
-				{ error: invalidFlowMessage(flowCheck.errors), reason: 'invalid-flow', details },
-				{ status: 409 },
+	try {
+		const flowCheck = await checkFlowV2ForPublish(clientKey, projectKey);
+		if (flowCheck.status === 'invalid') {
+			const details = describeFlowErrors(flowCheck.errors);
+			if (url.searchParams.get('allowInvalidFlow') !== '1') {
+				return json(
+					{ error: invalidFlowMessage(flowCheck.errors), reason: 'invalid-flow', details },
+					{ status: 409 },
+				);
+			}
+			console.warn(
+				`[export-flow] ${projectKey}: baked with ${flowCheck.errors.length} flow error(s) by ` +
+					`override: ${details.join(' | ')}`,
 			);
 		}
-		console.warn(
-			`[export-flow] ${projectKey}: baked with ${flowCheck.errors.length} flow error(s) by ` +
-				`override: ${details.join(' | ')}`,
-		);
-	}
 
-	try {
 		// v1 flow + v2 flow are both exported here so ONE bake call covers both. The v2
 		// pair (`flowV2` / `flowV2Library`) is what a flow-v2 game needs to drive its
 		// screens; without it the desktop bake embedded only v1 and a v2-authored game
