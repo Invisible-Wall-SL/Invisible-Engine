@@ -3,9 +3,9 @@
 	import type { HudTextOverride } from 'engine-layout';
 
 	import { stateMetaDerived, stateUi } from 'state-shared';
-	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
+	import { getContext } from '../context';
 	import { hudHasPortrait } from '../hudPositions';
 
 	import UiFadeContainer from './UiFadeContainer.svelte';
@@ -43,7 +43,7 @@
 
 	const props: Props = $props();
 
-	const { stateLayoutDerived } = getContextLayout();
+	const { stateLayoutDerived, stateXstateDerived } = getContext();
 
 	const LAYOUT_COMPONENT_MAP = {
 		desktop: LayoutDesktop,
@@ -70,7 +70,7 @@
 <!-- Speed features are config-gated (`stateUi.config.features`) — the "defang via
 	config" rule. Hold-Space continuous betting only mounts when allowed. -->
 {#if stateUi.config.features.spaceHold}
-	<EnableSpaceHold />
+	<EnableSpaceHold isIdle={stateXstateDerived.isIdle} />
 {/if}
 
 {#snippet gameName(override?: HudTextOverride)}

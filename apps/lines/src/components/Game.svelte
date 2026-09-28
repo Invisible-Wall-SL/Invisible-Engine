@@ -1955,7 +1955,7 @@
 	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
 			the doc's Game Settings turn `spaceHold` off). -->
 	{#if !codedHudMounted && stateUi.config.features.spaceHold}
-		<EnableSpaceHold />
+		<EnableSpaceHold isIdle={context.stateXstateDerived.isIdle} />
 	{/if}
 
 	<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
