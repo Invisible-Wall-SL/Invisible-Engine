@@ -47,7 +47,13 @@ import {
 	responseClosedRound,
 } from './translator';
 import { isPlay4FunError } from './types';
-import type { Play4FunBookEvent, Play4FunConfigContext, Play4FunResponse } from './types';
+import type {
+	Play4FunActionEnvelope,
+	Play4FunBookEvent,
+	Play4FunConfigContext,
+	Play4FunRequestBody,
+	Play4FunResponse,
+} from './types';
 import {
 	mapSymbol,
 	engineToPlay4Fun,
@@ -530,6 +536,27 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
 	return result;
 };
 
+type BetEventContext = { total?: number; betPerLine?: number; paylines?: unknown[] };
+
+/**
+ * The BASE stake of a round, from its `bet` event: betPerLine × paylines, not the debited `total`.
+ *
+ * Win `pay` amounts are denominated against the base bet, and the two diverge when the feature is
+ * BOUGHT — `total` then includes the buy premium (×100 in the book-of mock), which would shrink every
+ * win display ~100×. `total` is only the fallback for a server that sends neither field.
+ *
+ * The line count floors at 1 so a PAYLINES-LESS model (cluster / scatter-pays declare no lines at
+ * all) still derives its base from `betPerLine` rather than falling through to `total` — the
+ * fall-through is the buy-inflated number this exists to avoid. `requestBet` sends `a = 1` for those
+ * games, so `betPerLine` IS the base stake.
+ */
+const baseStakeCents = (ctx: BetEventContext): number => {
+	const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
+	const numLines = Math.max(1, Array.isArray(ctx.paylines) ? ctx.paylines.length : 0);
+	const baseBet = betPerLine * numLines;
+	return baseBet > 0 ? baseBet : (ctx.total ?? 0);
+};
+
 /** Rows `padReel` adds ABOVE the visible grid — the offset any server-side row index needs to
  *  become an engine row index. */
 const BOARD_PADDING_ROWS = 1;
@@ -591,12 +618,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	const ordered: Record<string, unknown>[] = [];
 	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
 
-	// The bet-multiplier denominator: win `pay` amounts are denominated against the
-	// BASE bet (betPerLine × number of paylines), NOT the debited round `total`.
-	// They diverge when the feature is BOUGHT — Play4Fun's `total` then includes the
-	// buy premium (×100 in the book-of mock) — so dividing by `total` shrinks every
-	// win display by that premium factor (a $12.50 line win reads $0.25; small base
-	// wins collapse toward $0.01). Set from the `bet` event below.
+	// The bet-multiplier denominator — the BASE stake, see `baseStakeCents`. Set from the `bet` event.
 	let betBaseCents = 0;
 	let pendingWins: {
 		what: string;
@@ -692,23 +714,9 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'spinStart':
 			case 'bonusWin': // wrapper around the following spinWin — pay comes from spinWin
 				break;
-			case 'bet': {
-				// Use the BASE bet (betPerLine × paylines), not the debited `total`, so
-				// win displays stay correct when the feature is BOUGHT (a premium-inflated
-				// `total` would shrink every win ~100×). Both fields ship in the Play4Fun
-				// `bet` event (and the book-of mock); fall back to `total` only if absent.
-				//
-				// The line count floors at 1 so a PAYLINES-LESS model (cluster / scatter-pays declare
-				// no lines at all) still derives its base from `betPerLine` rather than falling through
-				// to `total` — the fall-through is the buy-inflated number this comment exists to avoid.
-				// `requestBet` sends `a = 1` for those games, so `betPerLine` IS the base stake.
-				const ctx = e.context as { total?: number; betPerLine?: number; paylines?: unknown[] };
-				const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
-				const numLines = Math.max(1, Array.isArray(ctx.paylines) ? ctx.paylines.length : 0);
-				const baseBet = betPerLine * numLines;
-				betBaseCents = baseBet > 0 ? baseBet : (ctx.total ?? 0);
+			case 'bet':
+				betBaseCents = baseStakeCents(e.context as BetEventContext);
 				break;
-			}
 			case 'spinWin': {
 				const c = e.context as { what: string; occurs: number; mode?: string; pay: number };
 				pendingWins.push(c);
@@ -1070,25 +1078,42 @@ export const requestAuthenticate = async (options: {
 
 	// If the server sent its config as part of the boot response, capture it
 	// once and run the cross-check against linesMapping + expected grid.
-	let cfg = captureConfig(
-		options.sessionID,
-		(result.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
-	);
+	let configResponse = result.response;
+	let cfg = captureConfig(options.sessionID, eventsOf(configResponse));
 
 	// Some servers answer the balance probe WITHOUT the boot config and expose it as its own
-	// (non-stored) `config` action instead. Ask explicitly, but only as a FALLBACK: our mocks reject
-	// unknown actions, and the lines mock emits its config on the session's first call only — so
-	// probing first would burn that call on an error and lose the config for the whole session.
+	// (non-stored) `config` action instead. Ask explicitly, but only as a FALLBACK: the lines mock
+	// rejects unknown actions and emits its config on the session's first call only — so probing
+	// first would burn that call on an error and lose the config for the whole session.
 	if (!cfg) {
 		const probe = await fetcher.post({ body: [{ action: 'config' }] });
-		cfg = captureConfig(
-			options.sessionID,
-			(probe.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
-		);
+		configResponse = probe.response;
+		cfg = captureConfig(options.sessionID, eventsOf(configResponse));
 	}
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
-	const balance = balanceOf(result.response);
+	// A resume is up to a dozen requests in a row where a boot used to be one, so a dropped one must
+	// cost the resume, not the boot.
+	const open = findOpenRound(configResponse);
+	const resumed = open
+		? await resumeOpenRound(options.sessionID, fetcher, open).catch((err: unknown) =>
+				abandonResume(options.sessionID, open, String(err)),
+			)
+		: null;
+	// An ABANDONED resume may have moved the wallet on its way out — a server that did not replay took
+	// the re-posted `bet` as a new stake — so the pre-resume figure is re-read rather than trusted.
+	const rereadBalance = () =>
+		fetcher
+			.post({ body: buildHeartbeat() })
+			.then((r) => (isPlay4FunError(r.response) ? undefined : balanceOf(r.response)))
+			.catch(() => undefined);
+	const balance = resumed
+		? resumed.balance?.amount
+		: ((open ? await rereadBalance() : undefined) ?? balanceOf(result.response));
+	// Nothing resumed ⇒ no round of ours is open. The fetcher binds any `gameRound` a response names
+	// (the re-read above included), and a `gid` left bound makes `requestBalance` stand down until the
+	// next spin. So this comes LAST.
+	if (!resumed) session.startRound();
 
 	// The REAL ladder when the server declared a bet-option table and the operator's embed page
 	// declared its multipliers; otherwise the invented placeholder below, which is all a mock can
@@ -1142,8 +1167,138 @@ export const requestAuthenticate = async (options: {
 				...hostJurisdiction(),
 			},
 		},
-		round: undefined,
+		round: resumed?.round,
 		_session: session.snapshot(),
+	};
+};
+
+// ---------- resume: a round the session left open ----------
+
+interface OpenRound {
+	roundId: string;
+	actions: Play4FunActionEnvelope[];
+}
+
+type ConfigEvent = Extract<Play4FunBookEvent, { event: 'config' }>;
+type BetEvent = Extract<Play4FunBookEvent, { event: 'bet' }>;
+
+/**
+ * The round the boot `config` says this session left OPEN, or null.
+ *
+ * All three halves are needed: `resume: true`, the round's stored `actions`, and its id on
+ * `platform.gameRound`. `replay` alone is the partner's HISTORY viewer, not a round owed to anyone.
+ */
+const findOpenRound = (response: Play4FunResponse | null): OpenRound | null => {
+	if (!response || isPlay4FunError(response)) return null;
+	const config = eventsOf(response).find((e): e is ConfigEvent => e.event === 'config');
+	if (config?.resume !== true || !config.actions?.length) return null;
+	const roundId = response.platform?.gameRound?.id;
+	if (!roundId) {
+		console.warn('[engine-facade] the server reports an open round but names no gameRound id');
+		return null;
+	}
+	return { roundId, actions: config.actions };
+};
+
+/**
+ * Split a round's stored actions back into the requests that wrote them: each ends at an action the
+ * player drove (`play`, `collect`, a pick, a gamble), with a `bet` riding ahead of its `play`. The
+ * partner's own client re-posts them in exactly these groups. It also steps over entries with an
+ * EMPTY action name when looking for the next one, so those ride along with the action after them.
+ */
+const replayRequests = (actions: Play4FunActionEnvelope[]): Play4FunRequestBody[] => {
+	const requests: Play4FunRequestBody[] = [];
+	let pending: Play4FunRequestBody = [];
+	for (const action of actions) {
+		pending.push(action);
+		if (action.action !== 'bet' && action.action !== '') {
+			requests.push(pending);
+			pending = [];
+		}
+	}
+	if (pending.length) requests.push(pending);
+	return requests;
+};
+
+const abandonResume = (sid: string, open: OpenRound, why: string) => {
+	console.warn(
+		`[engine-facade] could not finish round ${open.roundId}, left open by an earlier session (${why}) — booting without it`,
+	);
+	sessionFor(sid).startRound();
+	pendingFinalBalance.delete(sid);
+	return null;
+};
+
+/**
+ * Finish a round a previous session left open, and hand it to the engine as the round to present.
+ *
+ * The protocol's resume is REPLAY: re-post the round's stored actions at the positions they were
+ * stored at, under its `gid`, and the server answers each with the result it already dealt — that is
+ * what an occupied `seq` means. Then the round continues live exactly as `requestBet` would have
+ * carried it, so a feature interrupted between two free spins is played out and collected here.
+ *
+ * The engine already knows what to do with the answer: an `active` round from `authenticate` is
+ * Stake's resumed bet, which the game presents from its first event and then ends through
+ * `requestEndRound` — which is where a base win's `collect` happens, as for any spin. So the player
+ * sees the outcome they paid for, and the balance they are left with is the one the server holds.
+ *
+ * Always resumed as the BASE mode. The stake was debited when the round began, so presenting it needs
+ * no mode, and the resume machine — unlike a fresh bet — never drops a bought mode back to base: a
+ * resumed buy would leave the NEXT spin buying again at the buy price.
+ */
+const resumeOpenRound = async (
+	sid: string,
+	fetcher: ReturnType<typeof fetcherFor>,
+	open: OpenRound,
+) => {
+	const session = sessionFor(sid);
+	session.startRound();
+	session.bindRound(open.roundId);
+
+	const replayed: Play4FunBookEvent[] = [];
+	let last: Play4FunResponse | null = null;
+	for (const body of replayRequests(open.actions)) {
+		const r = await fetcher.post({ body });
+		if (!r.response || isPlay4FunError(r.response)) {
+			return abandonResume(
+				sid,
+				open,
+				isPlay4FunError(r.response)
+					? `${r.response.error} (code ${r.response.errorCode})`
+					: `HTTP ${r.status}`,
+			);
+		}
+		// The replay must land in THIS round. A server that ignored the `gid` would take the re-posted
+		// `bet` as a new one — charging it again and opening a second round — and the fetcher would
+		// bind that round's id without a word. Stop at the first sign of it, and say so loudly.
+		const landedIn = r.response.platform?.gameRound?.id;
+		if (landedIn !== open.roundId && !responseClosedRound(r.response)) {
+			console.error(
+				`[engine-facade] replaying round ${open.roundId} landed in ${landedIn ?? 'no round'} — the server did not replay it`,
+			);
+			return abandonResume(sid, open, 'the server did not replay it');
+		}
+		replayed.push(...eventsOf(r.response));
+		last = r.response;
+	}
+
+	const round = await playOutRound(fetcher, replayed, last);
+	if (round.refused) return abandonResume(sid, open, 'the server refused a step of it');
+
+	const settled = settleRound(sid, round, 'USD');
+	if (!settled.round?.state?.length) return abandonResume(sid, open, 'it replayed no events');
+
+	const stake = replayed.find((e): e is BetEvent => e.event === 'bet')?.context;
+	const serverOptions = betOptionsFor(sid);
+	return {
+		balance: settled.balance,
+		round: {
+			...settled.round,
+			amount: stake ? play4FunToEngine(baseStakeCents(stake)) : undefined,
+			active: true,
+			mode: serverOptions ? serverBetOptionEntries(serverOptions)[0].key : 'BASE',
+			event: '0',
+		},
 	};
 };
 
@@ -1253,50 +1408,88 @@ export const requestBet = async (options: {
 	// If the server emits config on first bet (rather than at auth), capture it
 	// here so subsequent reveal/win events are validated against the right
 	// vocabulary + grid.
-	const cfg = captureConfig(
-		options.sessionID,
-		(first.response as { events?: Play4FunBookEvent[] } | undefined)?.events,
-	);
+	const cfg = captureConfig(options.sessionID, eventsOf(first.response));
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
-	// Aggregate the whole round into one event stream. The engine consumes
-	// a round as a single book; Play4Fun delivers free spins as separate `play`
-	// requests, so when a bet enters the bonus we drive the remaining spins +
-	// the closing `collect` here and concatenate every event.
-	const allEvents: Play4FunBookEvent[] = [
-		...((first.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? []),
-	];
-	let lastResponse: Play4FunResponse | null = first.response;
+	const round = await playOutRound(fetcher, eventsOf(first.response), first.response);
+	return settleRound(options.sessionID, round, options.currency);
+};
 
-	if (allEvents.some((e) => e.event === 'enterBonus')) {
-		let guard = 0;
-		while (guard++ < 200) {
-			const r = await fetcher.post({ body: [{ action: 'play' }] });
-			const evs = (r.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? [];
-			allEvents.push(...evs);
-			lastResponse = r.response ?? lastResponse;
-			if (evs.some((e) => e.event === 'gameEnd')) break;
+const eventsOf = (response: Play4FunResponse | null): Play4FunBookEvent[] =>
+	(response as { events?: Play4FunBookEvent[] } | null)?.events ?? [];
+
+interface PlayedRound {
+	events: Play4FunBookEvent[];
+	last: Play4FunResponse | null;
+	/** A request inside the round was refused. Driving stops there, and the round stays open for
+	 *  `requestEndRound`'s own `collect`. `requestBet` presents what it has regardless; a resume gives
+	 *  up, since a round it cannot finish is not one it should show. */
+	refused: boolean;
+}
+
+/**
+ * Drive a round to the end of what the player sees, and aggregate it into one event stream.
+ *
+ * The engine consumes a round as a single book; Play4Fun delivers free spins as separate `play`
+ * requests, so a round that entered the bonus has its remaining spins and its closing `collect`
+ * driven here. A base round is left as it is: its `collect`, when the server does not auto-collect,
+ * is `requestEndRound`'s, after the count-up.
+ *
+ * Idempotent over a round that is already further along — a resume can arrive with some free spins,
+ * the `gameEnd`, or even the `collect` already replayed, and must not post any of them twice.
+ */
+const playOutRound = async (
+	fetcher: ReturnType<typeof fetcherFor>,
+	events: Play4FunBookEvent[],
+	last: Play4FunResponse | null,
+): Promise<PlayedRound> => {
+	const round: PlayedRound = { events: [...events], last, refused: false };
+	const names = () => round.events.map((e) => e.event);
+	// The FEATURE's `gameEnd` — one after the bonus began, so a base-spin `gameEnd` ahead of it
+	// cannot end the free spins before they are played.
+	const featureEnded = () => names().slice(names().lastIndexOf('enterBonus')).includes('gameEnd');
+	const post = async (body: Play4FunRequestBody) => {
+		const r = await fetcher.post({ body });
+		// An error envelope carries an empty `platform`, so keeping it as `last` would settle the
+		// round on a balance of 0.
+		if (!r.response || isPlay4FunError(r.response)) {
+			round.refused = true;
+			return;
 		}
-		const collect = await fetcher.post({ body: buildCollectAction() });
-		allEvents.push(
-			...((collect.response as { events?: Play4FunBookEvent[] } | undefined)?.events ?? []),
-		);
-		lastResponse = collect.response ?? lastResponse;
-	}
+		round.events.push(...eventsOf(r.response));
+		round.last = r.response;
+	};
 
+	if (!names().includes('enterBonus')) return round;
+	let guard = 0;
+	while (!featureEnded() && !round.refused && guard++ < 200) await post([{ action: 'play' }]);
+	if (!round.refused && !names().includes('gameRoundOver')) await post(buildCollectAction());
+	return round;
+};
+
+/**
+ * Translate a played round for the engine, and split its balance into the two steps the engine
+ * shows: the interim now (stake debited, win NOT yet credited) and the final stashed for
+ * `requestEndRound` to return after the count-up animation.
+ */
+const settleRound = (sid: string, round: PlayedRound, currency: string) => {
+	const allEvents = round.events;
+	const lastResponse = round.last;
 	const aggregated = {
 		events: allEvents,
 		platform: (lastResponse as { platform?: unknown } | null)?.platform,
 	} as Play4FunResponse;
-	const translated = translateBetResponse(aggregated, options.currency);
+	const translated = translateBetResponse(aggregated, currency);
 
-	// Two-step balance: interim (bet debited, win NOT yet credited) now; final
-	// stashed for requestEndRound to return after the count-up animation.
 	const finalCents =
 		(lastResponse as { platform?: { balance?: number } } | null)?.platform?.balance ?? 0;
+	// The LAST `gameEnd` is the round's — the one `translateBetResponse` pays out on too.
 	const winCents =
-		(allEvents.find((e) => e.event === 'gameEnd')?.context as { win?: number } | undefined)?.win ??
-		0;
+		(
+			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
+				| { win?: number }
+				| undefined
+		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//
 	// Auto-collecting server: `gameRoundOver` is in the events, the balance is final, and the interim
@@ -1306,7 +1499,7 @@ export const requestBet = async (options: {
 	// would credit a win that the missing `collect` never paid.
 	const roundClosed = allEvents.some((e) => e.event === 'gameRoundOver');
 	const interimCents = roundClosed ? finalCents - winCents : finalCents;
-	if (roundClosed) pendingFinalBalance.set(options.sessionID, finalCents);
+	if (roundClosed) pendingFinalBalance.set(sid, finalCents);
 
 	if (translated.balance) {
 		translated.balance = { ...translated.balance, amount: play4FunToEngine(interimCents) };
@@ -1319,10 +1512,7 @@ export const requestBet = async (options: {
 			translated.round.payout = play4FunToEngine(translated.round.payout);
 		}
 		if (translated.round.state) {
-			translated.round.state = adaptEventsForEngine(
-				options.sessionID,
-				translated.round.state,
-			) as never;
+			translated.round.state = adaptEventsForEngine(sid, translated.round.state) as never;
 		}
 	}
 

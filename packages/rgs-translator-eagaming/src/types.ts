@@ -82,7 +82,16 @@ export interface Play4FunConfigContext {
  *  an `event` discriminator and a context payload whose shape depends on the
  *  tag. Listed below are the events we've observed; treat the union as open. */
 export type Play4FunBookEvent =
-	| { event: 'config'; context: Play4FunConfigContext }
+	| {
+			event: 'config';
+			context: Play4FunConfigContext;
+			/** The stored action array of a round the session left OPEN — present with `resume`. */
+			actions?: Play4FunActionEnvelope[];
+			/** `true` ⇒ that round is still open and the client must finish it. */
+			resume?: boolean;
+			/** `true` ⇒ a history replay over `actions`, not a round to finish. */
+			replay?: boolean;
+	  }
 	| {
 			event: 'bet';
 			context: { total: number; betPerLine: number; paylines: number[][]; maxWinCap: number };
