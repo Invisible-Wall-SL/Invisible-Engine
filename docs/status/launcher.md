@@ -89,6 +89,14 @@ rather than the write gate, but it now answers only for projects the caller can 
   lease, and 400 / 401 are unchanged. The unfixed route fails 7 of the 14, and dropping only the
   client check fails 2. Both checks run in CI (`lint.yml`). `svelte-check` shows the same 65 errors
   before and after.
+- **Live (#814, `9811ea71`; Railway Launcher status success 15:10 UTC).** Probed from a signed-in
+  admin session on app.invisiblewall.org with a throwaway `toolId: 'probe'` key:
+  - a `release` on a project that doesn't exist answered `200 {released:true}` on the old deploy
+    at 15:08, and `403 {error:'forbidden'}` after it;
+  - an `acquire` on the session's own project (`invisible_wall/bookofborutremake`, the key the
+    win-text loader hands its page) under a made-up `clientKey` is `403`;
+  - the same `acquire` with the real client is `200 held:true`, and its `release` is
+    `200 {released:true}`, so the path every tool page takes is unchanged.
 
 ### 2026-09-28 — `/api/deploy/f/…` serves from the project's own client
 `GET /api/deploy/f/<token>/<client>/<project>/<...rel>` checked the token against `<project>` and
