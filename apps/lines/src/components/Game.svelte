@@ -1788,7 +1788,7 @@
 	// alongside the coded button's own hotkey while the cluster is still coded.
 	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
-	// runs the continue-press only.
+	// runs the continue-press only. `ignorePressInProgress` as on `ButtonBet`: bet on a fresh press.
 	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
@@ -1939,7 +1939,12 @@
 			`ButtonBet`'s binding.
 		-->
 	{#if HUD_BUTTON_INSTANCES || suppressCodedHud}
-		<OnHotkey hotkey="Space" disabled={spinHotkeyDisabled} onpress={spinHotkeyPress} />
+		<OnHotkey
+			hotkey="Space"
+			disabled={spinHotkeyDisabled}
+			ignorePressInProgress
+			onpress={spinHotkeyPress}
+		/>
 	{/if}
 
 	<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own

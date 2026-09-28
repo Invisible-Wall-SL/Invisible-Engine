@@ -15,7 +15,8 @@
 
 <ButtonBetProvider>
 	{#snippet children({ key, onpress, disabled, hotkeyDisabled })}
-		<OnHotkey hotkey="Space" disabled={hotkeyDisabled} {onpress} />
+		<!-- A bet needs a fresh press: a Space held while this stood down must not bet on repeat. -->
+		<OnHotkey hotkey="Space" disabled={hotkeyDisabled} ignorePressInProgress {onpress} />
 		<Button {...props} {sizes} {onpress} {disabled}>
 			{#snippet children({ center, hovered })}
 				<Container {...center} tint={tint ?? 0xffffff}>
