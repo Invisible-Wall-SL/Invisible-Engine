@@ -150,8 +150,8 @@ params). It does **not** pixel-recreate the existing hand-authored `mm_gold` /
 - `docs/tools/font-maker.md` — user doc (later).
 
 Reuses (do **not** re-create): `r2.ts` writers, `projectPaths.ts` font helpers,
-`toolScope.ts` `gate`/`assertAllowed`/`includeSharedFonts`, `fontCatalog.ts`,
-`auth.ts` `getActiveScope`.
+`toolScope.ts` `gate`/`assertAllowed`/`includeSharedFonts`/`sessionProjectScope`,
+`fontCatalog.ts`.
 
 ## 7. Shared client font loader (`$lib/fontLoad.client.ts`)
 

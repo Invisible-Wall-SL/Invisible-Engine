@@ -163,6 +163,21 @@ export async function setActiveProjectKey(
 		.where(eq(sessions.id, await sha256(raw)));
 }
 
+/**
+ * Clear the session's active project, but only while it still names `expected`: the request that
+ * found it stale must never undo a switch the user made in the meantime.
+ */
+export async function clearActiveProjectKey(
+	raw: string | undefined,
+	expected: string,
+): Promise<void> {
+	if (!raw) return;
+	await getDb()
+		.update(sessions)
+		.set({ activeProjectKey: null })
+		.where(and(eq(sessions.id, await sha256(raw)), eq(sessions.activeProjectKey, expected)));
+}
+
 export async function invalidateSession(raw: string | undefined): Promise<void> {
 	if (!raw) return;
 	await getDb()

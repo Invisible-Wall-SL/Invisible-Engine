@@ -8,10 +8,12 @@
 >
 > **Shipped:** `resolveToolScope()` (`$lib/server/toolScope.ts`) — explicit
 > `?project=` is authoritative when `canAccessProject` passes (same per-user rule as
-> the selector), synced into the session; else falls back to `getActiveScope`
-> (byte-identical). All 7 tool routes use it; the editor + localization **save**
-> actions resolve from their own `url` and the form POST preserves `?project=`, so
-> saves hit the right project (the actual bug). Game Maker hub: per-project
+> the selector), synced into the session; else falls back to the session's project,
+> re-checked the same way (`sessionProjectScope`). All 7 tool routes use it; the
+> editor + localization **save** actions resolve from their own `url`
+> (`resolveActionScope` — a refused `?project=` is a 403, never a fallback) and the
+> form POST preserves `?project=`, so saves hit the right project (the actual bug).
+> Game Maker hub: per-project
 > Edit/Atlas/Fonts/Symbols/Localization launch links + a Publish confirmation
 > (project + scenes' last-edited time). `ToolTopBar` shows `<client> / <project>`.
 > Open-question #4 (retire the global selector) deferred.

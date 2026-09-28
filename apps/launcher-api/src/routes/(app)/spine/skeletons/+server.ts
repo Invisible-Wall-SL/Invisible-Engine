@@ -1,9 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { getObjectText } from '$lib/server/r2';
 import { requireSpineAccess, resolveSkeletonsRoot } from '$lib/server/spine';
+import { sessionProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 // The list is derived from `skeletons.json` in R2, which the editing tools rewrite
@@ -13,9 +12,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
 
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	await requireSpineAccess(locals);
-	const projectKey =
-		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const { clientKey, projectKey } = await sessionProjectScope(
+		locals.user,
+		cookies.get(SESSION_COOKIE),
+	);
 
 	// Name the resolved prefix so "wrong project" vs "just empty" is unambiguous,
 	// and echo the resolved (client, project) so the viewer can show the real
