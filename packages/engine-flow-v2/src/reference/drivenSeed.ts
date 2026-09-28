@@ -73,6 +73,7 @@ import type {
 } from '../types';
 import {
 	BOOK_OF_CHOREO,
+	boolLit,
 	buildChoreo,
 	choreoForVocabulary,
 	enumLit,
@@ -130,10 +131,11 @@ const stepIndex = (
  * The intro mounts BEFORE its `freeSpinIntroShow` cue, so its bound visual is subscribed when the
  * cue fires. The outro mounts AFTER its `freeSpinOutroShow` cue, because the engine's outro driver
  * resets the count-up-complete latch on that cue — and the outro's tap arms off that latch, so a
- * screen mounted first would arm on the PREVIOUS outro's stale latch. The count-up deliberately
- * leaves `tapToSkip` OFF: it skips on pointer-DOWN, the count then completes and arms the screen's
- * tap within the same press, and that press's pointer-UP completes the screen — one tap would both
- * skip the count and dismiss the outro. Any other event's choreography passes through as one beat.
+ * screen mounted first would arm on the PREVIOUS outro's stale latch. The count-up is TAP TO SKIP, so
+ * the outro is a two-stage tap: the first tap lands the total (on pointer-DOWN, which arms the
+ * screen's tap), the second continues. A press surface ignores a press already in progress when it
+ * armed, so the skip tap's own release cannot dismiss the total it just landed. Any other event's
+ * choreography passes through as one beat.
  */
 const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => {
 	const slice = (from: number, to?: number): Beat => ({ k: 'steps', steps: steps.slice(from, to) });
@@ -155,10 +157,16 @@ const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => 
 		const show = stepIndex(steps, 'cue', 'freeSpinOutroShow', event) + 1;
 		const countUp = stepIndex(steps, 'action', 'freeSpinOutroCountUp', event);
 		const hide = stepIndex(steps, 'cue', 'freeSpinOutroHide', event) + 1;
+		// `stepIndex` matched it as an action.
+		const countUpStep = steps[countUp] as Extract<ChoreoStep, { k: 'action' }>;
+		const skippable: ChoreoStep = {
+			...countUpStep,
+			inputs: { ...countUpStep.inputs, tapToSkip: boolLit(true) },
+		};
 		return [
 			slice(0, show),
 			{ k: 'show', id: FS_OUTRO },
-			slice(show, countUp + 1),
+			{ k: 'steps', steps: [...steps.slice(show, countUp), skippable] },
 			{ k: 'show', id: FS_OUTRO, awaitComplete: true },
 			slice(countUp + 1, hide),
 			{ k: 'hide', id: FS_OUTRO },

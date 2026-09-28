@@ -24,6 +24,11 @@
 	// deliberate tap can take a couple hundred ms — the earlier "skip only if released < 200ms" was too
 	// strict and read most taps as holds, so tap-to-skip never fired. With neither toggle on this renders
 	// nothing (an inert count-up), so it is always safe to mount.
+	//
+	// Only presses that START here count: the pointer handlers act on a DOWN they saw, and Space ignores
+	// a key already held when this mounted. A tap-only skip lands the count on the DOWN, which arms any
+	// tap-to-continue waiting on the landing; that surface ignores the rest of this press, so continuing
+	// takes a second, fresh tap — skip, then continue.
 	type Props = {
 		/** Hold pointer/Space to fast-forward. */
 		holdToSpeedUp?: boolean;
@@ -155,5 +160,11 @@
 		onpointerup={pointerUp}
 		onpointerupoutside={pointerCancel}
 	/>
-	<OnHotkey hotkey="Space" onpress={keyDown} onpressend={keyUp} onholdend={keyCancel} />
+	<OnHotkey
+		hotkey="Space"
+		ignorePressInProgress
+		onpress={keyDown}
+		onpressend={keyUp}
+		onholdend={keyCancel}
+	/>
 {/if}

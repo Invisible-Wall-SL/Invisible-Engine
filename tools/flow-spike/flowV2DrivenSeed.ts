@@ -26,7 +26,9 @@
  *      scenes the validator finds a release for every hold, and at runtime `freeSpinTrigger` /
  *      `freeSpinEnd` show their screen, block on it until it completes (the tap), then hide it. The
  *      intro mounts before its show cue; the outro after its (the driver resets the tap-arm latch
- *      there); the outro count-up leaves `tapToSkip` off (one press would skip AND dismiss).
+ *      there); the outro count-up is tap-to-skip, and the outro is a TWO-STAGE tap — the skip tap
+ *      lands the total without dismissing it (its release straddles the tap arming), a second tap
+ *      continues. A negative control replays the pre-fix mask, whose skip tap dismissed the outro.
  *
  * Prints PASS/FAIL per assertion + a final `V2 DRIVEN SEED HARNESS: PASSED`.
  */
@@ -52,6 +54,12 @@ import {
 import { bookofReferenceLayout, waysReferenceLayout } from 'engine-layout';
 
 import { collectContainerTaps } from '../../apps/launcher-api/src/lib/containerTaps';
+import { createPressStarts } from '../../packages/components-layout/src/pressStarts';
+import {
+	registerContinuePress,
+	runContinuePress,
+	topContinuePress,
+} from '../../packages/state-shared/src/continuePress';
 
 let failures = 0;
 const check = (label: string, cond: boolean): void => {
@@ -270,12 +278,106 @@ for (const id of ['freeSpinIntro', 'freeSpinOutro']) {
 		'outro mounts AFTER its `freeSpinOutroShow` cue (the driver resets the tap-arm latch there)',
 		log.indexOf('cue freeSpinOutroShow') < log.indexOf('show freeSpinOutro'),
 	);
-	// One press would otherwise skip the count on pointer-DOWN and complete the just-armed screen on
-	// pointer-UP — dismissing the outro the player never saw land.
 	check(
-		'outro count-up leaves `tapToSkip` OFF (one press must not skip AND dismiss)',
-		payloads.freeSpinOutroCountUp !== undefined && payloads.freeSpinOutroCountUp.tapToSkip !== true,
+		'outro count-up is TAP TO SKIP (the first tap lands the total)',
+		payloads.freeSpinOutroCountUp?.tapToSkip === true,
 	);
+
+	// The two-stage tap, end to end: the REAL seed, interpreter and mount latch, with the engine's half
+	// of the outro stood in by its pointer surfaces over the REAL press-start tracker and continue-press
+	// registry. `FreeSpinOutroDriver` holds `freeSpinOutroCountUp` until the count lands; while it runs,
+	// `CountUpInteraction` (tap-only) lands it on pointer-DOWN; landing arms the screen's tap
+	// (`TapToContinue` → `PressToContinue`, whose tap completes the screen) and mounts
+	// `ContinuePressMask` over everything. `shipped` replays the mask before the fix — every release
+	// ran the newest press — as the negative control.
+	const outroTaps = async (
+		mask: 'fixed' | 'shipped',
+		{ slowRelease }: { slowRelease: boolean },
+	) => {
+		const presses = createPressStarts<number | undefined>();
+		let countUpDown: (() => void) | undefined;
+		let unregisterTap: (() => void) | undefined;
+		const tapMount = createContainerMountModel(
+			doc.containers.map((c) => ({ id: c.id, sceneId: c.sceneId, z: c.z })),
+			undefined,
+			awaitCompleteContainerIds(doc),
+		);
+		const tapEnv = createFlowV2Env({
+			mount: {
+				...tapMount,
+				hide: (id) => {
+					if (id === 'freeSpinOutro') unregisterTap?.();
+					tapMount.hide(id);
+				},
+			},
+			effect: (name) =>
+				name === 'freeSpinOutroCountUp'
+					? (payload) =>
+							new Promise<void>((release) => {
+								const land = () => {
+									countUpDown = undefined;
+									unregisterTap = registerContinuePress(() => tapMount.complete('freeSpinOutro'));
+									release();
+								};
+								countUpDown = payload.tapToSkip === true ? land : undefined;
+							})
+					: undefined,
+			broadcast: () => {},
+			waitForTimeout: () => Promise.resolve(),
+			timeScale: () => 1,
+			engineRead: () => undefined,
+		});
+		const down = () => {
+			if (topContinuePress() === undefined) return countUpDown?.();
+			if (mask === 'fixed') presses.down(1, topContinuePress());
+		};
+		const up = () => {
+			if (topContinuePress() === undefined) return;
+			if (mask === 'shipped') return runContinuePress(topContinuePress());
+			const press = presses.up(1);
+			if (press) runContinuePress(press.startedOn);
+		};
+
+		let done = false;
+		const run = runFlowEvent(doc, { ...holdCtx, env: tapEnv }, 'freeSpinEnd', {
+			amount: 5,
+			winLevel: 3,
+		}).then(() => (done = true));
+		await settle();
+		down();
+		if (slowRelease) await settle();
+		up();
+		await settle();
+		const first = { done, held: tapMount.heldContainers().includes('freeSpinOutro') };
+		down();
+		up();
+		await settle();
+		const second = { done, shown: tapMount.isShown('freeSpinOutro') };
+		if (!done) {
+			tapMount.complete('freeSpinOutro');
+			await run;
+		}
+		unregisterTap?.();
+		return { first, second };
+	};
+
+	for (const slowRelease of [false, true]) {
+		const when = slowRelease ? 'released after the hold is reached' : 'a quick tap';
+		const fixed = await outroTaps('fixed', { slowRelease });
+		check(
+			`outro, ${when}: the skip tap lands the total and the round still HOLDS on it`,
+			!fixed.first.done && fixed.first.held,
+		);
+		check(
+			`outro, ${when}: a second, fresh tap continues and hides the outro`,
+			fixed.second.done && !fixed.second.shown,
+		);
+		const shipped = await outroTaps('shipped', { slowRelease });
+		check(
+			`negative control, ${when}: the shipped mask lets the skip tap dismiss the outro`,
+			shipped.first.done,
+		);
+	}
 }
 
 // --- 8. The ways seed: same spine, no book mechanic, validates against its OWN vocab -------------

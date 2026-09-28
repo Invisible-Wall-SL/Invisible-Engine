@@ -49,6 +49,12 @@ export const enumLit = (name: string, value: string): DataSource => ({
 	type: { t: 'enum', name },
 	value,
 });
+/** A boolean literal (`boolLit(true)`) — e.g. an optional BOOL toggle on an action node. */
+export const boolLit = (value: boolean): DataSource => ({
+	kind: 'literal',
+	type: { t: 'bool' },
+	value,
+});
 
 // ---------------------------------------------------------------------------
 // The step DSL + the v2-subgraph builder.

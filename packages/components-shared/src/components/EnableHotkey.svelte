@@ -17,7 +17,13 @@
 			const isSpace = e.key === ' ';
 			const key = isSpace ? 'Space' : e.key;
 			if (PREVENT_DEFAULT_KEYS.includes(key)) e.preventDefault();
-			if (key) context.eventEmitter.broadcast({ type: 'hotKey', key, action: 'keyDown' });
+			if (key)
+				context.eventEmitter.broadcast({
+					type: 'hotKey',
+					key,
+					action: 'keyDown',
+					repeat: e.repeat,
+				});
 		}
 	}
 
