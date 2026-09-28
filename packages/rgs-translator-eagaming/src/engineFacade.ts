@@ -214,6 +214,8 @@ const hostJurisdiction = (): Record<string, boolean> => {
 	const out: Record<string, boolean> = {};
 	const enableTurbo = hostBoolean('enableTurbo');
 	if (enableTurbo !== null) out.disabledTurbo = !enableTurbo;
+	const allowAutoplay = hostBoolean('allowAutoplay');
+	if (allowAutoplay !== null) out.disabledAutoplay = !allowAutoplay;
 	const allowOutcomeBuy = hostBoolean('allowOutcomeBuy');
 	if (allowOutcomeBuy !== null) out.disabledBuyFeature = !allowOutcomeBuy;
 	const showTheoreticalPayback = hostBoolean('showTheoreticalPayback');
@@ -1118,11 +1120,6 @@ export const requestAuthenticate = async (options: {
 				: { BASE: { mode: 'BASE', costMultiplier: 1, feature: false } },
 			defaultBetLevel: ladder?.defaultBetLevel ?? 1_000_000,
 			jurisdiction: {
-				// The operator's embed page states what this launch may do; anything it does NOT state
-				// keeps the value below. `hostBoolean` returns null for an absent key precisely so
-				// "the operator said no" can be told from "the operator said nothing" — overriding a
-				// default on silence is how a game ends up disabling turbo nobody disabled.
-				...hostJurisdiction(),
 				socialCasino: false,
 				disabledFullscreen: false,
 				disabledTurbo: false,
@@ -1130,13 +1127,19 @@ export const requestAuthenticate = async (options: {
 				disabledAutoplay: false,
 				disabledSlamstop: false,
 				disabledSpacebar: false,
-				// A server declaring two or more bet options is declaring a buy/ante exists. With no
-				// table (every server before this one) the flag stays true, as it always was.
-				disabledBuyFeature: !serverOptions || serverOptions.betOptions.length < 2,
+				// A table of ONE option declares there is nothing to buy. No table at all declares
+				// nothing, so the game's own authored menu stands — which is what every server before
+				// the 2-complex node, both our mocks included, has always had.
+				disabledBuyFeature: serverOptions?.betOptions.length === 1,
 				displayNetPosition: false,
 				displayRTP: false,
 				displaySessionTimer: false,
 				minimumRoundDuration: 0,
+				// LAST, so it wins. The operator's embed page states what this launch may do; anything it
+				// does NOT state keeps the value above. `hostBoolean` returns null for an absent key
+				// precisely so "the operator said no" can be told from "the operator said nothing" —
+				// overriding a default on silence is how a game ends up disabling turbo nobody disabled.
+				...hostJurisdiction(),
 			},
 		},
 		round: undefined,

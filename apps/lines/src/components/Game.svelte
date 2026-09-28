@@ -10,6 +10,7 @@
 		stateBetDerived,
 		stateConfig,
 		stateMeta,
+		stateMetaDerived,
 		stateMessage,
 		stateModal,
 		stateSound,
@@ -806,6 +807,7 @@
 		// `componentInstance(button)` turbo/auto-spin hides when the config disables the feature.
 		turboFeature: boolSource(() => stateUi.config.features.turbo),
 		autoplayFeature: boolSource(() => stateUi.config.features.autoplay),
+		buyFeature: boolSource(() => stateMetaDerived.hasFeatureBetModes()),
 		// True when NO full-screen tap-to-continue overlay is up (`continuePressCount === 0`). Bind an
 		// authored ambient/background node (e.g. drifting smoke) to this so it hides during any
 		// tap-to-continue celebration — the authored-scene equivalent of the coded `Background` dust
@@ -1794,7 +1796,9 @@
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('buyBonus', codedOpenBuyModal);
 			},
-			disabled: boolSource(() => !context.stateXstateDerived.isIdle()),
+			disabled: boolSource(
+				() => !context.stateXstateDerived.isIdle() || !stateMetaDerived.hasFeatureBetModes(),
+			),
 			active: boolSource(() => stateBetDerived.activeBetMode()?.type === 'activate'),
 		},
 		// ButtonAutoSpin — open the auto-spin modal, or stop a running auto-spin.

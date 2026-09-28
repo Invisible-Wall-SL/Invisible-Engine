@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import type { HudTextOverride } from 'engine-layout';
 
-	import { stateUi } from 'state-shared';
+	import { stateMetaDerived, stateUi } from 'state-shared';
 	import { getContextLayout } from 'utils-layout';
 	import { EnableSpaceHold } from 'components-shared';
 
@@ -94,7 +94,9 @@
 {/snippet}
 
 {#snippet buttonBuyBonus(buttonProps: UiButtonArgs)}
-	<ButtonBuyBonus {...buttonProps} />
+	{#if stateMetaDerived.hasFeatureBetModes()}
+		<ButtonBuyBonus {...buttonProps} />
+	{/if}
 {/snippet}
 
 {#snippet buttonBet(buttonProps: UiButtonArgs)}

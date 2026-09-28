@@ -207,6 +207,9 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	// `turboFeature`; a game registers them from `stateUi.config.features.autoplay/.turbo`.
 	'turboFeature',
 	'autoplayFeature',
+	// True while the bet menu offers a buy or an ante — false once a jurisdiction that forbids
+	// buying a feature has stripped them all. The buy-bonus button binds it.
+	'buyFeature',
 	// True when NO full-screen tap-to-continue overlay is up (`stateUi.continuePressCount === 0`).
 	// Bind an authored ambient/background node (e.g. drifting smoke) to this so it hides while any
 	// tap-to-continue celebration (free-spin intro/outro gate, retrigger) is on screen — otherwise
@@ -234,6 +237,7 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	specialBookShow: 'Book reveal (symbol chosen)',
 	turboFeature: 'Turbo feature enabled',
 	autoplayFeature: 'Autoplay feature enabled',
+	buyFeature: 'Buy feature available',
 	tapOverlayIdle: 'No tap overlay — hidden while a tap-to-continue celebration is on screen',
 };
 

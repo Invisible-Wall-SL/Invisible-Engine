@@ -1,5 +1,5 @@
 import { resolveBetModes, type BetModeKind, type ResolvedBetMode } from 'game-config';
-import { stateMeta, type BetModeData, type BetModeMeta } from 'state-shared';
+import { stateConfig, stateMeta, type BetModeData, type BetModeMeta } from 'state-shared';
 
 import { getActiveGameConfig } from './gameConfig';
 import { bakedEditorArtAssets } from '../editor-scenes';
@@ -184,11 +184,15 @@ function mergeServerOptions(
 }
 
 /** The menu keyed by UPPERCASED mode id, in resolved order — the SERVER's options when it declared
- *  any, else the authored config's. */
+ *  any, else the authored config's — less every BUY when the launch's jurisdiction forbids buying a
+ *  feature. An ante stays: it modifies the stake of a normal spin rather than buying the bonus. */
 export function buildBetModeMeta(): BetModeMeta {
 	const authored = resolveBetModes(getActiveGameConfig());
 	const options = serverBetOptions();
-	const modes = options && authored.length ? mergeServerOptions(options, authored) : authored;
+	const merged = options && authored.length ? mergeServerOptions(options, authored) : authored;
+	const modes = stateConfig.jurisdiction.disabledBuyFeature
+		? merged.filter((mode) => mode.kind !== 'buy')
+		: merged;
 
 	const meta: BetModeMeta = {};
 	for (const mode of modes) {

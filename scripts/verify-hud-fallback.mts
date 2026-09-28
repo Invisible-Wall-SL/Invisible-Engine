@@ -81,10 +81,11 @@ assert('spin (UiButtonBet) → button/spin, NO icon', {
 	icon: outNode('hud-btn-bet').params?.icon ?? null,
 }, { action: 'spin', icon: null });
 
-// Config-feature visibility gate — turbo / auto-spin carry it, the rest don't (parity with the
-// coded `UIDefault` `{#if config.features.*}` wraps, so a disabled feature hides its button).
+// Feature visibility gate — turbo / auto-spin / buy-bonus carry it, the rest don't (parity with the
+// coded `UIDefault` `{#if …}` wraps, so a disabled feature hides its button).
 assert('turbo → visibleSource turboFeature', outNode('hud-btn-turbo').params?.visibleSource, 'turboFeature');
 assert('autoSpin → visibleSource autoplayFeature', outNode('hud-btn-autospin').params?.visibleSource, 'autoplayFeature');
+assert('buyBonus → visibleSource buyFeature', outNode('hud-btn-buybonus').params?.visibleSource, 'buyFeature');
 assert('menu → no visibleSource', outNode('hud-btn-menu').params?.visibleSource ?? null, null);
 
 // Transform preservation — the converted node lands byte-for-byte where the coded one sat.

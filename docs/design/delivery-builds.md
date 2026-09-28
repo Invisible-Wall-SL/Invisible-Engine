@@ -135,12 +135,17 @@ reference client rather than inferred — which settled two of these three and c
    an enum, there is no third value, and a mode→enum map in the profile would have been a wrong
    abstraction built on a two-element coincidence. We already send the index (`betOptionIndexFor`),
    so the remaining work is only the line/way branch.
-2. **Server-supplied bet levels.** `requestAuthenticate` currently INVENTS the ladder ($0.10–$100)
-   and `disabledBuyFeature: true`, because the mock never supplied them. For an operator build the
-   limits must match what the RGS accepts, and jurisdiction flags are regulatory. **Both halves of
-   the answer now exist and neither is ours to invent:** the `config` event carries `betOptions` /
-   `gameCost` / `oneCreditBuysLines` / `costPerReel`, and the host page carries `betMultipliers` +
-   `initialBetMultiplierIndex` + `minNormalBet` / `maxNormalBet`. See the host-settings table above.
+2. ~~**Server-supplied bet levels.**~~ **BUILT 2026-09-28.** The ladder is `betOptions[0] × M` over
+   the host's `betMultipliers`, opening on `initialBetMultiplierIndex` (the facade built this on
+   2026-09-16, but the engine never read `defaultBetLevel`, so every game opened on $1). The
+   jurisdiction flags now reach the player: the facade used to spread the host's flags BEFORE its
+   defaults, so each one was overwritten, and the engine read none of them anyway. Now
+   `enableTurbo` / `allowAutoplay` / `allowOutcomeBuy` LOCK turbo, autoplay and every buy off for the
+   launch — a lock the game's own authored settings cannot lift. `disabledBuyFeature` is no longer
+   invented as `true` for a server with no bet table. Still open: `minNormalBet` / `maxNormalBet`
+   (their units are unconfirmed, so nothing clamps the ladder yet) and `showTheoreticalPayback`,
+   which arrives as `displayRTP` but has no RTP readout to switch on. Record:
+   [engine status](../status/engine.md), 2026-09-28.
 3. **Cascade vocabulary.** `tumbleStep`/`multiplierCollect` in the facade are OUR mock's invention,
    not a capture — and the reference client is the strongest evidence yet: it covers gamble, pickups,
    free rounds and fast play, and has **no cascade vocabulary at all**. Whatever Stargate's tumbles
@@ -222,20 +227,21 @@ operator never declared, which is the mistake `betOptionsName` nearly walked us 
 Nothing is blocking: every field the client currently reads already exists in `eanew`. The gap runs
 the other way — fields that are **already there** and which we still answer ourselves:
 
-| Already declared, not yet honoured                                                                                  | What we do instead today               |
-| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `betMultipliers` · `initialBetMultiplierIndex` · `minNormalBet` · `maxNormalBet`                                    | `requestAuthenticate` invents a ladder |
-| `currencySymbol` · `currencyFormat` · `isLockChangeCurrency`                                                        | format money from our own config       |
-| `locale`                                                                                                            | Lingui's own resolution                |
-| `allowAutoplay` · `autoplayDisabled` · `autoplaySpins`                                                              | a coded autoplay menu                  |
-| `minSpinDuration`                                                                                                   | coded spin timing                      |
-| `home`                                                                                                              | no lobby/exit affordance               |
-| `showCreditValue` · `showBetRanges` · `errorPanel` · `clock` · `elapsedTime` · `showTime` · `confirmGameRoundStart` | coded on/off                           |
-| `historyClient` · `externalHistoryUrl`                                                                              | no history surface                     |
+| Already declared, not yet honoured                                                                                  | What we do instead today              |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `minNormalBet` · `maxNormalBet`                                                                                     | the ladder is not clamped (units TBC) |
+| `currencySymbol` · `currencyFormat` · `isLockChangeCurrency`                                                        | format money from our own config      |
+| `locale`                                                                                                            | Lingui's own resolution               |
+| `autoplayDisabled` · `autoplaySpins`                                                                                | a coded autoplay menu                 |
+| `minSpinDuration`                                                                                                   | coded spin timing                     |
+| `home`                                                                                                              | no lobby/exit affordance              |
+| `showCreditValue` · `showBetRanges` · `errorPanel` · `clock` · `elapsedTime` · `showTime` · `confirmGameRoundStart` | coded on/off                          |
+| `historyClient` · `externalHistoryUrl`                                                                              | no history surface                    |
 
 Each is an operator's declaration about a REGULATED or contractual surface, so each one we answer
 ourselves is a place a delivery can be wrong for a jurisdiction. Work through them by how much they
-cost to get wrong — the bet ladder first, then currency, then autoplay.
+cost to get wrong — the bet ladder first, then currency, then autoplay. The ladder itself
+(`betMultipliers`, `initialBetMultiplierIndex`) and `allowAutoplay` are honoured since 2026-09-28.
 
 ### A real delivery names no RGS host at all (`rgs.source: 'host'`) ✅ BUILT
 
