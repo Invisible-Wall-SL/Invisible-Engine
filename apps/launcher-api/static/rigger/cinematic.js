@@ -2709,6 +2709,7 @@ ${maskMarkup(s, actor, found.track)}
 		setTime,
 		getTime: () => time,
 		duration: () => (doc ? doc.duration : 0),
+		isDirty: () => dirty,
 		hasActors: () => actors.length > 0,
 		renderPanel,
 		renderTimeline,

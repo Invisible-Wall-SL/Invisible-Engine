@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-24)_ **Image sequences are authorable** — declare a numbered run of atlas regions as one flipbook image, key it, and edit each key's mode / starting image / hold time; the editor refuses any declaration Spine would refuse to load (see Recent changes). Was: _(2026-09-23)_ The dopesheet can **STRETCH a selection's timing about one anchor key** — grips at each end of the selected range, the anchor pinned, easing and image-sequence speed scaling with it — and a Spine **`sequence` timeline is now a track** instead of being invisible (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-28)_ **Saving a rig can no longer silently lose work** — the `.irig` save is conditional (a concurrent save prompts instead of overwriting), refuses a rig that would not load again, keeps the last 20 versions restorable from 🕘 History, and closing the tab with unsaved rig/cinematic edits asks first (see Recent changes). Was: _(2026-09-24)_ **Image sequences are authorable** — declare a numbered run of atlas regions as one flipbook image, key it, and edit each key's mode / starting image / hold time; the editor refuses any declaration Spine would refuse to load (see Recent changes). Was: _(2026-09-23)_ The dopesheet can **STRETCH a selection's timing about one anchor key** — grips at each end of the selected range, the anchor pinned, easing and image-sequence speed scaling with it — and a Spine **`sequence` timeline is now a track** instead of being invisible (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is its ANCHOR** — the point of the image that sits at the slot's position, never a bone: choosing one MOVES the image so that point lands on the pivot, and rotation/scale turn around it (see Recent changes). Was: _(2026-09-23)_ An image's **pivot is editable and is a property of the IMAGE, not a bone** — setting it adds nothing to the skeleton, and rotation/scale in the placement fields turn the image around it (see Recent changes; a leftover `<slot>-pivot` bone from the first attempt folds back from the panel). Was: _(2026-09-23)_ The **＋ Add … constraint buttons work** — IK / transform / path / physics were all built, but `selectBone` never refreshed the panel, so they stayed disabled however many bones you clicked (and a disabled button here looked identical to a live one). Was: _(2026-09-23)_ A slot's **pivot is editable** — ✥ Set pivot in Setup mode puts the point the art rotates and scales around anywhere under it, without moving the art; a new slot no longer spins about its middle with no way to change that (see Recent changes). Was: _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 
@@ -69,6 +69,51 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+
+- 2026-09-28 — **The `.irig` save became safe to use with more than one author.** Before, a save
+  was an unconditional PUT of `<spines>/<dir>/<stem>.irig`: no precondition, the project taken
+  from the SESSION (a project switch in another tab wrote into the other project), no check
+  beyond `Array.isArray(bones)`, no backup (R2 versioning is off), no close-tab guard, and the
+  shared rig-library save overwrote a studio-wide name without asking.
+  - **Conditional save.** Opening a rig first asks `GET /api/rigger/save?dir&stem` for the
+    `.irig`'s ETag and the project (BEFORE the bytes load — the AssetManager hides headers, and
+    this order fails toward a spurious prompt, never a silent overwrite). The save sends
+    `baseEtag` + `projectKey`; a stale tag answers 409 and the tab asks *Overwrite with your
+    version?* (mirrors the cinematic prompt). Unlike the cinematic, "overwrite" does NOT drop the
+    precondition — the 409 carries the current ETag and the retry is `If-Match` on exactly the
+    version the author was shown, so a third save landing meanwhile prompts again instead of being
+    eaten. A project mismatch (the tab's project vs the session's) is refused outright. Once a save
+    lands, the open rig IS the `.irig` (a later text re-bake or refresh no longer reopens the
+    source `.json` and drops the saved edits); a second save while one is in flight is ignored. A first save
+    of a source `.json` creates with `If-None-Match`; opening the source `.json` while a
+    `<stem>.irig` already exists asks once before replacing it. `rigger/new` / `rigger/upload`
+    claim the `.irig` with `If-None-Match` before writing any page or atlas.
+  - **Pre-save validation.** The tab re-parses the doc through the same tolerant `SkeletonJson`
+    loader it opens with and refuses with the loader's own message; the server runs
+    `irigDocProblem` (`$lib/server/riggerIrig.ts`) — every by-name reference spine-core throws on,
+    plus undefined parents (which spine-core silently re-roots) and duplicate names. 422 with a
+    readable reason; the stored rig is untouched.
+  - **Rolling backups + restore.** Every overwrite first copies the previous `.irig` to
+    `<client>/<project>/rigger-backups/<dir>/<stem>/` (outside `spines/`, which the skeleton scan
+    would list), 20 kept per rig. A write whose precondition already fails takes no copy, so a
+    run of refused saves cannot push real versions out of retention. **🕘** next to 💾 Save lists them; Restore goes through the same
+    guarded write, so it backs up what it replaces and keeps the CAS. `/api/rigger/backups`.
+  - **beforeunload guard** when the rig or the cinematic (`RiggerCinematic.isDirty()`) has
+    unsaved changes.
+  - **Rig library save** creates only; a taken name shows who saved it and when, and the
+    confirmed retry is `If-Match` on that entry.
+  - Verified: `tools/rigger-spike/irig-save.mjs` (45/45 — the check agrees with spine-core on
+    every reference break and passes all 153 skeletons checked into the repo; CAS, backup-before-
+    PUT ordering, retention, atlas-missing etag hand-back), the other rigger-spike suites
+    unchanged (`rigtext-panel` 8/9 and the `$lib`-alias build failure of `cinematic-storage` are
+    pre-existing on `main`), `check:launcher-gates` 297/297, and the REAL `view.html` driven in a
+    browser against a mock API (create → CAS update → conflict declined/forced → invalid refused
+    with no request → scope mismatch refused → json-over-irig confirm → History restore →
+    beforeunload → library exists/confirm/decline → conflict-retry on the returned tag), after a
+    `pipeline-concurrency` review whose findings are folded in. Owner live-verify against R2 owed.
+  - Not in this change: **rig undo** (separate task — item 6); the animation-library save is
+    still unconditional; two `＋ New rig` creates whose names differ only by CASE can both pass the
+    `If-None-Match` claim (the name check is case-insensitive, the key is not).
 
 - 2026-09-24 — **Image sequences became authorable, and a wrong declaration can no longer brick a rig.**
   The timeline shipped the day before could only SHOW sequences; nothing could make an image a

@@ -1,115 +1,94 @@
 import { error, json } from '@sveltejs/kit';
-import { SUB } from '$lib/server/projectPaths';
-import { getObjectText, putObjectText } from '$lib/server/r2';
-import { ensureBundleAtlasFresh } from '$lib/server/spineBundleSync';
-import {
-	reindexSkeletonsPreserving,
-	scanSkeletonsIndex,
-	type SkeletonsIndex,
-} from '$lib/server/spineIndex';
+import { headObject } from '$lib/server/r2';
+import { irigDocProblem } from '$lib/server/riggerIrig';
+import { irigTarget, scopeMismatch, writeIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
+const GATE = {
+	tool: 'rigger',
+	forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
+} as const;
+
 /**
- * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` (Spine 4.2 JSON
- * under our extension) WITHOUT clobbering the artist's source `.json`, then rebuild
- * the project's `skeletons.json` so the saved edit is listed + re-openable in the
- * tool. Gated by `rigger` access; path-guarded; the body must be a real skeleton.
+ * The precondition a later save of `<dir>/<stem>.irig` must carry: `{ projectKey, etag }`, where
+ * `etag: null` means no `.irig` exists yet (the save will be a create).
  *
- * Body: `{ dir: <base64url bundle dir, '' = spines root>, stem: <file stem>,
- *          skeleton: <object|string Spine JSON> }`.
+ * The Rigger loads the skeleton through `/spine/file`, which the Spine AssetManager reads without
+ * exposing headers — so the tab asks for the ETag HERE, BEFORE it loads the bytes. That order
+ * fails safe: a save landing between the two leaves the tab holding an OLDER etag than its bytes,
+ * which is a spurious 409 (a prompt), never a silent overwrite.
+ *
+ * Query: `?dir=<base64url bundle dir>&stem=<file stem>`.
+ */
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
+	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
+	const target = irigTarget(
+		clientKey,
+		projectKey,
+		url.searchParams.get('dir') ?? '',
+		url.searchParams.get('stem') ?? '',
+	);
+	const head = await headObject(target.key);
+	// An object with no ETag (never seen from R2) leaves `etag` out entirely — the tab then refuses
+	// to save rather than guessing a precondition that could only mis-fire.
+	return json({ ok: true, projectKey, etag: head ? (head.etag ?? undefined) : null });
+};
+
+/**
+ * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` (Spine 4.2 JSON under our
+ * extension) WITHOUT clobbering the artist's source `.json`, then rebuild the project's
+ * `skeletons.json` so the saved edit is listed + re-openable.
+ *
+ * Guarded like every authoring save (`docs/design/multi-user-concurrency.md`): the caller's
+ * `baseEtag` makes the write conditional (a string → `If-Match`, `null` → `If-None-Match: *`), a
+ * stale one answers 409 instead of overwriting; `force: true` is the author's explicit "overwrite
+ * theirs" from the conflict prompt. The previous `.irig` is copied aside first (`riggerIrig.ts`)
+ * so any overwrite — forced or not — can be undone from the rig's history.
+ *
+ * Body: `{ dir, stem, skeleton: <object|string>, projectKey, baseEtag: string|null } | {…, force: true}`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies, {
-		tool: 'rigger',
-		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
-	});
+	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
 
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body) throw error(400, 'bad body');
 
-	const dirB64 = typeof body.dir === 'string' ? body.dir : '';
-	const stem = typeof body.stem === 'string' ? body.stem : '';
-	if (!stem) throw error(400, 'missing stem');
-
-	let dir = '';
-	if (dirB64) {
-		try {
-			dir = Buffer.from(dirB64, 'base64url').toString('utf8');
-		} catch {
-			throw error(400, 'bad dir');
-		}
+	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {
+		return scopeMismatch(body.projectKey, projectKey);
 	}
-	if (dir.includes('..') || stem.includes('..') || stem.includes('/')) throw error(403, 'forbidden');
 
-	let doc: Record<string, unknown> | null = null;
-	const raw = body.skeleton;
-	if (typeof raw === 'string') {
+	const target = irigTarget(clientKey, projectKey, body.dir, body.stem);
+
+	let doc: unknown = body.skeleton;
+	if (typeof doc === 'string') {
 		try {
-			doc = JSON.parse(raw) as Record<string, unknown>;
+			doc = JSON.parse(doc);
 		} catch {
 			throw error(400, 'skeleton is not valid JSON');
 		}
-	} else if (raw && typeof raw === 'object') {
-		doc = raw as Record<string, unknown>;
 	}
-	if (!doc || !Array.isArray(doc.bones)) throw error(400, 'body.skeleton is not a skeleton (no bones[])');
-
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundlePrefix = dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
-	const key = `${bundlePrefix}/${stem}.irig`;
-	await putObjectText(key, JSON.stringify(doc), 'application/json');
-
-	// Re-derive the index so the new `.irig` is listed — but a naive project-wide rebuild
-	// SILENTLY DROPS any skeleton folder whose `.atlas` is missing (deleted / never
-	// co-located / a failed sync), un-shipping a working rig and, worse, letting THIS save
-	// drop a DIFFERENT atlas-less rig. `reindexSkeletonsPreserving` (a) re-derives a missing
-	// atlas from the folder's `source.json`, and (b) preserves the prior entry for any folder
-	// it still can't rebuild — never dropping one.
-	const outcome = await reindexSkeletonsPreserving({
-		scan: () => scanSkeletonsIndex(spinesPrefix, spinesPrefix),
-		readPriorIndex: async () => {
-			const text = await getObjectText(`${spinesPrefix}/skeletons.json`);
-			if (!text) return null;
-			try {
-				return JSON.parse(text) as SkeletonsIndex;
-			} catch {
-				return null;
-			}
-		},
-		rederiveAtlas: async (folder, atlasFile) => {
-			const folderPrefix = folder ? `${spinesPrefix}/${folder}` : spinesPrefix;
-			const res = await ensureBundleAtlasFresh(clientKey, projectKey, folderPrefix, atlasFile, {
-				force: true,
-			});
-			return !!res;
-		},
-	});
-
-	// The rig we just saved has no atlas AND no source to rebuild one: writing the rebuilt
-	// index would list it pointing at a missing atlas (blank in the editor, dropped from the
-	// export). Fail LOUDLY instead — the `.irig` is already saved to R2, so no edit is lost;
-	// leave the prior index untouched so nothing else is dropped either.
-	if (outcome.atlasMissingFolders.includes(dir)) {
-		throw error(
-			400,
-			`"${stem}" has no atlas and no source to rebuild it — re-sync an atlas first ` +
-				`(⟳ source…), then save again. Your edit was saved to storage and will list once the ` +
-				`atlas is restored.`,
+	const problem = irigDocProblem(doc);
+	if (problem) {
+		return json(
+			{
+				ok: false,
+				error: 'invalid-skeleton',
+				message: `Not saved — the rig would not load: ${problem}. The stored rig is unchanged.`,
+			},
+			{ status: 422 },
 		);
 	}
 
-	await putObjectText(
-		`${spinesPrefix}/skeletons.json`,
-		JSON.stringify(outcome.index),
-		'application/json',
-	);
-
+	const baseEtag = writeBaseEtagJson(body);
+	const res = await writeIrig(clientKey, projectKey, target, JSON.stringify(doc), baseEtag);
+	if (!res.ok) return res.response;
 	return json({
 		ok: true,
-		key,
-		count: outcome.index.skeletons.length,
-		rederived: outcome.rederivedFolders,
-		preserved: outcome.preservedFolders,
+		key: target.key,
+		etag: res.etag,
+		backupId: res.backupId,
+		count: res.count,
 	});
 };

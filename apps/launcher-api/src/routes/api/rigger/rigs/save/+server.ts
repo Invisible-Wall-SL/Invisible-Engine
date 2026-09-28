@@ -1,8 +1,10 @@
 import { error, json } from '@sveltejs/kit';
 import { r2Slug, sharedRigKey } from '$lib/server/projectPaths';
-import { putObjectText } from '$lib/server/r2';
+import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from '$lib/server/r2';
 import { saveRig } from '$lib/server/riggerLibrary';
+import { irigDocProblem } from '$lib/server/riggerIrig';
 import { gate } from '$lib/server/toolScope';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { SharedRigStats } from '$lib/server/db/schema';
 import type { RequestHandler } from './$types';
 
@@ -10,10 +12,15 @@ import type { RequestHandler } from './$types';
  * Save one WHOLE rig (skeleton doc = bones + slots + skins + constraints + animations)
  * to the cross-project rig library (`_shared/rigs/`). The full entry (with the heavy
  * `skeleton`) is written to `_shared/rigs/<id>.json`; a lightweight catalog row is
- * upserted into Postgres. Re-saving the same id OVERWRITES (the client warns first).
- * Gated by `rigger`; the id is path-guarded via `r2Slug`.
+ * upserted into Postgres. Gated by `rigger`; the id is path-guarded via `r2Slug`.
  *
- * Body: `{ id?, name, skeleton, sourceRig? }`.
+ * The library is STUDIO-WIDE, so a name collision overwrites another project's rig. The write is
+ * therefore conditional: the first attempt sends `baseEtag: null` (create only), and an existing
+ * entry answers **409 `exists`** carrying its `etag` + who saved it. The client confirms, then
+ * retries with that etag (`If-Match`) — so a second concurrent overwrite of the same entry is a
+ * 409 `conflict`, not a silent last-writer-wins.
+ *
+ * Body: `{ id?, name, skeleton, sourceRig?, baseEtag: string | null }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -31,7 +38,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!skeleton || typeof skeleton !== 'object' || Array.isArray(skeleton)) {
 		throw error(400, 'body.skeleton is not an object');
 	}
-	if (!Array.isArray(skeleton.bones)) throw error(400, 'body.skeleton.bones is not an array');
+	const problem = irigDocProblem(skeleton);
+	if (problem) throw error(422, `Not saved — the rig would not load: ${problem}.`);
+	const baseEtag = writeBaseEtagJson(body);
 
 	const id = r2Slug(typeof body.id === 'string' && body.id ? body.id : name);
 	if (!id || id.includes('..') || id.includes('/')) throw error(400, 'bad id');
@@ -43,7 +52,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			? Object.keys(skeleton.animations as Record<string, unknown>)
 			: [];
 	const stats: SharedRigStats = {
-		bones: skeleton.bones.length,
+		bones: (skeleton.bones as unknown[]).length,
 		slots: slots.length,
 		skins: skins.length,
 		animations,
@@ -63,8 +72,52 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const entry = { schemaVersion: 1, id, name, savedAt, source, stats, skeleton };
 	// Blob BEFORE row: a failure here leaves no row and no blob; a failure after
 	// leaves an orphaned blob (invisible) rather than a row pointing at nothing.
-	await putObjectText(sharedRigKey(id), JSON.stringify(entry), 'application/json');
+	let etag: string | null;
+	try {
+		etag = await putObjectText(
+			sharedRigKey(id),
+			JSON.stringify(entry),
+			'application/json',
+			precondition(baseEtag),
+		);
+	} catch (e) {
+		if (!(e instanceof ConflictError)) throw e;
+		return conflict(id, baseEtag === null ? 'exists' : 'conflict');
+	}
 	await saveRig({ id, name, savedAt, source, stats });
 
-	return json({ ok: true, id });
+	return json({ ok: true, id, etag });
 };
+
+/** The 409 for a library name that is taken (`exists`) or changed under us (`conflict`). */
+async function conflict(id: string, kind: 'exists' | 'conflict'): Promise<Response> {
+	const current = await getObjectTextWithEtag(sharedRigKey(id));
+	let existing: { name?: unknown; savedAt?: unknown; source?: { project?: unknown } } = {};
+	try {
+		existing = current ? JSON.parse(current.text) : {};
+	} catch {
+		/* a corrupt entry is still one worth confirming before overwriting */
+	}
+	const who =
+		typeof existing.source?.project === 'string'
+			? ` from project "${existing.source.project}"`
+			: '';
+	const when =
+		typeof existing.savedAt === 'string'
+			? ` (saved ${existing.savedAt.slice(0, 16).replace('T', ' ')} UTC)`
+			: '';
+	return json(
+		{
+			ok: false,
+			error: kind,
+			id,
+			etag: current?.etag ?? null,
+			message:
+				kind === 'exists'
+					? `The shared library already has a rig "${typeof existing.name === 'string' ? existing.name : id}"${who}${when}. ` +
+						'Saving replaces it for every project.'
+					: `Someone else just saved the library rig "${id}"${who}${when}. Nothing was overwritten.`,
+		},
+		{ status: 409 },
+	);
+}

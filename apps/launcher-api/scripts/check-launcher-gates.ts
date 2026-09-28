@@ -265,6 +265,8 @@ const STALE_TAB_GUARDS = [
 	'flipbook/save',
 	'flow-v2/save',
 	'fx/save',
+	'rigger/backups',
+	'rigger/save',
 	'rigger/text',
 ];
 const readsBodyProjectKey = new Set<string>();

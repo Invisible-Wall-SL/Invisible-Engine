@@ -564,6 +564,7 @@
       <div class="grp" id="grpRigFile">
         <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
+        <button id="histBtn" title="Earlier saved versions of this rig — restore one" disabled>🕘</button>
       </div>
       <span id="rt" class="pill"></span>
     </div>
@@ -617,6 +618,18 @@
       </div>
       <input type="text" id="rigLibFilter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="rigLibList"></div>
+    </div>
+  </div>
+
+  <!-- Rig history modal: the server's rolling backups of the open rig's .irig -->
+  <div id="rigHistModal" class="rigModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <b>🕘 History — <span id="rigHistTitle"></span></b>
+        <span style="flex:1;"></span>
+        <button id="rigHistClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div id="rigHistList"></div>
     </div>
   </div>
 
@@ -851,6 +864,12 @@ let graphSel = [], graphMarquee = null; // selected graph points [{keyObj,ch,fie
 let graphSnap = true, graphBox = null; // snap key/handle times to grid+playhead; box-scale-drag state
 let gizmoDrag = null; // transform gizmo rotate-drag state
 let curProjectLabel = "", curProjectKey = "", restoringState = false; // persisted-selection helpers
+// The save precondition for the open rig's `.irig` (docs/design/multi-user-concurrency.md):
+// `rigEtag` = the ETag it had when the rig was opened (null = no `.irig` yet → the save is a
+// create; undefined = unknown → saving is refused rather than sent unguarded), and `rigProjectKey`
+// = the project it was opened IN. Both are captured at open, never refreshed by a list reload —
+// `curProjectKey` follows the session, which another tab can switch under this one.
+let rigEtag, rigProjectKey = "";
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -1774,6 +1793,7 @@ async function selectSkeleton(entry){
 
   if (!gl) initGL();
 
+  await loadRigPrecondition(entry);
   const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
     + "&v=" + Date.now() + "&name=";
   assetMgr = new SPINE.AssetManager(gl, base);
@@ -1967,6 +1987,7 @@ function buildSkeleton(entry){
   if (rigBindsClips()) loadProjectClips();
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
+  saveToR2.confirmedFor = false;
   fxClearPreview();        // new rig — drop any live FX preview from the old one
   curAnim = null; animTime = 0;
   selBone = null;          // reset selection BEFORE setMode (its tail restores selBone)
@@ -2688,11 +2709,20 @@ async function saveRigToLibrary(){
   if (!nm){ setRigStatus("enter a name"); return; }
   setRigStatus('saving "' + nm + '" to library…');
   ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
+  // The library is studio-wide, so the first attempt only CREATES (`baseEtag: null`). A taken
+  // name answers 409 with the entry's etag; overwriting is then an explicit choice, and the retry
+  // is conditional on exactly the entry the author was shown.
+  const post = (baseEtag) => fetch("/api/rigger/rigs/save", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem(), baseEtag }),
+  });
   try {
-    const r = await fetch("/api/rigger/rigs/save", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem() }),
-    });
+    let r = await post(null);
+    for (let tries = 0; r.status === 409 && tries < 3; tries++){
+      const j = await r.json().catch(() => null);
+      if (!j || !confirm((j.message || "That name is taken.") + "\n\nReplace it with this rig?")){ setRigStatus("not saved — pick another name"); return; }
+      r = await post(j.etag ?? null);
+    }
     if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
     await r.json();
     setRigStatus('saved "' + nm + '" to the rig library ✓');
@@ -8674,6 +8704,7 @@ function setMode(m){
   $("#resTimeline").style.display = (animMode || cineMode) ? "block" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
+  $("#histBtn").disabled = !rawDoc;
   { const b = $("#saveRigLibBtn"); if (b) b.disabled = !rawDoc; }
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
@@ -11574,31 +11605,167 @@ function exportIrig(){
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// Save edits to the project in R2 as <stem>.irig (server rebuilds the skeleton
-// index so it re-appears in the list). Non-destructive — the source .json stays.
-async function saveToR2(){
-  if (!rawDoc || !selected) return;
-  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
-  const stem = (selected.skeleton_file || "skeleton").replace(/\.[^.]+$/, "");
-  const btn = $("#saveBtn"); const label = btn.textContent;
-  btn.disabled = true; btn.textContent = "saving…";
-  clearErr();
+const irigStem = (entry) => ((entry && entry.skeleton_file) || "skeleton").replace(/\.[^.]+$/, "");
+
+// Ask for the `.irig`'s current ETag BEFORE its bytes load. The AssetManager hides response
+// headers, so the tag cannot ride along with the load — and fetching it FIRST is the order that
+// fails safe: a save landing in between leaves us holding an older tag than our bytes, which is a
+// spurious conflict prompt, never a silent overwrite.
+async function loadRigPrecondition(entry){
+  rigEtag = undefined; rigProjectKey = curProjectKey;
+  if (entry.format === "skel") return;
   try {
+    const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
+      + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
+    const j = await r.json();
+    // `rigProjectKey` stays the TAB's project (the one whose list this rig was picked from). If the
+    // session moved to another project in a different tab, the save then answers scope-mismatch
+    // instead of writing a rig the author believes belongs to this one.
+    if (r.ok && j.ok){ rigEtag = j.etag; rigProjectKey = curProjectKey || j.projectKey; }
+  } catch {}
+}
+
+// Re-parse the doc through the SAME tolerant loader the Rigger opens with, so a save can never
+// write a rig that would come back as "Load failed". Works on a clone; `missingArt` is restored.
+function rigDocLoadProblem(doc){
+  if (!assetMgr || !selected) return null;
+  const keep = missingArt;
+  missingArt = [];
+  try {
+    const atlas = assetMgr.require(selected.atlas_file);
+    new SPINE.SkeletonJson(makeAttachmentLoader(atlas)).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    return null;
+  } catch (e){ return String((e && e.message) || e); }
+  finally { missingArt = keep; }
+}
+
+// Save edits to the project in R2 as <stem>.irig (server rebuilds the skeleton index so it
+// re-appears in the list). Non-destructive — the source .json stays. CONDITIONAL on the ETag the
+// rig was opened with: a stale one answers 409 and the author chooses, never a silent clobber.
+// `confirmed` = the author already chose to overwrite (the retry after a conflict prompt).
+async function saveToR2(){
+  let confirmed = false;
+  while (await saveToR2Once(confirmed)) confirmed = true;
+}
+// One attempt; resolves true when the author chose to overwrite and it should retry.
+async function saveToR2Once(confirmed){
+  if (!rawDoc || !selected || saveToR2.busy) return false;
+  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
+  const stem = irigStem(selected);
+  clearErr();
+  const problem = rigDocLoadProblem(rawDoc);
+  if (problem){ showErr("Not saved — this rig would not load again: " + problem + ". Fix it (or undo the last change) and save again."); return; }
+  if (rigEtag === undefined){
+    showErr("Not saved — couldn't read the stored version of this rig when it opened, so a save could overwrite someone else's work. Use ⟳ Refresh from R2 (your edits are discarded) or ⤓ .irig to download them first.");
+    return;
+  }
+  // Opened from the artist's source `.json` while a `<stem>.irig` already exists: the save
+  // REPLACES that edit, which is not what "save" says on its face. Ask once per open.
+  if (!confirmed && rigEtag && !/\.irig$/i.test(selected.skeleton_file || "") && !saveToR2.confirmedFor
+      && !confirm("“" + stem + ".irig” already exists — an earlier Rigger save of this rig.\n\nYou opened the source “" + selected.skeleton_file + "”, so saving replaces that .irig with this version (the old one is kept in 🕘 History). Continue?")) return;
+  const btn = $("#saveBtn"); const label = "💾 Save";
+  btn.disabled = true; btn.textContent = "saving…";
+  saveToR2.busy = true;
+  let retry = false;
+  try {
+    const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
     const r = await fetch("/api/rigger/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dir: selected.dir_b64, stem, skeleton: rawDoc }),
+      body: JSON.stringify(payload),
     });
-    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
-    await r.json();
+    const text = await r.text();
+    let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+    if (j && j.saved && j.etag !== undefined) rigEtag = j.etag; // the write landed even if the reindex did not
+    if (r.status === 409 && j){
+      btn.textContent = label; btn.disabled = !rawDoc;
+      // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
+      // its tag), so a third save landing meanwhile prompts again instead of being eaten. A scope
+      // mismatch is never overwritable — that would write into another project.
+      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){ rigEtag = j.etag; retry = true; }
+      else if (j.error !== "conflict") showErr(j.message);
+      return retry;
+    }
+    if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
+    rigEtag = j.etag ?? null;
+    saveToR2.confirmedFor = true;
     dirty = false;
     btn.textContent = "✓ saved";
     setTimeout(() => { btn.textContent = label; btn.disabled = !rawDoc; }, 1500);
-    loadSkeletons(true); // refresh list so the new <stem>.irig appears
+    // Refresh the list so a new <stem>.irig appears — and from now on the open rig IS that .irig.
+    // Left pointing at the source .json, any later reload (a text re-bake, ⟳ Refresh) would reopen
+    // the artist's source and silently drop the edits this save just stored.
+    const saved = selected;
+    await loadSkeletons(true);
+    const irig = skeletons.find((s) => (s.dir_b64 || "") === (saved.dir_b64 || "") && s.skeleton_file === stem + ".irig");
+    if (irig && selected === saved){ selected = irig; renderList(); saveRiggerState(); }
   } catch (e){
     showErr("Save failed: " + (e.message || e));
     btn.textContent = label; btn.disabled = !rawDoc;
+  } finally {
+    saveToR2.busy = false;
   }
+  return false;
+}
+
+// 🕘 History — the rolling backups the server keeps of this rig's `.irig` before every
+// overwrite (`/api/rigger/backups`). Restoring is itself backed up, so it can be undone too.
+async function openRigHistory(){
+  if (!selected) return;
+  const stem = irigStem(selected);
+  $("#rigHistTitle").textContent = stem + ".irig";
+  $("#rigHistModal").classList.add("open");
+  const list = $("#rigHistList");
+  list.innerHTML = '<div class="empty" style="padding:10px 4px;color:var(--dim);">loading…</div>';
+  let backups = [];
+  try {
+    const r = await fetch("/api/rigger/backups?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(stem), { cache: "no-store" });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.message || ("HTTP " + r.status));
+    backups = j.backups || [];
+  } catch (e){ list.innerHTML = ""; list.textContent = "Couldn't list the history: " + (e.message || e); return; }
+  list.innerHTML = "";
+  if (!backups.length){
+    list.innerHTML = '<div class="empty" style="padding:14px 4px;color:var(--dim);font-size:12px;line-height:1.5;">No earlier versions yet — one is kept each time this rig is saved over.</div>';
+    return;
+  }
+  backups.forEach((b) => {
+    const d = document.createElement("div"); d.className = "item";
+    d.style.cssText = "display:flex;align-items:center;gap:8px;";
+    const when = new Date(b.savedAt);
+    d.innerHTML = '<div style="flex:1;"><div class="nm"></div><div class="meta"></div></div>';
+    d.querySelector(".nm").textContent = when.toLocaleString();
+    d.querySelector(".meta").textContent = Math.max(1, Math.round(b.size / 1024)) + " KB";
+    const btn = document.createElement("button"); btn.textContent = "Restore"; btn.style.cssText = "padding:2px 9px;font-size:11px;";
+    btn.onclick = () => restoreRigBackup(b, when);
+    d.appendChild(btn);
+    list.appendChild(d);
+  });
+}
+function closeRigHistory(){ $("#rigHistModal").classList.remove("open"); }
+async function restoreRigBackup(b, when, confirmed){
+  const stem = irigStem(selected);
+  if (rigEtag === undefined){ showErr("Can't restore — couldn't read the stored version of this rig when it opened. Use ⟳ Refresh from R2 and try again."); return; }
+  if (!confirmed && !confirm("Restore “" + stem + ".irig” to the version from " + when.toLocaleString() + "?\n\n"
+    + (dirty ? "Your UNSAVED edits in this tab are discarded. " : "")
+    + "The current stored version is kept in History, so this can be undone.")) return;
+  const payload = { dir: selected.dir_b64 || "", stem, id: b.id, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
+  try {
+    const r = await fetch("/api/rigger/backups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const text = await r.text();
+    let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+    if (r.status === 409 && j){
+      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nRestore over their version anyway? (Theirs is kept in History.)")){ rigEtag = j.etag; return restoreRigBackup(b, when, true); }
+      if (j.error !== "conflict") showErr(j.message);
+      return;
+    }
+    if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
+    closeRigHistory();
+    dirty = false;
+    await loadSkeletons(true);
+    const t = skeletons.find((s) => (s.dir_b64 || "") === (selected.dir_b64 || "") && s.skeleton_file === stem + ".irig");
+    await selectSkeleton(t || selected);
+  } catch (e){ showErr("Restore failed: " + (e.message || e)); }
 }
 
 // Names of every bone whose parent chain passes through `boneName` (its subtree) —
@@ -12472,7 +12639,18 @@ function wire(){
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;
   $("#exportBtn").onclick = exportIrig;
-  $("#saveBtn").onclick = saveToR2;
+  $("#saveBtn").onclick = () => saveToR2();
+  $("#histBtn").onclick = openRigHistory;
+  $("#rigHistClose").onclick = closeRigHistory;
+  $("#rigHistModal").onmousedown = (e) => { if (e.target === $("#rigHistModal")) closeRigHistory(); };
+  // Closing or reloading the tab with unsaved rig or cinematic edits asks first. The cinematic
+  // keeps a local crash draft, but that is not "saved" — neither is anything else.
+  window.addEventListener("beforeunload", (e) => {
+    const cine = window.RiggerCinematic && window.RiggerCinematic.isDirty && window.RiggerCinematic.isDirty();
+    if (!(rawDoc && dirty) && !cine) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 
   const cv = $("#cv");
   cv.addEventListener("wheel", e => {
