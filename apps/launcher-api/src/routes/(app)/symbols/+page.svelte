@@ -1780,14 +1780,11 @@
 				>
 					{reloading ? 'Reloading…' : '↻ Reload from R2'}
 				</button>
-				<!-- `onclick={save}` passes the click EVENT as `force` (truthy): a manual Save has
-				     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
-				     conflict ask is effectively dead on this path); flagged for the owner. -->
 				<button
 					class="save"
 					type="button"
 					disabled={lease.readOnly || !dirty || saveState.busy}
-					onclick={save}
+					onclick={() => save()}
 				>
 					{saveState.busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
 				</button>

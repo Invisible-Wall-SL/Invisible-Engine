@@ -897,10 +897,7 @@
 			value={doc.name}
 			onchange={(e) => (doc = { ...doc, name: (e.currentTarget as HTMLInputElement).value })}
 		/>
-		<!-- `onclick={saveEffect}` passes the click EVENT as `force` (truthy): a manual Save has
-		     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
-		     destructive conflict ask is effectively dead on this path); flagged for the owner. -->
-		<button class="primary" onclick={saveEffect} disabled={busy || lease.readOnly}>
+		<button class="primary" onclick={() => saveEffect()} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
 		</button>
 		<button

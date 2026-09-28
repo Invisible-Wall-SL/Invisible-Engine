@@ -84,9 +84,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    design doc. Also open: about a dozen host settings the operator already declares and we still
    answer ourselves — `minNormalBet`/`maxNormalBet` (units unconfirmed) and an RTP readout for
    `showTheoreticalPayback` among them.
-4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
-   passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
-   **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
+4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
    refresh [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders
    (rule 9).
 
