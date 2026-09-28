@@ -45,6 +45,16 @@ book from `read_network_requests{urlPattern:'rgs/engine'}`. **The tab MUST stay 
 **pauses mid-round** (not a bug — check `document.visibilityState==='visible'` before calling it stuck).
 At 1512×812 the controls sit at: Spin = revolver cylinder ~(756,715); BUY FEATURE ~(1318,740); tap-to-
 start = anywhere. Boot takes ~15s (runtime assemble) — wait before the first screenshot.
+### Headless real-clock drive path (CONFIRMED 2026-09-28 — no desktop window needed)
+Playwright's `chrome-headless-shell` over `--remote-debugging-pipe` with the GPU flags (same launch
+as `scripts/playtest/win-countup-repro.mjs`) runs the LIVE game `visible` at 60 fps. Clicks are CDP
+`Input.dispatchMouseEvent`. The live bundle is minified, so do not import `/src` modules. Read
+`window.__IE_FLOW_V2__` (`mount.heldContainers()`, `ordered()`) and add `&flowlog=1` to the launch
+URL for `window.__IE_FLOW_V2_TRACE__`. At 1456×814: tap-to-start anywhere (after ~30 s of boot);
+Buy Feature (1288,740); then the Gold Rush card's Buy Feature (728,668), which triggers the bonus
+with no confirm step. The free-spin intro arms its tap on `introDone`, 5–9 s in, and a tap before
+that is ignored, so wait for "PRESS ANYWHERE TO CONTINUE". The outro takes two taps: the first lands
+the total, the second continues.
 - **You CANNOT force outcomes.** `BIG_WIN`/`FORCE_TRIGGER` are local-mock CLI levers; production's
   mock RGS won't honor them. Money-math rides RNG — but **book-vs-render verifies on every spin, win
   or lose** (read the bet response book; compare to rendered Balance/Win) once a spin CAN be fired.
