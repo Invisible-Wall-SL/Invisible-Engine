@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
-	import { EnableHotkey, OnHotkey } from 'components-shared';
+	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text } from 'pixi-svelte';
 	import {
@@ -1790,6 +1790,13 @@
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
 	// runs the continue-press only. `ignorePressInProgress` as on `ButtonBet`: bet on a fresh press.
 	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
+	// Whether the coded `<UI>` chrome is mounted (its gate is documented at the mount below). Hold-Space
+	// continuous play (`EnableSpaceHold`) lives inside the coded `UIDefault`, so whenever that is not
+	// mounted — an authored HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the
+	// game mounts it itself: exactly one binding at any time.
+	const codedHudMounted = $derived(
+		(!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens,
+	);
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
 			getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
@@ -1945,6 +1952,11 @@
 			ignorePressInProgress
 			onpress={spinHotkeyPress}
 		/>
+	{/if}
+	<!-- Hold-Space continuous play, config-gated exactly as `UIDefault` gates it (a `disabledAutoplay`
+			jurisdiction or the doc's Game Settings turn `spaceHold` off). -->
+	{#if !codedHudMounted && stateUi.config.features.spaceHold}
+		<EnableSpaceHold />
 	{/if}
 
 	<!-- `basegameScene` is `game` space → <LayoutScene> self-wraps in its own
@@ -2111,7 +2123,7 @@
 			scenes, never the canonical `hudBar`. Same guard the `authoredHud` + `extraScenes` blocks
 			below already carry — under a driven v2 flow `<FlowV2Mount>` is the SOLE scene renderer.
 		-->
-	{#if (!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens}
+	{#if codedHudMounted}
 		<!-- Cross-screen z-order (§11.5-C): the HUD chrome paints at its doc-list position via
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
