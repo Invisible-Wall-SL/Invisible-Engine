@@ -2,7 +2,7 @@ import { error, type Cookies } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import {
 	SESSION_COOKIE,
-	getActiveProjectKey,
+	clearActiveProjectKey,
 	getActiveScope,
 	setActiveProjectKey,
 } from '$lib/server/auth';
@@ -96,10 +96,38 @@ export interface ToolScope {
 }
 
 /**
+ * The session's stored active project, re-checked against the user's CURRENT grants — the scope
+ * every session-bound surface resolves to: {@link gate}, {@link resolveToolScope} without a
+ * `?project=`, and the few routes that read the session directly.
+ *
+ * The stored key is access-checked when it is SET (`setProject`, `resolveToolScope`, publish), but a
+ * grant can be revoked after that, so it is checked again here, where it is read. An inaccessible
+ * stored project falls back to the default — what the layout's selector already shows — and is
+ * cleared, so the next request takes the fast path. The default is never checked: it is where the
+ * fallback lands anyway. Without a user nothing is reachable, but nothing was revoked either, so
+ * the stored key is left alone.
+ */
+export async function sessionProjectScope(
+	user: App.Locals['user'],
+	sessionToken: string | undefined,
+): Promise<{ clientKey: string; projectKey: string }> {
+	const scope = await getActiveScope(sessionToken);
+	if (scope.projectKey === DEFAULT_PROJECT_KEY) return scope;
+	if (user) {
+		if (await canAccessProject(user.id, user.role, scope.projectKey)) return scope;
+		await clearActiveProjectKey(sessionToken, scope.projectKey);
+	}
+	return {
+		clientKey: (await projectClientKey(DEFAULT_PROJECT_KEY)) ?? UNASSIGNED_CLIENT,
+		projectKey: DEFAULT_PROJECT_KEY,
+	};
+}
+
+/**
  * Auth + role gate shared by every scoped tool route. Throws 401 when not logged
  * in, 403 when the role/user lacks the tool, then resolves the SESSION-BOUND
- * active project to its `(client, project)` (never a request param) and returns
- * the matching prefix allow-list.
+ * active project (never a request param) through {@link sessionProjectScope} and
+ * returns the matching prefix allow-list.
  */
 export async function gate(
 	locals: App.Locals,
@@ -116,9 +144,10 @@ export async function gate(
 	if (!entitled) {
 		throw error(403, opts.forbiddenMessage);
 	}
-	const projectKey =
-		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const { clientKey, projectKey } = await sessionProjectScope(
+		locals.user,
+		cookies.get(SESSION_COOKIE),
+	);
 	const prefixes = allowedPrefixes(clientKey, projectKey, {
 		includeSharedSpines: opts.includeSharedSpines,
 		includeSharedFonts: opts.includeSharedFonts,
@@ -138,19 +167,18 @@ export async function gate(
  *   (`setActiveProjectKey`) so every surface — the top bar, the global selector, and
  *   a later tool opened without a param — now agrees, and `{clientKey, projectKey}`
  *   is returned.
- * - Otherwise (no `?project=`, or one the user can't reach) this falls back to
- *   `getActiveScope(sessionToken)` — **byte-identical to today's behavior**. A bad,
- *   stale, or RESTRICTED `?project=` can never 500 or leak a client; it is silently
- *   ignored.
+ * - Otherwise (no `?project=`, or one the user can't reach) this falls back to the
+ *   session's project via {@link sessionProjectScope}, which re-checks it the same
+ *   way — so a grant revoked since it was stored lands on the default. A bad, stale,
+ *   or RESTRICTED `?project=` can never 500 or leak a client; it is silently ignored.
  *
  * Accessibility uses the SAME per-user rule the home/layout/global selector apply:
  * `canAccessProject` (which wraps `accessibleProjects`). So a non-admin can never
  * deep-link `?project=` into a project their grants don't cover — `projectExists`
  * alone (mere existence) would have been an authorization gap.
  *
- * Purely additive: routes that never receive `?project=` are unchanged. Returns the
- * SAME `{clientKey, projectKey}` shape as `getActiveScope` (the `prefixes` of the
- * gate above is a separate concern for the R2 endpoints, not these page loaders).
+ * Returns the SAME `{clientKey, projectKey}` shape as `getActiveScope` (the `prefixes`
+ * of the gate above is a separate concern for the R2 endpoints, not these page loaders).
  */
 export async function resolveToolScope({
 	url,
@@ -174,7 +202,29 @@ export async function resolveToolScope({
 		await setActiveProjectKey(sessionToken, requested);
 		return { clientKey, projectKey: requested };
 	}
-	return getActiveScope(sessionToken);
+	return sessionProjectScope(user, sessionToken);
+}
+
+/**
+ * {@link resolveToolScope} for a page's form ACTION (a save): the `?project=` the page was loaded
+ * with — the form POST preserves it — refused with 403 by {@link requireProjectScope} when the user
+ * cannot access it, else the session's re-checked project. Unlike the loader it never falls back
+ * from a named project: a page may land elsewhere because it shows where it landed, but a save
+ * would write the tab's document into whichever project the fallback chose. It does not sync the
+ * session either — the load that rendered the page already did.
+ */
+export async function resolveActionScope({
+	url,
+	sessionToken,
+	user,
+}: {
+	url: URL;
+	sessionToken: string | undefined;
+	user: NonNullable<App.Locals['user']>;
+}): Promise<{ clientKey: string; projectKey: string }> {
+	const requested = url.searchParams.get('project')?.trim();
+	if (requested) return requireProjectScope(user, requested);
+	return sessionProjectScope(user, sessionToken);
 }
 
 /**

@@ -21,7 +21,7 @@ import { ConflictError } from '$lib/server/r2';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
-import { resolveToolScope } from '$lib/server/toolScope';
+import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
 import { TranslateError, translateBatch } from '$lib/server/translate';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { loadWinTextDoc } from '$lib/server/winTextStorage';
@@ -44,7 +44,7 @@ async function gate(
 		throw error(403, 'Your role does not have access to Invisible Localization.');
 	}
 	// The save MUST target the SAME explicit project the page was loaded with.
-	return resolveToolScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
+	return resolveActionScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
 }
 
 /** Parse the `doc` form field (JSON) into a normalized document. */

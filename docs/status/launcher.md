@@ -28,20 +28,16 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
 6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
-8. **A revoked project grant does not reach an open session.** `setProject` checks
-   `canAccessProject` when the active project is SET, and `(app)/+layout.server.ts` stops DISPLAYING
-   a project that is no longer accessible — but `getActiveScope` (the fallback of every tool
-   loader's `resolveToolScope`) and the R2 `gate()` read the stored `sessions.activeProjectKey`
-   without re-checking. A user whose grant is revoked keeps reading and writing that project through
-   the session-scoped tools until they switch project or the session ends, even though the layout's
-   selector has already fallen back to `cloud`. The fix belongs in `getActiveScope`/`gate()`. (Single
-   publish used to be a second way in — it pinned the session to any EXISTING project — closed
-   2026-09-28.)
-9. **`requireProjectScope` costs four queries** (`listProjects` + two grant reads inside
-   `canAccessProject`, then `projectClientKey`). `/api/sounds/file` GET pays it on every audio range
-   request, and `/api/lease` pays the same four on every 10 s heartbeat of every open tool tab.
-   `canAccessProject` already holds the project row, so returning its client would drop one;
-   caching per request would drop the rest.
+8. **`canAccessProject` is paid per request on three hot paths.** `requireProjectScope` costs four
+   queries (`listProjects` + two grant reads inside `canAccessProject`, then `projectClientKey`).
+   `/api/sounds/file` GET pays it on every audio range request, and `/api/lease` pays the same four
+   on every 10 s heartbeat of every open tool tab. `sessionProjectScope` pays the same
+   `canAccessProject` on every `gate()`d request while the session sits on a non-default project —
+   +2 queries over the old raw read for a non-admin (+3 on an unassigned project), +0 for an admin
+   (+1 unassigned); the default skips it — including the editor's per-image `/api/editor/asset` and
+   `/regions` streams. `canAccessProject` already holds the project row, so returning its client
+   would drop one; a single keyed query (the live project row plus the two grant `EXISTS`) instead
+   of listing every project would make it about one.
 
 ## Blocked (owner / external)
 - **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
@@ -53,6 +49,62 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-28 — a revoked project grant reaches the open session
+`sessions.activeProjectKey` was access-checked only when it was SET (`setProject`, an explicit
+`?project=` in `resolveToolScope`, publish). Everything that later READ it trusted it: the R2
+`gate()` behind ~60 `/api/editor/*`, `/api/flipbook/*`, `/api/fx/*`, `/api/rigger/*`, `/api/fonts/*`,
+`*/save` routes and the FTP browser (`ftpScope.ts`); the `getActiveScope` fallback of every tool page
+loader's `resolveToolScope`; and three routes that copied the raw read — `(app)/spine/file`,
+`(app)/spine/skeletons` and `/api/editor/assets`. So after an admin revoked a user's project or
+client grant, that user kept reading and writing the project until they switched project or the
+session ended, while the layout's selector already showed `cloud`.
+
+- **One re-checking read:** `sessionProjectScope(user, sessionToken)` in `$lib/server/toolScope.ts`.
+  It runs the SAME `canAccessProject` rule as the selector on the stored key; an inaccessible one
+  falls back to the default — what the layout shows — and is **cleared** so the next request takes
+  the fast path. The clear is compare-and-clear (`clearActiveProjectKey(token, expected)` in
+  `auth.ts`, `WHERE active_project_key = expected`), so a request that found the key stale can
+  never undo a switch the user made in the meantime. No user → the default and nothing cleared
+  (nothing was revoked).
+- **Wired in:** `gate()` and `resolveToolScope`'s fallback both resolve through it;
+  `/api/editor/assets` (a hand copy of `gate()`) now calls `gate()`; the two spine routes call it
+  directly. The layout keeps its own check — it already holds the accessible list, so it pays
+  nothing extra.
+- **Save actions never fall back from a named project.** The editor and localization save actions
+  scoped through `resolveToolScope(url)`, so a tab whose `?project=` was refused fell back to the
+  session — which is now `cloud` — and only the doc etag stood between the tab's document and
+  `cloud` (`force=1` or two absent docs got through). They now use `resolveActionScope`: the page's
+  `?project=` through `requireProjectScope` (403 when refused), else the re-checked session
+  project, and no session re-sync on save.
+- **Cost:** the default project is never checked — it is where the fallback lands anyway — so it
+  costs what it did (two queries: `cloud` has no client, so `getActiveScope` makes its second
+  lookup). A session on a non-default project pays `canAccessProject` per request; the numbers are
+  in Open item 8 with the sibling `requireProjectScope` cost.
+- **A tab left open on the revoked project** behaves like one left open across a project switch:
+  the routes with a stale-tab guard (`cinematics`, `flipbook`, `flow-v2` and `fx` save,
+  `rigger/text`) refuse it — the session says `cloud`, the body names the old project — the editor
+  and localization saves 403, and the other gated writes act on `cloud`, which the user can reach.
+  It can no longer touch the revoked project either way.
+- **Checks:** `check:project-scope` 20 → 41 — the real `toolScope.ts` with `auth.ts`'s session
+  reads and the two tool-override tables stubbed alongside `projects.ts`: a granted stored project
+  is the scope and stays stored; a revoked one yields the default AND the default's R2 prefix from
+  `gate()` (never the revoked one's), is cleared with the key that failed, and the next request
+  checks nothing; no token / no user is the default, and no user clears nothing; `resolveToolScope`
+  neither falls back to a revoked stored project nor honours a `?project=` naming it, while a
+  granted `?project=` still wins and syncs; a save on a revoked `?project=` is a 403 that never
+  resolves its client. (The compare-and-clear's `WHERE` lives in the SQL, which the stub does not
+  run.) `check:launcher-gates` 214 → 221 — a source scan over all of `src/` fails by name if
+  anything outside `auth.ts`, `toolScope.ts`, the layout and `projects.ts`'s soft-delete write
+  names `getActiveProjectKey` / `getActiveScope` / `sessions.activeProjectKey` (identifiers, so an
+  aliased import is caught too), and both save actions must scope through `resolveActionScope`.
+  Mutation-tested twelve ways (access check skipped; `gate()` back on the raw read; the fallback
+  back on `getActiveScope`; no clear; the default checked; an unconditional clear; no user treated
+  as allowed; a missing user clearing; `resolveActionScope` falling back like the loader; the
+  editor save back on `resolveToolScope`; `spine/file` back on a raw read, plain or aliased) —
+  each fails by name.
+- svelte-check `--workspace apps/launcher-api`: COMPLETED, 2975 files, 65 errors — identical to
+  `main`, none in a changed file.
 
 ### 2026-09-28 — `/api/lease` only coordinates on a project the caller can reach
 `POST /api/lease` required a login and nothing else, so anyone signed in could acquire or take over

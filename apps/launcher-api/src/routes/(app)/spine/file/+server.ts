@@ -1,8 +1,7 @@
 import { error } from '@sveltejs/kit';
-import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { SESSION_COOKIE } from '$lib/server/auth';
 import { fetchSpineBundleFile, requireSpineAccess } from '$lib/server/spine';
+import { sessionProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
@@ -26,9 +25,10 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		throw error(403, 'forbidden');
 	}
 
-	const projectKey =
-		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const { clientKey, projectKey } = await sessionProjectScope(
+		locals.user,
+		cookies.get(SESSION_COOKIE),
+	);
 
 	const file = await fetchSpineBundleFile(clientKey, projectKey, bundle, name, preferPng, {
 		forceShared,

@@ -32,7 +32,7 @@ import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
-import { resolveToolScope } from '$lib/server/toolScope';
+import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -63,7 +63,7 @@ async function gate(
 	}
 	// The save MUST target the SAME explicit project the page was loaded with, so the
 	// action resolves scope from its own `url` (`?project=`) — not the session alone.
-	return resolveToolScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
+	return resolveActionScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
 }
 
 /**

@@ -14,7 +14,8 @@
  *     granted role in, an ungranted role 403, no session 401;
  *  2. a SOURCE scan of every `src/routes/api` handler, because the decision being right is
  *     worth nothing if a route doesn't call it. A literal role comparison anywhere under
- *     `api/` fails this check by name.
+ *     `api/` fails this check by name, and so does a raw read of the session's stored project
+ *     anywhere under `src/`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -278,6 +279,47 @@ for (const file of handlers) {
 }
 for (const route of [...Object.keys(ACTS_ON_BODY_PROJECT_KEY), ...STALE_TAB_GUARDS]) {
 	check(`the scan sees api/${route} read body.projectKey`, readsBodyProjectKey.has(route), true);
+}
+
+/**
+ * The session's stored project is access-checked only when it is SET, so a raw read hands back a
+ * project whose grant was revoked since, for as long as the session lives. Every read goes through
+ * the re-checking `sessionProjectScope` (its behaviour is `check-project-scope.ts`), except where
+ * named below. Matches the identifiers, not just calls, so an aliased import or a direct drizzle
+ * read of the column is caught too; scans the whole `src/` tree, since page loaders and `(app)`
+ * endpoints read the session as well as `api/` does.
+ */
+const RAW_SESSION_PROJECT = /\bgetActive(?:ProjectKey|Scope)\b|\bsessions\.activeProjectKey\b/;
+const RAW_SESSION_PROJECT_ALLOWED: Record<string, string> = {
+	'lib/server/auth.ts': 'defines the raw reads',
+	'lib/server/projects.ts': 'soft delete clears the column — a write, never a read',
+	'lib/server/toolScope.ts': 'sessionProjectScope, the re-checking read',
+	'routes/(app)/+layout.server.ts': 're-checks against the accessible list it already holds',
+};
+const srcRoot = fileURLToPath(new URL('../src/', import.meta.url));
+const rawReaders = readdirSync(srcRoot, { recursive: true, encoding: 'utf8' })
+	.map((f) => f.replaceAll('\\', '/'))
+	.filter(
+		(f) => f.endsWith('.ts') && RAW_SESSION_PROJECT.test(readFileSync(`${srcRoot}${f}`, 'utf8')),
+	);
+check(
+	'nothing reads the stored session project raw — it goes through sessionProjectScope',
+	rawReaders.filter((f) => !(f in RAW_SESSION_PROJECT_ALLOWED)),
+	[],
+);
+for (const file of Object.keys(RAW_SESSION_PROJECT_ALLOWED)) {
+	check(`the scan sees ${file} read the session project`, rawReaders.includes(file), true);
+}
+
+/** A save writes the project its page named, so a refused `?project=` must 403, not fall back. */
+for (const page of ['editor', 'localization']) {
+	check(
+		`the ${page} save action scopes through resolveActionScope`,
+		readFileSync(`${srcRoot}routes/(app)/${page}/+page.server.ts`, 'utf8').includes(
+			'resolveActionScope({',
+		),
+		true,
+	);
 }
 
 console.log();
