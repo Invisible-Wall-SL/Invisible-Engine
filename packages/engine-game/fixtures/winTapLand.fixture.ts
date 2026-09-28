@@ -365,11 +365,22 @@ assert.equal(seek(9_000, boundaries[4], 9_500), 9_500, 'expected the seek to cla
 		2,
 		'expected BOTH landing taps — the flow path and the coded press — to skip a hold the flow owns',
 	);
+	// Since #692 the clause is computed by the celebration lock's pure rule and `Game.svelte`'s effect
+	// publishes it, so the claim spans both files: the flag is the lock's held clause, and that clause
+	// is the shown-container ∩ awaitTargets test alone — WITHOUT the coded `bigWin` id `win` ORs in.
+	const game = read('apps/lines/src/components/Game.svelte');
 	assert.ok(
-		read('apps/lines/src/components/Game.svelte').includes(
-			'winState.flowHoldsPresentation = flowHeld',
-		),
+		game.includes('const lock = resolveCelebrationLock({') &&
+			game.includes('winState.flowHoldsPresentation = lock.flowHoldsPresentation'),
 		'expected the flow-holds flag to be published from the shown-container ∩ awaitTargets test',
+	);
+	assert.ok(
+		read('apps/lines/src/game/celebrationLock.ts')
+			.replace(/\s+/g, ' ')
+			.includes(
+				'const flowHoldsPresentation = flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id));',
+			),
+		'expected the published clause to be the shown-container ∩ awaitTargets test, with no `bigWin` folded in',
 	);
 	assert.ok(
 		read('apps/lines/src/components/TapToContinue.svelte').includes('releaseWinDismissHold()'),
