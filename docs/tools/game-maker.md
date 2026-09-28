@@ -53,7 +53,8 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
    the project's starting layout template.
 4. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
-   `editor/scenes.json`, `atlas_config.json`, `manifests/`, `input/refs/`,
+   `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
+   [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`). A confirmation appears and
    the project shows up under **Your projects** below.
 
@@ -179,6 +180,19 @@ publish, which:
 5. **Refreshes the test server** (best-effort — a slow or failed refresh never
    fails the publish; the server re-hydrates on its own cadence too).
 
+**Publish can refuse, before anything is written:**
+
+- **Sounds still marked draft** in Invisible Sound. The dialog names them; **Publish anyway**
+  ships them.
+- **Flow errors.** The saved [flow](/docs/flow) is validated the way its Validation panel does,
+  and any red error stops the publish with the list. An **admin** gets a **Publish anyway**
+  button (a flow error can hang or skip a round for players); anyone else is told to fix it in
+  Invisible Flow or ask an admin.
+- **A game with its own desktop build.** Final — republish it from the desktop launcher.
+
+A project with **no** saved flow still publishes, with a note under the card that it plays
+without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
+
 When it finishes, the page reloads the row to show the new state: a **Play ↗**
 link that opens the game in a new tab, a **Copy URL** button, and the full play
 URL beneath. The game also appears in the launcher portal's **Games** section, and
@@ -246,7 +260,8 @@ published finishes (a half-written publish would half-register a game), and the
 rest stay queued.
 
 Games that have their own desktop build are **skipped** with the reason shown,
-never overwritten, and a game that fails is reported in place while the run
+never overwritten — so are games whose flow has validation errors (a bulk run
+never overrides a refusal; publish those one at a time) — and a game that fails is reported in place while the run
 carries on — one bad project can't strand the other twenty. While a bulk run is
 going, the per-project Publish buttons are disabled: publishes are deliberately
 serialised, because a publish is the launcher's most memory-hungry operation.

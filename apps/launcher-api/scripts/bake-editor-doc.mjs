@@ -51,7 +51,7 @@ const DEFAULT_BASE = 'https://app.invisiblewall.org';
 
 const USAGE =
 	'Usage: node bake-editor-doc.mjs --project <projectKey> [--dest <out.json>] \\\n' +
-	'         [--base <url>] [--token <t>] [--dry-run] [--optional]\n' +
+	'         [--base <url>] [--token <t>] [--dry-run] [--optional] [--allow-invalid-flow]\n' +
 	'\n' +
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project> — the client is\n' +
@@ -67,7 +67,9 @@ const USAGE =
 	'  --optional                    NO-token build only: warn + keep the checked-in\n' +
 	'                                bundle (exit 0). WITH a token (a real publish) a\n' +
 	'                                fetch/export/empty-doc error is still a HARD failure\n' +
-	'                                — it never silently ships the default layout.';
+	'                                — it never silently ships the default layout.\n' +
+	'  --allow-invalid-flow          bake even when the flow fails validation (also env\n' +
+	'                                ALLOW_INVALID_FLOW=1). Without it such a bake stops.';
 
 if (args.length === 0 || hasFlag('help') || hasFlag('h')) {
 	console.info(USAGE);
@@ -119,6 +121,7 @@ const base = (getFlag('base') || DEFAULT_BASE).replace(/\/+$/, '');
 const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.LIVE_ASSETS_TOKEN;
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
+const allowInvalidFlow = hasFlag('allow-invalid-flow') || process.env.ALLOW_INVALID_FLOW === '1';
 
 // `--optional` stays lenient ONLY when there's NO token — that's the intended dev /
 // no-credentials build, which keeps the checked-in `doc:null` placeholder and proceeds
@@ -720,12 +723,25 @@ async function main() {
 	let flowV2Library;
 	const flowUrl =
 		`${base}/api/editor/export-flow?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
+		`&k=${encodeURIComponent(token)}` +
+		(allowInvalidFlow ? '&allowInvalidFlow=1' : '');
 	if (dryRun) {
 		console.info('(dry run) skipping the flow export — it writes to R2 deploy/.');
 	} else
 		try {
 			const flowRes = await fetchRetry(flowUrl, { method: 'POST' }, 'flow export');
+			// The launcher's flow gate: the v2 flow has validation errors. List them, and name the
+			// explicit override rather than letting a hung or skipped round ship.
+			if (flowRes.status === 409) {
+				const out = await flowRes.json().catch(() => ({}));
+				const details = Array.isArray(out?.details) ? out.details : [];
+				bail(
+					`${out?.error ?? 'The flow failed validation.'}\n` +
+						details.map((d) => `    - ${d}`).join('\n') +
+						'\n  Fix it in Invisible Flow (Validation panel), or re-run with ' +
+						'--allow-invalid-flow (env ALLOW_INVALID_FLOW=1) to bake it anyway.',
+				);
+			}
 			if (!flowRes.ok) {
 				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
 			}

@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { OWNER_ROLE } from '$lib/launcherGates';
 import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { userHasCapability } from '$lib/server/launcherAuth';
@@ -16,9 +17,11 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * operation"), which made the only way to let a developer publish be handing them the
  * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
- *   POST /api/game-maker/publish   { "project": "<key>", "allowUnapproved"?: true }
- *   → 200 { ok, key, url, playUrl, sounds }
- *   → 409 { error, reason, details }   — blocked; `unapproved-sounds` is overridable
+ *   POST /api/game-maker/publish
+ *     { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true }
+ *   → 200 { ok, key, url, playUrl, sounds, flow }
+ *   → 409 { error, reason, details, canOverride }   — blocked; `unapproved-sounds` is overridable by
+ *     any publisher, `invalid-flow` by the owner role only (`canOverride` says which applies here)
  */
 export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
@@ -26,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { project?: unknown; allowUnapproved?: unknown };
+	let body: { project?: unknown; allowUnapproved?: unknown; allowInvalidFlow?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -47,10 +50,20 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 	// The explicit "ship it anyway" for a sound the game plays that nobody has approved. Only ever
 	// set by an author answering the refusal below — never a default, or the gate would be decorative.
 	const allowUnapproved = body.allowUnapproved === true;
+	// Shipping a flow the validator rejects can hang a round for every player, so pushing past it
+	// is kept to the owner role, not every holder of the publish capability.
+	const isOwner = locals.user.role === OWNER_ROLE;
+	if (body.allowInvalidFlow === true && !isOwner) {
+		return json(
+			{ error: 'Only an admin can publish a game whose flow has validation errors.' },
+			{ status: 403, headers: NO_STORE },
+		);
+	}
+	const allowInvalidFlow = body.allowInvalidFlow === true;
 
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
-		const result = await publishGame(project, url.origin, { allowUnapproved });
+		const result = await publishGame(project, url.origin, { allowUnapproved, allowInvalidFlow });
 		// Pin the session's active project to the one just published — publishing is an
 		// EXPLICIT action on a specific project, so the whole UI (top bar + home selector)
 		// should now agree on it. Without this the active scope keeps whatever it drifted
@@ -69,8 +82,10 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 			// `reason` + `details` so the UI can tell an overridable refusal (unapproved sounds) from a
 			// final one (a game with its own desktop build, which overwriting would destroy) — and can
 			// list the sounds instead of saying "something".
+			const canOverride =
+				e.reason === 'unapproved-sounds' || (e.reason === 'invalid-flow' && isOwner);
 			return json(
-				{ error: e.message, reason: e.reason, details: e.details },
+				{ error: e.message, reason: e.reason, details: e.details, canOverride },
 				{ status: 409, headers: NO_STORE },
 			);
 		}

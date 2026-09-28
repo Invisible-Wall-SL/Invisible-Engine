@@ -666,7 +666,8 @@
 		if (!out || !inn) return false; // wrong direction or unknown handle.
 		if (!pinsCompatible(out, inn)) return false; // exec↔data mismatch / non-assignable types.
 
-		// Fan-in = 1 on inputs (exec or data); outputs fan out freely.
+		// Fan-in = 1 on inputs (exec or data). A data-out fans out freely; a second wire from an
+		// exec-out is allowed to DROP because `addExecEdgeIn` replaces the one already there.
 		return out.kind === 'exec' ? !execInTaken(target, inn.id) : !dataInTaken(target, inn.id);
 	}
 

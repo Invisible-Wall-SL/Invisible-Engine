@@ -40,7 +40,7 @@ export interface FlowV2ExportIndex {
  *  only proves `graph` is an object, NOT that `graph.nodes` is a populated array, so a partially
  *  initialized doc can reach here with `nodes` missing; guard for it so an in-progress doc is treated
  *  as un-authored (pruned) instead of throwing and taking down the whole publish. */
-const isAuthoredFlowV2 = (doc: FlowDocV2): boolean =>
+export const isAuthoredFlowV2 = (doc: FlowDocV2): boolean =>
 	Array.isArray(doc.graph?.nodes) && doc.graph.nodes.length > 0;
 
 export async function exportEditorFlowV2(
