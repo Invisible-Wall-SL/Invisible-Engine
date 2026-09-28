@@ -148,7 +148,7 @@ const flowEffectsSource = read('apps/lines/src/game/flowEffects.ts');
 const unskippableSource = read('apps/lines/src/game/unskippablePresentation.ts');
 const handlerMapSource = read('apps/lines/src/game/bookEventHandlerMap.ts');
 const winCycleSource = read('apps/lines/src/game/winSymbolCycle.ts');
-const utilsSource = read('apps/lines/src/game/utils.ts');
+const playBookSource = read('packages/engine-game/src/game/playBook.ts');
 const freeSpinHoldSource = read('apps/lines/src/game/freeSpinHold.ts');
 const gameStateSource = read('packages/engine-game/src/game/gameState.svelte.ts');
 const boardSource = read('apps/lines/src/components/Board.svelte');
@@ -193,8 +193,8 @@ const slices = [
 	sliceBetween(winCycleSource, 'forgetWinCycleWins', 'export const forgetWinCycleWins = (', '\n};\n'), // prettier-ignore
 	sliceBetween(winCycleSource, 'cycleEntries', 'const cycleEntries = (', '\n};\n'),
 	// The round seam itself.
-	sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n'),
-	sliceBetween(utilsSource, 'playBet', 'export const playBet = async (bet: Bet) => {', '\n};\n'),
+	sliceBetween(playBookSource, 'playBookEvents', '\tconst playBookEvents = async (', '\n\t};\n'),
+	sliceBetween(playBookSource, 'playBet', '\tconst playBet = async (bet: Bet) => {', '\n\t};\n'),
 	// The other seam.
 	sliceBetween(freeSpinHoldSource, 'holdsAfter', 'const holdsAfter = (', '\n};\n'),
 	sliceBetween(freeSpinHoldSource, 'holdAfterBigWin', 'export const holdAfterBigWin = async (', '\n};\n'), // prettier-ignore
@@ -789,10 +789,10 @@ console.log('\n--- 4. the round seam pops the book’s last spin, on every dispa
 
 /** The shipped `playBet` body, evaluated — the `finally` is what part 4 is about. */
 const playBetBody = sliceBetween(
-	utilsSource,
+	playBookSource,
 	'playBet',
-	'export const playBet = async (bet: Bet) => {',
-	'\n};\n',
+	'\tconst playBet = async (bet: Bet) => {',
+	'\n\t};\n',
 );
 
 {
@@ -819,7 +819,7 @@ const playBetBody = sliceBetween(
  * a different pair of `getFlowV2` / dispatcher answers over the same real body.
  *
  * THE SLAM IS A PRESS DURING THE ROUND, not a pre-tripped token. `playBet` calls `roundSkip.reset()`
- * before the first book event (`utils.ts`), so a world built already-skipped is byte-identical to an
+ * before the first book event (`playBook.ts`), so a world built already-skipped is byte-identical to an
  * un-slammed one and a "slammed round" run built that way asserts nothing. The press lands where a
  * player actually slams — as the win is being narrated.
  */
@@ -849,7 +849,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 	};
 
 	const play = compileSlice({
-		what: 'verify-win-explode-pop / utils.ts#playBet',
+		what: 'verify-win-explode-pop / playBook.ts#playBet',
 		names: [
 			'stopWinCycle',
 			'forgetWinCycleWins',
@@ -868,7 +868,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 			'coded',
 			'holdAfterBigWin',
 		],
-		body: `${stripTypes('the playBet seam', `${sliceBetween(utilsSource, 'playBookEvents', 'export const playBookEvents = async (', '\n};\n')}\n${playBetBody}`)}\nreturn playBet;`,
+		body: `${stripTypes('the playBet seam', `${sliceBetween(playBookSource, 'playBookEvents', '\tconst playBookEvents = async (', '\n\t};\n')}\n${playBetBody}`)}\nreturn playBet;`,
 	})(
 		() => order.push('stopWinCycle'),
 		world.runtime.forgetWinCycleWins,
@@ -1299,6 +1299,7 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 		read('apps/lines/src/game/flowEffects.ts'),
 		read('apps/lines/src/game/bookEventHandlerMap.ts'),
 		read('apps/lines/src/game/utils.ts'),
+		playBookSource,
 	];
 	check(
 		'exactly one module broadcasts the pop cue',

@@ -11,10 +11,11 @@
  *     time the effect runs the overlay is already on screen — and it wires no `amount`, so the cue
  *     self-gated to a no-op anyway.
  *
- * The fix is placement, not logic: the cue belongs at `dispatchBookEvent` in `game/utils.ts`, the
- * ONE seam every dispatch path crosses (the same seam `showAllWinLines` and `recordWinCycleWins`
- * live on, for the same reason). These assertions pin that, because nothing else would notice the
- * cue going quiet — a silent no-op looks exactly like "the author didn't turn it on".
+ * The fix is placement, not logic: the cue belongs at `dispatchBookEvent` in the play pipeline
+ * (`engine-game`'s `playBook.ts`), the ONE seam every dispatch path crosses (the same seam
+ * `showAllWinLines` and `recordWinCycleWins` live on, for the same reason). These assertions pin
+ * that, because nothing else would notice the cue going quiet — a silent no-op looks exactly like
+ * "the author didn't turn it on".
  *
  * Run:  node scripts/check-big-win-cue.mjs
  */
@@ -25,6 +26,7 @@ import { lfReaderFrom } from './lib/read-lf.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = lfReaderFrom(root);
 
+const pipeline = read('packages/engine-game/src/game/playBook.ts');
 const utils = read('apps/lines/src/game/utils.ts');
 const handlers = read('apps/lines/src/game/bookEventHandlerMap.ts');
 const effects = read('apps/lines/src/game/flowEffects.ts');
@@ -47,20 +49,22 @@ console.log('\nbig-win run-up — placement\n');
 
 // The seam. `dispatchBookEvent` is the only function in this file that fans out to all three
 // dispatch paths, so the call has to be inside it and it has to be awaited.
-const seam = utils.slice(utils.indexOf('const dispatchBookEvent'));
+const seam = pipeline.slice(pipeline.indexOf('const dispatchBookEvent'));
 check(
 	/if \(bookEvent\.type === 'setWin'\)[\s\S]{0,200}await cueBigWinCountUp\(/.test(seam),
 	'the cue is awaited at the dispatchBookEvent seam',
 	"expected `if (bookEvent.type === 'setWin') { await cueBigWinCountUp({…}) }` in " +
-		'apps/lines/src/game/utils.ts — a flow that owns `setWin` never reaches the coded handler.',
+		'packages/engine-game/src/game/playBook.ts — a flow that owns `setWin` never reaches the coded handler.',
 );
 
 // One caller, or the coded path fires it twice.
-const callers = [utils, handlers, effects].filter((src) => /\bawait cueBigWinCountUp\(/.test(src));
+const callers = [pipeline, utils, handlers, effects].filter((src) =>
+	/\bawait cueBigWinCountUp\(/.test(src),
+);
 check(
-	callers.length === 1 && callers[0] === utils,
+	callers.length === 1 && callers[0] === pipeline,
 	'exactly one caller, and it is the seam',
-	'the cue must be invoked from utils.ts ONLY — a second call site double-fires the run-up on ' +
+	'the cue must be invoked from playBook.ts ONLY — a second call site double-fires the run-up on ' +
 		'whichever path reaches both.',
 );
 

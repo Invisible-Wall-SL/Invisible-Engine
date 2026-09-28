@@ -3,7 +3,7 @@
  *
  * The v2 runtime needs the LIVE editor doc (loaded async at boot), so — like the v1
  * `flowInterpreterHolder` — Game.svelte builds the handle once the doc resolves and stows it
- * here; the book-event play path (`game/utils.ts`) reads it to decide, per event, whether a v2
+ * here; the book-event play path (`playBook.ts`) reads it to decide, per event, whether a v2
  * flow drives the presentation.
  *
  * ABSENT by default (no `__IE_FLOW_V2_DOC__` ⇒ `createLinesFlowV2` returns `undefined` ⇒ nothing

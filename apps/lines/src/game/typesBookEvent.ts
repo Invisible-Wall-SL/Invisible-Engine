@@ -1,3 +1,4 @@
+import type { ImplementsEngineBookEvents } from 'engine-game';
 import type { BetType } from 'rgs-requests';
 
 import type { SymbolName, RawSymbol, GameType, Position } from './types';
@@ -181,3 +182,14 @@ export type BookEvent =
 export type Bet = BetType<BookEvent>;
 export type BookEventOfType<T> = Extract<BookEvent, { type: T }>;
 export type BookEventContext = { bookEvents: BookEvent[] };
+
+/**
+ * Hand this game's book-event union to `engine-game`, so the shared play pipeline reads its arms
+ * with this game's own typing. `ImplementsEngineBookEvents` admits it only if it carries every arm
+ * the engine reads — see `bookEvents.ts` in the package.
+ */
+declare module 'engine-game' {
+	interface BookEventRegistry {
+		bookEvent: ImplementsEngineBookEvents<BookEvent>;
+	}
+}

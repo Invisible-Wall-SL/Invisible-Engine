@@ -51,6 +51,8 @@ export { createSymbolMap, type SymbolMapDeps, type SymbolMapApi } from './src/ga
 export { createSymbolInfo, type SymbolInfoDeps, type SymbolInfoApi } from './src/game/symbolInfo';
 export { hexToTintNumber } from './src/game/tint';
 export { createGameContext, getGameContext, type GameContext } from './src/game/context';
+export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
+export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
 	createGameState,
 	type GameStateDeps,

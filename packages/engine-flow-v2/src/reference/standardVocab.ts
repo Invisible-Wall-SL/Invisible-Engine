@@ -24,7 +24,7 @@
  * Mechanic effects that consume the WHOLE book event (e.g. `revealBoard`) are declared as OPAQUE
  * actions (no typed params): the flow feeds them via `$trigger` (whole payload) + `$context.*`
  * accessors, and the interpreter passes those through to the flowEffect. This lets the flow OWN even
- * the board-spin event so the whole game is flow-driven (event ownership, `game/utils.ts`).
+ * the board-spin event so the whole game is flow-driven (event ownership, `playBook.ts`).
  *
  * A game type whose MECHANIC adds surfaces on top of this (`bookOf`: the expanding-symbol pick, the
  * column expand, the reveal splash) composes them in with {@link insertAfter} / {@link insertBefore}
