@@ -110,7 +110,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     browser against a mock API (create → CAS update → conflict declined/forced → invalid refused
     with no request → scope mismatch refused → json-over-irig confirm → History restore →
     beforeunload → library exists/confirm/decline → conflict-retry on the returned tag), after a
-    `pipeline-concurrency` review whose findings are folded in. Owner live-verify against R2 owed.
+    `pipeline-concurrency` review whose findings are folded in. **Live** 2026-09-28 (#832, `dd31c4f4`): the new `GET /api/rigger/save` and
+    `/api/rigger/backups` answer the auth gate on app.invisiblewall.org. Owner live-verify of a real
+    save/conflict/restore against R2 is still owed.
   - Not in this change: **rig undo** (separate task — item 6); the animation-library save is
     still unconditional; two `＋ New rig` creates whose names differ only by CASE can both pass the
     `If-None-Match` claim (the name check is case-insensitive, the key is not).
