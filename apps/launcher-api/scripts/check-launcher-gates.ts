@@ -233,6 +233,53 @@ for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
 	check(`the scan sees api/${route} take a project`, readsProject.has(route), true);
 }
 
+/**
+ * A body `projectKey` is the scan above's blind spot: the doc-save routes send it only to refuse a
+ * tab left on a stale project, then write the SESSION's project, so matching the name would flag
+ * them all. Every handler that reads it is therefore named as one or the other. `api/lease` acted
+ * on it: anyone could raise a "someone is editing" banner on another client's doc and read back
+ * the holder's name and email, and it must also refuse a `clientKey` that is not the project's own.
+ * Its behaviour is `check-lease-scope.ts`. Read per FILE, because lease parses its key in a helper
+ * outside the handler, so every handler in such a file must carry the checks.
+ */
+const BODY_PROJECT_KEY = /\bbody\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b/;
+const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
+	lease: ['canAccessProject(', 'projectClientKey('],
+};
+const STALE_TAB_GUARDS = [
+	'cinematics/save',
+	'flipbook/save',
+	'flow-v2/save',
+	'fx/save',
+	'rigger/text',
+];
+const readsBodyProjectKey = new Set<string>();
+for (const file of handlers) {
+	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
+	const src = readFileSync(`${api}${file}`, 'utf8');
+	if (!BODY_PROJECT_KEY.test(src)) continue;
+	readsBodyProjectKey.add(route);
+	if (STALE_TAB_GUARDS.includes(route)) {
+		check(
+			`api/${route} only compares body.projectKey against the session's project`,
+			/\bbody\.projectKey\s*!==\s*projectKey\b/.test(src),
+			true,
+		);
+		continue;
+	}
+	const required = ACTS_ON_BODY_PROJECT_KEY[route];
+	check(`api/${route} reads body.projectKey and is named above`, required !== undefined, true);
+	for (const block of handlerBlocks(src)) {
+		const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		for (const c of required ?? []) {
+			check(`api/${route} ${method} calls ${c.slice(0, -1)} on it`, block.includes(c), true);
+		}
+	}
+}
+for (const route of [...Object.keys(ACTS_ON_BODY_PROJECT_KEY), ...STALE_TAB_GUARDS]) {
+	check(`the scan sees api/${route} read body.projectKey`, readsBodyProjectKey.has(route), true);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} launcher-gate checks FAILED`);

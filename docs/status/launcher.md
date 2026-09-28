@@ -28,14 +28,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
 6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
-8. **`/api/lease` takes any project** (found 2026-09-28). It is a coordination hint, not the write
-   gate, but any logged-in user can acquire / take over a lease on any `(tool, client, project,
-   doc)` — showing another client's authors a false "someone is editing" banner — and the answer
-   carries the HOLDER's name and email, so it also tells them who is editing another client's docs.
-   The fix is `canAccessProject` on `body.projectKey`. (The per-handler scan does not see it: the
-   field is `projectKey`, which it deliberately skips because the `*/save` routes use that name for
-   a session stale-tab guard.)
-9. **A revoked project grant does not reach an open session.** `setProject` checks
+8. **A revoked project grant does not reach an open session.** `setProject` checks
    `canAccessProject` when the active project is SET, and `(app)/+layout.server.ts` stops DISPLAYING
    a project that is no longer accessible — but `getActiveScope` (the fallback of every tool
    loader's `resolveToolScope`) and the R2 `gate()` read the stored `sessions.activeProjectKey`
@@ -44,10 +37,11 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
    selector has already fallen back to `cloud`. The fix belongs in `getActiveScope`/`gate()`. (Single
    publish used to be a second way in — it pinned the session to any EXISTING project — closed
    2026-09-28.)
-10. **`requireProjectScope` costs four queries** (`listProjects` + two grant reads inside
-    `canAccessProject`, then `projectClientKey`), and `/api/sounds/file` GET pays it on every audio
-    range request. `canAccessProject` already holds the project row, so returning its client would
-    drop one; caching per request would drop the rest.
+9. **`requireProjectScope` costs four queries** (`listProjects` + two grant reads inside
+   `canAccessProject`, then `projectClientKey`). `/api/sounds/file` GET pays it on every audio range
+   request, and `/api/lease` pays the same four on every 10 s heartbeat of every open tool tab.
+   `canAccessProject` already holds the project row, so returning its client would drop one;
+   caching per request would drop the rest.
 
 ## Blocked (owner / external)
 - **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
@@ -59,6 +53,42 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-28 — `/api/lease` only coordinates on a project the caller can reach
+`POST /api/lease` required a login and nothing else, so anyone signed in could acquire or take over
+the lease on any `(tool, client, project, doc)`. That put a false "someone is editing" banner in
+front of another client's authors, and the not-held answer carries the holder's name and email, so
+it also told the caller who was editing that client's docs. The lease is still a coordination hint
+rather than the write gate, but it now answers only for projects the caller can access.
+
+- After the login check, every action (acquire / heartbeat / release / takeover) calls
+  `canAccessProject(user, body.projectKey)`, the same rule as the selector and `requireProjectScope`.
+  It also refuses a body `clientKey` that is not the project's own client
+  (`projectClientKey ?? UNASSIGNED_CLIENT`), so a lease can't be keyed on a made-up client. Both
+  refusals are `403 {error:'forbidden'}` in the route's `json({error})` convention, and an unknown
+  project gets the same answer. A not-held lease is still a `200` answer.
+- **Client unchanged.** Every `new LeaseState` (editor, flow-v2, symbols, win-text, config,
+  localization, sound, fx, flipbook, components) passes its loader's `clientKey`/`projectKey`, which
+  `resolveToolScope` or `getActiveScope` compute with that same `?? UNASSIGNED_CLIENT` rule. A tab
+  on a project it can no longer reach fails open on its first acquire, so it is not read-only. A tab
+  that was already an observer when the 403s began keeps its last banner, and Take over does nothing
+  until a reload. That happens only when access is revoked, or when an admin moves the project to
+  another client while tabs are open.
+- **Checks:** `check:launcher-gates` (200 → 214). The per-handler scan deliberately skips a body
+  `projectKey`, because the doc-save routes send it only as a stale-tab guard. Every handler that
+  reads that field must now be named, and an unnamed one fails. It is named either as acting on it
+  (`api/lease`, where every handler must call `canAccessProject(` and `projectClientKey(`) or as a
+  stale-tab guard whose source compares it `!==` the session's project (`cinematics/save`,
+  `flipbook/save`, `flow-v2/save`, `fx/save`, `rigger/text`). Mutation-tested five ways, and each
+  fails by name: a new route acting on `body.projectKey` (plain and destructured), a stale-tab guard
+  that stops comparing, lease's access check dropped, and lease's field renamed.
+- New `check:lease-scope` (14) runs the REAL handler with only the Postgres boundary stubbed
+  (`projects`, `auth`, `db`, `lease`). All four actions on another client's project are refused
+  before the lease is touched. An unknown project gets the same answer, and a made-up client or the
+  unassigned sentinel on an assigned project is refused. Own and unassigned projects still reach the
+  lease, and 400 / 401 are unchanged. The unfixed route fails 7 of the 14, and dropping only the
+  client check fails 2. Both checks run in CI (`lint.yml`). `svelte-check` shows the same 65 errors
+  before and after.
 
 ### 2026-09-28 — `/api/deploy/f/…` serves from the project's own client
 `GET /api/deploy/f/<token>/<client>/<project>/<...rel>` checked the token against `<project>` and
