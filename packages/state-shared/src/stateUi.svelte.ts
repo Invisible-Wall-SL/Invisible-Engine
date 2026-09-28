@@ -233,10 +233,36 @@ export const releaseSpinHold = () => {
  *  belt-and-braces cleanup in `playBet` reads as cleanup, not as a simulated press. */
 export const cancelSpinHold = releaseSpinHold;
 
+/**
+ * The live feature set has two owners, kept apart so neither can overwrite the other: the GAME's
+ * own choice ({@link setUiFeatures}, e.g. the editor-authored settings) and what the LICENCE
+ * forbids ({@link lockUiFeatures}, from the RGS's jurisdiction). A lock always wins, whichever
+ * arrives first — authenticate lands before the game mounts and loads its authored settings, so an
+ * authored `turbo: true` must not quietly re-enable turbo a licence switched off.
+ */
+let authoredFeatures: UIFeatureFlags = { ...UI_FEATURES_DEFAULT };
+let lockedFeatures: Partial<Record<keyof UIFeatureFlags, boolean>> = {};
+
+const applyUiFeatures = () => {
+	const features = { ...authoredFeatures };
+	for (const key of Object.keys(features) as (keyof UIFeatureFlags)[]) {
+		if (lockedFeatures[key]) features[key] = false;
+	}
+	stateUi.config.features = features;
+};
+
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */
 export const setUiFeatures = (features: Partial<UIFeatureFlags>) => {
-	stateUi.config.features = { ...stateUi.config.features, ...features };
+	authoredFeatures = { ...authoredFeatures, ...features };
+	applyUiFeatures();
+};
+
+/** Pin features OFF for this launch — `true` means "the licence forbids it". Replaces any earlier
+ *  lock set wholesale, since it restates one authenticate answer. */
+export const lockUiFeatures = (locks: Partial<Record<keyof UIFeatureFlags, boolean>>) => {
+	lockedFeatures = { ...locks };
+	applyUiFeatures();
 };
 
 /**

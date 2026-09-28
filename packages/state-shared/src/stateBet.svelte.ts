@@ -43,14 +43,23 @@ const updateBetAmount = (update: (value: number) => number) => {
 };
 
 let isTurboLocked = false;
+let isTurboForbidden = false;
 
 const updateIsTurbo = (value: boolean, options: { persistent: boolean }) => {
 	const { persistent } = options;
 
+	if (value && isTurboForbidden) return;
 	if (!persistent && isTurboLocked) return;
 	if (persistent) isTurboLocked = value;
 
 	stateBet.isTurbo = value;
+};
+
+/** A licence that forbids turbo forbids every route to it — the button is hidden by the feature
+ *  flag, but holding Space and the flow's turbo action set it through {@link updateIsTurbo} too. */
+const forbidTurbo = (forbidden: boolean) => {
+	isTurboForbidden = forbidden;
+	if (forbidden) stateBet.isTurbo = false;
 };
 
 const activeBetMode = () => stateMeta.betModeMeta?.[stateBet.activeBetModeKey.toUpperCase()]
@@ -70,6 +79,7 @@ export const stateBetDerived = {
 	setBetAmount,
 	updateBetAmount,
 	updateIsTurbo,
+	forbidTurbo,
 	activeBetMode,
 	isContinuousBet,
 	timeScale,

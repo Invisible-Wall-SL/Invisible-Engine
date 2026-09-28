@@ -231,8 +231,8 @@ function buttonInstanceNode(
 		scale: DESKTOP_SCALE,
 		// Spin gets `{ action }` only (NO `icon`) so `ButtonLabel` renders the action's
 		// dynamic `label` (bet↔stop); the other six get `{ action, icon }`. `visibleSource`
-		// (turbo/auto-spin only) gates the instance on the config-feature store so it hides
-		// exactly like the coded `UIDefault` `{#if config.features.*}` wrap (parity, B6 M1).
+		// (turbo/auto-spin/buy-bonus) gates the instance on a feature store so it hides
+		// exactly like the coded `UIDefault` `{#if …}` wrap (parity, B6 M1).
 		params: {
 			...(icon === undefined ? { action } : { action, icon }),
 			...(visibleSource ? { visibleSource } : {}),
@@ -351,9 +351,9 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 	): LayoutNode | ComponentInstanceNode => {
 		if (!options.buttons)
 			return barNode(id, label, component, BTN, desktop, landscape, tablet, portrait);
-		// turbo / auto-spin carry a config-feature `visibleSource` (from the shared map) so they hide
-		// when the game config disables that feature — parity with the coded `UIDefault`
-		// `{#if config.features.*}` wraps (the other five buttons have no such coded gate).
+		// turbo / auto-spin / buy-bonus carry a feature `visibleSource` (from the shared map) so they
+		// hide when the game config or the jurisdiction disables that feature — parity with the coded
+		// `UIDefault` `{#if …}` wraps (the other four buttons have no such coded gate).
 		const { action, icon, visibleSource } = HUD_BUTTON_ACTION_MAP[component];
 		return buttonInstanceNode(
 			id,

@@ -67,4 +67,9 @@ export const stateMeta = $state({
 
 export const stateMetaDerived = {
 	betModeMetaList: () => Object.values(stateMeta.betModeMeta),
+	/** Whether the menu offers anything beyond the plain bet. False once a jurisdiction that forbids
+	 *  buying a feature has stripped every buy and the game authors no ante — at which point the
+	 *  buy-bonus button would open an empty menu. */
+	hasFeatureBetModes: () =>
+		Object.values(stateMeta.betModeMeta).some((mode) => mode.type !== 'default'),
 };

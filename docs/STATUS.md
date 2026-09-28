@@ -77,12 +77,13 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    can fetch — still has to reach a machine by hand ([comfyui](status/comfyui.md) open item 9).
 3. **Delivery builds, Phase 2** ([design](design/delivery-builds.md)) — Phase 1 (profile +
    `config.json`) shipped 2026-09-14; Phase 3 (the embeddable `game.js` a partner's page includes,
-   plus same-origin `rgs.source: 'host'`) shipped 2026-09-17. Still unbuilt: **server-supplied bet
-   levels + jurisdiction** instead of the ladder `requestAuthenticate` invents — the answer now exists
-   on both sides (`config`'s `betOptions`/`gameCost`, the host's `betMultipliers`), so this is ours to
-   wire, not theirs to answer — and a **package-for-delivery mode** on `publish-game-bundle.mjs`. The
-   bet-mode enum this item used to name does not exist; see the design doc. Also open: about a dozen
-   host settings the operator already declares and we still answer ourselves.
+   plus same-origin `rgs.source: 'host'`) shipped 2026-09-17; server-supplied bet levels +
+   jurisdiction (the operator's ladder and opening rung, turbo/autoplay/buy locked off when the
+   licence says so) shipped 2026-09-28. Still unbuilt: a **package-for-delivery mode** on
+   `publish-game-bundle.mjs`. The bet-mode enum this item used to name does not exist; see the
+   design doc. Also open: about a dozen host settings the operator already declares and we still
+   answer ourselves — `minNormalBet`/`maxNormalBet` (units unconfirmed) and an RTP readout for
+   `showTheoreticalPayback` among them.
 4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
    passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
    **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);

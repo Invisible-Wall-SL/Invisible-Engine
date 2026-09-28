@@ -3,7 +3,14 @@
 
 	import { requestAuthenticate, requestBalance, requestReplay } from 'rgs-requests';
 	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
-	import { stateUrlDerived, stateBet, stateConfig, stateModal, stateUi } from 'state-shared';
+	import {
+		setJurisdiction,
+		stateUrlDerived,
+		stateBet,
+		stateConfig,
+		stateModal,
+		stateUi,
+	} from 'state-shared';
 	import { API_AMOUNT_MULTIPLIER, MOST_USED_BET_INDEXES } from 'constants-shared/bet';
 
 	type Props = { children: Snippet };
@@ -82,13 +89,22 @@
 				// 			"minimumRoundDuration": 0
 				// 	}
 				// }
-				stateConfig.jurisdiction = authenticateData?.config?.jurisdiction;
+				setJurisdiction(authenticateData.config.jurisdiction);
 				stateConfig.betAmountOptions = (authenticateData.config?.betLevels || []).map(
 					(level) => level / API_AMOUNT_MULTIPLIER,
 				);
 				stateConfig.betMenuOptions = stateConfig.betAmountOptions.filter((_, index) =>
 					MOST_USED_BET_INDEXES.includes(index),
 				);
+				// The rung the game OPENS on is the RGS's to name — for a delivery it is the operator's
+				// `initialBetMultiplierIndex`. Only a level the ladder actually offers is taken: the
+				// step buttons walk that list, so an off-ladder opening bet is one they cannot return to.
+				// A resumed round below still wins, since it states what was really staked.
+				const defaultBet = (authenticateData.config.defaultBetLevel ?? 0) / API_AMOUNT_MULTIPLIER;
+				if (stateConfig.betAmountOptions.includes(defaultBet)) {
+					stateBet.betAmount = defaultBet;
+					stateBet.wageredBetAmount = defaultBet;
+				}
 			}
 
 			// round

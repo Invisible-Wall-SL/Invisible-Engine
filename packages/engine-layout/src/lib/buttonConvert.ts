@@ -12,10 +12,10 @@ import type { ComponentInstanceNode, ContainerNode } from './types';
  * - the spin button (`UiButtonBet`) passes NO `icon` — its caption is the
  *   action's dynamic `label` (bet↔stop).
  *
- * `visibleSource` (turbo / auto-spin only) is the config-feature store the parametric
- * instance gates its visibility on, so the button hides when the game config disables
- * that feature — parity with the coded `UIDefault` `{#if config.features.*}` wraps (the
- * other five buttons have no such coded gate). Kept HERE, on the single map, so the
+ * `visibleSource` (turbo / auto-spin / buy-bonus) is the feature store the parametric
+ * instance gates its visibility on, so the button hides when the game config or the
+ * launch's jurisdiction disables that feature — parity with the coded `UIDefault`
+ * `{#if …}` wraps (the other four buttons have no such coded gate). Kept HERE, on the single map, so the
  * seed (`referenceLayouts/hud.ts`), the editor "Convert to parametric" handler, and the
  * load-time default-HUD fallback ({@link buttonBindToInstance}) can't drift on the gate.
  *
@@ -28,7 +28,7 @@ export const HUD_BUTTON_ACTION_MAP: Record<
 	{ action: string; icon?: string; visibleSource?: string }
 > = {
 	UiButtonMenu: { action: 'menu', icon: 'menu' },
-	UiButtonBuyBonus: { action: 'buyBonus', icon: 'buyBonus' },
+	UiButtonBuyBonus: { action: 'buyBonus', icon: 'buyBonus', visibleSource: 'buyFeature' },
 	UiButtonAutoSpin: { action: 'autoSpin', icon: 'autoSpin', visibleSource: 'autoplayFeature' },
 	UiButtonBet: { action: 'spin' },
 	UiButtonTurbo: { action: 'turbo', icon: 'turbo', visibleSource: 'turboFeature' },
