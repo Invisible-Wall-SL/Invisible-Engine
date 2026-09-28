@@ -31,8 +31,8 @@
 
 name: Lint
 
-# Skipped for docs-only changes. None of the three gates below reads Markdown — eslint, a
-# narrow tsc pass, and a codegen check — so a docs commit can only ever pass, and every run
+# Skipped for docs-only changes. None of the gates below reads Markdown — eslint, a narrow
+# tsc pass, a codegen check, and Node fixtures — so a docs commit can only ever pass, and every run
 # costs a full billed runner minute (47 of August 2026’s 420 commits to main were docs-only).
 # A change touching docs AND code still runs: paths-ignore skips only when EVERY changed file
 # matches. Safe to skip runs because this is NOT a required status check — branch protection
@@ -114,3 +114,12 @@ jobs:
       # only holds when both halves agree: finalWin ÷ 100 === round.payoutMultiplier.
       - name: rgs win models agree on money
         run: pnpm check:rgs
+
+      # Engine-game fixture gate — the win presentation's tap / hold / outro timeline and its
+      # wiring, much of it asserted against SOURCE TEXT because a Svelte template cannot be run
+      # from Node. Nothing ran these: #692 moved the celebration-lock rule into its own module,
+      # `winTapLand.fixture.ts` went red on `main`, and it stayed red for 12 days until someone
+      # happened to run it. The runner discovers every `*.fixture.ts` in the directory, so a new
+      # fixture is gated without editing this file.
+      - name: engine-game fixtures pass
+        run: pnpm check:engine-game

@@ -31,6 +31,7 @@
 		"check:undefined-names": "node scripts/check-undefined-names.mjs",
 		"check:ktx2-alignment": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-alignment.mjs",
 		"check:big-win-cue": "node scripts/check-big-win-cue.mjs",
+		"check:engine-game": "node scripts/check-engine-game-fixtures.mjs",
 		"check:page-store": "node scripts/check-page-store-shared.mjs"
 	},
 	"dependencies": {
