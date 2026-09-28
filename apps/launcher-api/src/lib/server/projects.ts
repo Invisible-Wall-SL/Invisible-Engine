@@ -13,6 +13,7 @@ import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from '$lib/roles';
 import { getDeployToken } from './appSettings';
+import { UNASSIGNED_CLIENT } from './projectPaths';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -255,17 +256,30 @@ export async function getOrMintReadToken(projectKey: string): Promise<string | n
  * Whether `token` may READ the given project's runtime/deploy data. True when it
  * equals EITHER the shared build/deploy token (so build CI + the existing tools
  * keep working everywhere they did) OR the project's own read token. A blank
- * token never matches. Used to gate the two public serving endpoints.
+ * token never matches. Gates the public, token-authed read endpoints.
  */
 export async function projectAllowsRead(projectKey: string, token: string): Promise<boolean> {
-	if (!token) return false;
-	const deployToken = await getDeployToken();
-	if (deployToken && token === deployToken) return true;
-	const [row] = await getDb()
-		.select({ readToken: projects.readToken })
-		.from(projects)
-		.where(eq(projects.key, projectKey));
-	return Boolean(row?.readToken) && token === row!.readToken;
+	return (await projectReadClient(projectKey, token)) !== null;
+}
+
+/**
+ * The client whose R2 tree a {@link projectAllowsRead} read of this project resolves to, or `null`
+ * when `token` may not read it. Unassigned and unknown projects resolve to `UNASSIGNED_CLIENT` —
+ * the same pair `/api/editor/runtime` builds its `assetBase` from and the runtime assemble exports
+ * into. One row read answers both, which matters on `/api/deploy/f/…`: every asset a game loads
+ * passes through it.
+ */
+export async function projectReadClient(projectKey: string, token: string): Promise<string | null> {
+	if (!token) return null;
+	const [deployToken, [row]] = await Promise.all([
+		getDeployToken(),
+		getDb()
+			.select({ readToken: projects.readToken, clientKey: projects.clientKey })
+			.from(projects)
+			.where(eq(projects.key, projectKey)),
+	]);
+	if (token !== deployToken && token !== row?.readToken) return null;
+	return row?.clientKey ?? UNASSIGNED_CLIENT;
 }
 
 /** Per-user project grants, keyed by userId (for the admin table). */
