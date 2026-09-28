@@ -129,6 +129,8 @@ jobs:
       # and the publish chain once refused every publisher the owner had granted. `launcher-gates`
       # asserts the decisions over the real role matrix and scans every `src/routes/api` handler
       # for the two shapes that caused those; `project-scope` runs the real `requireProjectScope`
-      # with only the database stubbed. Both need `svelte-kit sync`, which their `pre` scripts run.
+      # with only the database stubbed; `deploy-read` runs the real path-form asset route, which every
+      # online game loads through, and pins that it serves the project's OWN client tree. All three
+      # need `svelte-kit sync`, which their `pre` scripts run.
       - name: launcher gates hold
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope
+        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:deploy-read

@@ -44,13 +44,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
    selector has already fallen back to `cloud`. The fix belongs in `getActiveScope`/`gate()`. (Single
    publish used to be a second way in — it pinned the session to any EXISTING project — closed
    2026-09-28.)
-10. **`/api/deploy/f/<token>/<client>/<project>/…` serves from the caller's `<client>`.** The token is
-    checked against `<project>` only, so a project's read token also reads
-    `<otherClient>/<project>/deploy/` — which only exists as an orphan when a project key was once
-    used under another client. Low; the fix (serve from the project's own client, or 404 a
-    mismatch) sits on the path every online game loads its assets through, so it wants its own
-    change and a live game check.
-11. **`requireProjectScope` costs four queries** (`listProjects` + two grant reads inside
+10. **`requireProjectScope` costs four queries** (`listProjects` + two grant reads inside
     `canAccessProject`, then `projectClientKey`), and `/api/sounds/file` GET pays it on every audio
     range request. `canAccessProject` already holds the project row, so returning its client would
     drop one; caching per request would drop the rest.
@@ -65,6 +59,33 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-28 — `/api/deploy/f/…` serves from the project's own client
+`GET /api/deploy/f/<token>/<client>/<project>/<...rel>` checked the token against `<project>` and
+then served `<client>/<project>/deploy/<rel>` for whatever `<client>` the caller sent. So a project's
+read token also read `<otherClient>/<project>/deploy/`, which exists only as an orphan where the key
+was once used under another client (moving a project is a DB-only `assignProjectToClient`; R2
+stays put).
+
+- **The fix serves from the DB client and ignores the URL segment.** The new
+  `projectReadClient(project, token)` in `projects.ts` returns the client to serve from, or `null`
+  to refuse. It uses `projectClientKey ?? UNASSIGNED_CLIENT`, the same pair `/api/editor/runtime`
+  builds `assetBase` from and the runtime assemble exports into. The token and the client come from
+  ONE `projects` row read, run in parallel with the deploy-token read, so the per-asset path gets no
+  extra query. `projectAllowsRead` now delegates to it, so the runtime, doc and mock gates share one
+  rule.
+- **Serve, not 404.** The runtime is the only producer of these URLs and always sends the DB
+  client, so a mismatch has one legitimate source: a game opened before its project moved client.
+  That tab keeps its old `assetBase`; it is now served the project's current tree instead of a 404.
+  The segment stays in the URL shape because every live game's `assetBase` carries it.
+- **Covered by `pnpm --filter launcher-api check:deploy-read`** (30 checks, wired into the lint
+  workflow next to `check:project-scope`). It runs the real route, the real `runtime` route and the
+  real `projects.ts`. Only Postgres, the deploy-token setting, R2 and the runtime assemble are
+  stubbed, and the Postgres stub answers by the key the query actually filtered on. It pins these
+  cases: a foreign segment gets the project's own tree, never the orphan; the shared token doesn't
+  reopen it either; unassigned projects resolve to `unassigned/`; the old gate refusals are
+  unchanged; and a runtime `assetBase` round-trips to the tree it names, including across a client
+  move. Against the old route it fails 7 of 30.
 
 ### 2026-09-28 — a tool grant is no longer a project grant on the authoring APIs
 Session-gated authoring endpoints resolved whatever project the request named once the caller's
