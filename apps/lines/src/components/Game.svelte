@@ -1790,10 +1790,9 @@
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
 	// runs the continue-press only. `ignorePressInProgress` as on `ButtonBet`: bet on a fresh press.
 	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
-	// Whether the coded `<UI>` chrome is mounted (its gate is documented at the mount below). Hold-Space
-	// continuous play (`EnableSpaceHold`) lives inside the coded `UIDefault`, so whenever that is not
-	// mounted — an authored HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the
-	// game mounts it itself: exactly one binding at any time.
+	// Whether the coded `<UI>` is mounted (gate documented at its mount below). Hold-Space continuous
+	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
+	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
 		(!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens,
 	);
@@ -1953,8 +1952,8 @@
 			onpress={spinHotkeyPress}
 		/>
 	{/if}
-	<!-- Hold-Space continuous play, config-gated exactly as `UIDefault` gates it (a `disabledAutoplay`
-			jurisdiction or the doc's Game Settings turn `spaceHold` off). -->
+	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
+			the doc's Game Settings turn `spaceHold` off). -->
 	{#if !codedHudMounted && stateUi.config.features.spaceHold}
 		<EnableSpaceHold />
 	{/if}
