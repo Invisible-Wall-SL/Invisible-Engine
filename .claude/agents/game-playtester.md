@@ -41,9 +41,9 @@ the running game and *judging* its behaviour from text-based signals.
 
 ## How to drive the game
 1. **Start the dev server** the playbook names via `preview_start` (`{ name: 'lines' }`,
-   `{ name: 'borut' }`, … from [.claude/launch.json](.claude/launch.json)). For a game outside
-   this repo (e.g. Book of Borut's standalone repo) the playbook gives the `cwd`/port — add a
-   launch config if missing. Never run a dev server through Bash.
+   … from [.claude/launch.json](.claude/launch.json)). For a game outside this repo the
+   playbook gives the `cwd`/port — add a launch config if missing. Never run a dev server
+   through Bash.
 2. **Reach the Pixi app**: it is exposed for inspection — walk `window.__PIXI_APP__` / the stage
    graph (see [[reference_pixi_engine_verification]] for the exact handles and the ticker-pump).
 3. **Act**: `read_page` to get refs, then `computer`/`form_input` to click Spin, change bet, buy
@@ -88,8 +88,7 @@ For each scenario in the playbook:
    build is not proof ([[feedback_verify_reachability_not_deploy]]).
 5. **Ship (engine changes)**: a `main` merge does NOT reach a live game — publish the shared
    runtime bundle (`scripts/publish-runtime-bundle.mjs` + `POST games.invisiblewall.org/refresh`,
-   [[reference_runtime_release]]) and, for Book of Borut, bump its `engine` submodule + push
-   ([[feedback_bump_game_submodule]]). Do this without asking when the fix is confirmed
+   [[reference_runtime_release]]). Do this without asking when the fix is confirmed
    ([[feedback_publish_runtime_without_asking]], [[feedback_always_push_main]]) — but never ship a
    half-verified fix.
 
@@ -105,10 +104,10 @@ For each scenario in the playbook:
 ## House style
 `pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*` internal deps. TypeScript, no `any` unless
 unavoidable. Prettier: tabs, single quotes, 100 cols, trailing commas. No dead code, no noise
-comments. Commit subjects need an area scope (`engine(playtest): …`, `game(borut): …`).
+comments. Commit subjects need an area scope (`engine(playtest): …`, `games(lines): …`).
 
 ## Report back
 Return a concise run report: which scenarios ran, **pass/fail per scenario with evidence**, what
-you fixed (files + the re-verified signal), what shipped (runtime release / submodule bump), and
+you fixed (files + the re-verified signal), what shipped (runtime release), and
 what still needs **human eyes** (visual polish you can't judge). Never claim a scenario passed
 without the signal that proves it. Update `docs/status/playtester.md` after meaningful work.

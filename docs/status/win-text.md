@@ -302,7 +302,7 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   picture). Files: `Symbol.svelte`, `SymbolFlipbook.svelte`, `SymbolSpineMain.svelte`,
   `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
   ⏳ owner visual-verify the toast on a flipbook-bound symbol — **engine change, so the remake needs a
-  Borut `engine` submodule bump + runtime release.**
+  runtime release.**
 - 2026-08-18 — **an inline symbol no longer shrinks the message it sits in.** The symbol is sized from
   the font, but its height was also fed back into the row auto-fit, so a boxed bar shrank itself to fit
   its own picture — dramatic with the bitmap HUD fonts, whose line box is well under 1em against a

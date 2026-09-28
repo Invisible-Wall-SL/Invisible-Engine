@@ -12,7 +12,7 @@
 //   EDITOR_DOC_SECRET=... node apps/launcher-api/scripts/bake-editor-doc.mjs \
 //     --project <projectKey> --dest <gameRepo>/src/baked-editor-bundle.json
 //
-// NOTE: --project is the BARE launcher project key (e.g. `bookofborut`), NOT
+// NOTE: --project is the BARE launcher project key (e.g. `bookofborutremake`), NOT
 // `<client>/<project>`. /api/editor/doc DB-resolves the client from the key, so
 // passing `borut/bookofborut` here resolves to no project and silently bails.
 // (This differs from pull-project-assets.mjs / /api/deploy, which DO want
@@ -24,13 +24,13 @@
 // checked-in placeholder has `doc: null`, so an un-baked repo keeps fetching live.
 //
 // Examples:
-//   # Book of Borut (its own repo, engine as submodule):
+//   # A game repo (engine as submodule):
 //   EDITOR_DOC_SECRET=... node <engine>/apps/launcher-api/scripts/bake-editor-doc.mjs \
-//     --project bookofborut --dest ./src/baked-editor-bundle.json
+//     --project bookofborutremake --dest ./src/baked-editor-bundle.json
 //
 //   # Preview without writing:
 //   node <engine>/apps/launcher-api/scripts/bake-editor-doc.mjs \
-//     --project bookofborut --dest ./src/baked-editor-bundle.json --token <t> --dry-run
+//     --project bookofborutremake --dest ./src/baked-editor-bundle.json --token <t> --dry-run
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';

@@ -293,7 +293,7 @@ ways**, and asserts every shipped profile survives its own validator.
 
 ### Producing one
 
-From a GAME REPO — Book of Borut and anything else that vendors the engine at `engine/`:
+From a GAME REPO — anything that vendors the engine at `engine/`:
 
 ```bash
 node engine/scripts/build-delivery.mjs [--profile operator-embed] [--out delivery]

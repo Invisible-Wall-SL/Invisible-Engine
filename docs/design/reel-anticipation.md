@@ -5,8 +5,8 @@
 > when unauthored, the same discipline as
 > [sequential reel stop](../../packages/utils-slots/src/createEnhanceBoardSpin.ts). Author it via the
 > Flow `enableAnticipationMode` effect (`/flow-v2`) and tune the per-tier FX in `/symbols`.
-> Follow-ups: the animated hold still wants a human eyeball in a foreground tab (rAF is frozen
-> headless); the standalone `bookofborut` (own bundle) needs an engine-submodule bump to receive it.
+> Follow-up: the animated hold still wants a human eyeball in a foreground tab (rAF is frozen
+> headless).
 
 ## The ask
 
@@ -257,7 +257,7 @@ authorable from the `/symbols` **Reel anticipation** panel:
    machine.
 4. **Flow mode** — enable/disable effects, vocab palette, signals.
 5. **Symbols SM authoring** — overlay spine + tier-FX config in the `/symbols` doc + bake/pull/register.
-6. **Ship** — runtime release + refresh + submodule bump; update `docs/status/engine.md` +
+6. **Ship** — runtime release + refresh; update `docs/status/engine.md` +
    `docs/status/symbols.md`.
 7. **Screens follow the camera** — let OTHER game-space screens zoom with the reels, not just the
    reel stack. ✅ (headless — builds green + fixture unaffected; owner live-check pending).

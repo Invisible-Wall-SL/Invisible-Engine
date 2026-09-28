@@ -21,6 +21,11 @@
 > this one — a single global log is the shape that failed twice now (first as `STATUS.md`,
 > then as this file).
 >
+> **Book of Borut's standalone repo is not maintained (owner, 2026-09-28).** Any entry below
+> that says a change still needs a Borut `engine` submodule bump, a Borut mirror, or a
+> republish to reach standalone Borut is void. Never carry one forward into a status file or a
+> to-do list — no game repo needs a manual engine bump.
+>
 > ---
 >
 > Archived changelog split out of `STATUS.md` (2026-05-31) to keep the status doc short.
@@ -2663,8 +2668,6 @@ with the reference-layout re-positioning, before shipping.
   credits in the local ComfyUI (only SDXL ControlNets installed). Code is ready.
 - **FLUX ref/ControlNet path** — only SDXL ControlNets installed locally; txt2img FLUX proven,
   the ref/ControlNet path is unproven.
-- **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow /
-  info-bar; per-game-engine branches are owner-merged ([[feedback_bump_game_submodule]]).
 - **prod DB migrations 0011/0012 applied?** — couldn't verify here (no `DATABASE_URL`).
 
 ### The biggest cross-cutting need — ✅ RESOLVED 2026-06-29

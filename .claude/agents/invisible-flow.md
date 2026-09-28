@@ -109,9 +109,9 @@ real animations). Three rules are non-negotiable:
   `deploy/` → bake (`flow?` in `BakedBundle`) → register (interpreter reads the baked
   doc; absent → coded handlers). "Runs in `/flow`" ≠ "ships". Mind the `bake:doc`
   before `pull:assets` ordering and the build-env token trap.
-- **Engine changes on `main`, mirror to shipped games.** Interpreter/engine changes
-  go in this repo on a feature branch off `main`; when one must reach Book of Borut,
-  bump its `engine` submodule pointer + push (don't ask — team convention).
+- **Engine changes on `main`.** Interpreter/engine changes go in this repo on a
+  feature branch off `main`. There is no game submodule to bump — desktop builds
+  advance it themselves.
 - **Reuse, don't rebuild.** The launcher auth/scope/R2/registry, the test-server
   mock-RGS book feed (for deterministic live preview), and the Scene Editor's
   undo/redo approach are all there to build on. Check the `reuse-check` skill before
@@ -129,5 +129,5 @@ real animations). Three rules are non-negotiable:
 Read the root `CLAUDE.md`, `docs/STATUS.md`, and `docs/design/invisible-flow.md`
 before acting — the plan is in the files. Prefer small, verifiable changes that hold
 the fall-through parity invariant. When you finish meaningful work, update the design
-doc's progress section and `docs/STATUS.md`. Report a concise summary of what changed,
-how you verified parity, and whether a shipped game's submodule needs a bump.
+doc's progress section and `docs/STATUS.md`. Report a concise summary of what changed
+and how you verified parity.

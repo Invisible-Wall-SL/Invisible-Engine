@@ -30,13 +30,13 @@ rendering/runtime foundation the tool agents build on.
   `scripts/publish-runtime-bundle.mjs` + `POST games.invisiblewall.org/refresh` — a `main`
   merge alone does NOT reach a live game ([[reference_runtime_release]],
   [[gotcha_online_game_engine_runtime_release]]).
-- **Mirror to shipped games** — when a change must reach Book of Borut, bump its `engine`
-  submodule + push ([[feedback_bump_game_submodule]]).
+- **No game submodule to bump** — a desktop build advances its `engine` submodule to
+  `origin/main` itself, and a game repo carries no source to mirror into.
 - **Baked data masks bugs in dev games** — `apps/lines` dev has no baked doc; verify against the
   live no-store bundle ([[gotcha_baked_data_masks_in_dev_games]]).
 
 ## How to work
 Read `CLAUDE.md`, `docs/status/engine.md`, and the target package before editing. Small,
 verifiable changes; validate with `pnpm --filter <pkg> build` + relevant Storybook/e2e. On
-finishing meaningful work update `docs/status/engine.md`. Report what changed, how you verified
-it, and whether a game submodule needs a bump.
+finishing meaningful work update `docs/status/engine.md`. Report what changed and how you
+verified it.

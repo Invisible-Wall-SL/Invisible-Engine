@@ -13,7 +13,7 @@ fix-worker) are designed, not built.
   preview (`preview_start` on a [.claude/launch.json](../../.claude/launch.json) config), detects
   bugs from text signals (console/network errors, book-vs-render money math, XState + flow state,
   `app.stage` assertions), and with fix authority fixes on a branch, re-verifies live, and ships
-  engine changes via the runtime release + game-submodule bump. Granted the browser-preview MCP
+  engine changes via the runtime release. Granted the browser-preview MCP
   tools plus Glob/Grep/Read/Edit/Write/Bash.
 - **Playbooks** — `docs/playtest/README.md` (format) + `docs/playtest/lines.md` (worked example
   for the reference Book-of build: boot-clean, spin math, free-spin trigger + run, bet/affordance,
@@ -29,7 +29,7 @@ fix-worker) are designed, not built.
 2. **Phase 3 — wire the card to the fix loop.** Agent-SDK worker with repo/git creds runs the
    playbook, fixes on a branch, opens a PR / preps a runtime release. Needs the open questions in
    the design doc decided (worker home, per-project fix authority, headless render fidelity).
-3. **Grow the `lines` playbook** and add `borut.md` as scenarios surface; convert each fixed bug
+3. **Grow the `lines` and `borut-remake` playbooks** as scenarios surface; convert each fixed bug
    into a permanent regression scenario.
 
 ## 2026-07-21 — full live checklist run of the Borut remake (via Claude-in-Chrome)

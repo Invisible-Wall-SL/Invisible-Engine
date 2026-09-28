@@ -16,13 +16,13 @@
 //   local: <dest>/sprites/symbolsStatic/symbolsStatic.json
 //
 // Examples:
-//   # Book of Borut (its own repo, engine as submodule):
+//   # A game repo (engine as submodule):
 //   EDITOR_DOC_SECRET=... node <engine>/apps/launcher-api/scripts/pull-project-assets.mjs \
-//     --project borut/bookofborut --dest ./static/assets
+//     --project invisible_wall/bookofborutremake --dest ./static/assets
 //
 //   # Preview what would be pulled without writing anything:
 //   node <engine>/apps/launcher-api/scripts/pull-project-assets.mjs \
-//     --project borut/bookofborut --dest ./static/assets --token <t> --dry-run
+//     --project invisible_wall/bookofborutremake --dest ./static/assets --token <t> --dry-run
 
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';

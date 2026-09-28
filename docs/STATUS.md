@@ -168,7 +168,7 @@ animation timelines** (per-vertex `deform` dopesheet channel → Spine 4.2 keyfr
 owner-confirmed) · **Rigger Phase 3.6a/b/c** (visual UV panel + constraint edges + hull promote/demote,
 owner-verified live; only the minor 3.6d hull-loop reorder remains) · **B4 HUD migration — apps/lines
 flip** (live Balance/Win/Bet readouts render as `hudReadout` component instances, shipped 2026-06-08;
-the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verify). See each tool's
+the docs were just stale — remaining tail = live-verify). See each tool's
 `docs/status/<tool>.md`.
 
 ## Blocked on owner / external (not code)
@@ -178,9 +178,6 @@ the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verif
   local GPU. ([status/atlas-maker](status/atlas-maker.md))
 - ~~**FLUX ref/ControlNet path**~~ — resolved the same way: proven on RunPod 2026-08-18, so the
   "only SDXL ControlNets are installed locally" constraint no longer gates it.
-- **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow / info-bar,
-  **plus the B4.6 HUD-readout mirror** (Borut still renders coded `UiLabel*` binds; the apps/lines
-  component-instance flip reaches it only on a submodule bump + republish) ([[feedback_bump_game_submodule]]).
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04) — the one
   imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
   same API export bakes them in. No env var needed (⟳ and the reader discover a running pod

@@ -28,7 +28,7 @@
 //     <engine>/apps/launcher-api/scripts/publish-symbol-defaults.mjs \
 //     --project <projectKey> [--symbols ./src/game/constants.ts]
 //
-// NOTE: --project is the BARE launcher project key (e.g. `bookofborut`), NOT
+// NOTE: --project is the BARE launcher project key (e.g. `bookofborutremake`), NOT
 // `<client>/<project>` — the endpoint DB-resolves the client from the key (same
 // as bake-editor-doc.mjs / /api/editor/doc).
 //
@@ -38,14 +38,14 @@
 // and `import()`s the module directly.
 //
 // Examples:
-//   # Book of Borut (its own repo, engine as submodule):
+//   # A game repo (engine as submodule):
 //   EDITOR_DOC_SECRET=... node --experimental-strip-types \
-//     ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs --project bookofborut
+//     ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs --project bookofborutremake
 //
 //   # Preview without posting (resolves + prints the doc):
 //   node --experimental-strip-types \
 //     ./engine/apps/launcher-api/scripts/publish-symbol-defaults.mjs \
-//     --project bookofborut --token <t> --dry-run
+//     --project bookofborutremake --token <t> --dry-run
 
 import { register } from 'node:module';
 import { isAbsolute, resolve } from 'node:path';

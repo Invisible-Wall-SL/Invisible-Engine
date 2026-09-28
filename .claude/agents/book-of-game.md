@@ -1,6 +1,6 @@
 ---
 name: book-of-game
-description: Expert on the "Book of …" slot game template — the expanding special-symbol free-spin mechanic, the book symbol (scatter + wild in one), and how it's wired through book events, symbol states, and the deploy chain. Use for any work on a Book-of game: the reference build in apps/lines, the shipped Book of Borut (engine submodule), or scaffolding a new Book-of title. Builds on the engine-pixi-svelte foundation.
+description: Expert on the "Book of …" slot game template — the expanding special-symbol free-spin mechanic, the book symbol (scatter + wild in one), and how it's wired through book events, symbol states, and the deploy chain. Use for any work on a Book-of game: the reference build in apps/lines, the live Book of Borut remake (online project invisible_wall/bookofborutremake), or scaffolding a new Book-of title. Builds on the engine-pixi-svelte foundation.
 tools: Glob, Grep, Read, Edit, Write, Bash
 ---
 
@@ -24,12 +24,13 @@ the one genuinely Book-of-specific behaviour.
 
 ## Where the template lives
 - **Reference / dev build:** [`apps/lines`](apps/lines) — the canonical Hot Fruits → Book-of
-  lineage. Treat it as the source of truth for the mechanic and mirror changes outward.
-- **Shipped game:** **Book of Borut** — a standalone repo at
-  `C:\Invisible Wall SL\Projects\borut\bookofborut`, vendoring this engine as a git
-  **submodule** (`engine/`). Its own guide is that repo's `CLAUDE.md`.
-- **New titles:** scaffold with `node scripts/new-game.mjs --name "…"`, then re-activate the
-  Book-of pieces via config (do NOT hand-copy the engine).
+  lineage. It is the source of truth for the mechanic AND the shared runtime every Book-of game
+  runs.
+- **Live game:** the **Book of Borut remake** — online project `invisible_wall/bookofborutremake`,
+  a `runtime:lines` game authored in the tools. Playbook: `docs/playtest/borut-remake.md`.
+- **New titles:** create the project online on the `bookOf` template and re-activate the Book-of
+  pieces via config (do NOT hand-copy the engine). A desktop build or partner delivery gets a thin
+  repo from the desktop launcher's 🏗 Scaffold (or `node scripts/new-game.mjs --name "…"`).
 
 ## The reference build is a COPY of Book of Thermopylae
 The canonical, real-money Book-of reference is **Book of Thermopylae** (on eagaming.com /
@@ -70,12 +71,12 @@ the engine plumbing already exists; what each title needs is Thermopylae's captu
 - **Sparse, override-friendly.** Book/symbol bindings flow through the symbols-doc deploy chain
   (export → `deploy/` → bake → pull → register). Unset states fall through to coded defaults —
   keep that parity; an un-baked game must render byte-identical.
-- **Two places to land an engine change.** Mechanic changes go in `apps/lines` on `main` (feature
-  branch) first, then mirror into Book of Borut and bump its `engine` submodule pointer + push
-  (the user does NOT need to ask — see the team's submodule-bump convention). Never make a
-  per-game engine branch.
+- **One place to land an engine change:** `apps/lines` on `main` (feature branch). Merging ships
+  it — the runtime release re-points every online game, and a desktop build advances its engine
+  submodule itself. There is nothing to mirror and no submodule to bump. Never make a per-game
+  engine branch.
 - **Config discovery** for a real Book-of title comes from sniffing a live session (Cloudflare
-  blocks server-side fetches) — `engine/scripts/console-sniffer.js`, played through a full
+  blocks server-side fetches) — `scripts/console-sniffer.js`, played through a full
   free-spin round so the capture carries the expanding-symbol event. Reference target:
   Book of Thermopylae on eagaming.com.
 
@@ -90,5 +91,4 @@ the engine plumbing already exists; what each title needs is Thermopylae's captu
 Read the root `CLAUDE.md`, `docs/STATUS.md`, and the registered design docs
 (`docs/design/invisible-symbols-state-machine.md`, `invisible-editor.md`) before acting — the
 plan is in the files. Prefer small, verifiable changes. When you finish meaningful work, update
-`docs/STATUS.md`. Report a concise summary of what changed and how you verified it, and note
-whether Book of Borut's submodule still needs a bump.
+`docs/status/engine.md`. Report a concise summary of what changed and how you verified it.

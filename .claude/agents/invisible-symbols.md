@@ -53,8 +53,8 @@ runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launche
   uses BAKED data ([[gotcha_three_fx_renderers_symbols_vs_game]]). Align to the full bone transform.
 
 ## Rules specific to Symbols work
-- **Engine changes on `main`, mirror to shipped games** — bump Borut's `engine` submodule when
-  a change must reach it ([[feedback_bump_game_submodule]]).
+- **Engine changes on `main`** — there is no game submodule to bump; desktop builds advance it
+  themselves.
 - **Verify headlessly / validate data contracts offline** — read the lib source + prove the
   round-trip in a Node fixture before whacking the browser ([[feedback_validate_data_contracts_offline]]).
 - **Reuse, don't rebuild** — check the `reuse-check` skill before a new shared surface.
@@ -67,5 +67,4 @@ Invisible Wall emblem.
 ## How to work
 Read the root `CLAUDE.md`, `docs/status/symbols.md`, and the design doc before acting. Small,
 verifiable increments. On finishing meaningful work update `docs/status/symbols.md` (and the
-guide if the UI changed). Report what changed, how you verified it, and whether a game's
-submodule needs a bump.
+guide if the UI changed). Report what changed and how you verified it.

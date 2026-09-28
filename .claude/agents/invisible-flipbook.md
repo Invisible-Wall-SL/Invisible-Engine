@@ -108,8 +108,8 @@ for the Python service's conventions.
 - **The `/api/flipbook/video/[...path]` proxy is an ALLOW-LIST, not a pass-through.**
   Forwarding an arbitrary path would hand any flipbook user the whole atlas-tool surface
   under a gate that never mentions it.
-- **Engine changes on `main`, mirror to shipped games** — bump Borut's `engine` submodule
-  when a change must reach it.
+- **Engine changes on `main`** — there is no game submodule to bump; desktop builds advance
+  it themselves.
 - **Reuse, don't rebuild** — run the `reuse-check` skill before any new shared surface.
   Precedents already set here: the canonical `toolScope.gate`, `<CanvasModeBar>` for the
   mode switch, `RegionThumb` for every thumbnail, and proxying the atlas-tool's
@@ -126,5 +126,5 @@ Read the root `CLAUDE.md`, `docs/status/flipbook.md` and the relevant design doc
 acting. Small, verifiable increments. Prove data contracts offline first — the fixtures
 above exist because a green build proves nothing here. On finishing meaningful work update
 `docs/status/flipbook.md`, and `docs/tools/flipbook.md` if the UI changed. Report what
-changed, how you verified it, what you could NOT verify (a GPU generation, a live browser
-run), and whether a game's submodule needs a bump.
+changed, how you verified it, and what you could NOT verify (a GPU generation, a live
+browser run).

@@ -406,7 +406,7 @@ basegameOverlaysHasCodedWinGate})` ⇒ `'driver'`/`'gate'`/`null`, the single de
 Each phase is proven headlessly in `tools/flow-spike/` (op-log / pin-derivation / round-trip
 parity, turbo on/off) + `tsc --noEmit` + the affected `pnpm --filter … build` GREEN, before any
 live-verify — the WebGPU bundle is the only thing headless can't prove (read `app.stage` / dynamic-
-import override, not `preview_screenshot`). Engine changes (FS-3, FS-4) reach Book of Borut via a
-runtime-bundle republish / `engine` submodule bump; the FlowDoc + `/flow` changes ride
+import override, not `preview_screenshot`). Engine changes (FS-3, FS-4) reach online games via a
+runtime-bundle republish; the FlowDoc + `/flow` changes ride
 export→`deploy/`→bake(`flow?`)→register (rule 8). Fall-through parity (§7) is the invariant on every
 slice: no authored free-spin screen / no FlowDoc ⇒ the coded feed-driven path is byte-identical.

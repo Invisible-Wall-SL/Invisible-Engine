@@ -78,10 +78,10 @@ Cloudflare path for the game's `assets/` prefix.
 1. **Producer:** `_deployatlas` emits TexturePacker JSON into the mirrored `deploy/` subpath
    (share `write_texturepacker_json`). Verify `deploy/` now holds a game-loadable spritesheet.
 2. **Puller:** `pull-project-assets.mjs` — list+mirror `deploy/` → `static/assets/`. Manual run first.
-3. **Wire prebuild** hook in the game (Book of Borut first), so `pnpm build` pulls then builds.
+3. **Wire prebuild** hook in the game, so `pnpm build` pulls then builds.
 4. **Cache-bust** on publish.
 5. **Runtime override** in the engine loader (last — biggest engine surface).
-6. Prove on Book of Borut: edit atlas online → `pnpm build` → republish → new graphic shows.
+6. Prove end-to-end: edit atlas online → `pnpm build` → republish → new graphic shows.
 
 ## Open decisions
 
@@ -118,7 +118,7 @@ the editor — so a built game renders the coded built-in and the per-instance o
    fetch**. The checked-in placeholder has `doc: null` → un-baked repos (incl. `apps/lines` dev)
    keep fetching live, byte-identical. Self-describing — no env flag.
 
-**Wire it (per game, e.g. Book of Borut — its own repo):** add a `bake:doc` script
+**Wire it (per game repo):** add a `bake:doc` script
 (`bake-editor-doc.mjs --project <client>/<project> --dest ./src/baked-editor-bundle.json
 --optional`) and chain it into `build` after `build:engine`. `new-game.mjs` scaffolds the script
 entry. Authoring stays dynamic (editor); production ships static + self-contained.

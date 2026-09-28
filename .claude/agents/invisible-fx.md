@@ -100,9 +100,9 @@ owner-verify live) whenever you finish meaningful work.
   → bake (embed the effect index; `bake:doc` BEFORE `pull:assets`) → pull → `bakedEffects()`
   register; absent → no effect (or coded fallback). "Plays in `/fx`" ≠ "ships". Mind the
   build-env token trap that serves stale assets.
-- **Engine changes on `main`, mirror to shipped games.** Engine/runtime changes go in
-  this repo on a feature branch off `main`; when one must reach Book of Borut, bump its
-  `engine` submodule pointer + push (don't ask — team convention).
+- **Engine changes on `main`.** Engine/runtime changes go in this repo on a feature
+  branch off `main`. There is no game submodule to bump — desktop builds advance it
+  themselves.
 - **Reuse, don't rebuild.** The launcher auth/scope/R2/registry, the Rigger's
   atlas-listing + `/spine`-stage fork, and the existing `ParticleEmitter`/`SpineBone`
   components are all there to build on. Check the `reuse-check` skill before building a
@@ -120,5 +120,4 @@ owner-verify live) whenever you finish meaningful work.
 Read the root `CLAUDE.md`, `docs/STATUS.md`, and `docs/design/invisible-fx.md` before
 acting — the plan is in the files. Prefer small, verifiable increments. When you finish
 meaningful work, update the design doc's progress section and `docs/STATUS.md`. Report a
-concise summary of what changed, how you verified it headlessly, and whether a shipped
-game's submodule needs a bump.
+concise summary of what changed and how you verified it headlessly.
