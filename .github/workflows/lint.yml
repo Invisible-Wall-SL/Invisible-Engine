@@ -132,6 +132,7 @@ jobs:
       # and `lease-scope` the real `POST /api/lease`, each with only the database stubbed;
       # `deploy-read` runs the real path-form asset route, which every online game loads through, and
       # pins that it serves the project's OWN client tree. All four need `svelte-kit sync`, which
-      # their `pre` scripts run.
+      # their `pre` scripts run. `event-bound-flags` fails on `onclick={save}` where `save(force = false)`
+      # — the click event arrives as `force`, and every manual Save skips the conflict check.
       - name: launcher gates hold
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read
+        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:event-bound-flags

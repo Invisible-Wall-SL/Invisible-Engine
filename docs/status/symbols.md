@@ -650,6 +650,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-28 — **A manual Save asks before overwriting a colleague's newer save again.** The Save button was bound `onclick={save}` where `save(force = false)`, so the click event arrived as a truthy `force`: the transport sent `force` instead of the base ETag, `writeGuard` skipped its conflict check, and every manual Save was an unconditional overwrite. Now `onclick={() => save()}`. Same fix in /fx and /localization (one change). New guard `pnpm --filter launcher-api check:event-bound-flags` (wired into the Lint workflow's *launcher gates hold* step) fails on any function whose first parameter is a boolean bound straight to an `on…` attribute or `addEventListener`; it carries a self-test so a regex drift fails loudly, and it flags all three pre-fix pages. Verified by running the real `SaveState` (Svelte-compiled) against a stub server holding a newer ETag: the old binding sent `{force:true}` with no prompt, the new one sends the stale `baseEtag`, gets the conflict and reaches the overwrite prompt; the three pages compile to `(event, save) => save()`. Not driven in a browser (the tools are auth + Postgres + R2 gated).
 - 2026-09-28 (security) — **`/api/editor/symbols` refuses a project the caller cannot access.** It
   resolved any `?project=` once the role had `symbols`, so a `PUT` could overwrite another client's
   symbols doc. It now scopes through the launcher-wide `requireProjectScope` (403 on an inaccessible

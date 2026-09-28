@@ -357,11 +357,7 @@
 			     payloads that stretched the bar and pushed the tool switcher into a scroll strip —
 			     and the old `{:else if}` meant a held lease hid every message outright. It renders
 			     as a full-width notice below the bar instead. -->
-			<!-- NOTE: `onclick={save}` passes the click EVENT as `force` (truthy), so a manual Save
-			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
-			     pre-existing latent bug (localization's conflict ask is therefore effectively
-			     dead on the button path); flagged for the owner, not silently "fixed". -->
-			<button class="primary" onclick={save} disabled={lease.readOnly || busy || !saveState.dirty}
+			<button class="primary" onclick={() => save()} disabled={lease.readOnly || busy || !saveState.dirty}
 				>Save</button
 			>
 		{/snippet}
