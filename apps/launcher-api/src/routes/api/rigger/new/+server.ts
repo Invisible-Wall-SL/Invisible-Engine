@@ -6,6 +6,7 @@ import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
 import { bundleRevision } from '$lib/server/spineBundleSync';
 import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
+import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -119,9 +120,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
+	// The `.irig` goes FIRST and only if absent: `spineBundleNameTaken` above is a read, so two
+	// creates of the same name can both pass it. The conditional create is the actual claim — the
+	// loser gets a 409 before it has written a page or an atlas over the winner's.
+	if (!(await claimNewIrig(`${bundle}/${name}.irig`, JSON.stringify(skeleton))))
+		throw error(409, `a rig named "${name}" was just created by someone else`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, pageContentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
-	await putObjectText(`${bundle}/${name}.irig`, JSON.stringify(skeleton), 'application/json');
 	if (sidecar) await putObjectText(`${bundle}/source.json`, sidecar, 'application/json');
 
 	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);

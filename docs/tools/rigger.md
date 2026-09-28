@@ -567,7 +567,8 @@ library it's **shared and cross-project** (stored under `_shared/rigs/` in R2).
 
 - **📦 Save rig to library** (sidebar, enabled once a rig is loaded) — prompts for a
   name (defaulting to the current rig's stem) and saves the whole open skeleton to the
-  library. Re-saving a name overwrites that library entry.
+  library. The library is shared by every project, so if the name is already taken the
+  tool tells you which project saved it and when, and only replaces it if you confirm.
 - **🗂 Rig library** (sidebar) — opens a modal listing every saved rig with its stats
   (e.g. "12 bones · 3 anims") and a filter box. Each row offers:
   - **Use in new rig** — closes the modal and opens the **＋ New rig** panel with this
@@ -636,6 +637,18 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
   `.irig` (non-destructive — an artist's source `.json` is left untouched; the
   edit is a sibling `.irig` listed in the rig list). Per-row **🗑** in the rig
   list deletes a rig.
+  - If someone else saved the same rig since you opened it, Save asks whether to
+    **overwrite with your version** instead of silently replacing theirs (theirs is
+    kept in History). If your active project changed in another tab, Save refuses —
+    reload first.
+  - If you opened the artist's source `.json` and a saved `.irig` of it already
+    exists, the first Save asks before replacing that `.irig`.
+  - Save refuses a rig that would not open again (e.g. a slot on a deleted bone) and
+    says why; the stored rig is left as it was.
+- **🕘** (next to 💾 Save) lists the last 20 saved-over versions of the open rig.
+  **Restore** puts one back (your unsaved edits in the tab are discarded; the version
+  it replaces is kept in History too, so a restore can be undone).
+- Closing or reloading the tab with unsaved rig or cinematic changes asks first.
 - **⤓ .irig** downloads the skeleton locally as Spine 4.2 JSON under the `.irig`
   extension.
 

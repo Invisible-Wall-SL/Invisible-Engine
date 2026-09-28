@@ -243,6 +243,20 @@ The correctness floor. Contained because of the linchpin above.
 >    API-shape confirm + per-tool two-profile test. See **Phase 2a** below for the recorded
 >    API and rationale.
 >
+> **Rigger joined 2026-09-28.** The `.irig` save (`/api/rigger/save`) was the one authoring
+> surface still writing unconditionally: it now takes `baseEtag` (read via `GET
+> /api/rigger/save` BEFORE the tab loads the bytes, since the Spine AssetManager hides the
+> response ETag — the order fails toward a spurious prompt, never a silent overwrite) plus
+> `projectKey` (non-forceable `409 scope-mismatch`), answers `409 conflict` with the
+> cinematic-style overwrite prompt, and creates with `If-None-Match`. The `rigger/new` and
+> `rigger/upload` creates claim the `.irig` with `If-None-Match` before writing the page or atlas.
+> Every overwrite is preceded by a rolling backup (`riggerIrig.ts`, 20 per rig, restorable from
+> the rig's 🕘 History — the `editorDocBackups.ts` design). The studio-wide rig LIBRARY save
+> (`/api/rigger/rigs/save`) creates only (`baseEtag: null`); a taken name answers `409 exists`
+> with the entry's etag, and the confirmed retry is `If-Match` on exactly that entry. Still
+> unconditional: the animation-library save (`/api/rigger/animations/save`). Offline proof:
+> `tools/rigger-spike/irig-save.mjs`.
+>
 > Everything below is the original plan, left for the rationale; it is DONE except where
 > point 4 above says otherwise.
 
