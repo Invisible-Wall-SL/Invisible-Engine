@@ -107,7 +107,7 @@ Shipped as a `prod` flag on the entry. The worker Dockerfile reads the SAME `nod
 - **Self-service installs are what the pinning was introduced to control.** Mitigated by the commit path (every add is a revertible diff), by resolving SHAs server-side, and by `verify-deps.py` + Phase 3. Not mitigated by hoping.
 - **A node's `requirements.txt` moves a shared package.** Already happened once. Constraints (Phase 0) turn it from a silent green build into a resolution error.
 - **`PATCH` resets a running pod.** It must confirm — an artist mid-render will lose the session.
-- **CI minutes.** This repo is private, so every rebuild is billed Actions time, and a button makes rebuilds frequent. Phase 0 cuts the per-build cost; a "there is already a build running" guard avoids stacking them.
+- **CI minutes.** While the repo is private every rebuild is billed Actions time (standard GitHub-hosted runners are free on a public repo), and a button makes rebuilds frequent. Phase 0 cuts the per-build cost; a "there is already a build running" guard avoids stacking them.
 - **RunPod schema drift.** `podSpecs` already queries in tiers because `machine`'s sub-fields are the least certain part of the schema. Any new call takes the same shape: degrade a line, never a card.
 
 ## Key file anchors

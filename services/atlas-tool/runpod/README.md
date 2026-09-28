@@ -72,12 +72,14 @@ RunPod → Pods → Deploy, attach the Network Volume from step 1 (mounts at
   that hostname starts answering 404 — so a pod configured `HTTP 8188 + TCP 8188` (or
   TCP-only) ends up unreachable by every route at once while ComfyUI is running fine.
 
-> ### ⚠ `raw.githubusercontent.com` 404s — THIS REPO IS PRIVATE
+> ### ⚠ `raw.githubusercontent.com` 404s WHILE THE REPO IS PRIVATE
 > Every `curl … raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/…` below
-> returns **404** without credentials. GitHub answers 404 (not 401) for a private repo,
-> so it reads as "file missing" when it is really "no access" — the file is on `main`.
+> works anonymously only while the repo is **public**. While it is private it returns
+> **404** without credentials — GitHub answers 404 (not 401) for a private repo, so it
+> reads as "file missing" when it is really "no access". Check the repo's current
+> visibility before debugging a 404; the file is on `main` either way.
 >
-> Two ways through, from the pod's terminal:
+> If the plain curl 404s, two ways through, from the pod's terminal:
 >
 > **A. Paste it.** Works with no credentials on the pod. On your machine:
 >
@@ -131,7 +133,7 @@ volume instead (idempotent, and resumable via HTTP Range, which matters when a p
 terminal drops in the middle of a 35 GB file):
 
 **`fetch-models.py` is BAKED into the pod image at `/fetch-models.py`** — nothing to
-download, no token, none of the private-repo problem above. It lives in the image's
+download, no token, none of the repo-visibility problem above. It lives in the image's
 build context at `services/atlas-comfy-pod/tools/` (Docker `COPY` cannot escape the
 context, and duplicating it is how a vendored copy drifts). `--dest` defaults to the
 volume, so on a baked-image pod:
@@ -235,7 +237,7 @@ tool for that than `seed-comfyui-models.py`, which walks the whole tree: `--dir 
 scopes it, and the default dry run shows the plan before anything moves.
 
 **Both mirror scripts are BAKED at `/pull-models.py` and `/push-models.py`, with
-`boto3` alongside them** (since 2026-09-07) — nothing to paste, no token, none of the private-repo problem in the box
+`boto3` alongside them** (since 2026-09-07) — nothing to paste, no token, none of the repo-visibility problem in the box
 above. They live here rather than in the image folder, so CI copies them into the build
 context on its way past, exactly as the worker build does with `nodes.json`; a *local*
 `docker build` needs that `cp` done by hand. **A pod predating this image won't have
