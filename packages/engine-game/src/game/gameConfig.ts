@@ -5,6 +5,8 @@ import {
 	resolveWinLevels,
 	resolveGrid,
 	acceptServerWindow,
+	comparePaytables,
+	describePaytableDrift,
 	reconcileGridDoc,
 	gridShapeDiffers,
 	type ServerWindow,
@@ -16,6 +18,7 @@ import {
 	winLevelType,
 	type GameConfigDoc,
 	type GameSounds,
+	type PayEntry,
 	type ResolvedGrid,
 	type ResolvedReelBehaviour,
 	type ResolvedSounds,
@@ -112,6 +115,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// A verdict reached before the live bundle landed was reached against the COMPILED template's
 		// board, not the authored one — re-decide it against the config the game will actually run.
 		gridChecked = false;
+		paytableChecked = false;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -138,6 +142,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		 *  columns differ, so a server that never heard of stepped grids sends the shape it always
 		 *  sent (`rgs-translator-eagaming`'s `Play4FunConfigContext['window']`, published verbatim). */
 		window?: { reels: number; rows: number; rowsPerReel?: number[] };
+		/** The declared paytable, symbol names already mapped to the engine's. Compared, never adopted
+		 *  — see {@link warnOnServerPaytableMismatch}. Absent when the server declares none. */
+		paytable?: PayEntry[];
 	};
 
 	/** The RGS-declared config, or `undefined` when no config event has been published (⇒ parity). A
@@ -277,6 +284,46 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 				'following: publish the game once (older entries have no pointer back to the live ' +
 				'config). Against a real RGS — which is authoritative and declares only a rectangle — ' +
 				'author the config to the size the server deals.',
+		);
+	}
+
+	/** Latched once a declared paytable has been compared, so the warning is said once per boot.
+	 *  Released by {@link resetGameConfigCache}. */
+	let paytableChecked = false;
+
+	/**
+	 * Say out loud, once, when the paytable the game SHOWS the player disagrees with the one the RGS
+	 * DECLARED in its boot `config`.
+	 *
+	 * The info page is built from the AUTHORED config (plus a synthesized scatter row), never from the
+	 * server — so a partner who changes a price on their side, which is exactly the kind of change
+	 * nobody tells the client team about, leaves the game advertising one paytable while the server
+	 * pays another. Nothing else would notice: every win still animates, just at a number the player
+	 * was not promised.
+	 *
+	 * WARN, NEVER FIX. The server is authoritative for what it pays, but silently re-pricing the info
+	 * page off it would hide the disagreement rather than resolve it; which side is wrong is a question
+	 * for the math, not the client.
+	 *
+	 * Takes the SHOWN paytable as an argument because the display is built by the game
+	 * (`apps/lines/src/game/paytable.ts`), not here. A server that declares no paytable decides
+	 * nothing, so every game whose RGS states none is byte-identical to before (parity).
+	 */
+	function warnOnServerPaytableMismatch(shown: PayEntry[]): void {
+		if (paytableChecked) return;
+		const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
+		const declared = cfg?.paytable;
+		if (!Array.isArray(declared) || declared.length === 0) return;
+		paytableChecked = true;
+		const drift = comparePaytables(shown, declared, Array.isArray(cfg?.symbols) ? cfg.symbols : []);
+		if (drift.length === 0) return;
+		console.warn(
+			`[game-config] warning: the paytable this game SHOWS disagrees with the one the RGS ` +
+				`DECLARED in ${drift.length} row${drift.length === 1 ? '' : 's'} — the player is being ` +
+				`quoted prices the server will not pay. The server's pays are what the player gets; the ` +
+				`info page is built from Invisible Game Config. Fix whichever side is wrong (a changed ` +
+				`partner math, or a stale authored paytable); the client does not pick one.\n  ` +
+				drift.map(describePaytableDrift).join('\n  '),
 		);
 	}
 
@@ -881,5 +928,6 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		captureServerGrid,
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
+		warnOnServerPaytableMismatch,
 	};
 }

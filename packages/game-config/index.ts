@@ -10,3 +10,4 @@ export * from './src/reelBehaviour';
 export * from './src/sounds';
 export * from './src/grid';
 export * from './src/serverGrid';
+export * from './src/serverPaytable';
