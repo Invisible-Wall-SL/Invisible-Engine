@@ -171,6 +171,14 @@ tool top bar). Switch projects from the launcher before opening the tool.
    files are HTTP-cached. Reloading drops those caches (previews refresh with the new art +
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
    the spine pickers). Your unsaved cell edits are preserved.
+8. **History….** The header **History…** button lists earlier saved versions of this
+   project's symbols, newest first. Every save keeps a copy of the version it replaces (at
+   most one every five minutes while you work; the newest 20 are kept), so a bad edit or an
+   **Overwrite** of someone else's save can be walked back. Pick a version and **Restore**:
+   the restore is saved like any other save — if someone else saved since you opened the
+   page it is refused and you are asked to reload — and it keeps a copy of what it replaces,
+   so a restore can itself be undone from the same list. The page reloads afterwards.
+   Restore is disabled while another author holds the project (take over first).
 
 ### Layers: a symbol made of more than one picture
 

@@ -229,21 +229,74 @@ export function editorDocKey(client: string, project: string): string {
 }
 
 /**
- * Rolling backups of a project's Scene Editor doc — `<client>/<project>/editor/backups/`.
- * The editor autosaves straight over `scenes.json`, so without these a bad edit, a bad
- * reference/scaffold load, or a restore of the wrong thing is UNRECOVERABLE (the documented
- * fallback was scavenging a `/api/editor/runtime` dump and un-rewriting its spine keys).
- *
- * Its OWN sub-prefix, not a sibling of `scenes.json`, so `editor/` keeps holding exactly the
- * three authored docs (`scenes.json`, `flow.json`, `flow-v2.json`) and a listing that expects
- * them can never trip over backup objects.
+ * Which whole-doc blob a set of rolling backups belongs to (`docBackups.ts`). Every one of these
+ * docs is PUT whole — most of them by an autosave — so without the backups a bad edit, a bad
+ * reference/scaffold load, an accepted "overwrite theirs" or a restore of the wrong thing is
+ * UNRECOVERABLE (the Scene Editor's documented fallback was scavenging a `/api/editor/runtime`
+ * dump and un-rewriting its spine keys).
  */
-export function editorDocBackupsPrefix(client: string, project: string): string {
-	return `${SUB.editor(client, project)}/backups/`;
+export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config';
+
+/**
+ * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
+ * from anything a request carries — so a restore can only ever read inside that project.
+ */
+export interface DocBackupTarget {
+	/** The live doc, which each backup is a server-side copy of. */
+	docKey: string;
+	/** The doc's backup folder, with a trailing slash. */
+	prefix: string;
+	/** Leads every backup id, so an id minted for one doc never validates against another. */
+	stem: DocBackupStem;
 }
 
 /**
- * The file stem of one backup: `scenes-<stamp>-<tag>`, where `<stamp>` is a compact UTC ISO
+ * Scene Editor `scenes.json` → `<client>/<project>/editor/backups/scenes-*.json`. This layout
+ * predates the other targets and is kept byte-for-byte, so every backup taken before the helper
+ * was generalised stays listable and restorable.
+ *
+ * Each target has its OWN sub-prefix rather than sitting beside its doc, so a folder like
+ * `editor/` keeps holding exactly its authored docs (`scenes.json`, `flow.json`, `flow-v2.json`)
+ * and a listing that expects them can never trip over backup objects — and each doc's retention
+ * counts only its own copies.
+ */
+export function editorDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: editorDocKey(client, project),
+		prefix: `${SUB.editor(client, project)}/backups/`,
+		stem: 'scenes',
+	};
+}
+
+/** Flow v2 `flow-v2.json` → `<client>/<project>/editor/flow-v2-backups/flow-v2-*.json`. */
+export function flowV2DocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: flowV2DocKey(client, project),
+		prefix: `${SUB.editor(client, project)}/flow-v2-backups/`,
+		stem: 'flow-v2',
+	};
+}
+
+/** Symbols `symbols.json` → `<client>/<project>/symbols/backups/symbols-*.json`. */
+export function symbolsDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: symbolsDocKey(client, project),
+		prefix: `${SUB.symbols(client, project)}/backups/`,
+		stem: 'symbols',
+	};
+}
+
+/** Game Config `config.json` → `<client>/<project>/config/backups/config-*.json`. */
+export function gameConfigDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: gameConfigDocKey(client, project),
+		prefix: `${SUB.config(client, project)}/backups/`,
+		stem: 'config',
+	};
+}
+
+/**
+ * The file stem of one backup: `<stem>-<stamp>-<tag>`, where `<stamp>` is a compact UTC ISO
  * instant (`YYYYMMDDTHHMMSSmmmZ`) and `<tag>` is the first 8 hex chars of the ETag of the bytes
  * being preserved (`noetag` when R2 returned none).
  *
@@ -265,32 +318,41 @@ export function editorDocBackupsPrefix(client: string, project: string): string 
  * The stamp leads the tag so a plain lexicographic sort of the listing IS chronological order —
  * retention and the history UI need no per-object HEAD for `LastModified`.
  */
-export function editorDocBackupId(at: Date, etag: string | null): string {
+export function docBackupId(stem: DocBackupStem, at: Date, etag: string | null): string {
 	const stamp = at.toISOString().replace(/[-:.]/g, '');
 	const hex = (etag ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
-	return `scenes-${stamp}-${hex ? hex.slice(0, 8).padEnd(8, '0') : 'noetag'}`;
+	return `${stem}-${stamp}-${hex ? hex.slice(0, 8).padEnd(8, '0') : 'noetag'}`;
 }
 
 /**
- * The one shape a backup id may have. Ids arrive from the browser on RESTORE, so this is a
- * path-injection gate as much as a parser: the id is validated here and the R2 key is REBUILT
- * from the caller's own `(client, project)` — a client-supplied key is never trusted.
+ * The one shape a backup id of `stem` may have. Ids arrive from the browser on RESTORE, so this
+ * is a path-injection gate as much as a parser: the id is validated here, anchored at both ends
+ * and pinned to THIS doc's stem, and the R2 key is then REBUILT from the caller's own target — a
+ * client-supplied key is never trusted. (The stems are fixed literals of `[a-z0-9-]`, so they
+ * are safe to splice into the pattern.)
  */
-export const EDITOR_DOC_BACKUP_ID_RE = /^scenes-(\d{8}T\d{9}Z)-(?:[0-9a-f]{8}|noetag)$/;
+function docBackupIdPattern(stem: DocBackupStem): RegExp {
+	return new RegExp(`^${stem}-(\\d{8}T\\d{9}Z)-(?:[0-9a-f]{8}|noetag)$`);
+}
 
-/** Full R2 key for a backup id under a project's backup prefix. */
-export function editorDocBackupKey(client: string, project: string, id: string): string {
-	return `${editorDocBackupsPrefix(client, project)}${id}.json`;
+/** Whether `id` is a well-formed backup id for `stem`'s doc. */
+export function isDocBackupId(stem: DocBackupStem, id: string): boolean {
+	return docBackupIdPattern(stem).test(id);
+}
+
+/** Full R2 key for a backup id under its target's backup folder. */
+export function docBackupKey(target: DocBackupTarget, id: string): string {
+	return `${target.prefix}${id}.json`;
 }
 
 /**
  * Recover the instant encoded in a backup id as an ISO string, or `null` when the id is not a
- * backup id. Reads the KEY rather than the object's `LastModified` so a listing alone is enough
- * — and so a server-side copy (which stamps its own mtime) can never misreport when the bytes
- * it preserved were actually authored.
+ * backup id of `stem`. Reads the KEY rather than the object's `LastModified` so a listing alone is
+ * enough — and so a server-side copy (which stamps its own mtime) can never misreport when the
+ * bytes it preserved were actually authored.
  */
-export function editorDocBackupSavedAt(id: string): string | null {
-	const m = EDITOR_DOC_BACKUP_ID_RE.exec(id);
+export function docBackupSavedAt(stem: DocBackupStem, id: string): string | null {
+	const m = docBackupIdPattern(stem).exec(id);
 	if (!m) return null;
 	const s = m[1];
 	const time = `${s.slice(9, 11)}:${s.slice(11, 13)}:${s.slice(13, 15)}.${s.slice(15, 18)}`;

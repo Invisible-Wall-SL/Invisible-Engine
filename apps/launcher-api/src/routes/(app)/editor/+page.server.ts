@@ -289,7 +289,7 @@ export const actions: Actions = {
 		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
 		// custom-kind / reference load the author accepted). Those are exactly the writes someone
 		// wants back, and they are rare, so they bypass the autosave coalescing window in
-		// `editorDocBackups.ts`. The client asserts it; the default is `'auto'`, so a tab running
+		// `docBackups.ts`. The client asserts it; the default is `'auto'`, so a tab running
 		// an older bundle simply gets the ordinary coalesced backup rather than none.
 		const backup = form.get('backup') === 'always' ? 'always' : 'auto';
 

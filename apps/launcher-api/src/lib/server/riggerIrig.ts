@@ -7,7 +7,7 @@ import { copyObject, deleteObjects, getObjectText, headObject, listAllObjects } 
  * `/api/rigger/save` overwrites `<spines>/<dir>/<stem>.irig` in place, and R2 object versioning
  * is not enabled on the bucket, so before this module a save was the last word: a bad edit, a
  * wrong rig saved over the right one, or an accepted "overwrite theirs" left nothing to go back
- * to. The design mirrors `editorDocBackups.ts` (read it for the full argument); the points that
+ * to. The design mirrors `docBackups.ts` (read it for the full argument); the points that
  * carry over unchanged:
  *
  *  - The copy is taken BEFORE the PUT (afterwards there are no previous bytes left to copy).

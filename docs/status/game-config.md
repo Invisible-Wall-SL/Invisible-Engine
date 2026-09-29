@@ -584,6 +584,12 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-09-29 — **Version history.** Every config save backs up the version it replaces
+  (`config/backups/`, newest 20, at most one every 5 minutes; a restore or an overwrite always
+  backs up) — server side in [launcher.md](launcher.md) 2026-09-29. `/config` has a
+  **History…** button (shared `$lib/DocHistoryModal.svelte`) that lists them and restores one through
+  `POST /api/game-config/backups?project=` with this tab's ETag, then reloads. Build + checks green;
+  ⏳ restore not click-tested in a browser (list verified live).
 - 2026-09-28 (security) — **`/api/game-config` and `server-paytable` now refuse a project the
   caller cannot access.** Both resolved whatever `?project=` they were handed once the ROLE had the
   `gameConfig` tool, so any Game Config user could read — and, through `PUT`, overwrite in R2 —

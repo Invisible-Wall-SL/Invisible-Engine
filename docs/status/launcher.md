@@ -51,6 +51,41 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Recent changes
 
+### 2026-09-29 — rolling backups cover Flow v2, Symbols and Game Config, not just scenes
+- **One helper for every whole-doc save.** `editorDocBackups.ts` became `docBackups.ts`:
+  `putDocWithBackup(target, text, baseEtag, mode)` owns the copy-before-PUT, prune-after-PUT
+  order, and a `DocBackupTarget { docKey, prefix, stem }` (built in `projectPaths.ts` from the
+  caller's own client/project) says which doc. `editorStorage.saveDoc`, `saveFlowV2Doc`,
+  `saveSymbolsDoc` and `saveGameConfigDoc` all write through it. Scenes keep
+  `editor/backups/scenes-*` byte-for-byte, so existing backups stay listable and restorable; the
+  new ones are `editor/flow-v2-backups/flow-v2-*`, `symbols/backups/symbols-*` and
+  `config/backups/config-*`. Ids are validated per stem, so an id minted for one doc is a 400 on
+  another's route.
+- **A save that will 409 takes no backup.** When the stored doc already fails the save's own
+  precondition (exists under a `null` baseEtag, or its ETag differs), the helper throws
+  `ConflictError` before copying. Before this, a stale tab's refused autosaves copied the current
+  bytes on every retry, and retention could push real history out. A save that races in between
+  the HEAD and the PUT can still leave one inert orphan (see the module comment).
+- **A force save ("overwrite theirs") always backs up**, even inside the 5-minute window,
+  whatever the client asked for. It replaces bytes the author never saw, and the old
+  `'auto'` default could coalesce it away.
+- **A duplicated project starts its own history.** `planDuplicate` skips the four backup prefixes
+  (both scopes), so a copy no longer re-bases and writes up to 80 of the source's backups.
+- **History endpoints** (response shapes shared with `/api/editor/backups`):
+  `GET/POST /api/flow-v2/backups` (session project, `flow` gate; the GET's `?project=` and the
+  POST's body `projectKey` refuse a stale tab with 409 `scope-mismatch`),
+  `GET/POST /api/editor/symbols/backups?project=` and `GET/POST /api/game-config/backups?project=`
+  (each with its route's own gate + `requireProjectScope`). A restore goes through the doc's
+  ordinary save with `'always'`, so it keeps the CAS and backs up what it replaces. The saves also
+  accept `backup: 'always'`, matching the editor's form field.
+- **Verified:** `check:doc-backups` (new, 149 checks) runs the real modules and the four real route
+  handlers over an in-memory R2. It replaces the source-slicing
+  `scripts/verify-editor-doc-backup.mjs`, which sliced the deleted module and asserted the old
+  stale-save orphan. `check:launcher-gates`
+  now also scans the three new routes. Build green; `svelte-check` clean on every touched file
+  (the one hit, `editorStorage.ts` `DOC_VERSION`, is pre-existing — see [editor.md](editor.md)).
+  **Owed:** a two-profile browser test of History → Restore on each tool.
+
 ### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
 - **Stranded symbol spines are reported** (`SymbolExportIndex.spinesMissing`, twin of
   `EditorArtIndex.spinesMissing`) — bake warning, publish log, boot warning. Detail in

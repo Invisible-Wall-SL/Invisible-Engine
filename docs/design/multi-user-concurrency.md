@@ -252,7 +252,7 @@ The correctness floor. Contained because of the linchpin above.
 > creates with `If-None-Match`. The `rigger/new` and
 > `rigger/upload` creates claim the `.irig` with `If-None-Match` before writing the page or atlas.
 > Every overwrite is preceded by a rolling backup (`riggerIrig.ts`, 20 per rig, restorable from
-> the rig's 🕘 History — the `editorDocBackups.ts` design). The studio-wide rig LIBRARY save
+> the rig's 🕘 History — the `docBackups.ts` design). The studio-wide rig LIBRARY save
 > (`/api/rigger/rigs/save`) creates only (`baseEtag: null`); a taken name answers `409 exists`
 > with the entry's etag, and the confirmed retry is `If-Match` on exactly that entry. Still
 > unconditional: the animation-library save (`/api/rigger/animations/save`). Offline proof:

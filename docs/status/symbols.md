@@ -639,6 +639,13 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
 
 ## Recent changes
 
+- 2026-09-29 — **Version history.** Each save of `symbols.json` backs up the version it replaces
+  (`symbols/backups/`, newest 20, 5-min coalescing; a force save or restore always backs up; no
+  backup on a save that will 409) — shared server helper in [launcher.md](launcher.md) 2026-09-29.
+  The header **History…** button opens `$lib/DocHistoryModal.svelte`; restore POSTs
+  `/api/editor/symbols/backups?project=` with this tab's ETag (a stale tab gets a 409), goes
+  through `saveSymbolsDoc` (normalised), then reloads. The symbols gate moved to
+  `lib/server/symbolsAccess.ts` so both routes share it. Covered by `check:doc-backups`.
 - 2026-09-28 — **A symbol spine that resolves to nothing is now reported instead of shipping as
   nothing.** `symbolExport.ts` returned in silence when `exportSpineBundle` found no bundle, so a
   cell, `highlight`, `boardGlow`, `anticipation.spineKey` or rig layer bound to a renamed/deleted
