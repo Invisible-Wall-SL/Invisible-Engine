@@ -297,10 +297,10 @@ function formatTimings(timings: Record<string, number>): string {
  * two never diverge.
  *
  * NOTE this is EXPENSIVE — seven exporters that list, re-serialize and write back to R2
- * (17-19s in production for a real project). Game boots must go through
- * `runtimeBundleCache.getRuntimeBundle`, which single-flights and briefly caches it;
- * calling this directly per-request is what made `/api/editor/runtime` 502 intermittently
- * and silently drop games onto stale baked data.
+ * (~20-26s in production for a real project) — and it rewrites `deploy/` in place. So it only
+ * ever runs under `runtimeBundleCache.withDeployWrite`: authoring boots reach it through
+ * `getRuntimeBundle` (single-flight + short cache), Publish directly, to freeze the result as the
+ * snapshot players boot (`publishedRuntime.ts`).
  *
  * @param projectKey  the BARE launcher project key (the client is DB-resolved),
  *                    matching `/api/editor/doc` — NOT `<client>/<project>`.
@@ -507,15 +507,14 @@ async function assembleRuntimeBundle(
 
 /**
  * Run the art / fonts / symbols exporters FRESH so the project's R2 `deploy/` tree
- * mirrors the current doc, and return their indices. Shared by {@link buildRuntimeBundle}
- * (the live runtime boot) and the server-side Publish (`publishGame.ts`) so a publish
- * and a live fetch see the SAME exported assets — there is exactly one export path.
+ * mirrors the current doc, and return their indices. Only {@link buildRuntimeBundle} calls it,
+ * for both the live authoring boot and Publish, so there is exactly one export path.
  *
  * @param clientKey  optional; DB-resolved from the project when omitted.
  * @param timings    optional per-step collector (see `buildRuntimeBundle`); Publish passes
  *                   nothing and just gets the exports.
  */
-export async function ensureDeployExports(
+async function ensureDeployExports(
 	projectKey: string,
 	clientKey?: string,
 	timings: Record<string, number> = {},

@@ -348,9 +348,17 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > start command is set in the Railway dashboard to `node build/index.js`, the wrapper is bypassed**
 > and the variable is the only way to raise it.
 - Key layout:
+  - `test_server/games.json` + `test_server/<key>/…` — the test server's manifest and each desktop-built game's own bundle
+  - `test_server/_runtime/lines@<version>/…` — one immutable online-engine release each; `test_server/_runtime/lines/current.json` is the pointer the test server serves (`releases.json` = history, `release.json` = the launcher's status stamp). Written only by the **Runtime release** Action, flipped by the **Runtime rollback** Action; see "Runtime releases" in [design/games-deploy](design/games-deploy.md). `games.invisiblewall.org/healthz` shows the served version; every runtime response carries `X-Runtime-Release`.
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — spine assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
+  - `<client>/<project>/published/` — **published runtime snapshots** (online Game Maker, 2026-09-29):
+    `pointer.json` (the version players boot + ≤5 retained, CAS-written) and one `<id>/` per version
+    holding `runtime.json` + a frozen copy of `deploy/`. Written only by Publish / rollback; players
+    read it through `/api/editor/runtime` and `/api/published/f/<token>/<project>/<id>/…` (served
+    `immutable` — a republish is a new id, so a rotated read token's old asset URLs can stay in edge
+    caches; they are public game assets). Design: `docs/design/live-assets.md` § Published snapshots.
 
 ## Environment variables (names only)
 

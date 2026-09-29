@@ -4,6 +4,7 @@ import { exportEffects } from '$lib/server/effectExport';
 import { exportRigFx } from '$lib/server/rigFxExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -32,10 +33,9 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const [index, rigFx] = await Promise.all([
-			exportEffects(clientKey, projectKey),
-			exportRigFx(clientKey, projectKey),
-		]);
+		const [index, rigFx] = await withDeployWrite(projectKey, () =>
+			Promise.all([exportEffects(clientKey, projectKey), exportRigFx(clientKey, projectKey)]),
+		);
 		return json({ clientKey, projectKey, ...index, rigFx });
 	} catch (e) {
 		console.error('export-effects failed:', e);

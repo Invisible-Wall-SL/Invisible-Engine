@@ -61,7 +61,6 @@ import {
 	play4FunToEngine,
 	resolveActiveMapping,
 	pickMappingForConfig,
-	bookMapping,
 	type GameMapping,
 } from './gameMappings';
 
@@ -155,8 +154,8 @@ const captureConfig = (
 	if (detected) activeMapping = detected;
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
-	// The bet-option table, when the server declares one. Null leaves every bet path on the legacy
-	// encoding, which is what both mocks (and every server before this one) need.
+	// The bet-option table, when the server declares one. Null leaves every bet on the legacy lines
+	// encoding, which is what the lines-family mock (and every server before the 2-complex node) needs.
 	const options = readServerBetOptions(cfg);
 	if (options) {
 		capturedBetOptions.set(sid, options);
@@ -184,23 +183,20 @@ const publishServerBetOptions = (options: ServerBetOptions): void => {
 /** The server's bet-option table for a session, or null on a server that declares none. */
 const betOptionsFor = (sid: string): ServerBetOptions | null => capturedBetOptions.get(sid) ?? null;
 
-/** Modes already reported as unexpressible, keyed `sid:MODE`, so one bet per spin doesn't spam. */
-const warnedModes = new Set<string>();
-
 /**
- * The game asked for a bet mode the server's option table cannot name, so this bet fell back to the
- * legacy encoding. Loud because the two disagree about what the game IS: Book of Borut offers three
- * buy cards against a `["0:base","1:buybonus"]` table, and only the math can settle which is right.
+ * The answer to a bet in a mode the server's option table cannot name: refused HERE, before anything
+ * is sent, so no request reaches the wallet.
+ *
+ * There is no second encoding to fall back to. `context[0]` is an option index to a server with a
+ * table, so any other number is either refused by it or — worse — read as a DIFFERENT option and
+ * charged that option's price. Book of Borut offers three buy cards against a `["0:base","1:buybonus"]`
+ * table, and only the math can settle which is right. Unreachable from a game whose menu is built from
+ * the table (`betModeMeta.ts`), since every key that menu offers resolves by construction; this is
+ * for a menu that was not.
  */
-const warnUnexpressibleMode = (sid: string, mode: string): void => {
-	const key = `${sid}:${mode.toUpperCase()}`;
-	if (warnedModes.has(key)) return;
-	warnedModes.add(key);
-	console.warn(
-		`[engine-facade] bet mode "${mode}" has no matching server bet option — sent the legacy bet ` +
-			`encoding for it. The server's table cannot price this mode; either the math needs an ` +
-			`option for it or the game should not offer it.`,
-	);
+const refuseUnexpressibleMode = (mode: string) => {
+	const text = `bet mode "${mode}" is not one of the server's bet options, so it was not placed`;
+	return { status: { statusCode: 'ERR_GE', statusMessage: text }, error: text, message: text };
 };
 
 /**
@@ -318,38 +314,15 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 	// Only surface the cross-check when something is actually WRONG. A healthy config
 	// previously dumped a full multi-line report (grid/paylines/wilds) to the console
 	// EVERY session — pure noise in a shipped game. Stay silent when all checks pass.
-	// The server's own buy/ante prices vs the ones the game's config authored. The buy CARD shows
-	// `betAmount × costMultiplier` from the authored config while the CHARGE is now the server's
-	// `betOptions[x] × M`, so a disagreement is a card advertising a price the wallet will not take.
-	// Reported rather than corrected: the math is the server's, but which of the two is wrong is a
-	// decision for whoever authored the config.
-	const priceDrift: string[] = [];
-	const options = betOptionsFor(sid);
-	const authoredCosts = (globalThis as { __IE_BET_MODES__?: Record<string, number> })
-		.__IE_BET_MODES__;
-	if (options && authoredCosts) {
-		const serverRatios = betOptionCostRatios(options);
-		for (const [mode, authored] of Object.entries(authoredCosts)) {
-			const key = mode.replace(/[^a-z0-9]/gi, '').toLowerCase();
-			const fromServer = serverRatios[key];
-			if (fromServer === undefined) {
-				// A paid mode the math never declared. The commoner failure by far, and the one that
-				// cannot be fixed by picking a side: the server simply cannot price this card.
-				if (authored > 1) priceDrift.push(`  ${mode}: ${authored}× card, no server bet option`);
-			} else if (Math.abs(fromServer - authored) > 0.001) {
-				priceDrift.push(`  ${mode}: config says ${authored}×, server charges ${fromServer}×`);
-			}
-		}
-	}
-
-	if (!unmapped.length && !orphaned.length && !priceDrift.length) return;
+	// Bet-mode PRICES are not compared here: this normally runs at authenticate, before the game has
+	// built its menu, so it has no authored prices. `betModeMeta.ts` reports that drift instead.
+	if (!unmapped.length && !orphaned.length) return;
 
 	const lines: string[] = [`[engine-facade] config cross-check for sid=${sid}`];
 	if (unmapped.length)
 		lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
 	if (orphaned.length)
 		lines.push(`  mapping entries the server never declared: ${orphaned.join(', ')}`);
-	if (priceDrift.length) lines.push('  bet-mode price drift (card vs charge):', ...priceDrift);
 
 	console.warn(lines.join('\n'));
 };
@@ -411,10 +384,6 @@ const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
  *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
 const BOOK_AMOUNT_MULTIPLIER = 100;
 
-/** Book-of games declare 10 paylines; the Play4Fun bet total = betPerLine ×
- *  this. Used to derive betPerLine from the engine bet amount. */
-const BOOK_NUM_LINES = 10;
-
 /** The resolved win tiers the ENGINE published from the active game config
  *  (`engine-game`'s `gameConfig.ts` → `publishWinLevelsToFacade`, re-exported by
  *  each game's own `game/gameConfig.ts`). Only
@@ -426,26 +395,6 @@ type FacadeWinTier = { level: number; threshold: number; type: 'small' | 'medium
 const authoredWinTiers = (): FacadeWinTier[] | undefined => {
 	const tiers = (globalThis as { __IE_WIN_LEVELS__?: FacadeWinTier[] }).__IE_WIN_LEVELS__;
 	return Array.isArray(tiers) && tiers.length ? tiers : undefined;
-};
-
-/**
- * The buy COST MULTIPLIER for a bet mode, from the map the ENGINE published from the active game
- * config (`apps/lines/src/game/betModeMeta.ts` → `syncBetModeMeta` → `globalThis.__IE_BET_MODES__`),
- * keyed by the UPPERCASE wire `mode`. Same decoupled-global bridge as `__IE_WIN_LEVELS__` — the facade
- * is a drop-in for `rgs-requests` and can't import the app.
- *
- * The buy card DISPLAYS `betAmount × costMultiplier` as its price (`registerBuyFeature`), so the CHARGE
- * must use the SAME multiplier or every buy debits a fixed premium regardless of the card tapped. The
- * facade therefore sends this per-mode multiplier in the buy bet context instead of a plain 0/1 flag.
- *
- * Defaults to 1 (a normal spin's cost) when the map is unset or the mode is unknown — unreachable for a
- * real buy, because the buy MENU is built from the SAME `syncBetModeMeta`, so a card can only be tapped
- * once its cost has been published (parity: an un-bridged game never buys).
- */
-const betModeCostMultiplier = (mode: string): number => {
-	const map = (globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__;
-	const cost = map?.[mode.toUpperCase()];
-	return typeof cost === 'number' && cost > 0 ? cost : 1;
 };
 
 /** Map a win (cents) + bet (cents) to an engine winLevel. When the project has
@@ -1125,8 +1074,9 @@ export const requestAuthenticate = async (options: {
 		// Synthesised config so the bet UI boots. Levels in engine API units.
 		config: {
 			betLevels: ladder?.betLevels ?? [
-				// PLACEHOLDER ladder — the client inventing limits the RGS never agreed to. Only
-				// reachable against a server that declares no `betOptions` (both our mocks).
+				// PLACEHOLDER ladder — the client inventing limits the RGS never agreed to. Reached
+				// against a server that declares no `betOptions` (the lines-family mock), and against
+				// one that does when no operator embed page declares `betMultipliers` (the book mock).
 				100_000, // $0.10
 				200_000, // $0.20
 				500_000, // $0.50
@@ -1151,7 +1101,7 @@ export const requestAuthenticate = async (options: {
 				disabledSpacebar: false,
 				// A table of ONE option declares there is nothing to buy. No table at all declares
 				// nothing, so the game's own authored menu stands — which is what every server before
-				// the 2-complex node, both our mocks included, has always had.
+				// the 2-complex node, the lines-family mock included, has always had.
 				disabledBuyFeature: serverOptions?.betOptions.length === 1,
 				displayNetPosition: false,
 				displayRTP: false,
@@ -1315,37 +1265,26 @@ export const requestBet = async (options: {
 	mode: string;
 	rgsUrl: string;
 }) => {
+	// CONFIG-DRIVEN encoding, when the server declared a bet-option table: `context[0]` selects the
+	// option (0 base · 1 ante · 2 buy, per `betOptionsName` — the order is NOT a contract) and
+	// `context[1]` is the multiplier M. The server charges `betOptions[x] × M`, so the option index
+	// carries the buy premium and M stays the BASE multiplier. A mode the table cannot name is refused
+	// here, before the round starts or anything is sent.
+	//
+	// Without a table, the legacy lines encoding `[lineCount, betPerLine]`. The two stay apart because
+	// `context[0]` means something different in each — an option index, a line count — and a line
+	// count read as an option index is a garbage enum: the exact failure the partner's third game
+	// (where `x` IS the line count) shows can go both ways.
+	const serverOptions = betOptionsFor(options.sessionID);
+	const optionIndex = serverOptions ? betOptionIndexFor(options.mode, serverOptions) : null;
+	if (serverOptions && optionIndex === null) return refuseUnexpressibleMode(options.mode);
+
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	session.startRound();
 
 	// User-display dollars → Play4Fun cents.
 	const play4FunAmount = Math.max(1, Math.round(options.amount * 100));
-	// A non-BASE bet mode means "buy the feature". Book-of games encode the bet
-	// as [buyCost, betPerLine], where buyCost is the SELECTED mode's cost multiplier
-	// (0 = normal spin) so the debit matches that card's displayed price instead of a
-	// fixed premium; the lines/Hot-Fruits path keeps the legacy [5, betPerLine] encoding.
-	const isBuy = !!options.mode && options.mode.toUpperCase() !== 'BASE';
-	const buyCost = isBuy ? betModeCostMultiplier(options.mode) : 0;
-
-	// CONFIG-DRIVEN encoding, when the server declared a bet-option table: `context[0]` selects the
-	// option (0 base · 1 ante · 2 buy, per `betOptionsName` — the order is NOT a contract) and
-	// `context[1]` is the multiplier M. The server charges `betOptions[x] × M`, so the option index
-	// carries the buy premium and M stays the BASE multiplier.
-	//
-	// It is a separate branch rather than a rewrite of the two below because `context[0]` means
-	// something different in each: a cost multiplier for the book mock, a line count for the legacy
-	// lines encoding. Reusing either would send a garbage option index to a server that reads it as
-	// an enum — the exact failure the partner's third game (where `x` IS the line count) shows can
-	// go both ways.
-	const serverOptions = betOptionsFor(options.sessionID);
-	const optionIndex = serverOptions ? betOptionIndexFor(options.mode, serverOptions) : null;
-	if (serverOptions && optionIndex === null) warnUnexpressibleMode(options.sessionID, options.mode);
-
-	// Which of the three encodings below this bet used. Only the last one puts a LINE COUNT in
-	// `context[0]`, which is what makes the stake `[0] × [1]` and the rounding warning meaningful.
-	const legacyLinesEncoding =
-		!(serverOptions && optionIndex !== null) && activeMapping !== bookMapping;
 
 	const betBody: ReturnType<typeof buildBetActions> =
 		serverOptions && optionIndex !== null
@@ -1356,21 +1295,13 @@ export const requestBet = async (options: {
 					},
 					{ action: 'play', context: '' },
 				]
-			: activeMapping === bookMapping
-				? [
-						{
-							action: 'bet',
-							context: [buyCost, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))],
-						},
-						{ action: 'play', context: '' },
-					]
-				: buildBetActions({
-						amount: play4FunAmount,
-						mode: options.mode,
-						currency: options.currency,
-						betLinesOrConfig: betLineCount(options.sessionID),
-						playContext: '',
-					});
+			: buildBetActions({
+					amount: play4FunAmount,
+					mode: options.mode,
+					currency: options.currency,
+					betLinesOrConfig: betLineCount(options.sessionID),
+					playContext: '',
+				});
 
 	// `betPerLine` is integer cents, so `a × betPerLine` cannot always hit the requested amount — a
 	// $0.10 bet across 20 lines wants half a cent per line and floors at one, charging $0.20. The
@@ -1378,7 +1309,7 @@ export const requestBet = async (options: {
 	// normalised against it), so this is a bet-LADDER problem, not a scaling one: our synthesised
 	// betLevels are Stake-shaped and a real Play4Fun game quotes levels that divide by its line count.
 	// Surface it once rather than let a level quietly cost more than it says.
-	if (legacyLinesEncoding) warnOnStakeRounding(options.sessionID, betBody, play4FunAmount);
+	if (!serverOptions) warnOnStakeRounding(options.sessionID, betBody, play4FunAmount);
 
 	const first = await fetcher.post({ body: betBody });
 

@@ -19,8 +19,9 @@
  * the wire context all agree, and it is the thing to re-confirm with the partner before shipping —
  * a per-line-vs-total misread yields a game that plays correctly with every number wrong.
  *
- * ALL OF IT IS OPTIONAL. A server that declares no `betOptions` (both our mocks) leaves every
- * consumer on the pre-existing path, so this is inert until a real server switches it on.
+ * ALL OF IT IS OPTIONAL. A server that declares no `betOptions` (the lines-family mock, every server
+ * before the 2-complex node) leaves every consumer on the pre-existing path. The book mock declares a
+ * table, as the partner's Book-of games do.
  */
 
 import { readHostGameSettings } from 'delivery-profile';
@@ -55,7 +56,7 @@ const positiveNumbers = (value: unknown): number[] | null => {
 
 /**
  * Read the bet-option table out of a boot `config` context. Returns null unless the server declared
- * a usable one — the gate that keeps every legacy server (and both our mocks) on the old path.
+ * a usable one — the gate that keeps every legacy server (and the lines-family mock) on the old path.
  */
 export const readServerBetOptions = (config: unknown): ServerBetOptions | null => {
 	if (typeof config !== 'object' || config === null) return null;
@@ -144,7 +145,7 @@ const normaliseMode = (mode: string): string => mode.replace(/[^a-z0-9]/gi, '').
  * options: Book of Borut offers three buy cards (25× / 50× / 100×) against a table of
  * `["0:base","1:buybonus"]`. Guessing — "a buy is the dearest option" — would charge all three the
  * same 100×, which looks like a working game and silently overcharges two of its cards. So an
- * unresolvable mode refuses, the caller keeps the legacy encoding, and the cross-check says so.
+ * unresolvable mode refuses, and `requestBet` refuses the bet with it — nothing is sent.
  */
 export const betOptionIndexFor = (mode: string, options: ServerBetOptions): number | null => {
 	const key = normaliseMode(mode || 'base');
@@ -200,7 +201,7 @@ export const serverBetOptionEntries = (options: ServerBetOptions): ServerBetOpti
 };
 
 /** Each option's cost as a multiple of the base option — the number the buy card DISPLAYS as its
- *  price. Lets a mismatch against the engine's authored `costMultiplier` be reported. */
+ *  price — keyed by the option's name, for the engine's `betModes`. */
 export const betOptionCostRatios = (options: ServerBetOptions): Record<string, number> => {
 	const baseCost = options.betOptions[0];
 	const out: Record<string, number> = {};

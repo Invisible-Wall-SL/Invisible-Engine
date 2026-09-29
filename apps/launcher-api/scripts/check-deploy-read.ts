@@ -82,6 +82,11 @@ mock.module(src('lib/server/r2.ts'), {
 mock.module(src('lib/server/runtimeBundleCache.ts'), {
 	namedExports: { getRuntimeBundle: async () => ({}) },
 });
+// No published snapshot: the round trip below is the live `deploy/` path (a snapshot's `assetBase`
+// is `/api/published/f/…`, served by its own route).
+mock.module(src('lib/server/publishedRuntime.ts'), {
+	namedExports: { currentPointer: async () => null, readSnapshotBundle: async () => null },
+});
 
 const deployRoute = await import(
 	src('routes/api/deploy/f/[token]/[client]/[project]/[...rel]/+server.ts')
@@ -228,7 +233,7 @@ const ORIGIN = 'https://app.invisiblewall.org';
 
 async function assetBase(project: string, token: string): Promise<string> {
 	const url = new URL(`${ORIGIN}/api/editor/runtime?project=${project}&k=${token}`);
-	const res: Response = await runtimeRoute.GET({ url } as never);
+	const res: Response = await runtimeRoute.GET({ url, request: new Request(url) } as never);
 	return ((await res.json()) as { assetBase: string }).assetBase;
 }
 

@@ -47,6 +47,8 @@ export const SUB = {
 	atlas: (c: string, p: string) => `${projectPrefix(c, p)}/atlas`,
 	sheets: (c: string, p: string) => `${projectPrefix(c, p)}/sheets`,
 	deploy: (c: string, p: string) => `${projectPrefix(c, p)}/deploy`,
+	// Immutable published runtime snapshots (runtime.json + a frozen deploy/ copy) + their pointer.
+	published: (c: string, p: string) => `${projectPrefix(c, p)}/published`,
 	spines: (c: string, p: string) => `${projectPrefix(c, p)}/spines`,
 	localization: (c: string, p: string) => `${projectPrefix(c, p)}/localization`,
 	editor: (c: string, p: string) => `${projectPrefix(c, p)}/editor`,

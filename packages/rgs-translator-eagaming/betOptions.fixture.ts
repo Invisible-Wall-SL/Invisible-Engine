@@ -8,16 +8,16 @@
  *
  * SIX claims:
  *
- *  1. A SERVER THAT DECLARES NOTHING LEAVES EVERYTHING ALONE. This is the parity gate: both our
- *     mocks and every server before this one send no `betOptions`, and must keep the legacy bet
- *     encoding and the coded placeholder ladder.
+ *  1. A SERVER THAT DECLARES NOTHING LEAVES EVERYTHING ALONE. This is the parity gate: the
+ *     lines-family mock and every server before the 2-complex node send no `betOptions`, and must
+ *     keep the legacy lines encoding and the coded placeholder ladder.
  *  2. THE LADDER IS `betOptions[0] × M` OVER THE OPERATOR'S MULTIPLIERS. The BASE option is what a
  *     rung means — a buy is the same M priced through a different option, not a separate rung.
  *  3. THE OPTION INDEX IS MATCHED BY NAME, NOT POSITION — AND REFUSES RATHER THAN GUESSES. The
  *     partner's own games disagree on order (base/buy in one, base/ante/buy in another), and a game
  *     can have more paid modes than the math has options: Borut's three buy cards against a
  *     `["0:base","1:buybonus"]` table. Guessing "the dearest option" would overcharge two of them
- *     while looking perfectly healthy, so an unresolvable mode falls back to the legacy encoding.
+ *     while looking perfectly healthy, so an unresolvable mode is refused and its bet never sent.
  *  4. M IS MEASURED AGAINST THE BASE OPTION. The engine sends the BASE bet amount and lets the
  *     option index carry the premium, so a buy must not also inflate M or the player pays twice.
  *  5. THE COST RATIOS ARE THE BUY CARD'S PRICE. `betOptions[1]/betOptions[0]` is exactly the

@@ -204,7 +204,14 @@
 	// True only when a source-compare actually ran AND found un-released engine changes. `pending`
 	// is `undefined` when the compare was skipped (no token / GitHub hiccup) — that must never read
 	// as "pending" NOR as "up to date"; we simply keep today's deployed appearance in that case.
-	const isPending = $derived(engine.status === 'deployed' && engine.pending === true);
+	// After a rollback or a failed release, main being ahead is EXPECTED and "merge already
+	// auto-releases" is not the story — those states say what happened instead of "pending".
+	const releaseNote = $derived(
+		engine.lastFailure ? 'last release failed' : engine.via === 'rollback' ? 'rolled back' : '',
+	);
+	const isPending = $derived(
+		engine.status === 'deployed' && engine.pending === true && !releaseNote,
+	);
 	const first7 = (sha: string | undefined) => (sha ? sha.slice(0, 7) : '');
 
 	// CSS class drives the palette: a distinct non-pulsing amber for `pending` (vs the pulsing amber
@@ -222,7 +229,10 @@
 			// Only claim "up to date" when a compare actually ran (pending === false). If the compare
 			// was skipped (undefined), keep exactly today's label — don't imply we checked.
 			const upToDate = engine.pending === false ? ' · up to date' : '';
-			return ['Engine deployed', engine.shortCommit, rel].filter(Boolean).join(' · ') + upToDate;
+			return (
+				['Engine deployed', engine.shortCommit, rel, releaseNote].filter(Boolean).join(' · ') +
+				upToDate
+			);
 		}
 		return 'Engine status unknown';
 	});
@@ -245,6 +255,18 @@
 			if (engine.commit && engine.commit !== 'unknown') parts.push(`commit ${engine.commit}`);
 			const abs = absoluteTime(engine.builtAt);
 			if (abs) parts.push(`built ${abs}`);
+			if (engine.via) parts.push(`made live by a ${engine.via}, not a release`);
+			if (engine.lastFailure) {
+				const at = absoluteTime(engine.lastFailure.at);
+				const what = `the release of ${engine.lastFailure.shortCommit}${at ? ` (${at})` : ''}`;
+				parts.push(
+					engine.lastFailure.stage === 'unverified'
+						? `${what} was made live but never confirmed served — check a game`
+						: `${what} failed — the games stayed on the commit above`,
+				);
+			}
+			if (engine.pending && engine.mainCommit)
+				parts.push(`main is at ${first7(engine.mainCommit)}; the next engine merge releases it`);
 			return parts.length ? parts.join('\n') : 'Live engine runtime bundle.';
 		}
 		return 'No engine release stamp found for the live runtime bundle.';

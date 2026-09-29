@@ -1625,9 +1625,9 @@ const RUNTIME_RETRY_MAX_DELAY_MS = 15_000;
  * fix" holds only while the endpoint is fast and flaky; when it is reliably SLOW, the cap has to
  * clear it or nothing else matters.
  *
- * These numbers are a SYMPTOM of exporting on the read path, not a setting worth tuning. Bring them
- * back down the moment `/api/editor/runtime` stops re-running the exporters (game-maker open item
- * 6) — a 150s cap is not a target, it is the cost of that bug made visible.
+ * These numbers are a SYMPTOM of exporting on the read path, not a setting worth tuning. Since
+ * published snapshots, only AUTHORING boots (`ie_authoring=1`) still pay that live assemble, so only
+ * they use this cap — players get {@link PLAYER_ATTEMPT_TIMEOUT_MS}.
  */
 const RUNTIME_ATTEMPT_TIMEOUT_MS = 150_000;
 
@@ -1659,8 +1659,23 @@ const RUNTIME_SLOW_ATTEMPT_RATIO = 0.6;
 const RUNTIME_FETCH_BUDGET_MS = 210_000;
 
 /**
- * GET the runtime bundle, retrying a FAILED response (5xx / network error) until
- * {@link RUNTIME_FETCH_BUDGET_MS} is spent, before giving up and letting the caller fall back.
+ * The same two limits for a PLAYER boot (no `ie_authoring=1`). A player's `/api/editor/runtime` is
+ * served from the published snapshot — two cached R2 reads, no exporters — so it answers in well
+ * under a second, and the 150s/210s above (sized for the live assemble an AUTHORING boot still
+ * pays) would only turn a real outage into a three-minute spinner.
+ *
+ * The attempt cap still clears one live assemble (~20-26s), because a game published before
+ * snapshots existed is served live until it is republished. The budget is sized for the failure the
+ * backoff exists for — a launcher container swap, measured at ~104s on `13571da2` — not for a slow
+ * answer, which a snapshot no longer produces.
+ */
+const PLAYER_ATTEMPT_TIMEOUT_MS = 45_000;
+const PLAYER_FETCH_BUDGET_MS = 120_000;
+
+/**
+ * GET the runtime bundle, retrying a FAILED response (5xx / network error) until the budget in
+ * `limits` is spent (authoring: {@link RUNTIME_FETCH_BUDGET_MS}; player: {@link PLAYER_FETCH_BUDGET_MS}),
+ * before giving up and letting the caller stop the boot.
  *
  * Retrying is worth it for two independent reasons:
  *
@@ -1677,8 +1692,11 @@ const RUNTIME_FETCH_BUDGET_MS = 210_000;
  * A 4xx is NOT retried: a bad/expired `?k=` token will fail identically every time, and
  * retrying only delays the (correct, loud) console error.
  */
-async function fetchRuntimeWithRetry(url: string): Promise<Response> {
-	const deadline = Date.now() + RUNTIME_FETCH_BUDGET_MS;
+async function fetchRuntimeWithRetry(
+	url: string,
+	limits: { attemptMs: number; budgetMs: number },
+): Promise<Response> {
+	const deadline = Date.now() + limits.budgetMs;
 	for (let attempt = 0; ; attempt++) {
 		let failure: string;
 		// Kept so the give-up path can surface the REAL cause rather than a synthesized one.
@@ -1686,7 +1704,7 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 		let failedError: unknown;
 		// Clamp to the budget REMAINING so a late attempt can't run past the deadline. Never
 		// below 1s — a sliver of budget should fail fast, not fire a request doomed to abort.
-		const attemptCap = Math.max(1_000, Math.min(RUNTIME_ATTEMPT_TIMEOUT_MS, deadline - Date.now()));
+		const attemptCap = Math.max(1_000, Math.min(limits.attemptMs, deadline - Date.now()));
 		const startedAt = Date.now();
 		try {
 			const res = await fetch(url, { signal: AbortSignal.timeout(attemptCap) });
@@ -1717,7 +1735,7 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 		if (Date.now() + delay >= deadline) {
 			if (failedResponse) return failedResponse;
 			throw new Error(
-				`live data fetch gave up after ${RUNTIME_FETCH_BUDGET_MS}ms and ${attempt + 1} ` +
+				`live data fetch gave up after ${limits.budgetMs}ms and ${attempt + 1} ` +
 					`attempts — last: ${failure}`,
 				{ cause: failedError },
 			);
@@ -1767,10 +1785,11 @@ function staleBanner(reason: string): HTMLElement {
 }
 
 /**
- * The DEAD END: nothing authored is behind this at all — only {@link fallbackEditorScenes} and
+ * The DEAD END: nothing authored is available at all. On a `?runtime=1` boot {@link haltBoot}
+ * shows this INSTEAD of mounting the game; elsewhere it covers {@link fallbackEditorScenes} and
  * the compiled-in `config.ts`, i.e. the engine's sample game wearing sample art.
  *
- * Shown to EVERYONE, players included, and it COVERS the canvas, because what is underneath is
+ * Shown to EVERYONE, players included, and it COVERS the canvas, because anything underneath is
  * not a degraded version of the project — it is a different game. Rendering that silently is what
  * made a routine launcher restart read as "the runtime release deleted all my art and config",
  * and it survived several debugging sessions because the game looks perfectly healthy.
@@ -1794,8 +1813,8 @@ function deadEndOverlay(reason: string, authoring: boolean): HTMLElement {
 
 	const body = document.createElement('div');
 	body.textContent =
-		'It could not reach the server holding its artwork and settings, so what you can see is ' +
-		'not the real game. This is usually temporary — please reload in a moment.';
+		'It could not reach the server holding its artwork and settings. This is usually ' +
+		'temporary — please reload in a moment.';
 	body.setAttribute('style', 'max-width:440px;opacity:.85');
 
 	const reload = document.createElement('button');
@@ -1859,12 +1878,15 @@ function markRuntimeStale(reason: string, deadEnd = false): void {
 }
 
 /**
- * Fetch the live runtime bundle (Invisible Game Maker, Phase 0) ONCE, before
- * `createApp` registers assets, and stash it module-level so every `baked*` function
- * above reads from it. OPT-IN: a no-op unless `?runtime=1` is in the game URL. On any
- * failure (no `k`, non-200, bad shape) it leaves `runtimeBundle` null and returns
- * false, so boot transparently falls back to the live `/api/editor/doc` path (and
- * ultimately {@link fallbackEditorScenes}) — never a black screen.
+ * Fetch the runtime bundle (Invisible Game Maker) ONCE, before `createApp` registers assets,
+ * and stash it module-level so every `baked*` function above reads from it. OPT-IN: a no-op
+ * unless `?runtime=1` is in the game URL. A player boot gets the published snapshot, an
+ * authoring boot (`ie_authoring=1`) the live assemble — the endpoint decides from `authoring=1`.
+ *
+ * On failure there is nothing of THIS game to fall back to — the shared runtime ships no baked
+ * doc, so the alternative is the engine's own sample game wearing sample art. So the boot STOPS
+ * on an error screen instead ({@link haltBoot}); only a standalone build, whose baked doc is the
+ * project's own authored snapshot, carries on with it.
  *
  * Call + AWAIT this from `+layout.ts`'s client `load()`, which SvelteKit resolves
  * before the page component (and therefore `AssetsLoader`) mounts, so the runtime
@@ -1872,6 +1894,30 @@ function markRuntimeStale(reason: string, deadEnd = false): void {
  */
 export async function prepareRuntimeBundle(): Promise<boolean> {
 	if (!runtimeModeEnabled()) return false;
+	if (await fetchRuntimeBundle()) return true;
+	if (hasBakedDoc()) return false;
+	return haltBoot(runtimeFetchFailure ?? 'the runtime bundle could not be loaded');
+}
+
+/**
+ * End a `?runtime=1` boot that has no data of its own on the "could not load" screen, and never
+ * resolve — SvelteKit keeps the page unmounted while `load()` is pending, so neither the engine's
+ * sample layout nor its compiled config (and its mock spins) ever start behind the overlay.
+ *
+ * Before this, the boot fell through to `/api/editor/doc` and then {@link fallbackEditorScenes}:
+ * the overlay covered a DIFFERENT game that was nevertheless running, reached only after the full
+ * retry budget.
+ */
+function haltBoot(reason: string): Promise<never> {
+	console.error(
+		`[runtime] boot stopped — ${reason}. Showing the error screen, not the sample game.`,
+	);
+	markRuntimeStale(reason, true);
+	window.__ieBoot?.done();
+	return new Promise<never>(() => {});
+}
+
+async function fetchRuntimeBundle(): Promise<boolean> {
 	try {
 		const params = new URLSearchParams(window.location.search);
 		const base = params.get('editorDocBase') || DEFAULT_DOC_BASE;
@@ -1886,14 +1932,19 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		// can see machine output in the running game before vetting it. A published player
 		// URL never carries `ie_authoring=1`, so players — and the build-time bake — keep
 		// getting reviewed text only.
-		const authoring = params.get(AUTHORING_PARAM) === '1' ? '&authoring=1' : '';
+		const authoring = params.get(AUTHORING_PARAM) === '1';
 		const url =
 			`${base}/api/editor/runtime?project=${encodeURIComponent(project)}` +
-			`&k=${encodeURIComponent(token)}${authoring}`;
+			`&k=${encodeURIComponent(token)}${authoring ? '&authoring=1' : ''}`;
 		// The boot splash (app.html) is already painting; name the phase the player is
 		// waiting on — this fetch is the long cross-origin call that used to be a black screen.
 		window.__ieBoot?.phase('Fetching from R2…');
-		const res = await fetchRuntimeWithRetry(url);
+		const res = await fetchRuntimeWithRetry(
+			url,
+			authoring
+				? { attemptMs: RUNTIME_ATTEMPT_TIMEOUT_MS, budgetMs: RUNTIME_FETCH_BUDGET_MS }
+				: { attemptMs: PLAYER_ATTEMPT_TIMEOUT_MS, budgetMs: PLAYER_FETCH_BUDGET_MS },
+		);
 		if (!res.ok) {
 			console.error(
 				`[runtime] LIVE DATA FETCH FAILED — ${res.status} ${res.statusText}. The game is now ` +
