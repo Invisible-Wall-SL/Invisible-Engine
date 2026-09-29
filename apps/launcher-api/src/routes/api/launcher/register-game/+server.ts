@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
 import { purgeGameCache, type PurgeResult } from '$lib/server/cfPurge';
-import { ENV } from '$lib/server/env';
 import {
 	createGame,
 	getGame,
@@ -16,6 +15,7 @@ import {
 import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { canAccessProject, getOrMintReadToken } from '$lib/server/projects';
 import { pinTestServerGameToProject, type PinOutcome } from '$lib/server/testServerManifest';
+import { postTestServerRefresh } from '$lib/server/testServerRefresh';
 import type { RequestHandler } from './$types';
 
 /**
@@ -86,13 +86,7 @@ async function pinToProject(key: string, projectKey: string, docBase: string): P
 		// would re-hydrate every game's bundle on every publish for no new information.
 		if (status !== 'pinned') return { status };
 		try {
-			// `GAMES_BASE_URL`, matching `publishGame.ts`'s identical poke — NOT `TEST_SERVER_URL`,
-			// which env.ts scopes to the Game Config tool's RGS *probe* and exists precisely so that
-			// probe can be pointed elsewhere. `/refresh` is a control call on the service that SERVES
-			// the games, so the two publishers must aim it at the same host or a split configuration
-			// would refresh one service and read another.
-			const res = await fetch(`${ENV.GAMES_BASE_URL.replace(/\/+$/, '')}/refresh`, {
-				method: 'POST',
+			const res = await postTestServerRefresh({
 				// TIME-BOXED, unlike the otherwise-identical poke in `publishGame.ts`, because the caller
 				// here is the desktop launcher's publish button rather than a browser the user is already
 				// watching: an unreachable test server would otherwise hang that publish for the platform

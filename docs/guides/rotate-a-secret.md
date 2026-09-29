@@ -135,8 +135,8 @@ first row. Pattern: **overlap**.
 - **atlas-tool / sheet-tool:** open each from the launcher and load a project. The Railway deploy
   log should show no R2 errors during the boot hydrate.
 - **Test server:** after its redeploy, `curl -s https://games.invisiblewall.org/healthz` must
-  list the games under `games`. The server starts listening even when its first R2 read fails, and
-  then retries, so `"ok":true` with an empty `games` list is the failure signature.
+  answer 200 with the games under `games` and `lastHydrate.succeeded: true`. A 503 `"ok":false`
+  means its first R2 read failed (it retries in the background).
 - **GitHub:** Actions → **Runtime rollback** → Run workflow with action `list`. It only reads R2.
 
 From a Spanish connection, R2 connect timeouts during football matches are a Cloudflare IP block,
@@ -314,25 +314,26 @@ developer. Do not edit the row yourself.
 
 ### `TEST_SERVER_SECRET`
 
-**Missing from INFRA.md.** Optional: when it is set, the test server's `POST /refresh` demands
-`?secret=`. `.github/workflows/runtime-release.yml` says to add the GitHub secret "only if the test
+Optional: when it is set, the test server's `POST /refresh` demands it, as the
+`x-test-server-secret` header or `?secret=`. `.github/workflows/runtime-release.yml` says to add the GitHub secret "only if the test
 server sets one", and whether production sets it is not recorded anywhere.
 
 **Consumers:**
 
 - the test server (`services/test-server/server.mjs`);
+- the launcher (Railway var of the same name), which sends it as a header on Game Maker
+  Publish's and `register-game`'s refresh (`src/lib/server/testServerRefresh.ts`);
 - the GitHub repo secret, used by `runtime-release.yml` and `runtime-rollback.yml` through
   `apps/launcher-api/scripts/lib/runtime-releases.mjs`;
 - the owner's `publish-game-via-portal.mjs` (`--refresh-secret`, or the env var);
 - possibly the desktop launcher. It lives in the separate `invisible-launcher` repo, so check
   there.
 
-**Known gap.** The launcher's own refresh calls send no secret: step 7 of `publishGame.ts`, and
-`register-game`. With the secret set, a Game Maker Publish still succeeds, but its refresh gets a
-403. The game then goes live only on the test server's next hydrate. Fix that before you turn the
-secret on.
+If the launcher's copy is missing or stale, a Game Maker Publish still succeeds but its refresh
+gets a 403, and the game goes live only on the test server's next hydrate.
 
-**Pattern: single value.** Update the GitHub secret and the Railway var together, while no
+**Pattern: single value.** Update the GitHub secret and both Railway vars (test server and
+launcher) together, while no
 Runtime release or rollback is running. Otherwise that run's live check times out and opens a
 "Runtime release failed" issue.
 

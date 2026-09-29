@@ -37,6 +37,20 @@ The topology is **cloud-stateless Railway services + a shared R2 system-of-recor
 - **ComfyUI-Manager prerequisite** for Blueprints model auto-install — needs ComfyUI-Manager at security level "middle" or below on whichever ComfyUI generates (else 403). The baked R&D pod image already ships it at `middle`; the **local** install is the one still to confirm. See docs/INFRA.md. (The feature itself is **code-complete**, not unbuilt — install queue, poll, reboot, wait-for-back, recheck and a manual checklist, behind `BLUEPRINT_AUTO_INSTALL_MODELS`. What it owes is this prerequisite plus one live run — a real Manager, a catalogued model, a real download + reboot: [atlas-maker](atlas-maker.md) open item 7. The genuinely unbuilt piece is the `r2_key` resolution against the `comfyui-models/` mirror: [comfyui](comfyui.md) open item 9.)
 
 ## Recent changes
+- 2026-09-29 — **Test server: the refresh secret reaches it, and `/healthz` stops lying.**
+  - The launcher now sends `TEST_SERVER_SECRET` (a new launcher env var, as the
+    `x-test-server-secret` header) on Game Maker Publish's and `register-game`'s `/refresh`
+    (`src/lib/server/testServerRefresh.ts`). Before, setting the secret would have 403'd every
+    Publish refresh, silently. The server takes the header or the old `?secret=` (workflows, desktop
+    launcher), compared in constant time.
+  - A manifest read that fails for any reason other than "absent" (R2 unreachable, bad key, corrupt
+    JSON) now THROWS instead of emptying the registry: a refresh during an R2 blip used to take every
+    game offline while reporting healthy, and a boot failure skipped the background retry.
+  - `/healthz` reports `lastHydrate` (`succeeded`, `at`, error name) and answers **503 `"ok":false`**
+    when it serves nothing, so the Better Stack `"ok":true` keyword check catches a failed boot.
+    Verified locally (TEST_SERVER_LOCAL): empty dir → 200; corrupt manifest at boot → 503 + retry; a
+    corrupt manifest on a later refresh → keeps serving, 200 with `succeeded:false`; secret via
+    header/query → 202, missing/wrong → 403.
 - 2026-09-29 — **Operations runbooks + a first-game walkthrough** (docs only), so the platform can be run
   without the lead dev: [build-your-first-game](../guides/build-your-first-game.md),
   [publish-and-deliver](../guides/publish-and-deliver.md), [release-and-rollback](../guides/release-and-rollback.md),
@@ -47,8 +61,8 @@ The topology is **cloud-stateless Railway services + a shared R2 system-of-recor
   scatter mocks + starter flows; symbol size comes from the art; atlas access via signed launch token).
   Gaps found and still **open**: INFRA had no row for the deploy token, `TEST_SERVER_SECRET`, RunPod,
   GitHub/Cloudflare API or LLM keys (now covered by the rotate guide); the tool signing secrets have no
-  dual-key window, so a rotation has a short 403 window; the launcher's own `/refresh` calls send no
-  `TEST_SERVER_SECRET`; the games host `/healthz` reads ok even when its boot R2 read failed.
+  dual-key window, so a rotation has a short 403 window. (The launcher's missing `TEST_SERVER_SECRET`
+  and the games host's always-ok `/healthz` were fixed the same day — entry above.)
 - 2026-09-29 — **Nightly backups + restore runbooks** ([guides/backups](../guides/backups.md)).
   - **What runs:** `.github/workflows/nightly-backup.yml` runs `scripts/backup/iwbackup.py` at
     02:37 UTC. It writes three age-encrypted archives to a separate R2 bucket, `invisible-backups`:

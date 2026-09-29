@@ -49,6 +49,8 @@ Bundles live in R2 under `test_server/<gameKey>/...`, with a manifest
 
 The service hydrates the manifest + every game's files from R2 **on boot** (and
 on `POST /refresh`, secret-gated when `TEST_SERVER_SECRET` is set).
+`GET /healthz` lists the games it serves and whether its last R2 read succeeded
+(`lastHydrate`); it answers 503 when it serves nothing because that read failed at boot.
 
 ### Publishing a game — one-click from the desktop launcher (preferred)
 
