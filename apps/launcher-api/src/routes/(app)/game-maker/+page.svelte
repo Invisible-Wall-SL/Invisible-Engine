@@ -16,6 +16,7 @@
 		storeCurrency,
 		withLocale,
 		withCurrency,
+		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
 	import type { PageData } from './$types';
 
@@ -556,9 +557,10 @@
 	const playUrl = (url: string) => withCurrency(withLocale(url, launchLocale), launchCurrency);
 
 	/** "Live": the same game on the CURRENT authoring data instead of the snapshot. The authoring
-	 *  flag is what switches the runtime endpoint to the live assemble (and shows the author the
-	 *  technical reason if the boot fails). Never applied to the copied URL — that one is for players. */
-	const liveUrl = (url: string) => playUrl(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`);
+	 *  flag switches the runtime endpoint to the live assemble (and shows the author the technical
+	 *  reason if the boot fails), and the RGS moves to the test server's authoring mock, which deals
+	 *  the live config's board. Never applied to the copied URL — that one is for players. */
+	const liveUrl = (url: string) => playUrl(asAuthoringLaunch(url));
 
 	type Versions = NonNullable<(typeof data.projects)[number]['versions']>;
 

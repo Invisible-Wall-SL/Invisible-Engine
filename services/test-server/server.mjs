@@ -112,6 +112,9 @@ let runtimePointers = {};
 let retiredImmutable = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
+/** gameKey -> the AUTHORING twin of a runtime game's mock (see `AUTHORING`). Created on the first
+ *  authoring request, so a game nobody authors never pays for one. */
+let authoringMocks = {};
 /** gameKey -> { checkedAt: epochMs, inFlight: Promise|null } — the live-contract poll (see
  *  `refreshContract`). Rebuilt on hydrate so a refresh re-checks every game immediately. */
 let contracts = {};
@@ -418,20 +421,28 @@ const validGrid = (grid) => {
 	};
 };
 
-// ---------- the LIVE math contract (the config decides the game) ----------
+// ---------- the math contract (the config its CLIENT reads decides the game) ----------
 
 /**
  * The mock's math — grid, paylines, symbol pool, protocol, cascade — belongs to the PROJECT's
- * Invisible Game Config, and until now it only travelled at PUBLISH time, frozen into
- * `test_server/games.json`. The client reads that same config LIVE, so the two drifted the moment an
- * author resized the board without republishing: the client drew (say) 8×4 while this mock kept
- * dealing 5×3, every cell outside the server's board stayed empty, and wins were scored on a board
- * nobody was looking at. "Remember to republish" is not a contract — so the mock now PULLS.
+ * Invisible Game Config, and it once travelled only at PUBLISH time, frozen into
+ * `test_server/games.json`. The client read that config on its own schedule, so the two drifted the
+ * moment an author resized the board without republishing: the client drew (say) 8×4 while this mock
+ * kept dealing 5×3, every cell outside the server's board stayed empty, and wins were scored on a
+ * board nobody was looking at. "Remember to republish" is not a contract — so the mock PULLS.
  *
  * `publishGame` stamps `projectKey` + `docBase` + `readToken` into the manifest entry; with them
- * this server re-reads `GET <docBase>/api/game-config/mock?project=<projectKey>&k=<token>` (the SAME
- * derivation the publish snapshot came from, so the two can never describe different games) and
- * rebuilds that game's mock the moment the answer changes.
+ * this server re-reads `GET <docBase>/api/game-config/mock?project=<projectKey>&k=<token>&source=…`
+ * (the SAME derivation the publish snapshot came from, so the two can never describe different
+ * games) and rebuilds that game's mock the moment the answer changes.
+ *
+ * `source` is WHICH config: the one the mock's client reads. Since published runtime snapshots, a
+ * runtime game's PLAYERS boot the config frozen at its last Publish and its AUTHORING boots
+ * (`ie_authoring=1`) the live one, so the two need different boards and one mock cannot deal both.
+ * A runtime game therefore has two: the player mock follows `published`, and an authoring TWIN
+ * (reached as `/api/<key>/authoring/…` — the launcher's authoring links point `rgs_url` there, see
+ * `asAuthoringLaunch`) follows `live`. A standalone build has no snapshot to read; its config was
+ * baked from live data, so its one mock follows `live`, as it always has.
  *
  * THE PROJECT KEY IS NOT THE GAME KEY, and reading the config under the game key is how a whole
  * class of games silently dealt the wrong board. The online Game Maker happens to publish under
@@ -454,6 +465,14 @@ const validGrid = (grid) => {
 const CONTRACT_TTL_MS = Number(process.env.CONTRACT_TTL_MS ?? 10_000);
 /** Hard cap on the launcher round-trip, so a hung launcher can't hang a spin. */
 const CONTRACT_TIMEOUT_MS = Number(process.env.CONTRACT_TIMEOUT_MS ?? 4_000);
+
+/** The path segment (and channel name) of a runtime game's authoring twin: `/api/<key>/authoring/…`.
+ *  Every mock route matches by path SUFFIX, so the twin serves the same routes under it. */
+const AUTHORING = 'authoring';
+
+/** Which of the launcher's contracts a channel follows — see the block comment above. */
+const contractSourceFor = (meta, channel) =>
+	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
 
 const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter']);
 
@@ -480,12 +499,14 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * otherwise be priced by a table it never saw. A reload asks for `config` and gets the new one. A
  * desktop build's sessions are re-sent the config on their next heartbeat, as before.
  */
-const swapMock = (key, contract) => {
-	const previous = own(mocks, key);
+const swapMock = (key, contract, channel) => {
+	const twin = channel === AUTHORING;
+	const pool = twin ? authoringMocks : mocks;
+	const previous = own(pool, key);
 	const runtime = own(registry, key)?.runtime;
 	const next = makeMock(
 		contract.protocol,
-		`mock:${key}`,
+		twin ? `mock:${key}/${AUTHORING}` : `mock:${key}`,
 		contract.grid,
 		key,
 		contract.cascade,
@@ -496,8 +517,13 @@ const swapMock = (key, contract) => {
 			next.sessions.set(sid, carrySession(session, { keepBetShape: Boolean(runtime) }));
 		}
 	}
-	mocks[key] = next;
-	registry[key] = { ...own(registry, key), ...contract, fingerprint: fingerprintOf(contract) };
+	pool[key] = next;
+	const fingerprint = fingerprintOf(contract);
+	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
+	// a new twin starts from); a twin only records what it is built from.
+	registry[key] = twin
+		? { ...own(registry, key), authoringFingerprint: fingerprint }
+		: { ...own(registry, key), ...contract, fingerprint };
 };
 
 /**
@@ -546,18 +572,24 @@ const warnUnpinned = (key, meta) => {
 };
 
 /**
- * Re-read one game's live contract (at most once per {@link CONTRACT_TTL_MS}) and rebuild its mock
- * when it changed. Awaited on the RGS path so a config edit is live on the very next spin rather
- * than the one after it; failures are cached for the same TTL so a down launcher is asked once per
- * window, not once per request.
+ * Re-read one game's contract for `channel` (at most once per {@link CONTRACT_TTL_MS}) and rebuild
+ * that channel's mock when it changed. Awaited on the RGS path so a publish or a config edit is
+ * dealt on the very next spin rather than the one after it; failures are cached for the same TTL so
+ * a down launcher is asked once per window, not once per request.
  */
-async function refreshContract(key) {
+async function refreshContract(key, channel) {
 	const meta = own(registry, key);
 	if (!meta?.docBase || !meta?.readToken) {
 		warnUnpinned(key, meta);
 		return;
 	}
-	const state = (contracts[key] ??= { checkedAt: 0, inFlight: null });
+	const twin = channel === AUTHORING;
+	const label = twin ? `'${key}' (${AUTHORING})` : `'${key}'`;
+	const source = contractSourceFor(meta, channel);
+	const state = (contracts[twin ? `${key}/${AUTHORING}` : key] ??= {
+		checkedAt: 0,
+		inFlight: null,
+	});
 	if (state.inFlight) return state.inFlight;
 	if (Date.now() - state.checkedAt < CONTRACT_TTL_MS) return;
 
@@ -569,19 +601,19 @@ async function refreshContract(key) {
 			const project = meta.projectKey ?? key;
 			const url =
 				`${meta.docBase}/api/game-config/mock?project=${encodeURIComponent(project)}` +
-				`&k=${encodeURIComponent(meta.readToken)}`;
+				`&k=${encodeURIComponent(meta.readToken)}&source=${source}`;
 			const res = await fetch(url, { signal: AbortSignal.timeout(CONTRACT_TIMEOUT_MS) });
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const live = normalizeContract(await res.json(), meta.protocol);
-			if (fingerprintOf(live) === meta.fingerprint) return;
-			const board = live.grid ? `${live.grid.reels}×${live.grid.rows}` : 'its default grid';
+			const answer = normalizeContract(await res.json(), meta.protocol);
+			if (fingerprintOf(answer) === (twin ? meta.authoringFingerprint : meta.fingerprint)) return;
+			const board = answer.grid ? `${answer.grid.reels}×${answer.grid.rows}` : 'its default grid';
 			console.info(
-				`[test-server] '${key}' config changed — now dealing ${board} (${live.protocol})`,
+				`[test-server] ${label} ${source} config changed — now dealing ${board} (${answer.protocol})`,
 			);
-			swapMock(key, live);
+			swapMock(key, answer, channel);
 		} catch (e) {
 			console.warn(
-				`[test-server] '${key}' live config unavailable (${e.message}) — keeping the published one`,
+				`[test-server] ${label} ${source} config unavailable (${e.message}) — keeping the one it has`,
 			);
 		} finally {
 			state.checkedAt = Date.now();
@@ -719,6 +751,7 @@ async function hydrate() {
 		runtimeBundles = {};
 		retiredImmutable = {};
 		mocks = {};
+		authoringMocks = {};
 		contracts = {};
 		return;
 	}
@@ -900,6 +933,26 @@ async function hydrate() {
 			return [key, next];
 		}),
 	);
+	// A twin restarts on the manifest's contract, like its player mock, and re-reads its live one on
+	// the next authoring request (the poll state was just dropped). Its open tabs keep their bet table
+	// for the reason `carryPins` gives: a refresh follows every publish of ANY game.
+	authoringMocks = Object.fromEntries(
+		Object.entries(authoringMocks).flatMap(([key, previous]) => {
+			const meta = own(nextRegistry, key);
+			if (!meta?.runtime) return [];
+			const next = makeMock(
+				meta.protocol,
+				`mock:${key}/${AUTHORING}`,
+				meta.grid,
+				key,
+				meta.cascade,
+				meta.runtime,
+			);
+			carryPins(previous, next, meta.runtime);
+			meta.authoringFingerprint = meta.fingerprint;
+			return [[key, next]];
+		}),
+	);
 }
 
 // ---------- HTTP plumbing ----------
@@ -1020,12 +1073,24 @@ const handleRequest = async (req, res) => {
 
 	// mock RGS: /api/<gameKey>/...  → dispatch to that game's mock (matches by suffix)
 	if (pathname.startsWith('/api/')) {
-		const gameKey = pathname.split('/')[2];
+		const [, , gameKey, channelSegment] = pathname.split('/');
 		if (!own(mocks, gameKey)) return sendJson(res, 404, { error: `unknown game '${gameKey}'` });
-		// Re-read the project's live Game Config first (TTL-throttled, best-effort) so a board resized
-		// in `/config` is dealt on THIS spin, not after a republish. May replace `mocks[gameKey]`.
-		await refreshContract(gameKey);
-		return own(mocks, gameKey).handle(req, res, url);
+		const meta = own(registry, gameKey);
+		// Only a runtime game has a separate authoring contract; a standalone build's one mock already
+		// follows live data, so its authoring links are simply served by it.
+		const channel = channelSegment === AUTHORING && meta.runtime ? AUTHORING : undefined;
+		if (channel && !own(authoringMocks, gameKey)) {
+			swapMock(
+				gameKey,
+				{ protocol: meta.protocol, cascade: meta.cascade, grid: meta.grid },
+				AUTHORING,
+			);
+		}
+		// Re-read the contract this channel's client boots first (TTL-throttled, best-effort) so a
+		// publish — or, for the twin, a board resized in `/config` — is dealt on THIS spin. May replace
+		// the channel's mock.
+		await refreshContract(gameKey, channel);
+		return own(channel ? authoringMocks : mocks, gameKey).handle(req, res, url);
 	}
 
 	// root index
