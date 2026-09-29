@@ -41,7 +41,7 @@ import {
 import { buildRuntimeBundle } from './runtimeBundle';
 import { checkSoundsForPublish } from './soundPublishCheck';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
-import { SHARED_RUNTIME_ID, upsertTestServerGame } from './testServerManifest';
+import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -194,10 +194,12 @@ export async function publishGame(
 			scenes: assembled.doc.scenes,
 		});
 		refuseFlow(shipped);
+		const engine = await runtimePointer(runtimeFor(gameType));
 		const staged = await stageSnapshot(clientKey, projectKey, assembled, {
 			by: options.by ?? null,
 			flow: shipped.status === 'invalid' ? 'overridden' : shipped.status,
 			runtime: runtimeFor(gameType),
+			engine: engine ? { version: engine.version, shortCommit: engine.shortCommit } : null,
 		});
 		return { bundle: assembled, flowCheck: shipped, snapshot: staged };
 	});
