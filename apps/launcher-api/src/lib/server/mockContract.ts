@@ -22,7 +22,13 @@
  * and `game/gameConfig.ts`'s `__IE_SERVER_CONFIG__` overlay implements it. This module only makes
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
-import { resolveWinModel, symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
+import {
+	resolveBetModes,
+	resolveWinModel,
+	symbolsInPlay,
+	type GameConfigDoc,
+	type PaytableRow,
+} from 'game-config';
 import {
 	bookMapping,
 	linesMapping,
@@ -190,6 +196,52 @@ function projectSymbolPaytable(
 	return Object.keys(out).length ? out : undefined;
 }
 
+/** Projects already told they author more than one base mode, so a contract re-read every few
+ *  seconds says it once per process. */
+const warnedManyBases = new Set<string>();
+
+/**
+ * The project's bet modes for the lines mock's `betOptions` table, BASE FIRST, or `undefined` when it
+ * authors nothing beyond the base bet.
+ *
+ * Only a game that SELLS something needs a table. The partner's line games (Hot Fruits) declare none
+ * and read `bet [lines, betPerLine]`; their games with an ante or a buy (Stargate: 20 lines,
+ * `betOptions: [20, 25, 2000]`) declare one and read `bet [option, M]`. Without it the lines mock
+ * could not sell the feature at all: a buy went out as a line bet, was charged the base stake and
+ * dealt a base spin, while the card advertised the authored price.
+ *
+ * Ordered by the MATH (`betModes` key order), not by `resolveBetModes`' presentation order: the
+ * index is the wire's option number, and reordering cards in `/config` must not renumber it.
+ * Exactly one base, or nothing: a second one is an ante nobody marked, and whichever sorted first
+ * would silently become the price every other option is a multiple of.
+ */
+function projectBetModes(
+	doc: GameConfigDoc,
+	projectKey: string,
+): NonNullable<TestServerGameEntry['grid']>['betModes'] {
+	const keyOrder = Object.keys(doc.betModes);
+	const modes = resolveBetModes(doc)
+		.filter((mode) => Number.isFinite(mode.costMultiplier) && mode.costMultiplier > 0)
+		.sort((a, b) => keyOrder.indexOf(a.mode) - keyOrder.indexOf(b.mode));
+	const bases = modes.filter((mode) => mode.kind === 'base');
+	const extras = modes.filter((mode) => mode.kind !== 'base');
+	if (bases.length > 1 && extras.length && !warnedManyBases.has(projectKey)) {
+		warnedManyBases.add(projectKey);
+		console.warn(
+			`[mock-contract] '${projectKey}' has ${bases.length} base bet modes ` +
+				`(${bases.map((mode) => mode.mode).join(', ')}), so its mock sells none of its extras. ` +
+				`Mark the ante's kind in /config.`,
+		);
+	}
+	if (bases.length !== 1 || !extras.length) return undefined;
+	const base = bases[0];
+	return [base, ...extras].map((mode) => ({
+		mode: mode.mode,
+		cost: mode.costMultiplier,
+		kind: mode.kind,
+	}));
+}
+
 /**
  * The project's OWN cascade answer, or `undefined` when it never stated one.
  *
@@ -285,6 +337,7 @@ async function projectGrid(
 		// since the mock's own table has none for them. Same gap, one fix: the mock prices what the
 		// project authored, and falls back to its own table per-symbol for anything unpriced.
 		const symbolPaytable = projectSymbolPaytable(doc, linesMapping);
+		const betModes = projectBetModes(doc, projectKey);
 		return {
 			reels,
 			rows,
@@ -297,6 +350,7 @@ async function projectGrid(
 			...(cluster ?? {}),
 			...(scatter ?? {}),
 			...(symbolPaytable ? { symbolPaytable } : {}),
+			...(betModes ? { betModes } : {}),
 		};
 	} catch {
 		return undefined;

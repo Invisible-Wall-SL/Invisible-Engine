@@ -25,8 +25,10 @@ export type ServerBootConfig =
 
 /**
  * The boot `config` context `gameKey`'s RGS declares. Sends an empty-body heartbeat with a FRESH
- * `sid` per call: both mocks emit the `config` event on a session's first call (the lines mock ONLY
- * then), so a never-seen sid guarantees it comes back. Never throws — a failure names its cause.
+ * `sid` per call, which both mocks answer with the `config` event — except a lines-family game that
+ * sells an ante or a buy, which sends it only when asked. So a heartbeat without one is followed by
+ * the non-stored `config` action on the same sid, the fallback the game's own facade uses. Never
+ * throws — a failure names its cause.
  */
 export async function fetchServerBootConfig(
 	gameKey: string,
@@ -38,21 +40,31 @@ export async function fetchServerBootConfig(
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
+	const post = async (body: string): Promise<RgsEngineResponse | string> => {
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: '[]',
+			body,
 			signal: controller.signal,
 		});
-		if (!res.ok) return { ok: false, reason: `the server answered HTTP ${res.status}` };
-		let body: RgsEngineResponse;
+		if (!res.ok) return `the server answered HTTP ${res.status}`;
 		try {
-			body = (await res.json()) as RgsEngineResponse;
+			return (await res.json()) as RgsEngineResponse;
 		} catch {
-			return { ok: false, reason: 'the server did not answer with JSON' };
+			return 'the server did not answer with JSON';
 		}
-		const config = body.events?.find((e) => e.event === 'config')?.context;
+	};
+	const configOf = (body: RgsEngineResponse) =>
+		body.events?.find((e) => e.event === 'config')?.context;
+	try {
+		const probe = await post('[]');
+		if (typeof probe === 'string') return { ok: false, reason: probe };
+		let config = configOf(probe);
+		if (!config) {
+			const asked = await post('[{"action":"config"}]');
+			if (typeof asked === 'string') return { ok: false, reason: asked };
+			config = configOf(asked);
+		}
 		if (!config || typeof config !== 'object') {
 			return { ok: false, reason: 'the server sent no boot config' };
 		}
