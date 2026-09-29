@@ -12,7 +12,8 @@
  *                    `requestBet` in that mode is debited exactly the card's price,
  *                    `betAmount × costMultiplier`. This is the check that was missing when a $100
  *                    card debited $1 (2026-09-28): the facade sent option 1 and the mock read it as
- *                    a 1× cost multiplier.
+ *                    a 1× cost multiplier. A mode the table cannot name is refused by the facade
+ *                    before any bet is sent.
  *   Part 3 (pays):   a bought round's free spins pay at the BASE stake, identical to the same
  *                    feature reached by a base spin — the buy premium must not scale the wins.
  *
@@ -156,11 +157,9 @@ const main = async () => {
 		}
 	}
 
-	// An authored card the server's table cannot name is refused, never charged some other price.
-	(globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__ = {
-		BASE: 1,
-		HIGHNOON: 25,
-	};
+	// An authored card the server's table cannot name is refused by the FACADE: no bet reaches the
+	// server, so nothing can charge it some other price. The session is left as it was, so the next
+	// bet goes through at its own price.
 	await requestAuthenticate({ sessionID: 'unpriced', rgsUrl, language: 'en' });
 	betResponses.length = 0;
 	const unpriced = (await requestBet({
@@ -170,11 +169,13 @@ const main = async () => {
 		mode: 'HIGHNOON',
 		rgsUrl,
 	})) as { error?: string };
-	assert(
-		'an unpriced authored mode is refused, not charged',
-		!!unpriced.error && betTotal(betResponses[0] ?? {}) === undefined,
-		true,
-	);
+	assert('an unpriced authored mode is refused', !!unpriced.error, true);
+	assert('...before any bet is sent', betResponses.length, 0);
+	const wallet = await postEngine(rgsUrl, 'unpriced', 0, []);
+	assert('...and the wallet is untouched', wallet.platform?.balance, 1_000_000_000);
+	await requestBet({ sessionID: 'unpriced', currency: 'USD', amount: 1, mode: 'BASE', rgsUrl });
+	await requestEndRound({ sessionID: 'unpriced', rgsUrl });
+	assert('...and the next base spin is charged $1', betTotal(betResponses[0] ?? {}), 100);
 	globalThis.fetch = realFetch;
 	server.close();
 
