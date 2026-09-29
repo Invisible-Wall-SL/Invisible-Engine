@@ -97,8 +97,8 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 /** One bet option as the RGS facade published it (`__IE_SERVER_BET_OPTIONS__`). */
 type ServerBetOption = { key: string; index: number; costMultiplier: number };
 
-/** The options the SERVER declared, or null when it declared none (both mocks, every server before
- *  the 2-complex node) — in which case the authored config stands, exactly as before. */
+/** The options the SERVER declared, or null when it declared none (the lines-family mock, every
+ *  server before the 2-complex node) — in which case the authored config stands, exactly as before. */
 function serverBetOptions(): ServerBetOption[] | null {
 	const list = (globalThis as { __IE_SERVER_BET_OPTIONS__?: ServerBetOption[] })
 		.__IE_SERVER_BET_OPTIONS__;
@@ -139,6 +139,19 @@ function resolveOptionKind(
 	return /ante/.test(normalise(key)) ? 'ante' : 'buy';
 }
 
+/** The authored mode that presents a server option — by NAME first, then by equal cost (see
+ *  {@link mergeServerOptions}). One matcher for the menu and the drift report, so the report names
+ *  exactly the cards the menu dropped. */
+function presentationMatcher(authored: ResolvedBetMode[]) {
+	const byName = new Map(authored.map((mode) => [normalise(mode.mode), mode]));
+	return (option: ServerBetOption): ResolvedBetMode | undefined =>
+		byName.get(normalise(option.key)) ??
+		authored.find(
+			(mode) =>
+				mode.kind !== 'base' && Math.abs(mode.costMultiplier - option.costMultiplier) < 0.001,
+		);
+}
+
 /**
  * Fold the SERVER's option table together with the game's authored presentation.
  *
@@ -156,16 +169,11 @@ function mergeServerOptions(
 	options: ServerBetOption[],
 	authored: ResolvedBetMode[],
 ): ResolvedBetMode[] {
-	const byName = new Map(authored.map((mode) => [normalise(mode.mode), mode]));
+	const matchFor = presentationMatcher(authored);
 	const base = authored.find((mode) => mode.kind === 'base') ?? authored[0];
 
 	return options.map((option) => {
-		const match =
-			byName.get(normalise(option.key)) ??
-			authored.find(
-				(mode) =>
-					mode.kind !== 'base' && Math.abs(mode.costMultiplier - option.costMultiplier) < 0.001,
-			);
+		const match = matchFor(option);
 		const kind = resolveOptionKind(option.index, option.key, match?.kind);
 		const presentation = match ?? (kind === 'base' ? base : undefined);
 
@@ -215,21 +223,44 @@ export function syncBetModeMeta(): void {
 	// guards a malformed/empty config — but it does so for every online project on the shared bundle.
 	if (Object.keys(meta).length === 0) return;
 	stateMeta.betModeMeta = meta;
-	publishBetModeCostsToFacade(meta);
+	warnOnBetModePriceDrift();
 }
 
+let reportedDrift = '';
+
 /**
- * Publish each mode's buy COST MULTIPLIER to a global the RGS FACADE reads
- * (`packages/rgs-translator-eagaming/engineFacade.ts` → `betModeCostMultiplier`). The facade is a
- * drop-in for `rgs-requests` and can't import this app, so a global is the decoupled bridge — the
- * mirror of `publishWinLevelsToFacade`. It lets the facade charge the SELECTED mode's cost
- * (`betAmount × costMultiplier`, the price its card shows) instead of a fixed buy premium, so the
- * amount debited matches the tapped card. Keyed by the UPPERCASE mode key (the wire `mode`). Coupled
- * to the buy MENU by construction — both come from this one `syncBetModeMeta` — so a card can never
- * be tapped without its cost already published.
+ * Say so when the authored menu and the server's bet options disagree about what the game sells.
+ *
+ * The server's table wins (see {@link mergeServerOptions}), so a disagreement never reaches a charge.
+ * It reaches the MENU: an authored card the table cannot price is not offered (Borut's 25× and 50×
+ * cards against a one-buy table), and a card matched by name shows the server's price, not its own.
+ * Reported rather than corrected, because which side is wrong is the author's call.
+ *
+ * Here because this is the one place both lists are in hand. The facade's boot cross-check runs at
+ * authenticate, before `<Game>` mounts and builds this menu, so it never sees an authored price.
  */
-function publishBetModeCostsToFacade(meta: BetModeMeta): void {
-	const costs: Record<string, number> = {};
-	for (const [key, mode] of Object.entries(meta)) costs[key] = mode.costMultiplier;
-	(globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__ = costs;
+function warnOnBetModePriceDrift(): void {
+	const options = serverBetOptions();
+	const drift: string[] = [];
+	if (options) {
+		const authored = resolveBetModes(getActiveGameConfig());
+		const matchFor = presentationMatcher(authored);
+		for (const mode of authored) {
+			if (mode.kind === 'base') continue;
+			const key = mode.mode.toUpperCase();
+			const option = options.find((candidate) => matchFor(candidate) === mode);
+			if (!option) {
+				drift.push(`  ${key}: ${mode.costMultiplier}× card, no server bet option — not offered`);
+			} else if (Math.abs(option.costMultiplier - mode.costMultiplier) > 0.001) {
+				drift.push(
+					`  ${key}: config says ${mode.costMultiplier}×, server charges ${option.costMultiplier}×`,
+				);
+			}
+		}
+	}
+	const report = drift.length
+		? ['[bet-modes] the authored menu disagrees with the server bet options:', ...drift].join('\n')
+		: '';
+	if (report && report !== reportedDrift) console.warn(report);
+	reportedDrift = report;
 }
