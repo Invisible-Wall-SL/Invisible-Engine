@@ -35,19 +35,28 @@ const getRawSearchParam = (key: string) => page.url.searchParams.get(key) ?? '';
 const DEMO_SESSION = 'demo';
 const DEMO_SESSION_STORAGE_KEY = 'ie_demo_session_id';
 
-/** Mint (once) a unique demo session for THIS browser and persist it, so a reload keeps
- *  the same test wallet. Only used to replace the shared `demo` placeholder — a real
- *  sessionID is passed through untouched. Falls back to a per-load id when storage is
- *  unavailable (SSR / private mode). */
+/**
+ * Mint (once) a unique demo session for THIS TAB and keep it for the tab's life, so a reload keeps
+ * the same test wallet. Only used to replace the shared `demo` placeholder — a real sessionID is
+ * passed through untouched. Falls back to a per-load id when storage is unavailable (SSR / private
+ * mode).
+ *
+ * Per TAB, not per browser. The mock keys everything by this id: the wallet, the open round, the
+ * `seq` positions, and the bet table the session was told about. Two tabs sharing one id shared all
+ * of it. Measured: a second tab booting after its game gained a buy re-pinned the shared session,
+ * and the first tab's $1 base spin was charged 10000 as the buy. `sessionStorage` is per tab and
+ * survives a reload. A new tab starts its own wallet, which is demo money and resets on every
+ * publish anyway. A tab the browser DUPLICATES copies its `sessionStorage`, so it still shares.
+ */
 let demoSessionId: string | null = null;
 const getDemoSessionId = () => {
 	if (demoSessionId) return demoSessionId;
 	const mint = () =>
 		`demo-${(typeof crypto !== 'undefined' && crypto.randomUUID?.()) || Math.random().toString(36).slice(2)}`;
 	try {
-		const stored = localStorage.getItem(DEMO_SESSION_STORAGE_KEY);
+		const stored = sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY);
 		demoSessionId = stored || mint();
-		if (!stored) localStorage.setItem(DEMO_SESSION_STORAGE_KEY, demoSessionId);
+		if (!stored) sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, demoSessionId);
 	} catch {
 		demoSessionId = mint();
 	}
@@ -79,7 +88,7 @@ const sessionID = () => {
 		fromHost || getRawSearchParam(profile.session.param) || getRawSearchParam('sessionID');
 	if (raw && raw !== DEMO_SESSION) return raw;
 	if (profile.session.required) return '';
-	// Give each browser its own mock wallet; never touch a real per-player session.
+	// Give each tab its own mock session; never touch a real per-player session.
 	return getDemoSessionId();
 };
 

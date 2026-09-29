@@ -97,8 +97,9 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 /** One bet option as the RGS facade published it (`__IE_SERVER_BET_OPTIONS__`). */
 type ServerBetOption = { key: string; index: number; costMultiplier: number };
 
-/** The options the SERVER declared, or null when it declared none (the lines-family mock, every
- *  server before the 2-complex node) — in which case the authored config stands, exactly as before. */
+/** The options the SERVER declared, or null when it declared none (a lines-family game that sells
+ *  nothing, every server before the 2-complex node) — in which case the authored config stands,
+ *  exactly as before. */
 function serverBetOptions(): ServerBetOption[] | null {
 	const list = (globalThis as { __IE_SERVER_BET_OPTIONS__?: ServerBetOption[] })
 		.__IE_SERVER_BET_OPTIONS__;
