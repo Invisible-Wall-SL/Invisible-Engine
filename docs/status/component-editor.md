@@ -44,6 +44,11 @@ Shipped capabilities on `main`:
   reload), so an unsaved component draft survives it, and a restore that 409s with nothing unsaved
   loads their version in place so the author can pick again. Covered by `check:doc-backups` (184 checks, incl. the listing never
   surfacing a backup — verified to fail when the folder is moved inside `component-defaults/`).
+  **Live (#857, `016a94c9`):** `GET /api/editor/component-defaults/backups?project=test2&component=hudReadout`
+  went 404 → 200 (no `component` → 400); on `/components?project=test2` → HUD Readout, **History…**
+  sits beside *Save for this game* and opens the modal on that component's URL (empty — `test2` has no
+  defaults saved). ⏳ A restore not clicked live (it would have to create a sidecar on a real project;
+  the fixture covers the round trip).
 - 2026-09-28 (security) — **The component APIs refuse a project the caller cannot access.**
   `/api/editor/component` (GET/POST/DELETE), `/api/editor/component-defaults` (GET/POST) and
   `/api/editor/components` resolved any `?project=` or body `project` on the `editor` grant alone, so

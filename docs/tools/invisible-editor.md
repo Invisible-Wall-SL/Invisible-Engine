@@ -666,6 +666,16 @@ If a template is loaded for the project's game type, the editor also surfaces
 issues** (nodes referencing assets the game can't load — they'd render blank;
 click an issue to jump to the offending node). Slot warnings never block a save.
 
+**History…** in the top bar lists earlier saved versions of this project's layout,
+newest first. Each save keeps a copy of the version it replaces (at most one every five
+minutes while you work, the newest 20 kept); loading a reference/scaffold layout, an
+**Overwrite with mine** and a restore always keep one. Pick a version and **Restore**:
+it is saved like any other save — refused with a reload prompt if someone else saved
+since you opened the project — it keeps a copy of the version it replaces, so a restore
+can be undone from the same list, and the page reloads onto the restored layout.
+Restoring is disabled while another author holds the project, and the list warns when
+you have unsaved changes (including an unsaved reference preview).
+
 **Reaching the running game** is a build-time chain, not an in-tool export
 button. At game boot the engine fetches its saved doc from the launcher
 (`GET /api/editor/doc?project=&k=`, gated by the launcher's `EDITOR_DOC_SECRET`),
