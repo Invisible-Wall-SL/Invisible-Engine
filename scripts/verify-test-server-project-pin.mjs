@@ -29,6 +29,10 @@
 //      bundle must not blank a pointer the online publisher wrote, and must add one when told.
 //   3. THE TWO WRITERS AGREE with the reader on the field name — a typo here is silent, because
 //      every consumer treats an absent pin as "fall back to the game key".
+//   1b. THE SOURCE, over the same slice: since published runtime snapshots a runtime game's PLAYERS
+//      boot the config frozen at Publish and its AUTHORING boots the live one, so its player mock
+//      must ask for `source=published` and its authoring twin for `source=live` — each compared
+//      against, and swapped into, its OWN mock. A standalone build keeps following `live`.
 //   4. THE REPAIR, over the REAL `pinTestServerGameToProject` sliced out of `testServerManifest.ts`
 //      and run against an in-memory R2. The desktop launcher writes this manifest itself with no
 //      pointer and REPLACES the entry, so `/api/launcher/register-game` re-stamps it on every
@@ -96,9 +100,19 @@ const warnSource = sliceBetween(
 	'\n};\n',
 );
 
-const harness = async (entry, calls = 1) => {
+// The channel constants `refreshContract` closes over, sliced rather than restated so a renamed
+// segment or a flipped source rule fails here.
+const channelSource = sliceBetween(
+	server,
+	'AUTHORING + contractSourceFor',
+	"const AUTHORING = 'authoring';",
+	"? 'live' : 'published';\n",
+);
+
+const harness = async (entry, calls = 1, channels = Array(calls).fill(null)) => {
 	const asked = [];
 	const warned = [];
+	const swapped = [];
 	const registry = { waysofwavesbuild: entry };
 	const scope = {
 		registry,
@@ -126,7 +140,7 @@ const harness = async (entry, calls = 1) => {
 			grid: raw?.grid ?? null,
 		}),
 		fingerprintOf: (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.grid ?? null]),
-		swapMock: () => {},
+		swapMock: (key, contract, ch) => swapped.push({ key, channel: ch ?? null }),
 		console: { info: () => {}, warn: (m) => warned.push(m) },
 		AbortSignal: { timeout: () => undefined },
 	};
@@ -134,15 +148,16 @@ const harness = async (entry, calls = 1) => {
 	// `calls` repeats INSIDE one scope, because the once-per-game latch lives in a module-level Set:
 	// calling `harness` twice would build two scopes and two Sets, and prove nothing about it.
 	const body =
-		`${warnSource}\n${refreshSource}\n` +
-		`for (let i = 0; i < ${calls}; i += 1) await refreshContract('waysofwavesbuild');`;
+		`${channelSource}\n${warnSource}\n${refreshSource}\n` +
+		`for (const channel of ${JSON.stringify(channels)}) ` +
+		`await refreshContract('waysofwavesbuild', channel ?? undefined);`;
 	const run = compileSlice({
 		what: 'verify-test-server-project-pin / testServerContract.ts#refreshContract',
 		names: keys,
 		body: `return (async () => { ${body} })();`,
 	});
 	await run(...keys.map((k) => scope[k]));
-	return { asked, warned };
+	return { asked, warned, swapped };
 };
 
 console.info('the live contract pull');
@@ -195,6 +210,71 @@ await check('a game with no pointer is never fetched — and says so exactly onc
 	if (!/shared default board/.test(warned[0])) {
 		throw new Error(`the warning does not name the consequence: ${warned[0]}`);
 	}
+});
+
+// ---------- 1b. which contract each mock follows ----------
+
+console.info('the contract source');
+
+/** The launcher's answer for `test6`, fingerprinted the way the service does it. */
+const TEST6_FINGERPRINT = JSON.stringify([
+	'ways',
+	true,
+	{ reels: 5, rows: 4, rowsPerReel: [3, 4, 4, 4, 4], paylines: [] },
+]);
+const pointed = (extra) => ({
+	protocol: 'ways',
+	projectKey: 'test6',
+	docBase: 'https://app.invisiblewall.org',
+	readToken: 'tok',
+	...extra,
+});
+const sourceOf = (url) => new URL(url).searchParams.get('source');
+
+await check("a runtime game's player mock follows the PUBLISHED contract", async () => {
+	const { asked, swapped } = await harness(pointed({ runtime: 'lines', fingerprint: 'stale' }));
+	eq(asked.map(sourceOf), ['published'], 'source asked for');
+	eq(swapped, [{ key: 'waysofwavesbuild', channel: null }], 'swapped into the player mock');
+});
+
+await check(
+	"a runtime game's authoring twin follows the LIVE contract, on its own mock",
+	async () => {
+		const { asked, swapped } = await harness(
+			// The player mock already deals this board; the twin does not. Comparing against the player's
+			// fingerprint would skip the swap and leave the twin on its stale board.
+			pointed({ runtime: 'lines', fingerprint: TEST6_FINGERPRINT, authoringFingerprint: 'stale' }),
+			1,
+			['authoring'],
+		);
+		eq(asked.map(sourceOf), ['live'], 'source asked for');
+		eq(swapped, [{ key: 'waysofwavesbuild', channel: 'authoring' }], 'swapped into the twin');
+	},
+);
+
+await check('an unchanged twin is not rebuilt, even when the player mock differs', async () => {
+	const { swapped } = await harness(
+		pointed({ runtime: 'lines', fingerprint: 'other', authoringFingerprint: TEST6_FINGERPRINT }),
+		1,
+		['authoring'],
+	);
+	eq(swapped, [], 'no swap');
+});
+
+await check('the two channels poll on separate clocks', async () => {
+	// One TTL window shared by both would let a player spin starve the twin's re-read (or the
+	// reverse) for the whole window.
+	const { asked } = await harness(
+		pointed({ runtime: 'lines', fingerprint: 'stale', authoringFingerprint: 'stale' }),
+		3,
+		[null, 'authoring', null],
+	);
+	eq(asked.map(sourceOf), ['published', 'live'], 'one read per channel inside one TTL window');
+});
+
+await check('a standalone build keeps following LIVE — its config was baked from it', async () => {
+	const { asked } = await harness(pointed({ fingerprint: 'stale' }));
+	eq(asked.map(sourceOf), ['live'], 'source asked for');
 });
 
 // ---------- 2. the publisher's manifest merge ----------

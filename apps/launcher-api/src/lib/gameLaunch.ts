@@ -102,6 +102,34 @@ export const withLocale = (url: string, locale: string): string => withParam(url
 export const withCurrency = (url: string, currency: string): string =>
 	withParam(url, 'currency', currency);
 
+/**
+ * A game URL as an AUTHORING boot: `ie_authoring=1` (the runtime endpoint then serves the live
+ * assemble instead of the published snapshot, and a failed boot says why), and — for a game on the
+ * Invisible Test Server — its RGS moved from `<host>/api/<key>` to that game's authoring mock at
+ * `<host>/api/<key>/authoring`, which deals the LIVE config's board. Without the second half the
+ * live client would draw the unpublished board against a mock dealing the published one.
+ *
+ * Only the test server's own shape is rewritten: `rgs_url` on the page's host, naming the page's own
+ * game key. Any other RGS (a partner's, a local mock) is left exactly as it is, and a URL that is
+ * already an authoring launch comes back unchanged.
+ */
+export function asAuthoringLaunch(url: string): string {
+	const withFlag = withParam(url, 'ie_authoring', '1');
+	try {
+		const parsed = new URL(withFlag, 'https://games.invisiblewall.org');
+		const rgs = parsed.searchParams.get('rgs_url');
+		const key = parsed.pathname.split('/')[1];
+		if (!rgs || !key) return withFlag;
+		const rgsParsed = new URL(/^https?:\/\//i.test(rgs) ? rgs : `https://${rgs}`);
+		if (rgsParsed.host !== parsed.host || rgsParsed.pathname.replace(/\/+$/, '') !== `/api/${key}`)
+			return withFlag;
+		parsed.searchParams.set('rgs_url', `${rgs.replace(/\/+$/, '')}/authoring`);
+		return /^https?:\/\//i.test(url) ? parsed.toString() : `${parsed.pathname}${parsed.search}`;
+	} catch {
+		return withFlag;
+	}
+}
+
 /** Last locale the author launched with, so the choice survives a reload. */
 export function readStoredLocale(): string {
 	if (typeof localStorage === 'undefined') return DEFAULT_LAUNCH_LOCALE;

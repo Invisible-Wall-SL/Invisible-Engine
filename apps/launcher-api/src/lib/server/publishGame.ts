@@ -28,7 +28,8 @@ import {
 	type FlowPublishCheck,
 } from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
-import { resolveMockContract } from './mockContract';
+import { mockContractOfBundle } from './mockContract';
+import { protocolFor } from './mockProtocol';
 import { paytableDriftDetails, paytableDriftMessage } from './paytableDrift';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
@@ -267,19 +268,25 @@ export async function publishGame(
 		const readToken = await getOrMintReadToken(projectKey);
 		if (!readToken) throw new Error(`Unknown project '${projectKey}'.`);
 
-		// The project's math contract for the mock RGS (protocol + grid + cascade), from its Game Config.
-		// The SAME derivation `/api/game-config/mock` serves live, so the snapshot written below can only
-		// ever be an older copy of the live answer — never a different one.
-		const { protocol, grid, cascade } = await resolveMockContract(projectKey);
+		// The project's math contract for the mock RGS (protocol + grid + cascade), derived from the
+		// bundle this publish freezes — the config players are about to boot — by the SAME derivation
+		// `/api/game-config/mock?source=published` serves, so the fallback copy written below can only
+		// ever be an older copy of the on-demand answer, never a different one.
+		const { protocol, grid, cascade } = mockContractOfBundle(
+			protocolFor(gameType),
+			bundle,
+			projectKey,
+		);
 		const runtime = runtimeFor(gameType);
 
 		// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 		//
 		// `projectKey` + `docBase` + `readToken` are what turn the entry from a FROZEN copy of the math
-		// into a pointer back at the live one: the test server re-reads `/api/game-config/mock` with them,
-		// so editing `/config` changes the board the mock deals without a republish. The grid/cascade
-		// below stay as the fallback for when that fetch can't be made (launcher down, entry published
-		// before this). None of the three is a new exposure — all appear verbatim in the public game URL
+		// into a pointer back at the project: the test server re-reads `/api/game-config/mock` with them
+		// — the published contract for players, the live one for authoring boots — so a republish,
+		// a rollback or an authoring edit reaches the matching mock with nothing else to remember. The
+		// grid/cascade below stay as the fallback for when that fetch can't be made (launcher down,
+		// entry published before this). None of the three is a new exposure — all appear verbatim in the public game URL
 		// built below.
 		//
 		// `projectKey` is written even though `key === projectKey` here (line above), because the test

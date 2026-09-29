@@ -3,20 +3,23 @@
  * and grid (dimensions, paylines, in-play symbol pool, wild, cluster/scatter shape) — derived from
  * that project's own Invisible Game Config.
  *
- * It lives here, apart from `publishGame.ts`, because it is now resolved on TWO paths and the two
- * must never disagree:
+ * It lives here, apart from `publishGame.ts`, because it is resolved on TWO paths and the two must
+ * never disagree:
  *
  *   - **publish** (`publishGame`) snapshots it into the test-server manifest (`test_server/games.json`),
  *     which is what an offline/degraded test server falls back to;
- *   - **live** (`GET /api/game-config/mock`) serves it on demand, so the running mock re-reads the
- *     project's config and deals the CURRENT board.
+ *   - **on demand** (`GET /api/game-config/mock`), so the running mock re-reads the project and
+ *     deals the board its CLIENT draws without anyone remembering to republish.
  *
- * The live path exists because the snapshot alone was a lie by design: `/config` is fetched LIVE by
- * the client (its `numReels`/`numRows` resize the board immediately) while the mock kept dealing
- * whatever the last publish froze. Change the grid without republishing and the client drew 8×4
- * against a server still dealing 5×3 — every cell outside the server board empty, wins scored on a
- * board nobody was looking at. The config decides the game; the mock has no math of its own to
- * defend, so it follows.
+ * WHICH config that is depends on who is playing, and the answer changed with published runtime
+ * snapshots (#841). A PLAYER boot reads the Game Config frozen into the project's published snapshot
+ * (`publishedRuntime.ts`); an AUTHORING boot (`ie_authoring=1`) reads the live one. A mock that
+ * followed the live config therefore dealt an unpublished 8×4 into a published 5×3 client — the very
+ * client/server split this module was written to close, re-opened from the other side. So there are
+ * two {@link MockContractSource}s, each read from exactly what the matching client boots:
+ * `published` from the snapshot (falling back to live only where the runtime endpoint does too — a
+ * game with no snapshot yet), `live` from the authoring data. The test server asks for each on its
+ * own mock (see `refreshContract` in `services/test-server/server.mjs`).
  *
  * A REAL RGS is still authoritative — that direction is a certification requirement, not a choice,
  * and `game/gameConfig.ts`'s `__IE_SERVER_CONFIG__` overlay implements it. This module only makes
@@ -40,8 +43,50 @@ import { loadGameConfigDoc } from './gameConfigStorage';
 import { protocolFor } from './mockProtocol';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectGameType } from './projects';
+import { currentPointer, readSnapshotBundle } from './publishedRuntime';
+import type { RuntimeBundle } from './runtimeBundle';
 import { loadSymbolsDoc } from './symbolsStorage';
 import type { MockProtocol, TestServerGameEntry } from './testServerManifest';
+
+/**
+ * The two facts the contract needs from a project's SYMBOLS rather than its config: is the
+ * stacked-picture mode on, and does a symbol have resting (`static`) art. Read from the symbols doc
+ * for a live contract and from the snapshot's baked symbols for a published one, so each answers
+ * for the art its own client renders.
+ */
+interface SymbolFacts {
+	stacked: boolean;
+	hasStaticArt: (symbol: string) => boolean;
+}
+
+const NO_SYMBOL_FACTS: SymbolFacts = { stacked: false, hasStaticArt: () => false };
+
+/**
+ * From the live symbols doc. `stacked` uses the SAME master toggle the symbol bake reads
+ * (`stackedPictures.enabled` + ≥1 authored symbol), so it matches {@link bundleSymbolFacts} for a
+ * snapshot of the same doc. Best-effort: an unreadable doc ⇒ no stacked deal, no multipliers.
+ */
+async function liveSymbolFacts(clientKey: string, projectKey: string): Promise<SymbolFacts> {
+	try {
+		const doc = await loadSymbolsDoc(clientKey, projectKey);
+		return {
+			stacked:
+				doc.stackedPictures?.enabled === true && (doc.stackedPictures.symbols?.length ?? 0) > 0,
+			hasStaticArt: (symbol) => Boolean(doc.symbols?.[symbol]?.static),
+		};
+	} catch {
+		return NO_SYMBOL_FACTS;
+	}
+}
+
+/** From a snapshot's baked symbols: `stacked` is only baked when the toggle is on and non-empty,
+ *  and `map` is the doc's `symbols` passed through verbatim. */
+function bundleSymbolFacts(symbols: RuntimeBundle['symbols'] | undefined): SymbolFacts {
+	return {
+		stacked: Boolean(symbols?.stacked),
+		hasStaticArt: (symbol) => Boolean(symbols?.map?.[symbol]?.static),
+	};
+}
 
 /** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
 function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
@@ -116,19 +161,9 @@ function projectMultiplierSymbol(doc: GameConfigDoc): string | undefined {
  * `static` specifically, because that is the state a resting board renders and the exact one
  * that threw. Best-effort: an unreadable symbols doc ⇒ `false` ⇒ no multipliers, never a crash.
  */
-async function projectMultiplier(
-	doc: GameConfigDoc,
-	clientKey: string,
-	projectKey: string,
-): Promise<boolean> {
+function projectMultiplier(doc: GameConfigDoc, symbols: SymbolFacts): boolean {
 	const name = projectMultiplierSymbol(doc);
-	if (!name) return false;
-	try {
-		const symbols = await loadSymbolsDoc(clientKey, projectKey);
-		return Boolean(symbols.symbols?.[name]?.static);
-	} catch {
-		return false;
-	}
+	return name ? symbols.hasStaticArt(name) : false;
 }
 
 function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
@@ -265,13 +300,8 @@ function projectScatterPaytable(doc: GameConfigDoc): Record<string, number> | un
  * boolean for EVERY project, and the test server treats a boolean as authoritative — which would
  * pin every unauthored game and break the `CASCADE_GAMES` escape hatch on lines games.
  */
-async function projectCascade(clientKey: string, projectKey: string): Promise<boolean | undefined> {
-	try {
-		const doc = await loadGameConfigDoc(clientKey, projectKey);
-		return typeof doc?.cascade === 'boolean' ? doc.cascade : undefined;
-	} catch {
-		return undefined;
-	}
+function projectCascade(doc: GameConfigDoc | null): boolean | undefined {
+	return typeof doc?.cascade === 'boolean' ? doc.cascade : undefined;
 }
 
 /**
@@ -282,11 +312,12 @@ async function projectCascade(clientKey: string, projectKey: string): Promise<bo
  * default. `numRows` is the per-reel array, so `rows` is its max (a stepped board is a rectangle
  * tall enough to hold it).
  */
-async function projectGrid(
+function projectGrid(
 	protocol: MockProtocol,
-	clientKey: string,
+	doc: GameConfigDoc | null,
+	symbolFacts: SymbolFacts,
 	projectKey: string,
-): Promise<TestServerGameEntry['grid']> {
+): TestServerGameEntry['grid'] {
 	// EVERY protocol that runs on the lines mock needs its grid — that mock's board dimensions are the
 	// grid. `ways` was excluded here on the reasoning that it "needs nothing beyond the board", which
 	// is backwards: the board IS what it needs, and without it a ways project silently fell back to
@@ -298,7 +329,6 @@ async function projectGrid(
 	// server's `validGrid` requires. Without it the book mock paid and DECLARED its captured table
 	// whatever `/config` authored, so the info page and the payouts could disagree.
 	try {
-		const doc = await loadGameConfigDoc(clientKey, projectKey);
 		if (!doc) return undefined;
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
 		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
@@ -327,7 +357,7 @@ async function projectGrid(
 		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals
 		// tall-symbol runs — incl. guaranteed edge cutoffs — only for a project that actually stacks
 		// pictures. Best-effort: a missing/empty symbols doc ⇒ no flag ⇒ the normal weighted deal.
-		const stacked = await projectStacked(clientKey, projectKey);
+		const stacked = symbolFacts.stacked;
 		// `symbols`: the in-play line-symbol pool in the mock's SERVER vocabulary (PIC*/SCAT), so a
 		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock — and a
 		// symbol it DOES use reaches the deal even when only the extended names can carry it.
@@ -337,8 +367,7 @@ async function projectGrid(
 		const model = resolveWinModel(doc);
 		// Scatter is the only model that collects multipliers today, so the flag rides only for it —
 		// a lines game declaring a multiplier symbol should not start dealing them.
-		const multiplier =
-			model.type === 'scatter' && (await projectMultiplier(doc, clientKey, projectKey));
+		const multiplier = model.type === 'scatter' && projectMultiplier(doc, symbolFacts);
 		const cluster =
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
@@ -376,20 +405,6 @@ async function projectGrid(
 }
 
 /**
- * True when the project has the stacked-picture reel mode enabled in its symbols doc (the SAME
- * `stackedPictures.enabled` master toggle `symbolExport` gates the baked `stacked` config on). Used to
- * tell the test-server mock to deal stacked boards. Best-effort — any read/parse failure ⇒ `false`.
- */
-async function projectStacked(clientKey: string, projectKey: string): Promise<boolean> {
-	try {
-		const doc = await loadSymbolsDoc(clientKey, projectKey);
-		return doc.stackedPictures?.enabled === true && (doc.stackedPictures.symbols?.length ?? 0) > 0;
-	} catch {
-		return false;
-	}
-}
-
-/**
  * Everything the test server's mock RGS needs to deal THIS project's game, as the manifest entry
  * carries it. `grid`/`cascade` are omitted — not defaulted — when the project never stated them, so
  * "un-authored" keeps meaning "the mock's own shared default decides", exactly as it did when this
@@ -402,19 +417,97 @@ export interface MockContract {
 }
 
 /**
- * Resolve a project's live mock contract. The ONE derivation — `publishGame` snapshots what this
- * returns into the manifest, and `/api/game-config/mock` serves it verbatim, so a config change is
- * picked up by the running mock without a republish and the fallback snapshot cannot describe a
- * different game from the live answer.
+ * Which client a contract is for. `published`: a player boot, which reads the project's published
+ * snapshot. `live`: an authoring boot (`ie_authoring=1`) — and a standalone build, whose config was
+ * baked from live data — which read the current authoring data.
  */
-export async function resolveMockContract(projectKey: string): Promise<MockContract> {
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	const protocol = protocolFor(await projectGameType(projectKey));
-	const grid = await projectGrid(protocol, clientKey, projectKey);
-	const cascade = await projectCascade(clientKey, projectKey);
+export type MockContractSource = 'published' | 'live';
+
+/**
+ * A resolved contract plus what it was actually read from, mirroring `/api/editor/runtime`'s
+ * `X-IE-Runtime-Source`: `snapshot` (with its id), `live`, or `live-fallback` — a `published` ask for
+ * a game with no readable snapshot, answered from live data exactly as that game's players are.
+ */
+export interface ResolvedMockContract extends MockContract {
+	source: 'snapshot' | 'live' | 'live-fallback';
+	snapshot?: string;
+}
+
+function deriveMockContract(
+	protocol: MockProtocol,
+	doc: GameConfigDoc | null,
+	symbolFacts: SymbolFacts,
+	projectKey: string,
+): MockContract {
+	const grid = projectGrid(protocol, doc, symbolFacts, projectKey);
+	const cascade = projectCascade(doc);
 	return {
 		protocol,
 		...(grid ? { grid } : {}),
 		...(cascade === undefined ? {} : { cascade }),
+	};
+}
+
+/**
+ * The contract of one assembled runtime bundle — the config and symbols its client boots. Publish
+ * calls this on the bundle it is about to freeze, so the manifest's fallback copy describes the
+ * snapshot players are switched to, not whatever the live data says a moment later.
+ */
+export function mockContractOfBundle(
+	protocol: MockProtocol,
+	bundle: Pick<RuntimeBundle, 'config' | 'symbols'>,
+	projectKey: string,
+): MockContract {
+	return deriveMockContract(
+		protocol,
+		bundle.config ?? null,
+		bundleSymbolFacts(bundle.symbols),
+		projectKey,
+	);
+}
+
+async function liveMockContract(
+	protocol: MockProtocol,
+	clientKey: string,
+	projectKey: string,
+): Promise<MockContract> {
+	const doc = await loadGameConfigDoc(clientKey, projectKey).catch(() => null);
+	const symbolFacts = doc ? await liveSymbolFacts(clientKey, projectKey) : NO_SYMBOL_FACTS;
+	return deriveMockContract(protocol, doc, symbolFacts, projectKey);
+}
+
+/**
+ * Resolve a project's mock contract for `source`. The ONE derivation — `/api/game-config/mock` serves
+ * what this returns and `publishGame` snapshots the same derivation of the bundle it freezes, so the
+ * fallback copy cannot describe a different game from the on-demand answer.
+ *
+ * `published` reads the snapshot through the SAME pointer + bundle caches the player boot uses
+ * (`currentPointer` / `readSnapshotBundle`), so a republish or rollback reaches the mock on the same
+ * clock it reaches players. An R2 failure throws rather than falling back to live: dealing the
+ * unpublished board to players is the defect this exists to prevent, and the test server keeps its
+ * current mock on an error.
+ */
+export async function resolveMockContract(
+	projectKey: string,
+	source: MockContractSource,
+): Promise<ResolvedMockContract> {
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const protocol = protocolFor(await projectGameType(projectKey));
+	if (source === 'published') {
+		const pointer = await currentPointer(clientKey, projectKey);
+		const bundle = pointer
+			? await readSnapshotBundle(clientKey, projectKey, pointer.current)
+			: null;
+		if (pointer && bundle) {
+			return {
+				...mockContractOfBundle(protocol, bundle, projectKey),
+				source: 'snapshot',
+				snapshot: pointer.current,
+			};
+		}
+	}
+	return {
+		...(await liveMockContract(protocol, clientKey, projectKey)),
+		source: source === 'live' ? 'live' : 'live-fallback',
 	};
 }
