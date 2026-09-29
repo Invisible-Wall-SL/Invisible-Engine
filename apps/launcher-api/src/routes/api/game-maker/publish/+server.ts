@@ -18,10 +18,12 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
  *   POST /api/game-maker/publish
- *     { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true }
+ *     { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true,
+ *       "allowPaytableDrift"?: true }
  *   → 200 { ok, key, url, playUrl, sounds, flow }
  *   → 409 { error, reason, details, canOverride }   — blocked; `unapproved-sounds` is overridable by
- *     any publisher, `invalid-flow` by the owner role only (`canOverride` says which applies here)
+ *     any publisher, `invalid-flow` and `paytable-drift` by the owner role only (`canOverride` says
+ *     which applies here)
  */
 export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
@@ -29,7 +31,12 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { project?: unknown; allowUnapproved?: unknown; allowInvalidFlow?: unknown };
+	let body: {
+		project?: unknown;
+		allowUnapproved?: unknown;
+		allowInvalidFlow?: unknown;
+		allowPaytableDrift?: unknown;
+	};
 	try {
 		body = await request.json();
 	} catch {
@@ -60,12 +67,22 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		);
 	}
 	const allowInvalidFlow = body.allowInvalidFlow === true;
+	// Shipping a paytable that disagrees with the partner's captured one quotes players prices the
+	// server will not pay — the same owner-only override as the flow.
+	if (body.allowPaytableDrift === true && !isOwner) {
+		return json(
+			{ error: "Only an admin can publish a game whose paytable disagrees with the partner's." },
+			{ status: 403, headers: NO_STORE },
+		);
+	}
+	const allowPaytableDrift = body.allowPaytableDrift === true;
 
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
 		const result = await publishGame(project, url.origin, {
 			allowUnapproved,
 			allowInvalidFlow,
+			allowPaytableDrift,
 			by: locals.user.email,
 		});
 		// Pin the session's active project to the one just published — publishing is an
@@ -87,7 +104,8 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 			// final one (a game with its own desktop build, which overwriting would destroy) — and can
 			// list the sounds instead of saying "something".
 			const canOverride =
-				e.reason === 'unapproved-sounds' || (e.reason === 'invalid-flow' && isOwner);
+				e.reason === 'unapproved-sounds' ||
+				((e.reason === 'invalid-flow' || e.reason === 'paytable-drift') && isOwner);
 			return json(
 				{ error: e.message, reason: e.reason, details: e.details, canOverride },
 				{ status: 409, headers: NO_STORE },

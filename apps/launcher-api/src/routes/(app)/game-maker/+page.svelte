@@ -401,7 +401,15 @@
 		if (project) await publish(project.key);
 	}
 
-	async function publish(projectKey: string, allowUnapproved = false, allowInvalidFlow = false) {
+	/** The refusals an author (or, for the last two, an admin) has already chosen to push past. */
+	type PublishOverrides = {
+		allowUnapproved?: boolean;
+		allowInvalidFlow?: boolean;
+		allowPaytableDrift?: boolean;
+	};
+
+	async function publish(projectKey: string, overrides: PublishOverrides = {}) {
+		const { allowUnapproved, allowInvalidFlow, allowPaytableDrift } = overrides;
 		publishing = { ...publishing, [projectKey]: true };
 		publishErr = { ...publishErr, [projectKey]: '' };
 		publishNote = { ...publishNote, [projectKey]: '' };
@@ -409,11 +417,7 @@
 			const res = await fetch('/api/game-maker/publish', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					project: projectKey,
-					...(allowUnapproved ? { allowUnapproved } : {}),
-					...(allowInvalidFlow ? { allowInvalidFlow } : {}),
-				}),
+				body: JSON.stringify({ project: projectKey, ...overrides }),
 			});
 			const out = await res.json().catch(() => ({}));
 			// An UNAPPROVED-SOUNDS refusal is one an author may legitimately push past — it protects a
@@ -434,7 +438,7 @@
 					publishErr = { ...publishErr, [projectKey]: out.error };
 					return;
 				}
-				await publish(projectKey, true, allowInvalidFlow);
+				await publish(projectKey, { ...overrides, allowUnapproved: true });
 				return;
 			}
 			// An INVALID-FLOW refusal lists the validator's errors. Only the owner role gets the override
@@ -460,7 +464,31 @@
 					publishErr = { ...publishErr, [projectKey]: out.error };
 					return;
 				}
-				await publish(projectKey, allowUnapproved, true);
+				await publish(projectKey, { ...overrides, allowInvalidFlow: true });
+				return;
+			}
+			// A PAYTABLE-DRIFT refusal lists the rows where the authored paytable and the captured partner
+			// paytable disagree. Same owner-only override as the flow.
+			if (res.status === 409 && out?.reason === 'paytable-drift' && !allowPaytableDrift) {
+				const rows: string[] = Array.isArray(out.details) ? out.details : [];
+				if (!out.canOverride) {
+					publishErr = {
+						...publishErr,
+						[projectKey]: `${out.error} Ask an admin to publish anyway if it is intended.`,
+					};
+					return;
+				}
+				const ok = await askConfirm({
+					title: "Publish with a paytable that differs from the partner's?",
+					message: `${out.error}\n\nWhere they differ:\n  ${rows.join('\n  ')}`,
+					confirmLabel: 'Publish anyway',
+					danger: true,
+				});
+				if (!ok) {
+					publishErr = { ...publishErr, [projectKey]: out.error };
+					return;
+				}
+				await publish(projectKey, { ...overrides, allowPaytableDrift: true });
 				return;
 			}
 			if (!res.ok) throw new Error(out?.error ?? `Publish failed (${res.status}).`);

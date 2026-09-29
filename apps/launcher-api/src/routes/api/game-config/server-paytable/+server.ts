@@ -6,7 +6,7 @@ import {
 	mapSymbol,
 	pickMappingForConfig,
 } from 'rgs-translator-eagaming/game-mappings';
-import { readMappedPaytable } from 'rgs-translator-eagaming/paytable';
+import { findCapturedConfig, readMappedPaytable } from 'rgs-translator-eagaming/paytable';
 import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import { resolveGameConfigDoc } from '$lib/server/gameConfigDefaults';
 import { projectGameType } from '$lib/server/projects';
@@ -19,15 +19,63 @@ import type { RequestHandler } from './$types';
 const IMPORT_TIMEOUT_MS = 10_000;
 
 /**
+ * A declared boot `config`, read the way the facade reads it at boot: names mapped into engine
+ * symbols by the mapping the vocabulary picks, rows split per `toImportedPaytable`. `skipped` is
+ * planned against the SAVED config (or template); the page re-plans against its live doc.
+ * `declared` / `dealt` are what the page keeps as the partner reference when the read came from a
+ * pasted capture.
+ */
+async function readDeclared(
+	config: Record<string, unknown>,
+	label: string,
+	scope: { clientKey: string; projectKey: string },
+	game: { gameKey: string; gameKeys: string[] },
+): Promise<Response> {
+	const { clientKey, projectKey } = scope;
+	const serverSymbols = Array.isArray(config.symbols)
+		? config.symbols.filter((s): s is string => typeof s === 'string')
+		: [];
+	const detected = pickMappingForConfig({ symbols: serverSymbols });
+	const mapping = detected ?? linesMapping;
+	const declared = readMappedPaytable(config, mapping);
+	if (!declared) return json({ error: `${label} declares no paytable.` }, { status: 422 });
+	const { lines, scatter } = toImportedPaytable(declared);
+
+	let skipped: string[];
+	try {
+		const doc = await resolveGameConfigDoc(
+			clientKey,
+			projectKey,
+			await projectGameType(projectKey),
+		);
+		skipped = doc
+			? planPaytableImport(doc.symbols, { lines, scatter }).skipped
+			: Object.keys(lines);
+	} catch {
+		return json({ error: "Couldn't load this project's saved config." }, { status: 502 });
+	}
+
+	return json({
+		...game,
+		mapping: Object.keys(MAPPINGS).find((name) => MAPPINGS[name] === mapping) ?? 'lines',
+		mappingDetected: detected !== null,
+		serverSymbols,
+		serverNames: Object.fromEntries(serverSymbols.map((s) => [mapSymbol(mapping, s), s])),
+		lines,
+		scatter,
+		skipped,
+		declared,
+		dealt: [...new Set(serverSymbols.map((s) => mapSymbol(mapping, s)))],
+	});
+}
+
+/**
  * The paytable a project's published game server DECLARES, in the shape `/config` authors — the
  * source of the page's "Import from server" review. Read-only: nothing is written; the author
  * applies the rows to the page's doc and saves through `PUT /api/game-config` like any edit.
  *
  * `?project=` scopes like the sibling endpoint; `?game=` picks one of `gameKeys` when the project
- * has several published games. The server is read with an empty-body heartbeat (no bet, no round),
- * its names are mapped into engine symbols by the mapping its vocabulary picks — the same pick the
- * facade makes at boot — and `lines` / `scatter` come back per `toImportedPaytable`. `skipped` is
- * planned against the SAVED config (or template); the page re-plans against its live doc.
+ * has several published games. The server is read with an empty-body heartbeat (no bet, no round).
  *
  * Every failure is `json({ error }, { status })` so the page can show the cause in the dialog.
  */
@@ -60,40 +108,65 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!boot.ok) {
 		return json({ error: `Couldn't read ${gameKey}'s server: ${boot.reason}.` }, { status: 502 });
 	}
-	const serverSymbols = Array.isArray(boot.config.symbols)
-		? boot.config.symbols.filter((s): s is string => typeof s === 'string')
-		: [];
-	const detected = pickMappingForConfig({ symbols: serverSymbols });
-	const mapping = detected ?? linesMapping;
-	const declared = readMappedPaytable(boot.config, mapping);
-	if (!declared) {
-		return json({ error: `${gameKey}'s server declares no paytable.` }, { status: 422 });
-	}
-	const { lines, scatter } = toImportedPaytable(declared);
+	return readDeclared(
+		boot.config,
+		`${gameKey}'s server`,
+		{ clientKey, projectKey },
+		{
+			gameKey,
+			gameKeys,
+		},
+	);
+};
 
-	let skipped: string[];
+/**
+ * The same review, from a boot `config` a person CAPTURED in a browser on a partner's game and
+ * pasted — the partner's edge challenges server-side fetches, so the launcher cannot read it itself.
+ * Body: `{ capture }`, the pasted text (or already-parsed JSON). The config is found inside a bare
+ * context, the event, a whole response or a sniffer record (`findCapturedConfig`). Nothing is
+ * fetched and nothing is written.
+ */
+export const POST: RequestHandler = async ({ url, locals, request }) => {
+	const user = await requireGameConfigAccess(locals);
+	const { clientKey, projectKey } = await requireProjectScope(
+		user,
+		url.searchParams.get('project'),
+	);
+
+	let capture: unknown;
 	try {
-		const doc = await resolveGameConfigDoc(
-			clientKey,
-			projectKey,
-			await projectGameType(projectKey),
-		);
-		skipped = doc
-			? planPaytableImport(doc.symbols, { lines, scatter }).skipped
-			: Object.keys(lines);
+		capture = ((await request.json()) as { capture?: unknown }).capture;
 	} catch {
-		return json({ error: "Couldn't load this project's saved config." }, { status: 502 });
+		return json({ error: 'Invalid JSON' }, { status: 400 });
 	}
-
-	return json({
-		gameKey,
-		gameKeys,
-		mapping: Object.keys(MAPPINGS).find((name) => MAPPINGS[name] === mapping) ?? 'lines',
-		mappingDetected: detected !== null,
-		serverSymbols,
-		serverNames: Object.fromEntries(serverSymbols.map((s) => [mapSymbol(mapping, s), s])),
-		lines,
-		scatter,
-		skipped,
-	});
+	if (typeof capture === 'string') {
+		try {
+			capture = JSON.parse(capture);
+		} catch {
+			return json(
+				{ error: 'The pasted text is not JSON. Paste the response body exactly as captured.' },
+				{ status: 400 },
+			);
+		}
+	}
+	const config = findCapturedConfig(capture);
+	if (!config) {
+		return json(
+			{
+				error:
+					'No boot config found in the paste. Capture the response that carries the `config` ' +
+					'event (the first request the game makes) and paste its body.',
+			},
+			{ status: 422 },
+		);
+	}
+	return readDeclared(
+		config,
+		'The pasted config',
+		{ clientKey, projectKey },
+		{
+			gameKey: 'pasted capture',
+			gameKeys: [],
+		},
+	);
 };

@@ -16,11 +16,16 @@
 //      mapping (the same pick the facade makes at boot);
 //   2. store line rows in the authored shape: one single-key `{ count: multiplier }` per paying
 //      count, ascending, zero pays dropped;
-//   3. keep scatter rows apart — they have no authored home — and say whether they match the row
-//      the info page synthesizes;
+//   3. keep scatter rows apart and land them on the dictionary's SCATTER symbol's own paytable —
+//      the scatter pay (× total bet), planned against what the info page shows today, the default
+//      row when nothing is authored;
 //   4. plan against the dictionary: unchanged vs changed, skip server symbols it has no entry for
 //      (never invent one), and leave alone what the server does not price;
-//   5. once applied, leave the boot cross-check with nothing to say about line rows.
+//   5. once applied, leave the boot cross-check — and the publish gate — with nothing to say;
+//   6. find the boot config inside whatever a person pasted from a browser capture;
+//   7. keep a pasted capture as the partner reference, and report drift against it only when one
+//      was captured;
+//   8. show what the info page shows: in-play line rows, and the scatter's own or default row.
 
 import {
 	bookMapping,
@@ -28,15 +33,19 @@ import {
 	pickMappingForConfig,
 } from '../packages/rgs-translator-eagaming/src/gameMappings.ts';
 import {
+	findCapturedConfig,
 	readDeclaredPaytable,
 	readMappedPaytable,
 } from '../packages/rgs-translator-eagaming/src/paytable.ts';
 import {
+	DEFAULT_SCATTER_PAYTABLE,
 	comparePaytables,
 	formatPayRow,
+	normalizePartnerPaytable,
+	partnerPaytableDrift,
 	planPaytableImport,
+	shownPaytable,
 	toImportedPaytable,
-	type PayEntry,
 } from '../packages/game-config/src/serverPaytable.ts';
 import type { PaytableRow } from '../packages/game-config/src/types.ts';
 
@@ -169,20 +178,29 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 	};
 	const plan = planPaytableImport(dictionary, imported);
 	const byName = Object.fromEntries(plan.rows.map((r) => [r.symbol, r]));
-	check('rows follow dictionary order', same(plan.rows.map((r) => r.symbol), ['H1', 'H2', 'H3', 'L1']), plan.rows.map((r) => r.symbol).join(',')); // prettier-ignore
+	check('rows follow dictionary order', same(plan.rows.map((r) => r.symbol), ['H1', 'H2', 'H3', 'L1', 'S']), plan.rows.map((r) => r.symbol).join(',')); // prettier-ignore
 	check('same pays in another order ⇒ unchanged', byName.H1.unchanged);
 	check('a zero row on the authored side does not count as a difference', byName.H3.unchanged);
 	check('different pays ⇒ changed, server rows carried', !byName.H2.unchanged && same(byName.H2.server, rows(BOOK_LINE.PIC2))); // prettier-ignore
 	check('an unpriced dictionary symbol the server prices ⇒ changed', !byName.L1.unchanged && byName.L1.current.length === 0); // prettier-ignore
 	check('server symbols with no dictionary entry are skipped, never added', same(plan.skipped, ['H4', 'L2', 'L3', 'L4', 'L5']), plan.skipped.join(',')); // prettier-ignore
 	check('an authored row the server does not price is listed, not cleared', same(plan.undeclared, ['W']), plan.undeclared.join(',')); // prettier-ignore
-	check('the Book scatter matches the synthesized info-page row', plan.scatter.length === 1 && plan.scatter[0].symbol === 'S' && plan.scatter[0].matchesShown); // prettier-ignore
+	check('the Book scatter matches the default row the info page shows ⇒ unchanged', plan.rows.some((r) => r.symbol === 'S' && r.mode === 'scatter' && r.unchanged && same(r.current, DEFAULT_SCATTER_PAYTABLE))); // prettier-ignore
 
 	const other = planPaytableImport(dictionary, {
 		lines: {},
 		scatter: [{ on: { occurs: [3, 4, 5], of: 'S', mode: 'scatter' }, pay: [2, 10, 100] }],
 	});
-	check('a different scatter row is flagged as not matching', !other.scatter[0].matchesShown);
+	const s = other.rows.find((r) => r.symbol === 'S');
+	check('a different scatter row is a scatter change onto S', s?.mode === 'scatter' && !s.unchanged && same(s.server, [{ '3': 2 }, { '4': 10 }, { '5': 100 }])); // prettier-ignore
+
+	const authored = planPaytableImport(
+		{ S: { special_properties: ['scatter'], paytable: [{ '3': 2 }, { '4': 10 }, { '5': 100 }] } },
+		imported,
+	);
+	check('an AUTHORED scatter is planned against its own row, not the default', authored.rows[0]?.mode === 'scatter' && !authored.rows[0].unchanged && same(authored.rows[0].current, [{ '3': 2 }, { '4': 10 }, { '5': 100 }])); // prettier-ignore
+	check('an authored scatter the server states no row for is not "undeclared"', !planPaytableImport({ S: { special_properties: ['scatter'], paytable: [{ '3': 9 }] } }, { lines: {}, scatter: [] }).undeclared.length); // prettier-ignore
+	check('a server scatter row naming a NON-scatter symbol is skipped, never priced as a line', planPaytableImport({ H1: {} }, { lines: {}, scatter: [{ on: { occurs: [3], of: 'H1', mode: 'scatter' }, pay: [5] }] }).skipped.includes('H1')); // prettier-ignore
 	check('formatPayRow prints ascending, zero-free', formatPayRow(dictionary.H3.paytable ?? []) === '2:5 3:30 4:100 5:750', formatPayRow(dictionary.H3.paytable ?? [])); // prettier-ignore
 	check('formatPayRow of nothing is a dash', formatPayRow([]) === '—');
 }
@@ -191,25 +209,81 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 {
 	const declared = readMappedPaytable(BOOK_CONFIG, bookMapping) ?? [];
 	const imported = toImportedPaytable(declared);
-	const dictionary: Record<string, { paytable?: PaytableRow[] }> = Object.fromEntries(
-		['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5'].map((s) => [
-			s,
-			{ paytable: [{ '3': 1 }] },
-		]),
-	);
+	const dictionary: Record<string, { paytable?: PaytableRow[]; special_properties?: string[] }> =
+		Object.fromEntries(
+			['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5'].map((s) => [
+				s,
+				{ paytable: [{ '3': 1 }] },
+			]),
+		);
+	dictionary.S = { special_properties: ['scatter'], paytable: [{ '3': 1 }] };
 	for (const row of planPaytableImport(dictionary, imported).rows) {
 		if (!row.unchanged) dictionary[row.symbol].paytable = row.server;
 	}
-	const shown: PayEntry[] = Object.entries(dictionary).map(([of, { paytable = [] }]) => ({
-		on: { occurs: paytable.map((r) => Number(Object.keys(r)[0])), of, mode: 'line' },
-		pay: paytable.map((r) => Object.values(r)[0]),
-	}));
-	const drift = comparePaytables(
-		shown,
-		declared.filter((e) => e.on.mode !== 'scatter'),
-	);
-	check('after applying, the cross-check finds no line drift', drift.length === 0, JSON.stringify(drift)); // prettier-ignore
+	const shown = shownPaytable(dictionary, Object.keys(dictionary));
+	const drift = comparePaytables(shown, declared);
+	check('after applying, the cross-check finds no drift, scatter included', drift.length === 0, JSON.stringify(drift)); // prettier-ignore
 	check('…and a second import is all unchanged', planPaytableImport(dictionary, imported).rows.every((r) => r.unchanged)); // prettier-ignore
+}
+
+// --- 6. A PASTED CAPTURE --------------------------------------------------------------------------
+{
+	const context = BOOK_CONFIG;
+	const event = { event: 'config', context };
+	const response = { events: [{ event: 'balance', context: {} }, event], platform: { balance: 1 } };
+	const sniffed = [
+		{ kind: 'fetch', url: '/rgs/engine?sid=x&seq=0', responseBody: JSON.stringify(response) },
+		{ kind: 'fetch', url: '/other', responseBody: 'not json' },
+	];
+	check('a bare context is found', findCapturedConfig(context) === context);
+	check('an event is found', findCapturedConfig(event) === context);
+	check('a whole response is found', findCapturedConfig(response) === context);
+	check('a list of responses is found', findCapturedConfig([{ events: [] }, response]) === context); // prettier-ignore
+	check('a sniffer dump with JSON-string bodies is found', same(findCapturedConfig(sniffed), context)); // prettier-ignore
+	check('a truncated body is skipped, not thrown on', findCapturedConfig([{ responseBody: '{"events":[' }]) === null); // prettier-ignore
+	check('no config ⇒ null', findCapturedConfig({ events: [{ event: 'balance' }] }) === null);
+}
+
+// --- 7. THE PARTNER REFERENCE ----------------------------------------------------------------------
+{
+	const declared = readMappedPaytable(BOOK_CONFIG, bookMapping) ?? [];
+	const kept = normalizePartnerPaytable({
+		capturedAt: '2026-09-29T00:00:00.000Z',
+		source: 'partner game',
+		entries: [...declared, { on: { of: 'X' } }, null],
+		dealt: ['H1', 7],
+	});
+	check('a capture keeps its well-formed entries only', kept?.entries.length === declared.length);
+	check('…and its string dealt names only', same(kept?.dealt, ['H1']));
+	check('a capture with no usable row is dropped', normalizePartnerPaytable({ entries: [] }) === undefined); // prettier-ignore
+
+	const dictionary = Object.fromEntries(
+		Object.entries(BOOK_LINE).map(([server, row]) => [bookMapping.symbols[server], { paytable: rows(row) }]), // prettier-ignore
+	) as Record<string, { paytable?: PaytableRow[]; special_properties?: string[] }>;
+	dictionary.S = { special_properties: ['scatter'] };
+	const inPlay = Object.keys(dictionary);
+	check('no reference ⇒ no drift, whatever is authored', partnerPaytableDrift({ H1: { paytable: [{ '3': 1 }] } }, ['H1'], undefined).length === 0); // prettier-ignore
+	const clean = partnerPaytableDrift(dictionary, inPlay, kept);
+	check('a table equal to the reference (default scatter included) ⇒ no drift', clean.length === 0, JSON.stringify(clean)); // prettier-ignore
+	dictionary.H1 = { paytable: [{ '3': 100 }, { '4': 1000 }, { '5': 5000 }] };
+	dictionary.S = { special_properties: ['scatter'], paytable: [{ '3': 2 }, { '4': 10 }, { '5': 100 }] }; // prettier-ignore
+	const drift = partnerPaytableDrift(dictionary, inPlay, kept);
+	check('a changed line row and a changed scatter are both reported', drift.length === 2 && drift.some((d) => d.symbol === 'H1' && d.kind === 'differs') && drift.some((d) => d.symbol === 'S' && d.mode === 'scatter'), JSON.stringify(drift)); // prettier-ignore
+}
+
+// --- 8. WHAT THE INFO PAGE SHOWS -------------------------------------------------------------------
+{
+	const dictionary = {
+		H1: { paytable: [{ '5': 20 }, { '3': 5 }] },
+		W: { paytable: [{ '5': 50 }] },
+		S: { special_properties: ['scatter'] },
+	};
+	const shown = shownPaytable(dictionary, ['H1', 'S']);
+	check('only in-play symbols are shown', !shown.some((e) => e.on.of === 'W'));
+	check('an unauthored scatter shows the default row, × total bet', same(shown.at(-1), { on: { occurs: [3, 4, 5], of: 'S', mode: 'scatter' }, pay: [2, 20, 200] })); // prettier-ignore
+	const authored = shownPaytable({ ...dictionary, S: { special_properties: ['scatter'], paytable: [{ '3': 1 }, { '5': 50 }] } }, ['H1', 'S']); // prettier-ignore
+	check('an authored scatter shows its own row and never a line row', same(authored.map((e) => `${e.on.of}:${e.on.mode}:${e.pay}`), ['H1:line:5,20', 'S:scatter:1,50'])); // prettier-ignore
+	check('no in-play scatter ⇒ no scatter row', !shownPaytable(dictionary, ['H1']).some((e) => e.on.mode === 'scatter')); // prettier-ignore
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

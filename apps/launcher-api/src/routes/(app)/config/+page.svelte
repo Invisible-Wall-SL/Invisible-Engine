@@ -15,7 +15,11 @@
 		resolveWinModel,
 		resolveCascade,
 		cascadeDefaultFor,
+		DEFAULT_SCATTER_PAYTABLE,
+		describePaytableDrift,
 		formatPayRow,
+		isScatterSymbol,
+		partnerPaytableDrift,
 		planPaytableImport,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 		SWAP_STYLES,
@@ -26,8 +30,10 @@
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type ImportedPaytable,
+		type PayEntry,
 		type PaytableImportPlan,
 	} from 'game-config';
+	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
 	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
@@ -515,25 +521,75 @@
 		gameKeys: string[];
 		mappingDetected: boolean;
 		serverNames: Record<string, string>;
+		/** Every declared row in engine names, and the symbols the server deals — what a pasted
+		 *  capture keeps as the partner reference. */
+		declared: PayEntry[];
+		dealt: string[];
 	};
 	let importOpen = $state(false);
 	let importBusy = $state(false);
 	let importError = $state('');
+	/** `capture`: the rows came from a pasted partner config, so Apply also keeps it as the reference
+	 *  the drift banner and the publish gate compare against. */
+	let importFrom = $state<'server' | 'capture'>('server');
 	let importSource = $state.raw<ServerPaytable | null>(null);
 	let importPlan = $state.raw<PaytableImportPlan | null>(null);
 	const importChanges = $derived(importPlan?.rows.filter((row) => !row.unchanged) ?? []);
 
-	async function openServerImport(game?: string) {
+	function openServerImport(game?: string) {
+		importFrom = 'server';
+		const query =
+			`project=${encodeURIComponent(data.projectKey)}` +
+			(game ? `&game=${encodeURIComponent(game)}` : '');
+		return readImport(() => fetch(`/api/game-config/server-paytable?${query}`));
+	}
+
+	/**
+	 * "Import from a pasted capture": a partner's edge challenges server-side fetches, so its boot
+	 * `config` reaches the launcher only as text someone captured in a browser on the partner's game.
+	 * The config is found HERE (`findCapturedConfig` — a whole response, the event, or a sniffer
+	 * dump) and only it is posted, so a large paste of unrelated traffic never meets the body cap.
+	 */
+	let pasteOpen = $state(false);
+	let pasteText = $state('');
+	let pasteSource = $state('');
+	let pasteError = $state('');
+
+	function readPastedCapture() {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(pasteText);
+		} catch {
+			pasteError = 'That is not JSON. Paste the response body exactly as captured.';
+			return;
+		}
+		const capture = findCapturedConfig(parsed);
+		if (!capture) {
+			pasteError =
+				'No boot config in the paste. Capture the response that carries the `config` event — ' +
+				'the first request the game makes — and paste its body.';
+			return;
+		}
+		pasteError = '';
+		pasteOpen = false;
+		importFrom = 'capture';
+		return readImport(() =>
+			fetch(`/api/game-config/server-paytable?project=${encodeURIComponent(data.projectKey)}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ capture }),
+			}),
+		);
+	}
+
+	async function readImport(request: () => Promise<Response>) {
 		importOpen = true;
 		importBusy = true;
 		importError = '';
 		importSource = null;
 		importPlan = null;
-		const query =
-			`project=${encodeURIComponent(data.projectKey)}` +
-			(game ? `&game=${encodeURIComponent(game)}` : '');
 		try {
-			const res = await fetch(`/api/game-config/server-paytable?${query}`);
+			const res = await request();
 			const body = (await res.json().catch(() => ({}))) as Partial<ServerPaytable> & {
 				error?: string;
 				message?: string;
@@ -556,7 +612,31 @@
 			const symbol = doc.symbols[row.symbol];
 			if (symbol) symbol.paytable = row.server.map((r) => ({ ...r }));
 		}
+		if (importFrom === 'capture' && importSource) {
+			doc.partnerPaytable = {
+				capturedAt: new Date().toISOString(),
+				source: pasteSource.trim() || 'pasted capture',
+				entries: importSource.declared,
+				...(importSource.dealt.length ? { dealt: importSource.dealt } : {}),
+			};
+		}
 		importOpen = false;
+	}
+
+	/**
+	 * Where the paytable this page would SHIP disagrees with the captured partner paytable — the same
+	 * comparison the publish and the bake refuse on (`paytableDrift.ts`), live against unsaved edits.
+	 */
+	const partnerDrift = $derived(
+		partnerPaytableDrift(snapshot.symbols, [...inPlay], snapshot.partnerPaytable),
+	);
+	const partnerCapturedOn = $derived(
+		snapshot.partnerPaytable?.capturedAt
+			? new Date(snapshot.partnerPaytable.capturedAt).toLocaleDateString()
+			: 'an unknown date',
+	);
+	function forgetPartnerPaytable() {
+		delete doc.partnerPaytable;
 	}
 
 	// ── Payline colours ────────────────────────────────────────────────────────────
@@ -1060,6 +1140,23 @@
 				</ul>
 			</div>
 		{/if}
+		{#if partnerDrift.length}
+			<div class="warn err-box">
+				<strong
+					>The paytable disagrees with the partner's in {partnerDrift.length}
+					{partnerDrift.length === 1 ? 'row' : 'rows'}</strong
+				>
+				— against the capture from <code>{snapshot.partnerPaytable?.source}</code>
+				({partnerCapturedOn}). The game would quote prices the partner's server does not pay, so
+				<strong>Publish and delivery builds refuse</strong> until they agree (an admin can
+				override).
+				<ul>
+					{#each partnerDrift as drift (drift.kind + drift.symbol + drift.mode)}
+						<li>{describePaytableDrift(drift)}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 
 		<!-- Return to player --------------------------------------------------------->
 		<!--
@@ -1082,7 +1179,11 @@
 		-->
 		<section>
 			<h2>Return to player</h2>
-			<p class="hint">Shown on the game's profile card.</p>
+			<p class="hint">
+				Shown on the game's profile card, and on the info page's rules wherever the operator allows
+				RTP display (<code>showTheoreticalPayback</code>). The rules also state the base bet mode's
+				max win.
+			</p>
 			<div class="fields">
 				<label
 					><span>RTP</span><input
@@ -1503,7 +1604,9 @@
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
 				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
-				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>.
+				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
+				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 			</p>
 			<div class="server-import">
 				<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
@@ -1518,6 +1621,30 @@
 					{/if}
 				</span>
 			</div>
+			<div class="server-import">
+				<button onclick={() => ((pasteError = ''), (pasteOpen = true))}>
+					Import from a pasted capture
+				</button>
+				<span class="hint-inline">
+					For a partner server the launcher can't reach: paste the <code>config</code> response captured
+					in a browser on the partner's game. It also becomes the reference Publish checks against.
+				</span>
+			</div>
+			{#if snapshot.partnerPaytable}
+				<p class="import-note partner-ref">
+					Partner reference: captured from <code>{snapshot.partnerPaytable.source}</code> on
+					{partnerCapturedOn} —
+					{#if partnerDrift.length}
+						<span class="changed"
+							>{partnerDrift.length}
+							{partnerDrift.length === 1 ? 'row differs' : 'rows differ'}</span
+						>
+					{:else}
+						<span class="badge in">matches</span>
+					{/if}
+					<button class="linkish" onclick={forgetPartnerPaytable}>Forget it</button>
+				</p>
+			{/if}
 			<div class="grid-wrap">
 				<table class="grid">
 					<thead>
@@ -1554,7 +1681,9 @@
 								<td
 									><input
 										value={paytableText(name)}
-										placeholder="5:20, 4:10, 3:5"
+										placeholder={isScatterSymbol(doc.symbols[name])
+											? `default ${formatPayRow(DEFAULT_SCATTER_PAYTABLE)} × total bet`
+											: '5:20, 4:10, 3:5'}
 										oninput={(e) => setPaytable(name, e.currentTarget.value)}
 									/></td
 								>
@@ -2039,25 +2168,62 @@
 	{/if}
 
 	<ConfirmDialog
+		open={pasteOpen}
+		title="Import from a pasted capture"
+		error={pasteError}
+		blocked={!pasteText.trim()}
+		confirmLabel="Read the capture"
+		onconfirm={readPastedCapture}
+		oncancel={() => (pasteOpen = false)}
+	>
+		{#snippet body()}
+			<p class="import-note">
+				On the partner's game, open the browser's developer tools → <strong>Network</strong>,
+				reload, and copy the <strong>response</strong> of the first game request (it carries the
+				<code>config</code> event). A <code>copy(eaSniffed)</code> dump from
+				<code>scripts/console-sniffer.js</code> works too.
+			</p>
+			<textarea class="raw paste" bind:value={pasteText} spellcheck="false"></textarea>
+			<label>
+				<span>Captured from</span>
+				<input bind:value={pasteSource} placeholder="partner game or host" />
+			</label>
+		{/snippet}
+	</ConfirmDialog>
+
+	<ConfirmDialog
 		open={importOpen}
-		title="Import paytable from server"
+		title={importFrom === 'capture'
+			? 'Import from a pasted capture'
+			: 'Import paytable from server'}
 		busy={importBusy}
-		busyLabel="Reading the server's paytable…"
-		blocked={!importChanges.length}
+		busyLabel="Reading the paytable…"
+		blocked={!importChanges.length && importFrom === 'server'}
 		error={importError}
-		confirmLabel={importChanges.length
-			? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'}`
-			: 'Nothing to apply'}
-		cancelLabel={importChanges.length ? 'Cancel' : 'Close'}
+		confirmLabel={importFrom === 'capture'
+			? importChanges.length
+				? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'} and keep as reference`
+				: 'Keep as reference'
+			: importChanges.length
+				? `Apply ${importChanges.length} ${importChanges.length === 1 ? 'change' : 'changes'}`
+				: 'Nothing to apply'}
+		cancelLabel={importChanges.length || importFrom === 'capture' ? 'Cancel' : 'Close'}
 		onconfirm={applyServerImport}
 		oncancel={() => (importOpen = false)}
 	>
 		{#snippet body()}
 			{#if importSource && importPlan}
 				<p class="import-note">
-					What <code>{importSource.gameKey}</code>'s server pays per line, against this page's
-					paytable. <strong>Apply</strong> writes the changed rows into the page; nothing is saved
-					until you <strong>Save</strong>.
+					{#if importFrom === 'capture'}
+						What the pasted config declares, against this page's paytable.
+						<strong>Apply</strong> writes the changed rows and keeps the capture as the partner reference
+						Publish checks against;
+					{:else}
+						What <code>{importSource.gameKey}</code>'s server pays, against this page's paytable.
+						<strong>Apply</strong> writes the changed rows into the page;
+					{/if}
+					nothing is saved until you <strong>Save</strong>. Line rows pay × the line bet, scatter
+					rows × the total bet.
 				</p>
 				{#if importSource.gameKeys.length > 1}
 					<label>
@@ -2093,6 +2259,9 @@
 											{#if serverName && serverName !== row.symbol}
 												<span class="server-name">{serverName}</span>
 											{/if}
+											{#if row.mode === 'scatter'}
+												<span class="server-name">scatter</span>
+											{/if}
 										</th>
 										<td class="pays">{formatPayRow(row.current)}</td>
 										<td class="pays">
@@ -2127,14 +2296,6 @@
 							>{/each}
 					</p>
 				{/if}
-				{#each importPlan.scatter as scatter (scatter.symbol)}
-					<p class="import-note">
-						<strong>Scatter</strong> <code>{scatter.symbol}</code> pays
-						<code>{formatPayRow(scatter.rows)}</code> × total bet on the server —
-						{scatter.matchesShown ? 'the same as' : 'NOT the same as'} the scatter row the info page
-						shows. That row is fixed in the game, not authored here, so it is not imported.
-					</p>
-				{/each}
 			{/if}
 		{/snippet}
 	</ConfirmDialog>
@@ -2981,6 +3142,17 @@
 		font-size: 12px;
 		line-height: 1.5;
 		resize: vertical;
+	}
+	.raw.paste {
+		min-height: 200px;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.partner-ref {
+		margin: 0 0 12px;
+	}
+	.partner-ref .changed {
+		color: #e0b070;
 	}
 	.modal-actions {
 		display: flex;

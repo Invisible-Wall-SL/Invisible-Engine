@@ -52,6 +52,7 @@ const DEFAULT_BASE = 'https://app.invisiblewall.org';
 const USAGE =
 	'Usage: node bake-editor-doc.mjs --project <projectKey> [--dest <out.json>] \\\n' +
 	'         [--base <url>] [--token <t>] [--dry-run] [--optional] [--allow-invalid-flow]\n' +
+	'         [--allow-paytable-drift]\n' +
 	'\n' +
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project> — the client is\n' +
@@ -69,7 +70,10 @@ const USAGE =
 	'                                fetch/export/empty-doc error is still a HARD failure\n' +
 	'                                — it never silently ships the default layout.\n' +
 	'  --allow-invalid-flow          bake even when the flow fails validation (also env\n' +
-	'                                ALLOW_INVALID_FLOW=1). Without it such a bake stops.';
+	'                                ALLOW_INVALID_FLOW=1). Without it such a bake stops.\n' +
+	'  --allow-paytable-drift        bake even when the authored paytable disagrees with the\n' +
+	'                                partner paytable captured in /config (also env\n' +
+	'                                ALLOW_PAYTABLE_DRIFT=1). Without it such a bake stops.';
 
 if (args.length === 0 || hasFlag('help') || hasFlag('h')) {
 	console.info(USAGE);
@@ -122,6 +126,8 @@ const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.L
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
 const allowInvalidFlow = hasFlag('allow-invalid-flow') || process.env.ALLOW_INVALID_FLOW === '1';
+const allowPaytableDrift =
+	hasFlag('allow-paytable-drift') || process.env.ALLOW_PAYTABLE_DRIFT === '1';
 
 // `--optional` stays lenient ONLY when there's NO token — that's the intended dev /
 // no-credentials build, which keeps the checked-in `doc:null` placeholder and proceeds
@@ -1073,10 +1079,24 @@ async function main() {
 		try {
 			const gcRes = await fetchRetry(
 				`${base}/api/game-config/doc?project=${encodeURIComponent(project)}` +
-					`&k=${encodeURIComponent(token)}`,
+					`&k=${encodeURIComponent(token)}` +
+					(allowPaytableDrift ? '&allowPaytableDrift=1' : ''),
 				undefined,
 				'game-config fetch',
 			);
+			// The launcher's paytable gate: the authored paytable disagrees with the partner paytable
+			// captured in /config. List the rows and name the override — never bake it silently, and
+			// never fall through to "no config", which would ship the template's prices instead.
+			if (gcRes.status === 409) {
+				const out = await gcRes.json().catch(() => ({}));
+				const details = Array.isArray(out?.details) ? out.details : [];
+				bail(
+					`${out?.error ?? 'The paytable disagrees with the captured partner paytable.'}\n` +
+						details.map((d) => `    - ${d}`).join('\n') +
+						'\n  Fix it in Invisible Game Config, or re-run with ' +
+						'--allow-paytable-drift (env ALLOW_PAYTABLE_DRIFT=1) to bake it anyway.',
+				);
+			}
 			if (gcRes.ok) {
 				const gc = await gcRes.json();
 				if (gc?.doc) gameConfig = gc.doc;
@@ -1086,6 +1106,7 @@ async function main() {
 				);
 			}
 		} catch (err) {
+			if (err instanceof BakeBail) throw err;
 			console.warn(
 				`⚠ bake-doc: game-config fetch failed (${err instanceof Error ? err.message : err}) — baking without a game config.`,
 			);

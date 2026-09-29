@@ -6,7 +6,7 @@
 	import { stateModal, stateI18nDerived } from 'state-shared';
 	import { buildPayTableRows } from 'utils-shared/paytable';
 
-	import type { InfoManifest } from '../types';
+	import type { InfoManifest, InfoRule } from '../types';
 	import InfoPaylineGrid from './InfoPaylineGrid.svelte';
 
 	type Props = { manifest: InfoManifest };
@@ -16,6 +16,11 @@
 	// English key when no translation is loaded). Page titles live in the shared
 	// components-ui-pixi catalog; per-game rule strings live in the game catalog.
 	const tr = (value: string) => stateI18nDerived.translate(value);
+	/** `MAX WIN — 5,000× BET`: the translated heading, then the rule's figure, if it has one. */
+	const headingOf = ({ heading, figure }: InfoRule) =>
+		figure
+			? [tr(heading), '—', figure.value, ...(figure.unit ? [tr(figure.unit)] : [])].join(' ')
+			: tr(heading);
 
 	// Screenshot mode (?screenshotLines=1): draw the red payline overlay and
 	// expose a deterministic hook for the automated screenshot pipeline. Never
@@ -198,7 +203,7 @@
 			<Container eventMode="none">
 				{#each props.manifest.rules as rule, i}
 					{@const by = contentTop + blockH * i}
-					<Text x={W * 0.1} y={by} anchor={{ x: 0, y: 0 }} text={tr(rule.heading)} style={{ fontFamily: font, fontSize: headSize, fontWeight: '700', fill: titleColor }} />
+					<Text x={W * 0.1} y={by} anchor={{ x: 0, y: 0 }} text={headingOf(rule)} style={{ fontFamily: font, fontSize: headSize, fontWeight: '700', fill: titleColor }} />
 					<Text
 						x={W * 0.1}
 						y={by + headSize * 1.4}

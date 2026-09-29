@@ -503,10 +503,10 @@ runtime. Fixture-verified + build-green; the dialog itself is owner-verify-owed 
   `readMappedPaytable` in `paytable.ts` (new `rgs-translator-eagaming/paytable` export) — the facade
   and the launcher now make the same call, no behaviour change in the facade.
 - **Stored shape.** `toImportedPaytable` + `planPaytableImport` in `game-config/serverPaytable.ts`:
-  line rows as `doc.symbols[name].paytable` (single-key rows, ascending, zero pays dropped); scatter
-  rows kept apart and compared with `SHOWN_SCATTER_ROWS`, the info page's synthesized row. The plan
-  updates dictionary symbols only — server symbols with no entry are `skipped`, authored rows the
-  server does not price are `undeclared` and left alone.
+  line rows as `doc.symbols[name].paytable` (single-key rows, ascending, zero pays dropped). Scatter
+  rows were information only here; since 2026-09-29 they are imported onto the scatter symbol's own
+  paytable (see the next section). The plan updates dictionary symbols only — server symbols with no
+  entry are `skipped`, authored rows the server does not price are `undeclared` and left alone.
 - **Page.** The review is the canonical `ConfirmDialog` with a `body` snippet (not another hand-rolled
   `.modal-backdrop`): per symbol `now → server` or *unchanged*, the skipped/left-as-authored lists,
   one scatter information line, and **Apply N changes** (locked when nothing differs). The plan is
@@ -520,9 +520,88 @@ runtime. Fixture-verified + build-green; the dialog itself is owner-verify-owed 
   nine line symbols in engine names, scatter `3:2 4:20 5:200` matching the shown row; planned against
   the lines template it lists 9 changes, and 9/9 unchanged after applying. **Not verified:** the
   endpoint against the live DB/manifest, and the dialog in a browser.
-- **Duplicate on purpose:** `SHOWN_SCATTER_ROWS` restates `scatterEntry`'s `[2, 20, 200]`
-  (`apps/lines/src/game/paytable.ts`). Making the game import it is an engine change (a runtime
-  release), so it waits for the next engine PR that touches that file.
+- ~~**Duplicate on purpose:** `SHOWN_SCATTER_ROWS`~~ — gone 2026-09-29: the game and the tool now
+  share `shownPaytable` (next section).
+
+## Scatter pays, pasted partner captures, the paytable gate, RTP + max win (2026-09-29)
+
+Four gaps around the paytable, closed together because they share one comparison.
+
+- **Scatter pays are authorable.** A `scatter` symbol's own `paytable` in the dictionary IS its
+  scatter pay (× total bet, anywhere) — never a line row. Unauthored it pays
+  `DEFAULT_SCATTER_PAYTABLE` (`3:2 4:20 5:200`), the row the info page hard-coded before, so every
+  existing project shows exactly what it showed. `shownPaytable(symbols, inPlay)`
+  (`game-config/serverPaytable.ts`) is now the ONE statement of what the info page shows: in-play
+  line rows in dictionary order, then the first in-play scatter's row. `apps/lines/src/game/paytable.ts`
+  is a thin sort over it (the `[2, 20, 200]` literal and `SHOWN_SCATTER_ROWS` are gone). The
+  import plans scatter rows too (`mode: 'scatter'`, planned against the shown row, default
+  included); a server scatter row naming a non-scatter symbol is `skipped`, never priced as a line.
+  The Symbols table's placeholder for a scatter says the default. Two readers of the scatter row
+  were made NOT to follow it: the anticipation tease's trigger count is `SCATTER_TRIGGER_COUNT` (3,
+  what it always was), not the row's lowest count — a row paying from 2 must not tease at 2 — and
+  the land-sound picture/royal median (`landSlotForSymbol`) leaves scatters out, so authoring a 200×
+  scatter pay does not turn a picture into a royal. A read-only scan of R2 on 2026-09-29 found 8
+  authored configs, every scatter named `S` and none with a paytable, so no live project's info page
+  changes on merge.
+- **The lines mock pays and declares an authored scatter row.** `mockContract.projectScatterPaytable`
+  → manifest `grid.scatterPaytable` → test-server `validGrid` → `createMockRgs({ scatterPaytable })`,
+  which pays it and adds a `SCAT` row to the declared paytable. Unauthored ⇒ nothing is sent and the
+  mock keeps its placeholder table, paid but undeclared — byte-identical. The book mock is unchanged.
+- **Import from a pasted capture.** The Play4Fun edge challenges server-side fetches, so the launcher
+  cannot read a partner's `config` itself. **Import from a pasted capture** (Symbols panel) takes the
+  text someone copied in a browser on the partner's game. `findCapturedConfig`
+  (`rgs-translator-eagaming/paytable`) finds the config inside a bare context, the event, a whole
+  response, a list of them, or a `console-sniffer.js` dump (JSON-string bodies included), in the
+  BROWSER — only the config is posted, to the new `POST /api/game-config/server-paytable`, which
+  answers the same review shape as the GET plus `declared` / `dealt`. The same `ConfirmDialog`
+  reviews it; Apply writes the changed rows AND stores `doc.partnerPaytable`
+  (`{ capturedAt, source, entries, dealt? }`, engine names, normalized by
+  `normalizePartnerPaytable`) — even with zero changes ("Keep as reference"). It never ships:
+  `withoutPartnerPaytable` strips it from the online runtime bundle and from the bake's
+  `/api/game-config/doc` answer (the partner's table and a free-text source have no business in a
+  public bundle).
+- **Drift is an authoring banner and a ship gate, not only a console line.** `partnerPaytableDrift`
+  compares `shownPaytable` with the stored reference (`comparePaytables`, so `differs` / `unshown` /
+  `undeclared` mean what the boot check means). `/config` shows it live against unsaved edits (a
+  red box above the panels, plus a "Partner reference … matches / N rows differ · Forget it" line in
+  Symbols). The online **Publish** refuses with a `paytable-drift` `PublishBlockedError`
+  (`$lib/server/paytableDrift.ts`), overridable by the owner role only — same model as
+  `invalid-flow`; the Game Maker page asks. The desktop half: `GET /api/game-config/doc` answers 409
+  `{ reason: 'paytable-drift', details }` and `bake-editor-doc.mjs` bails listing the rows unless
+  run with `--allow-paytable-drift` (env `ALLOW_PAYTABLE_DRIFT=1`) — it used to treat any non-200
+  there as "bake without a config", which here would have shipped the template's prices.
+  `publish-symbol-defaults.mjs` reads that doc for its symbol gate only, so it passes the override.
+  **No reference ⇒ no gate**: a project that never pasted a capture is never blocked.
+- **RTP + max win on the info page.** `infoPageFigures(doc, displayRTP, formatNumber)`
+  (`game-config/infoFigures.ts`) → `infoRulesWithFigures` (`engine-layout` `uiText.ts`). A rule may
+  carry a `figure` printed BESIDE its heading: MAX WIN reads **"MAX WIN — 5,000× BET"** (the base
+  bet mode's `max_win`, in the game's i18n number format), and an **RTP** rule — "RTP — 96.50%" plus
+  one new body sentence — appears ONLY when `jurisdiction.displayRTP`, which the facade sets from the
+  operator's `showTheoreticalPayback` and is false wherever nobody said otherwise (figure: the
+  config's `rtp`, else the base mode's). **Why beside the heading:** the first cut rewrote the MAX
+  WIN body as an ICU template (`{maxWin}`), and the pre-merge boot rendered "The maximum win is ×
+  the total bet" — Lingui compiles a message with no values by BLANKING its placeholders. The review
+  then pointed out a new body would also put an English paragraph into every localized game until
+  translated. The figure uses only strings every game already translates (`MAX WIN`, `BET`), keeps
+  the body untouched, and no rules string carries a `{…}` (the fixture asserts it). Unstated figures
+  leave the page exactly as it was. **Note:** every game's rules now state its config's base-mode
+  `max_win` — a partner-math game must author the real cap in Bet modes.
+- **Verified:** `pnpm check:paytable` (import fixture 31 → 51: scatter planning, a pasted capture in
+  six shapes, the partner reference + drift, what the page shows; `verify-server-paytable.mts`
+  21/21), `pnpm check:info-figures` (new, 18 — incl. "no placeholder in any rules string"), both now
+  a CI step in `lint.yml`; `sounds.fixture.ts` gained the scatter-excluded split (fails without the
+  fix); `pnpm check:rgs` with the
+  new `check:lines-scatter-paytable` (placeholder unchanged + undeclared, authored paid + declared,
+  malformed ignored); svelte-check on `apps/lines` and the launcher — no error in any touched file;
+  `pnpm --filter launcher-api build` green. **Booted the Book of Borut remake from this branch**
+  (its live authored runtime through a local proxy, the book mock): no stale fallback, no drift
+  warning, the paytable byte-identical to before (nine line rows + `S` 3:2 4:20 5:200 `feature`),
+  rules page showing "MAX WIN — 5,000× BET" and, with `displayRTP` on, "RTP — 97.00%". Reviewed by
+  the `code-reviewer` agent; every blocking and should-fix item addressed except two recorded
+  below (a transient R2 error at the gate fails the publish, like its neighbours; a partner scatter
+  under a different name than the project's cannot be imported).
+  **Not verified:** the `/config` capture dialog and banner in a browser (needs a launcher login —
+  owner-verify, below).
 
 ## Sounds panel — the game-wide sound SLOTS (2026-08-25)
 
@@ -574,7 +653,22 @@ What is specific to this tool:
    would have caught the wild on the first spin. (The PAYTABLE half is done: the boot cross-check
    warns, and **Import paytable from server** fixes it — see above.)
 3. **Owner-verify the paytable import dialog** in a browser on a published project (Book of Borut
-   remake should show nine *unchanged* rows now that its config was authored from the server).
+   remake should show nine *unchanged* rows now that its config was authored from the server) —
+   and the **pasted-capture** path: paste a partner `config` response, Keep as reference, Save, see
+   the "matches" line; edit one price, see the red banner, and see Publish refuse (admin: publish
+   anyway).
+4. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
+   `3:2 4:10 5:100` while the info page's default shows `3:2 4:20 5:200` — undeclared, so no check
+   sees it; authoring the scatter row fixes it per project. The book mock DECLARES `3:2 4:20 5:200`
+   but pays 0 (its scatter only triggers the feature). Neither is changed here: both are payouts on
+   live test games.
+5. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
+   config's base-mode `max_win` (the remake: 5,000). What `maxWinMp` means per bet option is not in
+   the protocol reference, so it is not read yet. RTP per bet mode (a buy with its own RTP) is also
+   not shown — one game-level figure only.
+6. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
+   whose scatter is called something else gets it `skipped` on import and a permanent
+   `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -593,6 +687,13 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   **History…** button (shared `$lib/DocHistoryModal.svelte`) that lists them and restores one through
   `POST /api/game-config/backups?project=` with this tab's ETag, then reloads. Build + checks green;
   ⏳ restore not click-tested in a browser (list verified live).
+- 2026-09-29 — **Scatter pays authorable, import from a pasted partner capture, a paytable drift
+  banner + publish/deliver gate, RTP + max win on the info page.** Full write-up: _Scatter pays,
+  pasted partner captures, the paytable gate, RTP + max win_ above. New: `shownPaytable`,
+  `DEFAULT_SCATTER_PAYTABLE`, `partnerPaytableDrift`, `doc.partnerPaytable`,
+  `POST /api/game-config/server-paytable`, `paytable-drift` publish refusal, `--allow-paytable-drift`,
+  `infoPageFigures`, rule `figure`s, `SCATTER_TRIGGER_COUNT`. Engine change ⇒ a runtime release.
+
 - 2026-09-28 (security) — **`/api/game-config` and `server-paytable` now refuse a project the
   caller cannot access.** Both resolved whatever `?project=` they were handed once the ROLE had the
   `gameConfig` tool, so any Game Config user could read — and, through `PUT`, overwrite in R2 —

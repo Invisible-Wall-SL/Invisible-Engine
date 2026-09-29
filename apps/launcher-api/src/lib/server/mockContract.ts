@@ -23,6 +23,7 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
+	isScatterSymbol,
 	resolveBetModes,
 	resolveWinModel,
 	symbolsInPlay,
@@ -180,8 +181,9 @@ function projectSymbolPaytable(
 	for (const server of Object.keys(mapping.symbols)) {
 		// NEITHER SPECIAL GETS A LINE PRICE ROW. `WILD` was already excluded because the `wild` field
 		// governs it. `SCAT` has to be excluded for the same reason and was not: the mock pays scatters
-		// through its own `evaluateScatters` pass, and the templates all author a paytable on `S`, so
-		// once this table started feeding the LINE evaluator a scatter run began paying TWICE — once as
+		// through its own `evaluateScatters` pass (from `projectScatterPaytable` when one is authored),
+		// and a scatter's own `paytable` is its SCATTER pay, so once this table started feeding the
+		// LINE evaluator a scatter run would have paid TWICE — once as
 		// the feature trigger and again as an ordinary left-to-right line win, because
 		// `evaluatePaylines` reads its base symbol off the board and `payRowOf` now found a row for it.
 		// Harmless while only the `scatter` model received this table (that model never runs the payline
@@ -240,6 +242,20 @@ function projectBetModes(
 		cost: mode.costMultiplier,
 		kind: mode.kind,
 	}));
+}
+
+/**
+ * The scatter pays the project AUTHORED — its in-play scatter symbol's own `paytable`, count →
+ * × total stake — or `undefined`, which leaves the mock on its placeholder table, undeclared, exactly
+ * as before scatter pays had an authored home. The same symbol `shownPaytable` puts on the info page.
+ */
+function projectScatterPaytable(doc: GameConfigDoc): Record<string, number> | undefined {
+	const inPlay = new Set(symbolsInPlay(doc));
+	const name = Object.keys(doc.symbols).find(
+		(id) => inPlay.has(id) && isScatterSymbol(doc.symbols[id]),
+	);
+	const rows = name ? doc.symbols[name].paytable : undefined;
+	return rows?.length ? paytableToOccursMap(rows) : undefined;
 }
 
 /**
@@ -337,6 +353,7 @@ async function projectGrid(
 		// since the mock's own table has none for them. Same gap, one fix: the mock prices what the
 		// project authored, and falls back to its own table per-symbol for anything unpriced.
 		const symbolPaytable = projectSymbolPaytable(doc, linesMapping);
+		const scatterPaytable = projectScatterPaytable(doc);
 		const betModes = projectBetModes(doc, projectKey);
 		return {
 			reels,
@@ -350,6 +367,7 @@ async function projectGrid(
 			...(cluster ?? {}),
 			...(scatter ?? {}),
 			...(symbolPaytable ? { symbolPaytable } : {}),
+			...(scatterPaytable ? { scatterPaytable } : {}),
 			...(betModes ? { betModes } : {}),
 		};
 	} catch {

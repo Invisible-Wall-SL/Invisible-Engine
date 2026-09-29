@@ -22,7 +22,8 @@ export type InfoSymbolIcon = {
 	sizeRatios: { width: number; height: number };
 };
 
-export type InfoRule = { heading: string; body: string };
+/** `figure` prints after the heading: `value` as given, `unit` translated (see `engine-layout`'s `UiInfoRule`). */
+export type InfoRule = { heading: string; body: string; figure?: { value: string; unit?: string } };
 
 export type InfoTheme = {
 	fontFamily?: string;

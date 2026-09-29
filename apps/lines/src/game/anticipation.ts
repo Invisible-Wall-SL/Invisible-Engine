@@ -1,3 +1,4 @@
+import { SCATTER_TRIGGER_COUNT } from 'game-config';
 import { createLinesReach, createWaysReach } from 'utils-slots';
 import type { AnticipationReach, ReelAnticipationArming } from 'utils-slots';
 
@@ -58,13 +59,14 @@ function buildReach(board: string[][]): {
 		payBySymbol.set(entry.on.of, runToPay);
 	}
 
-	// The feature-trigger special = the scatter row's symbol; the trigger COUNT = its first `occurs`
-	// (e.g. 3 scatters → free spins). Absent ⇒ no trigger axis.
+	// The feature-trigger special = the scatter row's symbol. The trigger COUNT is not that row's
+	// first `occurs`: the row is authored pays, and a row paying from 2 must not tease at 2.
+	// Absent ⇒ no trigger axis.
 	const scatterEntry = entries.find(
 		(entry) => entry.on.mode === 'scatter' || entry.trigger === 'feature',
 	);
 	const scatterName = scatterEntry?.on.of;
-	const triggerCount = scatterEntry?.on.occurs[0];
+	const triggerCount = scatterEntry ? SCATTER_TRIGGER_COUNT : undefined;
 
 	const isWild = (symbol: string): boolean =>
 		config.symbols[symbol]?.special_properties?.includes('wild') ?? false;

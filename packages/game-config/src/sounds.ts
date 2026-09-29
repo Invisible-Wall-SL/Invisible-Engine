@@ -348,7 +348,10 @@ export function landSlotForSymbol(
 	if (properties.includes('scatter')) return 'scatterLand';
 	if (properties.includes('wild')) return 'wildLand';
 
+	// A scatter's `paytable` is its scatter pay (× total bet), not a line price, so it has no place in
+	// the picture/royal ranking — authoring one must not move the split.
 	const paying = Object.values(symbols ?? {})
+		.filter((s) => !s.special_properties?.includes('scatter'))
 		.map(topMultiplier)
 		.filter((m) => m > 0)
 		.sort((a, b) => a - b);

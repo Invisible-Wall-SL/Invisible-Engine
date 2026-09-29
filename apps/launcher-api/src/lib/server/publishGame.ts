@@ -29,6 +29,7 @@ import {
 } from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { resolveMockContract } from './mockContract';
+import { paytableDriftDetails, paytableDriftMessage } from './paytableDrift';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
@@ -40,6 +41,7 @@ import {
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
 import { checkSoundsForPublish } from './soundPublishCheck';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
 
@@ -73,9 +75,13 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — while `unapproved-sounds` and `invalid-flow` are deliberate-override
-		 *  cases (the flow one for the owner role only; see the publish endpoint). */
-		readonly reason: 'own-bundle' | 'unapproved-sounds' | 'invalid-flow' = 'own-bundle',
+		 *  clobber a real game — while `unapproved-sounds`, `invalid-flow` and `paytable-drift` are
+		 *  deliberate-override cases (the last two for the owner role only; see the publish endpoint). */
+		readonly reason:
+			| 'own-bundle'
+			| 'unapproved-sounds'
+			| 'invalid-flow'
+			| 'paytable-drift' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
 		readonly details: string[] = [],
 	) {
@@ -131,7 +137,12 @@ function runtimeFor(_gameType: string): string {
 export async function publishGame(
 	projectKey: string,
 	launcherOrigin: string,
-	options: { allowUnapproved?: boolean; allowInvalidFlow?: boolean; by?: string } = {},
+	options: {
+		allowUnapproved?: boolean;
+		allowInvalidFlow?: boolean;
+		allowPaytableDrift?: boolean;
+		by?: string;
+	} = {},
 ): Promise<PublishResult> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const gameType = await projectGameType(projectKey);
@@ -181,6 +192,14 @@ export async function publishGame(
 		);
 	};
 	refuseFlow(await checkFlowV2ForPublish(clientKey, projectKey));
+
+	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
+	// quoting other prices unnoticed — the info page is built from the authored config, the partner
+	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
+	const drift = paytableDriftDetails(await loadGameConfigDoc(clientKey, projectKey));
+	if (drift.length && !options.allowPaytableDrift) {
+		throw new PublishBlockedError(paytableDriftMessage(drift), 'paytable-drift', drift);
+	}
 
 	// 2. Assemble once, gate what ships, freeze it. All under the project's deploy lock, so the
 	// `deploy/` tree the snapshot copies is exactly the one this assemble wrote. The snapshot is only
