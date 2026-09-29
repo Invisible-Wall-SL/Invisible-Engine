@@ -242,6 +242,7 @@ const FIXED = [
 	'sounds/file',
 	'editor/component',
 	'editor/component-defaults',
+	'editor/component-defaults/backups',
 	'editor/components',
 	'game-maker/publish',
 	'launcher/register-game',

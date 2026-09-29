@@ -234,8 +234,8 @@ The correctness floor. Contained because of the linchpin above.
 >    conflicts were throwing `ReferenceError`→502; now 409.
 > 3. **`componentDefaultsStorage` — DONE.** `loadComponentDefaultsWithEtag` (reports
 >    `existed`) + `saveComponentDefaults(…, baseEtag)` + `precondition`; the
->    `/api/editor/component-defaults` POST is CAS-guarded and 409s (no UI writes it yet, so
->    it is future-proofed rather than fixing a live regression).
+>    `/api/editor/component-defaults` POST is CAS-guarded and 409s (written by `/components`'
+>    *Save for this game*; it also keeps rolling backups — `docBackups.ts`).
 > 4. **Shared `$lib/saveState.svelte.ts` — HELPER BUILT 2026-08-04, migration staged.** The
 >    rune module + `$lib/SaveStatusBadge.svelte` are written and verified offline (31
 >    assertions over the real compiled module). The 8 page migrations onto them are

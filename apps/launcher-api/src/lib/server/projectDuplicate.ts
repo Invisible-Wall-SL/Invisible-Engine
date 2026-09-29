@@ -33,6 +33,7 @@
 
 import {
 	SUB,
+	componentDefaultsBackupsPrefix,
 	editorDocBackupTarget,
 	flowV2DocBackupTarget,
 	gameConfigDocBackupTarget,
@@ -130,13 +131,15 @@ export async function planDuplicate(
 	}
 
 	// A copy starts its own history: the source's rolling doc backups describe the SOURCE, and
-	// carrying them would re-base and write up to 80 extra docs per duplicate.
+	// carrying them would re-base and write every one of them (20 per doc) into the copy.
 	const backupPrefixes = [
 		editorDocBackupTarget,
 		flowV2DocBackupTarget,
 		symbolsDocBackupTarget,
 		gameConfigDocBackupTarget,
-	].map((target) => target(source.clientKey, source.projectKey).prefix);
+	]
+		.map((target) => target(source.clientKey, source.projectKey).prefix)
+		.concat(componentDefaultsBackupsPrefix(source.projectKey));
 
 	const entries: DuplicatePlanEntry[] = [];
 	const seen = new Set<string>();

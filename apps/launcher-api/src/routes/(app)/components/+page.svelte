@@ -3,6 +3,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
@@ -280,6 +281,58 @@
 		} catch {
 			saveStatus = { kind: 'error', message: 'Could not read this game’s defaults.' };
 		}
+	}
+
+	/**
+	 * Version history of the open component's defaults sidecar (rolling server-side backups, one
+	 * folder per component). The restore is the same guarded write as a save — this sidecar's
+	 * ETag, so a stale tab gets a 409 rather than reverting someone's defaults — and it keeps a
+	 * copy of what it replaces. Afterwards only the SIDECAR's values + ETag are adopted, never a
+	 * page reload: that would throw away an unsaved component draft to restore a separate key.
+	 */
+	let defaultsHistoryOpen = $state(false);
+	const defaultsHistoryUrl = $derived(
+		componentDraft
+			? `/api/editor/component-defaults/backups?${new URLSearchParams({
+					project: data.projectKey,
+					component: componentDraft.id,
+				})}`
+			: '',
+	);
+
+	async function restoreDefaultsBackup(backupId: string): Promise<string | null> {
+		const id = componentDraft?.id;
+		if (!id) return 'No component open.';
+		if (defaultsSave.busy) return 'A save is in progress — try again in a moment.';
+		const res = await fetch(defaultsHistoryUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id: backupId, baseEtag: defaultsSave.etag }),
+		});
+		const out = (await res.json().catch(() => ({}))) as {
+			message?: string;
+			error?: string;
+			etag?: string | null;
+			params?: Record<string, unknown>;
+		};
+		if (res.status === 409 && !defaultsDirty) {
+			// Someone saved these defaults since this tab read them. Nothing here is unsaved, so take
+			// their version (which also clears the stale ETag) instead of leaving a full page reload —
+			// and the unsaved component draft with it — as the only way forward.
+			await loadProjectDefaults(id, true);
+			return 'Someone else saved these defaults since you opened them — their version is now loaded. Pick a version again to restore over it.';
+		}
+		if (!res.ok || !out.params)
+			return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+		// Adopt the restore's OWN answer — the values and the ETag of the same write — rather than
+		// a second read that could fail and leave the panel on the pre-restore pair.
+		defaultsSave.adoptEtag(out.etag ?? null);
+		projectDefaults = { ...out.params };
+		projectDefaultsBaseline = defaultsSignature(projectDefaults);
+		seededDefaults[id] = { ...projectDefaults };
+		editNonce += 1;
+		defaultsHistoryOpen = false;
+		return null;
 	}
 
 	/** Set (or clear) one per-project default. `undefined` REMOVES the key — an inherited param
@@ -1695,6 +1748,14 @@
 								>
 									Save for this game
 								</button>
+								<button
+									class="save-btn"
+									type="button"
+									title="Browse and restore earlier saved versions of this game's defaults for the open component"
+									onclick={() => (defaultsHistoryOpen = true)}
+								>
+									History…
+								</button>
 							</span>
 						{/snippet}
 					</EditorProperties>
@@ -1712,6 +1773,17 @@
 		<PanelResizers storageKey="iw-components-panels" bind:leftWidth bind:rightWidth bind:resizing />
 	</div>
 </div>
+
+{#if componentDraft}
+	<DocHistoryModal
+		open={defaultsHistoryOpen}
+		listUrl={defaultsHistoryUrl}
+		docLabel={`defaults for ${componentDraft.name}`}
+		dirty={defaultsDirty}
+		onRestore={restoreDefaultsBackup}
+		onclose={() => (defaultsHistoryOpen = false)}
+	/>
+{/if}
 
 <style>
 	.shell {

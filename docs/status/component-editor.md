@@ -24,20 +24,26 @@ Shipped capabilities on `main`:
 3. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
 4. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 5. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
-6. **Per-project component defaults have no version history.** Scenes, Flow, Symbols and Game
-   Config back up the version each save replaces (`lib/server/docBackups.ts`, see
-   [launcher.md](launcher.md) 2026-09-29); `saveComponentDefaults` does not. With the shared helper
-   the storage side is one target builder + one id stem, but the key has no client segment and
-   there is one doc per component, so the backups need a per-component folder OUTSIDE
-   `component-defaults/` (so the defaults listing never reads them) and a restore route taking
-   `project` + component `id` behind the existing route's access check, plus a History button in
-   `/components` (the shared `$lib/DocHistoryModal.svelte` fits).
 
 ## Blocked (owner / external)
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
 
+- 2026-09-29 — **Version history for this game's component defaults.** `saveComponentDefaults` now
+  writes through `docBackups.putDocWithBackup` (the helper Scenes/Flow/Symbols/Config use — see
+  [launcher.md](launcher.md) 2026-09-29): the version each save replaces is kept (newest 20 per
+  component, one per 5 min; an overwrite or restore always keeps one; none when the save's ETag is
+  already stale). Backups live at `editor/<project>/component-defaults-backups/<slug(id)>/` — a
+  SIBLING of `component-defaults/`, so `listComponentDefaults` never reads one as a phantom
+  component, and project duplicate skips them. `GET/POST
+  /api/editor/component-defaults/backups?project=&component=` lists/restores (editor gate +
+  `requireOptionalProjectKey`, now shared as `lib/server/editorAccess.ts`); the restore writes the
+  backup's `params` through the same guarded save. **History…** beside *Save for this game* opens
+  `$lib/DocHistoryModal.svelte`; a restore adopts the POST's own `{ params, etag }` (no page
+  reload), so an unsaved component draft survives it, and a restore that 409s with nothing unsaved
+  loads their version in place so the author can pick again. Covered by `check:doc-backups` (184 checks, incl. the listing never
+  surfacing a backup — verified to fail when the folder is moved inside `component-defaults/`).
 - 2026-09-28 (security) — **The component APIs refuse a project the caller cannot access.**
   `/api/editor/component` (GET/POST/DELETE), `/api/editor/component-defaults` (GET/POST) and
   `/api/editor/components` resolved any `?project=` or body `project` on the `editor` grant alone, so

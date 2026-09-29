@@ -172,6 +172,14 @@ while you had the panel open, the badge turns into a conflict with **Reload thei
 and **Overwrite with mine** rather than quietly clobbering their values. Leaving the
 tool (closing the component, or navigating away) warns while either store is unsaved.
 
+**History…** next to *Save for this game* lists earlier saved versions of this game's
+defaults for the open component, newest first. Each save keeps a copy of the version it
+replaces (at most one every five minutes; the newest 20 per component are kept), and an
+**Overwrite with mine** always keeps one. Pick a version and **Restore**: it is saved like
+any other save — refused if someone else saved these defaults since you opened them — and
+it keeps a copy of the version it replaces, so a restore can be undone from the same list.
+The panel then shows the restored values; the component you are editing is left as it is.
+
 ### 5. Save
 
 Click **Save component** in the top bar. It POSTs the draft to

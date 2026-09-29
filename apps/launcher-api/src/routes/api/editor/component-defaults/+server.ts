@@ -1,33 +1,23 @@
 import { error, json } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
 import {
 	ConflictError,
 	listComponentDefaults,
 	loadComponentDefaultsWithEtag,
 	saveComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requestedBackupMode } from '$lib/server/docBackupRoutes';
+import { requireEditorAccess } from '$lib/server/editorAccess';
 import { requireOptionalProjectKey } from '$lib/server/toolScope';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
-/**
- * Auth + role gate matching the component route: logged-in and entitled to the
- * `editor` tool (role + per-user overrides applied). Defaults are keyed by project
- * (`editor/<projectKey>/component-defaults/`), so the project is a request param —
- * there is no session-bound project scope here, exactly like the component route —
- * and `requireOptionalProjectKey` 403s one the user cannot access.
+/*
+ * Gated on the `editor` tool (`requireEditorAccess`, shared with the `backups` history route).
+ * Defaults are keyed by project
+ * (`editor/<projectKey>/component-defaults/`), so the project is a request param — there is no
+ * session-bound project scope here, exactly like the component route — and
+ * `requireOptionalProjectKey` 403s one the user cannot access.
  */
-async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Editor.');
-	}
-	return locals.user;
-}
 
 /**
  * Read the per-project component defaults (§13.3). `?project=&id=` → `{ params }`
@@ -36,7 +26,7 @@ async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>
  * project, used once to hydrate the page.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	const user = await gate(locals);
+	const user = await requireEditorAccess(locals);
 	const project = await requireOptionalProjectKey(user, url.searchParams.get('project'));
 	if (!project) throw error(400, 'missing project');
 	const id = url.searchParams.get('id');
@@ -59,7 +49,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Body: `{ project, id, params, baseEtag: string | null }` (or `force: true`).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const user = await gate(locals);
+	const user = await requireEditorAccess(locals);
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -77,10 +67,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!isRecord(params)) throw error(400, '`params` must be a plain object.');
 	const baseEtag = writeBaseEtagJson(body);
 	try {
-		const { etag } = await saveComponentDefaults(project, id, params, baseEtag);
+		const { etag } = await saveComponentDefaults(
+			project,
+			id,
+			params,
+			baseEtag,
+			requestedBackupMode(body),
+		);
 		return json({ ok: true, etag });
 	} catch (e) {
-		// Conflict before the generic 400 — a lost CAS is not a malformed payload.
+		// A lost CAS is a 409, never an opaque failure. `params` was validated above, so anything
+		// else is storage — the HEAD/COPY of the backup or the PUT — and a retryable 502.
 		if (e instanceof ConflictError) {
 			return json(
 				{
@@ -93,7 +90,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				{ status: 409 },
 			);
 		}
-		throw error(400, e instanceof Error ? e.message : 'Invalid defaults.');
+		console.error('[component-defaults] save failed:', e);
+		throw error(502, 'Could not save these defaults — storage is unavailable. Please retry.');
 	}
 };
 
