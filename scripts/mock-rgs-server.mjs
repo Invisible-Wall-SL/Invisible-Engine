@@ -5,6 +5,15 @@
  * Hot Fruits session. No auth, no Cloudflare, CORS-permissive — meant for
  * local development of the translator and engine wiring.
  *
+ * Two bet shapes, as the partner has (docs/reference/play4fun-protocol.md, "The first bet argument"):
+ *   - a LINE-CONFIG game (the default, Hot Fruits): no `betOptions`, and `bet` is `[lines, betPerLine]`;
+ *   - a TABLE game, when the project sells an ante or a buy (`opts.betModes`): the config declares
+ *     `betOptions`, `bet [x, M]` costs `betOptions[x] × M` with x an option index, an index outside
+ *     the table is refused, and a bought option enters the feature. Its config is sent only when a
+ *     client asks (`config`), each session is priced by the table it was told (`tableFor`), and a
+ *     session that never asked cannot bet. Wins are priced on the BASE stake either way, so a buy's
+ *     premium buys the feature, never a bigger win.
+ *
  * Two ways to use it:
  *   1. Standalone CLI (local dev):  node scripts/mock-rgs-server.mjs
  *   2. In-process: `import { createMockRgs }` and mount its `handle` under a
@@ -22,6 +31,7 @@
  *   MIN_CLUSTER=5 · ADJACENCY=orthogonal   cluster shape (WIN_MODEL=cluster)
  *   MIN_COUNT=8               scatter-pays floor (WIN_MODEL=scatter)
  *   FORCE_TRIGGER=1 · STACKED=1 · CASCADE=1 · MULTIPLIER=1   outcome/presentation forcing
+ *   BUY=1                     a TABLE game selling the default template's buy (`bonus`, 100×)
  *
  * Endpoints:
  *   POST …/rgs/engine?sid=&seq=&gid=    — main batched-action endpoint
@@ -693,6 +703,23 @@ const pathEndsWith = (pathname, route) => {
 	return p === route || p.endsWith(route);
 };
 
+/**
+ * A session as the test server carries it across a contract swap (`swapMock`): the BALANCE survives,
+ * an open round does not (it was dealt on the previous board).
+ *
+ * `keepBetShape` (a game served from the shared runtime) also keeps the session's config as SENT and
+ * its bet table PINNED (`tableFor`). That client keeps the config it booted with, so it must go on
+ * being priced by it; a reload finds no config on its balance probe, asks for `config`, and is
+ * re-pinned. Without it — a desktop build, which may predate the runtime's `config` probe and never
+ * gets a table — the next heartbeat re-sends the config, as it always has.
+ */
+export const carrySession = (session, { keepBetShape }) => ({
+	balance: session.balance,
+	round: null,
+	configSent: keepBetShape ? Boolean(session.configSent) : false,
+	...(keepBetShape && 'betTable' in session ? { betTable: session.betTable } : {}),
+});
+
 // ---------- factory: one stateful mock instance ----------
 
 /**
@@ -704,7 +731,9 @@ const pathEndsWith = (pathname, route) => {
  *   rows?: number | number[], rowsPerReel?: number[],
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
  *   symbols?: string[], winModel?: 'lines' | 'ways' | 'cluster' | 'scatter',
- *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean }} [opts] `symbols` restricts the dealt line
+ *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
+ *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean }} [opts] `betModes` (BASE FIRST) makes
+ *   this a table game — see `betTable`; absent ⇒ a line-config game. `symbols` restricts the dealt line
  *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
  *   default pool. `winModel` selects how wins are DECIDED — everything else (session, seq, round
  *   lifecycle, scatters, free spins, the whole event vocabulary) is identical between the two, which
@@ -780,6 +809,39 @@ export function createMockRgs(opts = {}) {
 	/** Scatter-pays shape. Default matches `normalizeWinModel`. The project's own paytable used to
 	 *  live here too; it is now on `evalOpts`, which every model reads — one home. */
 	const scatterPaysOpts = { minCount: opts.minCount ?? 8 };
+
+	/**
+	 * The `betOptions` table, when the project sells something beyond the base bet (`opts.betModes`,
+	 * BASE FIRST, validated by the test server's `validBetModes`), else null.
+	 *
+	 * Null keeps this a LINE-CONFIG game, the Hot Fruits shape: no table on the wire, `bet` read as
+	 * `[lines, betPerLine]`. With a table, `bet` is read the way the partner reads a table game (their
+	 * Stargate: 20 lines, `betOptions: [20, 25, 2000]`): `[x, M]` costs `betOptions[x] × M`, x an OPTION
+	 * INDEX. `betOptions[0]` is the stake UNIT — the line count, or 1 for a model with no lines — so M
+	 * plays exactly the part `betPerLine` plays on a line game and every win prices as before.
+	 *
+	 * Before this, the mock could not sell anything: a buy went out as a line bet, was charged the base
+	 * stake and dealt a base spin, while the card advertised the authored price.
+	 *
+	 * Option 0 is named `base` whatever the project called it, because the engine's machines address
+	 * the base mode as `BASE` and the client keys a NAMED option by its name. The rest keep theirs, so
+	 * the client matches each option to its authored card.
+	 */
+	const betTable = (() => {
+		const modes = Array.isArray(opts.betModes) && opts.betModes.length > 1 ? opts.betModes : null;
+		if (!modes) return null;
+		const unit = paylinesLess ? 1 : paylines.length;
+		return {
+			// Option 0 is the unit EXACTLY: `unit × c / c` is not always an integer in floating point.
+			options: modes.map((mode, index) =>
+				index === 0 ? unit : (unit * mode.cost) / modes[0].cost,
+			),
+			names: modes.map(
+				(mode, index) => `${index}:${index === 0 ? 'base' : mode.mode.toLowerCase()}`,
+			),
+			buys: modes.map((mode) => mode.kind === 'buy'),
+		};
+	})();
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -972,10 +1034,14 @@ export function createMockRgs(opts = {}) {
 	 * paytable quoted. The base may be fractional (a 243-way slice of a whole-cent stake usually is)
 	 * and that is deliberate: rounding it would distort every payout by up to a cent per win. The
 	 * rounding belongs on the PAY, once, at the wire — see `roundPays`.
+	 *
+	 * All of it off the BASE stake (`round.baseTotal`), never `round.total`: on a table game a bought
+	 * round's total carries the premium, and pricing wins off it would pay the feature 100× over —
+	 * the fault the book mock had with its expanding special. On a line-config game the two are equal.
 	 */
 	const payoutBaseFor = (round) => {
-		if (winModel === 'ways') return round.total / waysCount;
-		if (winModel === 'cluster' || winModel === 'scatter') return round.total;
+		if (winModel === 'ways') return round.baseTotal / waysCount;
+		if (winModel === 'cluster' || winModel === 'scatter') return round.baseTotal;
 		return round.betPerLine;
 	};
 
@@ -1176,7 +1242,8 @@ export function createMockRgs(opts = {}) {
 	const stackPicsInPool = STACK_PICS_ALL.filter((s) => LINE_POOL.includes(s));
 	const STACK_PICS = stackPicsInPool.length ? stackPicsInPool : LINE_POOL;
 
-	/** sid -> { balance, round | null, configSent } */
+	/** sid -> { balance, round | null, configSent, betTable? } — `betTable` is the table the session
+	 *  was TOLD about (null for line-config), pinned when its config is sent. See `tableFor`. */
 	const sessions = new Map();
 	const getSession = (sid) => {
 		if (!sessions.has(sid)) {
@@ -1184,6 +1251,17 @@ export function createMockRgs(opts = {}) {
 		}
 		return sessions.get(sid);
 	};
+
+	/**
+	 * The bet table a session prices by: the one it was TOLD about, not necessarily this instance's.
+	 *
+	 * The test server rebuilds a game's mock when its contract changes and carries the sessions across
+	 * (`carrySession`), while a client keeps the first config it saw. A tab open when its project gains
+	 * or loses a buy therefore still sends the bet shape it booted with — and priced against the NEW
+	 * table, a $1 base spin on a ways game read `[1, 100]` as the 100× buy. The pin moves only when the
+	 * session is sent a config again, which a reloaded client asks for (`config`).
+	 */
+	const tableFor = (session) => ('betTable' in session ? session.betTable : betTable);
 
 	let rngState = seed ? hashStr(seed) : Date.now() >>> 0;
 	const nextRand = () => {
@@ -1306,11 +1384,15 @@ export function createMockRgs(opts = {}) {
 
 		const events = [];
 
-		// Emit the boot `config` event once per session — first response gets it.
-		// Faithful to Play4Fun's wire format (symbols/window/paylines/wildSymbols/
-		// paytable). The facade captures it for cross-checks + reveal filtering.
-		if (!session.configSent) {
+		// Emit the boot `config` event once per session — first response gets it — or again on an
+		// explicit `config` action. Faithful to Play4Fun's wire format (symbols/window/paylines/
+		// wildSymbols/paytable). The facade captures it for cross-checks + reveal filtering.
+		//
+		// Sending it PINS the session to the bet table it declares (`tableFor`): that is the table this
+		// client will price its bets by, for as long as it lives, whatever the contract does later.
+		const sendConfig = () => {
 			session.configSent = true;
+			session.betTable = betTable;
 			events.push({
 				event: 'config',
 				context: {
@@ -1332,6 +1414,15 @@ export function createMockRgs(opts = {}) {
 					},
 					paylines,
 					wildSymbols: wild ? ['WILD'] : [],
+					// A table game only. A line-config game's config carries no table, as Hot Fruits'
+					// does, and stays byte-identical to before.
+					...(betTable
+						? {
+								betOptions: betTable.options,
+								betOptionsName: betTable.names,
+								gameCost: betTable.options[0],
+							}
+						: {}),
 					paytable: Object.fromEntries(
 						Object.entries(
 							wild ? { ...EFFECTIVE_PAY_TABLE, WILD: wild.paytable } : EFFECTIVE_PAY_TABLE,
@@ -1350,7 +1441,14 @@ export function createMockRgs(opts = {}) {
 					),
 				},
 			});
-		}
+		};
+		// A TABLE game sends it only when asked (`config`), never on a first call or a heartbeat — the
+		// shape the partner's own servers can have, which the runtime facade already handles by asking.
+		// So a session is pinned only by a client that asked, which is what makes the pin trustworthy:
+		// a tab whose session was lost to a test-server restart heartbeats into a NEW session, and had
+		// that heartbeat pinned it, its next bet would be priced by a table it never saw (a $1 base spin
+		// charged as the 100× buy). Its bet is refused instead (see `bet`), and a reload asks.
+		if (!session.configSent && !betTable) sendConfig();
 
 		// Heartbeat: empty body returns balance only (plus config if first call).
 		if (actions.length === 0) {
@@ -1362,9 +1460,45 @@ export function createMockRgs(opts = {}) {
 		for (const a of actions) {
 			switch (a.action) {
 				case 'bet': {
-					const ctx = Array.isArray(a.context) ? a.context : [5, 1];
-					const [linesOrConfig, betPerLine] = [Number(ctx[0]) || 5, Number(ctx[1]) || 1];
-					const total = linesOrConfig * betPerLine;
+					// A table game's session that never asked for its config cannot say which bet shape it
+					// means, so nothing about this bet can be priced safely.
+					if (betTable && !('betTable' in session)) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: 'this session never asked for the game config — reload the game',
+							errorCode: 110,
+							platform: { balance: session.balance },
+						});
+					}
+					const table = tableFor(session);
+					const ctx = Array.isArray(a.context) ? a.context : table ? [0, 1] : [5, 1];
+					const option = table ? Number(ctx[0] ?? 0) : 0;
+					const multiplier = table ? Number(ctx[1] ?? 1) : 0;
+					if (
+						table &&
+						(!Number.isInteger(option) ||
+							option < 0 ||
+							option >= table.options.length ||
+							!Number.isFinite(multiplier) ||
+							multiplier <= 0)
+					) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: `invalid bet [${ctx[0]}, ${ctx[1]}]`,
+							errorCode: 101,
+							platform: { balance: session.balance },
+						});
+					}
+					// On a table game `ctx[1]` is M, which prices one stake unit exactly as `betPerLine` does
+					// on a line game (see `betTable`), so the round below is the same shape either way.
+					const betPerLine = table ? multiplier : Number(ctx[1]) || 1;
+					const baseTotal = table
+						? table.options[0] * betPerLine
+						: (Number(ctx[0]) || 5) * betPerLine;
+					// Never a free round: a cost small enough to round to nothing still costs a cent.
+					const total = table
+						? Math.max(1, Math.round(table.options[option] * betPerLine))
+						: baseTotal;
 					if (session.balance < total) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -1377,8 +1511,11 @@ export function createMockRgs(opts = {}) {
 					pendingRound = {
 						id: makeRoundId(),
 						betPerLine,
-						linesOrConfig,
 						total,
+						/** What every win is priced on — `total` less any premium the option carried. */
+						baseTotal,
+						/** A bought option: this round's play enters the feature. */
+						isBuy: table ? table.buys[option] : false,
 						win: 0,
 						reels: null,
 						/** Null outside the feature; set by the trigger, cleared when the last spin plays. */
@@ -1431,7 +1568,7 @@ export function createMockRgs(opts = {}) {
 						// an evaluator directly would price every free spin per LINE, which is wrong for
 						// three of the four models and would break `finalWin ÷ 100 === payoutMultiplier`
 						// the moment a feature round paid (see `check:stake`).
-						const fsScat = evaluateScatters(fsReels, pendingRound.total);
+						const fsScat = evaluateScatters(fsReels, pendingRound.baseTotal);
 						const fsWins = evaluatePayWins(fsReels, pendingRound);
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
@@ -1479,10 +1616,15 @@ export function createMockRgs(opts = {}) {
 
 					// ----- BASE SPIN -----
 					const dealt = stackedDeal ? spinReelsStacked() : spinReels();
-					const reels = forceTrigger ? forceScatters(dealt) : dealt;
+					// A bought round enters the feature the way `FORCE_TRIGGER` makes every round enter it:
+					// scatters forced onto the dealt board, so the trigger on screen is the one that fired.
+					// Not on a game with no scatter in play, which has no art for one; that round still
+					// enters the feature below.
+					const bought = pendingRound.isBuy;
+					const reels = forceTrigger || (bought && scatterEnabled) ? forceScatters(dealt) : dealt;
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(reels, pendingRound);
-					const scat = evaluateScatters(reels, pendingRound.total);
+					const scat = evaluateScatters(reels, pendingRound.baseTotal);
 					// Same boundary: the scatter TRIGGER pay is a payout like any other.
 					const scatterWin = scat.win ? roundPays([scat.win])[0] : null;
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
@@ -1498,7 +1640,7 @@ export function createMockRgs(opts = {}) {
 					// lines/ways/cluster/scatter kinds, which have no such symbol. The facade drives the
 					// whole bonus off `enterBonus` and treats `setExpandingSymbol` as an optional
 					// handler, so nothing stalls without it.
-					if (scat.count >= FS_TRIGGER_MIN || forceTrigger) {
+					if (scat.count >= FS_TRIGGER_MIN || forceTrigger || bought) {
 						pendingRound.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS };
 						events.push({
 							event: 'spinTrigger',
@@ -1582,6 +1724,13 @@ export function createMockRgs(opts = {}) {
 						pendingRound.closed = true;
 					}
 					events.push({ event: 'gameRoundOver', context: { win: pendingRound.win } });
+					break;
+				}
+				case 'config': {
+					// Not stored, as the partner's is not. The facade asks for it when its balance probe
+					// carried no config — which is what a RELOADED tab meets once `carrySession` has kept
+					// its session's config sent — so answering re-pins the session to the table in force.
+					if (!events.some((e) => e.event === 'config')) sendConfig();
 					break;
 				}
 				default:
@@ -1724,6 +1873,16 @@ if (isMainModule) {
 		// `false` and `undefined` are the same answer to its `=== true` gate, so this is inert
 		// everywhere else.
 		multiplier: process.env.MULTIPLIER === '1',
+		// The default template's menu (`apps/lines/src/game/config.ts`), so a local game's BONUS card
+		// is sold at the price it shows. Off ⇒ a line-config game, as every previous CLI run was.
+		...(process.env.BUY === '1'
+			? {
+					betModes: [
+						{ mode: 'base', cost: 1, kind: 'base' },
+						{ mode: 'bonus', cost: 100, kind: 'buy' },
+					],
+				}
+			: {}),
 	});
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1750,6 +1909,9 @@ if (isMainModule) {
 		// Say the win model out loud even when it defaulted: "which game am I actually dealing" is
 		// the first thing anyone debugging a wrong-looking board needs, and the default is invisible.
 		console.log(`[mock] win model: ${winModel ?? `${WIN_MODELS[0]} (default)`}`);
+		console.log(
+			`[mock] bets: ${process.env.BUY === '1' ? 'betOptions table (BUY=1)' : 'line-config'}`,
+		);
 		console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
 	});
 }

@@ -329,6 +329,13 @@ export interface TestServerGameEntry {
 		 *  multiplier cells during a tumble and collects them into a board multiplier. Absent ⇒ the
 		 *  mock deals none, so a project with no multiplier art never has blank cells dealt at it. */
 		multiplier?: boolean;
+		/** The project's authored bet modes, BASE FIRST, present only when it authors something beyond
+		 *  the base bet (an ante or a buy). The lines mock then declares a `betOptions` table from them
+		 *  — option i costs `units × cost_i / cost_0`, `units` being the line count (1 for a model with
+		 *  no lines) — and prices `bet [x, M]` by it, the way the partner's own table games do. Absent ⇒
+		 *  a line-config game (`[lines, betPerLine]`, no table), exactly as before. Not sent for `book`,
+		 *  whose mock owns its table. See `projectBetModes`. */
+		betModes?: { mode: string; cost: number; kind: 'base' | 'ante' | 'buy' }[];
 	};
 }
 
