@@ -16,6 +16,7 @@
  * launcher (`gameConfigStorage.ts`); the TYPE lives here because the game and the tool must agree.
  */
 
+import type { PartnerPaytable } from './serverPaytable';
 import type { GameSounds } from './sounds';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
@@ -30,8 +31,11 @@ export const GAME_CONFIG_DOC_VERSION = 1;
 export type PaytableRow = Record<string, number>;
 
 /**
- * A symbol's entry in the DICTIONARY. Both fields are optional: a scatter has properties and no
- * paytable, and a purely decorative symbol may have neither.
+ * A symbol's entry in the DICTIONARY. Both fields are optional: a purely decorative symbol may have
+ * neither.
+ *
+ * A `scatter` symbol's `paytable` is its SCATTER pay — × total bet, anywhere on the board — not a
+ * line row; with none authored it pays `DEFAULT_SCATTER_PAYTABLE` (see `shownPaytable`).
  *
  * Dictionary membership does NOT mean the game deals the symbol — that is what the strips say.
  * See {@link symbolsInPlay}.
@@ -447,6 +451,12 @@ export type GameConfigDoc = {
 	reelBehaviour?: ReelBehaviour;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
+	/**
+	 * OPTIONAL partner-server paytable REFERENCE — the table a partner's boot `config` declared,
+	 * captured in a browser and pasted into `/config`. An INVISIBLE-ENGINE extension; absent ⇒ no
+	 * reference, no banner, no publish gate. See `partnerPaytableDrift`.
+	 */
+	partnerPaytable?: PartnerPaytable;
 	paddingReels: PaddingReels;
 	/**
 	 * OPTIONAL per-payline colour, keyed by the SAME payline id as {@link paylines}, as a `#rrggbb`

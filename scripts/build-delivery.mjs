@@ -469,7 +469,7 @@ const embedDoc = (baked) => {
 		'  | `enableTurbo` | `boolean` | false removes turbo, including hold-to-spin-fast |',
 		'  | `allowAutoplay` | `boolean` | false removes autoplay and hold-to-spin |',
 		'  | `allowOutcomeBuy` | `boolean` | false removes every bought feature and the buy button |',
-		'  | `showTheoreticalPayback` | `boolean` | accepted, but this build has no RTP readout yet |',
+		"  | `showTheoreticalPayback` | `boolean` | true shows the game's RTP on the info page rules |",
 		'  | `balanceUpdateInterval` | `number` | wallet re-poll in ms; clamped to 5000, absent = never |',
 		'',
 		'  A key you omit leaves our default alone — stating `false` is not the same as saying',

@@ -179,6 +179,13 @@ check('a symbol that pays nothing and claims nothing still gets a cue', slotFor(
 check('an unknown symbol still gets a cue', slotFor('NOT_IN_DICT'), 'symbolLand');
 check('an empty dictionary does not throw', landSlotForSymbol('X', {}), 'symbolLand');
 check('a wild outranks its own paytable', landSlotForSymbol('W', { W: { paytable: [{ '5': 1 }], special_properties: ['wild'] } } as never), 'wildLand'); // prettier-ignore
+// A scatter's paytable is its scatter pay (× total bet). Counted as a line price, 200 would pull the
+// median up to PLUM's 10 and turn a picture into a royal.
+const PAID_SCATTER = {
+	...DICT,
+	STAR: { paytable: [{ '5': 200 }], special_properties: ['scatter'] },
+};
+check('an authored scatter pay does not move the picture/royal split', landSlotForSymbol('PLUM', PAID_SCATTER as never), 'symbolLand'); // prettier-ignore
 
 console.log(
 	failures === 0 ? '\nAll sound-slot claims hold.\n' : `\n${failures} FAILED claim(s).\n`,

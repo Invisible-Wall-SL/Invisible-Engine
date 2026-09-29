@@ -25,8 +25,12 @@ before — an un-authored project still runs the compiled template.
 
 ## The panels
 
-- **Return to player** — the declared RTP. It is read: the Game Maker card renders
-  it as the game's `97% RTP` chip. (A _provider / game name / game ID_ trio used to
+- **Return to player** — the declared RTP. The Game Maker card renders it as the
+  game's `97% RTP` chip, and the in-game info page's rules add an **RTP — 97.00%**
+  rule — but only where the operator allows RTP display (`showTheoreticalPayback`);
+  everywhere else it is left out. The rules' **MAX WIN** heading also states the cap
+  (**MAX WIN — 5,000× BET**), taken from the base bet mode's _Max win ×_ — so set the
+  real cap there. (A _provider / game name / game ID_ trio used to
   sit here too, under an **Identity** heading. Nothing on this stack read them — the
   info page renders from `infoManifest`, the RGS handshake sends none of them, and
   the on-screen title comes from the launcher's **project name** — so they asked for
@@ -55,9 +59,15 @@ before — an un-authored project still runs the compiled template.
   modes: math + presentation_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
-  **in play** / **unused** badge (see below). **Import paytable from server** fills
-  the paytable from what the game's server actually pays — see _Importing the
-  paytable from the server_ below.
+  **in play** / **unused** badge (see below). A **scatter** symbol's paytable is its
+  scatter pay — × the total bet, anywhere on the board, never a line. Left empty it
+  pays the default `3:2 4:20 5:200`, which the row's paytable box shows as its
+  placeholder. **Import paytable from server** fills the paytable from what the
+  game's server actually pays — see _Importing the paytable from the server_ below.
+  **Import from a pasted capture**, beside it, does the same from a partner's server
+  the launcher can't reach — see _Importing from a pasted capture_. Once a capture is
+  kept, a line under the buttons reads _Partner reference: captured from <source> on
+  <date> — matches_ (or _N rows differ_) with a **Forget it** link.
 - **How wins are decided** — the **win model**: whether this game pays by **lines**,
   **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
   direction and the fewest reels; cluster: fewest cells and how they connect;
@@ -379,21 +389,59 @@ you fix it on purpose:
    has several published games, pick which server in the dialog.
 2. Review. Each dictionary symbol the server prices shows **Now** → **Server**, or
    **unchanged** when they already agree. The server's own name is shown next to
-   yours (e.g. `H1 PIC1`). Below the table:
+   yours (e.g. `H1 PIC1`). The server's **scatter** row is imported too: it lands on
+   your scatter symbol's paytable and carries a small **scatter** tag in the table.
+   Line rows pay × the line bet, scatter rows × the total bet. Below the table:
    - **Skipped** — symbols the server prices that this project's dictionary does not
-     have. They are never added; add the symbol first if you want it.
-   - **Left as authored** — symbols you price that the server declares no line row
-     for. The import doesn't touch them.
-   - **Scatter** — what the server pays for its scatter, and whether that matches the
-     scatter row the info page shows. That row is fixed in the game, not authored
-     here, so it is information only.
+     have (or a scatter row naming a symbol that isn't a scatter here). They are
+     never added; add the symbol first if you want it.
+   - **Left as authored** — symbols you price that the server declares no line row for.
+     The import doesn't touch them.
 3. **Apply N changes** writes the changed rows into the page (the page shows
    **Unsaved**). Nothing is stored until you **Save**, which runs the same
    conflict check as any other edit. **Cancel** changes nothing.
 
 The button is disabled — with _Publish the game first_ — until the project has a
-published game on the Invisible Test Server. Only line rows are imported, as
-`count:multiplier` pairs in ascending order, with zero pays dropped.
+published game on the Invisible Test Server. Rows are imported as `count:multiplier`
+pairs in ascending order, with zero pays dropped.
+
+## Importing from a pasted capture
+
+A partner's server can't be read from the launcher — it turns away requests that
+don't come from a real browser. So for a partner game you bring its paytable in by
+hand: **Import from a pasted capture** (Symbols panel, beside the server import).
+
+1. On the partner's game, open the browser's developer tools → **Network**, reload,
+   and copy the **response** of the first game request — the one carrying the
+   `config` event. A `copy(eaSniffed)` dump from `scripts/console-sniffer.js` works
+   too.
+2. Click **Import from a pasted capture**, paste it into the box, and optionally fill
+   **Captured from** (which partner game it came from). Click **Read the capture**.
+3. The same review dialog as the server import opens. Its button reads **Apply N
+   changes and keep as reference**, or **Keep as reference** when nothing differs.
+   Either way the capture is kept as the project's **partner reference** (below).
+   Nothing is saved until you **Save**.
+
+If the paste isn't JSON, or has no `config` in it, the dialog says so and nothing
+changes.
+
+## The partner reference and the Publish check
+
+Once a capture is kept, `/config` compares the paytable you've authored — line rows
+and the scatter row — against it, live, including unsaved edits. When they disagree,
+a **red box** at the top of the page lists every row that differs.
+
+That disagreement also stops the game shipping, because the info page would quote
+prices the partner's server doesn't pay:
+
+- **Publish** in [Invisible Game Maker](game-maker.md) refuses the game. An admin
+  (owner role) can publish anyway after confirming.
+- **Desktop publish / delivery builds** stop at the bake too, listing the rows, unless
+  run with `--allow-paytable-drift`.
+
+Fix the rows (or re-import the capture) and Save to clear it. **Forget it**, on the
+Partner reference line, removes the reference altogether. A project that never kept
+a capture is never blocked.
 
 ## Pasting in a config from the math team
 

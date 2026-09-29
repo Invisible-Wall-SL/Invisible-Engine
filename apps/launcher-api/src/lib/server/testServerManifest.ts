@@ -324,6 +324,8 @@ export interface TestServerGameEntry {
 		 *  A `book` game's grid carries ONLY this beyond the required shape, in the book vocabulary
 		 *  (`PIC1`…`PIC4`, `ACE`…`TEN`); the book mock owns its board and ignores the rest. */
 		symbolPaytable?: Record<string, Record<string, number>>;
+		/** The authored scatter pays, count → × total stake (lines-family mock only). */
+		scatterPaytable?: Record<string, number>;
 		/** `true` when the project declares a multiplier symbol IN PLAY (`special_properties`
 		 *  contains `multiplier`, and it appears on a strip). A cascading scatter game then lands
 		 *  multiplier cells during a tumble and collects them into a board multiplier. Absent ⇒ the

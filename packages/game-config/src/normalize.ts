@@ -44,6 +44,7 @@ import { normalizeSounds } from './sounds';
 import { resolveGridAlign } from './grid';
 import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
+import { normalizePartnerPaytable } from './serverPaytable';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -456,6 +457,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// copied one.
 	const sounds = normalizeSounds(raw.sounds);
 	if (sounds) doc.sounds = sounds;
+
+	const partnerPaytable = normalizePartnerPaytable(raw.partnerPaytable);
+	if (partnerPaytable) doc.partnerPaytable = partnerPaytable;
 
 	const updatedAt = str(raw.updatedAt);
 	if (updatedAt) doc.updatedAt = updatedAt;

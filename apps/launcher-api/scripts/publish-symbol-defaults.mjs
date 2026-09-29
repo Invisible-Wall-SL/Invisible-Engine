@@ -270,9 +270,11 @@ function symbolsOnReels(cfg) {
 async function loadGateConfig() {
 	if (token && base) {
 		try {
+			// `allowPaytableDrift`: this reads the doc for its symbol gate and ships no paytable, so the
+			// endpoint's paytable gate (enforced by the bake) must not push it onto the compiled module.
 			const url =
 				`${base}/api/game-config/doc?project=${encodeURIComponent(project)}` +
-				`&k=${encodeURIComponent(token)}`;
+				`&k=${encodeURIComponent(token)}&allowPaytableDrift=1`;
 			const res = await fetch(url);
 			if (res.ok) {
 				const body = await res.json();

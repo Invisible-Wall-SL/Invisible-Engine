@@ -383,6 +383,14 @@ const validGrid = (grid) => {
 		)
 			? grid.symbolPaytable
 			: null;
+	// The project's authored SCATTER pays (count → × total stake), same shape rule as the line table.
+	const scatterPaytable =
+		grid.scatterPaytable &&
+		typeof grid.scatterPaytable === 'object' &&
+		Object.keys(grid.scatterPaytable).length &&
+		Object.values(grid.scatterPaytable).every((v) => typeof v === 'number')
+			? grid.scatterPaytable
+			: null;
 	// `multiplier` (set at publish when the project declares a multiplier symbol IN PLAY) lets a
 	// cascading scatter game land multiplier cells during a tumble and collect them afterwards.
 	// Absent/false ⇒ the mock deals none, so a project with no multiplier art never gets blank
@@ -405,6 +413,7 @@ const validGrid = (grid) => {
 		...(adjacency ? { adjacency } : {}),
 		...(minCount ? { minCount } : {}),
 		...(symbolPaytable ? { symbolPaytable } : {}),
+		...(scatterPaytable ? { scatterPaytable } : {}),
 		...(betModes ? { betModes } : {}),
 	};
 };

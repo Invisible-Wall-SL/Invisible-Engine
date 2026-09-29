@@ -102,3 +102,40 @@ export const readMappedPaytable = (
 		...entry,
 		on: { ...entry.on, of: mapping.symbols[entry.on.of] ?? entry.on.of },
 	})) ?? null;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The boot `config` context inside whatever a person pasted after capturing it in a browser on the
+ * partner's game: the context itself, the `{ event: 'config', context }` event, a whole response
+ * (`{ events: [...] }`), or a list of responses / sniffer records around one — including a response
+ * body held as a JSON STRING, which is how `scripts/console-sniffer.js` records it. The first object
+ * that is a `config` event's context, or that carries a `paytable` itself, wins. Breadth-first and
+ * bounded, so a large paste of unrelated traffic costs a bounded walk. Null when there is none.
+ */
+export const findCapturedConfig = (raw: unknown): Record<string, unknown> | null => {
+	const queue: unknown[] = [raw];
+	for (let seen = 0; queue.length && seen < 5000; seen++) {
+		const node = queue.shift();
+		if (typeof node === 'string') {
+			if (/^\s*[[{]/.test(node)) {
+				try {
+					queue.push(JSON.parse(node));
+				} catch {
+					// Not JSON after all (or a truncated body) — nothing to read in it.
+				}
+			}
+			continue;
+		}
+		if (Array.isArray(node)) {
+			queue.push(...node);
+			continue;
+		}
+		if (!isRecord(node)) continue;
+		if (node.event === 'config' && isRecord(node.context)) return node.context;
+		if ('paytable' in node && node.paytable && typeof node.paytable === 'object') return node;
+		queue.push(...Object.values(node));
+	}
+	return null;
+};
