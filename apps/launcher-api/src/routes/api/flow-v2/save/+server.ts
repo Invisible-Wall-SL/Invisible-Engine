@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { isFlowV2Doc, saveFlowV2Doc } from '$lib/server/flowV2Storage';
 import { ConflictError } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
@@ -16,9 +17,11 @@ import type { RequestHandler } from './$types';
  *
  * Guarded by the caller's `baseEtag` (Phase 1 of `docs/design/multi-user-concurrency.md`):
  * a stale one answers **409** rather than overwriting whoever saved first. `force: true`
- * is the author's explicit "overwrite theirs" from the conflict banner.
+ * is the author's explicit "overwrite theirs" from the conflict banner. The replaced bytes are
+ * backed up first (`/api/flow-v2/backups`); `backup: 'always'` exempts a save the author will
+ * want back from the autosave coalescing window.
  *
- * Body: `{ doc: <FlowDoc v2>, baseEtag?: string | null, force?: boolean }`.
+ * Body: `{ doc: <FlowDoc v2>, baseEtag?: string | null, force?: boolean, backup?: 'always' }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -53,7 +56,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const baseEtag = writeBaseEtagJson(body);
 
 	try {
-		const { etag } = await saveFlowV2Doc(clientKey, projectKey, body.doc, baseEtag);
+		const { etag } = await saveFlowV2Doc(
+			clientKey,
+			projectKey,
+			body.doc,
+			baseEtag,
+			requestedBackupMode(body),
+		);
 		return json({ ok: true, updatedAt: new Date().toISOString(), etag });
 	} catch (e) {
 		if (e instanceof ConflictError) {

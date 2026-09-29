@@ -13,9 +13,9 @@ import {
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
-import { backupBeforeOverwrite, pruneBackups, type BackupMode } from './editorDocBackups';
-import { editorDocKey } from './projectPaths';
-import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { putDocWithBackup, type BackupMode } from './docBackups';
+import { editorDocBackupTarget, editorDocKey } from './projectPaths';
+import { getObjectTextWithEtag } from './r2';
 
 /** Sensible base sizes per layoutType; mirrors `utils-layout`'s `mainSizesMap`. */
 const DEFAULT_MAIN_SIZES: Record<LayoutType, { width: number; height: number }> = {
@@ -119,22 +119,9 @@ function seedFreshDoc(projectKey: string, gameType?: string): LayoutDoc {
  *
  * `backup` decides how hard to try to preserve the bytes this write replaces
  * ({@link BackupMode}); `'always'` is for a save that is destroying a layout on purpose
- * (a scaffold/reference load being committed, a restore). The three steps below are
- * ordered, and the order is the load-bearing part of this function:
- *
- *  1. **Preserve the previous bytes.** It has to be first — the bucket has no object
- *     versioning, so the old bytes cease to exist the instant the PUT lands. This step
- *     may THROW, and when it does the save does not happen: a write that cannot prove
- *     what it is about to overwrite is exactly the fail-safe-vs-fail-loud bug
- *     `docs/design/multi-user-concurrency.md` records against `readComponent`.
- *  2. **The guarded PUT.** Untouched. If it 409s, step 1's copy is an orphan — see the
- *     ordering argument in `editorDocBackups.ts` for why an orphan here is inert and
- *     cannot reproduce the component snapshots' forever-409 (short version: nothing ever
- *     RECOMPUTES a backup key, and backup writes carry no precondition).
- *  3. **Prune.** Only after the PUT succeeded, and only when step 1 actually wrote
- *     something, so retention can never delete history for a write that did not happen.
- *     Best-effort: a failed prune leaves extra objects, which is the harmless direction,
- *     and must not turn a landed save into an error the author sees.
+ * (a scaffold/reference load being committed, a restore). The copy-before-PUT,
+ * prune-after-PUT ordering — and why a lost CAS leaves only an inert orphan — is owned by
+ * `docBackups.putDocWithBackup`.
  */
 export async function saveDoc(
 	clientKey: string,
@@ -145,20 +132,12 @@ export async function saveDoc(
 ): Promise<{ doc: LayoutDoc; etag: string | null }> {
 	const next = normalizeDoc(doc, projectKey);
 	next.updatedAt = new Date().toISOString();
-	const backupId = await backupBeforeOverwrite(clientKey, projectKey, backup);
-	const etag = await putObjectText(
-		editorDocKey(clientKey, projectKey),
+	const etag = await putDocWithBackup(
+		editorDocBackupTarget(clientKey, projectKey),
 		JSON.stringify(next, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		backup,
 	);
-	if (backupId) {
-		try {
-			await pruneBackups(clientKey, projectKey);
-		} catch (e) {
-			console.error('[editor] backup prune failed', e);
-		}
-	}
 	return { doc: next, etag };
 }
 

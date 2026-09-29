@@ -40,6 +40,12 @@
 9. Editor gaps: containers + `templateId` are data-only (not UI-editable); cue `await` flag not authorable; function Entry/Result signature fixed once created.
 10. **Flow gate follow-ups (2026-09-28).** (a) ✅ **Closed 2026-09-29 by published snapshots** — players now boot the snapshot Publish froze, and Publish re-validates the flow that snapshot actually ships (`checkShippedFlowV2`), so an invalid autosave reaches only authoring boots (`ie_authoring=1`), never players. See [game-maker.md](game-maker.md). (b) The desktop launcher (separate `invisible-launcher` repo) has no UI for the bake's `--allow-invalid-flow`; only `ALLOW_INVALID_FLOW=1` in its environment gets an invalid project through. (c) Library function bodies are not validated at publish (the editor does, in function view). (d) Admin **Rescaffold** of a flow-less legacy project stores the starter flow, which may not fit its older scenes — it can turn an `absent` (publishes with a note) into an `invalid` (refused); custom kinds are not covered by `check:flow-publish-gate`.
 
+11. **Undo/History follow-ups (2026-09-29).** The shared function LIBRARY
+    (`_shared/flow-v2/functions.json`) has no server-side version history — only in-tab undo
+    reaches it. Undo history is per tab and in memory (a reload starts fresh); History is the
+    cross-session path. ⏳ Restore not click-tested live (needs a signed-in session on a disposable
+    project).
+
 ## Blocked (owner / external)
 
 - ✅ ~~**Ship a real game on a FlowDoc**~~ — DONE (owner-confirmed 2026-08-04): a game runs a real
@@ -47,6 +53,33 @@
 
 ## Recent changes
 
+- 2026-09-29 — **Undo/redo and version history in `/flow-v2`.**
+  - **Undo/redo.** `$lib/undoHistory.ts` (`UndoHistory`) keeps a bounded (100) stack of JSON
+    snapshots of the PAIR `[doc, library]` — "Collapse to Function" edits both and undoes as one,
+    and undo inside a function body reaches the library. It records in `markDirty` /
+    `markLibraryDirty`, the funnel every edit already goes through. Same-key edits within 800 ms
+    coalesce into one step (inspector field commits keyed `inspector:<nodeId>`, comment boxes
+    `comment:<id>`, group labels, function renames); structural edits are always their own step;
+    a drag is one step because it commits on drag-stop, and a multi-edit gesture (drag-off-pin
+    spawn + wire, deleting nodes and comments together) is wrapped in `asOneStep`. Undo/redo
+    SWITCHES the view to where the step's change lives (main flow, or the one function body it
+    edited), so it never rewrites something off-screen — least of all the shared library. Applying undo/redo re-assigns doc/library
+    and calls the same `markDirty`s, so it SAVES through the ordinary conditional autosave
+    (`baseEtag`, conflict banner on a 409) — re-reporting the present is a no-op for the history.
+    Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y (ignored while a text field has focus, which keeps its
+    native undo, and while any dialog is open) and **↶ Undo / ↷ Redo** buttons in the sub-bar; all disabled while
+    `lease.readOnly`.
+  - **History….** Each save of `flow-v2.json` now backs up the version it replaces
+    (`editor/flow-v2-backups/`, newest 20, 5-min coalescing; a force save or restore always backs
+    up; no backup on a save that will 409) — the shared server helper is in
+    [launcher.md](launcher.md) 2026-09-29. The sub-bar **History…** opens the shared
+    `$lib/DocHistoryModal.svelte`. The list is `GET /api/flow-v2/backups?project=<tab's project>`
+    (a 409 scope-mismatch if the session moved to another project); restore POSTs with this tab's
+    ETag and `projectKey`, refuses while a save is in flight, cancels the pending autosave first
+    (re-armed if the restore fails), warns on unsaved doc OR library edits, then reloads.
+  - **Verified:** new `check:undo-history` (10 tests: coalescing window, key change, keyless edits,
+    no-op re-report keeps redo, redo branch dropped, bound). `check:doc-backups` covers the flow
+    route. Build green; svelte-check clean on the touched files.
 - 2026-09-28 — **Live check of #807 (coded intro/outro/book-reveal retired) + #810 (two-stage outro tap) on the published runtime games — `bookofborutremake` PASSES; test2–test6 lost their free-spin intro/outro and are awaiting a data migration (owner to approve).** Played on a REAL clock (Playwright `chrome-headless-shell` over a CDP pipe, GPU on: `visible`, focused, 60–61 fps sampled through the run), each game loaded from its published launch URL with `&flowlog=1`, read-only. **`bookofborutremake` (bought Gold Rush → 10 free spins):** the intro mounts and draws ("You win 10 Free Spins!!!"), `HOLD freeSpinIntro` stays held (checked 8 s and 5 min), and a tap after its prompt appears releases and hides it. Its authored `freeSpinIntroVisual` component arms its tap on `introDone`, ~5–9 s into the cinematic, and a tap before that is ignored by design (the prompt is not yet drawn). Two runs that tapped at 3 s stayed held until a later tap, so wait for the prompt before tapping. The book reveal runs (`setExpandingSymbol` → `specialBookReveal`, `bookRevealIntro` screen shown then hidden, `specialBook` mounted). All 10 spins play. On the outro, "Free Spin Ended, You won" counts up. Tap 1 during the count lands the total ($9.00) and the round is STILL held (`heldContainers() = [freeSpinOutro]`, 2.5 s and 5.5 s after the tap). Tap 2 releases and hides it, and the game returns to idle with the balance credited (5000 − 1 + 9 = 5008). That is #810's two-stage tap, live. No console errors. The remake's scene still carries one retired `FreeSpinIntro` bind (an empty 600×600 anchor container beside its real visual), which is harmless because it renders nothing. **test4 (cluster, natural 3+ SCAT trigger, 25 free spins):** the free spins and counter work, but no intro and no outro ever draw and nothing holds (`heldContainers() = []` throughout). Its scenes bind the retired `FreeSpinIntro`/`FreeSpinOutro` composers, and its flow is the old starter shape (both screens mounted at start, no `awaitComplete`). **test2/test3/test5:** identical scene + flow shape to test4 (from R2), so they get the same result. test2 cannot reach free spins at all: its symbol pool has no `SCAT`, and a buy on the lines-family mock deals a plain spin (only the `book` mock has a bought trigger). **test6 (ways):** it binds the visuals, but its flow never wires `freeSpinTrigger` (the coded handler is state-only since #807 ⇒ no intro), and `freeSpinEnd` fires `freeSpinOutroShow` then `freeSpinOutroHide` back-to-back with no hold, so the outro only flashes. Seen live on a natural trigger. **Read-only R2 sweep of every project** (`<client>/<project>/editor/{scenes,flow-v2}.json`): (a) scenes still binding the retired composers: `borut/book_of_borut_redux` (2), `invisible_wall/bookofborutremake` (1, harmless as above), `invisible_wall/test2`, `test3`, `test4`, `test5` (2 each), `unassigned/bookremake` (2). (b) No stored `flow-v2.json` (⇒ coded path ⇒ no free-spin intro/outro since #807): `borut/book_of_borut_redux`, `borut/cloud`, `borut/hotfruits`, `invisible_wall/salmons`, `invisible_wall/test7`, `unassigned/bookremake`. Going forward #833 (the entry below) seeds a starter flow into every NEW project, so this list is the legacy set only. Of those, only `cloud` is a published runtime game, and it has no free-spin scenes. `hotfruits`/`bookofborut` are desktop builds with their own bundles. (c) Authored flows with no awaited intro: `test1` (authored intro/outro components, no hold), `lines_flowtest` (outro held, `freeSpinTrigger` not wired ⇒ no intro), plus test2–test6. **No engine change:** #807's hard cut is owner-approved, and the fix for these projects is the documented migration ([the guide](../tools/flow.md)): bind `FreeSpinIntroVisual`/`FreeSpinOutroVisual`, add a Tap to continue (outro armed after `freeSpinOutroCountUpComplete`), and wire Show → Show{awaitComplete} → Hide as the starter flow does. **Not applied:** it rewrites the projects' R2 scenes + flows, so it waits for the owner's go-ahead. **Also seen, out of scope:** the remake's Gold Rush card reads $100.00 but the round debited $1 (balance 5000 → 4999 before the win). test6's Buy Feature button opened nothing.
 - 2026-09-28 — **Flow validation is enforced at ship time, new projects get a stored flow, and an exec-out drives exactly one wire.** Three gaps closed together, all launcher-side except the validator rule.
   - **Starter flow at creation.** `projectScaffold.ts` now writes `editor/flow-v2.json` = `freshDrivenSeedDoc(gameType)` (the doc `/flow-v2` opens an unsaved project on). Since the free-spin intro/outro became flow screens (#807), a project nobody opened in Flow published with NO intro/outro. Duplicate (`setup`) copies the source's flow and the backfilling scaffold seeds one if the source had none; `/admin` **Rescaffold** seeds a flow-less legacy project. Publishing a project that still has no flow is NOT blocked (and not auto-seeded — a publish should not author a game): it succeeds with `flow: 'absent'` and Game Maker shows a note.

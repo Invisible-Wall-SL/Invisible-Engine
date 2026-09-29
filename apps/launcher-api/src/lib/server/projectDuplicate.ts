@@ -31,7 +31,15 @@
  * it is capped rather than silently truncated.
  */
 
-import { SUB, projectPrefix, r2Slug } from './projectPaths';
+import {
+	SUB,
+	editorDocBackupTarget,
+	flowV2DocBackupTarget,
+	gameConfigDocBackupTarget,
+	projectPrefix,
+	r2Slug,
+	symbolsDocBackupTarget,
+} from './projectPaths';
 import { copyObject, getObjectText, listAllKeys, putObjectText } from './r2';
 
 /** How much of the source project travels. See the file header. */
@@ -121,11 +129,20 @@ export async function planDuplicate(
 		}
 	}
 
+	// A copy starts its own history: the source's rolling doc backups describe the SOURCE, and
+	// carrying them would re-base and write up to 80 extra docs per duplicate.
+	const backupPrefixes = [
+		editorDocBackupTarget,
+		flowV2DocBackupTarget,
+		symbolsDocBackupTarget,
+		gameConfigDocBackupTarget,
+	].map((target) => target(source.clientKey, source.projectKey).prefix);
+
 	const entries: DuplicatePlanEntry[] = [];
 	const seen = new Set<string>();
 	for (const root of roots) {
 		for (const key of await listAllKeys(root.from)) {
-			if (seen.has(key)) continue;
+			if (seen.has(key) || backupPrefixes.some((prefix) => key.startsWith(prefix))) continue;
 			seen.add(key);
 			entries.push({ from: key, to: root.to + key.slice(root.from.length) });
 		}

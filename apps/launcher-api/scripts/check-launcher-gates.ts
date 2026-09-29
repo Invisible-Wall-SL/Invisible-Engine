@@ -209,6 +209,7 @@ const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/project-footprint': 'gated on adminPanel, which spans every project',
 	'admin/spines': 'gated on adminPanel, which spans every project',
 	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
+	'flow-v2/backups': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
 };
 /** Each exported handler's source (the module preamble dropped). */
@@ -232,9 +233,11 @@ for (const file of handlers) {
 }
 const FIXED = [
 	'game-config',
+	'game-config/backups',
 	'game-config/server-paytable',
 	'win-text',
 	'editor/symbols',
+	'editor/symbols/backups',
 	'sounds',
 	'sounds/file',
 	'editor/component',
@@ -263,6 +266,7 @@ const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
 const STALE_TAB_GUARDS = [
 	'cinematics/save',
 	'flipbook/save',
+	'flow-v2/backups',
 	'flow-v2/save',
 	'fx/save',
 	'rigger/backups',

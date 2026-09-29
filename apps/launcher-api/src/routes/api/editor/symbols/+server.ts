@@ -1,37 +1,26 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
-import { roleHasTool } from '$lib/roles';
+import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { ConflictError } from '$lib/server/r2';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireSymbolsAccess } from '$lib/server/symbolsAccess';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc } from '$lib/server/symbolsStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
  * Authoring endpoints for the Invisible Symbols State Machine (`/symbols`) doc.
  *
- * Session-gated (logged-in + entitled to the `symbols` tool, role + per-user
- * overrides applied) — the SAME entitlement gate the `/symbols` page uses, NOT
- * the deploy-token gate (that is only for the build-time export in S4). The
+ * Session-gated by `requireSymbolsAccess` — the SAME entitlement gate the `/symbols` page uses,
+ * NOT the deploy-token gate (that is only for the build-time export in S4). The
  * project is a `?project=` request param resolved by `requireProjectScope`, which
  * 403s a project the user cannot access, so the doc lands at
  * `<client>/<project>/symbols/symbols.json`.
  */
-async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'symbols', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to the Invisible Symbols State Machine.');
-	}
-	return locals.user;
-}
 
 /** Read a project's symbols doc (empty valid doc when never authored) + its ETag. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	const user = await gate(locals);
+	const user = await requireSymbolsAccess(locals);
 	const { clientKey, projectKey } = await requireProjectScope(
 		user,
 		url.searchParams.get('project'),
@@ -47,12 +36,14 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 /**
  * Validate + persist a project's symbols doc to R2, guarded by `baseEtag`: a stale one
  * answers **409** rather than discarding a concurrent author's overrides. `force: true`
- * is the author's explicit "overwrite theirs".
+ * is the author's explicit "overwrite theirs". The replaced bytes are backed up first
+ * (`/api/editor/symbols/backups`); `backup: 'always'` exempts a save from the coalescing window.
  *
- * Body: the doc fields, plus `baseEtag?: string | null` and `force?: boolean`.
+ * Body: the doc fields, plus `baseEtag?: string | null`, `force?: boolean` and
+ * `backup?: 'always'` (none of which the doc schema keeps).
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
-	const user = await gate(locals);
+	const user = await requireSymbolsAccess(locals);
 	const { clientKey, projectKey } = await requireProjectScope(
 		user,
 		url.searchParams.get('project'),
@@ -64,8 +55,9 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		throw error(400, 'Invalid JSON body.');
 	}
 	const baseEtag = writeBaseEtagJson(body);
+	const backup = requestedBackupMode(body);
 	try {
-		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, body, baseEtag);
+		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, body, baseEtag, backup);
 		return json({ clientKey, projectKey, doc, etag });
 	} catch (e) {
 		// ORDER IS LOAD-BEARING: this branch must precede the catch-all 502 below, which

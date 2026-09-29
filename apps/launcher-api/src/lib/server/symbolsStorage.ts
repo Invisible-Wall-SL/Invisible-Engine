@@ -7,9 +7,10 @@ import {
 	TUMBLE_STEP_MS_DEFAULT,
 	TUMBLE_STEP_MS_MAX,
 } from 'engine-layout';
+import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver } from './manifestBasename';
-import { symbolsDocKey } from './projectPaths';
-import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
+import { getObjectTextWithEtag } from './r2';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -1088,20 +1089,24 @@ export async function canonicalizeSymbolsDocForExport(
  * Persist a project's symbols doc to R2 (validates + stamps `updatedAt`), guarded by
  * `baseEtag` — see `r2.precondition` for the convention. Throws `ConflictError` when
  * another author saved first; returns the new ETag.
+ *
+ * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
+ * `/api/editor/symbols/backups`); `backup: 'always'` is for a restore or a deliberate swap.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: unknown,
 	baseEtag?: string | null,
+	backup: BackupMode = 'auto',
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
-	const etag = await putObjectText(
-		symbolsDocKey(clientKey, projectKey),
+	const etag = await putDocWithBackup(
+		symbolsDocBackupTarget(clientKey, projectKey),
 		JSON.stringify(stamped, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		backup,
 	);
 	return { doc: stamped, etag };
 }

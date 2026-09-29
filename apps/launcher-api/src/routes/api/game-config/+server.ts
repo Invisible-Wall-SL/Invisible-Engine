@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import {
 	ConflictError,
@@ -41,10 +42,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 /**
  * Validate + persist a project's config doc to R2.
  *
- * Body: `{ doc, baseEtag?, force? }` — mirrors `/api/win-text`. `baseEtag` is the ETag the client
- * loaded; the write is conditional on it, so two authors on one project can't silently clobber each
- * other's whole config. `force: true` drops the precondition ("overwrite with mine"). An absent
- * `baseEtag` writes unconditionally.
+ * Body: `{ doc, baseEtag?, force?, backup? }` — mirrors `/api/win-text`. `baseEtag` is the ETag the
+ * client loaded; the write is conditional on it, so two authors on one project can't silently
+ * clobber each other's whole config. `force: true` drops the precondition ("overwrite with mine").
+ * The replaced bytes are backed up first (`/api/game-config/backups`); `backup: 'always'` exempts
+ * a save from the coalescing window.
  *
  * A config that can't ship (no dictionary/strips, a payline off the grid, a strip dealing a symbol
  * absent from the dictionary) is a 400 carrying the ISSUE LIST — the paste-in-from-the-math-team
@@ -57,7 +59,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
+	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown; backup?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -70,6 +72,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 			projectKey,
 			body.doc,
 			baseEtag,
+			requestedBackupMode(body),
 		);
 		// `config` is an input to `assembleRuntimeBundle`, so a bare save would otherwise only reach a
 		// live (`?runtime=1`) game after the runtime cache's 10s TTL. Bust it now — same call Publish

@@ -7,9 +7,10 @@ import {
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
+import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
-import { gameConfigDocKey } from './projectPaths';
-import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { gameConfigDocBackupTarget, gameConfigDocKey } from './projectPaths';
+import { ConflictError, getObjectTextWithEtag } from './r2';
 
 /**
  * Invisible Game Config doc — the per-project GAME MATH CONTRACT (symbol dictionary + paytable,
@@ -191,20 +192,24 @@ export async function loadGameConfigDoc(
  * Without this, two authors on one project silently clobber each other's ENTIRE config: the page
  * loads the whole doc and PUTs the whole doc, so the second save erases the first's work, not just
  * the conflicting field. `updatedAt` alone can't catch it — it's stamped, never compared.
+ *
+ * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
+ * `/api/game-config/backups`); `backup: 'always'` is for a restore or a deliberate swap.
  */
 export async function saveGameConfigDoc(
 	clientKey: string,
 	projectKey: string,
 	input: unknown,
 	baseEtag?: string | null,
+	backup: BackupMode = 'auto',
 ): Promise<{ doc: GameConfigDoc; etag: string | null; warnings: GameConfigIssue[] }> {
 	const { doc, warnings } = prepareGameConfigDoc(input);
 	const stamped: GameConfigDoc = { ...doc, updatedAt: new Date().toISOString() };
-	const etag = await putObjectText(
-		gameConfigDocKey(clientKey, projectKey),
+	const etag = await putDocWithBackup(
+		gameConfigDocBackupTarget(clientKey, projectKey),
 		JSON.stringify(stamped, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		backup,
 	);
 	return { doc: stamped, etag, warnings };
 }

@@ -1,6 +1,7 @@
 import { freshDrivenSeedDoc, type FlowDoc as FlowDocV2 } from 'engine-flow-v2';
-import { flowV2DocKey } from './projectPaths';
-import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { putDocWithBackup, type BackupMode } from './docBackups';
+import { flowV2DocBackupTarget, flowV2DocKey } from './projectPaths';
+import { getObjectTextWithEtag } from './r2';
 
 /**
  * R2 load/save for the Invisible Flow **v2** document — the node-graph event flow authored
@@ -104,22 +105,26 @@ export async function loadFlowV2DocForEditor(
 
 /**
  * Persist a project's v2 FlowDoc to R2; rejects a body that is not shaped like a v2
- * `FlowDoc`. Guarded by `baseEtag` — see {@link precondition} for the convention, and
+ * `FlowDoc`. Guarded by `baseEtag` — see `r2.precondition` for the convention, and
  * `editorStorage.saveDoc` for why `undefined` is not an escape hatch. Throws
- * {@link ConflictError} when another author saved first; returns the new ETag.
+ * `ConflictError` when another author saved first; returns the new ETag.
+ *
+ * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
+ * `/api/flow-v2/backups`); `backup: 'always'` is for a restore or a deliberate wholesale swap.
  */
 export async function saveFlowV2Doc(
 	clientKey: string,
 	projectKey: string,
 	doc: unknown,
 	baseEtag?: string | null,
+	backup: BackupMode = 'auto',
 ): Promise<{ doc: FlowDocV2; etag: string | null }> {
 	if (!isFlowV2Doc(doc)) throw new Error('not a v2 FlowDoc');
-	const etag = await putObjectText(
-		flowV2DocKey(clientKey, projectKey),
+	const etag = await putDocWithBackup(
+		flowV2DocBackupTarget(clientKey, projectKey),
 		JSON.stringify(doc, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		backup,
 	);
 	return { doc, etag };
 }

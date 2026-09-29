@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -1005,6 +1006,31 @@
 	});
 	const save = (force = false) => void saveState.save({ force });
 
+	// Version history: rolling server-side backups of the config doc. The restore is the same
+	// guarded write as a save (this tab's ETag — a stale tab gets a 409, not a free overwrite) and
+	// keeps a copy of what it replaces. Reload after, so the doc, its ETag and every panel re-load.
+	let historyOpen = $state(false);
+	const historyUrl = $derived(
+		`/api/game-config/backups?project=${encodeURIComponent(data.projectKey)}`,
+	);
+
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (lease.readOnly) return 'Another author is editing this config — take over first.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(historyUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+		});
+		if (res.ok) {
+			location.reload();
+			return null;
+		}
+		const out = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+		return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+	}
+
 	onMount(() => {
 		void lease.start();
 		const onUnload = () => lease.release();
@@ -1038,6 +1064,14 @@
 				{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
 						>Saved {savedAt}</span
 					>{/if}
+			{/if}
+			{#if data.projectKey}
+				<button
+					class="history"
+					type="button"
+					title="Browse and restore earlier saved versions of this config"
+					onclick={() => (historyOpen = true)}>History…</button
+				>
 			{/if}
 			<button
 				class="save"
@@ -2267,6 +2301,16 @@
 	</ConfirmDialog>
 </div>
 
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="config"
+	readOnly={lease.readOnly}
+	{dirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
+
 <style>
 	.page {
 		display: flex;
@@ -3035,6 +3079,15 @@
 		color: #7ee0c0;
 		border-radius: 6px;
 		padding: 6px 16px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.history {
+		background: #1c1f27;
+		border: 1px solid #2d3240;
+		color: #c9cedb;
+		border-radius: 6px;
+		padding: 6px 12px;
 		font-size: 12px;
 		cursor: pointer;
 	}

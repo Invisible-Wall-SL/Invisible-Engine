@@ -26,6 +26,7 @@
 		type RegionSet,
 	} from '../editor/editorRegions.client';
 	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
@@ -558,6 +559,32 @@
 			}
 		},
 	});
+
+	// Version history: rolling server-side backups of `symbols.json`. The restore is the same
+	// guarded write as a save (this tab's ETag — a stale tab gets a 409, not a free overwrite), and
+	// it preserves the version it replaces, so it is undoable from the same list. Reload after, so
+	// the restored doc, its ETag and every derived preview come from one fresh load.
+	let historyOpen = $state(false);
+	const historyUrl = $derived(
+		`/api/editor/symbols/backups?project=${encodeURIComponent(data.projectKey)}`,
+	);
+
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (lease.readOnly) return 'Another author is editing these symbols — take over first.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(historyUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+		});
+		if (res.ok) {
+			location.reload();
+			return null;
+		}
+		const out = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+		return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+	}
 
 	// "Reload from R2": after re-exporting/replacing a spine in R2 (e.g. from the
 	// Rigger), the previews + picker would otherwise keep the cached bundle — the
@@ -1780,6 +1807,16 @@
 				>
 					{reloading ? 'Reloading…' : '↻ Reload from R2'}
 				</button>
+				{#if data.projectKey}
+					<button
+						class="reload"
+						type="button"
+						title="Browse and restore earlier saved versions of these symbols"
+						onclick={() => (historyOpen = true)}
+					>
+						History…
+					</button>
+				{/if}
 				<button
 					class="save"
 					type="button"
@@ -4560,6 +4597,16 @@
 		{/if}
 	</div>
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="symbols"
+	readOnly={lease.readOnly}
+	{dirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
 
 <style>
 	.shell {

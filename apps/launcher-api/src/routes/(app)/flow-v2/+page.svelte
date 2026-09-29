@@ -51,6 +51,8 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
+	import { UndoHistory } from '$lib/undoHistory';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -156,7 +158,7 @@
 	//  - function view → replace `library.functions[i].body`, `markLibraryDirty()`.
 	// Then re-seed the canvas (derived pins / edge colors refresh). The single write-back path
 	// that keeps main-flow editing byte-for-byte unchanged while enabling body editing.
-	function applyGraphEdit(nextGraph: Graph): void {
+	function applyGraphEdit(nextGraph: Graph, historyKey?: string): void {
 		if (view.kind === 'function') {
 			const fnId = view.functionId;
 			library = {
@@ -164,11 +166,11 @@
 				functions: library.functions.map((f) => (f.id === fnId ? { ...f, body: nextGraph } : f)),
 			};
 			syncCanvas();
-			markLibraryDirty();
+			markLibraryDirty(historyKey);
 		} else {
 			doc = { ...doc, graph: nextGraph };
 			syncCanvas();
-			markDirty();
+			markDirty(historyKey);
 		}
 	}
 
@@ -192,8 +194,9 @@
 		view.kind === 'function' ? { ...inspectorDoc, containers: [] } : inspectorDoc,
 	);
 
+	// Inspector edits land on each field commit; keying them by node merges a quick run into one step.
 	function applyDocEdit(next: FlowDoc): void {
-		applyGraphEdit(next.graph);
+		applyGraphEdit(next.graph, `inspector:${selectedNodeId ?? ''}`);
 	}
 
 	// The node types the canvas knows — the generic v2 node (derives its own pins) + the editor-only
@@ -210,7 +213,7 @@
 			comments: (doc.comments ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c)),
 		};
 		syncCanvas();
-		markDirty();
+		markDirty(`comment:${id}`);
 	}
 
 	function addComment(): void {
@@ -346,7 +349,8 @@
 				// `setGroupLabel` + `applyGraphEdit` path the inspector uses, so the canvas + save stay in sync.
 				onRename:
 					n.kind === 'group'
-						? (label: string) => applyGraphEdit(setGroupLabel(inspectorDoc, n.id, label).graph)
+						? (label: string) =>
+								applyGraphEdit(setGroupLabel(inspectorDoc, n.id, label).graph, `label:${n.id}`)
 						: undefined,
 			},
 		}));
@@ -432,8 +436,10 @@
 		void lease.start();
 		const onUnload = () => lease.release();
 		window.addEventListener('pagehide', onUnload);
+		window.addEventListener('keydown', onUndoKey);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
+			window.removeEventListener('keydown', onUndoKey);
 			saveState.cancelAutosave();
 			libraryState.cancelAutosave();
 			lease.release();
@@ -510,7 +516,8 @@
 	// Every editing gesture calls this after mutating `doc`. It arms the trailing debounce; a
 	// fresh gesture within the window resets it (coalescing a burst of edits into one save). The
 	// helper won't re-arm from a sticky conflict / scope-mismatch — edits are kept.
-	function markDirty(): void {
+	function markDirty(historyKey?: string): void {
+		recordHistory(historyKey);
 		if (!hasProject) return; // no project bound — nothing to persist to.
 		saveState.markDirty();
 	}
@@ -544,9 +551,145 @@
 	});
 	const saveLibrary = (force = false) => void libraryState.save({ force });
 
-	function markLibraryDirty(): void {
+	function markLibraryDirty(historyKey?: string): void {
+		recordHistory(historyKey);
 		if (!hasProject) return; // no project bound — never persist the shared library.
 		libraryState.markDirty();
+	}
+
+	// --- Undo / redo ------------------------------------------------------------
+	// Every edit already funnels through `markDirty` / `markLibraryDirty`, so that is where the
+	// history records. A step is the PAIR `[doc, library]`: "Collapse to Function" edits both in
+	// one gesture and must undo as one, and undo inside a function body has to reach the library.
+	// An undo/redo re-applies the snapshot and then calls the same `markDirty`s an edit would, so it
+	// saves through the normal conditional (`baseEtag`) path — there is no special undo write. That
+	// re-entry is a no-op for the history (the snapshot already equals its present).
+	// Read-only under a lease held elsewhere: those edits could never save, so undo is disabled too.
+	const snapshotPair = (): string => JSON.stringify([doc, library]);
+	const undoHistory = new UndoHistory(snapshotPair(), { limit: 100, coalesceMs: 800 });
+	let historyRev = $state(0);
+	const canUndo = $derived(historyRev >= 0 && undoHistory.canUndo && !lease.readOnly);
+	const canRedo = $derived(historyRev >= 0 && undoHistory.canRedo && !lease.readOnly);
+
+	// Set while one gesture makes several edits (spawn + wire, delete nodes + comments), so it
+	// records ONE step when it finishes instead of one per edit.
+	let historyHeld = false;
+
+	function recordHistory(key?: string): void {
+		if (historyHeld) return;
+		undoHistory.commit(snapshotPair(), key);
+		historyRev++;
+	}
+
+	function asOneStep(gesture: () => void): void {
+		historyHeld = true;
+		try {
+			gesture();
+		} finally {
+			historyHeld = false;
+		}
+		recordHistory();
+	}
+
+	function applyHistory(snap: string | null): void {
+		historyRev++;
+		if (snap === null) return;
+		const [nextDoc, nextLibrary] = JSON.parse(snap) as [FlowDoc, FunctionLibraryDoc];
+		const docChanged = JSON.stringify(doc) !== JSON.stringify(nextDoc);
+		const libraryChanged = JSON.stringify(library) !== JSON.stringify(nextLibrary);
+		const landed = viewOfChange(docChanged, libraryChanged, nextLibrary);
+		doc = nextDoc;
+		library = nextLibrary;
+		// Show the graph the step changed — an undo must never rewrite something off-screen, least
+		// of all the shared library from the main flow.
+		if (landed && JSON.stringify(landed) !== JSON.stringify(view)) {
+			view = landed;
+			selectedNodeId = null;
+			fitSignal += 1;
+		}
+		if (selectedNodeId && !activeGraph.nodes.some((n) => n.id === selectedNodeId)) {
+			selectedNodeId = null;
+		}
+		syncCanvas();
+		if (docChanged) markDirty();
+		if (libraryChanged) markLibraryDirty();
+	}
+
+	// Where a step's change lives: the main flow when the doc changed (a collapse edits both, and
+	// its visible half is the flow), else the one function body it edited. `null` = stay put (e.g.
+	// only a function NAME changed, which the current view already shows).
+	function viewOfChange(
+		docChanged: boolean,
+		libraryChanged: boolean,
+		nextLibrary: FunctionLibraryDoc,
+	): FlowView | null {
+		if (docChanged) return { kind: 'flow' };
+		if (!libraryChanged) return null;
+		const before = new Map(library.functions.map((f) => [f.id, JSON.stringify(f.body)]));
+		const edited = nextLibrary.functions.filter((f) => before.get(f.id) !== JSON.stringify(f.body));
+		const openFn = view.kind === 'function' ? view.functionId : null;
+		if (edited.some((f) => f.id === openFn)) return null;
+		return edited.length ? { kind: 'function', functionId: edited[0].id } : null;
+	}
+
+	const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'range', 'color']);
+	function isTextEntry(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
+		return target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(target.type);
+	}
+
+	function undo(): void {
+		if (!canUndo) return;
+		applyHistory(undoHistory.undo());
+	}
+
+	function redo(): void {
+		if (!canRedo) return;
+		applyHistory(undoHistory.redo());
+	}
+
+	// --- Version history (rolling server-side backups of `flow-v2.json`) ---------
+	// Restore goes through `/api/flow-v2/backups`, which writes via the SAME guarded save: it
+	// carries this tab's ETag (a stale tab loses with a 409 instead of reverting a colleague's work)
+	// and the project it loaded (the scope-mismatch guard). The pending autosave is cancelled first,
+	// or it would fire the pre-restore doc straight back over the restore. On success the page
+	// reloads — the restored doc needs the whole load (ETag, seeded flag, containers) re-run.
+	let historyOpen = $state(false);
+	const historyUrl = `/api/flow-v2/backups?project=${encodeURIComponent(data.projectKey)}`;
+
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (lease.readOnly) return 'Another author is editing this flow — take over before restoring.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(historyUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag, projectKey: data.projectKey }),
+		});
+		if (res.ok) {
+			location.reload();
+			return null;
+		}
+		if (saveState.dirty) saveState.rearmAutosave();
+		const out = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+		return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+	}
+
+	// Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo. A focused text field keeps its own native
+	// undo; a checkbox/select has none, so the graph's applies there. Inert behind any open dialog.
+	function onUndoKey(e: KeyboardEvent): void {
+		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+		if (document.querySelector('dialog[open]')) return;
+		if (isTextEntry(e.target)) return;
+		const k = e.key.toLowerCase();
+		if (k === 'z' && !e.shiftKey) {
+			e.preventDefault();
+			undo();
+		} else if ((k === 'z' && e.shiftKey) || (k === 'y' && !e.shiftKey)) {
+			e.preventDefault();
+			redo();
+		}
 	}
 
 	// xyflow 1.6 has no node-double-click event, so detect it (mirrors v1 /flow): two clicks on
@@ -845,7 +988,16 @@
 		const draggedPin = pinByHandle(dragged.node, dragged.pin, dragged.dir);
 		if (!draggedPin) return;
 
-		const newId = addNodeAt(candidate.kind, candidate.ref, menu.flowPos);
+		asOneStep(() => spawnAndWire(dragged, draggedPin, candidate, menu.flowPos));
+	}
+
+	function spawnAndWire(
+		dragged: { node: string; pin: string; dir: PinDir },
+		draggedPin: Pin,
+		candidate: PinDropCandidate,
+		flowPos: { x: number; y: number },
+	): void {
+		const newId = addNodeAt(candidate.kind, candidate.ref, flowPos);
 		const newNode = activeGraph.nodes.find((n) => n.id === newId);
 		if (!newNode) return;
 		const newPins = derivePins(newNode, ctx);
@@ -876,6 +1028,10 @@
 	// `deletable: false`), so xyflow never includes them here.
 	function onGraphDelete({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }): void {
 		if (!dn?.length && !de?.length) return;
+		asOneStep(() => deleteSelection(dn, de));
+	}
+
+	function deleteSelection(dn: Node[], de: Edge[]): void {
 		// Comment boxes delete off `doc.comments`; graph nodes/edges through the graph path.
 		const commentIds = dn.filter((n) => n.type === 'comment').map((n) => n.id);
 		if (commentIds.length) deleteComments(commentIds);
@@ -1135,7 +1291,7 @@
 			...library,
 			functions: library.functions.map((f) => (f.id === fnId ? { ...f, name } : f)),
 		};
-		markLibraryDirty();
+		markLibraryDirty(`fnname:${fnId}`);
 	}
 
 	// How many call sites reference `functionId` — the top-level flow graph AND every OTHER
@@ -1268,6 +1424,32 @@
 			{/if}
 		{/if}
 		<span class="spacer"></span>
+		<button
+			class="collapse-btn"
+			type="button"
+			disabled={!canUndo}
+			onclick={undo}
+			title={lease.readOnly ? 'Read-only — another author holds this flow' : 'Undo (Ctrl+Z)'}
+			aria-label="Undo">↶ Undo</button
+		>
+		<button
+			class="collapse-btn"
+			type="button"
+			disabled={!canRedo}
+			onclick={redo}
+			title={lease.readOnly
+				? 'Read-only — another author holds this flow'
+				: 'Redo (Ctrl+Shift+Z / Ctrl+Y)'}
+			aria-label="Redo">↷ Redo</button
+		>
+		{#if hasProject}
+			<button
+				class="collapse-btn"
+				type="button"
+				onclick={() => (historyOpen = true)}
+				title="Browse and restore earlier saved versions of this flow">History…</button
+			>
+		{/if}
 		{#if hasProject}
 			{#if lease.readOnly}
 				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
@@ -1445,6 +1627,16 @@
 		</div>
 	</div>
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="flow"
+	readOnly={lease.readOnly}
+	dirty={saveState.dirty || libraryState.dirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
 
 <style>
 	.page {

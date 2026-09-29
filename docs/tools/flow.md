@@ -63,6 +63,8 @@ Across the top the sub-bar shows the active **client / project** scope, an **exe
 legend, a live **node / exec / data** count, and a validation pill (**✓ valid** or **⚠ N
 issues**). The **save pill** on the right reports the auto-save state — **Saving…**,
 **Unsaved changes**, **Saved**, or **Save failed — retry** (click to retry).
+Next to it are **↶ Undo**, **↷ Redo** and **History…** (see [Undo, redo and version
+history](#undo-redo-and-version-history)).
 
 ### Add nodes (the palette)
 
@@ -581,6 +583,31 @@ never persisted.
 
 The game reads the saved `editor/flow-v2.json` at runtime through the bake → bundle chain,
 so authoring here is what the shipped game actually runs.
+
+### Undo, redo and version history
+
+**Undo / redo.** **Ctrl+Z** (⌘Z) undoes, **Ctrl+Shift+Z** or **Ctrl+Y** redoes — or use the
+**↶ Undo** / **↷ Redo** buttons in the sub-bar. Every change is a step: adding, deleting,
+wiring and moving nodes, comment boxes, collapsing to a function or group, and edits in the
+inspector. A burst of typing in one inspector field, or repeated edits to one comment box,
+counts as a single step, and so does dragging a wire off a pin to spawn a connected node.
+Undo and redo switch the canvas to wherever the change was — the main flow or the function
+body it edited — so you always see what changed. The last 100 steps are kept for as long as the tab is open (a
+reload starts fresh). Undo covers the shared function library too, so undoing **Collapse to
+Function** removes the function and restores the nodes in one step. An undo is saved like
+any other edit — it auto-saves, and if someone else saved in the meantime you get the usual
+conflict banner rather than overwriting them. While the text cursor is in a field, Ctrl+Z
+undoes the typing in that field instead. Undo, redo and restore are disabled while another
+author holds the flow (read-only mode).
+
+**History….** Opens the list of earlier saved versions of this project's flow, newest
+first. Each save keeps a copy of the version it replaces — at most one every five minutes
+while you work, the newest 20 kept — so History reaches further back than undo, across
+reloads and sessions. Pick a version and **Restore**: the restore is guarded like a save
+(refused with a reload prompt if someone else saved since you loaded), it keeps a copy of
+the version it replaces so it can be undone from the same list, and the page reloads onto
+the restored flow. History covers the project's flow only — the shared function library has
+no version history yet.
 
 ## What it does not do yet
 

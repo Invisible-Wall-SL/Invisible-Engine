@@ -464,6 +464,16 @@ A project that has never authored a config opens on its **game-type template
 default** (the banner says so). Save to make it the project's own. **Reset to
 template default** restores that starting point at any time.
 
+## Version history
+
+**History…** in the top bar lists earlier saved versions of this project's config, newest
+first. Each save keeps a copy of the version it replaces (at most one every five minutes; the
+newest 20 are kept), and an **Overwrite** of someone else's save always keeps one. Pick a
+version and **Restore**: it is saved like any other save — refused with a reload prompt if
+someone else saved since you opened the page — and it keeps a copy of the version it replaces,
+so a restore can be undone from the same list. The page reloads afterwards. Restoring is
+disabled while another author holds the project.
+
 ## Making a ways game
 
 Three steps, and step 3 is the one people miss.
