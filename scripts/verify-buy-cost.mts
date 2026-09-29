@@ -1,16 +1,22 @@
 /**
- * Offline fixture for the per-mode buy-cost fix.
+ * Offline fixture: a buy card's price is what the wallet is charged.
  *
- * Proves the two halves of the charge chain, end to end, against the REAL book mock
- * (`scripts/mock-rgs-server-book.mjs` — Book of Borut's live RGS) and the REAL facade
- * (`packages/rgs-translator-eagaming/src/engineFacade.ts`):
+ * Drives the REAL book mock (`scripts/mock-rgs-server-book.mjs` — what `services/test-server` serves
+ * Book-of projects) through the REAL facade (`packages/rgs-translator-eagaming/src/engineFacade.ts`):
  *
- *   Part 1 (mock):   a `bet` wire context [cost, betPerLine] debits betPerLine × NUM_LINES × cost,
- *                    so each buy cost multiplier (25 / 50 / 100) charges its own price — not a fixed 100.
- *   Part 2 (facade): requestBet for each bet mode emits context[0] = that mode's cost multiplier
- *                    (from the `__IE_BET_MODES__` bridge the engine publishes), 0 for a normal spin.
+ *   Part 1 (mock):   the mock declares `betOptions` and prices a `bet` [x, M] the way the partner does
+ *                    for such a game — `betOptions[x] × M`, x an OPTION INDEX — and refuses an index
+ *                    outside its table rather than charging some other price.
+ *   Part 2 (chain):  for every option the facade publishes to the game's menu
+ *                    (`__IE_SERVER_BET_OPTIONS__`, what `betModeMeta.ts` builds the cards from), a
+ *                    `requestBet` in that mode is debited exactly the card's price,
+ *                    `betAmount × costMultiplier`. This is the check that was missing when a $100
+ *                    card debited $1 (2026-09-28): the facade sent option 1 and the mock read it as
+ *                    a 1× cost multiplier.
+ *   Part 3 (pays):   a bought round's free spins pay at the BASE stake, identical to the same
+ *                    feature reached by a base spin — the buy premium must not scale the wins.
  *
- * Run: pnpm --filter … exec tsx scripts/verify-buy-cost.mts   (or: node_modules/.bin/tsx scripts/verify-buy-cost.mts)
+ * Run: pnpm check:buy-cost   (part of `pnpm check:rgs`)
  */
 
 import { createServer, type Server } from 'node:http';
@@ -19,10 +25,11 @@ import { createMockRgs } from './mock-rgs-server-book.mjs';
 import {
 	requestAuthenticate,
 	requestBet,
+	requestEndRound,
 } from '../packages/rgs-translator-eagaming/src/engineFacade';
 
-const NUM_LINES = 10;
-const BET_PER_LINE = 10; // cents, = the facade's round(betAmount×100 / BOOK_NUM_LINES) for a $1 bet
+type WireEvent = { event: string; context: Record<string, unknown> };
+type WireResponse = { events?: WireEvent[]; error?: string; platform?: { balance?: number } };
 
 let failures = 0;
 const assert = (label: string, got: unknown, want: unknown) => {
@@ -31,18 +38,17 @@ const assert = (label: string, got: unknown, want: unknown) => {
 	console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}  got=${got} want=${want}`);
 };
 
-const startMock = (): Promise<{ server: Server; rgsUrl: string }> => {
-	// A large balance so a 100× buy never trips insufficient-balance; a fixed seed for determinism.
+const startMock = (opts: { seed: string; forceTrigger?: boolean }) => {
 	const mock = createMockRgs({
 		label: 'buycost-fixture',
-		seed: 'buycost',
 		startBalance: 1_000_000_000,
+		...opts,
 	});
-	const server = createServer((req, res) => {
+	const server: Server = createServer((req, res) => {
 		const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
 		return mock.handle(req, res, url);
 	});
-	return new Promise((resolve) => {
+	return new Promise<{ server: Server; rgsUrl: string }>((resolve) => {
 		server.listen(0, () => {
 			const addr = server.address();
 			const port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -51,77 +57,141 @@ const startMock = (): Promise<{ server: Server; rgsUrl: string }> => {
 	});
 };
 
-const postEngine = async (rgsUrl: string, sid: string, seq: number, body: unknown) => {
-	const res = await fetch(`http://${rgsUrl}/rgs/engine?sid=${sid}&seq=${seq}`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(body),
-	});
-	return res.json() as Promise<{ events: { event: string; context: { total?: number } }[] }>;
+const postEngine = async (
+	rgsUrl: string,
+	sid: string,
+	seq: number,
+	body: unknown,
+	gid?: string,
+) => {
+	const res = await fetch(
+		`http://${rgsUrl}/rgs/engine?sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
+		{ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+	);
+	return res.json() as Promise<WireResponse & { platform?: { gameRound?: { id?: string } } }>;
+};
+
+const betTotal = (resp: WireResponse) =>
+	resp.events?.find((e) => e.event === 'bet')?.context.total as number | undefined;
+
+/** Play one round opened by `bet` to its `collect`, the way the facade drives it. Returns every
+ *  free-spin win as `what:pay`, in order, and how many were the expanding special's own pay. */
+const playRoundRaw = async (rgsUrl: string, sid: string, bet: [number, number]) => {
+	let resp = await postEngine(rgsUrl, sid, 0, [
+		{ action: 'bet', context: bet },
+		{ action: 'play', context: '' },
+	]);
+	const gid = resp.platform?.gameRound?.id;
+	const pays: string[] = [];
+	let specials = 0;
+	let seq = 2;
+	while (gid && !resp.events?.some((e) => e.event === 'gameEnd') && seq < 200) {
+		resp = await postEngine(rgsUrl, sid, seq++, [{ action: 'play' }], gid);
+		for (const e of resp.events ?? []) {
+			if (e.event !== 'spinWin') continue;
+			pays.push(`${e.context.what}:${e.context.pay}`);
+			if (e.context.mode === 'scatter' && e.context.what !== 'SCAT') specials += 1;
+		}
+	}
+	if (gid) await postEngine(rgsUrl, sid, seq, [{ action: 'collect' }], gid);
+	return { pays, specials };
 };
 
 const main = async () => {
-	const { server, rgsUrl } = await startMock();
+	const { server, rgsUrl } = await startMock({ seed: 'buycost' });
 
-	// ---- Part 1: the MOCK charges betPerLine × NUM_LINES × cost, per wire cost multiplier ----
-	// cost 0 = normal spin (charged 1×); 25/50/100 = the three buy tiers.
-	const wireCases: { cost: number; expectedTotal: number }[] = [
-		{ cost: 0, expectedTotal: BET_PER_LINE * NUM_LINES * 1 }, // 100  (normal spin)
-		{ cost: 25, expectedTotal: BET_PER_LINE * NUM_LINES * 25 }, // 2500 ($25 buy)
-		{ cost: 50, expectedTotal: BET_PER_LINE * NUM_LINES * 50 }, // 5000 ($50 buy)
-		{ cost: 100, expectedTotal: BET_PER_LINE * NUM_LINES * 100 }, // 10000 ($100 buy)
+	// ---- Part 1: the mock prices [x, M] as betOptions[x] × M ----
+	const config = await postEngine(rgsUrl, 'cfg', 0, [{ action: 'config' }]);
+	const betOptions = config.events?.find((e) => e.event === 'config')?.context
+		.betOptions as number[];
+	assert('mock declares betOptions', JSON.stringify(betOptions), '[10,1000]');
+	const wireCases: { ctx: [number, number]; want: number }[] = [
+		{ ctx: [0, 10], want: 100 }, // $1 base spin
+		{ ctx: [1, 10], want: 10_000 }, // $100 buy at the same M
+		{ ctx: [0, 4], want: 40 },
+		{ ctx: [1, 4], want: 4_000 },
 	];
-	for (const { cost, expectedTotal } of wireCases) {
-		const sid = `wire-${cost}`;
-		const resp = await postEngine(rgsUrl, sid, 0, [
-			{ action: 'bet', context: [cost, BET_PER_LINE] },
+	for (const { ctx, want } of wireCases) {
+		const resp = await postEngine(rgsUrl, `wire-${ctx.join('-')}`, 0, [
+			{ action: 'bet', context: ctx },
 		]);
-		const betEvent = resp.events.find((e) => e.event === 'bet');
-		assert(`mock charge cost=${cost}`, betEvent?.context.total, expectedTotal);
+		assert(`mock charge [${ctx}]`, betTotal(resp), want);
+	}
+	for (const bad of [2, 25, 100, -1]) {
+		const resp = await postEngine(rgsUrl, `wire-bad-${bad}`, 0, [
+			{ action: 'bet', context: [bad, 10] },
+		]);
+		assert(`mock refuses option ${bad}`, !!resp.error && betTotal(resp) === undefined, true);
 	}
 
-	// ---- Part 2: the FACADE emits context[0] = the selected mode's cost multiplier ----
-	// Publish the per-mode costs exactly as the engine's syncBetModeMeta does.
+	// ---- Part 2: every card the game offers is debited its displayed price ----
+	const realFetch = globalThis.fetch;
+	const betResponses: WireResponse[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const res = await realFetch(input, init);
+		if (String(init?.body ?? '').includes('"bet"')) betResponses.push(await res.clone().json());
+		return res;
+	}) as typeof fetch;
+
+	await requestAuthenticate({ sessionID: 'menu', rgsUrl, language: 'en' });
+	const menu = (
+		globalThis as {
+			__IE_SERVER_BET_OPTIONS__?: { key: string; index: number; costMultiplier: number }[];
+		}
+	).__IE_SERVER_BET_OPTIONS__;
+	assert('facade publishes the server menu', menu?.map((o) => o.key).join(','), 'BASE,OPTION1');
+	for (const amount of [1, 0.4]) {
+		for (const option of menu ?? []) {
+			const sid = `card-${option.key}-${amount}`;
+			await requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
+			betResponses.length = 0;
+			await requestBet({ sessionID: sid, currency: 'USD', amount, mode: option.key, rgsUrl });
+			await requestEndRound({ sessionID: sid, rgsUrl });
+			const cardCents = Math.round(amount * option.costMultiplier * 100);
+			assert(
+				`$${amount} ${option.key} card $${cardCents / 100} is debited`,
+				betTotal(betResponses[0] ?? {}),
+				cardCents,
+			);
+		}
+	}
+
+	// An authored card the server's table cannot name is refused, never charged some other price.
 	(globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__ = {
 		BASE: 1,
 		HIGHNOON: 25,
-		BULLCHASE: 50,
-		GOLDRUSH: 100,
 	};
-
-	// Wrap global fetch to capture each outgoing /rgs/engine body (the facade uses the global fetch).
-	const realFetch = globalThis.fetch;
-	const outgoing: { action: string; context: unknown }[][] = [];
-	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-		if (init?.body && String(input).includes('/rgs/engine')) {
-			try {
-				outgoing.push(JSON.parse(String(init.body)));
-			} catch {
-				/* ignore non-JSON bodies */
-			}
-		}
-		return realFetch(input, init);
-	}) as typeof fetch;
-
-	const modeCases: { mode: string; expectedCtx0: number }[] = [
-		{ mode: 'BASE', expectedCtx0: 0 }, // normal spin
-		{ mode: 'HIGHNOON', expectedCtx0: 25 },
-		{ mode: 'BULLCHASE', expectedCtx0: 50 },
-		{ mode: 'GOLDRUSH', expectedCtx0: 100 },
-	];
-	for (const { mode, expectedCtx0 } of modeCases) {
-		const sid = `facade-${mode}`;
-		// Authenticate first so the facade captures the mock's config event and selects the book mapping.
-		await requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
-		outgoing.length = 0;
-		await requestBet({ sessionID: sid, currency: 'USD', amount: 1, mode, rgsUrl });
-		const betAction = outgoing.flat().find((a) => a.action === 'bet');
-		const ctx0 = Array.isArray(betAction?.context) ? (betAction.context as number[])[0] : undefined;
-		assert(`facade emits cost for ${mode}`, ctx0, expectedCtx0);
-	}
-
+	await requestAuthenticate({ sessionID: 'unpriced', rgsUrl, language: 'en' });
+	betResponses.length = 0;
+	const unpriced = (await requestBet({
+		sessionID: 'unpriced',
+		currency: 'USD',
+		amount: 1,
+		mode: 'HIGHNOON',
+		rgsUrl,
+	})) as { error?: string };
+	assert(
+		'an unpriced authored mode is refused, not charged',
+		!!unpriced.error && betTotal(betResponses[0] ?? {}) === undefined,
+		true,
+	);
 	globalThis.fetch = realFetch;
 	server.close();
+
+	// ---- Part 3: a bought feature pays at the base stake ----
+	// Same seed, same request sequence ⇒ same RNG draws: the buy and a forced base trigger deal the
+	// identical feature, so every free-spin pay must match to the cent. The seed is one whose feature
+	// pays the expanding special, the pay that is priced off the stake rather than off betPerLine.
+	const seed = 'buycost-pays-0';
+	const bought = await startMock({ seed });
+	const buy = await playRoundRaw(bought.rgsUrl, 'pays', [1, 10]);
+	bought.server.close();
+	const forced = await startMock({ seed, forceTrigger: true });
+	const base = await playRoundRaw(forced.rgsUrl, 'pays', [0, 10]);
+	forced.server.close();
+	assert('the feature paid the expanding special', buy.specials > 0, true);
+	assert('bought feature pays = base-triggered pays', buy.pays.join(' '), base.pays.join(' '));
+
 	console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 	process.exit(failures === 0 ? 0 : 1);
 };

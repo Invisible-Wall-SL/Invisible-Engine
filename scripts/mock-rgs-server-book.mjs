@@ -4,9 +4,10 @@
  * Speaks the /rgs/engine batched-action protocol, faithful to a real Book of
  * Thermopylae session capture (2026-05-25). Adds the two things the Hot Fruits
  * mock never exercised:
- *   - BUY FEATURE: `bet` context [a, betPerLine] where a>0 buys the feature and
- *     IS the buy cost multiplier (total = betPerLine × NUM_LINES × a), so each
- *     buy mode charges its own cost (e.g. 25 / 50 / 100). a=0 = normal spin.
+ *   - BUY FEATURE: `bet` context [x, M] read as the partner reads it for a game that declares
+ *     `betOptions`: x is the OPTION INDEX (0 base, 1 buy), M the multiplier, and the stake is
+ *     `BET_OPTIONS[x] × M` cents, so a buy costs 100× the base spin at the same M. An index outside
+ *     the table is refused. See docs/reference/play4fun-protocol.md, "The first bet argument".
  *   - FREE-SPIN BONUS: multi-request round. The trigger response stays OPEN
  *     (no gameRoundOver) and emits spinTrigger + enterBonus + pickRandomly
  *     (the special expanding symbol). Each subsequent `play` is one free spin
@@ -40,6 +41,9 @@ import { pathToFileURL } from 'node:url';
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK', 'TEN', 'SCAT'];
 /** Paying symbols eligible to become the free-spin special expanding symbol. */
 const PAY_SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK', 'TEN'];
+/** Credit cost of each bet option, base then the bought feature. `BET_OPTIONS[0]` is the game cost
+ *  (10 lines), so M is the per-line stake. */
+const BET_OPTIONS = [10, 1000];
 const NUM_LINES = 10;
 // When false (the production rule, surfaced in the config event), two paylines
 // whose winning combination lands on the IDENTICAL cells are the same win — it
@@ -124,8 +128,8 @@ function hashStr(s) {
 const buildConfigContext = (payTable) => ({
 	symbols: SYMBOLS,
 	availablePayLines: PAYLINES,
-	betOptions: [10, 1000],
-	gameCost: 10,
+	betOptions: BET_OPTIONS,
+	gameCost: BET_OPTIONS[0],
 	lineAlign: 'left',
 	lineCoinciding: LINE_COINCIDING,
 	maxWinMp: [10000],
@@ -274,7 +278,7 @@ const expandSpecialBoard = (reels, special) => {
 
 /** The expanding special pays like a scatter: on the COUNT OF REELS it covers
  *  (adjacency-independent — a fully expanded reel puts the symbol on every
- *  payline), at its line-paytable value × TOTAL stake. `mult × totalStake`
+ *  payline), at its line-paytable value × BASE stake. `mult × totalStake`
  *  equals `mult × betPerLine × NUM_LINES` — the symbol paying that N-of-a-kind
  *  on all ten lines at once. Positions are every cell of every covered reel
  *  (post-expansion the whole reel). Returns null below the expand gate, and also when the special's
@@ -341,8 +345,8 @@ const spinStartEvent = (round) => ({
 		wildSymbols: ['SCAT'],
 		lineAlign: 'left',
 		lineCoinciding: LINE_COINCIDING,
-		gameCost: 10,
-		betOptions: [10, 1000],
+		gameCost: BET_OPTIONS[0],
+		betOptions: BET_OPTIONS,
 		maxWinMp: [10000],
 	},
 });
@@ -533,13 +537,18 @@ export function createMockRgs(opts = {}) {
 			switch (a.action) {
 				case 'bet': {
 					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
-					// ctx[0] is the buy COST MULTIPLIER (0 = normal spin). Each buy mode sends
-					// its own cost (betAmount × costMultiplier is the price shown on its card),
-					// so the debit matches the selected card instead of a fixed premium.
-					const buyCostMultiplier = Number(ctx[0]) || 0;
-					const isBuy = buyCostMultiplier > 0;
+					const option = Number(ctx[0]) || 0;
+					if (!Number.isInteger(option) || option < 0 || option >= BET_OPTIONS.length) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: `invalid bet option ${ctx[0]}`,
+							errorCode: 101,
+							platform: { balance: session.balance },
+						});
+					}
+					const isBuy = option > 0;
 					const betPerLine = Number(ctx[1]) || 1;
-					const total = betPerLine * NUM_LINES * (isBuy ? buyCostMultiplier : 1);
+					const total = BET_OPTIONS[option] * betPerLine;
 					if (session.balance < total) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -586,7 +595,9 @@ export function createMockRgs(opts = {}) {
 						// paid twice. Below the gate it is a plain symbol: normal line
 						// evaluation on the natural board.
 						const special = round.bonus.special;
-						const specialWin = evaluateExpandingSpecial(reels, special, round.total, payTable);
+						// The BASE stake, never `round.total`: a bought round's total carries the buy
+						// premium, which would pay the special 100× over.
+						const specialWin = evaluateExpandingSpecial(reels, special, round.baseBet, payTable);
 						let wins;
 						if (specialWin) {
 							const paidBoard = expandSpecialBoard(reels, special);
