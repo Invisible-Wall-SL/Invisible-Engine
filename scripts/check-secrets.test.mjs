@@ -96,6 +96,7 @@ const SHOULD_PASS = [
 	'id: 3f2a9c1e-7b4d-4e8a-9f0c-1d2e3f4a5b6c',
 	'rpa_ is the RunPod key prefix',
 	'sk-proj-short',
+	p('    --hash=sha256:', rand(64, HEX), ' \\'),
 	p('token = "gh', 'p_', rand(36, ALNUM), '" // pragma: allowlist secret'),
 ];
 
