@@ -10,9 +10,10 @@
  *  2. A 5xx and an EMPTY 200 are resent; a refusal is not.
  *  3. A DROPPED ANSWER INSIDE A ROUND is resent under its `gid` and REPLAYED — a free spin is not
  *     re-dealt, a `collect` is not credited twice, even after it closed the round.
- *  4. A DROPPED ANSWER TO THE BET THAT OPENS A ROUND: a round the server holds open is replayed under
- *     its `gid`; a bet the server provably did not take is resent; a bet that may have been settled
- *     on the spot is NOT resent — the transport gives up and the player reloads.
+ *  4. A DROPPED ANSWER TO THE BET THAT OPENS A ROUND: a round the server holds OPEN is replayed under
+ *     its `gid`; anything else is NOT resent — the server may still take it, or have settled it on
+ *     the spot — so the transport gives up and the player reloads. A closed round a probe or a poll
+ *     names is never taken for the new bet's.
  *  5. OFFLINE sends nothing and waits for the network; ONLINE resumes at once.
  *  6. GIVING UP: bounded, reported, the position unmoved, and every later request refused.
  *  7. ONE AT A TIME: requests on a session never overtake each other; a poll never queues behind one.
@@ -96,7 +97,15 @@ const autoCollect = await serve(
 
 // ---------- a lossy network ----------
 
-type Fault = 'pass' | 'hang' | 'hang-after' | 'drop-before' | 'drop-after' | '503' | 'empty';
+type Fault =
+	| 'pass'
+	| 'hang'
+	| 'hang-after'
+	| 'late'
+	| 'drop-before'
+	| 'drop-after'
+	| '503'
+	| 'empty';
 interface Wire {
 	faults: Fault[];
 	sent: string[];
@@ -125,6 +134,12 @@ const wire = (...faults: Fault[]): Wire => {
 						reject(new DOMException('aborted', 'AbortError')),
 					),
 				);
+			case 'late':
+				setTimeout(
+					() => void fetch(input, { ...init, signal: undefined }).catch(() => undefined),
+					250,
+				);
+				throw new TypeError('network error');
 			case 'drop-before':
 				throw new TypeError('network error');
 			case 'drop-after':
@@ -286,56 +301,89 @@ console.log('\n4. a dropped answer to the bet that OPENS a round');
 	check('…charged ONCE', partnerWins.held(h.sid).balance, START - 10 * 10);
 	check('…and the collect goes at 2', h.session.seq, 2);
 
-	// Learned the server holds wins open; then a bet that never reached it.
-	const u = wire('pass', 'pass', 'pass', 'drop-before');
+	// A SLOW server: the attempt is given up on, the probe finds nothing — and only then does the bet
+	// land. "No open round, balance unchanged" proves nothing while the server may still be working,
+	// so the transport must not resend; resending here was a second stake.
+	const u = wire('pass', 'pass', 'pass', 'late');
 	const n = harness(partnerWins.base, u);
 	await n.post([]);
 	await n.post(BET_PLAY);
 	await n.post(COLLECT);
 	const settled = partnerWins.held(n.sid).balance;
 	n.session.startRound();
-	const again = await n.post(BET_PLAY);
-	check('with no open round, a lost opening bet is NOT resent — the server may still take it', u.sent.slice(3), [
-		'0:bet+play(drop-before)',
+	const slow = await rejection(n.post(BET_PLAY));
+	await new Promise((r) => setTimeout(r, 400));
+	check('with no open round, a lost opening bet is NOT resent', u.sent.slice(3), [
+		'0:bet+play(late)',
 		'0:[]',
-		'0:bet+play',
 	]);
+	check('…the player is sent to reload', slow, 'Play4FunConnectionError:unresolved');
 	check(
-		'…and charged once (the win waits for its collect)',
+		'…and the bet that landed late was charged ONCE',
 		partnerWins.held(n.sid).balance,
 		settled - 10 * 10,
 	);
-	check('…a real round came back', names(again.response).includes('playedSpin'), true);
 
-	// The partner keeps naming a round on `platform.gameRound` after it closed. A probe naming the
-	// round the last answer closed is not a round the lost bet opened — replaying it would show the
-	// player their previous spin as this one.
-	const named = wire('pass', 'pass', 'pass', 'drop-before');
-	const naming = named.fetchImpl;
+	// The partner keeps naming a round on `platform.gameRound` after it closed. A probe naming a CLOSED
+	// round is not a round the lost bet opened — replaying it would show the player an old spin as
+	// this one. Two ways to know: the lane saw it close, or the server does not call it `updating`.
+	const probeNaming = (gameRound: () => { id: string; updating?: boolean } | null) => {
+		const w = wire('pass', 'pass', 'pass', 'drop-before');
+		const real = w.fetchImpl;
+		w.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			const response = await real(input, init);
+			const named = gameRound();
+			if (String(init?.body ?? '') !== '[]' || !named) return response;
+			const body = (await response.json()) as Play4FunResponse;
+			body.platform = { ...body.platform, gameRound: named } as Play4FunResponse['platform'];
+			return new Response(JSON.stringify(body), { status: 200 });
+		}) as typeof fetch;
+		return w;
+	};
 	let closedGid: string | null = null;
-	named.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-		const response = await naming(input, init);
-		if (String(init?.body ?? '') !== '[]' || !closedGid) return response;
-		const body = (await response.json()) as Play4FunResponse;
-		body.platform = {
-			...body.platform,
-			gameRound: { id: closedGid },
-		} as Play4FunResponse['platform'];
-		return new Response(JSON.stringify(body), { status: 200 });
-	}) as typeof fetch;
-	const p = harness(partnerWins.base, named);
+	const seen = probeNaming(() => (closedGid ? { id: closedGid, updating: true } : null));
+	const p = harness(partnerWins.base, seen);
 	await p.post([]);
 	await p.post(BET_PLAY);
 	closedGid = p.session.gid;
 	await p.post(COLLECT);
 	p.session.startRound();
-	const fresh = await p.post(BET_PLAY);
-	check('a probe naming the round just closed is not taken for the lost bet', named.sent.slice(3), [
+	await rejection(p.post(BET_PLAY));
+	check('a probe naming the round this lane saw close is not replayed', seen.sent.slice(3), [
 		'0:bet+play(drop-before)',
+		'0:[]',
+	]);
+
+	const before = probeNaming(() => (closedGid ? { id: closedGid } : null));
+	const q = harness(partnerWins.base, before);
+	await q.post([]);
+	await q.post(BET_PLAY);
+	await q.post(COLLECT);
+	q.session.startRound();
+	await rejection(q.post(BET_PLAY));
+	check('…nor one closed before this boot (not `updating`)', before.sent.slice(3), [
+		'0:bet+play(drop-before)',
+		'0:[]',
+	]);
+
+	// A balance poll answered while a spin waits behind it names the round it last saw. That answer
+	// must not bind its `gid` to the new bet, or the bet goes out under a closed round.
+	const polled = probeNaming(() => (closedGid ? { id: closedGid, updating: true } : null));
+	const r = harness(partnerWins.base, polled);
+	await r.post([]);
+	await r.post(BET_PLAY);
+	closedGid = r.session.gid;
+	await r.post(COLLECT);
+	polled.faults.length = 0;
+	const poll = r.post([], false);
+	r.session.startRound();
+	const bet = await r.post(BET_PLAY);
+	await poll;
+	check('a poll answered ahead of a spin does not lend it a closed round', polled.sent.slice(3), [
 		'0:[]',
 		'0:bet+play',
 	]);
-	check('…a NEW round came back', fresh.response?.platform?.gameRound?.id !== closedGid, true);
+	check('…a NEW round came back', bet.response?.platform?.gameRound?.id !== closedGid, true);
 
 	// A server that closes rounds in the bet's own answer: the bet may have been taken and settled.
 	const a = wire('pass', 'drop-after');

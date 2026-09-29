@@ -426,11 +426,11 @@ export function createMockRgs(opts = {}) {
 	const payTable = effectivePayTable(opts.symbolPaytable);
 
 	const sessions = new Map();
-	/** Closed rounds by id, so a request re-posted under its `gid` replays after the round closed —
+	/** Closed rounds by session + id, so a request re-posted under its `gid` replays after the round closed —
 	 *  a `collect` whose answer was lost is resent into a round the server has already closed. */
 	const settledRounds = new Map();
-	const settle = (round) => {
-		settledRounds.set(round.id, round);
+	const settle = (sid, round) => {
+		settledRounds.set(`${sid}:${round.id}`, round);
 		if (settledRounds.size > 500) settledRounds.delete(settledRounds.keys().next().value);
 	};
 	const getSession = (sid) => {
@@ -527,7 +527,11 @@ export function createMockRgs(opts = {}) {
 		for (const [offset, a] of actions.entries()) {
 			// An occupied position under the round's own gid is a REPLAY: answer with what was dealt.
 			const position = seq + offset;
-			const target = !gid ? undefined : round?.id === gid ? round : settledRounds.get(gid);
+			const target = !gid
+				? undefined
+				: round?.id === gid
+					? round
+					: settledRounds.get(`${sid}:${gid}`);
 			const stored = target?.stored[position];
 			if (stored) {
 				if (stored.action.action !== a.action) {
@@ -751,7 +755,7 @@ export function createMockRgs(opts = {}) {
 			round?.stored.push({ action: a, events: events.slice(dealtFrom) });
 		}
 
-		if (round?.closed) settle(round);
+		if (round?.closed) settle(sid, round);
 		session.round = round && round.closed ? null : round;
 
 		const platform = { balance: session.balance };

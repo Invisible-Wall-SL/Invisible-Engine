@@ -75,15 +75,15 @@ An `error.action === 'continue'` means the error is non-fatal and the game shoul
 
 **Ours** (`eagamingFetcher.ts`, `DEFAULT_RESEND_POLICY`):
 
-|            |                                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------------------------------ |
-| Resent     | a network error, an attempt with no answer in **15 s** (aborted), any **5xx**, 408, 429, an empty 200              |
-| Not resent | any answer — including an error envelope (a refusal stores nothing) and a 4xx                                      |
-| Pause      | a flat **1 s** (theirs), cut short by the browser's `online` event                                                 |
-| Budget     | **90 s**, then the player is asked to reload — theirs never gives up                                               |
-| Offline    | while `navigator.onLine` is false nothing is sent; the request waits for the network                               |
-| Order      | one request at a time per session (their gate); a background balance poll never queues behind one — it stands down |
-| UI         | `reconnecting` → `connected` / `failed`, published for the overlay (`constants-shared/rgsConnection`)              |
+|            |                                                                                                                                                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resent     | a network error, an attempt with no answer in **15 s** (aborted), any **5xx**, 408, 429, an empty 200                                                                                                                                        |
+| Not resent | any answer — including an error envelope (a refusal stores nothing) and a 4xx                                                                                                                                                                |
+| Pause      | a flat **1 s** (theirs), cut short by the browser's `online` event                                                                                                                                                                           |
+| Budget     | up to **90 s** of resending for a request that is safe to resend, then the player is asked to reload — theirs never gives up. A lost round-opening `bet` is the exception: it is not resent at all unless the server names its round (below) |
+| Offline    | while `navigator.onLine` is false nothing is sent; the request waits for the network                                                                                                                                                         |
+| Order      | one request at a time per session (their gate); a background balance poll is one 5 s attempt, stands down while anything is in flight, and never binds or closes a round                                                                     |
+| UI         | `reconnecting` → `connected` / `failed`, published for the overlay (`constants-shared/rgsConnection`)                                                                                                                                        |
 
 **`seq` moves only on an answer.** The position a request aims at is read, not reserved; it advances
 by the stored-action count once the server ACCEPTS the request. A resend therefore goes to the same
@@ -99,19 +99,20 @@ server names the round in its answer — and a `bet` posted at `seq=0` with no `
 blind. Ours asks first, with the non-stored `[]` probe (then `config`, for a server that refuses the
 probe):
 
-- **the server names an open round** ⇒ the bet was taken (or an older round of the player's is still
-  open — a round they paid for either way): resend under that `gid`, which replays it;
-- **no open round and the balance exactly where it was, on a server seen holding a won round open
-  for `collect`** ⇒ it was not taken — a taken bet leaves a won round open or a lost one debited:
-  resend as it was;
-- **anything else** ⇒ it may have been settled on the spot — a zero-win round the server closed
-  itself, or on an auto-collecting server a win that exactly repaid the stake. **Stop** and ask the
-  player to reload; the boot then shows the server's balance and resumes any round left open.
+- **the server names an OPEN round** — `platform.gameRound` with `updating: true`, and not the round
+  this session last saw close (the partner keeps naming a round after it closes) ⇒ the bet was taken,
+  or an older round of the player's is still open — a round they paid for either way. Resend under
+  that `gid`, which replays it.
+- **anything else ⇒ stop** and ask the player to reload; the boot then shows the server's balance and
+  resumes any round left open.
 
-Until the transport has seen a won round held open (the partner's rule), an unchanged balance proves
-nothing — our own test server closes every round in the bet's answer — so a lost round-opening answer
-there always ends in a reload. That is the price of never charging twice, and it is rare: a bet made
-while the browser knows it is offline is never sent at all, so it never reaches the question.
+"No open round" is NOT taken as "the bet was not taken". An earlier version resent when the balance
+had not moved either; the review of it found the hole. After a timeout or a proxy's 5xx the server may
+still be working on the bet, so a probe can find nothing and the bet land a moment later — a resend
+there was a second stake (`connection.fixture.ts` § 4, "late"). A zero-win round the server closed on
+the spot, or on an auto-collecting server a win that exactly repaid the stake, look the same. The
+price is a reload after a lost round-opening answer whose round is not held open; it is rare, because
+a bet made while the browser knows it is offline is never sent at all.
 
 **One resend no client can see: the browser's own.** Measured 2026-09-29 in the real game against
 the lines mock through a proxy that forwarded a `bet+play` and then dropped the connection before any
@@ -126,13 +127,14 @@ a re-posted round-opening request as a replay; worth raising with the partner if
 double stake after a network drop.
 
 **A closed round still replays.** A `collect` whose answer is lost is resent into a round the server
-has already closed. Both mocks keep closed rounds by `gid` for exactly this, and the lines mock —
+has already closed. Both mocks keep closed rounds by session and `gid` for exactly this, and the lines mock —
 which ignored `seq` entirely — now replays any request at a position it already holds, and names an
 open round on the `[]` probe as the book mock and the partner's boot do.
 
 Proven by `packages/rgs-translator-eagaming/connection.fixture.ts` — `pnpm check:connection`, in
-`check:rgs` (CI): a hang, a 5xx, an empty 200, a lost answer mid-round and on the collect, the three
-round-opening cases, offline/online, the give-up budget, request ordering, and the facade end to end.
+`check:rgs` (CI): a hang, a 5xx, an empty 200, a lost answer mid-round and on the collect, the
+round-opening cases (an open round replayed; a slow server's late bet NOT resent; a closed round named
+by a probe or by a poll never lent to the new bet; an auto-collected round), offline/online, the give-up budget, request ordering, and the facade end to end.
 What the partner's own server does with a re-posted request is owed — see "Checks owed on the live
 node" at the end.
 
@@ -473,5 +475,5 @@ Cloudflare challenge; a server-side fetch is bounced). Each step costs at most o
 
 If 2 or 3 fails, a lost answer inside a round ends in the reload prompt instead of a replay — never
 a double charge, since the transport takes an error as an answer and stops resending. If 4 fails
-both ways, a lost round-opening answer on that node always ends in a reload — safe, only less
-forgiving. Report either and the reference gets the measured behaviour.
+both ways (or the open round is not marked `updating: true`), a lost round-opening answer on that
+node always ends in a reload — safe, only less forgiving. Report either and the reference gets the measured behaviour.
