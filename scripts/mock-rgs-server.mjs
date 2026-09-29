@@ -1253,6 +1253,13 @@ export function createMockRgs(opts = {}) {
 	/** sid -> { balance, round | null, configSent, betTable? } — `betTable` is the table the session
 	 *  was TOLD about (null for line-config), pinned when its config is sent. See `tableFor`. */
 	const sessions = new Map();
+	/** Closed rounds by id, so a request re-posted under its `gid` replays after the round closed —
+	 *  a `collect` whose answer was lost is resent into a round the server has already closed. */
+	const settledRounds = new Map();
+	const settle = (round) => {
+		settledRounds.set(round.id, round);
+		if (settledRounds.size > 500) settledRounds.delete(settledRounds.keys().next().value);
+	};
 	const getSession = (sid) => {
 		if (!sessions.has(sid)) {
 			sessions.set(sid, { balance: startBalance, round: null, configSent: false });
@@ -1460,14 +1467,34 @@ export function createMockRgs(opts = {}) {
 		// charged as the 100× buy). Its bet is refused instead (see `bet`), and a reload asks.
 		if (!session.configSent && !betTable) sendConfig();
 
-		// Heartbeat: empty body returns balance only (plus config if first call).
+		// Heartbeat: empty body returns balance (plus config if first call), and names a round still
+		// open — which is how a client that lost an answer learns its bet was taken.
 		if (actions.length === 0) {
-			return sendJson(req, res, 200, { events, platform: { balance: session.balance } });
+			const platform = { balance: session.balance };
+			if (session.round) platform.gameRound = { updating: true, id: session.round.id };
+			return sendJson(req, res, 200, { events, platform });
+		}
+
+		// REPLAY: every action re-posted at a position it already occupies in the round named by `gid`
+		// is answered with what was dealt there, and changes nothing. That is the protocol's resend: a
+		// client that lost an answer posts the same request again, and must not be dealt — or charged
+		// — a second time.
+		const known = gid
+			? session.round?.id === gid
+				? session.round
+				: settledRounds.get(gid)
+			: undefined;
+		if (known?.stored && actions.every((a, i) => known.stored[seq + i]?.action === a.action)) {
+			for (let i = 0; i < actions.length; i++) events.push(...known.stored[seq + i].events);
+			const platform = { balance: session.balance };
+			if (session.round) platform.gameRound = { updating: true, id: session.round.id };
+			return sendJson(req, res, 200, { events, platform });
 		}
 
 		let pendingRound = session.round; // copy reference; may mutate
 
-		for (const a of actions) {
+		for (const [offset, a] of actions.entries()) {
+			const dealtFrom = events.length;
 			switch (a.action) {
 				case 'bet': {
 					// A table game's session that never asked for its config cannot say which bet shape it
@@ -1759,10 +1786,15 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
+			if (pendingRound) {
+				pendingRound.stored ??= [];
+				pendingRound.stored[seq + offset] = { action: a.action, events: events.slice(dealtFrom) };
+			}
 		}
 
 		// Settle session.round state
 		if (pendingRound && pendingRound.closed) {
+			settle(pendingRound);
 			session.round = null;
 		} else if (pendingRound) {
 			session.round = pendingRound;

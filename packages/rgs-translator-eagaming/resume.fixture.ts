@@ -19,7 +19,8 @@
  *     server that ignored the `gid` and charged the `bet` again is caught and reported, never
  *     presented). No round, the server's balance, and no `gid` left bound — which would stand the
  *     balance poll down until the next spin. The same holds for a round the boot names without
- *     `resume`.
+ *     `resume`. A resume dropped for GOOD is resent until the transport gives up — then the player is
+ *     asked to reload, and a poll stands down rather than talk past a connection it cannot trust.
  *  5. A FREE SPIN REFUSED MID-FEATURE DOES NOT ZERO THE WALLET. An error envelope's `platform` is
  *     empty; settling the round on it showed a balance of 0, and a `collect` was posted into the
  *     refusal. The round is left open instead, for `requestEndRound` to collect.
@@ -230,11 +231,14 @@ console.log('\n4. a resume that cannot finish boots clean');
 		const [warn, error] = [console.warn, console.error];
 		console.warn = console.error = (...args: unknown[]) => said.push(args.join(' '));
 		const tabB = await openTab();
+		tabB.setResendPolicy({ attemptTimeoutMs: 200, resendDelayMs: 10, giveUpAfterMs: 300 });
 		const answer = await boot(tabB, sid).catch((err: unknown) => ({ thrown: String(err) }));
 		[console.warn, console.error] = [warn, error];
 		globalThis.fetch = realFetch;
 
-		const clean = async (label: string) => {
+		/** `lost`: the server stopped answering for good, so the transport gave up — the player is asked
+		 *  to reload and a poll stands down rather than talk past a connection it cannot trust. */
+		const clean = async (label: string, connection: 'kept' | 'lost' = 'kept') => {
 			check(`${label}: a round was left open`, opened, true);
 			check(`${label}: the boot survives`, 'thrown' in answer, false);
 			check(`${label}: no round is handed to the engine`, (answer as Answer).round, undefined);
@@ -245,9 +249,11 @@ console.log('\n4. a resume that cannot finish boots clean');
 			);
 			check(`${label}: no gid is left bound`, tabB.getSessionState(sid)?.gid, null);
 			check(
-				`${label}: …so a balance poll is not skipped`,
+				connection === 'kept'
+					? `${label}: …so a balance poll is not skipped`
+					: `${label}: …and, the connection given up on, a poll stands down`,
 				(await tabB.requestBalance({ sessionID: sid, rgsUrl })).status.statusCode,
-				'SUCCESS',
+				connection === 'kept' ? 'SUCCESS' : 'SKIPPED',
 			);
 		};
 		return { said, clean };
@@ -267,7 +273,7 @@ console.log('\n4. a resume that cannot finish boots clean');
 	const dropped = await bootThrough('S-dropped', (url, init) =>
 		url.includes('gid=') ? Promise.reject(new TypeError('Failed to fetch')) : realFetch(url, init),
 	);
-	await dropped.clean('dropped mid-replay');
+	await dropped.clean('dropped mid-replay', 'lost');
 
 	// The dangerous one: a server that does not honour `gid` on a re-posted `bet` opens a new round.
 	const notReplayed = await bootThrough('S-not-replayed', (url, init) =>

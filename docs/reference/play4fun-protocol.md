@@ -56,15 +56,85 @@ worth restating because a transport that only checks `res.ok` will treat every r
 
 An `error.action === 'continue'` means the error is non-fatal and the game should keep going.
 
-### Their resilience model, which we do not have
+### Resending — theirs, and ours (2026-09-29)
 
-Worth knowing before judging our own behaviour on a flaky connection:
+**Theirs**, read precisely (the earlier summary here over-stated it):
 
-- A network error or an **empty response body** triggers a resend, every 1s, effectively forever
-  (`MAX_RESEND_HTTP_REQUEST = Number.MAX_SAFE_INTEGER`). Request timeout is 30s.
-- While reconnecting, a global gate holds every other request until the first one succeeds, so a
+- A resend fires on exactly two things: the XHR `error` event (the request never completed) and an
+  **HTTP 200 with an empty body**. Every 1 s, effectively forever
+  (`MAX_RESEND_HTTP_REQUEST = Number.MAX_SAFE_INTEGER`).
+- The resend reuses the **same URL** — same `seq`, same `gid` — because the URL is built, and the
+  counter advanced, once, before the first send. That is what makes a resend a replay rather than a
+  new action.
+- A **timeout (30 s) is not resent**: it fails the request (`Could not connect to server`). A non-200
+  status triggers neither path, so a 5xx leaves the request hanging with no callback.
+- While one request is resending, a global gate holds every other request until it succeeds, so a
   retry storm cannot reorder actions — which matters a great deal when `seq` is a position.
-- Reconnect start/success/failure are published as events, so the UI can say so.
+- Reconnect start / success / failure are published as events; their popup layer shows a
+  "reconnecting" popup and hides it on success.
+
+**Ours** (`eagamingFetcher.ts`, `DEFAULT_RESEND_POLICY`):
+
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Resent     | a network error, an attempt with no answer in **15 s** (aborted), any **5xx**, 408, 429, an empty 200              |
+| Not resent | any answer — including an error envelope (a refusal stores nothing) and a 4xx                                      |
+| Pause      | a flat **1 s** (theirs), cut short by the browser's `online` event                                                 |
+| Budget     | **90 s**, then the player is asked to reload — theirs never gives up                                               |
+| Offline    | while `navigator.onLine` is false nothing is sent; the request waits for the network                               |
+| Order      | one request at a time per session (their gate); a background balance poll never queues behind one — it stands down |
+| UI         | `reconnecting` → `connected` / `failed`, published for the overlay (`constants-shared/rgsConnection`)              |
+
+**`seq` moves only on an answer.** The position a request aims at is read, not reserved; it advances
+by the stored-action count once the server ACCEPTS the request. A resend therefore goes to the same
+position, and a request the server already stored comes back as a replay of what it dealt: a free
+spin is not re-dealt and a `collect` is not credited twice. A refusal advances nothing — it stored
+nothing — so the next action goes where the refused one would have. (Theirs reserves up front;
+equivalent while their resend reuses the URL, but ours cannot aim a later request past a slot that
+was never filled.)
+
+**The round-opening `bet` is the one request a resend can double-charge.** It carries no `gid` — the
+server names the round in its answer — and a `bet` posted at `seq=0` with no `gid` opens a NEW round
+(measured live: "a fresh boot against an open round does not replay"). Their client resends it
+blind. Ours asks first, with the non-stored `[]` probe (then `config`, for a server that refuses the
+probe):
+
+- **the server names an open round** ⇒ the bet was taken (or an older round of the player's is still
+  open — a round they paid for either way): resend under that `gid`, which replays it;
+- **no open round and the balance exactly where it was, on a server seen holding a won round open
+  for `collect`** ⇒ it was not taken — a taken bet leaves a won round open or a lost one debited:
+  resend as it was;
+- **anything else** ⇒ it may have been settled on the spot — a zero-win round the server closed
+  itself, or on an auto-collecting server a win that exactly repaid the stake. **Stop** and ask the
+  player to reload; the boot then shows the server's balance and resumes any round left open.
+
+Until the transport has seen a won round held open (the partner's rule), an unchanged balance proves
+nothing — our own test server closes every round in the bet's answer — so a lost round-opening answer
+there always ends in a reload. That is the price of never charging twice, and it is rare: a bet made
+while the browser knows it is offline is never sent at all, so it never reaches the question.
+
+**One resend no client can see: the browser's own.** Measured 2026-09-29 in the real game against
+the lines mock through a proxy that forwarded a `bet+play` and then dropped the connection before any
+byte of the answer: **Chromium re-sent the POST by itself**, on a fresh connection, and handed `fetch`
+the second answer as if nothing had happened — the bet was taken twice and our transport saw one
+clean success. This is Chromium's rule for a REUSED HTTP/1.1 keep-alive connection that closes before
+the answer starts (it assumes the server closed an idle socket). `fetch` cannot opt out — it may not
+send `Connection: close` — and the partner's XHR client is exposed identically. With the proxy sending
+`Connection: close`, the same drop reached our transport and ended in the reload prompt with one bet
+taken. Measured on HTTP/1.1 only, not over HTTP/2. Only a server can make that case safe, by treating
+a re-posted round-opening request as a replay; worth raising with the partner if they ever report a
+double stake after a network drop.
+
+**A closed round still replays.** A `collect` whose answer is lost is resent into a round the server
+has already closed. Both mocks keep closed rounds by `gid` for exactly this, and the lines mock —
+which ignored `seq` entirely — now replays any request at a position it already holds, and names an
+open round on the `[]` probe as the book mock and the partner's boot do.
+
+Proven by `packages/rgs-translator-eagaming/connection.fixture.ts` — `pnpm check:connection`, in
+`check:rgs` (CI): a hang, a 5xx, an empty 200, a lost answer mid-round and on the collect, the three
+round-opening cases, offline/online, the give-up budget, request ordering, and the facade end to end.
+What the partner's own server does with a re-posted request is owed — see "Checks owed on the live
+node" at the end.
 
 ### `seq` is a position, and this is now confirmed
 
@@ -74,7 +144,8 @@ Their client:
 2. advances it by the NUMBER OF STORED ACTIONS just posted — `config` excluded.
 
 So a request carrying `[bet, play]` advances by **two**, and the next action belongs at `seq+2`. This
-is exactly `takeSeq(storedActions)` in `sessionState.ts`; the earlier "one per request" version would
+is exactly `advance(storedActions)` in `sessionState.ts` (called once the answer arrives — see
+"Resending" above); the earlier "one per request" version would
 have written to an occupied position, which is how the server exposes **replay** — silently showing
 an earlier spin again instead of advancing.
 
@@ -88,15 +159,15 @@ balance probe posts an empty LIST whose length is zero anyway.
 
 ## Actions
 
-| Action | Context | Notes |
-| --- | --- | --- |
-| `config` | — | Boot. Not stored, consumes no `seq`. |
-| `bet` | `[x, betPoint]` | See **The first bet argument** below. |
-| `play` | `null`, or an outcome string | Round stays open ⇒ needs a later `collect`. |
-| `collect` | — | Closes the round. Needs `&gid=`. |
-| `gamble` | `{type:'double_up', context:'game_round', choice}` | Double-up. **We do not implement this.** |
-| `pickRandomly` | the pickup trigger data, with `item` chosen | Player picks a bonus. |
-| `[]` (empty body) | — | Balance heartbeat. |
+| Action            | Context                                            | Notes                                       |
+| ----------------- | -------------------------------------------------- | ------------------------------------------- |
+| `config`          | —                                                  | Boot. Not stored, consumes no `seq`.        |
+| `bet`             | `[x, betPoint]`                                    | See **The first bet argument** below.       |
+| `play`            | `null`, or an outcome string                       | Round stays open ⇒ needs a later `collect`. |
+| `collect`         | —                                                  | Closes the round. Needs `&gid=`.            |
+| `gamble`          | `{type:'double_up', context:'game_round', choice}` | Double-up. **We do not implement this.**    |
+| `pickRandomly`    | the pickup trigger data, with `item` chosen        | Player picks a bonus.                       |
+| `[]` (empty body) | —                                                  | Balance heartbeat.                          |
 
 Their boot sequence is `config` → history request → connected, then a heartbeat loop at
 `balanceUpdateInterval || 30000` ms — the same default `<Authenticate>` uses.
@@ -105,10 +176,10 @@ Their boot sequence is `config` → history request → connected, then a heartb
 
 `context[0]` is NOT one thing. It depends on the game's bet-config type:
 
-| Bet config | `context[0]` |
-| --- | --- |
-| `betOptions` | the **index** into `betOptions` |
-| `line` / `way` / `dynaways` | the **bet multiplier** |
+| Bet config                  | `context[0]`                    |
+| --------------------------- | ------------------------------- |
+| `betOptions`                | the **index** into `betOptions` |
+| `line` / `way` / `dynaways` | the **bet multiplier**          |
 
 `context[1]` is always the bet point (the stake step). This is why a single "lines or multiplier"
 encoding was never going to be right for both, and why the profile needs to know which game it is.
@@ -135,10 +206,10 @@ Their client runs the array twice: **first** `bet` and `playedSpin` only, **then
 The stake and the board have to be established before any win event is interpreted, and a server is
 free to order the array otherwise.
 
-| Pass | Events |
-| --- | --- |
-| 1 | `bet` · `playedSpin` |
-| 2 | `symbolSetInMatrix` · `spinWin` · `spinTrigger` · `bonusWin` · `enterBonus` · `playedBonusSpin` · `gameEnd` · `gameRoundOver` · `pickRandomly` · `chooseBonus` · `gamble` |
+| Pass | Events                                                                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `bet` · `playedSpin`                                                                                                                                                      |
+| 2    | `symbolSetInMatrix` · `spinWin` · `spinTrigger` · `bonusWin` · `enterBonus` · `playedBonusSpin` · `gameEnd` · `gameRoundOver` · `pickRandomly` · `chooseBonus` · `gamble` |
 
 Against our facade's vocabulary:
 
@@ -156,25 +227,25 @@ Against our facade's vocabulary:
 `config.context` — the answer to "does the server tell us the grid, paytable and paylines?", which
 was an open question in the delivery plan. It does:
 
-| Field | Meaning |
-| --- | --- |
-| `window` | `{reels, rows}` — the grid. |
-| `availablePayLines` | Array of lines, each an array of row indices per reel. |
-| `maxWays` | Ways count; falls back to `availablePayLines.length`. |
-| `gameCost` | Base cost; falls back to `availablePayLines.length`. |
-| `betOptions` | Credit cost per option — the bet menu. |
-| `oneCreditBuysLines` | Lines one credit buys (their "cost per line"). |
-| `costPerReel` | Per-reel cost, for buy-a-reel games. |
-| `paytable` | `occurs[i]` pays `pay[i]`, in one of three wire shapes — see "The paytable is cross-checked" below. |
-| `symbolsPay.scatter` | Which symbols are scatters. |
+| Field                | Meaning                                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `window`             | `{reels, rows}` — the grid.                                                                         |
+| `availablePayLines`  | Array of lines, each an array of row indices per reel.                                              |
+| `maxWays`            | Ways count; falls back to `availablePayLines.length`.                                               |
+| `gameCost`           | Base cost; falls back to `availablePayLines.length`.                                                |
+| `betOptions`         | Credit cost per option — the bet menu.                                                              |
+| `oneCreditBuysLines` | Lines one credit buys (their "cost per line").                                                      |
+| `costPerReel`        | Per-reel cost, for buy-a-reel games.                                                                |
+| `paytable`           | `occurs[i]` pays `pay[i]`, in one of three wire shapes — see "The paytable is cross-checked" below. |
+| `symbolsPay.scatter` | Which symbols are scatters.                                                                         |
 
 Alongside `context`, the `config` EVENT itself carries the resume contract:
 
-| Field | Meaning |
-| --- | --- |
+| Field     | Meaning                                         |
+| --------- | ----------------------------------------------- |
 | `actions` | The stored action array of an unfinished round. |
-| `resume` | `true` ⇒ that round is still open; continue it. |
-| `replay` | `true` ⇒ replay mode over those actions. |
+| `resume`  | `true` ⇒ that round is still open; continue it. |
+| `replay`  | `true` ⇒ replay mode over those actions.        |
 
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
 
@@ -185,11 +256,11 @@ The facade bridges three fields to the engine — `__IE_SERVER_CONFIG__` carries
 since 2026-09-28 `paytable`, which is COMPARED rather than adopted (below). Everything else the server
 declares is read by nothing:
 
-| Declared, unread | Why it matters |
-| --- | --- |
-| `symbolsPay.scatter` | Which symbols are scatters — currently a client-side assumption. |
-| `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way. |
-| `maxWays` | Ways count; we take the payline count instead. |
+| Declared, unread                     | Why it matters                                                   |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| `symbolsPay.scatter`                 | Which symbols are scatters — currently a client-side assumption. |
+| `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way.           |
+| `maxWays`                            | Ways count; we take the payline count instead.                   |
 
 ### The paytable is cross-checked, not adopted (2026-09-28)
 
@@ -255,11 +326,11 @@ not**, and the reason is worth stating because it is not obvious from the protoc
 Buying the feature on Book of Borut (`gs.2-complex.science`, 2026-09-17) produced **sixteen
 requests in 918 ms**:
 
-| `seq` | What |
-| --- | --- |
-| 0 | `[bet, play]` — the buy, bet-option index 1 |
+| `seq`  | What                                           |
+| ------ | ---------------------------------------------- |
+| 0      | `[bet, play]` — the buy, bet-option index 1    |
 | 2 … 11 | ten free spins, one request each, ~70 ms apart |
-| 12 | `collect` |
+| 12     | `collect`                                      |
 
 The free-spin INTRO screen had not even appeared yet. By the time the player sees "you win 10 free
 spins", the server has already played all ten, closed the round and paid. Everything after that
@@ -282,17 +353,27 @@ the client never finishing the animation. Nothing was lost and there was nothing
 - **`seq` is right at scale.** That 13-position round is the strongest test this implementation has
   had — a per-request counter would have mis-numbered every free spin after the first.
 
-### One round we cannot account for
+### The round that sent no `collect` — a losing spin (settled 2026-09-29)
 
-Across the first live session, **one spin in four sent no `collect`**. The other three each closed
-cleanly at `seq=2` with their own `gid`, the balance reconciled at the end, and a later session of
-four more rounds (including the buy) collected every time. It has not reproduced.
+Across the first live session, one spin in four sent no `collect`. **That is the protocol working,
+not a round left open.** The server closes a **zero-win** round itself, in the `bet+play` answer:
+that answer carries `gameRoundOver`, the fetcher ends the round on it, and `requestEndRound` — which
+collects only while a round is bound — has nothing to collect. The partner's own client agrees: it
+raises its collect step only when a round ends with `totalPoint > 0`, so it sends no `collect` for a
+losing spin either. Three winning rounds and one losing one is exactly "three collected, one did
+not".
 
-Recorded rather than dismissed because the failure it would represent — a round left open that the
-client thinks is finished — is exactly the one that pays a player nothing while the HUD says
-otherwise, and the earlier collect bug in `requestEndRound` was in this same code path. If a partner
-ever reports an uncredited win, start here. Reading the response bodies rather than the request URLs
-would settle it; the browser pane only captured the latter.
+Reproduced against the book mock in the partner's `AUTO_COLLECT=0` mode (`connection.fixture.ts`
+§ 9, twelve spins through the real facade): every winning round sent a `collect`, no losing round
+did, and every round ended closed on the server with the wallet to the cent. Not a bug of ours.
+
+**Confirmed on the live node, 2026-09-29.** Ten base spins of the branch build through
+`?rgs_profile=2complex` on the partner's test node: every losing `bet+play` answer carried `gameEnd`
+**and** `gameRoundOver` and no `collect` followed; every winning one carried `spinWin`…`gameEnd`
+without `gameRoundOver`, and its `collect` went at `seq=2` with the round's `gid` and was credited.
+Also seen there: the partner names the round on `platform.gameRound` even in the answer that CLOSES
+it — so the transport remembers the last round an answer closed and never takes a probe naming that
+one for a round a lost bet opened.
 
 ### What we built (2026-09-28)
 
@@ -359,7 +440,6 @@ request against the same origin.
 Recorded because each is a real feature of the protocol, not because any is scheduled:
 
 - **Resume across player input** — a round waiting on a pick or gamble; see "Resume" above.
-- **The retry/reconnect model** — see "Their resilience model" above.
 - **Gamble** (double-up on a finished round).
 - **Free rounds** — a separate `freerounds` endpoint with `&action=choose&frid=&betid=`, plus
   `gameRound.freeRound.totalWin` on the platform object.
@@ -367,3 +447,31 @@ Recorded because each is a real feature of the protocol, not because any is sche
 - **History** — its own request; their client fetches it during boot.
 - **Forced outcomes** — `play.context` takes an outcome string, gated by the config's
   `allowForcing` / `allowOutcomeBuy`.
+
+## Checks owed on the live node
+
+Three replay claims are proven against our mocks and read off the partner's client, not yet
+observed on their server (the losing-spin close was observed — see above). None can be probed from here: reaching the replay path means posting real stored
+actions into a real session, and we hold no wallet on that node that is ours to spend. So this is
+the procedure for the owner, in a real browser tab on the game origin (the node is behind a
+Cloudflare challenge; a server-side fetch is bounced). Each step costs at most one minimum stake.
+
+1. **Open** the partner's test launch of the game. In DevTools, filter the network panel on
+   `engine`, with "Preserve log" on.
+2. **A re-posted request replays.** Spin until one WINS (the round stays open). Before the count-up
+   ends, copy that `seq=0` request (right-click → Copy → Copy as fetch), note the balance, and run
+   it in the console **with `&gid=<platform.gameRound.id from its answer>` appended to the URL**.
+   Expected: the same `playedSpin` board and the same balance — nothing charged. Then let the game
+   collect.
+3. **A collect replays after the round closed.** Copy that `collect` request (it carries `seq=2` and
+   the `gid`) and run it again. Expected: an answer with `gameRoundOver` and the balance unchanged —
+   neither an `unexpected action` error nor a second credit.
+4. **The probe names an open round.** Spin until a win and, before it collects, run the same
+   engine URL with `seq=0`, no `gid`, and body `[]`. Expected: `platform.gameRound.id` present. If
+   it answers `not authorized` (code 118), repeat with body `[{"action":"config"}]` — the transport
+   falls back to it — and expect the same id.
+
+If 2 or 3 fails, a lost answer inside a round ends in the reload prompt instead of a replay — never
+a double charge, since the transport takes an error as an answer and stops resending. If 4 fails
+both ways, a lost round-opening answer on that node always ends in a reload — safe, only less
+forgiving. Report either and the reference gets the measured behaviour.

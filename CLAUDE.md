@@ -191,8 +191,11 @@ Body: [{action, context}, …]                    # [] alone = balance heartbeat
   stored and consume none. Writing to an occupied position is how the server exposes **replay**, so a
   per-request counter would silently replay a round rather than merely mis-number it. Confirmed
   against their client, which builds the URL from the counter and only then advances it by the number
-  of stored actions posted. Owned by `sessionState.ts` (`startRound()` / `takeSeq(storedActions)` /
+  of stored actions posted. Owned by `sessionState.ts` (`startRound()` / `advance(storedActions)` /
   `bindRound(gid)` / `endRound()`); `seqOverride` on the fetcher is the replay seam.
+- **A lost answer is resent at the SAME `seq` and `gid`** (a replay), and the position moves only on
+  an answer. The round-opening `bet` has no `gid`, so it is resent only once the server shows it was
+  not taken — see "Resending" in the reference.
 - **Events are processed in TWO passes:** `bet` and `playedSpin` first, everything else second — the
   stake and the board must be settled before any win event is read.
 - The `events` array IS the Invisible Engine book-event sequence — translation is mostly pass-through.

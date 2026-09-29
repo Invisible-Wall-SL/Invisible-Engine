@@ -29,10 +29,11 @@ export interface Play4FunSessionState {
 	readonly seq: number;
 	readonly gid: string | null;
 
-	/** Reserve `storedActions` slots in the round's action array and return the position the new
-	 *  action(s) go at. Pass 0 for a call the server does not store (balance / config): it reports
-	 *  the current position without consuming one. */
-	takeSeq(storedActions: number): number;
+	/** Move the position past `storedActions` the server has just ACKNOWLEDGED storing. Called only
+	 *  once an answer arrives: a request that went unanswered is resent at the SAME position, which
+	 *  replays it if the server did store it — reserving the slot up front would aim the resend one
+	 *  request too far and deal a second outcome instead. */
+	advance(storedActions: number): void;
 	/** Reset seq to 0 and clear gid (call when starting a fresh round). */
 	startRound(): void;
 	/** Record the gid returned by the server on the bet+play response. */
@@ -56,10 +57,8 @@ export const createPlay4FunSessionState = (sid: string): Play4FunSessionState =>
 		get gid() {
 			return gid;
 		},
-		takeSeq(storedActions: number) {
-			const position = seq;
+		advance(storedActions: number) {
 			if (storedActions > 0) seq = seq + storedActions;
-			return position;
 		},
 		startRound() {
 			seq = 0;

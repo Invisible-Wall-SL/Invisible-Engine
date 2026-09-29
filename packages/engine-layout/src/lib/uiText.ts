@@ -78,6 +78,12 @@ export const UI_TEXT = {
 		'INSUFFICIENT FUNDS TO PLACE THIS BET. PLEASE ADD FUNDS TO YOUR ACCOUNT OR LOWER THE BET LEVEL.',
 	lossLimitReached: 'LOSS LIMIT REACHED',
 	singleWinLimitReached: 'SINGLE WIN LIMIT REACHED',
+	// Connection overlay (shown while the game server is unreachable)
+	reconnecting: 'Reconnecting…',
+	pleaseWait: 'Please wait',
+	connectionLost: 'Connection lost',
+	connectionLostInfo: 'Your game is safe. Reload to continue.',
+	reload: 'Reload',
 } as const;
 
 export type UiTextKey = keyof typeof UI_TEXT;
@@ -125,6 +131,11 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 	insufficientFunds: 'Autoplay',
 	lossLimitReached: 'Autoplay',
 	singleWinLimitReached: 'Autoplay',
+	reconnecting: 'Connection',
+	pleaseWait: 'Connection',
+	connectionLost: 'Connection',
+	connectionLostInfo: 'Connection',
+	reload: 'Connection',
 };
 
 /** One rule block on the info page: a heading and its body copy. */
