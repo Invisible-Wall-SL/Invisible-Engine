@@ -76,7 +76,7 @@ const PAY_TABLE_LINE = {
 	JACK: { 3: 5, 4: 20, 5: 100 },
 	TEN: { 3: 5, 4: 20, 5: 100 },
 };
-const SCATTER_PAY = { 3: 2, 4: 20, 5: 200 }; // SCAT (the Book), × total stake
+const SCATTER_PAY = { 3: 2, 4: 20, 5: 200 }; // SCAT (the Book): only the 3/4/5 trigger gate now
 
 /**
  * The line table an instance ACTUALLY pays, declares and expands with: the PROJECT's authored row
@@ -278,13 +278,13 @@ const expandSpecialBoard = (reels, special) => {
 
 /** The expanding special pays like a scatter: on the COUNT OF REELS it covers
  *  (adjacency-independent — a fully expanded reel puts the symbol on every
- *  payline), at its line-paytable value × BASE stake. `mult × totalStake`
+ *  payline), at its line-paytable value × BASE stake. `mult × baseStake`
  *  equals `mult × betPerLine × NUM_LINES` — the symbol paying that N-of-a-kind
  *  on all ten lines at once. Positions are every cell of every covered reel
  *  (post-expansion the whole reel). Returns null below the expand gate, and also when the special's
  *  row prices nothing at that reel count (an authored row may omit it) — the spin then pays as a
  *  natural board, though the client's reel-count morph gate still expands it on screen. */
-const evaluateExpandingSpecial = (reels, special, totalStake, payTable) => {
+const evaluateExpandingSpecial = (reels, special, baseStake, payTable) => {
 	const reelsWith = reelsCovering(reels, special);
 	if (!specialExpandsAt(special, reelsWith.length)) return null;
 	const mult = payTable[special]?.[reelsWith.length];
@@ -296,7 +296,7 @@ const evaluateExpandingSpecial = (reels, special, totalStake, payTable) => {
 		what: special,
 		occurs: reelsWith.length,
 		mode: 'scatter',
-		pay: payCents(mult * totalStake),
+		pay: payCents(mult * baseStake),
 		mpInfo: { mp: 1, replacements: 0 },
 		mpBonusInfo: null,
 		context: positions,
@@ -537,7 +537,7 @@ export function createMockRgs(opts = {}) {
 			switch (a.action) {
 				case 'bet': {
 					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
-					const option = Number(ctx[0]) || 0;
+					const option = Number(ctx[0] ?? 0);
 					if (!Number.isInteger(option) || option < 0 || option >= BET_OPTIONS.length) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -588,8 +588,8 @@ export function createMockRgs(opts = {}) {
 						const reels = spinReels();
 						events.push(spinStartEvent(round));
 						// Book mechanic: the chosen special is an expanding symbol. If it
-						// covers enough reels it pays scatter-style (on the reel count, ×
-						// total stake — adjacency-independent), THEN expands and lets the
+						// covers enough reels it pays scatter-style (on the reel count, × BASE
+						// stake — adjacency-independent), THEN expands and lets the
 						// OTHER symbols pay their normal line wins on the expanded board.
 						// The special itself is excluded from the line pass so it is never
 						// paid twice. Below the gate it is a plain symbol: normal line

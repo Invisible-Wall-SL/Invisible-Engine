@@ -101,7 +101,7 @@ available.
   open on it with raw POSTs (the game itself collects too fast to interrupt):
   - base win: `[]` then `[{"action":"bet","context":[0,10]},{"action":"play","context":""}]` at
     `?sid=resume-base&seq=0`;
-  - feature cut off: `[{"action":"bet","context":[100,10]},{"action":"play","context":""}]` at
+  - feature cut off (a buy is bet option 1): `[{"action":"bet","context":[1,10]},{"action":"play","context":""}]` at
     `?sid=resume-feat&seq=0`, then `[{"action":"play"}]` at `seq=2` and `seq=3` with `&gid=` set to
     the returned `platform.gameRound.id`.
 - **Do:** boot the game with `sessionID=resume-base` (then `resume-feat`); tap through the gates.

@@ -43,6 +43,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **Retire the facade’s pre-table book encoding** (follow-up to the 2026-09-29 buy-price fix, engine change ⇒ a runtime release). Every server we run now declares `betOptions`, so the book-mapping `[buyCost, betPerLine]` branch of `requestBet` and `betModeCostMultiplier` (`engineFacade.ts`) only ever reach the mock’s refusal. Delete them, keep `__IE_BET_MODES__` only for the price-drift cross-check, and fix the comments that say “both our mocks” declare no table (`betOptions.ts`, `engineFacade.ts`).
 0. **Game-type templates — SHIPPED and live** (#355, #357; runtime `1f1639e`). A game type is now
    data + a shared runtime rather than an app fork. `packages/engine-game` holds the extracted
    engine layer (context / board state / config resolution inverted behind factories);

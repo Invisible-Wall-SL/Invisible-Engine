@@ -196,4 +196,7 @@ const main = async () => {
 	process.exit(failures === 0 ? 0 : 1);
 };
 
-void main();
+main().catch((error: unknown) => {
+	console.error(error);
+	process.exit(1);
+});
