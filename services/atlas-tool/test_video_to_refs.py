@@ -679,13 +679,12 @@ def test_route() -> None:
             self.headers = {"Content-Length": str(len(json.dumps(body)))}
             self.rfile = io.BytesIO(json.dumps(body).encode())
             self.sent: dict = {}
-            self._set_cookie = None
 
         def _send(self, code, ctype, body, extra_headers=None):
             self.sent = {"code": code, "ctype": ctype, "body": body}
 
-        def _gate(self):
-            return (True, None)
+        def _authenticate(self):
+            return True
 
         def _resolve_context(self):
             pass

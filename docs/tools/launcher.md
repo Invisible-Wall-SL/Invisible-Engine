@@ -56,8 +56,10 @@ local tool cards show an "install" tag.
 3. otherwise `throw redirect(303, …)` straight to the tool.
 
 For the Atlas Maker, the redirect target is the external tool URL
-(`ATLAS_TOOL_URL`), with an optional shared secret appended as `?k=<secret>` so
-the tool's own gate lets you in (only the launcher knows the secret). For the
+(`ATLAS_TOOL_URL`) with a short-lived **signed launch token** (`?iw_launch=`)
+naming you, your role and your current project; the tool turns it into its own
+session. The Sheet Maker works the same way (see [INFRA](../INFRA.md), "Tool
+launch tokens"). For the
 Spine Viewer it redirects to the static `/spine/view.html` document served by
 the launcher itself.
 
@@ -234,7 +236,10 @@ at today's rate is not valid for taxation.
 `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`,
 `RESEND_API_KEY`, `R2_*` (R2 access for spine assets), `ATLAS_BACKEND_URL`,
 `ATLAS_TOOL_URL` (has a code default so it works without the dashboard),
-`ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`.
+`ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the Atlas /
+Sheet Maker launch tokens), `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` /
+`ATLAS_BLUEPRINT_SECRET` (legacy handoff, only while the signing secret is
+unset), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`.
 
 Admin → Costs (all optional, read-only, each degrades to a "not configured"
 card): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,

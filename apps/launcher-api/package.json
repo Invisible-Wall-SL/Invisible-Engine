@@ -68,6 +68,8 @@
 		"check:flow-publish-gate": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-publish-gate.ts",
 		"precheck:undo-history": "node scripts/ensure-svelte-kit.mjs",
 		"check:undo-history": "tsx --tsconfig tsconfig.scripts.json scripts/check-undo-history.ts",
+		"precheck:tool-launch-token": "node scripts/ensure-svelte-kit.mjs",
+		"check:tool-launch-token": "tsx --tsconfig tsconfig.scripts.json scripts/check-tool-launch-token.ts",
 		"check:hud-menu-pins": "tsx --tsconfig tsconfig.scripts.json scripts/check-hud-menu-pins.ts",
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
 		"check:builtin-spines": "node scripts/check-builtin-spines.mjs",
