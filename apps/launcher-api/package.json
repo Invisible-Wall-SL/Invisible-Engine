@@ -27,6 +27,8 @@
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
 		"precheck:project-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:project-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scope.ts",
+		"precheck:published-runtime": "node scripts/ensure-svelte-kit.mjs",
+		"check:published-runtime": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-published-runtime.ts",
 		"precheck:deploy-read": "node scripts/ensure-svelte-kit.mjs",
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",
 		"precheck:lease-scope": "node scripts/ensure-svelte-kit.mjs",

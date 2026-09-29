@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
+import { OWNER_ROLE } from '$lib/launcherGates';
 import {
 	clientExists,
 	clientGrantsOf,
@@ -11,6 +12,7 @@ import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
+import { currentPointer } from '$lib/server/publishedRuntime';
 import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
@@ -119,9 +121,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			// The card's "what IS this game" summary. Two extra R2 reads per project (the config +
 			// the symbols doc); everything else is already in hand. Both loaders degrade to a
 			// usable value rather than throwing, so one unreadable doc costs a chip, not the page.
-			const [config, symbols] = await Promise.all([
+			const [config, symbols, pointer] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
+				// The published snapshots players boot (+ the ones a rollback can return to). Null for
+				// a game never published, or last published before snapshots existed.
+				game ? currentPointer(clientKey, p.key).catch(() => null) : null,
 			]);
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
@@ -151,6 +156,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				runtimeId: engine.runtimeId,
 				runtimeReleasedAt: engine.runtimeReleasedAt,
 				publishedAt: engine.publishedAt,
+				versions: pointer,
 			};
 		}),
 	);
@@ -163,6 +169,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		gameKinds,
 		projects,
 		canPurgeCache,
+		// A version shipped past the flow gate goes live again only for the owner role (see the
+		// rollback route), so the page hides that "Make live" from everyone else.
+		isOwner: role === OWNER_ROLE,
 	};
 };
 

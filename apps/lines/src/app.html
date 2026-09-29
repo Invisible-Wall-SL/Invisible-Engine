@@ -103,7 +103,7 @@
 				//
 				// ⚠️ MUST OUTLAST THE RUNTIME FETCH, or the splash clears mid-retry and the black
 				// shell it was covering comes back. `editor-scenes.ts` waits up to
-				// RUNTIME_FETCH_BUDGET_MS (210s) for the runtime bundle — the /api/editor/runtime
+				// RUNTIME_FETCH_BUDGET_MS (210s, authoring boots; players 120s) for the runtime bundle — the /api/editor/runtime
 				// assemble measured 83-97s on `test6` — and that budget only starts after hydrate
 				// (~7s), so the worst honest boot is ~217s. Track that constant when it changes.
 				setTimeout(done, 240000);

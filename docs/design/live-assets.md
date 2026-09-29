@@ -313,6 +313,53 @@ side closes the loop — `saveComponent` re-points a foreign spine ref at the sh
 exists, clears it when a param supersedes it, and refuses otherwise. It cannot simply refuse:
 nothing in the editor can re-point a spine node's `assetKey` after it is created.
 
+## Published snapshots — the ONLINE chain's own `deploy → bake` step (added 2026-09-29)
+
+The online Game Maker path used to have no freeze at all: every player boot ran the whole export
+chain live (`/api/editor/runtime` → `buildRuntimeBundle` → `ensureDeployExports`, ~20-26s for a
+real project) and was handed `assetBase` = the live `deploy/` tree. So any autosave — including a
+flow the publish gate would refuse — reached the next player, and the tree a running game was
+loading from could be rewritten or pruned under it.
+
+Publish now does, once, what a standalone build does with `bake` + `pull`:
+
+```
+<C>/<P>/published/pointer.json            { current, snapshots[≤5] }   CAS-written, the only mutable key
+<C>/<P>/published/<id>/runtime.json       the RuntimeBundle as assembled at publish
+<C>/<P>/published/<id>/deploy/**          server-side copy of deploy/ taken under the same lock
+```
+
+- **Players** (`/api/editor/runtime` without `authoring=1`) get `runtime.json` of the pointer's
+  `current`, with `assetBase = /api/published/f/<token>/<project>/<id>/` — files served
+  `immutable` for a year, because a republish is a new id, never an overwrite. The response
+  carries `ETag: "<id>"` + `no-cache`, so a reload revalidates to a 304.
+- **Authoring boots** (`ie_authoring=1`, launcher links only) keep the live assemble + live
+  `deploy/`, unchanged.
+- **Unsnapshotted games** (published before this) fall back to the live assemble, logged
+  (`no published snapshot — LIVE assemble for a player boot`), until republished.
+- **Rollback** is a pointer flip to a retained id (`POST /api/game-maker/rollback`).
+
+**Why a full copy of `deploy/`, not content-hashed names.** The exporters rewrite `deploy/` in
+place (stems keep their names; `_pages/` is pruned to the latest export's set), so a snapshot
+pointing into the live tree would change or 404 under a running game. Content-hashing every
+exporter's output means rewriting ~10 exporters and re-pointing every parent → child relative
+reference (atlas → page); sharing `_pages/` with a pin set the prune must honour couples the
+exporters to the snapshot store, where a mistake deletes a referenced page — the worst failure the
+prune has. A copy keeps the relative tree intact, is correct by construction, and garbage-collects
+as "delete a prefix". Cost (measured 2026-09-29): 130-200 MB / 240-430 objects per project, copied
+with `CopyObject` (no bytes through the launcher, ~430 Class A ops per publish); five retained
+snapshots ≈ ≤1 GB per project — cents per month. Revisit if projects grow an order of magnitude.
+
+**Consistency.** Every assemble — authoring boots and Publish — runs under
+`runtimeBundleCache.withDeployWrite`: one per project at a time (so the copy is of exactly the tree
+its own assemble wrote) and at most two across the launcher (the container has OOM'd mid-bake).
+Writers OUTSIDE the launcher's assembles (the desktop bake's `/api/editor/export-*` calls, the
+Python atlas/sheet tools) are not under that lock; see `docs/status/game-maker.md` for what that
+leaves open.
+
+The build-time chain (`bake` + `pull` for standalone builds) is untouched: it reads `deploy/`
+directly and never sees `published/`.
+
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,

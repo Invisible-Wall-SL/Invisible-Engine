@@ -3,6 +3,7 @@ import { getDeployToken } from '$lib/server/appSettings';
 import { exportEditorFonts } from '$lib/server/fontExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const index = await exportEditorFonts(clientKey, projectKey);
+		const index = await withDeployWrite(projectKey, () => exportEditorFonts(clientKey, projectKey));
 		return json({ clientKey, projectKey, ...index });
 	} catch (e) {
 		console.error('export-fonts failed:', e);

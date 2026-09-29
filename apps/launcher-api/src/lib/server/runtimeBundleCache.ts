@@ -1,6 +1,6 @@
 /**
- * Single-flight + short-TTL cache in front of {@link buildRuntimeBundle} — the read path
- * every published game boots through (`GET /api/editor/runtime`).
+ * Single-flight + short-TTL cache in front of {@link buildRuntimeBundle} — the LIVE assemble behind
+ * `GET /api/editor/runtime` (authoring boots, and unsnapshotted games — see below).
  *
  * WHY THIS EXISTS. `buildRuntimeBundle` re-runs the WHOLE export pipeline on every call
  * (`ensureDeployExports` + `exportEffects` + `exportRigFx` — seven exporters that list,
@@ -38,12 +38,38 @@
  * SCOPE: per-process. If the launcher ever runs more than one replica, a publish only
  * invalidates the instance that served it; the others self-correct within {@link TTL_MS}.
  *
- * THE REAL FIX is to stop exporting on the read path entirely (exports belong on save /
- * publish — `publishGame.ts` already calls `ensureDeployExports`). That needs every
- * authoring tool to reliably export on save, which needs auditing first. The per-step
- * timings `buildRuntimeBundle` now logs are the data for that work.
+ * PLAYERS NO LONGER COME THROUGH HERE. A published game's player boot reads the immutable
+ * snapshot Publish wrote (`publishedRuntime.ts`); this live assemble now serves AUTHORING boots
+ * (`ie_authoring=1`) and the migration fallback for a game published before snapshots existed.
+ *
+ * Every assemble — this one and Publish's — runs through {@link withDeployWrite}: one at a time per
+ * project (so a Publish copying `deploy/` into its snapshot never reads a tree another assemble is
+ * half-way through rewriting) and at most {@link MAX_CONCURRENT_ASSEMBLES} across the launcher.
  */
+import { createKeyedMutex, createLimiter } from './concurrency';
 import { buildRuntimeBundle, type RuntimeBundle } from './runtimeBundle';
+
+/**
+ * Cap on assembles running at once across ALL projects. Each holds atlas pages in memory and may
+ * KTX2-encode them, and the launcher has OOM'd mid-bake; before this, N authors previewing N games
+ * meant N concurrent assembles with nothing bounding them.
+ */
+const MAX_CONCURRENT_ASSEMBLES = 2;
+
+const assembleSlot = createLimiter(MAX_CONCURRENT_ASSEMBLES);
+const projectDeployLock = createKeyedMutex();
+
+/**
+ * Run `work` holding the project's `deploy/` write lock and one global assemble slot.
+ *
+ * `deploy/` is rewritten in place by every assemble (stems keep their names, `_pages/` is pruned),
+ * so anything that must see ONE consistent tree — Publish exporting and then copying it into a
+ * snapshot — has to exclude every other assemble of the same project for its whole duration.
+ * The lock is taken before the slot, so a project queued behind itself never holds a slot idle.
+ */
+export function withDeployWrite<T>(projectKey: string, work: () => Promise<T>): Promise<T> {
+	return projectDeployLock(projectKey, () => assembleSlot(work));
+}
 
 /**
  * How long a bundle may be served, measured from when its data was READ.
@@ -134,7 +160,9 @@ export async function getRuntimeBundle(
 	const epoch = epochOf(projectKey);
 	const run = (async () => {
 		try {
-			const bundle = await buildRuntimeBundle(projectKey, includeUnreviewed, timings);
+			const bundle = await withDeployWrite(projectKey, () =>
+				buildRuntimeBundle(projectKey, includeUnreviewed, timings),
+			);
 			// A publish that landed mid-assemble bumped the epoch: this bundle was read BEFORE it,
 			// so serve it to the callers already waiting but never cache it for anyone else.
 			if (epochOf(projectKey) === epoch) {

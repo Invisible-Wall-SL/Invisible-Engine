@@ -46,6 +46,8 @@
 	let publishErr = $state<Record<string, string>>({});
 	/** A non-blocking note left by the last publish — today, what its sounds are licensed as. */
 	let publishNote = $state<Record<string, string>>({});
+	/** Project key → the snapshot id a rollback is switching to, while it runs. */
+	let rollingBack = $state<Record<string, string>>({});
 	let copied = $state<string>('');
 
 	// Publish confirmation: the project pending confirmation (null = no dialog).
@@ -519,17 +521,63 @@
 		}
 	}
 
-	/** The author's own "Play" link: same published URL plus the authoring flag, so a game that
-	 *  falls back to stale baked data says so on screen instead of looking healthy. Deliberately
-	 *  NOT applied to the copied/displayed URL — that one is for players. */
+	/** "Play": exactly what a player gets — the published snapshot — in the picked locale/currency. */
 	//  `withLocale`/`withCurrency` SET their param rather than appending: the published URL
 	//  already carries `lang=en&currency=USD` and the game reads the first occurrence, so an
 	//  appended one does nothing.
-	const playUrl = (url: string) =>
-		withCurrency(
-			withLocale(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`, launchLocale),
-			launchCurrency,
-		);
+	const playUrl = (url: string) => withCurrency(withLocale(url, launchLocale), launchCurrency);
+
+	/** "Live": the same game on the CURRENT authoring data instead of the snapshot. The authoring
+	 *  flag is what switches the runtime endpoint to the live assemble (and shows the author the
+	 *  technical reason if the boot fails). Never applied to the copied URL — that one is for players. */
+	const liveUrl = (url: string) => playUrl(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`);
+
+	type Versions = NonNullable<(typeof data.projects)[number]['versions']>;
+
+	/** "Sep 29, 14:32" — a version needs the time, since several publishes a day are normal. */
+	const versionTime = (iso: string) =>
+		new Date(iso).toLocaleString(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+	const liveVersion = (v: Versions) => v.snapshots.find((s) => s.id === v.current) ?? null;
+
+	async function rollback(projectKey: string, snapshot: Versions['snapshots'][number]) {
+		const ok = await askConfirm({
+			title: 'Make this version live?',
+			message:
+				`Players will get the version published ${versionTime(snapshot.createdAt)}` +
+				`${snapshot.by ? ` by ${snapshot.by}` : ''} from their next load. Nothing is rebuilt, ` +
+				'and you can switch back the same way.',
+			confirmLabel: 'Make live',
+		});
+		if (!ok) return;
+		rollingBack = { ...rollingBack, [projectKey]: snapshot.id };
+		publishErr = { ...publishErr, [projectKey]: '' };
+		try {
+			const res = await fetch('/api/game-maker/rollback', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ project: projectKey, snapshot: snapshot.id }),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(out?.error ?? `Rollback failed (${res.status}).`);
+			publishNote = {
+				...publishNote,
+				[projectKey]: 'Version switched — players get it on reload.',
+			};
+			await invalidateAll();
+		} catch (e) {
+			publishErr = {
+				...publishErr,
+				[projectKey]: e instanceof Error ? e.message : 'Rollback failed.',
+			};
+		} finally {
+			rollingBack = { ...rollingBack, [projectKey]: '' };
+		}
+	}
 
 	// "Jul 27" / "Jul 27 2025" from epoch-ms — for the staleness tooltip.
 	function shortDate(ms: number | null): string {
@@ -818,7 +866,7 @@
 										<button
 											class="primary"
 											onclick={() => requestPublish(p)}
-											disabled={publishing[p.key] || bulkRunning}
+											disabled={publishing[p.key] || bulkRunning || !!rollingBack[p.key]}
 											title={bulkRunning
 												? 'A bulk republish is running — publishes run one at a time.'
 												: undefined}
@@ -832,15 +880,28 @@
 										{#if p.published && p.url}
 											<a
 												class="play"
+												title="Opens the published version — exactly what players get"
 												href={playUrl(p.url)}
 												target="_blank"
 												rel="noopener noreferrer"
 											>
 												Play ↗
 											</a>
+											<!-- An absolute game-server URL, so SvelteKit's resolve() does not apply. -->
+											<!-- eslint-disable svelte/no-navigation-without-resolve -->
+											<a
+												class="play live"
+												href={liveUrl(p.url)}
+												target="_blank"
+												rel="noopener noreferrer"
+												title="Play on the current authoring data — unpublished edits included"
+											>
+												Live ↗
+											</a>
+											<!-- eslint-enable svelte/no-navigation-without-resolve -->
 											<select
 												class="play-lang"
-												title="Language the Play link opens the game in"
+												title="Language the Play and Live links open the game in"
 												value={launchLocale}
 												onchange={(e) => {
 													launchLocale = e.currentTarget.value;
@@ -853,7 +914,7 @@
 											</select>
 											<select
 												class="play-lang"
-												title="Currency the Play link formats every amount with"
+												title="Currency the Play and Live links format every amount with"
 												value={launchCurrency}
 												onchange={(e) => {
 													launchCurrency = e.currentTarget.value;
@@ -894,7 +955,7 @@
 											<button
 												class="stale-cta"
 												onclick={() => requestPublish(p)}
-												disabled={publishing[p.key] || bulkRunning}
+												disabled={publishing[p.key] || bulkRunning || !!rollingBack[p.key]}
 											>
 												{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
 											</button>
@@ -905,6 +966,52 @@
 									{:else if p.published && p.engineComparable}
 										<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
 											engine up to date
+										</span>
+									{/if}
+									{#if p.published && p.versions}
+										{@const live = liveVersion(p.versions)}
+										<div class="versions">
+											<span class="vlive">
+												Players get the version published
+												<strong>{live ? versionTime(live.createdAt) : 'unknown'}</strong
+												>{#if live?.by}&nbsp;by {live.by}{/if}.
+												{#if live && p.scenesUpdatedAt && p.scenesUpdatedAt > Date.parse(live.createdAt)}
+													<span class="vedited">Scenes edited since — publish to ship them.</span>
+												{/if}
+											</span>
+											{#if p.versions.snapshots.length > 1}
+												<details>
+													<summary>Published versions ({p.versions.snapshots.length})</summary>
+													<ul>
+														{#each p.versions.snapshots as v (v.id)}
+															<li>
+																<span class="vdate">{versionTime(v.createdAt)}</span>
+																<span class="vby">{v.by ?? ''}</span>
+																{#if v.flow === 'overridden'}<span class="vflag">flow errors</span
+																	>{/if}
+																{#if v.id === p.versions.current}
+																	<span class="vcur">live</span>
+																{:else if v.flow !== 'overridden' || data.isOwner}
+																	<button
+																		class="vmake"
+																		onclick={() => rollback(p.key, v)}
+																		disabled={!!rollingBack[p.key] ||
+																			publishing[p.key] ||
+																			bulkRunning}
+																	>
+																		{rollingBack[p.key] === v.id ? 'Switching…' : 'Make live'}
+																	</button>
+																{/if}
+															</li>
+														{/each}
+													</ul>
+												</details>
+											{/if}
+										</div>
+									{:else if p.published}
+										<span class="vlegacy">
+											Published before versioned snapshots — players get live authoring data.
+											Republish to freeze a version.
 										</span>
 									{/if}
 									{#if p.published && p.url}
@@ -1587,6 +1694,66 @@
 		background: #16161c;
 		color: #e6e6ea;
 		font-size: 11px;
+	}
+	.play.live {
+		color: #d6a44a;
+	}
+	.versions {
+		font-size: 11px;
+		color: #8a8a96;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.versions strong {
+		color: #c8c8d2;
+		font-weight: 600;
+	}
+	.vedited {
+		color: #d6a44a;
+		margin-left: 6px;
+	}
+	.versions summary {
+		cursor: pointer;
+		color: #9a9aa6;
+	}
+	.versions ul {
+		list-style: none;
+		margin: 4px 0 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+	.versions li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.vdate {
+		min-width: 96px;
+		color: #c8c8d2;
+	}
+	.vby {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.vflag {
+		color: #e07a6a;
+	}
+	.vcur {
+		color: #6c8a7e;
+		font-weight: 600;
+	}
+	.vmake {
+		font-size: 11px;
+		padding: 2px 8px;
+	}
+	.vlegacy {
+		font-size: 11px;
+		color: #d6a44a;
 	}
 	.url {
 		font-size: 11px;

@@ -77,6 +77,8 @@ export function startPublishAllJob(options: {
 		items: options.targets.map((t) => ({ key: t.key, name: t.name, status: 'pending' })),
 	};
 	current = job;
-	void runPublishAll(job, (key) => publishGame(key, options.launcherOrigin));
+	void runPublishAll(job, (key) =>
+		publishGame(key, options.launcherOrigin, { by: options.startedBy }),
+	);
 	return job;
 }

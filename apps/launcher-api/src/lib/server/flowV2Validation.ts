@@ -88,6 +88,27 @@ export async function checkFlowV2ForPublish(
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
 }
 
+/**
+ * The verdict on the flow a runtime bundle actually SHIPS — its embedded v2 flow + library, checked
+ * against its own scenes. Publish runs this on the bundle it is about to freeze, because the
+ * stored-doc check above ran before a ~20s assemble, and an autosave in between would otherwise
+ * reach players unvalidated.
+ */
+export async function checkShippedFlowV2(
+	clientKey: string,
+	projectKey: string,
+	shipped: { flowV2?: FlowDoc; flowV2Library?: FunctionLibraryDoc; scenes: readonly Scene[] },
+): Promise<FlowPublishCheck> {
+	if (!shipped.flowV2) return { status: 'absent' };
+	const errors = validateFlowV2Against(
+		shipped.flowV2,
+		shipped.scenes,
+		await loadSoundsDoc(clientKey, projectKey),
+		shipped.flowV2Library ?? { version: 2, functions: [] },
+	).filter((i) => i.severity === 'error');
+	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
+}
+
 /** One line per error, for a refusal message or a build log. Capped so a wreck stays readable. */
 export function describeFlowErrors(errors: FlowIssue[], max = 8): string[] {
 	const lines = errors.slice(0, max).map((e) => e.message);

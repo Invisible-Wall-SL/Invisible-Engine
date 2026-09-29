@@ -51,6 +51,13 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Recent changes
 
+### 2026-09-29 — published runtime snapshots (Game Maker)
+- Players boot an immutable snapshot Publish writes to R2 `<client>/<project>/published/`; new routes
+  `/api/published/f/<token>/<project>/<id>/…` (immutable asset serving, streamed) and
+  `POST /api/game-maker/rollback`; `/api/editor/runtime` picks snapshot vs live by `authoring=1`.
+  Every `deploy/` writer runs under `runtimeBundleCache.withDeployWrite` (per-project mutex + a
+  launcher-wide cap of 2 assembles). Detail in [game-maker.md](game-maker.md).
+
 ### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
 - **Stranded symbol spines are reported** (`SymbolExportIndex.spinesMissing`, twin of
   `EditorArtIndex.spinesMissing`) — bake warning, publish log, boot warning. Detail in

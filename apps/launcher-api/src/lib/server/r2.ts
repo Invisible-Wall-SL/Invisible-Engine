@@ -45,6 +45,22 @@ export async function getObjectBytes(
 }
 
 /**
+ * Stream one object's body without buffering it in the Node heap — for serving large immutable
+ * files (atlas pages) straight through. Null when the object is absent.
+ */
+export async function getObjectStream(
+	key: string,
+): Promise<{ body: ReadableStream; contentLength: number | null } | null> {
+	try {
+		const res = await s3().send(new GetObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
+		return { body: res.Body!.transformToWebStream(), contentLength: res.ContentLength ?? null };
+	} catch (e) {
+		if (isNotFound(e)) return null;
+		throw e;
+	}
+}
+
+/**
  * Presigned GET URL for a single object, valid for `ttlSeconds`. Lets a desktop
  * client download large objects straight from R2 (no portal bandwidth). The URL
  * embeds a signature and must never be logged. Callers MUST validate the key

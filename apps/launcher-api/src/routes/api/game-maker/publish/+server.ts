@@ -63,7 +63,11 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
-		const result = await publishGame(project, url.origin, { allowUnapproved, allowInvalidFlow });
+		const result = await publishGame(project, url.origin, {
+			allowUnapproved,
+			allowInvalidFlow,
+			by: locals.user.email,
+		});
 		// Pin the session's active project to the one just published — publishing is an
 		// EXPLICIT action on a specific project, so the whole UI (top bar + home selector)
 		// should now agree on it. Without this the active scope keeps whatever it drifted

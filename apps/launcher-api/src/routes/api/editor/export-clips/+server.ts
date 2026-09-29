@@ -4,6 +4,7 @@ import { exportClips } from '$lib/server/flipbookExport';
 import { exportRigFlipbooks } from '$lib/server/rigFlipbookExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -33,10 +34,9 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const [index, rigFlipbooks] = await Promise.all([
-			exportClips(clientKey, projectKey),
-			exportRigFlipbooks(clientKey, projectKey),
-		]);
+		const [index, rigFlipbooks] = await withDeployWrite(projectKey, () =>
+			Promise.all([exportClips(clientKey, projectKey), exportRigFlipbooks(clientKey, projectKey)]),
+		);
 		return json({ clientKey, projectKey, ...index, rigFlipbooks });
 	} catch (e) {
 		console.error('export-clips failed:', e);
