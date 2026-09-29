@@ -221,7 +221,8 @@ winners simply vanish, which reads as a bug and is not one.
 
 **Reload the game after changing it.** The tumble is dealt by the server, and the
 Invisible Test Server re-reads this config on its own (see _Reaching the server_
-below) — so a save plus a reload is enough. No republish.
+below) — so a save plus a reload of **Live ↗** is enough to try it. Players get it
+when you **Publish**.
 
 ### Collecting multipliers
 
@@ -511,10 +512,19 @@ the way through to the compiled template and is byte-identical to a stock build.
 
 The half of this config that is **math** — the grid, paylines, which symbols are in
 play, the win model, tumbling — has to be dealt by the RGS, not just drawn by the
-client. On the Invisible Test Server it is: the mock re-reads this config directly
-(within a few seconds of a save) and rebuilds the board it deals, so **save, reload
-the game, done**. There is no republish step, and no way for the server to be
-dealing a different board from the one you authored here.
+client. On the Invisible Test Server it is, and the server always deals **the same
+version of this config the game you opened is drawing**:
+
+- **Live ↗** (and the game cards on the launcher home) open an _authoring_ boot:
+  the game draws the config as you last **saved** it, and the server's authoring mock
+  re-reads the saved config within a few seconds. So to try a change: **save, reload
+  Live ↗, done** — no publish needed.
+- **Play**, and the URL you copy for players, open the **published** game: it draws
+  the config as it was at the last **Publish**, and the server deals exactly that,
+  however much you have edited since. Your change reaches players when you Publish
+  (and a rollback in Game Maker takes the server back with it).
+
+There is no way for either game to be dealt a different board from the one it draws.
 
 Two cases where that doesn't hold, both of which the game says out loud in the
 browser console as a `[game-config]` error naming both boards:
