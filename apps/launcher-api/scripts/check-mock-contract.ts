@@ -15,7 +15,8 @@
  *  - the symbols half (stacked mode, multiplier art) is read from the SAME source as the config;
  *  - the copy Publish writes into the manifest is the published answer, not a live read;
  *  - an R2 failure on the published path is an error, never a silent live answer;
- *  - the launcher's authoring links move the RGS to the test server's authoring mock, and only there.
+ *  - the launcher's authoring links move the RGS to the test server's authoring mock, and only there;
+ *  - `/config`'s own reads of the server (Paylines preview, paytable import) ask that authoring mock.
  */
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
@@ -125,11 +126,18 @@ mock.module(src('lib/server/symbolsStorage.ts'), {
 		loadSymbolsDoc: async (_c: string, p: string) => LIVE_SYMBOLS[p] ?? { symbols: {} },
 	},
 });
+mock.module(src('lib/server/env.ts'), {
+	namedExports: { ENV: { TEST_SERVER_URL: 'https://games.invisiblewall.org/' } },
+});
+mock.module(src('lib/server/games.ts'), {
+	namedExports: { listGamesOwnedByProject: async () => [] },
+});
 
 const pub = await import(src('lib/server/publishedRuntime.ts'));
 const { mockContractOfBundle } = await import(src('lib/server/mockContract.ts'));
 const route = await import(src('routes/api/game-config/mock/+server.ts'));
 const { asAuthoringLaunch } = await import(src('lib/gameLaunch.ts'));
+const { fetchServerBootConfig } = await import(src('lib/server/rgsConfig.ts'));
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 let failures = 0;
@@ -331,6 +339,28 @@ await check('a URL with no rgs_url only gains the flag', () => {
 		'/api/partner-session?game=hot&ie_authoring=1',
 		'url',
 	);
+});
+
+console.info("/config's reads of the server");
+
+await check('the Paylines preview and paytable import ask the AUTHORING mock', async () => {
+	// Both show the author "what the server deals" next to what they saved. The player mock deals
+	// the last Publish, so asking it showed published paylines as the server's and offered to
+	// import published prices over unpublished edits.
+	const asked: string[] = [];
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (input: string | URL | Request) => {
+		asked.push(String(input));
+		return new Response(JSON.stringify({ events: [{ event: 'config', context: { lines: 1 } }] }));
+	}) as typeof fetch;
+	try {
+		const got = await fetchServerBootConfig('remake', 1000);
+		eq(got.ok, true, 'read ok');
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+	eq(asked.length, 1, 'one probe');
+	eq(new URL(asked[0]).pathname, '/api/remake/authoring/rgs/engine', 'path');
 });
 
 if (failures) {

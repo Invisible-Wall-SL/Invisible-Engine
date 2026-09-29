@@ -109,7 +109,7 @@ const channelSource = sliceBetween(
 	"? 'live' : 'published';\n",
 );
 
-const harness = async (entry, calls = 1, channels = Array(calls).fill(null)) => {
+const harness = async (entry, calls = 1, channels = Array(calls).fill(null), duringFetch) => {
 	const asked = [];
 	const warned = [];
 	const swapped = [];
@@ -124,6 +124,7 @@ const harness = async (entry, calls = 1, channels = Array(calls).fill(null)) => 
 		// mismatch drives `swapMock` exactly as it would in the service.
 		fetch: async (url) => {
 			asked.push(url);
+			duringFetch?.(registry);
 			return {
 				ok: true,
 				json: async () => ({
@@ -270,6 +271,33 @@ await check('the two channels poll on separate clocks', async () => {
 		[null, 'authoring', null],
 	);
 	eq(asked.map(sourceOf), ['published', 'live'], 'one read per channel inside one TTL window');
+});
+
+await check('a refresh that lands DURING the fetch is compared against, not skipped', async () => {
+	// The twin already dealt this board, so against the entry read before the fetch the answer is
+	// "unchanged". But a `/refresh` mid-fetch rebuilt the twin on the manifest's board: the swap
+	// must still happen, or the next authoring spin is dealt on the published board.
+	const { swapped } = await harness(
+		pointed({ runtime: 'lines', fingerprint: 'P', authoringFingerprint: TEST6_FINGERPRINT }),
+		1,
+		['authoring'],
+		(registry) => {
+			registry.waysofwavesbuild = { ...registry.waysofwavesbuild, authoringFingerprint: 'P' };
+		},
+	);
+	eq(swapped, [{ key: 'waysofwavesbuild', channel: 'authoring' }], 'swapped onto the fresh twin');
+});
+
+await check('a game dropped from the manifest during the fetch is not re-created', async () => {
+	const { swapped } = await harness(
+		pointed({ runtime: 'lines', fingerprint: 'stale', authoringFingerprint: 'stale' }),
+		1,
+		['authoring'],
+		(registry) => {
+			delete registry.waysofwavesbuild;
+		},
+	);
+	eq(swapped, [], 'no swap for a game that is gone');
 });
 
 await check('a standalone build keeps following LIVE — its config was baked from it', async () => {
@@ -551,10 +579,13 @@ await check('a lost CAS is retried against the re-read manifest', async () => {
 
 await check('the endpoint keeps the pin non-fatal and reports it', async () => {
 	const src = read(REGISTER);
+	// The POST itself lives in the shared helper since #868 (it adds the refresh secret), so the
+	// endpoint is checked for CALLING it and the helper for what it sends and where.
+	const refresh = read('apps/launcher-api/src/lib/server/testServerRefresh.ts');
 	for (const [what, needle] of [
 		['the pin result rides the response', 'purge, pin }'],
 		['the failure is caught, not thrown', "return { status: 'error'"],
-		['the refresh is best-effort', "method: 'POST'"],
+		['the refresh goes through the shared helper', 'postTestServerRefresh('],
 		['the refresh is time-boxed', 'AbortSignal.timeout(REFRESH_TIMEOUT_MS)'],
 		[
 			'the project scope is the one already validated',
@@ -571,10 +602,13 @@ await check('the endpoint keeps the pin non-fatal and reports it', async () => {
 	// tool's RGS probe and keeps it separate so that probe can be pointed elsewhere — aiming a
 	// control call there would refresh one service while games are served from another.
 	const publish = read('apps/launcher-api/src/lib/server/publishGame.ts');
-	if (!src.includes('ENV.GAMES_BASE_URL') || !src.includes('/refresh')) {
+	if (!refresh.includes("method: 'POST'")) {
+		throw new Error('the refresh helper no longer POSTs');
+	}
+	if (!refresh.includes('ENV.GAMES_BASE_URL') || !refresh.includes('/refresh')) {
 		throw new Error('the register-game refresh no longer goes to GAMES_BASE_URL');
 	}
-	if (src.includes('ENV.TEST_SERVER_URL')) {
+	if (src.includes('ENV.TEST_SERVER_URL') || refresh.includes('ENV.TEST_SERVER_URL')) {
 		throw new Error('the register-game refresh is aimed at the RGS-probe host');
 	}
 	if (!publish.includes('GAMES_BASE_URL')) {

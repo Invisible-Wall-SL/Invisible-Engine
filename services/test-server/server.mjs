@@ -610,7 +610,14 @@ async function refreshContract(key, channel) {
 			const res = await fetch(url, { signal: AbortSignal.timeout(CONTRACT_TIMEOUT_MS) });
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const answer = normalizeContract(await res.json(), meta.protocol);
-			if (fingerprintOf(answer) === (twin ? meta.authoringFingerprint : meta.fingerprint)) return;
+			// Re-read the entry: a `/refresh` during the fetch rebuilt the mocks (a twin back onto the
+			// manifest's board) or dropped the game, so the copy taken before the await describes
+			// neither. Comparing against it skipped the swap and dealt one spin on the wrong board;
+			// swapping for a game that is gone re-created a registry entry for it.
+			const current = own(registry, key);
+			if (!current || (twin && !current.runtime)) return;
+			if (fingerprintOf(answer) === (twin ? current.authoringFingerprint : current.fingerprint))
+				return;
 			const board = answer.grid ? `${answer.grid.reels}×${answer.grid.rows}` : 'its default grid';
 			console.info(
 				`[test-server] ${label} ${source} config changed — now dealing ${board} (${answer.protocol})`,

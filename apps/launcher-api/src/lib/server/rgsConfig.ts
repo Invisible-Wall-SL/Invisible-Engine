@@ -3,7 +3,7 @@ import { listGamesOwnedByProject } from './games';
 import type { TestServerManifest } from './testServerManifest';
 
 /**
- * Reads of a published game's boot `config` straight from its RGS on the Invisible Test Server, for
+ * Reads of a game's boot `config` straight from its authoring RGS on the Invisible Test Server, for
  * the Invisible Game Config tool: the read-only Paylines preview and the paytable import.
  *
  * Why a global-reachable fetch is safe here: the target is OUR OWN Invisible Test Server
@@ -11,6 +11,17 @@ import type { TestServerManifest } from './testServerManifest';
  * Play4Fun edge that bounces server-side fetches. An empty-body heartbeat is a read-only,
  * side-effect-free probe: no bet, no round.
  */
+
+/**
+ * Both readers are AUTHORING surfaces, so they ask the game's authoring mock — the one that deals the
+ * SAVED config (`/api/<key>/authoring/…`, see `services/test-server/server.mjs`). The player mock
+ * deals the last Publish, so reading it here showed the author their published paylines as the
+ * server's, and offered to "import" the published prices over unpublished edits. A game with no
+ * separate authoring mock (a desktop build, whose one mock already follows the saved config) is
+ * served the same answer on this path.
+ */
+const serverBootConfigUrl = (base: string, gameKey: string, sid: string): string =>
+	`${base.replace(/\/+$/, '')}/api/${encodeURIComponent(gameKey)}/authoring/rgs/engine?sid=${sid}&seq=0`;
 
 /** How long the Paylines preview waits before falling back to the saved doc. */
 const PREVIEW_TIMEOUT_MS = 3000;
@@ -34,9 +45,8 @@ export async function fetchServerBootConfig(
 	gameKey: string,
 	timeoutMs: number,
 ): Promise<ServerBootConfig> {
-	const base = ENV.TEST_SERVER_URL.replace(/\/+$/, '');
 	const sid = `cfg-read-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-	const url = `${base}/api/${encodeURIComponent(gameKey)}/rgs/engine?sid=${sid}&seq=0`;
+	const url = serverBootConfigUrl(ENV.TEST_SERVER_URL, gameKey, sid);
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
