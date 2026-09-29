@@ -74,3 +74,49 @@ export async function mapWithConcurrency<T, R>(
 	await Promise.all(Array.from({ length: width }, worker));
 	return results;
 }
+
+/**
+ * A counting semaphore: at most `limit` runs at once, the rest queue in arrival order.
+ *
+ * Used to cap how many runtime assembles the launcher runs in parallel ACROSS projects. Each one
+ * holds atlas pages in memory and may KTX2-encode them, and the container has OOM'd mid-bake — so
+ * N authors previewing N different games must not mean N concurrent assembles.
+ */
+export function createLimiter(limit: number): <T>(run: () => Promise<T>) => Promise<T> {
+	let active = 0;
+	const waiting: (() => void)[] = [];
+	return async <T>(run: () => Promise<T>): Promise<T> => {
+		// A released slot is handed to the next waiter without being freed, so `active` never dips
+		// and a caller arriving in between cannot take it too.
+		if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+		else active++;
+		try {
+			return await run();
+		} finally {
+			const next = waiting.shift();
+			if (next) next();
+			else active--;
+		}
+	};
+}
+
+/**
+ * A per-key mutex: runs for the same key execute one after another, different keys in parallel.
+ *
+ * Unlike {@link createSingleFlight}, a later caller does NOT join the earlier run — it waits for it
+ * and then runs its own, because the callers here want different things (a publish copying
+ * `deploy/`, an authoring boot rewriting it). A failed run releases the key like a successful one.
+ */
+export function createKeyedMutex(): <T>(key: string, run: () => Promise<T>) => Promise<T> {
+	const tails = new Map<string, Promise<unknown>>();
+	return <T>(key: string, run: () => Promise<T>): Promise<T> => {
+		const prev = tails.get(key) ?? Promise.resolve();
+		const result = prev.then(run, run);
+		const tail = result.catch(() => undefined);
+		tails.set(key, tail);
+		void tail.then(() => {
+			if (tails.get(key) === tail) tails.delete(key);
+		});
+		return result;
+	};
+}

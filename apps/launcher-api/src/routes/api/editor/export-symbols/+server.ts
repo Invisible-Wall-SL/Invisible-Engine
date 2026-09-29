@@ -4,6 +4,7 @@ import { PageStore } from '$lib/server/pageStore';
 import { SUB, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { exportEditorSymbols } from '$lib/server/symbolExport';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -56,16 +57,18 @@ export const POST: RequestHandler = async ({ url }) => {
 			tumblePattern,
 			anticipation,
 			stacked,
-		} = await exportEditorSymbols(clientKey, projectKey, {
-			// The page store the BAKE path was missing. Without it this export took the per-bundle
-			// copy branch, so a baked/delivery build (every standalone game repo — `new-game.mjs`
-			// scaffolds `bake:doc`) shipped its symbol sheet pages uncompressed and undeduped while
-			// the publish/runtime path, which owns a shared store, shipped them compressed. Symbol
-			// pages are the LARGEST textures a board holds, so that gap was the whole bug on the
-			// tier this exists for. No prune here: `_pages/` is pruned only by an owner that has
-			// seen EVERY exporter that could claim a page (`runtimeBundle.ts`'s `prune:pages`).
-			pageStore: new PageStore(`${SUB.deploy(clientKey, projectKey)}/`),
-		});
+		} = await withDeployWrite(projectKey, () =>
+			exportEditorSymbols(clientKey, projectKey, {
+				// The page store the BAKE path was missing. Without it this export took the per-bundle
+				// copy branch, so a baked/delivery build (every standalone game repo — `new-game.mjs`
+				// scaffolds `bake:doc`) shipped its symbol sheet pages uncompressed and undeduped while
+				// the publish/runtime path, which owns a shared store, shipped them compressed. Symbol
+				// pages are the LARGEST textures a board holds, so that gap was the whole bug on the
+				// tier this exists for. No prune here: `_pages/` is pruned only by an owner that has
+				// seen EVERY exporter that could claim a page (`runtimeBundle.ts`'s `prune:pages`).
+				pageStore: new PageStore(`${SUB.deploy(clientKey, projectKey)}/`),
+			}),
+		);
 		return json({
 			clientKey,
 			projectKey,

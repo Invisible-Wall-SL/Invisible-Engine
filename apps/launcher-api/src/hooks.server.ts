@@ -104,6 +104,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// response makes the failure legible in the console (the boot logs the real status).
 	if (
 		event.url.pathname.startsWith('/api/deploy') ||
+		event.url.pathname.startsWith('/api/published/') ||
 		event.url.pathname === '/api/editor/runtime' ||
 		event.url.pathname === '/api/editor/doc'
 	) {

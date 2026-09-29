@@ -9,6 +9,7 @@ import {
 } from '$lib/server/flowV2Validation';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -56,8 +57,14 @@ export const POST: RequestHandler = async ({ url }) => {
 		// ran inert (static scene-editor placement, no flow). Each export self-gates on
 		// "authored", so an un-authored side contributes nothing (parity). Mirrors what
 		// the online runtime bundle already assembles (`runtimeBundle.ts`).
-		const index = await exportEditorFlow(clientKey, projectKey);
-		const indexV2 = await exportEditorFlowV2(clientKey, projectKey);
+		const [index, indexV2] = await withDeployWrite(
+			projectKey,
+			async () =>
+				[
+					await exportEditorFlow(clientKey, projectKey),
+					await exportEditorFlowV2(clientKey, projectKey),
+				] as const,
+		);
 		return json({ clientKey, projectKey, ...index, ...indexV2 });
 	} catch (e) {
 		console.error('export-flow failed:', e);

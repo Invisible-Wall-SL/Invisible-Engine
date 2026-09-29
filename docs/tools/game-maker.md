@@ -16,9 +16,10 @@ GitHub repo, and click **Build & publish** in the desktop launcher. Game Maker
 closes that gap.
 
 It does so with **one prebuilt generic engine runtime** that boots any project
-straight from its live authoring data. "Publish" is therefore a **data + manifest
-operation, not a build** — re-publishing re-exports the project's assets and
-re-registers it; it never rebuilds a bundle.
+from its authoring data. "Publish" is therefore a **data + manifest operation, not
+a build** — it freezes the project's current data as a **published version** and
+re-registers the game; it never rebuilds a bundle. Players always get the published
+version; your later edits reach them only when you publish again.
 
 - **Where it runs:** the launcher itself, at `/game-maker` — a real full-page
   route inside `(app)`, behind the auth + role gate. It is **never an iframe** and
@@ -157,12 +158,15 @@ Each project card under **Your projects** carries a **Publish** button (it reads
 **Re-publish** once the game already exists). Clicking it runs the server-side
 publish, which:
 
-1. **Freshens the `deploy/` exports** so the live runtime serves the project's
-   current art, fonts, and symbols (the same export step the live editor runtime
-   uses — `ensureDeployExports`).
-2. **Mints (or reuses) a per-project read-only token** that gates the public live
-   fetches the running game makes back to the launcher (its layout doc + deploy
-   assets). The shared deploy token is never exposed to the browser.
+1. **Freezes a published version.** It exports the project's current layout, art,
+   fonts, sounds, symbols, flow and config once, checks the flow it is about to
+   ship (see the refusals below), and stores the result — the game data plus a copy
+   of every asset file it uses — as an **immutable version**. Players boot that
+   version: nothing they load changes until the next publish, however much you edit
+   in the meantime. The last five versions are kept, for rollback.
+2. **Mints (or reuses) a per-project read-only token** that gates the public
+   fetches the running game makes back to the launcher (its game data + asset
+   files). The shared deploy token is never exposed to the browser.
 3. **Merges the test server's manifest** (`test_server/games.json`,
    read-modify-write so siblings are never dropped) with this game's
    `{ protocol, name, runtime }` — `protocol` is the mock RGS to spin against
@@ -174,18 +178,22 @@ publish, which:
    The board/cascade values written here are only the fallback for when the
    launcher can't be reached.
 4. **Registers the portal game** with a launch URL that points the generic
-   runtime at _this_ project's live data
+   runtime at _this_ project's published version
    (`…/<key>/?runtime=1&project=<key>&k=<readToken>&…`), gated by the read token,
    wired to the per-key mock RGS proxy.
 5. **Refreshes the test server** (best-effort — a slow or failed refresh never
    fails the publish; the server re-hydrates on its own cadence too).
+
+A publish takes as long as one export of the project (about 20–30 s for a full
+game) plus a few seconds to copy its files.
 
 **Publish can refuse, before anything is written:**
 
 - **Sounds still marked draft** in Invisible Sound. The dialog names them; **Publish anyway**
   ships them.
 - **Flow errors.** The saved [flow](/docs/flow) is validated the way its Validation panel does,
-  and any red error stops the publish with the list. An **admin** gets a **Publish anyway**
+  and any red error stops the publish with the list. It is checked again on the exact flow the
+  version freezes, so an edit saved while the publish runs cannot slip an error past it. An **admin** gets a **Publish anyway**
   button (a flow error can hang or skip a round for players); anyone else is told to fix it in
   Invisible Flow or ask an admin.
 - **A game with its own desktop build.** Final — republish it from the desktop launcher.
@@ -194,13 +202,16 @@ A project with **no** saved flow still publishes, with a note under the card tha
 without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
 
 When it finishes, the page reloads the row to show the new state: a **Play ↗**
-link that opens the game in a new tab, a **Copy URL** button, and the full play
-URL beneath. The game also appears in the launcher portal's **Games** section, and
+link that opens the game exactly as players get it (the published version), a
+**Live ↗** link that opens the same game on your **current, unpublished** authoring
+data (use it to check edits before you publish them), a **Copy URL** button, and
+the full play URL beneath. The game also appears in the launcher portal's **Games** section — whose cards,
+like **Live ↗**, open your current authoring data, not the published version — and
 plays at `https://games.invisiblewall.org/<key>/`, spinning against the mock RGS
 (fake money, no real spend).
 
 The two small dropdowns beside **Play ↗** choose the **language** and the
-**currency** that link opens the game in (`?lang=` / `?currency=`) — the same pair
+**currency** both links open the game in (`?lang=` / `?currency=`) — the same pair
 of pickers as the portal's **Games** section, and the choice is remembered across
 both. Currency changes only how amounts are _formatted_: the mock wallet holds the
 same fake money whatever you pick, so this is the way to check a HUD in `EUR`,
@@ -210,7 +221,34 @@ deliberately copies the _player's_ URL, without these authoring overrides.
 A language the project has no translations for renders in the source language — an
 untranslated locale falls back by design, so the game looks like it "ignored" the
 setting. Check the row is actually translated **and reviewed** in `/localization`:
-only reviewed strings reach a player or the published bake.
+only reviewed strings reach a player or the published bake. (**Live ↗** also shows
+unreviewed machine translations, so you can see them in context before vetting.)
+
+### Published versions and rollback
+
+Under a published game's buttons, a line says which version players get —
+_"Players get the version published Sep 29 by …"_ — and adds **Scenes edited since —
+publish to ship them** when the scene layout has been saved after that version.
+
+When the game has more than one retained version, **Published versions (n)** opens
+the list: date, who published it, a red **flow errors** tag on one an admin
+published past the flow check, and **live** on the one players get. **Make live**
+on any other version switches players back to it after a confirmation. Nothing is
+rebuilt — it takes effect on each player's next load, and you can switch forward
+again the same way. Publishing always creates a new version and makes it live.
+Five versions are kept: the newest ones, except that the live one is always among
+them even when you have rolled back further than that. A version tagged **flow
+errors** can be made live again only by an admin — the same rule as publishing
+past the flow check.
+
+A game last published **before versions existed** shows an amber note instead:
+its players still get live authoring data (slower to load, and every save reaches
+them). **Republish** it — or use **Republish all** — to freeze its first version.
+
+If a player's game cannot load its published data at all (the launcher is
+unreachable, the link's token is wrong), the game stops on a **"This game could
+not load"** screen with a **Reload** button — it never falls back to showing the
+engine's sample game in its place.
 
 ### Engine update available (the staleness badge)
 

@@ -3,6 +3,7 @@ import { getDeployToken } from '$lib/server/appSettings';
 import { exportEditorArt } from '$lib/server/editorArtExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const index = await exportEditorArt(clientKey, projectKey);
+		const index = await withDeployWrite(projectKey, () => exportEditorArt(clientKey, projectKey));
 		return json({ clientKey, projectKey, ...index });
 	} catch (e) {
 		console.error('export-art failed:', e);
