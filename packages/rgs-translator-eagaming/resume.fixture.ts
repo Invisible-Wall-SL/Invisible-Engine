@@ -143,7 +143,7 @@ console.log('\n3. a feature cut off between free spins is played out');
 	await boot(tabA, sid);
 	// The first second of a buy, then the tab dies: bet+play at 0, two free spins at 2 and 3.
 	const opened = await post(sid, 0, null, [
-		{ action: 'bet', context: [100, 10] },
+		{ action: 'bet', context: [1, 10] },
 		{ action: 'play', context: '' },
 	]);
 	const gid = opened.platform.gameRound?.id ?? null;
