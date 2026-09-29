@@ -356,7 +356,7 @@ graduate later; its R2 authoring data carries over.
   default-ON for `admin` only. Granting it to `developer` / `pipelineTester` is an
   explicit act in `/admin → Roles`; until then their Publish button returns 403.
 - **Mock RGS only.** Published games spin against the faithful-but-fake mock RGS
-  on the Invisible Test Server (shared `sessionID=demo`, fake balance, resets on
+  on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
 - **Runtime-mode localization is a known deferred gap** — i18n initialises at

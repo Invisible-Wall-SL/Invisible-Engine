@@ -46,7 +46,8 @@ const DEMO_SESSION_STORAGE_KEY = 'ie_demo_session_id';
  * of it. Measured: a second tab booting after its game gained a buy re-pinned the shared session,
  * and the first tab's $1 base spin was charged 10000 as the buy. `sessionStorage` is per tab and
  * survives a reload. A new tab starts its own wallet, which is demo money and resets on every
- * publish anyway. A tab the browser DUPLICATES copies its `sessionStorage`, so it still shares.
+ * publish anyway. A tab the browser DUPLICATES, or a game tab opens by script without `noopener`,
+ * copies its `sessionStorage`, so it still shares.
  */
 let demoSessionId: string | null = null;
 const getDemoSessionId = () => {
