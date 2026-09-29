@@ -214,7 +214,11 @@ async function backupBeforeOverwrite(
 	// mid-request. Nothing was lost (there are no bytes to lose), and the PUT that follows still
 	// answers to its own precondition. Reporting "no backup" is therefore accurate, not a swallow.
 	if (!copied) return null;
-	lastBackupAtMs.set(docKey, now.getTime());
+	// Only an `'auto'` copy opens the coalescing window. An `'always'` write (a restore, an
+	// overwrite) REPLACES the doc with bytes of its own, and at the retention limit its prune can
+	// delete the very backup it restored from — so if it opened the window, the next autosave
+	// would skip its copy and the restored version would then exist nowhere.
+	if (mode === 'auto') lastBackupAtMs.set(docKey, now.getTime());
 	return id;
 }
 

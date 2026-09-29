@@ -51,6 +51,20 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Recent changes
 
+### 2026-09-29 — component defaults get rolling backups too
+- `saveComponentDefaults` writes through `putDocWithBackup` with a new `component-defaults` stem;
+  backups are per component under `editor/<project>/component-defaults-backups/<slug(id)>/`
+  (outside the sidecar listing's prefix), skipped by project duplicate.
+  `GET/POST /api/editor/component-defaults/backups?project=&component=` (the component-defaults
+  save's own gate, now `lib/server/editorAccess.ts`). UI + detail in
+  [component-editor.md](component-editor.md). `check:doc-backups` 184, `check:launcher-gates` 319.
+- **Helper fix (all five docs):** only an `'auto'` copy opens the 5-minute coalescing window now.
+  Restoring the OLDEST backup at the 20 limit prunes that backup (the doc holds it again), and when
+  the restore also opened the window the next autosave skipped its copy — so one edit later the
+  restored version existed nowhere. A new check reproduces it and fails on the old helper.
+- The component-defaults save route answers a storage failure with a retryable **502** instead of
+  a 400 carrying the raw SDK message (the backup's HEAD/COPY put R2 on that path).
+
 ### 2026-09-29 — rolling backups cover Flow v2, Symbols and Game Config, not just scenes
 - **One helper for every whole-doc save.** `editorDocBackups.ts` became `docBackups.ts`:
   `putDocWithBackup(target, text, baseEtag, mode)` owns the copy-before-PUT, prune-after-PUT

@@ -237,7 +237,7 @@ export function editorDocKey(client: string, project: string): string {
  * UNRECOVERABLE (the Scene Editor's documented fallback was scavenging a `/api/editor/runtime`
  * dump and un-rewriting its spine keys).
  */
-export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config';
+export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults';
 
 /**
  * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
@@ -294,6 +294,28 @@ export function gameConfigDocBackupTarget(client: string, project: string): DocB
 		docKey: gameConfigDocKey(client, project),
 		prefix: `${SUB.config(client, project)}/backups/`,
 		stem: 'config',
+	};
+}
+
+/**
+ * A project's component-defaults backups — `editor/<project>/component-defaults-backups/`. A
+ * SIBLING of `component-defaults/`, never inside it: `listComponentDefaults` reads every key under
+ * that prefix as a sidecar, so a backup there would surface as a phantom component's defaults.
+ */
+export function componentDefaultsBackupsPrefix(projectKey: string): string {
+	return `editor/${r2Slug(projectKey)}/component-defaults-backups/`;
+}
+
+/**
+ * One component's defaults sidecar → `…/component-defaults-backups/<id>/component-defaults-*.json`.
+ * One folder per component, so each keeps its own newest 20. The id is slugged exactly like the
+ * sidecar's own key, so the backups follow the doc they preserve.
+ */
+export function componentDefaultsBackupTarget(projectKey: string, id: string): DocBackupTarget {
+	return {
+		docKey: projectComponentDefaultsKey(projectKey, id),
+		prefix: `${componentDefaultsBackupsPrefix(projectKey)}${r2Slug(id)}/`,
+		stem: 'component-defaults',
 	};
 }
 

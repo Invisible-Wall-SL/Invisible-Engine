@@ -1,16 +1,11 @@
+import { putDocWithBackup, type BackupMode } from './docBackups';
 import {
+	componentDefaultsBackupTarget,
 	projectComponentDefaultsKey,
 	projectComponentDefaultsPrefix,
 	r2Slug,
 } from './projectPaths';
-import {
-	ConflictError,
-	getObjectText,
-	getObjectTextWithEtag,
-	listAllKeys,
-	precondition,
-	putObjectText,
-} from './r2';
+import { ConflictError, getObjectText, getObjectTextWithEtag, listAllKeys } from './r2';
 
 /**
  * Per-project component-DEFAULTS store (§13.3) — a thin sidecar to `ComponentDef`,
@@ -73,25 +68,28 @@ export async function loadComponentDefaultsWithEtag(
  * (server-side callers only). A stale one throws {@link ConflictError} — the route maps it
  * to a 409 — rather than silently erasing a concurrent author's per-project appearance
  * defaults. Returns the new ETag so the client can keep saving without a re-read.
+ *
+ * The version it replaces is preserved first (`docBackups.putDocWithBackup`, restorable via
+ * `/api/editor/component-defaults/backups`); `backup: 'always'` is for a restore.
  */
 export async function saveComponentDefaults(
 	projectKey: string,
 	componentId: string,
 	params: Record<string, unknown>,
 	baseEtag?: string | null,
+	backup: BackupMode = 'auto',
 ): Promise<{ etag: string | null }> {
 	if (!isRecord(params)) {
 		throw new Error('Component defaults `params` must be a plain object.');
 	}
-	const key = projectComponentDefaultsKey(projectKey, componentId);
 	// Stamp the REAL component id beside the params. The filename is `r2Slug(componentId)`, which
 	// is lossy (`hudReadout` → `hudreadout.json`), so without this the listing can only key by the
 	// slug and every lookup by `ComponentDef.id` misses.
-	const etag = await putObjectText(
-		key,
+	const etag = await putDocWithBackup(
+		componentDefaultsBackupTarget(projectKey, componentId),
 		JSON.stringify({ id: componentId, params }, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		backup,
 	);
 	return { etag };
 }
@@ -156,7 +154,9 @@ export function keyComponentDefaultsById(
 
 /** Read + unwrap one defaults key's `params` plus the `id` stamped beside them (absent on a
  * sidecar written before the stamp), swallowing any read/parse failure. */
-async function readDefaults(key: string): Promise<{ id?: string; params: Record<string, unknown> }> {
+async function readDefaults(
+	key: string,
+): Promise<{ id?: string; params: Record<string, unknown> }> {
 	let raw: string | null;
 	try {
 		raw = await getObjectText(key);

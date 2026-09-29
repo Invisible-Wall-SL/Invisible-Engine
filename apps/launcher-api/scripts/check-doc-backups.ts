@@ -140,8 +140,11 @@ mock.module(server('toolScope.ts'), {
 			clientKey: SESSION.clientKey,
 			projectKey: project || 'default',
 		}),
+		requireOptionalProjectKey: async (_user: unknown, project: string | null | undefined) =>
+			project?.trim() || undefined,
 	},
 });
+mock.module(server('editorAccess.ts'), { namedExports: { requireEditorAccess: signedIn } });
 mock.module(server('symbolsAccess.ts'), { namedExports: { requireSymbolsAccess: signedIn } });
 mock.module(server('gameConfigAccess.ts'), { namedExports: { requireGameConfigAccess: signedIn } });
 const invalidated: string[] = [];
@@ -158,6 +161,15 @@ const { saveFlowV2Doc } = await import('../src/lib/server/flowV2Storage.ts');
 const { saveSymbolsDoc } = await import('../src/lib/server/symbolsStorage.ts');
 const { saveGameConfigDoc } = await import('../src/lib/server/gameConfigStorage.ts');
 const { planDuplicate } = await import('../src/lib/server/projectDuplicate.ts');
+const { listComponentDefaults, saveComponentDefaults } = await import(
+	'../src/lib/server/componentDefaultsStorage.ts'
+);
+const componentDefaultsRoute = await import(
+	'../src/routes/api/editor/component-defaults/+server.ts'
+);
+const componentDefaultsBackupsRoute = await import(
+	'../src/routes/api/editor/component-defaults/backups/+server.ts'
+);
 const editorBackupsRoute = await import('../src/routes/api/editor/backups/+server.ts');
 const flowBackupsRoute = await import('../src/routes/api/flow-v2/backups/+server.ts');
 const flowSaveRoute = await import('../src/routes/api/flow-v2/save/+server.ts');
@@ -202,7 +214,7 @@ function seed(target: DocBackupTarget, text: string): string {
 const T0 = new Date('2026-09-29T12:00:00.000Z');
 const at = (minutes: number): Date => new Date(T0.getTime() + minutes * 60_000);
 const HEX_ETAG = '"0123456789abcdef0123456789abcdef"';
-const STEMS: DocBackupStem[] = ['scenes', 'flow-v2', 'symbols', 'config'];
+const STEMS: DocBackupStem[] = ['scenes', 'flow-v2', 'symbols', 'config', 'component-defaults'];
 
 // ── Ids: one shape per stem, and the shape is a path gate ─────────────────────
 for (const stem of STEMS) {
@@ -290,6 +302,22 @@ check('config target', paths.gameConfigDocBackupTarget(...BORUT), {
 	prefix: 'borut/book_of_borut/config/backups/',
 	stem: 'config',
 });
+check(
+	'component-defaults target: one folder per component, slugged like the sidecar',
+	paths.componentDefaultsBackupTarget(BORUT[1], 'hudReadout'),
+	{
+		docKey: 'editor/book_of_borut/component-defaults/hudreadout.json',
+		prefix: 'editor/book_of_borut/component-defaults-backups/hudreadout/',
+		stem: 'component-defaults',
+	},
+);
+check(
+	'component-defaults backups sit OUTSIDE the prefix the sidecar listing reads',
+	paths
+		.componentDefaultsBackupTarget(BORUT[1], 'hudReadout')
+		.prefix.startsWith(paths.projectComponentDefaultsPrefix(BORUT[1])),
+	false,
+);
 
 // ── putDocWithBackup: the write, its backup, its order ────────────────────────
 const target = (project: string): DocBackupTarget => paths.flowV2DocBackupTarget('c', project);
@@ -354,6 +382,38 @@ const target = (project: string): DocBackupTarget => paths.flowV2DocBackupTarget
 		'the history is newest first and holds what each copy replaced',
 		(await listBackups(t)).map((b) => bucket.get(paths.docBackupKey(t, b.id))?.text),
 		['v5', 'v4', 'v3', 'v1'],
+	);
+}
+
+// ── A restore of the OLDEST backup at the limit survives the next autosave ───
+{
+	const t = target('restore-oldest');
+	let etag: string | null = seed(t, 'v0');
+	for (let i = 1; i <= 21; i++) {
+		etag = await putDocWithBackup(t, `v${i}`, etag, 'always', at(i * 10));
+	}
+	const oldest = (await listBackups(t)).at(-1);
+	const restoredText = oldest ? bucket.get(paths.docBackupKey(t, oldest.id))?.text : undefined;
+	check(
+		'setup: 20 backups kept, the oldest holds v1',
+		[(await listBackups(t)).length, restoredText],
+		[20, 'v1'],
+	);
+	etag = await putDocWithBackup(t, restoredText ?? '', etag, 'always', at(300));
+	check(
+		"the restore's own prune deleted the backup it restored from (the doc itself holds it now)",
+		(await listBackups(t)).some((b) => b.id === oldest?.id),
+		false,
+	);
+	reset();
+	await putDocWithBackup(t, 'an edit after the restore', etag, 'auto', at(301));
+	check(
+		'an autosave inside 5 minutes of a restore still copies, so the restored version is kept',
+		[
+			ops().includes('copy'),
+			(await listBackups(t)).some((b) => bucket.get(paths.docBackupKey(t, b.id))?.text === 'v1'),
+		],
+		[true, true],
 	);
 }
 
@@ -650,6 +710,7 @@ const T_SCENES = paths.editorDocBackupTarget(SESSION.clientKey, SESSION.projectK
 const T_FLOW = paths.flowV2DocBackupTarget(SESSION.clientKey, SESSION.projectKey);
 const T_SYMBOLS = paths.symbolsDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
 const T_CONFIG = paths.gameConfigDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
+const T_COMPONENT = paths.componentDefaultsBackupTarget(SESSION.projectKey, 'hudReadout');
 
 const ROUTES: RouteCase[] = [
 	{
@@ -706,6 +767,18 @@ const ROUTES: RouteCase[] = [
 			(await saveGameConfigDoc('r', 'route', { ...linesConfig, gameName: tag }, baseEtag)).etag,
 		liveTag: () => liveJson(T_CONFIG).gameName,
 		invalid: '{}',
+	},
+	{
+		name: 'api/editor/component-defaults/backups',
+		target: T_COMPONENT,
+		path: '/api/editor/component-defaults/backups?project=route&component=hudReadout',
+		GET: componentDefaultsBackupsRoute.GET,
+		POST: componentDefaultsBackupsRoute.POST,
+		extra: {},
+		save: async (tag, baseEtag) =>
+			(await saveComponentDefaults('route', 'hudReadout', { tint: tag }, baseEtag)).etag,
+		liveTag: () => (liveJson(T_COMPONENT).params as Record<string, unknown>).tint,
+		invalid: '{"id":"hudReadout"}',
 	},
 ];
 
@@ -870,6 +943,68 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 	);
 }
 
+// ── Component defaults: the listing never sees a backup; the routes need a component ───────
+{
+	const listed = await listComponentDefaults(SESSION.projectKey);
+	check(
+		'the sidecar listing reads the live defaults only — no backup surfaces as a component',
+		Object.keys(listed),
+		['hudReadout'],
+	);
+	const path = '/api/editor/component-defaults/backups?project=route';
+	check(
+		'component-defaults history without ?component= is a 400',
+		(await call(componentDefaultsBackupsRoute.GET, path)).status,
+		400,
+	);
+	check(
+		'component-defaults history without ?project= is a 400',
+		(
+			await call(
+				componentDefaultsBackupsRoute.GET,
+				'/api/editor/component-defaults/backups?component=x',
+			)
+		).status,
+		400,
+	);
+	reset();
+	const stale = await call(componentDefaultsRoute.POST, '/api/editor/component-defaults', {
+		project: 'route',
+		id: 'hudReadout',
+		params: { tint: 'Z' },
+		baseEtag: etagOf('never seen'),
+	});
+	check(
+		'component-defaults save: a stale save is a json 409 and takes no backup',
+		[stale.status, stale.body.error, ops().includes('copy')],
+		[409, 'conflict', false],
+	);
+	reset();
+	const forced = await call(componentDefaultsRoute.POST, '/api/editor/component-defaults', {
+		project: 'route',
+		id: 'hudReadout',
+		params: { tint: 'A' },
+		force: true,
+	});
+	check(
+		'component-defaults save: an overwrite always backs up, even inside the window',
+		[forced.status, ops().includes('copy')],
+		[200, true],
+	);
+	headFailure = new Error('R2 unavailable');
+	const down = await call(componentDefaultsRoute.POST, '/api/editor/component-defaults', {
+		project: 'route',
+		id: 'hudReadout',
+		params: { tint: 'Y' },
+		baseEtag: bucket.get(T_COMPONENT.docKey)?.etag,
+	});
+	check(
+		'component-defaults save: a storage failure is a retryable 502, not a 400 with SDK text',
+		[down.status, down.body.message],
+		[502, 'Could not save these defaults — storage is unavailable. Please retry.'],
+	);
+}
+
 // ── A duplicated project starts its own history ──────────────────────────────────────────────
 {
 	const src = ['dup', 'source'] as const;
@@ -878,8 +1013,14 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 		paths.flowV2DocKey(...src),
 		paths.symbolsDocKey(...src),
 		paths.gameConfigDocKey(...src),
+		paths.projectComponentDefaultsKey(src[1], 'hudReadout'),
 	];
 	for (const key of docs) bucket.set(key, { text: '{}', etag: etagOf(key) });
+	const cdef = paths.componentDefaultsBackupTarget(src[1], 'hudReadout');
+	bucket.set(paths.docBackupKey(cdef, paths.docBackupId(cdef.stem, T0, 'abc')), {
+		text: '{}',
+		etag: 'x',
+	});
 	for (const build of [
 		paths.editorDocBackupTarget,
 		paths.flowV2DocBackupTarget,
@@ -899,7 +1040,7 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 			scope,
 		);
 		check(
-			`duplicate (${scope}): copies the four docs and none of their backups`,
+			`duplicate (${scope}): copies the five docs and none of their backups`,
 			docs.every((key) => plan.some((e) => e.from === key)) &&
 				!plan.some((e) => /backups\//.test(e.from)),
 			true,
