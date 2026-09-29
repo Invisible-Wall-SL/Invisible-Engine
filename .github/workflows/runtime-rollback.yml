@@ -1,0 +1,105 @@
+# Runtime rollback — move the online games between engine releases ALREADY in R2, with no rebuild.
+#
+# Every runtime release (runtime-release.yml) lands in its own immutable `_runtime/<id>@<version>/`
+# and is made live by the pointer `_runtime/<id>/current.json`. This workflow only rewrites that
+# pointer (or one game's pin in games.json), then POSTs /refresh and waits until a game SERVES the
+# release it chose — the same served-hash check a release ends with. Minutes, not a build.
+#
+#   rollback   version empty = the release before the current one; or name one
+#   promote    version empty = the newest release (roll forward after a rollback); or name one
+#   pin        put ONE game (`game`) on `version` — a canary; every other game stays on the pointer
+#   unpin      put `game` back on the pointer
+#   list       print the releases kept, the pointer and the pins
+#
+# A version is its full name or any unique prefix (a short commit works) — `list` shows them.
+#
+# `main` still holds whatever commit was rolled back, so the NEXT engine merge releases it again
+# unless it is reverted too. See "Runtime releases" in docs/design/games-deploy.md.
+
+name: Runtime rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What to do'
+        type: choice
+        options: [rollback, promote, pin, unpin, list]
+        default: rollback
+      version:
+        description: 'Release version or commit prefix (rollback/promote: empty = previous/newest)'
+        type: string
+        required: false
+      game:
+        description: 'Game key (pin/unpin only)'
+        type: string
+        required: false
+      runtime:
+        description: 'Runtime id'
+        type: string
+        default: 'lines'
+        required: true
+
+concurrency:
+  # NOT the release's group: GitHub cancels a PENDING run when a newer one queues in the same group,
+  # so a rollback waiting behind a bad release's served check could be replaced by the next merge's
+  # release. Instead every pointer write is a compare-and-swap (`lib/runtime-releases.mjs` →
+  # `promote`): a release that finishes after a rollback fails loudly rather than undo it, and a
+  # release's served check stops as soon as it sees the pointer moved.
+  group: runtime-rollback-${{ inputs.runtime }}
+  cancel-in-progress: false
+
+jobs:
+  pointer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The scripts need only the S3 client, which is a launcher-api dependency — not the whole
+      # workspace, so a rollback does not wait on a full install.
+      - run: pnpm install --frozen-lockfile --filter launcher-api
+
+      - name: ${{ inputs.action }} ${{ inputs.runtime }} ${{ inputs.game }} ${{ inputs.version }}
+        id: flip
+        env:
+          ACTION: ${{ inputs.action }}
+          RUNTIME: ${{ inputs.runtime }}
+          VERSION: ${{ inputs.version }}
+          GAME: ${{ inputs.game }}
+        run: |
+          case "$ACTION" in
+            pin)   args=(pin "$GAME" "$VERSION") ;;
+            unpin) args=(unpin "$GAME") ;;
+            *)     args=("$ACTION" ${VERSION:+"$VERSION"}) ;;
+          esac
+          node apps/launcher-api/scripts/runtime-pointer.mjs "$RUNTIME" "${args[@]}"
+
+      # rollback/promote: any unpinned game must serve the release the pointer now names.
+      # pin/unpin: that game must serve its release.
+      - name: Refresh the test server and verify the served bundle
+        if: ${{ inputs.action != 'list' }}
+        env:
+          ACTION: ${{ inputs.action }}
+          RUNTIME: ${{ inputs.runtime }}
+          GAME: ${{ inputs.game }}
+          VERSION: ${{ steps.flip.outputs.version }}
+        run: |
+          args=("$RUNTIME")
+          case "$ACTION" in
+            pin|unpin) args+=(--game "$GAME" --version "$VERSION") ;;
+          esac
+          node apps/launcher-api/scripts/verify-runtime-live.mjs "${args[@]}"

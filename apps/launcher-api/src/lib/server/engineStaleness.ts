@@ -6,7 +6,8 @@
  * stale while the bulk run skips the game is worse than either alone.
  *
  * The signal is a comparison of two existing timestamps — no new stamp file:
- *   - the shared runtime bundle's release time (`_runtime/<id>/index.html` mtime), and
+ *   - the build time of the runtime release the games serve (`runtimeBundleReleasedAt`: the
+ *     pointer's `builtAt`, or the flat `_runtime/<id>/index.html` mtime before the first pointer), and
  *   - the game's own last publish (its manifest entry's `updatedAt`).
  *
  * Conservative by design: a missing `runtime`/`updatedAt`, an absent bundle, or a game
@@ -20,7 +21,7 @@ import {
 } from './testServerManifest';
 
 export interface EngineStaleness {
-	/** The shared bundle this game is served from (`test_server/_runtime/<id>/`). */
+	/** The shared runtime this game is served from (`test_server/_runtime/<id>@<version>/`). */
 	runtimeId: string | null;
 	/** Epoch-ms of the game's last publish, or null when unknown. */
 	publishedAt: number | null;

@@ -35,36 +35,83 @@ import {
 export const TEST_SERVER_MANIFEST_KEY = 'test_server/games.json';
 
 /**
- * Epoch-ms when a generic runtime bundle was last published to R2 — read from the
- * `last-modified` of `test_server/_runtime/<id>/index.html`, which a Runtime release
- * (`publish-runtime-bundle.mjs`) re-uploads every time the engine ships. Returns
- * `null` when the bundle isn't present (nothing to compare against).
+ * Epoch-ms the engine a runtime SERVES was built — the `builtAt` of the release its pointer
+ * (`test_server/_runtime/<id>/current.json`) names. The build time, not the time the pointer moved:
+ * a rollback puts an OLDER engine live, which must not flag every game as behind it. Before the first
+ * versioned release there is no pointer, and the `last-modified` of the flat
+ * `_runtime/<id>/index.html` stands in. Returns `null` when neither is
+ * present (nothing to compare against).
  *
  * This is the ENGINE-version signal the Game Maker compares against a game's last
  * publish (`updatedAt`, below) to flag a game whose RUNNING engine is behind the
  * current one — so an author republishes (which re-hydrates the test server) instead
- * of chasing a "my change isn't showing" ghost. It reuses an existing R2 signal on
- * purpose: no new stamp file, and it updates automatically on every runtime release.
+ * of chasing a "my change isn't showing" ghost.
  */
 export async function runtimeBundleReleasedAt(runtimeId: string): Promise<number | null> {
+	const pointer = await runtimePointer(runtimeId);
+	const builtAt = pointer ? Date.parse(pointer.builtAt) : NaN;
+	if (Number.isFinite(builtAt)) return builtAt;
 	const head = await headObject(`test_server/_runtime/${runtimeId}/index.html`);
 	return head && head.lastModified > 0 ? head.lastModified : null;
 }
 
 /**
- * The advisory release stamp `publish-runtime-bundle.mjs` writes next to a runtime bundle
+ * The pointer that picks which immutable release (`test_server/_runtime/<id>@<version>/`) every
+ * unpinned game on a runtime serves. Written by `scripts/publish-runtime-bundle.mjs` and
+ * `scripts/runtime-pointer.mjs` (layout: `scripts/lib/runtime-releases.mjs`); read by the test server.
+ */
+export interface RuntimePointer {
+	runtimeId: string;
+	version: string;
+	commit: string;
+	shortCommit: string;
+	builtAt: string;
+	marker: string;
+	promotedAt: string;
+	via: 'release' | 'rollback' | 'promote';
+	previous: string | null;
+}
+
+export async function runtimePointer(runtimeId: string): Promise<RuntimePointer | null> {
+	const raw = await getObjectText(`test_server/_runtime/${runtimeId}/current.json`);
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as RuntimePointer;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The advisory release stamp `publish-runtime-bundle.mjs` writes next to a runtime's pointer
  * (`test_server/_runtime/<id>/release.json`). It records which engine commit the LIVE shared
  * bundle was built from + when, and whether a release is currently building — the bundle-vs-source
  * axis (distinct from the per-game `engineStale` axis, which compares a game's publish time to the
- * bundle's). `status: 'building'` is written up-front, then overwritten with `'released'` after the
- * upload lands. Older bundles predate the stamp, so callers fall back to `runtimeBundleReleasedAt`.
+ * bundle's). `status: 'building'` is written up-front, then overwritten with `'released'` when the
+ * pointer moves (a release, a rollback or a promote). A release that fails after the `building`
+ * stamp puts the live release's stamp back and adds `lastFailure`; `'failed'` is written only when
+ * there is no live release to put back. Older bundles predate the stamp, so callers fall back to
+ * `runtimeBundleReleasedAt`.
  */
 export interface RuntimeRelease {
 	runtimeId: string;
 	commit: string;
 	shortCommit: string;
 	builtAt: string;
-	status: 'released' | 'building';
+	status: 'released' | 'building' | 'failed';
+	/** The immutable release the pointer names (absent on a pre-pointer stamp). */
+	version?: string;
+	promotedAt?: string;
+	via?: RuntimePointer['via'];
+	/** `stage`: the failed run never moved the pointer ('before-promote'), or moved it and the
+	 *  served check then failed ('unverified' — that commit IS in R2 as the live release). */
+	lastFailure?: {
+		commit: string;
+		shortCommit: string;
+		at: string;
+		runUrl: string | null;
+		stage?: 'before-promote' | 'unverified';
+	};
 }
 
 /** Read + parse `release.json` for a runtime. Returns null when absent or unparseable. */
@@ -95,6 +142,10 @@ export interface EngineDeployStatus {
 	pending?: boolean;
 	aheadBy?: number;
 	mainCommit?: string;
+	/** The live release came from a rollback/promote rather than a normal release. */
+	via?: RuntimePointer['via'];
+	/** A release attempted AFTER the live one failed (its gates, build, upload or served check). */
+	lastFailure?: RuntimeRelease['lastFailure'];
 }
 
 /**
@@ -128,7 +179,21 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 				commit: release.commit,
 				shortCommit: release.shortCommit,
 				builtAt: release.builtAt,
+				...(release.via && release.via !== 'release' ? { via: release.via } : {}),
+				...(release.lastFailure ? { lastFailure: release.lastFailure } : {}),
 			};
+		}
+		// 'failed' with nothing to put back (no pointer yet): the mtime fallback below still proves
+		// SOMETHING is deployed, and the failure rides along.
+		if (release.status === 'failed') {
+			const releasedAt = await runtimeBundleReleasedAt(runtimeId);
+			if (releasedAt) {
+				return {
+					status: 'deployed',
+					builtAt: new Date(releasedAt).toISOString(),
+					...(release.lastFailure ? { lastFailure: release.lastFailure } : {}),
+				};
+			}
 		}
 	}
 
@@ -171,6 +236,13 @@ export interface TestServerGameEntry {
 	name: string;
 	/** Shared prebuilt-bundle id under `test_server/_runtime/<runtime>/` (Game Maker). */
 	runtime?: string;
+	/**
+	 * PIN this game to one immutable runtime release (`test_server/_runtime/<runtime>@<version>/`)
+	 * instead of the release the runtime's pointer names — a canary takes a release before everyone
+	 * else. Written only by `scripts/runtime-pointer.mjs pin` (the "Runtime rollback" workflow);
+	 * {@link upsertTestServerGame} carries it across a republish so a canary stays one.
+	 */
+	runtimeVersion?: string;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
 	/**
@@ -299,7 +371,13 @@ export async function upsertTestServerGame(
 	for (let attempt = 1; ; attempt++) {
 		const current = await getObjectTextWithEtag(TEST_SERVER_MANIFEST_KEY);
 		const manifest = parseManifest(current?.text);
-		manifest.games[key] = entry;
+		// A pin is set by the release tooling, not by the publisher — a republish must not drop it. It
+		// names a release OF one runtime, so it only survives a republish onto that same runtime.
+		const prior = manifest.games[key];
+		manifest.games[key] =
+			prior?.runtimeVersion && !('runtimeVersion' in entry) && prior.runtime === entry.runtime
+				? { ...entry, runtimeVersion: prior.runtimeVersion }
+				: entry;
 		try {
 			await putObjectText(
 				TEST_SERVER_MANIFEST_KEY,

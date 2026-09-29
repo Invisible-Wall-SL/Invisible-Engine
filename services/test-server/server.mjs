@@ -89,15 +89,27 @@ async function r2() {
 
 // ---------- in-memory state (rebuilt on hydrate) ----------
 
-/** gameKey -> { protocol, name, runtime } (runtime = shared bundle id, or null) */
+/** gameKey -> { protocol, name, runtime, runtimeKey, runtimeVersion } (runtime = shared bundle id, or null) */
 let registry = {};
 /** gameKey -> { '<relPath>': { body: Buffer, contentType: string } } (per-key bundles) */
 let bundles = {};
-/** runtimeId -> files map — ONE prebuilt generic engine bundle (test_server/_runtime/<id>/)
- *  shared by every Game-Maker game whose manifest entry sets `runtime: "<id>"`. The game
- *  boots that bundle with `?runtime=1&project=<key>&k=<readToken>` and fetches its layout +
- *  assets live from the launcher — so publishing a game is a manifest entry, not a build. */
+/** runtimeKey -> files map — a prebuilt generic engine bundle shared by every Game-Maker game
+ *  whose manifest entry sets `runtime: "<id>"`. The game boots it with
+ *  `?runtime=1&project=<key>&k=<readToken>` and fetches its layout + assets live from the
+ *  launcher — so publishing a game is a manifest entry, not a build.
+ *
+ *  A runtimeKey is `<id>@<version>`: an IMMUTABLE release at `test_server/_runtime/<id>@<version>/`,
+ *  chosen by the pointer `_runtime/<id>/current.json` or, for a pinned (canary) game, by its own
+ *  `runtimeVersion`. A plain `<id>` is the pre-pointer flat `_runtime/<id>/` layout, used only while
+ *  no pointer exists. See "Runtime releases" in docs/design/games-deploy.md. */
 let runtimeBundles = {};
+/** runtimeId -> the version the pointer named at the last successful read. A pointer read that
+ *  fails transiently keeps this instead of silently dropping to the stale flat layout. */
+let runtimePointers = {};
+/** runtimeId -> `_app/immutable/*` files of the release that was live BEFORE the last flip. A player
+ *  who loaded the old index.html may still fetch its content-hashed chunks; they must not 404 the
+ *  moment the pointer moves. Kept for one generation. */
+let retiredImmutable = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
 /** gameKey -> { checkedAt: epochMs, inFlight: Promise|null } — the live-contract poll (see
@@ -236,6 +248,11 @@ const makeMock = (protocol, label, grid, gameKey, cascade) => {
 		...(grid ?? linesGrid ?? {}),
 	});
 };
+
+/** A runtime release version is an R2 path segment (`_runtime/<id>@<version>/`) read from external
+ *  JSON, so only this shape is accepted — the same rule `scripts/lib/runtime-releases.mjs` writes. */
+const validVersion = (v) =>
+	typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v) ? v : null;
 
 /** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
  *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external.
@@ -493,6 +510,14 @@ async function loadSource() {
 		const manifest = JSON.parse(await readFile(join(LOCAL_DIR, 'games.json'), 'utf8'));
 		return {
 			games: manifest?.games ?? {},
+			readJson: async (key) => {
+				try {
+					return JSON.parse(await readFile(join(LOCAL_DIR, key), 'utf8'));
+				} catch (e) {
+					if (e.code === 'ENOENT') return null;
+					throw e;
+				}
+			},
 			readFiles: async (key) => {
 				const out = [];
 				const base = join(LOCAL_DIR, key);
@@ -517,6 +542,17 @@ async function loadSource() {
 	const manifest = JSON.parse((await streamToBuffer(res.Body)).toString('utf8'));
 	return {
 		games: manifest?.games ?? {},
+		readJson: async (key) => {
+			try {
+				const got = await client.send(
+					new GetObjectCommand({ Bucket: bucket, Key: `${BUNDLE_PREFIX}${key}` }),
+				);
+				return JSON.parse((await streamToBuffer(got.Body)).toString('utf8'));
+			} catch (e) {
+				if (e.name === 'NoSuchKey') return null;
+				throw e;
+			}
+		},
 		readFiles: async (key) => {
 			const out = [];
 			const prefix = `${BUNDLE_PREFIX}${key}/`;
@@ -551,6 +587,7 @@ async function hydrate() {
 		registry = {};
 		bundles = {};
 		runtimeBundles = {};
+		retiredImmutable = {};
 		mocks = {};
 		contracts = {};
 		return;
@@ -558,12 +595,52 @@ async function hydrate() {
 
 	const nextRegistry = {};
 	const nextBundles = {};
-	const runtimeIds = new Set();
+	const nextPointers = {};
+	/** runtimeKey -> { id, version } for every release some game is served from */
+	const runtimeRefs = new Map();
+	/** The version `_runtime/<id>/current.json` names, read once per hydrate. null ⇒ CONFIRMED no
+	 *  pointer (the flat pre-pointer layout). A read that keeps failing keeps the last good answer, and
+	 *  with none (a boot) fails the hydrate rather than guess: guessing "flat" would serve the frozen
+	 *  pre-pointer engine to every game. */
+	const pointerFor = async (id) => {
+		if (own(nextPointers, id) !== undefined) return nextPointers[id];
+		let version = null;
+		for (const wait of [0, 1_000, 3_000]) {
+			await new Promise((r) => setTimeout(r, wait));
+			try {
+				const pointer = await source.readJson(`_runtime/${id}/current.json`);
+				version = pointer && validVersion(pointer.version);
+				if (pointer && !version)
+					console.warn(
+						`[test-server] _runtime/${id}/current.json names no valid version — ignored`,
+					);
+				nextPointers[id] = version;
+				return version;
+			} catch (e) {
+				console.warn(
+					`[test-server] reading _runtime/${id}/current.json failed (${e.name ?? e.message})`,
+				);
+			}
+		}
+		const lastGood = own(runtimePointers, id);
+		if (lastGood === undefined)
+			throw new Error(`_runtime/${id}/current.json unreadable and no last good pointer`);
+		console.warn(`[test-server] keeping ${lastGood ? `'${id}@${lastGood}'` : 'the flat layout'}`);
+		nextPointers[id] = lastGood;
+		return lastGood;
+	};
 	for (const [key, meta] of Object.entries(source.games)) {
 		const protocol = ['book', 'ways', 'cluster', 'scatter'].includes(meta.protocol)
 			? meta.protocol
 			: 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
+		// A PINNED game (canary) names its own release; every other runtime game follows the pointer.
+		const pinned =
+			runtime && meta.runtimeVersion != null ? validVersion(meta.runtimeVersion) : null;
+		if (runtime && meta.runtimeVersion != null && !pinned)
+			console.warn(`[test-server] '${key}' has an invalid runtimeVersion — following the pointer`);
+		const runtimeVersion = runtime ? (pinned ?? (await pointerFor(runtime))) : null;
+		const runtimeKey = runtime ? (runtimeVersion ? `${runtime}@${runtimeVersion}` : runtime) : null;
 		// `cascade` is the project's OWN authored answer, synced from its Game Config at publish.
 		// Absent ⇒ undefined, and the protocol default decides. Only a real boolean overrides it.
 		const cascade = typeof meta.cascade === 'boolean' ? meta.cascade : undefined;
@@ -572,6 +649,9 @@ async function hydrate() {
 			...contract,
 			name: meta.name ?? key,
 			runtime,
+			runtimeKey,
+			runtimeVersion,
+			pinned: Boolean(pinned),
 			// The pointer back at the project's LIVE config (see `refreshContract`). Absent for a game
 			// published before this shipped — such a game keeps dealing the snapshot below, and now
 			// SAYS so once (`warnUnpinned`) instead of silently playing a different board.
@@ -589,9 +669,10 @@ async function hydrate() {
 		};
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
-			runtimeIds.add(runtime);
+			runtimeRefs.set(runtimeKey, { id: runtime, version: runtimeVersion });
 			console.info(
-				`[test-server] registered '${key}' (${protocol}) → runtime '_runtime/${runtime}'`,
+				`[test-server] registered '${key}' (${protocol}) → runtime '_runtime/${runtimeKey}'` +
+					(pinned ? ' (pinned)' : ''),
 			);
 		} else {
 			nextBundles[key] = Object.fromEntries(await source.readFiles(key));
@@ -601,22 +682,77 @@ async function hydrate() {
 		}
 	}
 
-	// Load each referenced generic runtime bundle once (test_server/_runtime/<id>/).
+	// Load each referenced runtime release once. A versioned release is immutable, so one already in
+	// memory is reused as-is — a refresh costs a pointer read, not a re-download of the bundle. The
+	// flat pre-pointer layout is mutable and is re-read every time.
 	const nextRuntimeBundles = {};
-	for (const id of runtimeIds) {
-		nextRuntimeBundles[id] = Object.fromEntries(await source.readFiles(`_runtime/${id}`));
-		const n = Object.keys(nextRuntimeBundles[id]).length;
+	for (const [runtimeKey, { version }] of runtimeRefs) {
+		const cached = version ? own(runtimeBundles, runtimeKey) : undefined;
+		if (cached && Object.keys(cached).length > 0) {
+			nextRuntimeBundles[runtimeKey] = cached;
+			continue;
+		}
+		nextRuntimeBundles[runtimeKey] = Object.fromEntries(
+			await source.readFiles(`_runtime/${runtimeKey}`),
+		);
+		const n = Object.keys(nextRuntimeBundles[runtimeKey]).length;
 		if (n === 0)
 			console.warn(
-				`[test-server] runtime '_runtime/${id}' has 0 files — games using it won't load until it's published`,
+				`[test-server] runtime '_runtime/${runtimeKey}' has 0 files — games using it won't load until it's published`,
 			);
-		else console.info(`[test-server] hydrated runtime '_runtime/${id}' — ${n} file(s)`);
+		else console.info(`[test-server] hydrated runtime '_runtime/${runtimeKey}' — ${n} file(s)`);
+	}
+
+	// A pointer that names a release with no index.html (deleted, or never fully uploaded) must not
+	// take every game down: the games that follow it stay on the release the pointer named before.
+	const pointerKey = (id, version) => (version ? `${id}@${version}` : id);
+	for (const [id, version] of Object.entries(nextPointers)) {
+		const key = pointerKey(id, version);
+		if (own(own(nextRuntimeBundles, key) ?? {}, 'index.html')) continue;
+		const before = own(runtimePointers, id);
+		const beforeKey = before === undefined ? null : pointerKey(id, before);
+		const kept = beforeKey && own(runtimeBundles, beforeKey);
+		if (!kept || !own(kept, 'index.html')) continue;
+		console.warn(
+			`[test-server] '_runtime/${key}' has no index.html — games stay on '_runtime/${beforeKey}'`,
+		);
+		nextPointers[id] = before;
+		nextRuntimeBundles[beforeKey] = kept;
+		if (!Object.values(nextRegistry).some((m) => m.pinned && m.runtimeKey === key))
+			delete nextRuntimeBundles[key];
+		for (const meta of Object.values(nextRegistry)) {
+			if (meta.runtime === id && !meta.pinned) {
+				meta.runtimeKey = beforeKey;
+				meta.runtimeVersion = before;
+			}
+		}
+	}
+
+	// When the pointer moves, the chunks of the release it moved AWAY from stay servable until it
+	// moves again, for players still on that release's index.html. Pinned (canary) releases and the
+	// flat pre-pointer layout are not kept: the flat prefix holds every chunk ever uploaded.
+	const nextRetired = {};
+	for (const id of new Set([...Object.keys(nextPointers), ...Object.keys(retiredImmutable)])) {
+		const before = own(runtimePointers, id);
+		const moved = before !== undefined && before !== own(nextPointers, id);
+		if (!moved) {
+			if (own(retiredImmutable, id) && own(nextPointers, id) !== undefined)
+				nextRetired[id] = retiredImmutable[id];
+			continue;
+		}
+		const files = before ? own(runtimeBundles, pointerKey(id, before)) : undefined;
+		if (!files) continue;
+		nextRetired[id] = Object.fromEntries(
+			Object.entries(files).filter(([rel]) => rel.startsWith('_app/immutable/')),
+		);
 	}
 
 	// swap in atomically; recreate mocks so balances reset on a refresh
 	registry = nextRegistry;
 	bundles = nextBundles;
 	runtimeBundles = nextRuntimeBundles;
+	runtimePointers = nextPointers;
+	retiredImmutable = nextRetired;
 	// Drop the poll state with the mocks it described, so the first request after a refresh re-reads
 	// every game's live contract instead of coasting on the previous window.
 	contracts = {};
@@ -664,7 +800,19 @@ const handleRequest = async (req, res) => {
 
 	// health
 	if (req.method === 'GET' && pathname === '/healthz') {
-		return sendJson(res, 200, { ok: true, games: Object.keys(registry) });
+		// `runtimes` = the version each runtime's pointer named at the last hydrate (null ⇒ the flat
+		// pre-pointer layout); `pinned` = games serving their own release instead (canaries).
+		const pinned = Object.fromEntries(
+			Object.entries(registry)
+				.filter(([, m]) => m.pinned)
+				.map(([key, m]) => [key, m.runtimeKey]),
+		);
+		return sendJson(res, 200, {
+			ok: true,
+			games: Object.keys(registry),
+			runtimes: runtimePointers,
+			pinned,
+		});
 	}
 
 	// Invisible Wall favicon for ANY favicon request — the root page and every game
@@ -756,13 +904,17 @@ const handleRequest = async (req, res) => {
 		const meta = own(registry, gameKey);
 		const files = meta
 			? meta.runtime
-				? own(runtimeBundles, meta.runtime)
+				? own(runtimeBundles, meta.runtimeKey)
 				: own(bundles, gameKey)
 			: undefined;
 		if (files) {
 			const rel = segments.slice(1).join('/') || 'index.html';
 			const file =
-				own(files, rel) ?? (rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined);
+				own(files, rel) ??
+				(rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined) ??
+				(meta.runtime && rel.startsWith('_app/immutable/')
+					? own(own(retiredImmutable, meta.runtime) ?? {}, rel)
+					: undefined);
 			if (file) {
 				// Content-hashed bundle files (SvelteKit `_app/immutable/…`) get a new
 				// URL on every build, so they're safe to cache forever. Everything else
@@ -778,6 +930,8 @@ const handleRequest = async (req, res) => {
 					'Cache-Control': immutable
 						? 'public, max-age=31536000, immutable'
 						: 'no-store, must-revalidate',
+					// Which runtime release answered — what the release/rollback checks compare.
+					...(meta.runtime ? { 'X-Runtime-Release': meta.runtimeKey } : {}),
 				};
 				if (req.method === 'HEAD') {
 					res.writeHead(200, headers);
@@ -803,8 +957,28 @@ const server = createServer(async (req, res) => {
 	}
 });
 
+/** A failed boot hydrate leaves 0 games; keep retrying in the background until one lands (a POST
+ *  /refresh in between can land it sooner). */
+function retryBootHydrate(attempt = 1) {
+	setTimeout(
+		() => {
+			if (Object.keys(registry).length > 0) return;
+			hydrate()
+				.then(() => console.info(`[test-server] boot hydrate succeeded on retry ${attempt}`))
+				.catch((e) => {
+					console.error(`[test-server] boot hydrate retry ${attempt} failed:`, e.message);
+					retryBootHydrate(attempt + 1);
+				});
+		},
+		Math.min(60_000, 5_000 * attempt),
+	);
+}
+
 hydrate()
-	.catch((e) => console.error('[test-server] initial hydrate failed:', e))
+	.catch((e) => {
+		console.error('[test-server] initial hydrate failed:', e);
+		retryBootHydrate();
+	})
 	.finally(() => {
 		server.listen(PORT, () => {
 			console.log(
