@@ -589,10 +589,10 @@ const scatterPositions = (reels) => {
  * a count it pays zero for, and coupling the trigger to "there happened to be a pay row" would make
  * the feature silently disappear the day that table changes.
  */
-const evaluateScatters = (reels, totalStake) => {
+const evaluateScatters = (reels, totalStake, table = SCATTER_PAY_TABLE) => {
 	const positions = scatterPositions(reels);
 	const count = positions.length;
-	const mult = SCATTER_PAY_TABLE[count];
+	const mult = table[count];
 	const win = mult
 		? {
 				what: 'SCAT',
@@ -910,6 +910,14 @@ export function createMockRgs(opts = {}) {
 	const EFFECTIVE_PAY_TABLE = Object.fromEntries(
 		LINE_POOL.map((symbol) => [symbol, payRowOf(evalOpts, symbol)]).filter(([, row]) => row),
 	);
+
+	/**
+	 * The project's AUTHORED scatter pays (× total stake), when `/config` states them — the scatter
+	 * symbol's own `paytable`. Paid AND declared, so the info page, the payouts and the wire agree.
+	 * Absent ⇒ the placeholder {@link SCATTER_PAY_TABLE}, paid but never declared, exactly as before.
+	 */
+	const authoredScatter = normalizeWildPaytable(opts.scatterPaytable);
+	const SCATTER_PAYS = Object.keys(authoredScatter).length ? authoredScatter : null;
 
 	// Stacked-picture test mode (docs/design/stacked-picture-mode.md): deal contiguous high-symbol
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
@@ -1424,9 +1432,11 @@ export function createMockRgs(opts = {}) {
 							}
 						: {}),
 					paytable: Object.fromEntries(
-						Object.entries(
-							wild ? { ...EFFECTIVE_PAY_TABLE, WILD: wild.paytable } : EFFECTIVE_PAY_TABLE,
-						).map(([sym, byCount]) => {
+						Object.entries({
+							...EFFECTIVE_PAY_TABLE,
+							...(wild ? { WILD: wild.paytable } : {}),
+							...(SCATTER_PAYS ? { SCAT: SCATTER_PAYS } : {}),
+						}).map(([sym, byCount]) => {
 							const counts = Object.keys(byCount)
 								.map(Number)
 								.sort((a, b) => a - b);
@@ -1568,7 +1578,11 @@ export function createMockRgs(opts = {}) {
 						// an evaluator directly would price every free spin per LINE, which is wrong for
 						// three of the four models and would break `finalWin ÷ 100 === payoutMultiplier`
 						// the moment a feature round paid (see `check:stake`).
-						const fsScat = evaluateScatters(fsReels, pendingRound.baseTotal);
+						const fsScat = evaluateScatters(
+							fsReels,
+							pendingRound.baseTotal,
+							SCATTER_PAYS ?? SCATTER_PAY_TABLE,
+						);
 						const fsWins = evaluatePayWins(fsReels, pendingRound);
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
@@ -1624,7 +1638,11 @@ export function createMockRgs(opts = {}) {
 					const reels = forceTrigger || (bought && scatterEnabled) ? forceScatters(dealt) : dealt;
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(reels, pendingRound);
-					const scat = evaluateScatters(reels, pendingRound.baseTotal);
+					const scat = evaluateScatters(
+						reels,
+						pendingRound.baseTotal,
+						SCATTER_PAYS ?? SCATTER_PAY_TABLE,
+					);
 					// Same boundary: the scatter TRIGGER pay is a payout like any other.
 					const scatterWin = scat.win ? roundPays([scat.win])[0] : null;
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;

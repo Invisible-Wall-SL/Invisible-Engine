@@ -131,6 +131,13 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 export interface UiInfoRule {
 	heading: string;
 	body: string;
+	/**
+	 * A figure printed after the heading: `value` already formatted and never translated, `unit` a
+	 * source string translated like the heading. Kept OUT of the copy, so a rule that gains a figure
+	 * keeps its translated heading and body, and no `{placeholder}` ever reaches the i18n resolver
+	 * (which compiles a message with no values by blanking them).
+	 */
+	figure?: { value: string; unit?: string };
 }
 
 /**
@@ -161,6 +168,27 @@ export const UI_INFO_RULES: UiInfoRule[] = [
 	},
 ];
 
+/** The RTP block — shown only where the operator allows it (`displayRTP`), its figure beside it. */
+export const UI_INFO_RTP_RULE: UiInfoRule = {
+	heading: 'RTP',
+	body: 'The theoretical return to player: the share of all stakes the game is designed to pay back over a very large number of rounds.',
+};
+
+/**
+ * The rules page with the game's figures: the MAX WIN block carries the cap (`5,000× BET`, from
+ * strings every game already translates), and the RTP block is added. Each figure is optional and
+ * already formatted — an absent one leaves the page as it was (`rtp` is absent whenever the operator
+ * has not allowed it).
+ */
+export function infoRulesWithFigures(figures: { rtp?: string; maxWin?: string }): UiInfoRule[] {
+	const rules = UI_INFO_RULES.map((rule) =>
+		rule.heading === 'MAX WIN' && figures.maxWin
+			? { ...rule, figure: { value: `${figures.maxWin}×`, unit: UI_TEXT.bet } }
+			: rule,
+	);
+	return figures.rtp ? [...rules, { ...UI_INFO_RTP_RULE, figure: { value: figures.rtp } }] : rules;
+}
+
 /**
  * Every coded UI string as a translatable row, deduped by catalog key (`SETTINGS` is both a menu
  * entry and the settings modal's title — one string, one translation; `PAYLINES` is both a menu
@@ -177,7 +205,7 @@ export function collectUiTextStrings(): UiTextString[] {
 	for (const [name, source] of Object.entries(UI_TEXT) as [UiTextKey, string][]) {
 		add(source, UI_TEXT_GROUP[name]);
 	}
-	for (const rule of UI_INFO_RULES) {
+	for (const rule of [...UI_INFO_RULES, UI_INFO_RTP_RULE]) {
 		add(rule.heading, 'Info page');
 		add(rule.body, 'Info page');
 	}

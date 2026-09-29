@@ -1,7 +1,9 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
-import { UI_INFO_RULES } from 'engine-layout';
+import { infoRulesWithFigures } from 'engine-layout';
+import { infoPageFigures } from 'game-config';
+import { stateConfig, stateI18n } from 'state-shared';
 
-import { getNumRows, getPaylines, paylineColor } from './gameConfig';
+import { getActiveGameConfig, getNumRows, getPaylines, paylineColor } from './gameConfig';
 import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
 import { SYMBOL_SIZE } from 'engine-game';
@@ -40,6 +42,18 @@ function buildSymbols(): Record<string, InfoSymbolIcon> {
 	return symbols;
 }
 
+/**
+ * The rules page with the game's own figures. The RTP appears only where the operator allows it:
+ * `jurisdiction.displayRTP`, which the Play4Fun facade sets from the embed page's
+ * `showTheoreticalPayback`.
+ */
+const rules = () =>
+	infoRulesWithFigures(
+		infoPageFigures(getActiveGameConfig(), stateConfig.jurisdiction.displayRTP, (n) =>
+			stateI18n.i18n.number(n),
+		),
+	);
+
 // Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this
 // module is imported at boot, long before the live runtime bundle's async fetch resolves, so a
 // plain value here would capture the compiled template's paytable, line count and paylines and the
@@ -69,8 +83,9 @@ export const infoManifest: InfoManifest = {
 	get symbols() {
 		return buildSymbols();
 	},
-	// The default rules copy lives in `engine-layout`'s shared UI-text registry so
-	// `/localization` can harvest it — these strings render through `translate()`, but while the
-	// literals lived here the launcher could not see them and the page stayed English.
-	rules: UI_INFO_RULES,
+	// The rules copy lives in `engine-layout`'s shared UI-text registry so `/localization` can
+	// harvest it — these strings render through `translate()`, with the figures filled in after.
+	get rules() {
+		return rules();
+	},
 };

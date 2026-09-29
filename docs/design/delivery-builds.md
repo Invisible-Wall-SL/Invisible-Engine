@@ -153,8 +153,8 @@ reference client rather than inferred — which settled two of these three and c
    `enableTurbo` / `allowAutoplay` / `allowOutcomeBuy` LOCK turbo, autoplay and every buy off for the
    launch — a lock the game's own authored settings cannot lift. `disabledBuyFeature` is no longer
    invented as `true` for a server with no bet table. Still open: `minNormalBet` / `maxNormalBet`
-   (their units are unconfirmed, so nothing clamps the ladder yet) and `showTheoreticalPayback`,
-   which arrives as `displayRTP` but has no RTP readout to switch on. Record:
+   (their units are unconfirmed, so nothing clamps the ladder yet). `showTheoreticalPayback`
+   arrives as `displayRTP` and, since 2026-09-29, shows the RTP on the info page rules. Record:
    [engine status](../status/engine.md), 2026-09-28.
 3. **Cascade vocabulary.** `tumbleStep`/`multiplierCollect` in the facade are OUR mock's invention,
    not a capture — and the reference client is the strongest evidence yet: it covers gamble, pickups,

@@ -1,6 +1,12 @@
 import { error, json } from '@sveltejs/kit';
+import type { GameConfigDoc } from 'game-config';
 import { getDeployToken } from '$lib/server/appSettings';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
+import {
+	paytableDriftDetails,
+	paytableDriftMessage,
+	withoutPartnerPaytable,
+} from '$lib/server/paytableDrift';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
@@ -17,6 +23,12 @@ import type { RequestHandler } from './$types';
  * default is what the TOOL opens with, so an author adopts it knowingly rather than having it
  * shipped behind their back the day a template changes.
  *
+ * The PAYTABLE GATE — the desktop half of the online publish's: a doc whose authored paytable
+ * disagrees with its captured partner paytable is refused with a 409
+ * `{ error, reason: 'paytable-drift', details }`, and `&allowPaytableDrift=1` is the explicit
+ * override (the bake's `--allow-paytable-drift`). Like the flow gate, the override is as restricted
+ * as the deploy token this route requires.
+ *
  * See `docs/design/invisible-game-config.md`.
  */
 export const GET: RequestHandler = async ({ url }) => {
@@ -27,10 +39,24 @@ export const GET: RequestHandler = async ({ url }) => {
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
+	let doc: GameConfigDoc | null;
 	try {
-		const doc = await loadGameConfigDoc(clientKey, projectKey);
-		return json({ clientKey, projectKey, doc });
+		doc = await loadGameConfigDoc(clientKey, projectKey);
 	} catch {
 		throw error(502, 'Failed to load the game-config document.');
 	}
+	const details = paytableDriftDetails(doc);
+	if (details.length) {
+		if (url.searchParams.get('allowPaytableDrift') !== '1') {
+			return json(
+				{ error: paytableDriftMessage(details), reason: 'paytable-drift', details },
+				{ status: 409 },
+			);
+		}
+		console.warn(
+			`[game-config/doc] ${projectKey}: served with ${details.length} paytable drift row(s) by ` +
+				`override: ${details.join(' | ')}`,
+		);
+	}
+	return json({ clientKey, projectKey, doc: doc && withoutPartnerPaytable(doc) });
 };

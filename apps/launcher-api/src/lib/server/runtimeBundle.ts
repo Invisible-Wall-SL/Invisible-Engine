@@ -66,6 +66,7 @@ import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
 import { exportRigFlipbooks } from './rigFlipbookExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
+import { withoutPartnerPaytable } from './paytableDrift';
 import { loadWinTextDoc } from './winTextStorage';
 import { bundleFromAssetKey } from './spine';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
@@ -501,7 +502,7 @@ async function assembleRuntimeBundle(
 		...(winText ? { winText } : {}),
 		// Invisible Game Config — omit when un-authored so the bundle stays byte-identical and the
 		// game keeps running its compiled `game/config.ts` (parity).
-		...(gameConfig ? { config: gameConfig } : {}),
+		...(gameConfig ? { config: withoutPartnerPaytable(gameConfig) } : {}),
 	};
 }
 

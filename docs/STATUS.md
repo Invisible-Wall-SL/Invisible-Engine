@@ -82,8 +82,8 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    licence says so) shipped 2026-09-28. Still unbuilt: a **package-for-delivery mode** on
    `publish-game-bundle.mjs`. The bet-mode enum this item used to name does not exist; see the
    design doc. Also open: about a dozen host settings the operator already declares and we still
-   answer ourselves — `minNormalBet`/`maxNormalBet` (units unconfirmed) and an RTP readout for
-   `showTheoreticalPayback` among them.
+   answer ourselves — `minNormalBet`/`maxNormalBet` (units unconfirmed) among them. The RTP readout
+   `showTheoreticalPayback` switches on shipped 2026-09-29 (info page rules, with the max win).
 4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
    refresh [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders
    (rule 9).

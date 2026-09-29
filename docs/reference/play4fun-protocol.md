@@ -202,6 +202,14 @@ paytable the game shows and logs one `[game-config] warning` per boot, row by ro
 not "fix": which side is wrong is a question for the math. Proven offline by
 `node scripts/verify-server-paytable.mts`.
 
+Since 2026-09-29 the same comparison also runs BEFORE shipping. A partner's `config` cannot be read
+server-side (the edge challenges it), so `/config` takes a browser capture of it pasted as text
+(`findCapturedConfig` finds the context in a response, an event or a sniffer dump), imports its rows
+for review, and keeps it as the project's partner reference. Publish and the delivery bake refuse a
+config whose shown paytable disagrees with that reference unless an admin overrides — see
+`docs/status/game-config.md`. The scatter row is authored now too (the scatter symbol's own
+paytable), so a partner scatter price is imported and compared like any line row.
+
 The wire shape is not one thing, and the field table above was written from one of them:
 
 - `{ line: [entry…], scatter: [entry…] }`, each entry `{ on: { occurs, of, mode }, pay }` — the live
