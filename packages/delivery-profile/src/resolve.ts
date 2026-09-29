@@ -187,3 +187,16 @@ export const loadDeliveryProfile = (): Promise<DeliveryProfile> => {
 /** The profile in force. Correct from the first tick for the baked half; reflects `config.json`
  *  only after {@link loadDeliveryProfile} has resolved. */
 export const getDeliveryProfile = (): DeliveryProfile => resolved;
+
+/** Which link of the resolution chain produced {@link getDeliveryProfile}. */
+export const getDeliveryProfileSource = (): DeliveryProfileSource => source;
+
+/**
+ * Whether this build may send error reports. A DELIVERY (a baked profile — `config.json` cannot
+ * change the answer, the field is bake-only) reports only if it opted in; every other build is
+ * one of ours — the shared online runtime, whichever profile `?rgs_profile=` selected, or dev —
+ * and reports whenever it carries a DSN. Synchronous and settled at module init, so it can gate
+ * reporting before anything else in the boot has run.
+ */
+export const deliveryAllowsErrorReporting = (): boolean =>
+	initial.source === 'baked' ? initial.profile.telemetry.errors : true;

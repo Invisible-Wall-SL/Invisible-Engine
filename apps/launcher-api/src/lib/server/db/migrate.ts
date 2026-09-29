@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { captureServerError } from '../errorTracking';
 
 /**
  * Locate the committed `drizzle/` migrations folder at runtime. adapter-node does
@@ -27,6 +28,34 @@ function resolveMigrationsFolder(): string | null {
 }
 
 let ran = false;
+
+/**
+ * What the boot-time migration run concluded, reported by `/api/health`. Health gates on the
+ * RECORDED schema ({@link latestJournalEntry} vs `__drizzle_migrations`), which a failed migration
+ * leaves behind — that is how a failed migration stops a deploy: with the Railway healthcheck on
+ * `/api/health`, the new container never passes its check, so Railway keeps the previous one
+ * serving instead of promoting a server whose schema-dependent routes 500. (Throwing from `init`
+ * would crash-loop instead — with no healthcheck configured, an outage.)
+ */
+export type MigrationState = 'pending' | 'ok' | 'skipped' | 'failed';
+
+let migrationState: MigrationState = 'pending';
+
+export const getMigrationState = (): MigrationState => migrationState;
+
+let journalCache: { latestWhen: number; latestTag: string } | null | undefined;
+
+/** The newest migration this build carries — what the live schema must have recorded. */
+export function latestJournalEntry(): { latestWhen: number; latestTag: string } | null {
+	if (journalCache !== undefined) return journalCache;
+	const folder = resolveMigrationsFolder();
+	if (!folder) return (journalCache = null);
+	const journal = JSON.parse(readFileSync(join(folder, 'meta', '_journal.json'), 'utf8')) as {
+		entries: { when: number; tag: string }[];
+	};
+	const latest = journal.entries.reduce((a, b) => (b.when > a.when ? b : a));
+	return (journalCache = { latestWhen: latest.when, latestTag: latest.tag });
+}
 
 /** Postgres "object already exists" SQLSTATEs — expected for every statement
  * whose object `db:push` already created. Everything else is a real error. */
@@ -122,9 +151,9 @@ async function reconcilePushProvisioned(
  * up to date BEFORE the first request — the "apply migrations before serving
  * schema-dependent code" rule (`docs/INFRA.md`), without a manual step.
  *
- * Fail-soft: a missing `DATABASE_URL` (local build/dev), an unlocatable folder,
- * or a migration error is logged and swallowed rather than crashing boot — a
- * throw here would refuse to start the whole server. The migrator is
+ * A missing `DATABASE_URL` (local build/dev), an unlocatable folder, or a
+ * migration error does not crash boot; it is recorded in {@link getMigrationState}
+ * so `/api/health` goes red and the deploy is held back. The migrator is
  * transactional + idempotent (tracked in `__drizzle_migrations`), so a re-run is
  * safe. A `db:push`-provisioned DB (empty journal + existing tables) is
  * reconciled first (see {@link reconcilePushProvisioned}) so it never replays
@@ -137,11 +166,14 @@ export async function runMigrations(): Promise<void> {
 	const url = process.env.DATABASE_URL;
 	if (!url) {
 		console.warn('[migrate] DATABASE_URL unset — skipping auto-migration');
+		migrationState = 'skipped';
 		return;
 	}
 	const migrationsFolder = resolveMigrationsFolder();
 	if (!migrationsFolder) {
 		console.error('[migrate] drizzle migrations folder not found — skipping auto-migration');
+		migrationState = 'failed';
+		captureServerError(new Error('drizzle migrations folder not found'), { area: 'migrate' });
 		return;
 	}
 
@@ -150,11 +182,11 @@ export async function runMigrations(): Promise<void> {
 		await reconcilePushProvisioned(sql, migrationsFolder);
 		await migrate(drizzle(sql), { migrationsFolder });
 		console.log(`[migrate] schema up to date (${migrationsFolder})`);
+		migrationState = 'ok';
 	} catch (err) {
-		console.error(
-			'[migrate] auto-migration FAILED — schema-dependent routes may 500 until resolved:',
-			err,
-		);
+		console.error('[migrate] auto-migration FAILED — /api/health is red until resolved:', err);
+		migrationState = 'failed';
+		captureServerError(err, { area: 'migrate' });
 	} finally {
 		await sql.end({ timeout: 5 });
 	}

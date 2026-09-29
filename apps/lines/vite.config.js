@@ -1,7 +1,7 @@
 // Don't convert this to a ts file, because of this https://github.com/vitejs/vite/issues/5370
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
-import baseConfig from 'config-vite';
+import baseConfig, { buildSha } from 'config-vite';
 import { defineConfig, mergeConfig } from 'vite';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
 			__IE_DEBUG__: JSON.stringify(mode !== 'production' || process.env.PUBLIC_IE_DEBUG === '1'),
 			__IE_BUILD__: JSON.stringify({
 				version: process.env.PUBLIC_BUILD_VERSION ?? '',
+				sha: buildSha(),
 				builtAt: process.env.PUBLIC_BUILD_TIME ?? new Date().toISOString(),
 				debug: mode !== 'production' || process.env.PUBLIC_IE_DEBUG === '1',
 			}),

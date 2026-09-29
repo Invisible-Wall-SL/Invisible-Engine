@@ -3,6 +3,7 @@ import { fromPromise } from 'xstate';
 import { API_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { stateBet, stateBetDerived, stateUrlDerived, stateModal } from 'state-shared';
 import { requestBet, requestEndRound } from 'rgs-requests';
+import { captureRgsFailure } from 'error-tracking';
 
 import type { BaseBet } from './types';
 
@@ -37,6 +38,7 @@ const handleRequestBet = async ({ onError }: { onError: () => void }) => {
 		}
 	} catch (error) {
 		onError();
+		captureRgsFailure('bet', error);
 		stateBet.autoSpinsCounter = 0;
 		stateModal.modal = { name: 'error', error };
 		console.error(error);
@@ -67,6 +69,7 @@ const handleRequestEndRound = async () => {
 		}
 	} catch (error) {
 		console.error(error);
+		captureRgsFailure('endRound', error);
 	}
 };
 

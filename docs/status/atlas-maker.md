@@ -265,10 +265,36 @@ Works today on `main` / live:
 11. ✅ ~~**A save made during a render's FX rebuild is still lost.**~~ — **DONE (2026-09-14).** The slow job no longer writes its own stale copy of the whole manifest; it re-applies only the fields it owns, onto a manifest re-read inside the lock. Same treatment for the two neighbouring cycles in `run_compose`. See "Recent changes".
 12. **A `grid` atlas is ONE page — multi-page is unbuilt.** `batch_atlas.py` has no page concept at all (a manifest carries a single `source_image`), so a grid whose cells do not hold every region **refuses** rather than spilling onto a second page. For the Flipbook ref export this caps a run at whatever fits — e.g. 64 frames at a 256px cell in a 2048² page. **Next, if it bites:** multi-page reaches compose, the page pointer, deploy and the launcher's consumption of the descriptor — it is not a layout-level change, which is why it was deliberately not folded into the grid work.
 
+13. **Model licences — owner decision.** Every built-in image default is non-commercial today
+    (RMBG-2.0 cutout, the gameIconInstitute LoRA, FLUX.1-dev). Options, costs and the recommendation
+    table: [model-licences](../reference/model-licences.md). Follow-ups once decided: the chosen
+    default switches (e.g. `rmbg_model` → BEN2, an optional SDXL LoRA slot) and a publish warning on
+    `blocked`/`unknown` provenance, like Sound's licence summary.
+
 ## Blocked (owner / external)
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
 
 ## Recent changes
+- 2026-09-29 — **Error reporting (Sentry), dormant until `SENTRY_DSN` is set on the Railway service.** `services/_shared/iw_common/errors.py`: request exceptions (the 500 handler + a `ReportingServerMixin` catching what stdlib `http.server` only prints), failed render/compose jobs and a dying video-session runner are captured with `method`/`path` tags; cookies/headers dropped, `?k=`/secret values scrubbed, frame locals off. Tests: `services/atlas-tool/test_error_tracking.py`. See docs/INFRA.md "Monitoring & error tracking".
+- 2026-09-29 — **Every render is stamped with the licences of the models that made it** (groundwork
+  only: no default model, no generation behaviour changed). Table: `services/atlas-tool/model_licences.json`
+  (write-up: [model-licences](../reference/model-licences.md)); reader: `model_provenance.py` (stdlib,
+  never raises). A model is recognised by a model-file extension, by a known enum field
+  (`RMBG.model`, `BiRefNetRMBG.model`, `IPAdapterUnifiedLoader.preset`, `OpenAIGPTImage1.model`), or
+  implicitly from the node class (PuLID → InsightFace `antelopev2`, EVA-CLIP, facexlib). Verdict =
+  worst of blocked > unknown > conditional > clear; an unmatched model is `unknown`.
+  - **Image renders:** `run_region` writes `batch/<variant stem>.provenance.json` beside each variant
+    (both transports, mirrored to R2) and logs `[provenance] <region>: commercial=… blocked_by=[…]`.
+    A render with no stamp deletes any sidecar left at a reused id.
+  - **Create Atlas** stamps `regions[].provenance` (the composed file's verdict + model ids) and a
+    top-level `provenance_summary` {commercial, blocked_by, regions_unknown, at}, re-applied inside
+    the manifest lock like the other compose pre-passes. Art rendered before today reads
+    `unknown` ("no provenance sidecar"). An FX layer inherits its base's stamp. An `.atlas`-bound
+    region with no manifest entry is counted in the summary but not given a stub entry.
+  - **Flipbook video:** each variation carries `provenance` in `meta.json`.
+  - **What it says today:** the built-in SDXL default is **blocked** (gameIconInstitute LoRA +
+    RMBG-2.0; Juggernaut is conditional); built-in FLUX is **blocked** (flux1-dev + ae); the shipped
+    Wan flipbook is **unknown** (BiRefNet_toonout). Guard: `test_model_provenance.py`.
 - 2026-09-22 — **Staging now reconciles DELETES, so this tool stops resurrecting sheets.** A sheet
   deleted in the Sheet Maker kept showing in our picker, and opening it wrote the dead manifest back
   into R2 minutes after a verified delete had removed it (`atlas_manifest_S_AutomationTest.json`,

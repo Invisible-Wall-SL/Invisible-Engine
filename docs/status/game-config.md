@@ -151,6 +151,9 @@ was reachable by typing a number into the Grid panel. This closes that.
 - **Dealer chain** — `/config` doc → `mockContract` → manifest → test-server → mock, each hop sending
   `rowsPerReel` only when the columns differ. The mock declares what it dealt
   (`config.window.rowsPerReel`) and the facade clamps PER COLUMN against that declaration.
+  The authored **bet modes** ride the same chain (`grid.betModes`, only when the project authors an
+  ante or a buy) and make the lines-family mock a `betOptions` table game, so a card is charged its
+  authored price. See `engine.md`, 2026-09-29.
   `ROWS=3,4,5,4,3` deals a diamond from the CLI.
 - **Editor** — `reelGridGeometry` seats each column at its own height/offset from the SAME
   `resolveGrid` output, so the preview cannot show a board the game will not draw.

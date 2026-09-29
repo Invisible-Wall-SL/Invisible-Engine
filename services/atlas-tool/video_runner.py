@@ -50,8 +50,9 @@ from pathlib import Path
 import batch_atlas
 import blueprints
 import cloud_paths as project_paths
+import model_provenance
 import storage
-from iw_common import lease
+from iw_common import errors, lease
 
 # WHICH CONTAINER THIS IS. A Railway rolling deploy overlaps the old container and
 # the new one, so "am I the owner of this session?" needs an answer that outlives a
@@ -910,6 +911,7 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                 _run_variations(session_id, session, ctx)
             except Exception as e:  # noqa: BLE001 — record it; never wedge the queue
                 print(f"[video] {session_id} runner died: {e}", flush=True)
+                errors.capture_error(e, job="video", video_session=session_id)
                 with _LOCK:
                     session["error"] = str(e)[:400]
                     dying = [v for v in session["variations"]
@@ -1203,6 +1205,19 @@ def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
             wf = build_video_workflow(
                 bp, recipe["prompt"], recipe["negative"], var["seed"],
                 recipe["source_ref"], recipe["params"], prefix)
+            # Licence provenance of the models this graph loads; persisted on
+            # the variation by the _write_meta below. Never fails a render.
+            try:
+                prov = model_provenance.provenance(wf, pipeline="video",
+                                                   blueprint=bp)
+                with _LOCK:
+                    var["provenance"] = prov
+                print(f"[provenance] {session_id} v{var['index']:03d}: "
+                      f"commercial={prov['commercial']} "
+                      f"blocked_by={prov['blocked_by']}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[provenance] {session_id} v{var['index']:03d}: "
+                      f"skipped ({e})", flush=True)
             job_id, wf, upload_keys = _submit(wf, prefix)
             with _LOCK:
                 var["job_id"] = job_id
@@ -1574,6 +1589,8 @@ def regenerate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> di
             seed = random.randrange(0, MAX_SEED)
 
         var.update(_new_variation(index, seed), prompt=var.get("prompt", ""))
+        # The old render's models are not the new one's — restamped at submit.
+        var.pop("provenance", None)
 
     # The old render is being REPLACED. Leaving it behind would serve a stale tile
     # for as long as the new job takes, under the same deterministic filename.

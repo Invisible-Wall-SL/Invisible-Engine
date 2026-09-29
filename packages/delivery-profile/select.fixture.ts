@@ -4,7 +4,7 @@
  *
  * The shared `_runtime/*` bundle is one artifact that has to reach several RGSs — our own test
  * server while developing, a partner's for real play — without a rebuild per target. So a build can
- * compile a REGISTRY of profiles and the launch URL picks one. FIVE claims:
+ * compile a REGISTRY of profiles and the launch URL picks one. SIX claims:
  *
  *  1. NOTHING SELECTED IS THE OLD BEHAVIOUR. No registry and no param ⇒ the built-in default (our
  *     RGS through `?rgs_url=`), silently. This is the parity gate for every game already live.
@@ -17,6 +17,8 @@
  *     launch never intended.
  *  5. A BAKED PROFILE CANNOT BE REPOINTED BY THE URL. A delivered build is pinned on purpose, so the
  *     param is refused and reported — otherwise the host page could move a wallet we fixed.
+ *  6. ONLY A BAKED PROFILE CAN SILENCE ERROR REPORTING. A delivery reports only if it opted in; a
+ *     profile merely SELECTED on the shared runtime is still our own build, and reports.
  */
 
 let failures = 0;
@@ -65,7 +67,11 @@ const run = async (scenario: Scenario) => {
 	try {
 		const mod = await import(`./src/resolve.ts?case=${caseId++}`);
 		await mod.loadDeliveryProfile();
-		return { profile: mod.getDeliveryProfile(), warnings };
+		return {
+			profile: mod.getDeliveryProfile(),
+			reportsErrors: mod.deliveryAllowsErrorReporting() as boolean,
+			warnings,
+		};
 	} finally {
 		console.warn = realWarn;
 		console.info = realInfo;
@@ -121,6 +127,33 @@ const main = async () => {
 		check('and the attempt is reported', r.warnings.some((w) => w.includes('pinned')), true); // prettier-ignore
 		const same = await run({ search: '?rgs_profile=2complex-bookof', baked: PARTNER });
 		check('asking for the one it already is passes quietly', same.warnings, []);
+	}
+
+	console.log('\n6. only a baked profile can silence error reporting');
+	{
+		const silent = { '2complex': { ...PARTNER, telemetry: { errors: false } } };
+		const optedIn = { ...PARTNER, telemetry: { errors: true } };
+		check('an internal build reports', (await run({ search: '' })).reportsErrors, true);
+		check(
+			'a SELECTED partner profile is still our runtime, and reports',
+			(await run({ search: '?rgs_profile=2complex', registry: REGISTRY })).reportsErrors,
+			true,
+		);
+		check(
+			'...even one that says it would not',
+			(await run({ search: '?rgs_profile=2complex', registry: silent })).reportsErrors,
+			true,
+		);
+		check(
+			'a delivery that says nothing does not',
+			(await run({ search: '', baked: PARTNER })).reportsErrors,
+			false,
+		);
+		check(
+			'a delivery that opted in does',
+			(await run({ search: '', baked: optedIn })).reportsErrors,
+			true,
+		);
 	}
 
 	console.log(

@@ -18,6 +18,7 @@
 		"utils-shared": "workspace:*",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*",
-		"rgs-requests": "workspace:*"
+		"rgs-requests": "workspace:*",
+		"error-tracking": "workspace:*"
 	}
 }

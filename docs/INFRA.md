@@ -80,7 +80,7 @@ Each list is exactly what that service's Dockerfile `COPY`s, so **a new build in
 >
 > Because it watches no paths, **the launcher rebuilds on every push** — including the engine pushes that trigger a runtime release, and it is the slower of the two. On `13571da2` the release went green at **12:48:47Z** and the launcher only answered at **12:50:31Z**: a 104s window in which `/api/editor/runtime` answers 502 or refuses the connection. An online game booted in that window used to fall straight through to the engine's sample game — no project art, no project config — which is where "my runtime release wiped the game" comes from (see [engine status, 2026-09-18](status/engine.md)). The game now retries for ~75s and says so on screen when it still can't get through, but **the window itself is still open**.
 >
-> **The fix is a Railway healthcheck on the launcher service** (Settings → Deploy → Health Check Path): [`/api/health`](../apps/launcher-api/src/routes/api/health/+server.ts) already exists and answers `{ok:true}` with no DB or R2 dependency, so Railway can hold the old container until the new one is ready. NOT SET as of 2026-09-18 — verify in the dashboard before assuming the window is closed.
+> **The fix is a Railway healthcheck on the launcher service** (Settings → Deploy → Health Check Path `/api/health`, timeout 300s), so Railway holds the old container until the new one is ready. Since 2026-09-29 [`/api/health`](../apps/launcher-api/src/routes/api/health/+server.ts) is a **readiness** check: 200 only when Postgres answers AND its recorded migrations reach the newest one the build carries — so the same setting also keeps a build whose migration failed from ever going live (see "Monitoring & error tracking" below). NOT SET as of 2026-09-29 — verify in the dashboard before assuming the window is closed.
 
 Until then every push to `main` rebuilt all five — a docs-only or engine-only commit still rebuilt `atlas-backend`, and for `atlas-tool` that meant killing whatever it was rendering (see the box below). That is what makes builder flakes visible here: on 2026-08-20 `atlas-backend` failed the build of `67799605` (an engine-only commit touching nothing in its image) with **no build logs at all** and Railway's own "Diagnosis failed for this deployment" — while `atlas-tool` built the same commit from the same repo-root context minutes later. **A failed build with an empty build log is Railway's builder, not our Dockerfile** (a bad `COPY`/`RUN` always prints); the fix is deployment ⋮ → **Redeploy**, and the last good deploy stays live meanwhile. The **Skipped Builds** feature flag would cut the remaining pointless rebuilds (the launcher's).
 
@@ -147,7 +147,7 @@ There were briefly **two environments** (`production` + a stray `atlas`), each w
 
 ### Auto-migrate on boot (2026-06-13)
 
-The launcher now applies pending Drizzle migrations **itself**, at server startup, before serving any request — via the SvelteKit `init` server hook (`src/hooks.server.ts` → `runMigrations()` in `src/lib/server/db/migrate.ts`, the `drizzle-orm/postgres-js` programmatic migrator pointed at the committed `drizzle/` folder). So pushing a schema migration + its schema-dependent code in ONE deploy is now safe — the new code's first boot brings the prod schema up to date itself; **no manual `db:migrate` step**. Properties: fail-soft (a missing `DATABASE_URL`, unlocatable folder, or migration error is logged + swallowed, never crashes boot — falls back to today's "500 until resolved"); idempotent + transactional (tracked in `__drizzle_migrations`). Manual `db:push` still works for out-of-band use. (Always-confirm-the-env lesson above still holds: the migrator targets whatever `DATABASE_URL` the service runs with.)
+The launcher now applies pending Drizzle migrations **itself**, at server startup, before serving any request — via the SvelteKit `init` server hook (`src/hooks.server.ts` → `runMigrations()` in `src/lib/server/db/migrate.ts`, the `drizzle-orm/postgres-js` programmatic migrator pointed at the committed `drizzle/` folder). So pushing a schema migration + its schema-dependent code in ONE deploy is now safe — the new code's first boot brings the prod schema up to date itself; **no manual `db:migrate` step**. Properties: never crashes boot (a missing `DATABASE_URL`, unlocatable folder, or migration error is logged, reported to Sentry, and turns `/api/health` red — 503 — so with the Railway healthcheck set the failed build is never promoted and the previous container keeps serving; a crash-loop would instead be an outage whenever no healthcheck is set); idempotent + transactional (tracked in `__drizzle_migrations`). Manual `db:push` still works for out-of-band use. (Always-confirm-the-env lesson above still holds: the migrator targets whatever `DATABASE_URL` the service runs with.)
 
 > ⚠️ **The migrator compares by `created_at` THRESHOLD, not per-hash** (verified in `drizzle-orm` `pg-core/dialect.js` `migrate()`): it reads the newest `created_at` in `drizzle.__drizzle_migrations` and applies every journal entry whose `when` (folderMillis) is greater. So an **empty** migrations table makes it replay from `0000`. **This bit us on 2026-06-13:** prod's schema was originally created with `db:push` (which writes the tables but records NOTHING in `__drizzle_migrations`), so the first auto-migrate boot tried to replay `0000` → `relation "sessions" already exists` → aborted → `0010` (the `game_type` column) never applied → every authed route 500'd. **`db:migrate` would NOT have fixed it** — it replays from the same empty journal. The real fix is to **baseline** an already-provisioned DB: apply the pending migration's effect, then insert ONE row with `created_at` = the latest applied migration's `when`. We ran (2026-06-13): `ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "game_type" text;` + `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) SELECT 'baseline-0010', 1781337176046 WHERE NOT EXISTS (…)`. Prod is now baselined through `0010`, so future migrations apply cleanly on deploy.
 >
@@ -362,7 +362,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 ## Environment variables (names only)
 
-**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER` + `XFF_DEPTH` (have code defaults), `CF_API_TOKEN`, `CF_ZONE_ID`, `GAMES_BASE_URL` (has code default), `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (has code default), `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (has code default), `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` (all optional, Admin → Costs). `PARTNER_RGS` (optional, partner launches).
+**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER` + `XFF_DEPTH` (have code defaults), `CF_API_TOKEN`, `CF_ZONE_ID`, `GAMES_BASE_URL` (has code default), `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (has code default), `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (has code default), `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` (all optional, Admin → Costs). `PARTNER_RGS` (optional, partner launches). `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (optional, error reporting — server / browser), `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`, `PUBLIC_SENTRY_SAMPLE_RATE` (optional, see "Monitoring & error tracking").
 
 > **Admin → Costs (running-cost dashboard):** `/admin` → **Costs** reads each paid provider's own API and shows balance / spend / breakdown per provider. Every credential is **optional and read-only**; an unset provider renders a "not configured" card naming the vars it wants, so the page is useful with none of them set. Set on the **launcher-api** service → **Apply changes / Deploy**.
 >
@@ -404,7 +404,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
-**atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SECRET` (optional), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table).
+**atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SECRET` (optional), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table). **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`).
 
 > **The blueprint importers and the live settings refresh read node CONTRACTS the same way** (Flipbook video mode + the Atlas Maker's 🎛 Blueprint settings, via `POST /video/nodespecs` → `comfy_specs`): a node's full `/object_info` declaration — an input's min/max/step, a COMBO's option list — not only the model lists above, and **for the target the render will run on**: the Atlas Maker follows ⚙ _Run generation on_; a video render always runs on the service default (`COMFY_TRANSPORT`), so the Flipbook reads the pod's contracts in production. Same source rules as ⟳ (`comfy_catalog._probe_sources`): _RunPod_ = a pinned `COMFY_CATALOG_URL` or a discovered running pod, never `COMFY_URL`; _My computer_ = `COMFY_URL` only. Nothing answering is normal: the importer says so in the modal and types the setting from the baked value (no range, no list), the panels keep the list the blueprint was published with, and in between sits the target's catalog — **⟳ Refresh model lists also caches every published blueprint's select lists** for its target, so a blueprint's dropdown shows the last-seen pod list while no pod is running.
 
@@ -499,6 +499,93 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > session the previous container was mid-render on. A doc older than this has no collectable
 > job left (RunPod dropped it long ago), so re-attaching to one could only fail slowly, once
 > per container start.
+
+## Monitoring & error tracking (2026-09-29)
+
+Three layers, each answering a different question: **is it up** (external uptime monitor → health
+endpoints), **is it broken for someone** (Sentry → errors from players, artists and the tools), and
+**did the engine ship** (runtime-release failures → a GitHub issue).
+
+### Error tracking — Sentry (free Developer plan)
+
+**Why Sentry and not a self-built beacon.** A beacon is ~30 lines to send and months to make useful:
+it would need an ingest endpoint, storage, grouping of the same error across players, stack traces
+readable through minification, per-release filtering, alert rules, and a Python client — Sentry
+ships all of that for the three runtimes we have (browser, Node, Python) and its free plan (5k
+errors/month, 1 seat, 30-day retention) covers our volume; `sampleRate` is the lever if it doesn't.
+The costs we accept: the 1-seat limit (Team plan if more people need to triage), and ~97 KB minified
+added to the game bundle **only in a build that has a DSN** (the game is a single inlined file, so
+the SDK cannot be a lazy chunk there; the launcher lazy-loads it). **Create the org in the EU region**
+(`de.sentry.io`) — player-side errors from EU players should stay in the EU.
+
+**Everything is a no-op without a DSN** — no SDK loaded, nothing sent — so every env var below is
+optional and unset means today's behaviour. DSNs live in env/secrets only (the repo is PUBLIC).
+
+| Surface | Where the code is | DSN var (where set) | What is captured |
+| --- | --- | --- | --- |
+| **Game runtime** (online `_runtime/lines` bundle + delivery builds) | `packages/error-tracking` (shared browser reporter, scrubber), `apps/lines/src/game/errorTracking.ts` | `PUBLIC_SENTRY_DSN` — **GitHub Actions secret**, baked by `runtime-release.yml` at build time; `PUBLIC_SENTRY_SAMPLE_RATE` = Actions **variable** (default 1) | uncaught errors + unhandled rejections; RGS failures (`area: rgs`, `action` authenticate/bet/endRound, `status` = the statusCode e.g. `ERR_HTTP_502`, grouped by action+status); runtime boot failure (`area: boot`). Tags: `runtime` (= release, the `_runtime/lines@<sha12>` prefix), `game` (on `?runtime=1` boots), `project`, `profile`, `profile_source`. |
+| **Launcher** server | `apps/launcher-api/src/lib/server/errorTracking.ts`, `hooks.server.ts` `handleError` + `init` | `SENTRY_DSN` (Railway, launcher) | every unexpected server error (not `error(4xx)`), tagged `route`/`method`/`status`; a failed boot migration (`area: migrate`). Release = `RAILWAY_GIT_COMMIT_SHA`. |
+| **Launcher** browser | `apps/launcher-api/src/hooks.client.ts` | `PUBLIC_SENTRY_DSN` (Railway, launcher — read at runtime, no rebuild) | uncaught errors + load/navigation errors on launcher pages. |
+| **atlas-tool / sheet-tool** | `services/_shared/iw_common/errors.py` | `SENTRY_DSN` (Railway, each service) | request exceptions (the 500 handlers + whatever stdlib `http.server` would only print), failed render/compose jobs, a video session's runner dying. Tag `service`. |
+
+Suggested Sentry layout: one project per surface kind — **game-runtime** (Browser JS), **launcher**
+(Node; its browser half can share the DSN — events carry `service: launcher | launcher-client`),
+**pipeline-tools** (Python; `service: atlas-tool | sheet-tool`). Alert rule on each: *a new issue
+is created → email*.
+
+**Privacy (the part not to regress).** The player's session id IS a wallet credential (`?sid=`,
+`?sessionID=`), and the tools' gate secret travels as `?k=` / a cookie. So: Sentry 11's
+`dataCollection` defaults (user, cookies, headers, bodies, query strings, local variables — ALL on
+by default in v11) are switched off (`PRIVATE_DATA_COLLECTION`), and a `beforeSend`/`beforeBreadcrumb`
+scrubber blanks sensitive parameters by NAME in every URL, message, breadcrumb and extra
+(`packages/error-tracking/src/scrub.ts`; Python twin in `iw_common/errors.py`, which also blanks the
+literal values of secret env vars). No release-health session beacon is sent from the browser.
+RGS failures attach only the status code and a ≤200-char reason, never the response or session.
+Fixtures: `pnpm --filter error-tracking check:scrub`, `services/atlas-tool/test_error_tracking.py`.
+
+**Delivery builds (partner-hosted) are OFF by default**, even when built with the DSN: a baked
+delivery profile must opt in with `"telemetry": { "errors": true }` (bake-only; `config.json` cannot
+flip it). Only opt a partner in once they have agreed. See `docs/design/delivery-builds.md`.
+
+**Not done yet:** source-map upload (stack traces from the game bundle are minified — needs a Sentry
+auth token in CI), and the Play4Fun authenticate that gets a bodiless non-2xx still reads as
+success in the facade, so it is not reported (changing it changes boot behaviour).
+
+### Health endpoints
+
+| Endpoint | Green means | Notes |
+| --- | --- | --- |
+| `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
+| `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}` | the test server / online games host. |
+| `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 | **being added by a separate change** as gate-exempt paths (today every path is 403 without the secret). Until that lands, monitor these with "expect 403" — it still proves the process is up. |
+
+### Uptime — Better Stack Uptime (free plan)
+
+Recommended over UptimeRobot, whose free plan is for non-commercial use: Better Stack's free tier
+gives 10 monitors at a 3-minute interval with email alerts and a keyword check, which is all four
+endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Create monitor), one per row:
+
+| Monitor | URL | Alert when | Keyword | Interval / timeout | Confirmation |
+| --- | --- | --- | --- | --- | --- |
+| Launcher | `https://app.invisiblewall.org/api/health` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 failed checks (a deploy swap is ~1–2 min) |
+| Games host | `https://games.invisiblewall.org/healthz` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 |
+| Atlas tool | `https://atlas-tool-production.up.railway.app/healthz` | URL becomes unavailable (expect 200; **403** until `/healthz` lands) | — | 3 min / 15 s | 2 |
+| Sheet tool | `https://sheet-tool-production.up.railway.app/healthz` | same | — | 3 min / 15 s | 2 |
+
+Regions: pick Europe **plus one outside Spain** — during LaLiga matches Cloudflare ranges are
+null-routed from Spanish ISPs and a Spain-only prober would page for an outage that isn't ours.
+Escalation: email the owner (add the Better Stack mobile app for push if wanted).
+
+### Runtime-release failures → a GitHub issue
+
+`runtime-release.yml` goes red on any failed gate, build, upload or live verification (#831). A red
+run on its own only emails the person who triggered it, and only if their personal Actions
+notification setting allows it — so a merge by someone else, or a muted setting, means nobody sees
+that every online game is still on the previous engine. The workflow's last step therefore
+**opens an issue "Runtime release failed: lines"** (or comments on the open one) with the run link;
+issues notify everyone watching the repo. Close it once a release is green. Owner settings that make
+this reach you: **Watch** the repo (at least Custom → Issues), and in
+github.com/settings/notifications → **Actions** keep "Only notify for failed workflows" + email on.
 
 ## DNS (Cloudflare)
 

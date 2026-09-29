@@ -231,11 +231,16 @@ _"Players get the version published Sep 29 by …"_ — and adds **Scenes edited
 publish to ship them** when the scene layout has been saved after that version.
 
 When the game has more than one retained version, **Published versions (n)** opens
-the list: date, who published it, a red **flow errors** tag on one an admin
-published past the flow check, and **live** on the one players get. **Make live**
+the list: date, who published it, **engine <commit>** (the engine release that was
+live when it was published), a red **flow errors** tag on one an admin published
+past the flow check, and **live** on the one players get. **Make live**
 on any other version switches players back to it after a confirmation. Nothing is
 rebuilt — it takes effect on each player's next load, and you can switch forward
-again the same way. Publishing always creates a new version and makes it live.
+again the same way. Making a version live changes the game's DATA only: the game
+stays on the engine that is live now, and the confirmation names the engine the
+version was published on. Taking the engine back is a separate step — the
+**Runtime rollback** workflow (see [games-deploy](../design/games-deploy.md)).
+Publishing always creates a new version and makes it live.
 Five versions are kept: the newest ones, except that the live one is always among
 them even when you have rolled back further than that. A version tagged **flow
 errors** can be made live again only by an admin — the same rule as publishing
@@ -351,7 +356,7 @@ graduate later; its R2 authoring data carries over.
   default-ON for `admin` only. Granting it to `developer` / `pipelineTester` is an
   explicit act in `/admin → Roles`; until then their Publish button returns 403.
 - **Mock RGS only.** Published games spin against the faithful-but-fake mock RGS
-  on the Invisible Test Server (shared `sessionID=demo`, fake balance, resets on
+  on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
 - **Runtime-mode localization is a known deferred gap** — i18n initialises at

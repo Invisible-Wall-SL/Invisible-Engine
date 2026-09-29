@@ -49,6 +49,7 @@ import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> ani
 import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
 import video_to_refs  # noqa: E402  (Flipbook video -> Atlas Maker reference images)
 import model_mirror  # noqa: E402  (R2 model mirror — where a declared model file lives)
+import model_provenance  # noqa: E402  (licence provenance of the models a render used)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
@@ -57,6 +58,7 @@ import shared_taxonomy  # noqa: E402  (the one semantic taxonomy every render in
 from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
+from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -2820,6 +2822,7 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
                 with _render_lock:
                     _render_state["log"] += f"\n[post-render step skipped] {e}\n"
     except Exception as e:  # noqa: BLE001
+        errors.capture_error(e, job="render")
         with _render_lock:
             _render_state["log"] += f"\n[ERROR] {e}\n"
     finally:
@@ -4122,6 +4125,132 @@ def _blank_compose_report(m: dict, layout_note: str | None,
     return "\n".join(p for p in (pre_note, head, reason) if p) + "\n"
 
 
+_NO_SIDECAR = {"commercial": "unknown",
+               "reason": "no provenance sidecar (generated before 2026-09-29)"}
+
+
+def _read_provenance_sidecar(variant: Path | None) -> dict | None:
+    """The `<stem>.provenance.json` batch_atlas wrote beside a variant, or None.
+
+    Local only: compose has just hydrated `batch/` (ensure_lazy pulls every
+    object under it, sidecars included), so a per-region R2 GET here would
+    only re-ask for what that pull already declined to find — N round trips
+    on every Create Atlas for pre-provenance art."""
+    if variant is None:
+        return None
+    try:
+        side = variant.parent / model_provenance.sidecar_name(variant.name)
+        data = json.loads(side.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _manifest_stamp(sidecar: dict, file_name: str) -> dict:
+    """The region-level copy of a sidecar. The per-model licence text/url stay
+    in the sidecar (and model_licences.json, by `licence_id`) — a manifest is
+    read on every page load, so it carries the verdict, not the paperwork."""
+    out = {k: sidecar.get(k) for k in (
+        "commercial", "blocked_by", "unknown", "pipeline", "blueprint",
+        "licences_checked", "generated_at") if k in sidecar}
+    out["models"] = [
+        {k: m.get(k) for k in ("value", "licence_id", "commercial", "implicit")
+         if k in m}
+        for m in (sidecar.get("models") or []) if isinstance(m, dict)]
+    out["file"] = file_name
+    return out
+
+
+def region_provenance(region: dict, by_name: dict) -> dict | None:
+    """Provenance of the image Create Atlas composes for `region`, or None when
+    it composes nothing. Resolved exactly as compose resolves the file
+    (override image, else batch_atlas._pick_variant_png)."""
+    if batch_atlas.override_image_path(region) is not None:
+        # An FX layer's override is derived locally from its base's pixels, so
+        # it inherits the base's models. Anything else there is an upload.
+        base_name = batch_atlas.layer_base_name(region)
+        base = by_name.get(base_name) if base_name else None
+        if (region.get("mode") in shine.FX_PRESETS and base is not None
+                and batch_atlas.override_image_path(base) is None):
+            src = batch_atlas._pick_variant_png(BATCH_DIR, base)
+            side = _read_provenance_sidecar(src)
+            if side is not None:
+                return {**_manifest_stamp(side, src.name),
+                        "derived_from": base_name}
+        return {"commercial": "unknown",
+                "reason": "user-supplied or FX image (output_override) — no "
+                          "generation record"}
+    src = batch_atlas._pick_variant_png(BATCH_DIR, region)
+    if src is None:
+        return None
+    side = _read_provenance_sidecar(src)
+    if side is None:
+        return {**_NO_SIDECAR, "file": src.name}
+    return _manifest_stamp(side, src.name)
+
+
+def stamp_compose_provenance(mp: Path) -> str | None:
+    """Stamp `provenance` on every region Create Atlas is about to compose and
+    `provenance_summary` on the manifest. Returns a one-line summary.
+
+    Same shape as the other compose pre-passes: the stamps are worked out from
+    a snapshot OUTSIDE the lock (they read files), then re-applied — only these
+    two fields — onto a manifest re-read INSIDE it, so a save that landed in
+    between is not undone. A region compose will skip (no art, or no rect on a
+    from-scratch page) loses any stale stamp. No write when nothing changed
+    but the timestamp."""
+    with _manifest_lock:
+        snap = _read_manifest_at(mp) or {}
+    regions = all_regions(snap)
+    by_name = {r.get("name"): r for r in regions if r.get("name")}
+    derived = batch_atlas.is_from_scratch(snap)
+    stamps: dict[str, dict] = {}
+    for r in regions:
+        nm = r.get("name")
+        if not nm:
+            continue
+        if derived and not all(r.get(k) is not None for k in _PLACED_RECT_KEYS):
+            continue
+        try:
+            st = region_provenance(r, by_name)
+        except Exception as e:  # noqa: BLE001 — one odd region must not stop the rest
+            st = {"commercial": "unknown", "reason": f"provenance read failed: {e}"}
+        if st is not None:
+            stamps[nm] = st
+    summary = model_provenance.summarise(stamps.values())
+    with _manifest_lock:
+        m = _read_manifest_at(mp)
+        if not isinstance(m, dict):
+            return None
+        changed = False
+        for bucket in ("regions", "rotated_regions"):
+            for r in m.get(bucket) or []:
+                if not isinstance(r, dict) or not r.get("name"):
+                    continue
+                nm = r["name"]
+                want = stamps.get(nm)
+                if want is None:
+                    if "provenance" in r:
+                        r.pop("provenance")
+                        changed = True
+                elif r.get("provenance") != want:
+                    r["provenance"] = want
+                    changed = True
+        # An `.atlas`-bound region with no manifest entry gets no stamp of its
+        # own (creating an entry just for bookkeeping is not this pass's call);
+        # it still counts in the summary below.
+        prev = m.get("provenance_summary") or {}
+        if {k: v for k, v in prev.items() if k != "at"} != \
+                {k: v for k, v in summary.items() if k != "at"}:
+            m["provenance_summary"] = summary
+            changed = True
+        if changed:
+            _write_manifest_at(mp, m)
+    blocked = summary["blocked_by"]
+    return (f"[provenance] {mp.name}: commercial={summary['commercial']} "
+            f"blocked_by={blocked} regions_unknown={summary['regions_unknown']}")
+
+
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # See run_render: re-apply the request thread's context on this worker.
     if ctx:
@@ -4253,6 +4382,14 @@ def _run_compose_pinned(mp: Path) -> None:
         return
     if layout_note:
         pre_note = f"{pre_note}\n{layout_note}" if pre_note else layout_note
+    # Licence provenance of what is about to be composed. Bookkeeping: logged,
+    # never shown as a failure, never allowed to stop the compose.
+    try:
+        prov_line = stamp_compose_provenance(mp)
+        if prov_line:
+            print(prov_line, flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[provenance] compose stamp skipped: {e}", flush=True)
     # Pass the manifest explicitly (full staging path) so compose reads the same
     # creative manifest the steps above just prepared — not whatever the
     # subprocess's config default would resolve against the script dir, and not
@@ -8152,6 +8289,7 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except Exception as e:  # noqa: BLE001 — a silent drop is worse
             traceback.print_exc()
+            errors.capture_request_error(self, e)
             if self._responded:
                 return  # headers already on the wire; a second reply is garbage
             try:
@@ -10092,7 +10230,7 @@ class Handler(BaseHTTPRequestHandler):
     # not done yet. Everything else — prompts, refs, blueprint + params, and
     # the RECT — is the setup being duplicated, so it comes across as-is.
     _DUPLICATE_DROP = {"variant", "variant_at", "seed", "lock",
-                       "output_override"}
+                       "output_override", "provenance"}
 
     def _duplicateatlas(self, payload: dict) -> str:
         """Copy the ACTIVE atlas — regions, refs, layout and every setting —
@@ -10174,7 +10312,8 @@ class Handler(BaseHTTPRequestHandler):
             out.append(c)
         new = {k: copy.deepcopy(v) for k, v in src.items()
                if k not in ("regions", "rotated_regions",
-                            "deploy_path", "deploy_basename")}
+                            "deploy_path", "deploy_basename",
+                            "provenance_summary")}
         new["regions"] = out
         # The composed page is named from the manifest stem, so it is already
         # distinct — but a copied deploy target is NOT: `deploy_path` +
@@ -11280,7 +11419,8 @@ class Handler(BaseHTTPRequestHandler):
     # pasting it would silently re-parent the destination).
     _COPY_BLOCK = {"name", "x", "y", "w", "h", "rotated", "bounds", "offsets",
                    "rotate", "output_override", "variant", "variant_at",
-                   "fruit", "role", "style_ref", "seed", "lock", "layer_of"}
+                   "fruit", "role", "style_ref", "seed", "lock", "layer_of",
+                   "provenance"}
 
     def _copyfrom(self, payload: dict) -> str:
         """Copy tuning settings (prompt, negatives, replace flags, every
@@ -11667,7 +11807,7 @@ class Handler(BaseHTTPRequestHandler):
         return "Settings saved (per-atlas overrides + globals)"
 
 
-class _Server(ThreadingHTTPServer):
+class _Server(errors.ReportingServerMixin, ThreadingHTTPServer):
     # A page with N regions asks for ~2N images in one burst. The stdlib
     # backlog of 5 lets the OS refuse everything past the fifth pending
     # connection, and a refused connection is exactly the broken tile the user
@@ -11679,6 +11819,7 @@ def main():
     from iw_banner import print_banner
     print_banner("Atlas Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
+    errors.init_error_tracking("atlas-tool")
     # RunPod on-demand: auto-stop the pod after idle (no-op unless configured).
     runpod_control.start_idle_watchdog(
         is_rendering=lambda: bool(_render_state.get("running")))

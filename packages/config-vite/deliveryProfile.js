@@ -21,9 +21,10 @@
  *  The two checks are separate on purpose — this one fails the build, that one degrades at runtime
  *  — but the FIELD LIST is one fact, and `profile.fixture.ts` asserts they agree. */
 export const KNOWN_PROFILE_FIELDS = {
-	'': ['id', 'rgs', 'session'],
+	'': ['id', 'rgs', 'session', 'telemetry'],
 	rgs: ['source', 'baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
 	session: ['param', 'source', 'required'],
+	telemetry: ['errors'],
 };
 
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -76,6 +77,7 @@ export const deliveryProfileProblems = (profile) => {
 		['rgs', 'simpleRequest'],
 		['rgs', 'allowUrlOverride'],
 		['session', 'required'],
+		['telemetry', 'errors'],
 	]) {
 		const value = isObject(profile[section]) ? profile[section][key] : undefined;
 		if (value !== undefined && typeof value !== 'boolean') {

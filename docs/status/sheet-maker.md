@@ -52,6 +52,7 @@ Works today on `main` / live:
 - None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
 
 ## Recent changes
+- 2026-09-29 — **Error reporting (Sentry), dormant until `SENTRY_DSN` is set on the Railway service.** `services/_shared/iw_common/errors.py`: request exceptions (the 500 handler + a `ReportingServerMixin` catching what stdlib `http.server` only prints) are captured with `method`/`path` tags; cookies/headers dropped, `?k=`/secret values scrubbed, frame locals off. Tests: `services/atlas-tool/test_error_tracking.py`. See docs/INFRA.md "Monitoring & error tracking".
 - 2026-09-22 — **A deleted sheet stayed openable in the Atlas Maker — and came BACK.** Reported as
   "I deleted a locked sheet, it left the list, but I can still open its manifest in the Atlas Maker".
   Probing R2 directly settled what was actually true, and it was not what either half of the report

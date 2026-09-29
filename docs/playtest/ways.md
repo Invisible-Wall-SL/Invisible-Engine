@@ -66,6 +66,10 @@ this table.
    - `REELS=5 ROWS=3` — the dealt grid. `ROWS=3,4,4,4,4` deals a **stepped** board (that is the
      shape the live `test6` client draws). Leave both unset for `apps/lines`' own 5×3.
    - `FORCE_TRIGGER=1` — every base play enters the free-spin feature.
+   - `BUY=1` — deal a **table** game selling the default template's BONUS (100×), the way the test
+     server does for a project that authors a buy: the config declares `betOptions`, the card's buy
+     sends `bet [1, M]`, is debited the card's price and enters the feature. Without it the mock is a
+     line-config game and has nothing to sell.
    - `SEED=<anything>` — repeatable deals. Round **ids** are not seeded; everything else is.
    - `MIN_CLUSTER` / `ADJACENCY` / `MIN_COUNT` / `MULTIPLIER` exist for the other models and do
      nothing here.
@@ -240,7 +244,9 @@ fixture needs no browser at all: `node packages/utils-slots/anticipationWaysReac
 - **Do:** run the Route A launch sequence; wait for idle.
 - **Expect:** `[mock] win model: ways` in the mock banner; auth POST to `localhost:7788/rgs/engine`
   200; **Balance $5,000.00**; the `config` event carries **`paylines: []`**; no `error` console
-  lines (a `/favicon.ico` 404 and a `<svelte:self>` deprecation warning are benign).
+  lines (a `/favicon.ico` 404 and a `<svelte:self>` deprecation warning are benign). With `BUY=1`
+  the auth heartbeat carries NO config — a table game sends it only when asked — so look for it on
+  the second POST, `[{"action":"config"}]`, which also carries `betOptions`.
 
 ### S2 — A ways win pays, and pays by WAYS
 - **Do:** `gameActor.send({ type: 'BET' })` until a spin returns at least one `spinWin`; capture the

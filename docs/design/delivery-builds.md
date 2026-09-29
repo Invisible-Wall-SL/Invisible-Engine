@@ -94,6 +94,16 @@ keys, wrong types, and the two fields a delivery cannot work without) and throws
 opposite posture from the runtime merge, deliberately: nothing is running yet, and a profile that
 merged down to internal defaults would ship a delivery pointing at no RGS at all.
 
+**Error reporting is OFF in a delivery unless its profile opts in (`telemetry.errors`, 2026-09-29).**
+A delivered build runs on a partner's page, in front of their players, under their privacy terms —
+so it sends nothing to our Sentry by default, even when built with `PUBLIC_SENTRY_DSN` set. Set
+`"telemetry": { "errors": true }` in the profile only once the partner has agreed. **Bake-only**:
+`config.json` can neither switch it on nor off. What an opted-in build sends is errors only
+(no sessions/release-health beacon), with the session token scrubbed and no user, cookies, headers
+or bodies — see "Monitoring & error tracking" in `docs/INFRA.md`. The shared online runtime
+(`games.invisiblewall.org`) is ours and reports whenever the DSN is set, including under
+`?rgs_profile=`, because selecting a profile there bakes nothing.
+
 ## Phase 1b — one bundle, several RGSs (`?rgs_profile=`) ✅ BUILT
 
 A DELIVERED build is pinned to one RGS on purpose. The shared `_runtime/*` bundle is the opposite

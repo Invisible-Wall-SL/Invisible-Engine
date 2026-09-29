@@ -86,6 +86,11 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
   (the one hit, `editorStorage.ts` `DOC_VERSION`, is pre-existing — see [editor.md](editor.md)).
   **Owed:** a two-profile browser test of History → Restore on each tool.
 
+
+### 2026-09-29 — error reporting + a real `/api/health`
+
+- **`/api/health` is now readiness, not liveness:** 200 only when Postgres answers (3s budget) and `drizzle.__drizzle_migrations` reaches the newest journal entry the build ships; 503 with `db: down|unconfigured`, `schema: behind|unknown` otherwise (states only — it is public). `migrate.ts` records its boot result (`getMigrationState`) and a failed migration is reported to Sentry and turns health red instead of only logging — with the Railway healthcheck set (owner, still owed) a build whose migration failed is never promoted. Verified locally: no DB → 503 `unconfigured`; unreachable DB → 503 `down`, `boot: failed`, in 0.3s.
+- **Sentry, dormant until the DSNs are set:** server `handleError` + `init` (`SENTRY_DSN`, `$lib/server/errorTracking.ts`, lazy `@sentry/node`), browser `hooks.client.ts` (`PUBLIC_SENTRY_DSN`, runtime env). Verified against a local fake ingest: a thrown server error arrived tagged `route/method/status`, a browser error arrived tagged `launcher-client`; neither carried the `sid`/`token` query values, the session cookie, headers or a user.
 ### 2026-09-29 — published runtime snapshots (Game Maker)
 - Players boot an immutable snapshot Publish writes to R2 `<client>/<project>/published/`; new routes
   `/api/published/f/<token>/<project>/<id>/…` (immutable asset serving, streamed) and

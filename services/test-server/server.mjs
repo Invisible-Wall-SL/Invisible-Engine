@@ -37,7 +37,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
+import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 
 // Invisible Wall favicon — served for EVERY favicon request (the root page and every
@@ -228,7 +228,23 @@ const cascadeEnabledFor = (gameKey, protocol, authored) => {
 	return { on: forced, demo: forced };
 };
 
-const makeMock = (protocol, label, grid, gameKey, cascade) => {
+/**
+ * The grid a lines-family mock is built from, less its bet TABLE unless the game is served from the
+ * shared runtime.
+ *
+ * The runtime has read `betOptions` since 2026-09-16, so it prices a table correctly. A desktop build
+ * ships its own bundle, and one built before then sends `[5, betPerLine]` whatever the table says, so
+ * every spin would be `invalid bet option 5` until it is rebuilt (`test1build`, `hotfruits`). Such a
+ * game keeps the line-config game it was built against.
+ */
+const sellableGrid = (grid, runtime) => {
+	if (!grid?.betModes || runtime) return grid;
+	const board = { ...grid };
+	delete board.betModes;
+	return board;
+};
+
+const makeMock = (protocol, label, grid, gameKey, cascade, runtime) => {
 	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
 	// authored line table, so it pays (and declares) what `/config` set rather than its captured one.
 	if (protocol === 'book') return createBookMock({ label, symbolPaytable: grid?.symbolPaytable });
@@ -245,7 +261,7 @@ const makeMock = (protocol, label, grid, gameKey, cascade) => {
 		cascade: tumble.on,
 		// …and whether it is the game's MECHANIC or the demo override, which only this side knows.
 		cascadeDemo: tumble.demo,
-		...(grid ?? linesGrid ?? {}),
+		...(sellableGrid(grid, runtime) ?? linesGrid ?? {}),
 	});
 };
 
@@ -253,6 +269,50 @@ const makeMock = (protocol, label, grid, gameKey, cascade) => {
  *  JSON, so only this shape is accepted — the same rule `scripts/lib/runtime-releases.mjs` writes. */
 const validVersion = (v) =>
 	typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v) ? v : null;
+
+const BET_MODE_KINDS = new Set(['base', 'ante', 'buy']);
+/** Names the client's `betOptionIndexFor` reads as something else: the base option, or an unnamed
+ *  option by position. An extra mode called either could never be bought. */
+const RESERVED_BET_MODE = /^(base|default|option\d+)$/;
+
+/**
+ * A manifest's `betModes` (BASE FIRST, then each ante/buy the project authored), or null. Validated
+ * WHOLE: a malformed entry drops the list rather than leaving a price table with a hole in it, and a
+ * dropped list leaves the game a line-config game, which is what it was before this existed. Names
+ * must stay distinct once normalised, because the client matches an option to its card by name.
+ */
+const validBetModes = (raw) => {
+	if (!Array.isArray(raw) || raw.length < 2) return null;
+	const seen = new Set();
+	for (const [index, entry] of raw.entries()) {
+		const key =
+			typeof entry?.mode === 'string' ? entry.mode.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
+		const isBase = index === 0;
+		const ok =
+			key &&
+			!seen.has(key) &&
+			(isBase || !RESERVED_BET_MODE.test(key)) &&
+			typeof entry.cost === 'number' &&
+			Number.isFinite(entry.cost) &&
+			entry.cost > 0 &&
+			BET_MODE_KINDS.has(entry.kind) &&
+			isBase === (entry.kind === 'base');
+		if (!ok) return null;
+		seen.add(key);
+	}
+	return raw.map(({ mode, cost, kind }) => ({ mode, cost, kind }));
+};
+
+/** Lists already reported, so a contract re-read every few seconds says it once, not every time. */
+const droppedBetModes = new Set();
+/** A dropped list turns the game back into "the card shows a price, the base stake is charged" —
+ *  the very bug the table exists to fix — so it is never dropped quietly. */
+const warnDroppedBetModes = (raw) => {
+	const text = JSON.stringify(raw);
+	if (droppedBetModes.has(text)) return;
+	droppedBetModes.add(text);
+	console.warn(`[test-server] ignored a malformed betModes list, so no bet table: ${text}`);
+};
 
 /** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
  *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external.
@@ -328,6 +388,10 @@ const validGrid = (grid) => {
 	// Absent/false ⇒ the mock deals none, so a project with no multiplier art never gets blank
 	// cells. See mock-rgs-server `collectFixture`.
 	const multiplier = grid.multiplier === true;
+	// The authored bet modes, when the project sells something beyond the base bet: the lines mock
+	// declares a `betOptions` table from them and prices `bet [x, M]` by it. See `validBetModes`.
+	const betModes = validBetModes(grid.betModes);
+	if (grid.betModes !== undefined && !betModes) warnDroppedBetModes(grid.betModes);
 	return {
 		reels,
 		rows,
@@ -341,6 +405,7 @@ const validGrid = (grid) => {
 		...(adjacency ? { adjacency } : {}),
 		...(minCount ? { minCount } : {}),
 		...(symbolPaytable ? { symbolPaytable } : {}),
+		...(betModes ? { betModes } : {}),
 	};
 };
 
@@ -399,19 +464,47 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
 /**
  * Replace a game's mock with one built from `contract`, carrying player BALANCES across (the board
  * changed, the wallet did not). Open rounds are deliberately dropped: a round dealt on the previous
- * grid cannot be settled on the new one. `configSent: false` is the point of the reset — the client
- * gets a fresh `config` event, so its `__IE_SERVER_CONFIG__` overlay describes the board now dealt.
+ * grid cannot be settled on the new one.
+ *
+ * A runtime game's sessions also keep the bet table they were told about (`carrySession`): its
+ * client keeps the config it booted with, and a tab open when the project gains or loses a buy would
+ * otherwise be priced by a table it never saw. A reload asks for `config` and gets the new one. A
+ * desktop build's sessions are re-sent the config on their next heartbeat, as before.
  */
 const swapMock = (key, contract) => {
 	const previous = own(mocks, key);
-	const next = makeMock(contract.protocol, `mock:${key}`, contract.grid, key, contract.cascade);
+	const runtime = own(registry, key)?.runtime;
+	const next = makeMock(
+		contract.protocol,
+		`mock:${key}`,
+		contract.grid,
+		key,
+		contract.cascade,
+		runtime,
+	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
-			next.sessions.set(sid, { balance: session.balance, round: null, configSent: false });
+			next.sessions.set(sid, carrySession(session, { keepBetShape: Boolean(runtime) }));
 		}
 	}
 	mocks[key] = next;
 	registry[key] = { ...own(registry, key), ...contract, fingerprint: fingerprintOf(contract) };
+};
+
+/**
+ * A refresh resets every wallet — that is its point — but a runtime game's open tabs keep the bet
+ * table they booted with (`carrySession`). A refresh follows every publish of ANY game, and wiping
+ * the sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
+ * spin on a ways game that had gained a buy was charged 10000 as the buy. A desktop build's sessions
+ * are reset as before. A process restart still loses everything; a table game then refuses the stale
+ * tab's bet rather than guess (see the mock's `bet`).
+ */
+const carryPins = (previous, next, runtime) => {
+	if (!runtime || !previous?.sessions || !next.sessions) return;
+	for (const [sid, session] of previous.sessions) {
+		const fresh = { ...session, balance: next.startBalance };
+		next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
+	}
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per
@@ -503,8 +596,10 @@ async function* walkLocal(dir) {
 	}
 }
 
-/** Read manifest JSON + per-game files. Returns { games, readFiles(key) } where
- *  readFiles yields [relPath, { body, contentType }] for a game's bundle. */
+/** Read manifest JSON + per-game files. Returns { games, readJson(key), readFiles(key, previous) }
+ *  where readFiles yields [relPath, { body, contentType, etag }] for a game's bundle. `previous` is
+ *  the files map already in memory for that key: in R2 mode an object whose ETag is unchanged is
+ *  reused instead of downloaded, so a refresh costs LIST calls plus whatever actually changed. */
 async function loadSource() {
 	if (LOCAL_DIR) {
 		const manifest = JSON.parse(await readFile(join(LOCAL_DIR, 'games.json'), 'utf8'));
@@ -553,8 +648,8 @@ async function loadSource() {
 				throw e;
 			}
 		},
-		readFiles: async (key) => {
-			const out = [];
+		readFiles: async (key, previous = {}) => {
+			const listed = [];
 			const prefix = `${BUNDLE_PREFIX}${key}/`;
 			let token;
 			do {
@@ -562,16 +657,42 @@ async function loadSource() {
 					new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
 				);
 				for (const obj of list.Contents ?? []) {
-					if (obj.Key.endsWith('/')) continue;
-					const rel = obj.Key.slice(prefix.length);
-					const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: obj.Key }));
-					out.push([
-						rel,
-						{ body: await streamToBuffer(got.Body), contentType: mimeFor(rel, got.ContentType) },
-					]);
+					if (!obj.Key.endsWith('/')) listed.push(obj);
 				}
 				token = list.IsTruncated ? list.NextContinuationToken : undefined;
 			} while (token);
+			// Every hydrate used to GET every object of every bundle one at a time (~1,900 objects,
+			// ~750 MB across the desktop-built games, measured 2026-09-29) — the ~2.5 min that every
+			// publish refresh and every runtime rollback waited on. Unchanged objects are reused;
+			// the rest are fetched a few at a time.
+			const out = new Array(listed.length);
+			let next = 0;
+			let fetched = 0;
+			const worker = async () => {
+				while (next < listed.length) {
+					const i = next++;
+					const obj = listed[i];
+					const rel = obj.Key.slice(prefix.length);
+					const kept = own(previous, rel);
+					if (kept && obj.ETag && kept.etag === obj.ETag) {
+						out[i] = [rel, kept];
+						continue;
+					}
+					const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: obj.Key }));
+					fetched++;
+					out[i] = [
+						rel,
+						{
+							body: await streamToBuffer(got.Body),
+							contentType: mimeFor(rel, got.ContentType),
+							etag: obj.ETag ?? null,
+						},
+					];
+				}
+			};
+			await Promise.all(Array.from({ length: 12 }, worker));
+			if (listed.length)
+				console.info(`[test-server] '${key}': ${fetched} of ${listed.length} file(s) downloaded`);
 			return out;
 		},
 	};
@@ -675,7 +796,7 @@ async function hydrate() {
 					(pinned ? ' (pinned)' : ''),
 			);
 		} else {
-			nextBundles[key] = Object.fromEntries(await source.readFiles(key));
+			nextBundles[key] = Object.fromEntries(await source.readFiles(key, own(bundles, key)));
 			console.info(
 				`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`,
 			);
@@ -693,7 +814,7 @@ async function hydrate() {
 			continue;
 		}
 		nextRuntimeBundles[runtimeKey] = Object.fromEntries(
-			await source.readFiles(`_runtime/${runtimeKey}`),
+			await source.readFiles(`_runtime/${runtimeKey}`, own(runtimeBundles, runtimeKey)),
 		);
 		const n = Object.keys(nextRuntimeBundles[runtimeKey]).length;
 		if (n === 0)
@@ -757,10 +878,18 @@ async function hydrate() {
 	// every game's live contract instead of coasting on the previous window.
 	contracts = {};
 	mocks = Object.fromEntries(
-		Object.entries(nextRegistry).map(([key, meta]) => [
-			key,
-			makeMock(meta.protocol, `mock:${key}`, meta.grid, key, meta.cascade),
-		]),
+		Object.entries(nextRegistry).map(([key, meta]) => {
+			const next = makeMock(
+				meta.protocol,
+				`mock:${key}`,
+				meta.grid,
+				key,
+				meta.cascade,
+				meta.runtime,
+			);
+			carryPins(own(mocks, key), next, meta.runtime);
+			return [key, next];
+		}),
 	);
 }
 

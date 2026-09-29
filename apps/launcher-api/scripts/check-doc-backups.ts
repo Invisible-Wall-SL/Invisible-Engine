@@ -749,7 +749,9 @@ for (const rc of ROUTES) {
 	const after = await listBackups(rc.target);
 	check(
 		`${n} POST: the restore backed up what it replaced, even inside the coalescing window`,
-		[after.length, after[0].id.endsWith(`-${(eB ?? '').slice(1, 9)}`)],
+		// `some`, not `after[0]`: both copies can share a millisecond stamp on a fast run, and the
+		// tie then sorts by ETag hex, not by which copy came second.
+		[after.length, after.some((b) => b.id.endsWith(`-${(eB ?? '').slice(1, 9)}`))],
 		[2, true],
 	);
 

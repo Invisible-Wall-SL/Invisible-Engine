@@ -550,7 +550,11 @@
 			message:
 				`Players will get the version published ${versionTime(snapshot.createdAt)}` +
 				`${snapshot.by ? ` by ${snapshot.by}` : ''} from their next load. Nothing is rebuilt, ` +
-				'and you can switch back the same way.',
+				'and you can switch back the same way.' +
+				(snapshot.engine
+					? ` It was published on engine ${snapshot.engine.shortCommit}; the game stays on the ` +
+						'engine that is live now (roll the engine back separately with Runtime rollback).'
+					: ''),
 			confirmLabel: 'Make live',
 		});
 		if (!ok) return;
@@ -987,6 +991,11 @@
 															<li>
 																<span class="vdate">{versionTime(v.createdAt)}</span>
 																<span class="vby">{v.by ?? ''}</span>
+																{#if v.engine}<span
+																		class="vengine"
+																		title="Engine release live when this version was published"
+																		>engine {v.engine.shortCommit}</span
+																	>{/if}
 																{#if v.flow === 'overridden'}<span class="vflag">flow errors</span
 																	>{/if}
 																{#if v.id === p.versions.current}
@@ -1742,6 +1751,10 @@
 	}
 	.vflag {
 		color: #e07a6a;
+	}
+	.vengine {
+		color: #8a8a96;
+		font-family: ui-monospace, monospace;
 	}
 	.vcur {
 		color: #6c8a7e;
