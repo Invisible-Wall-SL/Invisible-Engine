@@ -44,6 +44,7 @@ import { checkSoundsForPublish } from './soundPublishCheck';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
+import { postTestServerRefresh } from './testServerRefresh';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -329,7 +330,7 @@ export async function publishGame(
 	// 7. Best-effort refresh — Phase 0 made /refresh 202 + background-hydrate, so a
 	//    slow or failing call must never fail the publish.
 	try {
-		await fetch(`${base}/refresh`, { method: 'POST' });
+		await postTestServerRefresh();
 	} catch {
 		// ignore — the test server re-hydrates on its own cadence too.
 	}

@@ -284,6 +284,11 @@ export const ENV = {
 	get GAMES_BASE_URL() {
 		return env.GAMES_BASE_URL ?? 'https://games.invisiblewall.org';
 	},
+	/** The test server's `/refresh` gate (its own `TEST_SERVER_SECRET`); unset ⇒ an ungated server.
+	 *  Sent only as a header by `testServerRefresh.ts`, never in a URL or a log line. */
+	get TEST_SERVER_SECRET() {
+		return env.TEST_SERVER_SECRET ?? '';
+	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by
 	// GET /api/launcher/git-credentials to launchers signed in with `gamePublish`. Use a fine-grained

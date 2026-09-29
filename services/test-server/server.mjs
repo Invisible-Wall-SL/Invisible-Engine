@@ -25,13 +25,15 @@
  * Env:
  *   PORT=8080
  *   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (read)
- *   TEST_SERVER_SECRET   (optional) — required as ?secret= on POST /refresh
+ *   TEST_SERVER_SECRET   (optional) — required on POST /refresh, as the
+ *                        `x-test-server-secret` header or `?secret=`
  *   TEST_SERVER_LOCAL    (optional) — local dev: hydrate from this directory
  *                        instead of R2. Layout mirrors R2: <dir>/games.json +
  *                        <dir>/<gameKey>/index.html. No R2 creds needed.
  */
 
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { extname, join, relative, sep, dirname } from 'node:path';
 import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
@@ -120,6 +122,9 @@ let refreshing = false;
 /** A refresh asked for WHILE one was in flight. It cannot be answered by the running pass — that
  *  pass already read the manifest — so one more is queued behind it. See the `/refresh` handler. */
 let refreshPending = false;
+/** The last hydrate's outcome, for `/healthz`. `succeeded: false` ⇒ it threw, so the registry is
+ *  whatever the previous good pass built — nothing at all after a failed boot. `at` = epoch ms. */
+let lastHydrate = { succeeded: false, at: 0, error: 'not hydrated yet' };
 
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -707,12 +712,29 @@ async function loadSource() {
 	};
 }
 
-/** Load the manifest + every game's files (from R2 or LOCAL_DIR) into memory. */
+/** `hydrateOnce` with its outcome recorded for `/healthz`. Only the error NAME is kept: the message
+ *  can carry bucket keys and `/healthz` is public; callers log the full error. */
 async function hydrate() {
+	try {
+		await hydrateOnce();
+		lastHydrate = { succeeded: true, at: Date.now() };
+	} catch (e) {
+		lastHydrate = { succeeded: false, at: Date.now(), error: e?.name ?? 'Error' };
+		throw e;
+	}
+}
+
+/** Load the manifest + every game's files (from R2 or LOCAL_DIR) into memory. */
+async function hydrateOnce() {
 	let source;
 	try {
 		source = await loadSource();
 	} catch (e) {
+		// Only a CONFIRMED-absent manifest means "no games". Any other failure (R2 unreachable, bad
+		// credentials, an unparseable manifest) throws and keeps the registry the last good pass built:
+		// emptying it here took every game offline for the length of an R2 blip, reported healthy
+		// while doing so, and at boot skipped `retryBootHydrate` because nothing had thrown.
+		if (e?.name !== 'NoSuchKey' && e?.code !== 'ENOENT') throw e;
 		console.warn(`[test-server] no manifest (${e.name ?? e.message}) — serving 0 games`);
 		registry = {};
 		bundles = {};
@@ -927,6 +949,13 @@ const indexPage = () => {
  *  __proto__, toString…) so a crafted game key can't slip past a truthy check. */
 const own = (obj, key) => (Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined);
 
+/** Constant-time compare against `TEST_SERVER_SECRET`. */
+const secretMatches = (given) => {
+	const a = Buffer.from(String(given ?? ''));
+	const b = Buffer.from(SECRET);
+	return a.length === b.length && timingSafeEqual(a, b);
+};
+
 const handleRequest = async (req, res) => {
 	let url;
 	try {
@@ -945,11 +974,17 @@ const handleRequest = async (req, res) => {
 				.filter(([, m]) => m.pinned)
 				.map(([key, m]) => [key, m.runtimeKey]),
 		);
-		return sendJson(res, 200, {
-			ok: true,
+		// `ok` = this server is serving what R2 says: a failed boot hydrate leaves nothing to serve, so
+		// it answers 503 and an uptime keyword check on `"ok":true` fires. A LATER failed refresh keeps
+		// serving the previous registry — still ok, but `lastHydrate.succeeded: false` says publishes
+		// are not landing.
+		const ok = lastHydrate.succeeded || Object.keys(registry).length > 0;
+		return sendJson(res, ok ? 200 : 503, {
+			ok,
 			games: Object.keys(registry),
 			runtimes: runtimePointers,
 			pinned,
+			lastHydrate,
 		});
 	}
 
@@ -974,7 +1009,8 @@ const handleRequest = async (req, res) => {
 
 	// re-hydrate from R2 (secret-gated when TEST_SERVER_SECRET is set)
 	if (req.method === 'POST' && pathname === '/refresh') {
-		if (SECRET && url.searchParams.get('secret') !== SECRET) {
+		const given = req.headers['x-test-server-secret'] ?? url.searchParams.get('secret');
+		if (SECRET && !secretMatches(given)) {
 			return sendJson(res, 403, { error: 'forbidden' });
 		}
 		// Respond IMMEDIATELY and hydrate in the BACKGROUND. hydrate() pulls every game
