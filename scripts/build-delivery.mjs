@@ -8,6 +8,10 @@
  *     node engine/scripts/build-delivery.mjs --skip-build …      # package a build it already made
  *     node engine/scripts/build-delivery.mjs --allow-missing-assets …  # ship despite missing art
  *
+ * A refusal that has an override — missing art here, and the bake's flow + paytable gates, which
+ * stop the `pnpm build` inside this — is reported as data as well as text: the `--json` result gains
+ * `refusal: {gate, error, details, override}`, the shape the bake writes to `IE_BUILD_REFUSAL_JSON`.
+ *
  * WHY IT LIVES IN THE ENGINE AND TAKES NO SETUP. `scripts/new-game.mjs` writes a repo's scripts
  * ONCE, at scaffold time, and nothing ever refreshes them — the same snapshot problem that had every
  * scaffolded game building a months-old `src/` until `config-svelte` started pointing at the
@@ -52,6 +56,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { appSrcDir, isStandaloneGame } from '../packages/config-svelte/appSrc.js';
+import { BUILD_INFO_FILE, buildProvenance } from '../packages/config-vite/provenance.js';
 import { zipDir } from './zip-dir.mjs';
 
 const arg = (flag, fallback) => {
@@ -210,14 +215,19 @@ if (flag('--print-env')) {
  */
 const fail = (error) => {
 	if (jsonOut) {
-		writeFileSync(
-			resolve(gameRoot, jsonOut),
-			`${JSON.stringify({ ok: false, error: String(error?.message ?? error) }, null, 2)}\n`,
-			'utf8',
-		);
+		const result = { ok: false, error: String(error?.message ?? error) };
+		if (error?.refusal) result.refusal = error.refusal;
+		writeFileSync(resolve(gameRoot, jsonOut), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
 	}
 	throw error;
 };
+
+/** An error carrying a gate refusal, so {@link fail} can hand its override to the caller. */
+const refused = (message, refusal) => Object.assign(new Error(message), { refusal });
+
+/** Where the bake reports a gate refusal for the build this script runs itself — beside `--json`,
+ *  so a caller that asked for a result gets the build's refusal in it too. */
+const bakeRefusalPath = jsonOut ? resolve(gameRoot, `${jsonOut}.refusal.json`) : '';
 
 // A game repo, not the engine itself. `isStandaloneGame()` is the engine's own answer to that
 // question — the one `config-svelte` uses to decide whether to redirect `kit.files` — so this cannot
@@ -342,7 +352,7 @@ const measure = (dir) => {
  * which is written for us and names our test nodes. Everything here is something their integrator
  * has to act on.
  */
-const embedDoc = (baked) => {
+const embedDoc = (baked, build) => {
 	const rgs = baked.rgs ?? {};
 	const session = baked.session ?? {};
 	const endpoint = typeof rgs.endpoint === 'string' ? rgs.endpoint : '/webnode/engine';
@@ -372,7 +382,7 @@ const embedDoc = (baked) => {
 	return [
 		`# ${alias} — delivery build`,
 		'',
-		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${new Date().toISOString().slice(0, 10)}`,
+		`Invisible Engine · profile \`${baked.id ?? profile}\` · built ${build.builtAt.slice(0, 10)}`,
 		'',
 		'**Two destinations, and they are not the same server.** This folder is the CDN upload; the',
 		`\`${HOST_PAGE_FILE}\` beside it (at the root of the zip, OUTSIDE this folder) belongs on your`,
@@ -484,6 +494,22 @@ const embedDoc = (baked) => {
 		'',
 		...reach,
 		'',
+		'## 5. Which build this is',
+		'',
+		'Please quote these when you report a problem. The same record is `build-info.json` in this',
+		'folder, and `window.__IE_BUILD__` in the browser console of the running game.',
+		'',
+		'| | |',
+		'| --- | --- |',
+		`| build | ${build.version ? `v${build.version}` : '(unnumbered)'} |`,
+		`| built at | ${build.builtAt} |`,
+		`| engine commit | \`${build.engineSha || 'unknown'}\` |`,
+		`| game commit | \`${build.gameSha || 'unknown'}\` |`,
+		`| lockfile sha256 | \`${build.lockfileSha256 || 'unknown'}\` |`,
+		...(build.launcherVersion
+			? [`| built with | Invisible Launcher ${build.launcherVersion} |`]
+			: []),
+		'',
 	].join('\n');
 };
 
@@ -491,7 +517,18 @@ try {
 	if (skipBuild) {
 		console.info(`\n(--skip-build: packaging the existing build/ as '${profile}')\n`);
 	} else {
-		run('pnpm', ['build'], DELIVERY_ENV);
+		if (bakeRefusalPath) rmSync(bakeRefusalPath, { force: true });
+		try {
+			run('pnpm', ['build'], {
+				...DELIVERY_ENV,
+				...(bakeRefusalPath ? { IE_BUILD_REFUSAL_JSON: bakeRefusalPath } : {}),
+			});
+		} catch (error) {
+			if (!bakeRefusalPath || !existsSync(bakeRefusalPath)) throw error;
+			const refusal = readJson(bakeRefusalPath);
+			rmSync(bakeRefusalPath, { force: true });
+			throw refused([refusal.error, ...refusal.details].join('\n'), refusal);
+		}
 	}
 
 	const missing = missingAssets();
@@ -500,10 +537,16 @@ try {
 			.map(({ what, keys }) => `  ${keys.length} ${what}: ${keys.join(', ')}`)
 			.join('\n');
 		if (!allowMissingAssets) {
-			throw new Error(
+			throw refused(
 				`The baked game references art that will not ship:\n${detail}\n` +
 					'Re-pick or re-pack them in the editor and rebuild, or pass --allow-missing-assets to ' +
 					'deliver anyway.',
+				{
+					gate: 'missing-assets',
+					error: 'The baked game references art that will not ship.',
+					details: missing.map(({ what, keys }) => `${keys.length} ${what}: ${keys.join(', ')}`),
+					override: { flag: '--allow-missing-assets', env: null },
+				},
 			);
 		}
 		console.warn(`\n⚠ Delivering with missing art (--allow-missing-assets):\n${detail}\n`);
@@ -586,9 +629,16 @@ try {
 		);
 	}
 
+	// Provenance travels IN the folder, so a delivery can always say which build it is. Taken from
+	// the record the builder left beside its output when there is one — the desktop launcher writes
+	// it with the numbers it baked — else asked of this checkout now.
+	const buildInfoPath = resolve(final, BUILD_INFO_FILE);
+	const build = existsSync(buildInfoPath) ? readJson(buildInfoPath) : buildProvenance(gameRoot);
+	writeFileSync(buildInfoPath, `${JSON.stringify(build, null, 2)}\n`, 'utf8');
+
 	const baked = readJson(profilePath);
 	const docPath = resolve(final, 'EMBED.md');
-	writeFileSync(docPath, embedDoc(baked), 'utf8');
+	writeFileSync(docPath, embedDoc(baked, build), 'utf8');
 
 	// Before `measure()` and before the zip, so the page is counted in the summary and actually
 	// travels in the archive — the two ways a shipped file silently fails to be delivered.
@@ -685,6 +735,7 @@ try {
 					},
 					hostPage: hostPagePath,
 					missingAssets: missing,
+					build,
 					endpoint,
 					fileCount,
 					bytes,

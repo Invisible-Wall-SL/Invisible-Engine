@@ -1,16 +1,19 @@
 import { json } from '@sveltejs/kit';
 import {
 	commitBundlePublish,
+	listRelayedFiles,
 	relayBundleFile,
-	MAX_RELAY_FILE_BYTES,
+	relayFileLimitBytes,
 } from '$lib/server/gameBundleRelay';
 import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { isMockProtocol } from '$lib/server/testServerManifest';
 import type { RequestHandler } from './$types';
 
-// Uploads a desktop-built game bundle into R2 THROUGH the portal, for a publisher whose own line
-// cannot reach R2 — see the WHY in `$lib/server/gameBundleRelay.ts` (Spanish ISPs null-route the
-// Cloudflare ranges `*.r2.cloudflarestorage.com` resolves into, while this portal stays reachable).
+// Uploads a desktop-built game bundle into R2 THROUGH the portal. Since launcher v1.0.56 this is the
+// DEFAULT publish route, so a publisher needs a portal sign-in and no R2 key of its own — which is
+// what lets the bucket's write key rotate without touching a desktop. It began as the fallback for a
+// publisher whose line cannot reach R2 at all — see the WHY in `$lib/server/gameBundleRelay.ts`
+// (Spanish ISPs null-route the Cloudflare ranges `*.r2.cloudflarestorage.com` resolves into).
 //
 //   PUT  ?key=<gameKey>&path=<rel>   raw file bytes      → writes test_server/<key>/<rel>
 //   POST ?key=<gameKey>              {name, protocol, files[]} → verify + prune + merge games.json
@@ -78,9 +81,16 @@ export const POST: RequestHandler = async ({ request, url }) => {
 	return json(result, { headers: NO_STORE });
 };
 
-/** What a publisher may send in one PUT, so it can split or warn before trying. */
-export const GET: RequestHandler = async ({ request }) => {
+/**
+ * What a publisher may send in one PUT — the limit the adapter really enforces, not just the cap —
+ * so it can refuse an oversized file before uploading anything. With `?key=`, also what that game's
+ * prefix already holds (`files: [{path, size, md5}]`), so a republish skips unchanged files. The
+ * commit's verify-before-register makes skipping safe: a file wrongly skipped is one it finds absent.
+ */
+export const GET: RequestHandler = async ({ request, url }) => {
 	const auth = await requireLauncherPublisher(request);
 	if (!auth.ok) return auth.response;
-	return json({ maxFileBytes: MAX_RELAY_FILE_BYTES }, { headers: NO_STORE });
+	const key = url.searchParams.get('key') ?? '';
+	const files = key ? await listRelayedFiles(key) : undefined;
+	return json({ maxFileBytes: relayFileLimitBytes(), files }, { headers: NO_STORE });
 };

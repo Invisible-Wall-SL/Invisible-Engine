@@ -421,6 +421,10 @@ export interface ListedObject {
 	size: number;
 	/** Epoch ms of `LastModified` (0 when the listing omits it). */
 	lastModified: number;
+	/** The ETag, unquoted ('' when the listing omits it). For a single-part upload it is the MD5 of
+	 *  the bytes; a multipart one reads `<hex>-<parts>` and says nothing about the content. Optional
+	 *  only so the in-memory listings the fixtures fake need not invent one. */
+	etag?: string;
 }
 
 /**
@@ -443,7 +447,12 @@ export async function listAllObjects(prefix: string): Promise<ListedObject[]> {
 		);
 		for (const o of res.Contents ?? []) {
 			if (typeof o.Key === 'string') {
-				out.push({ key: o.Key, size: o.Size ?? 0, lastModified: o.LastModified?.getTime() ?? 0 });
+				out.push({
+					key: o.Key,
+					size: o.Size ?? 0,
+					lastModified: o.LastModified?.getTime() ?? 0,
+					etag: (o.ETag ?? '').replace(/"/g, ''),
+				});
 			}
 		}
 		token = res.IsTruncated ? res.NextContinuationToken : undefined;

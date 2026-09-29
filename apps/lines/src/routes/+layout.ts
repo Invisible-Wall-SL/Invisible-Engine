@@ -16,6 +16,7 @@ export const ssr = false;
 export const trailingSlash = 'ignore';
 
 import { prepareRuntimeBundle } from '../editor-scenes';
+import { exposeBuildInfo } from '../game/buildInfo';
 import { startErrorTracking } from '../game/errorTracking';
 
 /**
@@ -29,6 +30,7 @@ import { startErrorTracking } from '../game/errorTracking';
  * mounts, so a shipped game repo (which has no layout `load` at all) gets it too.
  */
 export const load = async () => {
+	exposeBuildInfo();
 	startErrorTracking();
 	await prepareRuntimeBundle();
 	return {};

@@ -20,6 +20,7 @@
 import { error } from '@sveltejs/kit';
 import { assertSafeRel } from './deployServe';
 import { isValidGameKey } from './games';
+import { ENV } from './env';
 import { deleteObjects, listAllObjects, putObjectBytes } from './r2';
 import {
 	loadTestServerManifest,
@@ -40,6 +41,50 @@ function bundlePrefix(key: string): string {
  * request into an unbounded Railway allocation.
  */
 export const MAX_RELAY_FILE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The largest file one PUT can actually carry: the smaller of the cap above and adapter-node's
+ * `BODY_SIZE_LIMIT`, parsed the way adapter-node parses it (`K`/`M`/`G` are powers of 1024; unset is
+ * its own 512K). Reported to the publisher so it can refuse an oversized file BEFORE uploading the
+ * rest of the bundle — reporting the cap alone promised 64 MB while the adapter 413'd anything over
+ * the code default of 32M (`scripts/start.mjs`).
+ */
+export function relayFileLimitBytes(raw = ENV.BODY_SIZE_LIMIT): number {
+	if (raw.trim() === 'Infinity') return MAX_RELAY_FILE_BYTES;
+	const match = /^\s*(\d+)\s*([KMG]?)\s*$/i.exec(raw);
+	if (!match) return 512 * 1024;
+	const unit = { '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3 }[match[2].toUpperCase()] ?? 1;
+	return Math.min(MAX_RELAY_FILE_BYTES, Number(match[1]) * unit);
+}
+
+export interface RelayedFile {
+	path: string;
+	size: number;
+	/** MD5 hex of the stored bytes when R2 knows it (a single-part upload, which is all the relay
+	 *  writes), else ''. */
+	md5: string;
+}
+
+/**
+ * What this game's prefix already holds, so a republish sends only what changed. Most of a bundle is
+ * art and audio that do not change between builds, and every relayed byte travels twice (publisher →
+ * Railway → R2), so skipping them is most of a republish. An ETag is an MD5 only for a single-part
+ * PUT; anything else (a multipart upload from the old direct route) reports no digest and is resent.
+ */
+export async function listRelayedFiles(key: string): Promise<RelayedFile[]> {
+	assertPublishableKey(key);
+	const prefix = bundlePrefix(key);
+	return (await listAllObjects(prefix))
+		.filter((o) => !o.key.endsWith('/'))
+		.map((o) => {
+			const etag = (o.etag ?? '').toLowerCase();
+			return {
+				path: o.key.slice(prefix.length),
+				size: o.size,
+				md5: /^[0-9a-f]{32}$/.test(etag) ? etag : '',
+			};
+		});
+}
 
 /**
  * Content types for the files a GAME BUNDLE is made of — `index.html`, the Vite chunks, the

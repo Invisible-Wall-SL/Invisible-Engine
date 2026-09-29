@@ -94,16 +94,71 @@ Sync clones private game repos with no GitHub sign-in only for accounts that hol
 **Build & publish games** (`gamePublish`) — the same grant ☁ Publish needs. Without
 it, a clone falls back to Git's own sign-in prompt.
 
-**If your connection can't reach R2, ☁ Publish re-routes itself.** Spanish ISPs
-null-route whole Cloudflare address ranges during LaLiga matches, and R2's storage
-endpoint sits inside them — so on those lines a publish used to die instantly with
-`ConnectTimeoutError` and upload nothing, while everything else (the portal, the test
-server, the games themselves) kept working. From **v1.0.53** the launcher notices that
-specific failure and uploads through the portal instead, which is not behind the block;
-you'll see *"R2 is unreachable from this connection … publishing through the portal
-instead"* in the progress log, and the publish finishes normally. Nothing is rebuilt and
-nothing else changes. It re-routes **only** for a connection failure: a wrong credential
-or a key the online Game Maker owns still stops the publish, as they should.
+**☁ Publish uploads through the portal, as you** *(from **v1.0.56**)*. The built
+bundle goes to the portal (`api/launcher/game-upload`), and the portal writes it to
+R2. You need your portal sign-in with **Build & publish games**, and **no R2
+credentials**. Before this, every publishing desktop needed a copy of the bucket's
+write key, which meant the key could never be rotated. Three things make the portal
+route quick and safe:
+
+- **Unchanged files are skipped.** The portal reports what the game's cloud folder
+  already holds, so a republish sends only what changed. A retry after a dropped
+  connection is quick for the same reason.
+- **An oversized file is caught before anything is sent.** The portal reports its
+  real per-file limit (32 MB by default), and any file over it stops the publish
+  up front with its name. Ticking 🗜 Optimize usually fixes it.
+- **Nothing is registered half-uploaded.** The portal checks that every file arrived
+  before it touches the games list. An interrupted publish leaves the previous build
+  serving.
+
+The owner can still send bundles straight to the bucket: Settings → *Advanced: ☁ Publish
+games straight to R2 with saved owner credentials* (off by default). With it on, the
+launcher still switches to the portal route in two cases. One is **R2 unreachable**:
+Spanish ISPs null-route Cloudflare's ranges during LaLiga matches. The other is **R2
+refusing the saved key**, which is how a rotated key looks from a machine that kept the
+old one. Nothing else re-routes. A key the online Game Maker owns still stops the
+publish, and the portal runs the same check itself.
+
+**Every build says which build it is.** ☁ Publish and 📦 Deliver number each build
+from one counter per game. Each build records where it came from:
+
+- the build number and time,
+- the **engine commit actually compiled** (the advanced submodule, not the repo's pin),
+- the game repo's commit,
+- the sha256 of the pnpm lockfile it installed from,
+- the launcher version.
+
+That record is written to `build-info.json` beside the bundle, so it is uploaded with a
+publish and travels inside a delivery. The engine also bakes it into the game: type
+`__IE_BUILD__` in the browser console of a running game. The publish dialog shows the
+short fingerprints, a delivery's result dialog shows them too, and the partner's
+`EMBED.md` lists them in §5.
+
+**When the engine refuses a build, you get its reason, not a log tail.** The engine
+stops a build at three gates:
+
+- **an invalid flow**: Invisible Flow validation errors,
+- **a drifted paytable**: the authored paytable disagrees with the partner's
+  captured one,
+- **missing art** (📦 Deliver only): placed regions or spines that no shipped atlas
+  contains.
+
+The launcher shows a **Build refused** dialog with the engine's own reason and every
+finding. It also offers the override, but only once you tick *I understand — ship this
+anyway*. The button stays disabled until then, and Enter never confirms. A flow or
+paytable override rebuilds with that one gate lifted (`ALLOW_INVALID_FLOW=1` /
+`ALLOW_PAYTABLE_DRIFT=1`). A missing-art override only re-packages the build already on
+disk, which takes seconds. The fix itself belongs in the tool that owns the data. See the
+[publisher runbook](../guides/publisher-runbook.md) for what each refusal means.
+
+**🗜 Optimize never makes the art worse** *(from v1.0.56)*. PNG atlas pages become
+**near-lossless WebP**, the setting the engine's page store uses: no pixel moves by
+more than 4/255, and a page stays a PNG if WebP would not be smaller. WebP pages the
+server already encoded are **left untouched**. Other PNGs are re-packed losslessly,
+and audio is trimmed to mp3. Until v1.0.55 Optimize re-encoded everything, those
+server pages included, as lossy WebP q80 plus 256-colour PNGs. On Book of Borut Remake
+that moved opaque pixels by up to 108/255, which is visible banding. The upload is
+bigger than it was then, and the art is the art that was authored.
 
 **Every publish builds the latest engine.** A game repo holds no game code of its
 own: the game layer is compiled straight from the engine submodule that the step
@@ -231,6 +286,9 @@ operator.
   be 🏗 Scaffolded first.
 
 ## Related
+
+- [Publisher runbook](../guides/publisher-runbook.md) — the one-page checklist for ☁ Publish and
+  📦 Deliver, and what each refusal means.
 
 - [ComfyUI](comfyui.md) — what the launcher installs + starts.
 - [Invisible Game Maker](game-maker.md) — where a project's game kind is authored,

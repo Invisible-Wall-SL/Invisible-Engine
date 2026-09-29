@@ -17,6 +17,11 @@ export const ENV = {
 	get REMEMBER_TTL_DAYS() {
 		return Number(env.REMEMBER_TTL_DAYS ?? '30');
 	},
+	/** adapter-node's request-body cap, as it reads it (its own default is 512K; `scripts/start.mjs`
+	 *  sets 32M). Read here only to REPORT it — the adapter enforces it before any route runs. */
+	get BODY_SIZE_LIMIT() {
+		return env.BODY_SIZE_LIMIT ?? '512K';
+	},
 	/** Session lifetime when "remember me" is unchecked (browser-session cookie). */
 	get SESSION_TTL_HOURS() {
 		return Number(env.SESSION_TTL_HOURS ?? '12');

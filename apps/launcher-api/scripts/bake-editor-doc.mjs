@@ -32,6 +32,7 @@
 //   node <engine>/apps/launcher-api/scripts/bake-editor-doc.mjs \
 //     --project bookofborutremake --dest ./src/baked-editor-bundle.json --token <t> --dry-run
 
+import { writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 
@@ -163,6 +164,33 @@ function bail(message) {
 		process.exitCode = 1;
 	}
 	throw new BakeBail();
+}
+
+/**
+ * Stop at a publish GATE — a refusal with an explicit override, as opposed to a failure.
+ *
+ * The message goes to the log like any bail, but the log is interleaved `pnpm build` output that a
+ * UI can only quote the tail of, and the override's name is the one thing a person needs from it.
+ * So when the caller sets `IE_BUILD_REFUSAL_JSON`, the same refusal is also written there as data —
+ * which gate, why, each finding, and the flag + env var that override it — so the desktop launcher
+ * can show the reason and offer the override without either side scraping text. Best-effort: a
+ * result file that cannot be written must not turn a refusal into a different error.
+ */
+function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
+	const target = process.env.IE_BUILD_REFUSAL_JSON;
+	if (target) {
+		try {
+			const refusal = { gate, error, details, override: { flag, env } };
+			writeFileSync(target, `${JSON.stringify(refusal, null, 2)}\n`, 'utf8');
+		} catch (err) {
+			console.warn(`⚠ bake-doc: could not write ${target} (${err?.message ?? err})`);
+		}
+	}
+	bail(
+		`${error}\n` +
+			details.map((d) => `    - ${d}`).join('\n') +
+			`\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`,
+	);
 }
 
 async function bodySnippet(res) {
@@ -749,13 +777,14 @@ async function main() {
 			// explicit override rather than letting a hung or skipped round ship.
 			if (flowRes.status === 409) {
 				const out = await flowRes.json().catch(() => ({}));
-				const details = Array.isArray(out?.details) ? out.details : [];
-				bail(
-					`${out?.error ?? 'The flow failed validation.'}\n` +
-						details.map((d) => `    - ${d}`).join('\n') +
-						'\n  Fix it in Invisible Flow (Validation panel), or re-run with ' +
-						'--allow-invalid-flow (env ALLOW_INVALID_FLOW=1) to bake it anyway.',
-				);
+				refuseAtGate({
+					gate: 'invalid-flow',
+					error: out?.error ?? 'The flow failed validation.',
+					details: Array.isArray(out?.details) ? out.details.map(String) : [],
+					fixIn: 'Invisible Flow (Validation panel)',
+					flag: '--allow-invalid-flow',
+					env: 'ALLOW_INVALID_FLOW',
+				});
 			}
 			if (!flowRes.ok) {
 				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
@@ -1089,13 +1118,14 @@ async function main() {
 			// never fall through to "no config", which would ship the template's prices instead.
 			if (gcRes.status === 409) {
 				const out = await gcRes.json().catch(() => ({}));
-				const details = Array.isArray(out?.details) ? out.details : [];
-				bail(
-					`${out?.error ?? 'The paytable disagrees with the captured partner paytable.'}\n` +
-						details.map((d) => `    - ${d}`).join('\n') +
-						'\n  Fix it in Invisible Game Config, or re-run with ' +
-						'--allow-paytable-drift (env ALLOW_PAYTABLE_DRIFT=1) to bake it anyway.',
-				);
+				refuseAtGate({
+					gate: 'paytable-drift',
+					error: out?.error ?? 'The paytable disagrees with the captured partner paytable.',
+					details: Array.isArray(out?.details) ? out.details.map(String) : [],
+					fixIn: 'Invisible Game Config',
+					flag: '--allow-paytable-drift',
+					env: 'ALLOW_PAYTABLE_DRIFT',
+				});
 			}
 			if (gcRes.ok) {
 				const gc = await gcRes.json();
