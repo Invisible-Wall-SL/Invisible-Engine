@@ -121,7 +121,8 @@ own `test_server/<key>/` bundle and have no `runtime` field.
 `releases.json`, then writes `current.json` — **the single write that makes it live**. The test server
 (`services/test-server/server.mjs`) resolves the pointer on every hydrate (boot, `POST /refresh`), so
 a hydrate sees the old release or the new one whole, never a mix. It keeps a release it already holds
-in memory instead of re-downloading it (a release is immutable), and it keeps the previous release's
+in memory instead of re-downloading it (a release is immutable), and every other bundle's unchanged
+objects by ETag, so a refresh takes seconds, and it keeps the previous release's
 `_app/immutable/*` chunks for one generation so a player still on the old `index.html` does not 404.
 Every runtime response carries `X-Runtime-Release: lines@<version>`, and `/healthz` lists the pointer
 version per runtime plus the pinned games. The release job then proves the new release is SERVED

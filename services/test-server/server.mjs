@@ -503,8 +503,10 @@ async function* walkLocal(dir) {
 	}
 }
 
-/** Read manifest JSON + per-game files. Returns { games, readFiles(key) } where
- *  readFiles yields [relPath, { body, contentType }] for a game's bundle. */
+/** Read manifest JSON + per-game files. Returns { games, readJson(key), readFiles(key, previous) }
+ *  where readFiles yields [relPath, { body, contentType, etag }] for a game's bundle. `previous` is
+ *  the files map already in memory for that key: in R2 mode an object whose ETag is unchanged is
+ *  reused instead of downloaded, so a refresh costs LIST calls plus whatever actually changed. */
 async function loadSource() {
 	if (LOCAL_DIR) {
 		const manifest = JSON.parse(await readFile(join(LOCAL_DIR, 'games.json'), 'utf8'));
@@ -553,8 +555,8 @@ async function loadSource() {
 				throw e;
 			}
 		},
-		readFiles: async (key) => {
-			const out = [];
+		readFiles: async (key, previous = {}) => {
+			const listed = [];
 			const prefix = `${BUNDLE_PREFIX}${key}/`;
 			let token;
 			do {
@@ -562,16 +564,42 @@ async function loadSource() {
 					new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
 				);
 				for (const obj of list.Contents ?? []) {
-					if (obj.Key.endsWith('/')) continue;
-					const rel = obj.Key.slice(prefix.length);
-					const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: obj.Key }));
-					out.push([
-						rel,
-						{ body: await streamToBuffer(got.Body), contentType: mimeFor(rel, got.ContentType) },
-					]);
+					if (!obj.Key.endsWith('/')) listed.push(obj);
 				}
 				token = list.IsTruncated ? list.NextContinuationToken : undefined;
 			} while (token);
+			// Every hydrate used to GET every object of every bundle one at a time (~1,900 objects,
+			// ~750 MB across the desktop-built games, measured 2026-09-29) — the ~2.5 min that every
+			// publish refresh and every runtime rollback waited on. Unchanged objects are reused;
+			// the rest are fetched a few at a time.
+			const out = new Array(listed.length);
+			let next = 0;
+			let fetched = 0;
+			const worker = async () => {
+				while (next < listed.length) {
+					const i = next++;
+					const obj = listed[i];
+					const rel = obj.Key.slice(prefix.length);
+					const kept = own(previous, rel);
+					if (kept && obj.ETag && kept.etag === obj.ETag) {
+						out[i] = [rel, kept];
+						continue;
+					}
+					const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: obj.Key }));
+					fetched++;
+					out[i] = [
+						rel,
+						{
+							body: await streamToBuffer(got.Body),
+							contentType: mimeFor(rel, got.ContentType),
+							etag: obj.ETag ?? null,
+						},
+					];
+				}
+			};
+			await Promise.all(Array.from({ length: 12 }, worker));
+			if (listed.length)
+				console.info(`[test-server] '${key}': ${fetched} of ${listed.length} file(s) downloaded`);
 			return out;
 		},
 	};
@@ -675,7 +703,7 @@ async function hydrate() {
 					(pinned ? ' (pinned)' : ''),
 			);
 		} else {
-			nextBundles[key] = Object.fromEntries(await source.readFiles(key));
+			nextBundles[key] = Object.fromEntries(await source.readFiles(key, own(bundles, key)));
 			console.info(
 				`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`,
 			);
@@ -693,7 +721,7 @@ async function hydrate() {
 			continue;
 		}
 		nextRuntimeBundles[runtimeKey] = Object.fromEntries(
-			await source.readFiles(`_runtime/${runtimeKey}`),
+			await source.readFiles(`_runtime/${runtimeKey}`, own(runtimeBundles, runtimeKey)),
 		);
 		const n = Object.keys(nextRuntimeBundles[runtimeKey]).length;
 		if (n === 0)
