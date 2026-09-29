@@ -157,6 +157,9 @@ export default () =>
 		plugins: [sveltekit(), lingui()],
 		logLevel: 'info',
 		define: { ...gameBuildDefine(), ...deliveryProfileDefine(), ...deliveryProfilesDefine() },
+		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
+		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
+		ssr: { noExternal: ['error-tracking'] },
 		// Inline EVERY build-time asset into the bundle (single-file game deploy). This includes
 		// the KTX2/libktx transcoder (`pixi-svelte` imports it via `?url`): a standalone game's
 		// deploy remaps/omits `_app/immutable/assets/`, so an emitted transcoder file 404s there.
