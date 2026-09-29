@@ -87,7 +87,7 @@ Readiness audit §3.2, with desktop launcher v1.0.56 (`invisible-launcher` repo)
   `build-delivery.mjs --json` carries the same shape for missing art, plus the bake's when it runs
   the build itself. The launcher shows the reason and offers the named override behind an explicit
   confirmation.
-- `node scripts/check-build-provenance.mjs` (`check:build-provenance`) runs 23 checks over the real
+- `check:game-bundle-relay` gains the limit parsing (32 → 39). `node scripts/check-build-provenance.mjs` (`check:build-provenance`) runs 23 checks over the real
   provenance module and the real bake, against a fake portal that refuses each gate.
 - Runbook: [guides/publisher-runbook.md](../guides/publisher-runbook.md).
 

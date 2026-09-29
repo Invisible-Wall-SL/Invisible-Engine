@@ -12,6 +12,8 @@ import {
 	assertPublishableKey,
 	bundleContentType,
 	bundleObjectKey,
+	MAX_RELAY_FILE_BYTES,
+	relayFileLimitBytes,
 } from '../src/lib/server/gameBundleRelay.ts';
 import { isMockProtocol, MOCK_PROTOCOLS } from '../src/lib/server/testServerManifest.ts';
 
@@ -88,6 +90,19 @@ for (const protocol of MOCK_PROTOCOLS)
 check('rejects a near-miss', isMockProtocol('paylines'), false);
 check('rejects a non-string', isMockProtocol(3), false);
 check('rejects an inherited key', isMockProtocol('toString'), false);
+
+// ── The per-file limit the publisher is told — what adapter-node REALLY enforces ──
+// The launcher refuses an oversized file before uploading anything on the strength of this, so a
+// number larger than the adapter's would let a publish die half way; smaller would refuse a file
+// that fits.
+const MB = 1024 * 1024;
+check('the code default (32M)', relayFileLimitBytes('32M'), 32 * MB);
+check("adapter-node's own default (512K)", relayFileLimitBytes('512K'), 512 * 1024);
+check('lower-case unit', relayFileLimitBytes('16m'), 16 * MB);
+check('plain bytes', relayFileLimitBytes('1000'), 1000);
+check('a raised limit is still held to the cap', relayFileLimitBytes('1G'), MAX_RELAY_FILE_BYTES);
+check('Infinity is held to the cap', relayFileLimitBytes('Infinity'), MAX_RELAY_FILE_BYTES);
+check('unparseable reads as the adapter default', relayFileLimitBytes('lots'), 512 * 1024);
 
 console.log(
 	failures === 0

@@ -20,6 +20,7 @@
 import { error } from '@sveltejs/kit';
 import { assertSafeRel } from './deployServe';
 import { isValidGameKey } from './games';
+import { ENV } from './env';
 import { deleteObjects, listAllObjects, putObjectBytes } from './r2';
 import {
 	loadTestServerManifest,
@@ -48,7 +49,7 @@ export const MAX_RELAY_FILE_BYTES = 64 * 1024 * 1024;
  * rest of the bundle — reporting the cap alone promised 64 MB while the adapter 413'd anything over
  * the code default of 32M (`scripts/start.mjs`).
  */
-export function relayFileLimitBytes(raw = process.env.BODY_SIZE_LIMIT ?? '512K'): number {
+export function relayFileLimitBytes(raw = ENV.BODY_SIZE_LIMIT): number {
 	if (raw.trim() === 'Infinity') return MAX_RELAY_FILE_BYTES;
 	const match = /^\s*(\d+)\s*([KMG]?)\s*$/i.exec(raw);
 	if (!match) return 512 * 1024;
