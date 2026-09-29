@@ -9,6 +9,8 @@ services would otherwise copy-paste:
   - ``iw_common.context``  — the thread-local (client, project) context base.
   - ``iw_common.imgcache`` — disk-backed thumbnail cache + HTTP ETag/304 helpers
     (kills the many-thumbnail 502 storm; shared by every HTTP image route).
+  - ``iw_common.launch``   — the launcher-signed launch token + session cookie:
+    who is calling and which (client, project) they may touch; ``/healthz``.
   - ``iw_common.errors``   — Sentry error reporting (off unless SENTRY_DSN is set;
     scrubs the gate secret; captures what stdlib http.server swallows).
 

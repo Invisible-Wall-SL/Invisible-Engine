@@ -120,7 +120,7 @@ So a push is fully out when **every service you expected to build says `Success 
 **Then verify the RUNNING code, not the build:**
 
 - **launcher** — `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. This works for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
-- **atlas-tool / sheet-tool** — there is **no unauthenticated signal at all**. `_gate()` is the first line of both `do_GET` and `do_POST`, so every path including `/` is 403 unless the request carries the secret (careful: an UNSET secret disables the gate entirely — `ui_server.py`'s `_gate` opens with `if not ATLAS_TOOL_SECRET: return True, None`, and sheet-tool has its own in `sheet_server.py` keyed off `SHEET_TOOL_SECRET` — so it is the request without the secret that gets the 403, not the deployment without the var), and the response carries no commit or deployment header (`x-railway-request-id` is per-request). A 403 proves the service is up and running _our_ code; it says nothing about _which commit_. The only proof of BEHAVIOUR is exercising the change through the launcher, signed in — but for the narrower question _"did my commit deploy?"_ there is a signal after all, and it needs no Railway token:
+- **atlas-tool / sheet-tool** — `GET /healthz` (gate-exempt since 2026-09-29) names the running commit (`"commit"`, 12 chars of `RAILWAY_GIT_COMMIT_SHA`), the direct answer to "did my commit deploy?". Every other path needs a launcher session, so the only proof of BEHAVIOUR is exercising the change through the launcher, signed in. The commit-status read works too and needs no Railway token:
 
   ```bash
   gh api repos/Invisible-Wall-SL/Invisible-Engine/commits/$(git rev-parse HEAD)/status \
@@ -135,7 +135,7 @@ So a push is fully out when **every service you expected to build says `Success 
 
 ### Shared Variables (define once per environment, reference with `${{shared.NAME}}`)
 
-Set at project → Settings → Shared Variables (environment `production`), referenced by each service. Shared: `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`. Per-service (not shared): launcher URLs (`ATLAS_TOOL_URL`/`ATLAS_BACKEND_URL`/`SHEET_TOOL_URL`/`ORIGIN`/`DATABASE_URL`), `ATLAS_PROJECT`/`ATLAS_OUTPUT_PREFIX`/`ATLAS_STAGING`, `SHEET_PROJECT`/`SHEET_STAGING`, `DEFAULT_CKPT`. `PORT` is injected by Railway — never set it.
+Set at project → Settings → Shared Variables (environment `production`), referenced by each service. Shared: `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET` (launcher + the one tool each — see "Tool launch tokens"), and until the 2026-10-13 cut-over the legacy `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`. Per-service (not shared): launcher URLs (`ATLAS_TOOL_URL`/`ATLAS_BACKEND_URL`/`SHEET_TOOL_URL`/`ORIGIN`/`DATABASE_URL`), `ATLAS_PROJECT`/`ATLAS_OUTPUT_PREFIX`/`ATLAS_STAGING`, `SHEET_PROJECT`/`SHEET_STAGING`, `DEFAULT_CKPT`. `PORT` is injected by Railway — never set it.
 
 | Var                 | Service        | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -362,7 +362,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 ## Environment variables (names only)
 
-**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER` + `XFF_DEPTH` (have code defaults), `CF_API_TOKEN`, `CF_ZONE_ID`, `GAMES_BASE_URL` (has code default), `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (has code default), `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (has code default), `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` (all optional, Admin → Costs). `PARTNER_RGS` (optional, partner launches). `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (optional, error reporting — server / browser), `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`, `PUBLIC_SENTRY_SAMPLE_RATE` (optional, see "Monitoring & error tracking").
+**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the tool launch tokens — see "Tool launch tokens"), `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` / `ATLAS_BLUEPRINT_SECRET` (legacy handoff, used only while the matching signing secret is unset; remove after the cut-over), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER` + `XFF_DEPTH` (have code defaults), `CF_API_TOKEN`, `CF_ZONE_ID`, `GAMES_BASE_URL` (has code default), `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (has code default), `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (has code default), `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` (all optional, Admin → Costs). `PARTNER_RGS` (optional, partner launches). `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (optional, error reporting — server / browser), `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`, `PUBLIC_SENTRY_SAMPLE_RATE` (optional, see "Monitoring & error tracking").
 
 > **Admin → Costs (running-cost dashboard):** `/admin` → **Costs** reads each paid provider's own API and shows balance / spend / breakdown per provider. Every credential is **optional and read-only**; an unset provider renders a "not configured" card naming the vars it wants, so the page is useful with none of them set. Set on the **launcher-api** service → **Apply changes / Deploy**.
 >
@@ -404,7 +404,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
-**atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SECRET` (optional), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table). **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`).
+**atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table). **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
 
 > **The blueprint importers and the live settings refresh read node CONTRACTS the same way** (Flipbook video mode + the Atlas Maker's 🎛 Blueprint settings, via `POST /video/nodespecs` → `comfy_specs`): a node's full `/object_info` declaration — an input's min/max/step, a COMBO's option list — not only the model lists above, and **for the target the render will run on**: the Atlas Maker follows ⚙ _Run generation on_; a video render always runs on the service default (`COMFY_TRANSPORT`), so the Flipbook reads the pod's contracts in production. Same source rules as ⟳ (`comfy_catalog._probe_sources`): _RunPod_ = a pinned `COMFY_CATALOG_URL` or a discovered running pod, never `COMFY_URL`; _My computer_ = `COMFY_URL` only. Nothing answering is normal: the importer says so in the modal and types the setting from the baked value (no range, no list), the panels keep the list the blueprint was published with, and in between sits the target's catalog — **⟳ Refresh model lists also caches every published blueprint's select lists** for its target, so a blueprint's dropdown shows the last-seen pod list while no pod is running.
 
@@ -557,7 +557,7 @@ success in the facade, so it is not reported (changing it changes boot behaviour
 | --- | --- | --- |
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}` | the test server / online games host. |
-| `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 | **being added by a separate change** as gate-exempt paths (today every path is 403 without the secret). Until that lands, monitor these with "expect 403" — it still proves the process is up. |
+| `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)
 
@@ -569,8 +569,8 @@ endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Cr
 | --- | --- | --- | --- | --- | --- |
 | Launcher | `https://app.invisiblewall.org/api/health` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 failed checks (a deploy swap is ~1–2 min) |
 | Games host | `https://games.invisiblewall.org/healthz` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 |
-| Atlas tool | `https://atlas-tool-production.up.railway.app/healthz` | URL becomes unavailable (expect 200; **403** until `/healthz` lands) | — | 3 min / 15 s | 2 |
-| Sheet tool | `https://sheet-tool-production.up.railway.app/healthz` | same | — | 3 min / 15 s | 2 |
+| Atlas tool | `https://atlas-tool-production.up.railway.app/healthz` | URL doesn't contain keyword | `"ok": true` | 3 min / 15 s | 2 |
+| Sheet tool | `https://sheet-tool-production.up.railway.app/healthz` | same | `"ok": true` | 3 min / 15 s | 2 |
 
 Regions: pick Europe **plus one outside Spain** — during LaLiga matches Cloudflare ranges are
 null-routed from Spanish ISPs and a Spain-only prober would page for an outage that isn't ours.
@@ -586,6 +586,47 @@ that every online game is still on the previous engine. The workflow's last step
 issues notify everyone watching the repo. Close it once a release is green. Owner settings that make
 this reach you: **Watch** the repo (at least Custom → Issues), and in
 github.com/settings/notifications → **Actions** keep "Only notify for failed workflows" + email on.
+
+### Tool launch tokens — atlas-tool + sheet-tool (2026-09-29)
+
+The launcher is the only thing that decides who may open the Atlas Maker / Sheet Maker and on which
+`(client, project)`. After its own access check it mints a **signed launch token** (HMAC-SHA256,
+`v1.<payload>.<sig>`, 120 s) carrying the user id, name, role, client, project and capabilities
+(`apps/launcher-api/src/lib/server/toolLaunch.ts`). The redirect carries only `?iw_launch=<token>`; the
+Flipbook video proxy mints a separate server-to-server kind per request and sends it as an
+`X-IW-Launch` header (a redirect token is not accepted there). The tool
+(`services/_shared/iw_common/launch.py`) verifies signature, audience and expiry, accepts a launch
+token once, sets a signed `iw_atlas_session` / `iw_sheet_session` cookie (12 h, HttpOnly; never a
+secret), redirects to the same URL without the token, and scopes **every** request from that
+session only — `client`/`project` in a URL are ignored. Switching project = back through the
+launcher, which mints a new token. Blueprint publishing rides as the token's `blueprintPublish`
+capability. Refused → 403 "open … from the launcher". A session keeps the role and capabilities
+of the launch that made it: a role or tool-access change applies at the user's next launch (at most
+12 h); rotating a signing secret ends every session of that tool immediately. On Railway a tool with
+no secret at all refuses everything but `/healthz` (it is only open in local dev).
+
+**Owner setup — the change is inert until this is done.** Generate two NEW random values (e.g.
+`openssl rand -base64 48`; not the R2 key, not the old gate secret) and set each on BOTH ends:
+
+| Var | Set on | Notes |
+| --- | --- | --- |
+| `ATLAS_TOOL_SIGNING_SECRET` | launcher-api **and** atlas-tool | identical value on both |
+| `SHEET_TOOL_SIGNING_SECRET` | launcher-api **and** sheet-tool | identical value on both; different from the atlas one |
+| `IW_LEGACY_TOOL_KEY_UNTIL` | atlas-tool, sheet-tool (optional) | `YYYY-MM-DD` to move the cut-over, `off` to end it now |
+
+Order: set the tool side first, then the launcher (a tool with the secret still accepts the old
+handoff inside the window, so nothing breaks in between). Each tool logs its mode at boot:
+`[gate] signed launch tokens (…); legacy ?k= accepted until 2026-10-13`.
+
+**Transition and cut-over.** While a tool has no signing secret, nothing changes: the launcher keeps
+sending the old handoff and the tool keeps its old gate. Once a tool HAS its signing secret, the old
+handoff is still accepted **through 2026-10-13 (UTC)**, then refused automatically. It is only there
+for tabs opened before the switch, so once both ends are set and a launch is verified, **end it
+early** with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools. After the cut-over: remove
+`ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET` and `ATLAS_BLUEPRINT_SECRET` from Railway and delete the
+legacy branch in `launch.py` + `toolLaunch.ts` (tracked in the atlas-maker / sheet-maker status
+files). Rotating a signing secret signs everyone out of that tool (they reopen it from the
+launcher); there is no other session state to clean up.
 
 ## DNS (Cloudflare)
 

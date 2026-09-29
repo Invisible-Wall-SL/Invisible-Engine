@@ -10,8 +10,8 @@ import { ENV } from './env';
  * - `tools` — url-encoded `[{ id, name, url }]` for every ONLINE tool the user
  *   has, in `TOOL_BAR_ORDER`, with the current tool removed. Every `url` points
  *   back through the launcher origin (e.g. `…/editor`, `…/sheet`); the launcher
- *   re-gates the role and redirects with the right secret + active project, so
- *   no per-tool secret is ever baked into the link (simpler + secrets stay
+ *   re-gates the role and mints a fresh signed launch token (`./toolLaunch`), so
+ *   no credential is ever baked into the link (simpler + secrets stay
  *   server-side). See `docs/design/unified-tool-bar.md`.
  *
  * Pass the params straight onto the tool's redirect URL.

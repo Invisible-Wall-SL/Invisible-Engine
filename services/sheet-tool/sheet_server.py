@@ -39,6 +39,7 @@ import storage             # noqa: E402  (R2 object storage + staging mirror)
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images)
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
+from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 
 SELF = Path(__file__).resolve().parent
 
@@ -92,8 +93,12 @@ PORT = int(os.environ.get("PORT", "8766"))
 HOST = os.environ.get("SHEET_BIND_HOST", "0.0.0.0")
 BUILD = "v2.2-cloud"
 
-# Shared-secret access gate (the tool runs behind the launcher). Unset = open.
-SHEET_TOOL_SECRET = os.environ.get("SHEET_TOOL_SECRET", "")
+# Who is calling and for which (client, project): a launcher-signed token (see
+# iw_common/launch.py). SHEET_TOOL_SECRET is the pre-token shared-secret gate,
+# kept for the transition window only; both unset = open (local dev).
+GATE = launch.LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET",
+                         legacy_env="SHEET_TOOL_SECRET", legacy_cookie="sheet_tool",
+                         legacy_header="X-Sheet-Secret")
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +526,9 @@ def api_state() -> dict:
         "project": pp["project"],
         "projects": project_paths.list_projects(),
         "project_root": "",
-        "project_locked": bool((os.environ.get("IW_PROJECT_NAME") or "").strip()),
+        # Signed launches fix the project per session: switching goes through the launcher.
+        "project_locked": (GATE.mode() == "signed"
+                           or bool((os.environ.get("IW_PROJECT_NAME") or "").strip())),
         # In the cloud the Atlas Maker shares this project's R2 tree; manifests
         # land in the shared manifests/ folder both tools read.
         "atlas_maker_found": bool(_ctx()["r2_prefix"]),
@@ -2508,25 +2515,22 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quieter console
         pass
 
-    def _gate(self) -> tuple[bool, dict | None]:
-        """Shared-secret access gate (the tool sits behind the launcher).
-        Open when SHEET_TOOL_SECRET is unset. Accepts the secret via cookie,
-        `X-Sheet-Secret` header, or `?k=` query (which also sets the cookie so
-        later asset/fetch requests pass)."""
-        if not SHEET_TOOL_SECRET:
-            return True, None
-        cookie = self.headers.get("Cookie", "") or ""
-        if f"sheet_tool={SHEET_TOOL_SECRET}" in cookie:
-            return True, None
-        if self.headers.get("X-Sheet-Secret") == SHEET_TOOL_SECRET:
-            return True, None
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        if q.get("k", [""])[0] == SHEET_TOOL_SECRET:
-            return True, {
-                "Set-Cookie": f"sheet_tool={SHEET_TOOL_SECRET}; Path=/; "
-                              f"HttpOnly; SameSite=None; Secure"
-            }
-        return False, None
+    def _authenticate(self) -> bool:
+        """Who is calling and for which (client, project) — see
+        iw_common/launch.py. Answers the request itself and returns False on a
+        refusal, and on a launch (the redirect that takes the token out of the
+        URL once the session cookie is set)."""
+        res = GATE.authenticate(self.path, self.headers)
+        self._identity = res.identity
+        self._extra_cookies = list(res.cookies)
+        if not res.ok:
+            self._send_bytes("Forbidden — open the Sheet Maker from the launcher."
+                             .encode("utf-8"), "text/plain; charset=utf-8", 403)
+            return False
+        if res.redirect and self.command == "GET":
+            self._send_bytes(b"", "text/plain", 303, {"Location": res.redirect})
+            return False
+        return True
 
     def _send_json(self, obj, code=200):
         data = json.dumps(obj).encode("utf-8")
@@ -2570,59 +2574,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(p.read_bytes(), ctype, 200, imgcache.cache_headers(etag, max_age=0))
 
     def _apply_cookie(self):
-        cookie = getattr(self, "_set_cookie", None)
-        if cookie:
-            for k, v in cookie.items():
-                self.send_header(k, v)
-        # Additional Set-Cookie headers (a dict can't hold two) — e.g. the
-        # project cookie set alongside the gate's secret cookie.
+        # The gate's Set-Cookie headers (session, or the legacy scope cookies).
         for c in getattr(self, "_extra_cookies", None) or ():
             self.send_header("Set-Cookie", c)
 
     def _resolve_context(self) -> None:
-        """Pick + apply the (client, project) for THIS request.
+        """Apply the caller's (client, project) to THIS request thread.
 
-        Resolution order for EACH key (independently):
-          1. `?client=` / `?project=` query param (slug-validated)
-          2. `iw_client` / `iw_project` cookie
-          3. env default (`SHEET_CLIENT` / `SHEET_PROJECT`)
+        With a signed launch the scope comes from the token/session ONLY — a
+        `?client=` / `?project=` in the URL is ignored, and switching project
+        goes back through the launcher. The legacy/open modes keep the old
+        query-then-cookie resolution (done in the gate). Missing keys fall back
+        to the env default (`SHEET_CLIENT` / `SHEET_PROJECT`).
 
-        A valid query param sticks into the matching cookie so in-tool
-        navigation (which drops the param) stays in the same context. Legacy
-        single-`?project=` requests fall back to the env-default client.
-
-        The chosen context is set on THIS request thread (thread-local), so a
-        concurrent request for a different project is fully isolated — no shared
-        module state, no lock needed."""
-        self._extra_cookies = []
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        p_param = (q.get("project", [""])[0] or "").strip()
-        c_param = (q.get("client", [""])[0] or "").strip()
-        cookie = self.headers.get("Cookie", "") or ""
-        mp = re.search(r"iw_project=([^;]+)", cookie)
-        mc = re.search(r"iw_client=([^;]+)", cookie)
-        cookie_project = (mp.group(1).strip() if mp else "")
-        cookie_client = (mc.group(1).strip() if mc else "")
-
-        chosen_project = (project_paths.valid_project(p_param)
-                          or project_paths.valid_project(cookie_project)
-                          or project_paths.env_project())
-        chosen_client = (project_paths.valid_client(c_param)
-                         or project_paths.valid_client(cookie_client)
-                         or project_paths.env_client())
-
-        if p_param:
-            self._extra_cookies.append(
-                f"iw_project={chosen_project}; Path=/; SameSite=None; Secure")
-        if c_param:
-            self._extra_cookies.append(
-                f"iw_client={chosen_client}; Path=/; SameSite=None; Secure")
-
-        # Thread-local context: switch_context writes THIS request thread's
-        # state and (on a real switch) hydrates its staging. No global lock and
-        # no module-global copy — every handler reads paths via _ctx() at call
-        # time, so concurrent requests for different projects can't interfere.
-        project_paths.switch_context(chosen_client, chosen_project)
+        Thread-local: a concurrent request for a different project is fully
+        isolated — every handler reads paths via _ctx() at call time."""
+        project_paths.switch_context(self._identity.client, self._identity.project)
 
     # Back-compat alias — kept so any legacy in-process call still works.
     def _resolve_project(self) -> None:
@@ -2633,9 +2600,11 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n else b""
 
     def do_GET(self):
-        ok, self._set_cookie = self._gate()
-        if not ok:
-            self._send_bytes(b"forbidden", "text/plain", 403)
+        if urllib.parse.urlparse(self.path).path == "/healthz":
+            # Gate-exempt liveness for the uptime monitor; names nothing private.
+            self._send_bytes(launch.healthz_body("sheet-tool", BUILD), "application/json")
+            return
+        if not self._authenticate():
             return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -2685,9 +2654,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_bytes(b"", "image/svg+xml", 404)
 
     def do_POST(self):
-        ok, self._set_cookie = self._gate()
-        if not ok:
-            self._send_bytes(b"forbidden", "text/plain", 403)
+        if not self._authenticate():
             return
         self._resolve_context()
         path = urllib.parse.urlparse(self.path).path
@@ -2753,6 +2720,7 @@ def main():
     print_banner("Sheet Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
     errors.init_error_tracking("sheet-tool")
+    print(GATE.describe(), flush=True)
     srv = _Server((HOST, PORT), Handler)
     try:
         srv.serve_forever()

@@ -83,24 +83,32 @@ export const ENV = {
 	get ATLAS_STYLE_REF_KEY() {
 		return env.ATLAS_STYLE_REF_KEY ?? 'spines/hotfruits/loader/loader.png';
 	},
-	// Atlas Maker (cloud Python tool) — the re-hosted ui_server, embedded in
-	// /atlas behind the launcher. URL of the atlas-tool Railway service; the
-	// optional shared secret is appended as ?k= so the tool's gate lets the
-	// authenticated iframe through.
+	// Atlas Maker (cloud Python tool) — the re-hosted ui_server, opened full-page
+	// from /atlas behind the launcher. URL of the atlas-tool Railway service.
 	get ATLAS_TOOL_URL() {
 		// Defaults to the known atlas-tool Railway service so /atlas works
 		// without depending on a Railway env var being applied. Override via
 		// the ATLAS_TOOL_URL env when the tool moves.
 		return env.ATLAS_TOOL_URL ?? 'https://atlas-tool-production.up.railway.app';
 	},
+	// Legacy fallback handoff, used only while ATLAS_TOOL_SIGNING_SECRET is unset:
+	// the unsigned shared secret appended as `?k=` so the tool's gate lets the user in.
 	get ATLAS_TOOL_SECRET() {
 		return env.ATLAS_TOOL_SECRET ?? '';
 	},
-	// Shared secret gating blueprint PUBLISHING (write to the shared library).
-	// Handed to the atlas tool as `bp=<secret>` only for users holding the
-	// `blueprintPublish` capability; the tool requires the value to match. Unset
-	// = publishing stays off in a deployed tool (fail safe). Must match the same
-	// var set on the atlas-tool service.
+	// Signs the short-lived launch token handed to the atlas tool (`$lib/server/toolLaunch`).
+	// Must equal the var of the same name on the atlas-tool service. A new random value —
+	// not the R2 key and not ATLAS_TOOL_SECRET.
+	get ATLAS_TOOL_SIGNING_SECRET() {
+		// Trimmed on both ends (the tools strip too): a stray pasted newline would fail every signature.
+		return (env.ATLAS_TOOL_SIGNING_SECRET ?? '').trim();
+	},
+	// Shared secret gating blueprint PUBLISHING (write to the shared library) on
+	// the legacy handoff only — with the signed launch token, publish rights travel
+	// as the token's `blueprintPublish` cap instead. Handed to the atlas tool as
+	// `bp=<secret>` only for users holding the `blueprintPublish` capability; the
+	// tool requires the value to match. Unset = legacy publishing stays off (fail
+	// safe). Must match the same var set on the atlas-tool service.
 	get ATLAS_BLUEPRINT_SECRET() {
 		return env.ATLAS_BLUEPRINT_SECRET ?? '';
 	},
@@ -157,8 +165,16 @@ export const ENV = {
 	get SHEET_TOOL_URL() {
 		return env.SHEET_TOOL_URL ?? 'https://sheet-tool-production.up.railway.app';
 	},
+	// Legacy fallback handoff, used only while SHEET_TOOL_SIGNING_SECRET is unset:
+	// the unsigned shared secret appended as `?k=` so the tool's gate lets the user in.
 	get SHEET_TOOL_SECRET() {
 		return env.SHEET_TOOL_SECRET ?? '';
+	},
+	// Signs the short-lived launch token handed to the sheet tool (`$lib/server/toolLaunch`).
+	// Must equal the var of the same name on the sheet-tool service. A new random value —
+	// not the R2 key and not SHEET_TOOL_SECRET.
+	get SHEET_TOOL_SIGNING_SECRET() {
+		return (env.SHEET_TOOL_SIGNING_SECRET ?? '').trim();
 	},
 	// Invisible Editor — shared read token for the public layout-doc endpoint
 	// (`GET /api/editor/doc`). Standalone games (own origin, no launcher session)

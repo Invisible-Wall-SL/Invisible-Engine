@@ -925,8 +925,10 @@ you are on before hunting for a missing model.
 `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`,
 `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `COMFY_ORG_API_KEY` (optional, gpt_image), `ATLAS_PROJECT`,
-`ATLAS_OUTPUT_PREFIX`, `ATLAS_STAGING`, `ATLAS_TOOL_SECRET` (optional access
-gate; unset = open on its URL), `COMFY_CATALOG_URL` (optional; an always-on
+`ATLAS_OUTPUT_PREFIX`, `ATLAS_STAGING`, `ATLAS_TOOL_SIGNING_SECRET` (verifies
+the launcher's signed launch token — same value as on the launcher),
+`ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy handoff, until the
+2026-10-13 cut-over), `IW_LEGACY_TOOL_KEY_UNTIL` (optional), `COMFY_CATALOG_URL` (optional; an always-on
 ComfyUI to read the Settings model lists from — see [INFRA](../INFRA.md)).
 
 ## Known gotchas / limitations
@@ -944,5 +946,13 @@ ComfyUI to read the Settings model lists from — see [INFRA](../INFRA.md)).
   (B10) is code-complete but **not yet browser-tested live**.
 - **FLUX/gpt_image pipelines** are code-reviewed but a full live verify on the
   local GPU is still owed.
-- **Access gate** — `ATLAS_TOOL_SECRET` is currently unset, so the tool is open
-  on its URL; when set, verify the launcher's `?k=` cookie flow.
+- **Always open it from the launcher.** The launcher hands the tool a
+  short-lived signed pass for your user and your current project; the tool
+  turns it into a session for that project. A bookmarked tool URL works only
+  while that session lasts (12 h) — after that, or to **change project**, go
+  back through the launcher (the project picker there). Editing `client` or
+  `project` in the address bar changes nothing.
+- **One render at a time, per service.** If someone else is rendering, the
+  button reads "*Name* is rendering 3/16…" and **■ Stop** is hidden — only the
+  person who started a render (or an admin) can stop it. If their render is for
+  a different project you see the progress, not their log.

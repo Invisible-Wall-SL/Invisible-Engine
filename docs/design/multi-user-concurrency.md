@@ -713,8 +713,12 @@ which the tools parse), but a slug is not a `users.id` and so cannot satisfy
   overwrite (`push_dir`/`push_file`), which also blunts the startup-hydration
   staleness in §3 — a different bug with a different blast radius, deliberately not
   bundled with 3a.
-- Still open: a PERSON-level lease from the Python side, once a real user id
-  (not the slug) reaches them.
+- Still open: a PERSON-level lease from the Python side. **Unblocked 2026-09-29:** the
+  launcher's signed launch token carries the real `users.id` as `uid` (next to the slug
+  `sub`), and `iw_common/launch.py` exposes it as `Identity.uid` on every request — see
+  [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).
+  First user: the atlas-tool render slot now records its owner and only the owner or an
+  admin may stop it.
 
 ### Phase 4 — Verify + document
 - Two-user test per tool (two browser profiles, same project): A and B both open

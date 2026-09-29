@@ -353,14 +353,13 @@ def test_zip_route() -> None:
         def __init__(self, path: str) -> None:
             self.path = path
             self.sent: dict = {}
-            self._set_cookie = None
 
         def _send(self, code, ctype, body, extra_headers=None):
             self.sent = {"code": code, "ctype": ctype, "body": body,
                          "headers": dict(extra_headers or {})}
 
-        def _gate(self):
-            return (True, None)
+        def _authenticate(self):
+            return True
 
         def _resolve_context(self):
             pass

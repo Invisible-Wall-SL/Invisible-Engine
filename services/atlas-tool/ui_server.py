@@ -59,6 +59,7 @@ from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
+from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -220,8 +221,12 @@ def _unmirror(p: Path) -> None:
         pass
 
 
-# Shared-secret access gate (the tool runs behind the launcher). Unset = open.
+# The pre-token shared-secret gate. Kept for the transition window only (see
+# iw_common/launch.py); both unset = open (local dev).
 ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
+GATE = launch.LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET",
+                         legacy_env="ATLAS_TOOL_SECRET", legacy_cookie="atlas_tool",
+                         legacy_header="X-Atlas-Secret")
 
 
 def _truthy_env(name: str) -> bool:
@@ -289,9 +294,11 @@ PORT = int(os.environ.get("PORT", "8765"))
 HOST = os.environ.get("ATLAS_BIND_HOST", "0.0.0.0")
 BUILD = "v15-extra-prompts"  # shown in the startup banner so you can verify the live code
 
+# One render slot per process, shared by every user. `owner` names who holds it
+# ({id, name, client, project}) so only they or an admin can stop it.
 _render_state = {"running": False, "log": "", "done": False, "cur": 0,
                  "total": 0, "diagnostics": [], "started": 0.0,
-                 "runpodJob": ""}
+                 "runpodJob": "", "owner": None}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
 _stopped = False
@@ -2868,7 +2875,7 @@ def resolve_user_comfy_env(user_id: str) -> dict:
     return env
 
 
-def claim_render_slot() -> tuple[bool, str]:
+def claim_render_slot(owner: dict | None = None) -> tuple[bool, str]:
     """Take the render slot, or explain why not. `(started, message)`.
 
     Two failures this closes, which together produced "it renders forever and
@@ -2890,6 +2897,11 @@ def claim_render_slot() -> tuple[bool, str]:
             proc = _render_proc
             alive = proc is not None and proc.poll() is None
             if alive:
+                held = _render_state.get("owner") or {}
+                if not launch.may_control(_identity_of(owner), held):
+                    return False, (f"{held.get('name') or 'Someone'} is rendering "
+                                   f"{_render_progress()} — wait for it to finish; "
+                                   "only they or an admin can stop it.")
                 return False, ("A render is already running "
                                f"{_render_progress()} — press Stop to cancel "
                                "it before starting another.")
@@ -2897,8 +2909,33 @@ def claim_render_slot() -> tuple[bool, str]:
             # new render starts, so anything written here would vanish.
             print("[render] stale 'running' flag with no live subprocess - "
                   "clearing it and starting the new render.", flush=True)
-        _render_state.update(running=True, done=False, started=time.time())
+        _render_state.update(running=True, done=False, started=time.time(),
+                             owner=owner)
     return True, "started"
+
+
+def _identity_of(owner: dict | None) -> launch.Identity | None:
+    """The owner record as an Identity, for may_control() comparisons."""
+    if not owner:
+        return None
+    return launch.Identity(via=owner.get("via") or "token", sub=owner.get("id") or "",
+                           role=owner.get("role") or "")
+
+
+def render_view(ident: launch.Identity | None, client: str, project: str) -> bytes:
+    """`/progress` for THIS caller: who holds the slot, whether they may stop
+    it, and — only for the same (client, project) — its log and diagnostics."""
+    with _render_lock:
+        view = dict(_render_state)
+        owner = view.get("owner") or None
+        view["canStop"] = launch.may_control(ident, owner)
+        view["mine"] = bool(owner and ident and owner.get("id")
+                            and owner["id"] == ident.sub)
+        if owner:
+            view["owner"] = {"name": owner.get("name") or "", "id": owner.get("id") or ""}
+            if (owner.get("client"), owner.get("project")) != (client, project):
+                view.update(log="", diagnostics=[], runpodJob="", otherProject=True)
+        return json.dumps(view).encode()
 
 
 def _render_progress() -> str:
@@ -4251,7 +4288,8 @@ def stamp_compose_provenance(mp: Path) -> str | None:
             f"blocked_by={blocked} regions_unknown={summary['regions_unknown']}")
 
 
-def run_compose(ctx: tuple[str, str] | None = None) -> None:
+def run_compose(ctx: tuple[str, str] | None = None,
+                owner: dict | None = None) -> None:
     # See run_render: re-apply the request thread's context on this worker.
     if ctx:
         project_paths.set_context(*ctx)
@@ -4267,7 +4305,7 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # below, a raise, a subprocess that never starts — the flag comes back down.
     with _render_lock:
         _render_state.update(running=True, done=False, cur=0, total=1,
-                             diagnostics=[], started=time.time(),
+                             diagnostics=[], started=time.time(), owner=owner,
                              log="Create Atlas: preparing…\n")
     try:
         # Compose picks each region's variant PNG from batch/ in the subprocess,
@@ -7678,8 +7716,12 @@ async function poll(){{
  let b=document.getElementById('rbtn');
  let pct=j.total? Math.round(100*j.cur/j.total):0;
  b.querySelector('.fill').style.width=pct+'%';
- b.querySelector('.lbl').textContent=j.running?('⏳ Rendering '+j.cur+'/'+j.total+'…'):'▶ Render selected';
- if(j.running){{setTimeout(poll,1200);}}
+ let who=(j.owner&&j.owner.name&&!j.mine)?(j.owner.name+' is rendering '):'⏳ Rendering ';
+ b.querySelector('.lbl').textContent=j.running?(who+j.cur+'/'+j.total+'…'):'▶ Render selected';
+ if(j.running){{
+  document.getElementById('sbtn').style.display=j.canStop?'inline-block':'none';
+  setTimeout(poll,1200);
+ }}
  else{{
   b.disabled=false; b.querySelector('.fill').style.width='0%';
   let sb=document.getElementById('sbtn');
@@ -7715,7 +7757,7 @@ async function adoptServerRender(){{
  }}
  if(!j.running) return;
  document.getElementById('rbtn').disabled=true;
- document.getElementById('sbtn').style.display='inline-block';
+ document.getElementById('sbtn').style.display=j.canStop?'inline-block':'none';
  document.getElementById('toast').style.display='none';
  poll();   // takes over the progress bar, the label and the Stop lifecycle
 }}
@@ -8044,8 +8086,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        merged = dict(getattr(self, "_set_cookie", None) or {})
-        merged.update(extra_headers or {})
+        merged = dict(extra_headers or {})
         # Default to no-store (config/JSON/HTML are dynamic). A caller that wants
         # a cacheable response (image routes, via imgcache.cache_headers) passes
         # its own Cache-Control, which then wins — don't emit both.
@@ -8053,92 +8094,53 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
         for k, v in merged.items():
             self.send_header(k, v)
-        # Additional Set-Cookie headers (a dict can't hold two) — e.g. the
-        # project cookie set alongside the gate's secret cookie.
+        # The gate's Set-Cookie headers (a dict can't hold two).
         for c in getattr(self, "_extra_cookies", None) or ():
             self.send_header("Set-Cookie", c)
         self.end_headers()
         self.wfile.write(body)
 
-    def _gate(self) -> tuple[bool, dict | None]:
-        """Shared-secret access gate (the tool sits behind the launcher).
-        Open when ATLAS_TOOL_SECRET is unset. Accepts the secret via cookie,
-        `X-Atlas-Secret` header, or `?k=` query (which also sets the cookie so
-        the iframe's later asset/fetch requests pass)."""
-        if not ATLAS_TOOL_SECRET:
-            return True, None
-        cookie = self.headers.get("Cookie", "") or ""
-        if f"atlas_tool={ATLAS_TOOL_SECRET}" in cookie:
-            return True, None
-        if self.headers.get("X-Atlas-Secret") == ATLAS_TOOL_SECRET:
-            return True, None
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        if q.get("k", [""])[0] == ATLAS_TOOL_SECRET:
-            return True, {
-                "Set-Cookie": f"atlas_tool={ATLAS_TOOL_SECRET}; Path=/; "
-                              f"HttpOnly; SameSite=None; Secure"
-            }
-        return False, None
+    def _authenticate(self) -> bool:
+        """Who is calling and for which (client, project) — see
+        iw_common/launch.py. Answers the request itself and returns False on a
+        refusal, and on a launch (the redirect that takes the token out of the
+        URL once the session cookie is set)."""
+        res = GATE.authenticate(self.path, self.headers)
+        self._identity = res.identity
+        self._extra_cookies = list(res.cookies)
+        if not res.ok:
+            self._send(403, "text/plain; charset=utf-8",
+                       "Forbidden — open the Atlas Maker from the launcher."
+                       .encode("utf-8"))
+            return False
+        if res.redirect and self.command == "GET":
+            self._send(303, "text/plain", b"", {"Location": res.redirect})
+            return False
+        return True
 
     def _resolve_context(self) -> None:
-        """Pick + apply the (client, project) for THIS request.
+        """Apply the caller's (client, project) to THIS request thread.
 
-        Resolution order for EACH key (independently):
-          1. `?client=` / `?project=` query param (slug-validated)
-          2. `iw_client` / `iw_project` cookie
-          3. env default (`ATLAS_CLIENT` / `ATLAS_PROJECT`)
+        With a signed launch the scope comes from the token/session ONLY — a
+        `?client=` / `?project=` in the URL is ignored, and switching project
+        goes back through the launcher. The legacy/open modes keep the old
+        query-then-cookie resolution (done in the gate). Missing keys fall back
+        to the env default (`ATLAS_CLIENT` / `ATLAS_PROJECT`).
 
-        A valid query param sticks into the matching cookie so in-tool
-        navigation (which drops the param) stays in the same context. Legacy
-        single-`?project=` requests fall back to the env-default client (no
-        cross-tool client lookup — the launcher always passes both now).
+        Thread-local: a concurrent request for a different project is fully
+        isolated; the path proxies (BATCH_DIR / INPUT_DIR / ...) and
+        project_paths.resolve() read this thread's context."""
+        ident = self._identity
+        # Per-user ComfyUI routing (per-user-comfyui-routing.md) keys on this.
+        self._user_id = ident.sub
+        project_paths.switch_context(ident.client, ident.project)
 
-        The chosen context is set on THIS request thread (thread-local), so a
-        concurrent request for a different project is fully isolated. The path
-        proxies (BATCH_DIR / INPUT_DIR / ...) and project_paths.resolve() both
-        read this thread's context, so no module-global copy and no global lock
-        are needed."""
-        self._extra_cookies = []
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        p_param = (q.get("project", [""])[0] or "").strip()
-        c_param = (q.get("client", [""])[0] or "").strip()
-        cookie = self.headers.get("Cookie", "") or ""
-        mp = re.search(r"iw_project=([^;]+)", cookie)
-        mc = re.search(r"iw_client=([^;]+)", cookie)
-        cookie_project = (mp.group(1).strip() if mp else "")
-        cookie_client = (mc.group(1).strip() if mc else "")
-        # Per-user ComfyUI routing (per-user-comfyui-routing.md): the launcher
-        # forwards the logged-in user as `?user=` (stuck into an `iw_user` cookie
-        # so in-tool navigation keeps it). Used ONLY to route generation to that
-        # user's own registered ComfyUI; blank ⇒ the shared tunnel. Not a tenant
-        # boundary (that's client/project), so a plain slug is enough.
-        u_param = (q.get("user", [""])[0] or "").strip()
-        mu = re.search(r"iw_user=([^;]+)", cookie)
-        self._user_id = (project_paths.r2_slug(u_param)
-                         or (mu.group(1).strip() if mu else ""))
-        if u_param and self._user_id:
-            self._extra_cookies.append(
-                f"iw_user={self._user_id}; Path=/; SameSite=None; Secure")
-
-        chosen_project = (project_paths.valid_project(p_param)
-                          or project_paths.valid_project(cookie_project)
-                          or project_paths.env_project())
-        chosen_client = (project_paths.valid_client(c_param)
-                         or project_paths.valid_client(cookie_client)
-                         or project_paths.env_client())
-
-        if p_param:
-            self._extra_cookies.append(
-                f"iw_project={chosen_project}; Path=/; SameSite=None; Secure")
-        if c_param:
-            self._extra_cookies.append(
-                f"iw_client={chosen_client}; Path=/; SameSite=None; Secure")
-
-        # Thread-local: switch_context sets THIS request thread's context and
-        # (on a real switch) hydrates its staging. The path proxies pick the
-        # new context up automatically on their next access — no module-global
-        # copy to refresh, no lock.
-        project_paths.switch_context(chosen_client, chosen_project)
+    def _render_owner(self) -> dict:
+        ident = self._identity
+        return {"id": ident.sub, "uid": ident.uid, "name": ident.name or ident.sub,
+                "role": ident.role, "via": ident.via,
+                "client": project_paths.client_name(),
+                "project": project_paths.project_name()}
 
     # Back-compat alias — kept so any legacy in-process call still works.
     def _resolve_project(self) -> None:
@@ -8149,7 +8151,7 @@ class Handler(BaseHTTPRequestHandler):
         `self.can_publish` (read by `_uploadblueprint` and exposed to the page
         so the "＋ New blueprint" affordance only shows when allowed).
 
-        Mirrors the `?k=` secret handling in `_gate`: the launcher hands off
+        Mirrors the legacy `?k=` secret handling in the gate: the launcher hands off
         `bp=<ATLAS_BLUEPRINT_SECRET>` ONLY for users holding `blueprintPublish`,
         and we require the param/cookie to EQUAL that secret. We stick it in a
         session cookie `atlas_bp=<secret>` (same attributes as the gate's
@@ -8157,8 +8159,14 @@ class Handler(BaseHTTPRequestHandler):
         that drop the param. A non-secret flag would be forgeable — every atlas
         user already holds the read secret, so `bp=1` would gate nothing.
 
-        Must run AFTER `_resolve_context()` (which initializes `_extra_cookies`)
+        With a signed launch the permission is the token's `blueprintPublish`
+        capability instead, and none of the secret handling below applies.
+
+        Must run AFTER `_authenticate()` (which initializes `_extra_cookies`)
         so the extra Set-Cookie rides along on the response."""
+        if self._identity.via == "token":
+            self.can_publish = self._identity.can(launch.PUBLISH_CAP)
+            return
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         param_bp = q.get("bp", [""])[0]
         cookie_bp = ""
@@ -8299,9 +8307,11 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # client hung up first
 
     def _get(self):
-        ok, self._set_cookie = self._gate()
-        if not ok:
-            self._send(403, "text/plain", b"forbidden")
+        if urllib.parse.urlparse(self.path).path == "/healthz":
+            # Gate-exempt liveness for the uptime monitor; names nothing private.
+            self._send(200, "application/json", launch.healthz_body("atlas-tool", BUILD))
+            return
+        if not self._authenticate():
             return
         self._resolve_context()
         self._resolve_publish()
@@ -8368,8 +8378,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/outfull/"):
             self._serve_img(self._outpath(path), thumb=False, label="no user image")
         elif path == "/progress":
-            with _render_lock:
-                self._send(200, "application/json", json.dumps(_render_state).encode())
+            self._send(200, "application/json",
+                       render_view(self._identity, project_paths.client_name(),
+                                   project_paths.project_name()))
         elif path == "/credits":
             self._send(200, "application/json", self._credits())
         elif path == "/fsbrowse":
@@ -8471,9 +8482,7 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch(self._post)
 
     def _post(self):
-        ok, self._set_cookie = self._gate()
-        if not ok:
-            self._send(403, "text/plain", b"forbidden")
+        if not self._authenticate():
             return
         self._resolve_context()
         self._resolve_publish()
@@ -8507,7 +8516,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
             names = payload.get("names", [])
             variants = int(payload.get("variants", 1))
-            started, msg = claim_render_slot()
+            started, msg = claim_render_slot(self._render_owner())
             if started:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
@@ -8518,11 +8527,23 @@ class Handler(BaseHTTPRequestHandler):
         elif post_path == "/createatlas":
             if not _render_state["running"]:
                 ctx = (project_paths.client_name(), project_paths.project_name())
-                threading.Thread(target=run_compose, args=(ctx,),
+                threading.Thread(target=run_compose, args=(ctx, self._render_owner()),
                                  daemon=True).start()
             self._send(200, "text/plain", b"composing")
         elif post_path == "/stop":
-            self._send(200, "text/plain", stop_render().encode())
+            with _render_lock:
+                running = _render_state["running"]
+                held = _render_state.get("owner") if running else None
+            # Stop also interrupts + clears the shared ComfyUI queue, so with no
+            # render in the slot there is nothing of the caller's to stop there.
+            if not running and not self._identity.is_admin:
+                self._send(200, "text/plain", b"Nothing is running.")
+            elif launch.may_control(self._identity, held):
+                self._send(200, "text/plain", stop_render().encode())
+            else:
+                self._send(200, "text/plain",
+                           (f"{held.get('name') or 'Someone else'} started this render "
+                            "— only they or an admin can stop it.").encode())
         elif post_path == "/delvariants":
             self._send(200, "text/plain", self._delvariants(json.loads(raw)).encode())
         elif post_path == "/newatlas":
@@ -11820,6 +11841,7 @@ def main():
     print_banner("Atlas Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
     errors.init_error_tracking("atlas-tool")
+    print(GATE.describe(), flush=True)
     # RunPod on-demand: auto-stop the pod after idle (no-op unless configured).
     runpod_control.start_idle_watchdog(
         is_rendering=lambda: bool(_render_state.get("running")))

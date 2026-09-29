@@ -48,10 +48,12 @@ build pill, Atlas-Maker-link status), then three columns:
 ## How to access it
 
 Sign in to the launcher (`app.invisiblewall.org`) and open **Invisible Sheet
-Maker** → it full-page-redirects to the tool at `SHEET_TOOL_URL` with the
-active **project** forwarded (`?project=<key>`, project-centric like the Atlas
-Maker). The launcher must have `SHEET_TOOL_URL` set (and optional
-`SHEET_TOOL_SECRET`). To run it standalone for dev: `python sheet_server.py`
+Maker** → it full-page-redirects to the tool at `SHEET_TOOL_URL` with a signed
+launch pass for you and the active **project** (project-centric like the Atlas
+Maker). The launcher must have `SHEET_TOOL_URL` set, and `SHEET_TOOL_SIGNING_SECRET`
+(same value on the tool) so it can hand over a signed launch pass. To change
+project, go back through the launcher — the tool's project picker shows
+"(set by Launcher)". To run it standalone for dev: `python sheet_server.py`
 binds `0.0.0.0:$PORT` (default **8766**).
 
 ## Typical workflow
@@ -213,8 +215,10 @@ manifest. Renaming refuses to overwrite an existing sheet of the target name.
 
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `SHEET_PROJECT` (default `cloud`), `SHEET_STAGING` (default `/data/sheet-tool`),
-`PORT` (default `8766`), `SHEET_TOOL_SECRET` (optional access gate; unset =
-open), `IW_PROJECT_NAME` (optional pinned project, set by the launcher).
+`PORT` (default `8766`), `SHEET_TOOL_SIGNING_SECRET` (verifies the launcher's
+signed launch token), `SHEET_TOOL_SECRET` (legacy handoff, until the 2026-10-13
+cut-over; with neither set the tool is open — local dev),
+`IW_LEGACY_TOOL_KEY_UNTIL` (optional), `IW_PROJECT_NAME` (optional pinned project, set by the launcher).
 
 State lives in the R2-backed staging tree (`sheet_config.json`, uploads,
 exports) so it survives container restarts; writes mirror to R2.

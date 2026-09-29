@@ -1,10 +1,7 @@
 import { error } from '@sveltejs/kit';
-import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { ENV } from '$lib/server/env';
-import { r2Slug } from '$lib/server/projectPaths';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { toolHandoff } from '$lib/server/toolLaunch';
 import { gate } from '$lib/server/toolScope';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 /**
@@ -17,7 +14,9 @@ import type { RequestHandler } from './$types';
  *
  * The launcher stays the gate: the shared `gate` resolves the SESSION-bound `(client, project)`
  * and 403s unless the user is entitled to the `flipbook` tool — exactly as `/api/flipbook/save`
- * does. `ATLAS_TOOL_SECRET` is appended server-side and never reaches the browser.
+ * does. The handoff to the tool is minted server-side and never reaches the browser: a signed
+ * launch token in the `X-IW-Launch` header, or the legacy query (`ATLAS_TOOL_SECRET` as `k`)
+ * while `ATLAS_TOOL_SIGNING_SECRET` is unset.
  *
  * **The path is an explicit ALLOW-LIST, not a pass-through.** A `[...path]` rest route that
  * forwarded whatever it was given would hand any flipbook user the whole atlas-tool surface —
@@ -95,40 +94,41 @@ async function forward(
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
 	if (!base) throw error(503, 'The Atlas Maker service is not configured (ATLAS_TOOL_URL).');
 
-	const params = new URLSearchParams();
-	if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
-	params.set('client', clientKey);
-	params.set('project', projectKey);
-	// Per-user ComfyUI routing (docs/design/per-user-comfyui-routing.md) — same slug the
-	// `/atlas` handoff and the tool itself use, so all three agree on the key.
-	if (locals.user?.id) params.set('user', r2Slug(locals.user.id));
+	// `gate` above throws 401 without a session, so a user exists here — but say so in the types
+	// rather than coercing a Role to '' and hoping.
+	const user = locals.user;
+	if (!user) throw error(401, 'Not signed in.');
+	const {
+		params,
+		headers: launchHeaders,
+		signed,
+		canPublishBlueprints,
+	} = await toolHandoff({
+		tool: 'atlas',
+		user,
+		clientKey,
+		projectKey,
+		via: 'header',
+		withPublish: target === '/uploadblueprint',
+	});
 	for (const p of PASS_PARAMS) {
 		const v = url.searchParams.get(p);
 		if (v !== null) params.set(p, v);
 	}
 
-	// Publishing writes to the library EVERY project reads, so it carries its own
-	// capability on top of the tool gate — the same `blueprintPublish` check the
-	// /atlas handoff makes. The gate is by KNOWLEDGE OF THE SECRET, not a
-	// forgeable flag: every flipbook user already holds `?k=`, so `bp` is appended
-	// only for a holder, and the tool refuses to publish without it.
+	// Publishing writes to the library EVERY project reads, so it carries its own capability on
+	// top of the tool gate — the same `blueprintPublish` check the /atlas handoff makes. It
+	// reaches the tool as the token's `blueprintPublish` cap, or on the legacy path as
+	// `bp=<ATLAS_BLUEPRINT_SECRET>` (a secret, not a forgeable flag: every flipbook user already
+	// holds `k`), which the handoff adds only for a holder.
 	let outgoing = body;
 	if (target === '/uploadblueprint') {
-		if (!ENV.ATLAS_BLUEPRINT_SECRET) {
+		if (!signed && !ENV.ATLAS_BLUEPRINT_SECRET) {
 			throw error(503, 'Blueprint publishing is not configured (ATLAS_BLUEPRINT_SECRET).');
 		}
-		// `gate` above throws 401 without a session, so a user exists here — but say
-		// so in the types rather than coercing a Role to '' and hoping.
-		const user = locals.user;
-		if (!user) throw error(401, 'Not signed in.');
-		const [roleOverrides, userOverrides] = await Promise.all([
-			getRoleOverrides(user.role),
-			getToolOverrides(user.id),
-		]);
-		if (!roleHasCapability(user.role, BLUEPRINT_PUBLISH_CAPABILITY, roleOverrides, userOverrides)) {
+		if (!canPublishBlueprints) {
 			throw error(403, "You don't have permission to publish blueprints. Ask an admin.");
 		}
-		params.set('bp', ENV.ATLAS_BLUEPRINT_SECRET);
 		// This is the VIDEO tool's uploader, so what it publishes is a video
 		// blueprint — decided here rather than trusted from the client, which
 		// would let this route quietly publish into the Atlas Maker's picker.
@@ -141,9 +141,13 @@ async function forward(
 
 	let res: Response;
 	try {
-		res = await fetch(`${base}${target}?${params.toString()}`, {
+		const query = params.toString();
+		res = await fetch(`${base}${target}${query ? `?${query}` : ''}`, {
 			method: body === undefined ? 'GET' : 'POST',
-			headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+			headers:
+				body === undefined
+					? launchHeaders
+					: { ...launchHeaders, 'Content-Type': 'application/json' },
 			body: outgoing,
 		});
 	} catch (e) {

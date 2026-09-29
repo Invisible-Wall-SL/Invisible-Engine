@@ -189,7 +189,7 @@ one burns a GPU job to produce a single still.
 | Job submit + poll, WEBP → R2 | `services/atlas-tool`, new JSON endpoints | `blueprints.py`, `_runpod_run_and_wait`, `pack.py`, R2 staging and the per-(client,project) path resolver all already live in that one process |
 | Frame extract + pack + manifest | same | Pillow + `pack.py` + `auto_pack_layout` are there |
 | Blueprint upload | same, existing `/uploadblueprint` | ONE shared library, one upload path, one `bp=` publish gate — a second uploader is exactly the duplication the house rules exist to prevent |
-| Mode UI, clip creation | `apps/launcher-api` `/flipbook` | The session cookie, the tool entitlement and the project scope are the launcher's; the browser never sees `ATLAS_TOOL_SECRET` |
+| Mode UI, clip creation | `apps/launcher-api` `/flipbook` | The session cookie, the tool entitlement and the project scope are the launcher's; the browser never sees the tool credential |
 
 The launcher's `/api/flipbook/video/*` endpoints **proxy** to `atlas-tool` with the same handoff
 `/atlas` already builds (`k` + `client` + `project` + `user`).
@@ -301,8 +301,8 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
    - **`api/flipbook/video/[...path]` is an explicit ALLOW-LIST, not a pass-through.** A rest route
      that forwarded whatever it was given would hand any flipbook user the entire atlas-tool
      surface — `/render`, `/deleteblueprint`, `/createatlas` — under a gate that never mentions
-     them. Auth is the canonical `toolScope.gate` on `flipbook`; `ATLAS_TOOL_SECRET` is appended
-     server-side and never reaches the browser.
+     them. Auth is the canonical `toolScope.gate` on `flipbook`; the tool credential (a signed
+     `X-IW-Launch` token since 2026-09-29) is added server-side and never reaches the browser.
    - **The source-image picker proxies the atlas-tool's `/fsbrowse`** rather than becoming the
      launcher's 5th file browser — it already returns paths in the exact per-root form the runner
      resolves, and a re-implementation would drift from it (`docs/ui-inventory.md` §1).

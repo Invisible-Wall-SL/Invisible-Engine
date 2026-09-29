@@ -48,10 +48,13 @@ Works today on `main` / live:
 1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker and now the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
 2. **Per-user session parity (Phase 4) — planned, unbuilt** (design `atlas-per-user-session.md`): thread the launcher `user` id and scope any server-remembered view state / canvas defaults per user. Minimal — the tool is largely stateless server-side (compose is synchronous, geometry rides in the request).
 
+3. **Signed launch tokens — owner env + the cut-over.** Inert until the owner sets `SHEET_TOOL_SIGNING_SECRET` (same value on launcher-api and sheet-tool — [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29)). **After 2026-10-13:** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (see atlas-maker status #6 — one change for both).
+
 ## Blocked (owner / external)
 - None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
 
 ## Recent changes
+- 2026-09-29 — **The Sheet Maker's scope comes from a launcher-signed token; `/healthz` is gate-exempt.** Same gate as the Atlas Maker (`iw_common/launch.py`, audience `sheet`): the launcher redirect carries only `?iw_launch=<token>`, the tool swaps it for a signed `iw_sheet_session` cookie and scopes every request from it; `?client=`/`?project=` in a URL are ignored, and the project picker shows "(set by Launcher)" once signing is on (it never switched R2 scope — `list_projects()` only ever returned the current project). Old `?k=` handoff accepted until 2026-10-13. `test_launch_gate.py` covers the handler wiring. Env + cut-over: [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).
 - 2026-09-29 — **Error reporting (Sentry), dormant until `SENTRY_DSN` is set on the Railway service.** `services/_shared/iw_common/errors.py`: request exceptions (the 500 handler + a `ReportingServerMixin` catching what stdlib `http.server` only prints) are captured with `method`/`path` tags; cookies/headers dropped, `?k=`/secret values scrubbed, frame locals off. Tests: `services/atlas-tool/test_error_tracking.py`. See docs/INFRA.md "Monitoring & error tracking".
 - 2026-09-22 — **A deleted sheet stayed openable in the Atlas Maker — and came BACK.** Reported as
   "I deleted a locked sheet, it left the list, but I can still open its manifest in the Atlas Maker".
