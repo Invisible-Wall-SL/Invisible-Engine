@@ -2,6 +2,8 @@
  * Verify the two-step balance flow:
  *   requestBet      → returns interim (bet debited, win NOT yet credited)
  *   requestEndRound → returns final (win credited)
+ *
+ * Needs the mock RGS: `node scripts/mock-rgs-server.mjs` (`pnpm check:all` starts one for it).
  */
 import { requestAuthenticate, requestBet, requestEndRound } from '../packages/rgs-translator-eagaming/engine-facade.ts';
 
@@ -12,7 +14,10 @@ const auth = await requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 
 const startStake = auth.balance.amount;
 console.log(`auth balance (engine units): ${startStake}  (= $${startStake / 1_000_000})`);
 
-for (let i = 0; i < 80; i++) {
+// `process.exitCode`, never `process.exit()`: exiting while undici's keep-alive sockets close aborts
+// Node on Windows (`UV_HANDLE_CLOSING`), which reads as a failure of a check that passed.
+let checked = false;
+for (let i = 0; i < 200 && !checked; i++) {
 	const bet = await requestBet({
 		sessionID: sid,
 		rgsUrl: url,
@@ -35,8 +40,15 @@ for (let i = 0; i < 80; i++) {
 	const expectedDelta = winMultiplier * 2 * 1_000_000; // win in engine units
 	const actualDelta = finalStake - interimStake;
 	console.log(`  delta: ${actualDelta}  (expect ${expectedDelta})`);
-	if (actualDelta === expectedDelta) console.log(`  ✓ count-up will animate from $${interimStake / 1_000_000} to $${finalStake / 1_000_000}`);
-	else console.log(`  ✗ MISMATCH`);
-	process.exit(0);
+	checked = true;
+	if (actualDelta !== expectedDelta) {
+		console.error('  ✗ MISMATCH — requestEndRound did not credit exactly the win');
+		process.exitCode = 1;
+	} else {
+		console.log(`  ✓ count-up will animate from $${interimStake / 1_000_000} to $${finalStake / 1_000_000}`);
+	}
 }
-console.log('No winning spin in 80 attempts — got unlucky.');
+if (!checked) {
+	console.error('✗ No winning spin in 200 attempts — the balance flow was never exercised.');
+	process.exitCode = 1;
+}

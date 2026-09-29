@@ -133,8 +133,10 @@ console.log('4. BOTH exporters gate on it — the art and the registry must agre
 // because it turns a merely wasteful build into one that cannot be published at all.
 ok(
 	'the ART export consults reachability',
-	/collectPlayedClipIds\(clientKey, projectKey, \{ doc, defs \}\)/.test(SRC),
-	'editorArtExport must gate its sheets',
+	// Without `defs` since #782: narrowing to the instantiated defs made this caller skip a clip
+	// that `exportClips`, asking the wide question, still registered.
+	/collectPlayedClipIds\(clientKey, projectKey, \{ doc \}\)/.test(SRC),
+	'editorArtExport must gate its sheets on the same (def-less) question as the registry',
 );
 ok(
 	'the CLIP REGISTRY export consults the same reachability',

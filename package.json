@@ -40,7 +40,9 @@
 		"check:engine-game": "node scripts/check-engine-game-fixtures.mjs",
 		"check:page-store": "node scripts/check-page-store-shared.mjs",
 		"check:build-provenance": "node scripts/check-build-provenance.mjs",
-		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs"
+		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs",
+		"check:all": "node scripts/check-all.mjs",
+		"check:python": "python scripts/check-python.py"
 	},
 	"dependencies": {
 		"eslint": "9.39.5",

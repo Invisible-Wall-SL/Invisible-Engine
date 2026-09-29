@@ -441,8 +441,9 @@ const emit = async (outRel, raw, note) => {
 	} catch {
 		current = '';
 	}
+	// A Windows checkout (`core.autocrlf=true`) holds the committed file with CRLF; compare as LF.
 	if (check) {
-		if (current !== next) {
+		if (current.replace(/\r\n/g, '\n') !== next) {
 			stale++;
 			console.error(`✗ ${outRel} is STALE — run: node scripts/gen-flow-vocabulary.mjs`);
 		} else {

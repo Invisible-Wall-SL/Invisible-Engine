@@ -16,6 +16,9 @@
 // Import the source module directly (not the `engine-layout` barrel) so tsx resolves pure-TS
 // deps only — the barrel re-exports `constants-shared/layout`, whose subpath raw-TS export
 // tsx can't load without transpile (the sibling spikes dodge this the same way).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { extraMountScenes } from '../../packages/engine-layout/src/lib/genericMountScenes';
 import type { LayoutDoc, Scene } from '../../packages/engine-layout/src/lib/types';
 import { defaultLayout } from '../../packages/engine-layout/src/lib/referenceLayouts/lines';
@@ -31,22 +34,20 @@ const assert = (cond: boolean, msg: string): void => {
 };
 
 // The reserved set Game.svelte uses: every scene id the game already mounts/handles by
-// hard-coded id (incl. the coded `background` anchor + the HUD scenes), kept in sync with
-// `RESERVED_SCENE_IDS` in apps/lines/src/components/Game.svelte.
-const RESERVED = new Set<string>([
-	'basegame',
-	'basegameOverlays',
-	'freeSpinIntro',
-	'freeSpinIntroVisual',
-	'freeSpinCounter',
-	'freeSpinOutro',
-	'freeSpinOutroVisual',
-	'specialBook',
-	'hudBar',
-	'hudCorners',
-	'loading',
-	'background',
-]);
+// hard-coded id. READ from `RESERVED_SCENE_IDS` in the component rather than copied here — the copy
+// this spike used to carry drifted six ids behind (`boardGlow`, `buyFeature`, `betMenu`, …) and
+// turned the parity assertion red for reasons that had nothing to do with the selection logic.
+const gameSvelte = readFileSync(
+	fileURLToPath(new URL('../../apps/lines/src/components/Game.svelte', import.meta.url)),
+	'utf8',
+);
+const reservedBlock = /const RESERVED_SCENE_IDS = \[([\s\S]*?)\] as const;/.exec(gameSvelte)?.[1] ?? '';
+const RESERVED = new Set<string>(
+	[...reservedBlock.replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((m) => m[1]),
+);
+if (!RESERVED.has('basegame') || RESERVED.size < 10) {
+	throw new Error(`could not read RESERVED_SCENE_IDS from Game.svelte (got ${[...RESERVED]})`);
+}
 
 // ---------------------------------------------------------------------------
 // 1. apps/lines parity — the reference doc mounts no EXTRA scene.
