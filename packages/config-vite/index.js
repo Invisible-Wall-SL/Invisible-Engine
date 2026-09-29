@@ -8,6 +8,7 @@ import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
+import { buildProvenance } from './provenance.js';
 
 const NODE_ENV = process.env.NODE_ENV;
 let dev = NODE_ENV === 'development';
@@ -124,7 +125,7 @@ const debugBuild = () => dev || process.env.PUBLIC_IE_DEBUG === '1';
 
 /** The commit a build was cut from — the identity an error report names as its `release`. The
  * runtime release passes it explicitly (`PUBLIC_BUILD_SHA: github.sha`). */
-export const buildSha = () => process.env.PUBLIC_BUILD_SHA || '';
+const buildSha = () => process.env.PUBLIC_BUILD_SHA || '';
 
 /**
  * The Invisible Debug switch + the build stamp (`docs/design/invisible-debug-framework.md`).
@@ -144,12 +145,18 @@ export const buildSha = () => process.env.PUBLIC_BUILD_SHA || '';
  */
 const gameBuildDefine = () => ({
 	__IE_DEBUG__: JSON.stringify(debugBuild()),
-	__IE_BUILD__: JSON.stringify({
-		version: process.env.PUBLIC_BUILD_VERSION ?? '',
-		sha: buildSha(),
-		builtAt: process.env.PUBLIC_BUILD_TIME ?? new Date().toISOString(),
-		debug: debugBuild(),
-	}),
+	__IE_BUILD__: JSON.stringify(buildStamp(debugBuild())),
+});
+
+/**
+ * The `__IE_BUILD__` value: the stamp plus where the build came from (`provenance.js`). Exported so
+ * an app that sets its own `define` (`apps/lines`, for its mode-accurate `debug`) carries the same
+ * fields rather than a copy of them.
+ */
+export const buildStamp = (debug) => ({
+	...buildProvenance(),
+	sha: buildSha(),
+	debug,
 });
 
 export default () =>

@@ -41,7 +41,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
    of listing every project would make it about one.
 
 ## Blocked (owner / external)
-- **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
+- **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services — and, since launcher v1.0.56, by no publisher's desktop), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
 - Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GAMES_BASE_URL` (legacy home Games bridge), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
 
 ## Key lessons / gotchas
@@ -50,6 +50,46 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+
+### 2026-09-29 — desktop publishing needs no R2 key; builds say which build they are
+Readiness audit §3.2, with desktop launcher v1.0.56 (`invisible-launcher` repo).
+- **☁ Publish goes through the relay by default.** The launcher now uses `api/launcher/game-upload`
+  as the signed-in `gamePublish` user, and asks for no R2 credentials. Direct-to-R2 is an owner
+  opt-in in Settings, and it falls back to the relay when R2 is unreachable OR rejects the saved
+  key. **So the bucket's write key can be rotated without touching a desktop.**
+- **Sized against real bundles.**
+
+  | Bundle | Files | Size | Largest file |
+  | --- | --- | --- | --- |
+  | Book of Borut Remake | 370 | 87 MB | 4.9 MB |
+  | Ways of Waves | 597 | 140 MB | 6.2 MB |
+  | unoptimised Test1 | 319 | 390 MB | 30.6 MB PNG |
+
+  Railway allows about 15 min per request and each file is its own PUT, so the only real limit is
+  per file: adapter-node's `BODY_SIZE_LIMIT` (code default 32M). The relay therefore carries these
+  bundles, and presigned URLs were **not** needed. They would also defeat the relay's other reason
+  to exist, because they point at `*.r2.cloudflarestorage.com`, the host the Spanish ISP block
+  null-routes.
+- **Relay GET** now reports the limit actually enforced, `min(64 MB cap, BODY_SIZE_LIMIT)`. The cap
+  alone claimed 64 MB while the adapter 413'd anything over 32. With `?key=` it also lists
+  `{path, size, md5}` of what the game's prefix holds, so a republish skips unchanged files. This is
+  safe because the commit verifies every file arrived before registering. `ListedObject` gained
+  `etag`.
+- **Provenance.** `packages/config-vite/provenance.js` produces `buildProvenance()`: version,
+  builtAt, `engineSha` (the compiled engine, not the pin), `gameSha`, `lockfileSha256` (always
+  measured, since the install may rewrite it) and `launcherVersion`. It is baked into
+  `__IE_BUILD__` through the shared base and `apps/lines` (`buildStamp`). It is exposed at runtime
+  as `window.__IE_BUILD__` (`game/buildInfo.ts`, frozen). It is also written by the launcher as
+  `build-info.json` beside the bundle, which `build-delivery.mjs` puts into `EMBED.md` §5 and
+  `--json` `build`.
+- **Refusals as data.** `bake-editor-doc.mjs` writes the flow and paytable gate refusals to
+  `IE_BUILD_REFUSAL_JSON` as `{gate, error, details, override: {flag, env}}`, and
+  `build-delivery.mjs --json` carries the same shape for missing art, plus the bake's when it runs
+  the build itself. The launcher shows the reason and offers the named override behind an explicit
+  confirmation.
+- `node scripts/check-build-provenance.mjs` (`check:build-provenance`) runs 23 checks over the real
+  provenance module and the real bake, against a fake portal that refuses each gate.
+- Runbook: [guides/publisher-runbook.md](../guides/publisher-runbook.md).
 
 ### 2026-09-29 — component defaults get rolling backups too
 - `saveComponentDefaults` writes through `putDocWithBackup` with a new `component-defaults` stem;

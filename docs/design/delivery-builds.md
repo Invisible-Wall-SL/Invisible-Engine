@@ -575,6 +575,16 @@ left alone.
 - **`--list-profiles` / `--print-env` / `--json` / `--skip-build`** — the seams a UI needs.
 - **`--allow-missing-assets`** — the override for the missing-art refusal: without it, a baked
   bundle that reports placed or symbol-bound regions/spines resolving to nothing fails the delivery.
+- **A refusal is data as well as text.** A failed `--json` result carries
+  `refusal: {gate, error, details, override: {flag, env}}` for every gate that has an override —
+  missing art here, and the bake's flow and paytable gates, which the bake writes in the same shape
+  to `IE_BUILD_REFUSAL_JSON`. A UI shows the reason and offers exactly the override named, with no
+  text scraped out of a build log.
+- **Provenance travels in the folder.** `build-info.json` (build number, time, engine commit,
+  game commit, lockfile sha256, launcher version — `packages/config-vite/provenance.js`, the same
+  values the vite config bakes into `__IE_BUILD__`) is taken from the build when its builder left
+  one, else computed, and is repeated in the `--json` result (`build`) and in `EMBED.md` §5, so the
+  partner can name the exact build they are running.
 
 ### The button
 
