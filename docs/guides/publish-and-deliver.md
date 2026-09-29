@@ -108,12 +108,12 @@ but never published, or someone made an older version live.
    *Check:* the change is there, and `X-IE-Runtime-Source` is `snapshot`. Players get the new
    version on their next load. A tab that is already open keeps the old one until it reloads.
 
-> **Trap: a math change needs a publish.** The published version freezes the Game Config the
-> player's game reads. The test server's mock RGS does not use that copy: it reads the project's
-> live Game Config, so a change in `/config` reaches the server within seconds. Until you publish
-> again, the game shows the old paytable and settings while the server deals and pays with the new
-> ones. After any Game Config change, publish. If the two grids disagree, the server's grid wins
-> and the game logs `[game-config] error: the RGS deals …` in the console.
+> **A math change reaches players when you publish, and not before.** The published version
+> freezes the Game Config the player's game reads, and the test server's mock RGS deals players
+> from that same published version. A change saved in `/config` is dealt only to **Live ↗** (the
+> authoring boot, which the server deals from the saved config within seconds). So try a math
+> change with **Live ↗**, then publish it. If a game's grid and the server's ever disagree, the
+> server's grid wins and the game logs `[game-config] error: the RGS deals …` in the console.
 
 ## B. Put a game back on an earlier version (Make live)
 
@@ -142,8 +142,9 @@ Nothing is rebuilt, so the switch is instant. Limits:
   button.
 - **A 409, *"Someone else changed the published version just now"*,** means another publish or
   switch landed first. Reload the page and retry.
-- **The mock RGS math is not rolled back.** It follows the live Game Config (section A). To take the
-  math back, change it in `/config`.
+- **The mock RGS math rolls back with it.** Players are dealt from the version that is live, so
+  **Make live** takes the server's grid, paylines and paytable back too, within a few seconds.
+  **Live ↗** still gets the saved Game Config.
 - **Published versions are not in the nightly backup.** The authored data they are made from is
   backed up, and publishing again recreates a version from it. See
   [Backups and restores](backups.md).
