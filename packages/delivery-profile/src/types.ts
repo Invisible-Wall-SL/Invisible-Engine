@@ -104,12 +104,27 @@ export interface DeliveryProfileSession {
 	required: boolean;
 }
 
+export interface DeliveryProfileTelemetry {
+	/**
+	 * Send client errors (uncaught exceptions, failed RGS calls) to our error tracker.
+	 *
+	 * Read only for a BAKED profile, and false unless it says otherwise: a delivery runs on a
+	 * partner's site in front of their players, and reporting from there is a privacy decision the
+	 * partner agrees to, not a default we ship. The shared online runtime is ours and reports
+	 * whenever the build carries a DSN, whichever profile a launch URL selects — see
+	 * `deliveryAllowsErrorReporting`. Bake-only, like `withCredentials`: an operator's `config.json`
+	 * cannot turn it on or off.
+	 */
+	errors: boolean;
+}
+
 export interface DeliveryProfile {
 	/** Names this delivery in the boot log — the first question on any support ticket is which build
 	 *  the operator is actually running. */
 	id: string;
 	rgs: DeliveryProfileRgs;
 	session: DeliveryProfileSession;
+	telemetry: DeliveryProfileTelemetry;
 }
 
 /**
@@ -136,6 +151,7 @@ export const DEFAULT_DELIVERY_PROFILE: DeliveryProfile = {
 		source: 'param',
 		required: false,
 	}),
+	telemetry: Object.freeze({ errors: false }),
 };
 
 Object.freeze(DEFAULT_DELIVERY_PROFILE);

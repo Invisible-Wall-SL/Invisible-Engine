@@ -10,3 +10,5 @@ boto3>=1.35.69
 # time instead. Without this the validator answers "PyYAML is unavailable" and refuses
 # every save — verified against a local boot before it was added.
 PyYAML>=6.0
+# Error reporting (iw_common.errors). Inert unless SENTRY_DSN is set.
+sentry-sdk>=2.20,<3

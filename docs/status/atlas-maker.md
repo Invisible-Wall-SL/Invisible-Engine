@@ -275,6 +275,7 @@ Works today on `main` / live:
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
 
 ## Recent changes
+- 2026-09-29 — **Error reporting (Sentry), dormant until `SENTRY_DSN` is set on the Railway service.** `services/_shared/iw_common/errors.py`: request exceptions (the 500 handler + a `ReportingServerMixin` catching what stdlib `http.server` only prints), failed render/compose jobs and a dying video-session runner are captured with `method`/`path` tags; cookies/headers dropped, `?k=`/secret values scrubbed, frame locals off. Tests: `services/atlas-tool/test_error_tracking.py`. See docs/INFRA.md "Monitoring & error tracking".
 - 2026-09-29 — **Every render is stamped with the licences of the models that made it** (groundwork
   only: no default model, no generation behaviour changed). Table: `services/atlas-tool/model_licences.json`
   (write-up: [model-licences](../reference/model-licences.md)); reader: `model_provenance.py` (stdlib,

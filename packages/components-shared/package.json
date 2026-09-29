@@ -25,6 +25,7 @@
 	},
 	"dependencies": {
 		"delivery-profile": "workspace:*",
+		"error-tracking": "workspace:*",
 		"@esotericsoftware/spine-pixi-v8": "4.2.74",
 		"pixi.js": "8.8.1",
 		"svelte": "5.35.1",

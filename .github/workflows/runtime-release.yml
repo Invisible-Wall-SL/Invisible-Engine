@@ -65,6 +65,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # `issues: write` is for the failure alert below and nothing else.
+    permissions:
+      contents: read
+      issues: write
     # One knob both triggers read: the dispatched runtime id, or 'lines' for an auto push-release.
     env:
       RUNTIME: ${{ inputs.runtime || 'lines' }}
@@ -127,10 +131,17 @@ jobs:
       # target. It is a whitelist: the URL picks among hosts we shipped, it can never name one.
       # Omitting the param (or `?rgs_profile=internal`) keeps the pre-existing behaviour, our RGS
       # through `?rgs_url=`.
+      #
+      # PUBLIC_SENTRY_DSN turns on client error reporting (packages/error-tracking); without the
+      # secret the bundle carries no SDK at all. PUBLIC_BUILD_SHA names the commit in every report,
+      # the same prefix the release is stored under (`_runtime/<id>@<sha12>`).
       - name: Build the ${{ env.RUNTIME }} runtime
         env:
           PUBLIC_RGS_TRANSPORT: play4fun
           PUBLIC_DELIVERY_PROFILES: '*'
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
         run: pnpm --filter ${{ env.RUNTIME }} build
 
       - name: Publish to _runtime/${{ env.RUNTIME }}@<version> and promote it
@@ -183,3 +194,26 @@ jobs:
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
             "${{ env.RUNTIME }}" --status failed
+
+      # A red run only emails whoever triggered it, and only if their personal Actions notification
+      # setting allows it — a merge by someone else, or a muted setting, and a failed release goes
+      # unseen while every online game stays on the previous engine. An ISSUE notifies everyone
+      # watching the repo. One open issue collects every failure (a comment each) until closed.
+      - name: Alert — open or update the "Runtime release failed" issue
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Runtime release failed: ${RUNTIME}"
+          body="Run: ${RUN_URL}
+          Commit: ${GITHUB_SHA} (${GITHUB_EVENT_NAME} by ${GITHUB_ACTOR})
+
+          Online games stay on the release the pointer still names. Fix forward or use the \"Runtime rollback\" workflow; close this issue once a release is green."
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

@@ -9,6 +9,8 @@ services would otherwise copy-paste:
   - ``iw_common.context``  — the thread-local (client, project) context base.
   - ``iw_common.imgcache`` — disk-backed thumbnail cache + HTTP ETag/304 helpers
     (kills the many-thumbnail 502 storm; shared by every HTTP image route).
+  - ``iw_common.errors``   — Sentry error reporting (off unless SENTRY_DSN is set;
+    scrubs the gate secret; captures what stdlib http.server swallows).
 
 Each service keeps a thin tool-specific ``cloud_paths.py`` (its own
 ``resolve()`` / ``hydrate()`` + env names) and 1-line re-export shims for

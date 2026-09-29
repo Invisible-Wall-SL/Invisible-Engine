@@ -5,18 +5,34 @@ import { BUILD_ID } from '$lib/server/buildId';
 import { startCostRecorder } from '$lib/server/costs/recorder';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
+import { captureServerError, initServerErrorTracking } from '$lib/server/errorTracking';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
-import type { Handle, ServerInit } from '@sveltejs/kit';
+import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 
-/** Runs once at server startup, before the first request — apply pending DB
+/** Runs once at server startup, before the first request — start error reporting (a no-op
+ * without `SENTRY_DSN`) first so a failed migration is reported, apply pending DB
  * migrations so schema-dependent routes never serve against an old schema, start
  * the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control / idle
  * auto-stop isn't configured), and start the Admin → Costs monthly recorder so a
  * month's figure doesn't depend on someone happening to open the page. */
 export const init: ServerInit = async () => {
+	await initServerErrorTracking();
 	await runMigrations();
 	startRunpodIdleWatchdog();
 	startCostRecorder();
+};
+
+/** An unexpected error (a thrown non-`error()`) — `error(4xx/5xx)` never reaches here. */
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+	if (status !== 404) {
+		captureServerError(error, {
+			route: event.route.id ?? undefined,
+			method: event.request.method,
+			status: String(status),
+		});
+	}
+	console.error(error);
+	return { message };
 };
 
 const attr = (s: string): string =>
