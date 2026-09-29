@@ -542,18 +542,13 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 
 #### Symbol size on the reel
 
-When the **reel grid** node is selected, its Properties panel includes a **"Symbol
-size (× cell)"** Width/Height control. This sets how big the symbol art renders
-_inside_ each reel cell, as a fraction of one cell — `1` fills the cell, `0.9`
-insets it slightly. It applies to **every** symbol on the board, and a **Reset**
-button clears it so the game falls back to its built-in per-symbol sizes.
-
-This is the one place symbol size is authored. (It used to live in the Invisible
-Symbols State Machine, but size is a layout concern, so it moved here to the reel.)
-It is stored as `reelGrid.symbolSizeRatios` on the layout doc and travels to the
-game on the normal scene bake — no separate asset step. Resizing the reel cell
-itself (`cellSize`) scales the grid _and_ the symbols together; this control
-changes only the symbol's size _within_ its cell.
+**Symbol size comes from the art.** There is no symbol-size number: every symbol fits
+its reel cell by its own art — a sprite by its picture, a flipbook by its clip's bounds
+box, a spine by the rig's Bounds frame (or the skeleton size Spine exported) — centred
+on the cell. To change one symbol's size, change its art (crop it, or set the rig's
+Bounds in the Rigger). Resizing the reel cell (`cellSize`) still scales the grid _and_
+the symbols together. (An earlier "Symbol size (× cell)" control and
+`reelGrid.symbolSizeRatios` were removed.)
 
 #### Symbol overflow — room for art that spills past the reel
 
@@ -676,12 +671,18 @@ can be undone from the same list, and the page reloads onto the restored layout.
 Restoring is disabled while another author holds the project, and the list warns when
 you have unsaved changes (including an unsaved reference preview).
 
-**Reaching the running game** is a build-time chain, not an in-tool export
-button. At game boot the engine fetches its saved doc from the launcher
-(`GET /api/editor/doc?project=&k=`, gated by the launcher's `EDITOR_DOC_SECRET`),
-falling back to the game's checked-in `editor-scenes.ts` fixture when the
-endpoint isn't reachable or no doc exists. The engine renders the doc via
-`<LayoutScene>`; existing coded/animated components (e.g. `Win`, `Transition`)
+**Reaching the running game** is a publish step, not an in-tool export button. For an
+online game, **Publish** in Invisible Game Maker freezes the saved layout (with its art,
+flow and config) into a published version, and that is what players boot — a save made
+after it reaches them only on the next Publish. Game Maker's **Live ↗** plays your current
+saved data, so check there first. See [Publish and deliver](../guides/publish-and-deliver.md).
+
+A desktop build (☁ Publish / 📦 Deliver) bakes the saved layout into its bundle, so it
+picks up edits on its next build. An un-baked dev game (e.g. `apps/lines` run locally)
+instead fetches the saved doc at boot (`GET /api/editor/doc?project=&k=`, gated by the
+launcher's `EDITOR_DOC_SECRET`), falling back to the game's checked-in `editor-scenes.ts`
+fixture when the endpoint isn't reachable or no doc exists. Either way the engine renders
+the doc via `<LayoutScene>`; existing coded/animated components (e.g. `Win`, `Transition`)
 keep mounting at their layout positions through the engine's bound-component
 registry. As with every R2 asset class, anything the layout references must also
 travel the export → deploy → bake → pull chain to ship inside the game bundle.
@@ -723,14 +724,30 @@ game on the next **Publish** — the same trip as the rest of your art.
 - **Save as new game kind…** — saves the current screens + engine pieces (minus
   artist art) as a new reusable kind that appears under "New game from kind".
 
+## Traps
+
+- **Your saved changes aren't in the game players open.** Players boot the last published
+  version, not your latest save. Check on **Live ↗**, then Publish — see
+  [Save and reach the game](#6-save-and-reach-the-game).
+- **Art you changed in another tool still shows the old version, or a new region draws blank.**
+  The canvas keeps atlas pages, region lists, flipbook clips and art bounds for the session.
+  Click **↻ Reload art** in the canvas toolbar; no page reload needed.
+- **Undo can't bring back your layout after ＋ Load scenes.** A load replaces every screen and
+  starts a fresh undo history, and your next edit saves it over the project. Open **History…**
+  and restore the version from just before the load — a load always keeps one.
+- **A Text you placed never shows the live balance or win.** A plain **Text** element only ever
+  shows the words you typed. Place the built-in **Text Box** from the **Components** tab and pick
+  its **live value source** instead. The canvas can't run the game, so the real number appears
+  only in the game.
+- **An image shows another atlas's art in the game.** When two atlases have a region of the same
+  name, an image picked before picks were tied to their atlas stores only the bare name, and the
+  game can resolve it to the other atlas. Re-pick the frame; a new pick remembers its atlas.
+- **The buy-feature cards all look the same here.** Per-mode **Card graphics** from
+  [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
+  draws each card with the component's own defaults. Check per-mode art in the game.
+
 ## Known limitations / TODOs
 
-- **New / reordered screens don't yet drive the shipped game.** The reference
-  games mount scenes by hardcoded id in a fixed code order, so a brand-new
-  empty/HUD screen, or a screen reorder, changes the **editor preview** but does
-  not yet render in the built game — only `background`-space scenes render
-  generically today. Wiring the runtime to render doc scenes generically by doc
-  order is the next engine step.
 - **Animated / book-event-driven content stays coded.** The editor owns static
   scenery, frames, labels, and intro/outro spine poses. Symbols, win-line draws,
   count-ups, and anything derived from runtime state mount via the engine's

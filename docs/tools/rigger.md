@@ -655,9 +655,11 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
 ### Re-sync a rig's atlas (after editing the source atlas)
 
 Each rig is a self-contained spine bundle (`spines/<rig>/`) that holds its OWN
-**copy** of the atlas page image, snapshotted when the rig was created. So if you
-recolour or otherwise edit that atlas in the **Atlas Maker** afterwards, the rig
-keeps showing the OLD image — its copy is never auto-updated.
+**copy** of the atlas page image, snapshotted when the rig was created. If that atlas
+is recoloured or re-packed afterwards, the copy is refreshed automatically the next
+time the Symbols State Machine, the Scene Editor or a game export reads the rig — as
+long as the rig remembers its source atlas (below). The Rigger itself opens the copy
+as it stands, so here a rig can keep showing the OLD image until you re-sync it.
 
 - **⟳ Re-sync atlas** (sidebar, enabled once a rig is loaded) re-pulls the latest
   page image from the SOURCE atlas and re-synthesises the rig's `.atlas`, then
@@ -939,6 +941,20 @@ they appear in no scene.
 > **editor** half is the verified half — the in-game player and the Flow node are
 > proven by contract tests but have **not yet run in a real game**. Check a
 > cinematic in a live game before depending on it.
+
+## Traps
+
+- **A mesh warps after its art was redrawn in the source atlas.** A mesh is authored against the
+  exact pixels of its region. ⟳ Re-sync atlas (and the automatic refresh) follows a region that was
+  merely re-packed or recoloured, but never touches your meshes — so if the art inside a
+  region changed _shape_, the old mesh no longer fits it. Re-shape the mesh and re-check its
+  weights; no atlas refresh can fix this.
+- **A rig with a hidden effect in its resting pose makes a tiny symbol.** The auto-fit on save
+  measures every attachment in the setup pose, including ones you can't see — a burst scaled up at
+  zero opacity still counts — and the symbol is then fitted by that oversized frame. Drag the
+  **Bounds** frame round the art that should fill the cell (a custom frame is locked against the
+  auto-fit), or keep the effect's attachment empty in the setup pose and key it on in the
+  animation.
 
 ## Known limitations / TODOs
 

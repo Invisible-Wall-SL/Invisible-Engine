@@ -29,8 +29,9 @@ version; your later edits reach them only when you publish again.
 - **Access:** the `gameMaker` tool, granted by default to `admin`, `developer` and
   `pipelineTester` roles (overridable per role/user in the admin panel like any tool). **Creating**
   a project is available to any holder of the tool; **Publishing** additionally requires the
-  **Build & publish games** (`gamePublish`) capability, which is default-ON for `admin` and
-  granted to anyone else per role or per user in `/admin → Roles`. The same one capability
+  **Build & publish games** (`gamePublish`) capability, which is default-ON for `admin` **only** —
+  a `developer` or `pipelineTester` sees the page but gets a 403 on Publish until it is granted per
+  role or per user in `/admin → Roles`. The same one capability
   covers the whole chain — this page's Publish, the bulk republish, and every step of a
   desktop ☁ Publish — so a granted role works end to end.
 
@@ -169,14 +170,15 @@ publish, which:
    files). The shared deploy token is never exposed to the browser.
 3. **Merges the test server's manifest** (`test_server/games.json`,
    read-modify-write so siblings are never dropped) with this game's
-   `{ protocol, name, runtime }` — `protocol` is the mock RGS to spin against
-   (`book` for book-of games, otherwise `lines`); `runtime` is the prebuilt
-   generic bundle id. It also writes the pointer (launcher origin + read token)
-   the test server uses to re-read the project's [Game Config](/docs/game-config)
-   live, so **changing the game's math afterwards does not need a re-publish** —
-   the mock picks up a new grid, payline set or win model within seconds of a save.
-   The board/cascade values written here are only the fallback for when the
-   launcher can't be reached.
+   `{ protocol, name, runtime }` — `protocol` is the mock RGS to spin against, from
+   the game kind (`book` for book-of games, `ways` / `cluster` / `scatter` for those
+   kinds, otherwise `lines`); `runtime` is the shared engine bundle id. It also writes
+   the pointer (launcher origin + read token) the test server uses to re-read the
+   project's [Game Config](/docs/game-config) live, so the **mock** picks up a new grid,
+   payline set or win model within seconds of a save, with no re-publish. The **players'
+   game** does not: it keeps the config frozen in the published version until the next
+   Publish (see _Traps_). The board/cascade values written here are only the fallback for
+   when the launcher can't be reached.
 4. **Registers the portal game** with a launch URL that points the generic
    runtime at _this_ project's published version
    (`…/<key>/?runtime=1&project=<key>&k=<readToken>&…`), gated by the read token,
@@ -196,7 +198,13 @@ game) plus a few seconds to copy its files.
   version freezes, so an edit saved while the publish runs cannot slip an error past it. An **admin** gets a **Publish anyway**
   button (a flow error can hang or skip a round for players); anyone else is told to fix it in
   Invisible Flow or ask an admin.
+- **Paytable drift.** The authored paytable disagrees with the partner reference kept in
+  [Game Config](game-config.md#the-partner-reference-and-the-publish-check); the dialog lists the
+  rows. An **admin** gets **Publish anyway**; anyone else fixes the rows in `/config`.
 - **A game with its own desktop build.** Final — republish it from the desktop launcher.
+
+Step by step, with what to do after each refusal: the
+[publish and deliver runbook](../guides/publish-and-deliver.md).
 
 A project with **no** saved flow still publishes, with a note under the card that it plays
 without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
@@ -332,14 +340,33 @@ that outgrow this — those that need bespoke compiled code or pin a specific en
 version and ship on their own cadence. A project can start in Game Maker and
 graduate later; its R2 authoring data carries over.
 
+## Traps
+
+- **"My edit isn't in the game."** — **Play ↗**, **Copy URL** and every player link boot the
+  _published_ version, so anything saved since the last Publish is missing there by design. Check
+  the edit with **Live ↗** (or the portal's Games card), then **Publish** to ship it.
+- **No "Scenes edited since" note, yet players still get the old wording, sound or math.** — That
+  note watches the scene layout only. Edits to Game Config, Win Text, strings, sounds, symbols and
+  the flow are not tracked by it; if you changed any of them after the version shown, publish.
+- **Live ↗ sits on "Fetching from R2…" for a minute or more.** — A live load rebuilds all of the
+  project's data every time it opens, and a big project takes that long. Players never wait for
+  it, because they read the frozen published version. Let it finish; if it ends on "This game
+  could not load", press **Reload** — the retry usually picks up the rebuild already under way.
+- **The engine's sample game (sample art, sample board) appears instead of yours.** — The game was
+  opened without its launch parameters, most often from the list on the test server's own page
+  (`games.invisiblewall.org`). Open it from here (**Play ↗** / **Live ↗**) or from the portal's
+  **Games** section.
+- **"This game could not load" on a link someone sent you.** — The link's read token (the `k=`
+  value) is wrong, usually because the URL was retyped by hand, or the launcher was restarting
+  for a moment. Reload once; if it stays, send the link from **Copy URL** instead of retyping it.
+
 ## Known limitations / TODOs
 
-- **Phase 1 supports `lines`-type games only.** The Game-type picker lets you
-  create any kind, but **publish currently maps every project to the `lines`
-  generic runtime** — the only prebuilt generic runtime that exists today
-  (Phase 0). `ways` / `cluster` / `scatter` / `bookOf` runtimes arrive in
-  **Phase 3** (each is one prebuilt bundle plus the `gameType` runtime switch).
-  Publishing a non-`lines` kind today will run it through the `lines` runtime.
+- **One shared runtime for every kind.** There is a single prebuilt engine bundle (its id is
+  historically `lines`); it adapts to the win model the project's
+  [Game Config](game-config.md) declares, so ways, cluster and scatter games play as themselves
+  — once that config is **saved** (see _Making a ways game_ there). A kind that needs bespoke
+  compiled code the shared bundle cannot carry would need a bundle of its own; none exists yet.
 - **Reskin / template games, not yet fully custom behavior.** Background, scenery,
   HUD, free-spin intro/counter/outro, loading splash, board position/shape/spin
   feel, fonts, localized text, and per-instance prefab art are already driven by
@@ -348,17 +375,13 @@ graduate later; its R2 authoring data carries over.
   TypeScript; the declarative behavior-track format that unlocks it fully online
   is the **Phase 4** engine project (`tracks?: BehaviorTrack[]`, reserved but not
   built).
-- **Per-game math is not yet authored here.** Reelstrips / paylines / paytable /
-  bet modes still ship compiled per runtime; moving them to R2 JSON with a loader
-  is **Phase 2**. Until then a published game runs on its runtime's default math.
-- **Publish needs a capability, not just the tool.** Any tool holder can create
-  projects, but publishing is gated by **Build & publish games** (`gamePublish`),
-  default-ON for `admin` only. Granting it to `developer` / `pipelineTester` is an
-  explicit act in `/admin → Roles`; until then their Publish button returns 403.
+- **Per-game math is not authored here.** The grid, paylines, paytable, win model and bet modes
+  live in [Invisible Game Config](game-config.md); a project that never saves a config there runs
+  the engine's compiled `lines` template, whatever its game type.
+- **Publish needs a capability, not just the tool** — see **Access** above. Granting
+  **Build & publish games** to `developer` / `pipelineTester` is an explicit act in
+  `/admin → Roles`.
 - **Mock RGS only.** Published games spin against the faithful-but-fake mock RGS
   on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
-- **Runtime-mode localization is a known deferred gap** — i18n initialises at
-  module-eval, before the live bundle fetch, so the runtime merge of project
-  strings is not yet wired.

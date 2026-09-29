@@ -21,10 +21,9 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
 
 - **Where it runs:** the launcher itself, at `/files` (a real page inside
   `(app)`, behind the auth + role gate — not a redirect, not an iframe).
-- **Storage layout (scoped mode):** the canonical per-project tree
-  `<toolNs>/<client>/<project>/…`. The browser exposes these namespaces as the
-  top-level folders: `atlas_maker`, `sheet_maker`, `localization`, `editor`,
-  `spines`.
+- **Storage layout (scoped mode):** the project's own folder, `<client>/<project>/…`,
+  is the one top-level folder (its `editor/`, `localization/`, `sounds/`, `spines/`,
+  `deploy/` … sit inside it).
 - **Access:** `admin`, `developer`, `pipelineTester` and `audio` (Music / SFX) roles
   — artists/animators don't get it.
   Overridable per role/user via the admin panel like any other tool. The full
@@ -79,7 +78,7 @@ trusted:
   `gateFull()` additionally requires `full` (admin) — used by the `/api/db/*`
   endpoints.
 - **Scoped mode:** `allowedPrefixes(client, project)` builds the only key
-  prefixes in scope — the project's own tool namespaces, nothing else.
+  prefix in scope — the project's own `<client>/<project>/` folder, nothing else.
 - **Full mode:** `assertAllowed` only enforces that keys are escape-free
   (non-empty, no leading `/`, no `..`); the whole bucket is in scope.
 - `assertAllowed(key, scope)` rejects any key that is empty, starts with `/`,
@@ -108,6 +107,16 @@ Railway/Postgres tab, under `/api/db/` (admin-only, `gateFull`):
 - `GET tables` — `{ tables: string[] }` (public base tables).
 - `GET rows?table=&limit=&offset=` — `{ columns, rows, total }` (secrets
   redacted).
+
+## Traps
+
+- **An upload of several large files fails, and nothing is uploaded.** — Everything you pick goes
+  up as one request, and the launcher accepts at most 32 MB per request by default. Upload big
+  files a few at a time; a single file over the limit cannot go through here — ask an admin.
+- **You replaced a file here, but players still get the old one.** — Players load a copy of the
+  game's files taken at the last Publish. Check the change with Game Maker's **Live ↗**, then
+  publish. Don't edit the project's `deploy/` folder by hand: the tools regenerate it from their
+  sources on the next live load or publish, so change the source in the owning tool instead.
 
 ## Known limitations / TODOs
 

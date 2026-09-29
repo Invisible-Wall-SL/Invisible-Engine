@@ -36,11 +36,11 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 |---|---|---|
 | `admin` | Admin | all tools |
 | `developer` | Developer | every online tool except the Sheet Maker, plus the desktop Invisible Launcher |
-| `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Localization, Win Text, + the desktop Invisible Launcher |
+| `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher |
 | `animator` | Animator | Invisible Spine Viewer, Invisible Rigger, Spine Editor |
-| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher) — **without** the publish capabilities, which stay admin-default |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher) — **without** the publish capabilities, which stay admin-default |
 | `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
-| `audio` | Music / SFX | Invisible FTP Browser (deliver audio into the project storage), Invisible Storybook, desktop Invisible Launcher — there is no dedicated audio tool yet |
+| `audio` | Music / SFX | Invisible Sound, Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
 
 Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;
@@ -257,6 +257,16 @@ pnpm --filter launcher-api build    # build + type-check (no separate check scri
 ```
 DB helpers: `db:generate` / `db:migrate` / `db:push` / `db:seed`.
 Deploy = push to `main` (Railway auto-deploys); verify the live URL picked it up.
+
+## Traps
+
+- **"Invalid email or password" with the right password.** — A disabled account, or one whose
+  login expiry date has passed, gets the same message as a wrong password, and an expiry or a
+  revoked session also signs you out mid-session. Ask an admin to check your account in `/admin`.
+- **Switching tools from the tool bar loses unsaved work in some tools.** — A tool-bar switch is an
+  in-app navigation, so the browser's own "leave site?" prompt does not fire. Invisible Sound
+  and the Component Editor ask first; Invisible Game Config, Win Text and Localization do not.
+  Save before you switch.
 
 ## Known limitations / TODOs
 

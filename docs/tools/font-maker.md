@@ -81,7 +81,7 @@ a **Size** slider — drive every live preview across the View and Generate tabs
 3. Pick a **character set** preset:
    - **Digits (0-9)**
    - **Currency** — digits plus `. , $ € £ ¥ ¢ + -` and space. ⚠ This preset
-     bakes **no letters** (see Known limitations).
+     bakes **no letters** (see [Traps](#traps)).
    - **Alphanumeric** — digits + A–Z + a–z.
    - **ASCII printable** — `0x20`–`0x7E`.
    - **Custom** — type the exact characters in the textarea.
@@ -116,15 +116,18 @@ re-reads the uploaded descriptor from R2, re-derives the `name`/pages itself
 (never trusting the client), verifies every page landed, and upserts the
 `fonts.json` entry keyed by `id === folder`.
 
+## Traps
+
+- **Letters or symbols are missing from in-game text.** The game draws only the characters the
+  font was baked with and silently drops the rest — so `5 FREE SPINS` in a font baked from the
+  **Currency** preset shows as `5`. Currency has no letters, **Digits** has only `0-9`, and
+  **Alphanumeric** has no punctuation. **ASCII printable** still has no `×`, `€` or accented
+  letters, so a translated game (`é`, `ñ`, `ü`…) needs them added too. Re-bake with the exact
+  characters every language's text needs via **Custom** — **Edit** reopens the font with its
+  recipe — and save over it (confirm the overwrite).
+
 ## Known limitations / TODOs
 
-- **The `currency` preset bakes digits + symbols but NO letters.** If a game's
-  HUD then renders a character outside the baked set (e.g. a letter), PIXI's
-  `BitmapText` reads an `undefined` glyph's `xAdvance` and the render loop dies —
-  which **black-screens the game on spin**. If a font feeds a HUD that can show
-  letters, bake with **Alphanumeric/ASCII** or add the needed characters via
-  **Custom**. An engine-side guard that skips/substitutes a missing glyph instead
-  of crashing is still **TODO** — until then the safe set is your responsibility.
 - **id collisions are guarded, not silent.** A font's catalog `id` is its
   `folder`. Saving a new font whose id already exists requires an explicit
   **Overwrite** opt-in in the UI; server-side, `/api/fonts/save` rejects a

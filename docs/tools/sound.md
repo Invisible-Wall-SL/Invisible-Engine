@@ -88,6 +88,10 @@ plays would let you bind a cue that can never be heard, and never be told.
   _alongside_ the ordinary landing cue rather than instead of it: an emerge has no game-wide
   slot of its own, so there is nothing for it to replace.
 
+The wild's explosion sound is not a state cue: it fires from an event named `wildExplode` on
+the wild's **Win** animation, so a custom wild rig must carry that event
+([Symbols traps](./symbols-state-machine.md#traps)).
+
 ### Reel anticipation
 
 The tease while a big win is still reachable on the reels yet to stop: a **sting** when
