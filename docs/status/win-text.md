@@ -288,6 +288,11 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-09-29 — **Leaving with unsaved win-text edits now asks first.** The page tracked a dirty state but
+  registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded unsaved
+  edits silently. It now calls the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`) — the
+  in-app confirm for a client-side navigation, the browser's own "Leave site?" for a real unload.
+  See the launcher status entry of the same date for the guard change.
 - 2026-09-29 — **Guide refreshed to match the UI** ([tools/win-text](../tools/win-text.md)).
 - 2026-09-28 (security) — **`/api/win-text` refuses a project the caller cannot access.** It
   resolved any `?project=` once the role had `winText`, so a `PUT` could overwrite another client's

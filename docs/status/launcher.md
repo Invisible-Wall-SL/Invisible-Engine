@@ -56,6 +56,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+### 2026-09-29 — Game Config, Win Text and Localization ask before discarding unsaved work
+- **Wired the existing guard into the three pages** that tracked a dirty state but registered
+  none (`/config`, `/win-text`, `/localization`): a tool-bar switch, Back, a reload or a tab close
+  no longer discards unsaved edits without asking.
+- **`guardUnsavedWork` now owns both exits.** It registers the `beforeNavigate` guard (in-app
+  navigation — `beforeunload` never fires for one) AND the `beforeunload` listener (a real unload —
+  `beforeNavigate` cannot hold one), both keyed on the same `cost()`. Sound and the Component
+  Editor dropped their own copies of that listener; their behaviour is unchanged.
+- **Still exposed:** FX and Flipbook guard only a real unload, Symbols guards nothing — see the
+  launcher guide's Traps.
+
 ### 2026-09-29 — docs caught up with the code
 Open items for onboarding (it is a per-role walkthrough with guide links), local-tool install
 paths (persisted in `tool_installs`), the one `allowedPrefixes()` and the 0019 migration (live —

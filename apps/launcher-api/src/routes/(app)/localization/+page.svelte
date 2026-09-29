@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import { deserialize } from '$app/forms';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -340,6 +341,17 @@
 			lease.release();
 		};
 	});
+
+	guardUnsavedWork(() =>
+		saveState.dirty
+			? {
+					title: 'These translations have unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
 </script>
 
 <svelte:head><title>Invisible Localization — Invisible Wall</title></svelte:head>

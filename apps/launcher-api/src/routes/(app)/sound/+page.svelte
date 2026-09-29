@@ -551,43 +551,17 @@
 	onMount(() => {
 		void lease.start();
 		const onUnload = () => lease.release();
-		/**
-		 * The exits, and why there are two handlers.
-		 *
-		 * `beforeunload` covers a REAL unload — refresh, closing the tab, the top bar's project
-		 * switch — which is the only one the five sibling tools (fx, flipbook, editor, components,
-		 * admin) guard. It is not the exit that cost an author two uploads on 2026-09-15: they
-		 * clicked **Flow** in the tool bar, and every tool-bar link is an `<a href>` that SvelteKit
-		 * intercepts as a client-side navigation, where `beforeunload` never fires at all. Verified
-		 * on production: a PUT started here still completes after that navigation (the fetch is not
-		 * aborted) but the component is gone, so the entry it would have appended is lost — and a
-		 * file still decoding never becomes a PUT in the first place.
-		 *
-		 * `beforeNavigate` is therefore the one that matters here, and it is the first in the launcher.
-		 * It must be `beforeNavigate`, not `onNavigate`: the latter runs AFTER the navigation is
-		 * committed and its argument carries no `cancel`, so a guard written on it asks the question
-		 * and then leaves anyway — which is worse than not asking. Caught only by clicking it on
-		 * production; `vite build` does not typecheck, so nothing else would have.
-		 */
-		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-			if (!leaveCost) return;
-			e.preventDefault();
-			e.returnValue = '';
-		};
 		window.addEventListener('pagehide', onUnload);
-		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
-			window.removeEventListener('beforeunload', onBeforeUnload);
 			uploadAbort?.abort();
 			lease.release();
 			player?.pause();
 		};
 	});
 
-	// Registered at component init (it wraps `beforeNavigate`, a lifecycle hook like `onMount`), and
-	// torn down with the page. `willUnload` navigations are left to `beforeunload` above: cancelling
-	// one of those only re-triggers the browser's own dialog, so confirming twice is the alternative.
+	// An author lost two uploads on 2026-09-15 by clicking **Flow** in the tool bar: that is a
+	// client-side navigation, where `beforeunload` never fires. The guard covers both exits.
 	guardUnsavedWork(() =>
 		leaveCost
 			? {

@@ -624,21 +624,8 @@
 	/** Unsaved work of EITHER store — the draft def, or this game's defaults sidecar (its own
 	 * save, so it needs its own place in every leave guard). */
 	const unsavedWork = $derived(draftDirty || defaultsDirty);
-	// Unsaved work is ONLY in memory — warn before a full-page navigation ("← Editor" is a
-	// reload link) or a tab close discards it silently.
-	$effect(() => {
-		if (!unsavedWork) return;
-		const warn = (e: BeforeUnloadEvent) => {
-			e.preventDefault();
-		};
-		window.addEventListener('beforeunload', warn);
-		return () => window.removeEventListener('beforeunload', warn);
-	});
-	// `beforeunload` never fires for a CLIENT-SIDE navigation, and every tool-bar entry is an
-	// `<a href>` SvelteKit intercepts as one — so without this, clicking Editor / Flow / the
-	// emblem silently discarded the draft and the defaults. `willUnload` navigations are left to
-	// the handler above (cancelling one only re-triggers the browser's own dialog); the helper
-	// skips them for that reason.
+	// Unsaved work is ONLY in memory — ask before a tool-bar switch, Back, a reload or a tab close
+	// discards the draft and the defaults.
 	guardUnsavedWork(() => {
 		if (!unsavedWork) return null;
 		const what = draftDirty

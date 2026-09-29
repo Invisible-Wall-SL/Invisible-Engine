@@ -556,8 +556,5 @@ the browser console as a `[game-config]` error naming both boards:
   card with its component's own defaults; a mode's **Card graphics** are applied only when the
   running game builds its buy menu. Open the buy menu in the game (Game Maker's **Live ↗**) to
   check them.
-- **Leaving the page drops unsaved edits without asking.** — This page has no leave warning:
-  switching tools from the tool bar, pressing Back or closing the tab discards anything not
-  saved. Watch for **Unsaved** and press **Save** first.
 
 See the design plan in `docs/design/invisible-game-config.md`.

@@ -201,9 +201,6 @@ read it in context → review what's good → **Save** → publish.
 
 ## Traps
 
-- **Leaving the page loses everything since the last Save, without asking.** — This page has no
-  leave warning: the tool bar, Back or closing the tab discards unsaved translations and review
-  ticks, machine translations included. **Save** before you go.
 - **You fixed a typo in the source text and its translations disappeared.** — The source text _is_
   the translation key, so changed text is a new, untranslated row, and the old translations move
   to **No longer in use**. Copy them from the old row into the new one, adjust, then delete the old

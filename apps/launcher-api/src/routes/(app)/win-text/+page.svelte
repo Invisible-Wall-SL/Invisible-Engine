@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
@@ -204,6 +205,17 @@
 			lease.release();
 		};
 	});
+
+	guardUnsavedWork(() =>
+		dirty
+			? {
+					title: 'This win text has unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
 </script>
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
