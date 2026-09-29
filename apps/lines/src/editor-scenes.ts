@@ -28,6 +28,7 @@ import {
 	resolveWinText,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
+import { captureError } from 'error-tracking';
 import { setAuthoredMainSizesMap, setAuthoredLayoutProfile } from 'utils-layout';
 
 import type { SoundEffectName } from './game/sound';
@@ -1912,6 +1913,10 @@ function haltBoot(reason: string): Promise<never> {
 	console.error(
 		`[runtime] boot stopped — ${reason}. Showing the error screen, not the sample game.`,
 	);
+	captureError(new Error(`runtime boot stopped: ${reason}`), {
+		tags: { area: 'boot' },
+		fingerprint: ['boot', 'runtime-bundle'],
+	});
 	markRuntimeStale(reason, true);
 	window.__ieBoot?.done();
 	return new Promise<never>(() => {});

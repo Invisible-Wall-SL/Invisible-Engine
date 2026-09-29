@@ -16,6 +16,7 @@ export const ssr = false;
 export const trailingSlash = 'ignore';
 
 import { prepareRuntimeBundle } from '../editor-scenes';
+import { startErrorTracking } from '../game/errorTracking';
 
 /**
  * Live runtime (Invisible Game Maker, Phase 0). OPT-IN via `?runtime=1`: fetch the
@@ -28,6 +29,7 @@ import { prepareRuntimeBundle } from '../editor-scenes';
  * mounts, so a shipped game repo (which has no layout `load` at all) gets it too.
  */
 export const load = async () => {
+	startErrorTracking();
 	await prepareRuntimeBundle();
 	return {};
 };

@@ -38,6 +38,7 @@ import plist_import        # noqa: E402  (verbatim cocos2d .plist atlas import)
 import storage             # noqa: E402  (R2 object storage + staging mirror)
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images)
+from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 
 SELF = Path(__file__).resolve().parent
 
@@ -2733,6 +2734,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_bytes(b"Not found", "text/plain", 404)
         except Exception as e:  # noqa: BLE001 — surface errors to the UI
+            errors.capture_request_error(self, e)
             self._send_json({"error": f"{type(e).__name__}: {e}"}, 500)
 
 
@@ -2741,11 +2743,17 @@ def _page() -> str:
     return (SELF / "ui.html").read_text(encoding="utf-8")
 
 
+class _Server(errors.ReportingServerMixin, ThreadingHTTPServer):
+    """Reports what socketserver would only print: a GET that raises, or a POST
+    that fails before its own catch (the gate, the context resolve)."""
+
+
 def main():
     from iw_banner import print_banner
     print_banner("Sheet Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    errors.init_error_tracking("sheet-tool")
+    srv = _Server((HOST, PORT), Handler)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

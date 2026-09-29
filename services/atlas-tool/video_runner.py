@@ -52,7 +52,7 @@ import blueprints
 import cloud_paths as project_paths
 import model_provenance
 import storage
-from iw_common import lease
+from iw_common import errors, lease
 
 # WHICH CONTAINER THIS IS. A Railway rolling deploy overlaps the old container and
 # the new one, so "am I the owner of this session?" needs an answer that outlives a
@@ -911,6 +911,7 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                 _run_variations(session_id, session, ctx)
             except Exception as e:  # noqa: BLE001 — record it; never wedge the queue
                 print(f"[video] {session_id} runner died: {e}", flush=True)
+                errors.capture_error(e, job="video", video_session=session_id)
                 with _LOCK:
                     session["error"] = str(e)[:400]
                     dying = [v for v in session["variations"]

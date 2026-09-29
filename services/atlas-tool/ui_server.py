@@ -58,6 +58,7 @@ import shared_taxonomy  # noqa: E402  (the one semantic taxonomy every render in
 from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
+from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -2821,6 +2822,7 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
                 with _render_lock:
                     _render_state["log"] += f"\n[post-render step skipped] {e}\n"
     except Exception as e:  # noqa: BLE001
+        errors.capture_error(e, job="render")
         with _render_lock:
             _render_state["log"] += f"\n[ERROR] {e}\n"
     finally:
@@ -8287,6 +8289,7 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except Exception as e:  # noqa: BLE001 — a silent drop is worse
             traceback.print_exc()
+            errors.capture_request_error(self, e)
             if self._responded:
                 return  # headers already on the wire; a second reply is garbage
             try:
@@ -11804,7 +11807,7 @@ class Handler(BaseHTTPRequestHandler):
         return "Settings saved (per-atlas overrides + globals)"
 
 
-class _Server(ThreadingHTTPServer):
+class _Server(errors.ReportingServerMixin, ThreadingHTTPServer):
     # A page with N regions asks for ~2N images in one burst. The stdlib
     # backlog of 5 lets the OS refuse everything past the fifth pending
     # connection, and a refused connection is exactly the broken tile the user
@@ -11816,6 +11819,7 @@ def main():
     from iw_banner import print_banner
     print_banner("Atlas Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
+    errors.init_error_tracking("atlas-tool")
     # RunPod on-demand: auto-stop the pod after idle (no-op unless configured).
     runpod_control.start_idle_watchdog(
         is_rendering=lambda: bool(_render_state.get("running")))

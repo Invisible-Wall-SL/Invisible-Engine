@@ -39,7 +39,7 @@ import {
 } from './betOptions';
 import { readMappedPaytable, type DeclaredPayEntry } from './paytable';
 import { createPlay4FunSessionState, type Play4FunSessionState } from './sessionState';
-import { createPlay4FunFetcher } from './eagamingFetcher';
+import { createPlay4FunFetcher, type Play4FunPostResult } from './eagamingFetcher';
 import {
 	buildBetActions,
 	buildHeartbeat,
@@ -1003,6 +1003,20 @@ const balanceOf = (response: unknown): number | undefined => {
 	return typeof p4f === 'number' ? play4FunToEngine(p4f) : undefined;
 };
 
+/**
+ * A request answered with an HTTP failure and no protocol body — a proxy's 502 page, an edge's 403.
+ * Returned in the engine's error shape so it reaches the error modal, and the error report, as the
+ * status it was rather than as the "empty round" or "empty balance" it would otherwise leave behind.
+ */
+const httpFailure = (result: Play4FunPostResult) =>
+	result.response === null && (result.status < 200 || result.status >= 300)
+		? {
+				status: { statusCode: `ERR_HTTP_${result.status}`, statusMessage: result.statusText },
+				error: `HTTP ${result.status}`,
+				message: `The game server answered HTTP ${result.status} ${result.statusText}`.trim(),
+			}
+		: null;
+
 // ---------- public API (matches rgs-requests) ----------
 
 export const requestAuthenticate = async (options: {
@@ -1312,6 +1326,8 @@ export const requestBet = async (options: {
 	if (!serverOptions) warnOnStakeRounding(options.sessionID, betBody, play4FunAmount);
 
 	const first = await fetcher.post({ body: betBody });
+	const failed = httpFailure(first);
+	if (failed) return failed;
 
 	// A bet the RGS rejects (insufficient balance, bad round state, …) comes back
 	// error-shaped with NO events array. Surface the real reason: the engine
@@ -1499,6 +1515,8 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 		const collectResult = await fetcher.post({ body: buildCollectAction() });
 		if (responseClosedRound(collectResult.response)) session.endRound();
 		pendingFinalBalance.delete(options.sessionID);
+		const failed = httpFailure(collectResult);
+		if (failed) return failed;
 		const balance = balanceOf(collectResult.response);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
@@ -1519,6 +1537,8 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 	}
 
 	const result = await fetcher.post({ body: buildHeartbeat() });
+	const failed = httpFailure(result);
+	if (failed) return failed;
 	const balance = balanceOf(result.response);
 	return {
 		status: { statusCode: 'SUCCESS' as const },

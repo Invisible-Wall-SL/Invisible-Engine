@@ -122,6 +122,10 @@ const deliveryProfilesDefine = () => {
  * framework + its tools tree-shake out of a player build entirely. */
 const debugBuild = () => dev || process.env.PUBLIC_IE_DEBUG === '1';
 
+/** The commit a build was cut from — the identity an error report names as its `release`. The
+ * runtime release passes it explicitly; `GITHUB_SHA` covers any other build run by an Action. */
+export const buildSha = () => process.env.PUBLIC_BUILD_SHA || process.env.GITHUB_SHA || '';
+
 /**
  * The Invisible Debug switch + the build stamp (`docs/design/invisible-debug-framework.md`).
  * `GameVersion.svelte` reads `__IE_BUILD__` to print which build is on screen, and the desktop
@@ -142,6 +146,7 @@ const gameBuildDefine = () => ({
 	__IE_DEBUG__: JSON.stringify(debugBuild()),
 	__IE_BUILD__: JSON.stringify({
 		version: process.env.PUBLIC_BUILD_VERSION ?? '',
+		sha: buildSha(),
 		builtAt: process.env.PUBLIC_BUILD_TIME ?? new Date().toISOString(),
 		debug: debugBuild(),
 	}),

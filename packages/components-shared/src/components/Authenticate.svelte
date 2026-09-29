@@ -3,6 +3,7 @@
 
 	import { requestAuthenticate, requestBalance, requestReplay } from 'rgs-requests';
 	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
+	import { addSensitiveParam, captureRgsFailure, setErrorTags } from 'error-tracking';
 	import {
 		setJurisdiction,
 		stateUrlDerived,
@@ -141,6 +142,7 @@
 			}
 		} catch (error) {
 			console.error(error);
+			captureRgsFailure('authenticate', error);
 			stateModal.modal = { name: 'error', error };
 		}
 	};
@@ -209,6 +211,9 @@
 		// delivery cut from one would bake a profile whose `config.json` was then never applied.
 		// A build with no baked profile resolves instantly and changes nothing.
 		await loadDeliveryProfile();
+		// `config.json` may have renamed the profile, or its session param, since reporting started.
+		addSensitiveParam(getDeliveryProfile().session.param);
+		setErrorTags({ profile: getDeliveryProfile().id });
 
 		// Seeded before either branch: replay never calls `authenticate`, so this is the
 		// only place a replay link's currency can land.

@@ -12,10 +12,11 @@ export interface DeliveryProfileMerge {
  * Which half of the resolution chain a patch is.
  *
  * `baked` may set anything. `override` — the operator's `config.json` — may REPOINT the build
- * (`rgs.baseUrl`, `rgs.endpoint`, `session.param`, `id`) but may not re-police it: the three fields
- * that decide whether a missing token is fatal, whether the host page can repoint the wallet, and
- * whether calls are credentialed are decisions we make when cutting the delivery, not ones an
- * edited file downstream gets to flip. A staging↔production move needs none of them.
+ * (`rgs.baseUrl`, `rgs.endpoint`, `session.param`, `id`) but may not re-police it: the fields that
+ * decide whether a missing token is fatal, whether the host page can repoint the wallet, whether
+ * calls are credentialed, and whether errors are reported off the partner's site are decisions we
+ * make when cutting the delivery, not ones an edited file downstream gets to flip. A
+ * staging↔production move needs none of them.
  */
 export type DeliveryProfileScope = 'baked' | 'override';
 
@@ -24,15 +25,17 @@ const BAKE_ONLY_FIELDS = [
 	'rgs.withCredentials',
 	'rgs.allowUrlOverride',
 	'session.required',
+	'telemetry.errors',
 ];
 
 /** Every field a profile may carry, by section. Exported because the BUILD-time validator in
  *  `packages/config-vite` keeps its own copy — see the note there — and `profile.fixture.ts`
  *  asserts the two agree. */
 export const DELIVERY_PROFILE_FIELDS: Record<string, string[]> = {
-	'': ['id', 'rgs', 'session'],
+	'': ['id', 'rgs', 'session', 'telemetry'],
 	rgs: ['source', 'baseUrl', 'endpoint', 'withCredentials', 'simpleRequest', 'allowUrlOverride'],
 	session: ['param', 'source', 'required'],
+	telemetry: ['errors'],
 };
 
 /** Characters that must never reach a URL we will fetch: whitespace, backslashes (WHATWG folds them
@@ -157,9 +160,11 @@ export const mergeDeliveryProfile = (
 
 	const rgsPatch = readSection(patch, 'rgs', warnings);
 	const sessionPatch = readSection(patch, 'session', warnings);
+	const telemetryPatch = readSection(patch, 'telemetry', warnings);
 	warnUnknownKeys(patch, '', warnings);
 	warnUnknownKeys(rgsPatch, 'rgs', warnings);
 	warnUnknownKeys(sessionPatch, 'session', warnings);
+	warnUnknownKeys(telemetryPatch, 'telemetry', warnings);
 
 	const id = readString(patch, 'id', 'id', warnings)?.trim() ?? null;
 
@@ -252,6 +257,11 @@ export const mergeDeliveryProfile = (
 				required:
 					readBoolean(sessionPatch, 'required', 'session.required', scope, warnings) ??
 					base.session.required,
+			},
+			telemetry: {
+				errors:
+					readBoolean(telemetryPatch, 'errors', 'telemetry.errors', scope, warnings) ??
+					base.telemetry.errors,
 			},
 		},
 		warnings,

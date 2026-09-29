@@ -81,6 +81,7 @@ check('session param', DEFAULT_DELIVERY_PROFILE.session.param, 'sessionID');
 check('the token comes from the URL, as it always did', DEFAULT_DELIVERY_PROFILE.session.source, 'param'); // prettier-ignore
 check('demo session still minted', DEFAULT_DELIVERY_PROFILE.session.required, false);
 check('a JSON content type (NOT the preflight-free simple request)', DEFAULT_DELIVERY_PROFILE.rgs.simpleRequest, false); // prettier-ignore
+check('a profile reports no errors unless it says so', DEFAULT_DELIVERY_PROFILE.telemetry.errors, false); // prettier-ignore
 check('an absent patch is a no-op', merge(undefined).profile, DEFAULT_DELIVERY_PROFILE);
 check('...and warns about nothing', merge(undefined).warnings, []);
 check('the default is frozen, so a consumer cannot move it for everyone', Object.isFrozen(DEFAULT_DELIVERY_PROFILE.rgs), true); // prettier-ignore
@@ -243,6 +244,27 @@ console.log('\n7e. the BUILD refuses a delivery that names no RGS at all');
 		);
 		check(`profiles/${name}.json builds`, problems(json), []);
 	}
+}
+
+console.log("\n7f. error reporting is the partner's to agree to, when the delivery is cut");
+{
+	// Off by default: a delivery runs on a partner's site in front of their players. Bake-only for
+	// the reason `withCredentials` is — an operator's edited file must not be able to start (or
+	// stop) our tracker receiving reports from their page.
+	const valid = { id: 'x', rgs: { baseUrl: 'h.example' }, session: { param: 'sid' } };
+	check('a delivery that says nothing reports nothing', DELIVERY.telemetry.errors, false);
+	const optedIn = merge({ telemetry: { errors: true } }, DELIVERY);
+	check('a baked profile may opt in', optedIn.profile.telemetry.errors, true);
+	check('...cleanly', optedIn.warnings, []);
+	const flipped = merge({ telemetry: { errors: true } }, DELIVERY, 'override');
+	check('config.json may not turn it on', flipped.profile.telemetry.errors, false);
+	check('...and says why', flipped.warnings, ['telemetry.errors is set when the build is cut and cannot be overridden — ignored']); // prettier-ignore
+	const off = merge({ telemetry: { errors: false } }, optedIn.profile, 'override');
+	check('...nor off', off.profile.telemetry.errors, true);
+	check('a non-boolean is refused', merge({ telemetry: { errors: 'yes' } }, DELIVERY).profile.telemetry.errors, false); // prettier-ignore
+	check("a typo'd telemetry key is reported", merge({ telemetry: { error: true } }, DELIVERY).warnings, ['unknown field telemetry.error — ignored']); // prettier-ignore
+	check('the BUILD accepts the field', deliveryProfileProblems({ ...valid, telemetry: { errors: true } }), []); // prettier-ignore
+	check('...and refuses a non-boolean', deliveryProfileProblems({ ...valid, telemetry: { errors: 1 } }), ['telemetry.errors must be true or false']); // prettier-ignore
 }
 
 console.log('\n8. the shipped partner profile resolves to the transport we intend');
