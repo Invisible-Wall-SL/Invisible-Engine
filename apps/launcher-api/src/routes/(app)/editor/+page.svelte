@@ -5,6 +5,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import { askConfirm, askMessage, askText } from '$lib/dialogs.svelte';
 	import {
@@ -2074,84 +2075,27 @@
 
 	/**
 	 * Browse the rolling backups of this project's `scenes.json` and restore one
-	 * (`/api/editor/backups`). Every save preserves the bytes it replaces, so this is the way
-	 * back from a bad edit, a bad reference/scaffold load, or an "Overwrite with mine".
-	 *
-	 * The list is asked for through `askText` rather than built as a picker UI: this page drives
-	 * every other destroy-and-replace decision through the shared dialog (`adoptScenes`, the kind
-	 * overwrite, `discardCrossType`), and a bespoke list panel would be a new UI surface for one
-	 * rarely-opened list. `location.reload()` afterwards rather than swapping the doc in place —
-	 * the restored doc has to re-run the whole
-	 * load (template, warnings, region resolution, the ETag the next save CASes against), and a
-	 * reload is the one way to get all of that right.
+	 * (`/api/editor/backups`) through the shared `DocHistoryModal` — the same picker Flow, Symbols,
+	 * Game Config and component defaults use. Every save preserves the bytes it replaces, so this
+	 * is the way back from a bad edit, a bad reference/scaffold load, or an "Overwrite with mine".
 	 */
-	let historyBusy = $state(false);
-	async function openHistory(): Promise<void> {
-		if (historyBusy) return;
-		historyBusy = true;
-		try {
-			const res = await fetch('/api/editor/backups');
-			if (!res.ok) {
-				lastError = `Couldn't load version history (${res.status}).`;
-				return;
-			}
-			const { backups } = (await res.json()) as {
-				backups: { id: string; savedAt: string; size: number }[];
-			};
-			if (backups.length === 0) {
-				await askMessage({
-					title: 'No earlier versions yet',
-					message:
-						'A version is preserved each time a save replaces the stored layout, so the ' +
-						'first ones appear after your next few saves.',
-				});
-				return;
-			}
-			const lines = backups.map(
-				(b, i) =>
-					`${i + 1}. ${new Date(b.savedAt).toLocaleString()}  (${Math.round(b.size / 1024)} KB)`,
-			);
-			const answer = await askText({
-				title: 'Restore an earlier version',
-				message: `Earlier versions of this project's layout, newest first.\n\n${lines.join('\n')}`,
-				label:
-					'Type a number to RESTORE that version. Your current layout is preserved as a new ' +
-					'version first, so this is undoable.',
-				placeholder: '1',
-				confirmLabel: 'Restore',
-			});
-			const pick = Number(answer);
-			if (!answer || !Number.isInteger(pick) || pick < 1 || pick > backups.length) return;
-			const chosen = backups[pick - 1];
-			if (lease.readOnly) {
-				lastError = 'Another author is editing this project — take over before restoring.';
-				return;
-			}
-			if (saveState.dirty) {
-				const ok = await askConfirm({
-					title: 'You have unsaved changes',
-					message: 'Restoring an earlier version loses them.',
-					confirmLabel: 'Restore anyway',
-					danger: true,
-				});
-				if (!ok) return;
-			}
-			await restoreBackup(chosen.id);
-		} catch (e) {
-			lastError = e instanceof Error ? e.message : "Couldn't load version history.";
-		} finally {
-			historyBusy = false;
-		}
-	}
+	let historyOpen = $state(false);
 
 	/**
 	 * POST one restore. Sends the ETag this tab holds, so a restore issued from a tab that has
 	 * gone stale LOSES to the concurrent author and answers 409 rather than quietly reverting
 	 * their work — "restore" is not a licence for an unguarded write. Cancels the pending
 	 * autosave first: the timer would otherwise fire against the pre-restore local doc and
-	 * immediately undo the restore.
+	 * immediately undo the restore (re-armed if the restore fails, so an edit still saves).
+	 *
+	 * `location.reload()` afterwards rather than swapping the doc in place — the restored doc has
+	 * to re-run the whole load (template, warnings, region resolution, the ETag the next save
+	 * CASes against), and a reload is the one way to get all of that right.
 	 */
-	async function restoreBackup(id: string): Promise<void> {
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (lease.readOnly)
+			return 'Another author is editing this project — take over before restoring.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
 		saveState.cancelAutosave();
 		const res = await fetch('/api/editor/backups', {
 			method: 'POST',
@@ -2160,10 +2104,11 @@
 		});
 		if (res.ok) {
 			location.reload();
-			return;
+			return null;
 		}
+		if (saveState.dirty) saveState.rearmAutosave();
 		const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-		lastError = body.message ?? body.error ?? `Restore failed (${res.status}).`;
+		return body.message ?? body.error ?? `Restore failed (${res.status}).`;
 	}
 
 	// ---------- template authoring (§7.5) ----------
@@ -2648,9 +2593,8 @@
 			<button
 				class="save-btn"
 				type="button"
-				disabled={historyBusy}
 				title="Earlier versions of this layout. Every save preserves the one it replaces, so a bad edit or a bad reference/scaffold load can be rolled back."
-				onclick={() => void openHistory()}
+				onclick={() => (historyOpen = true)}
 			>
 				History…
 			</button>
@@ -3638,6 +3582,16 @@
 		<span class="muted">version {data.doc.version}</span>
 	</footer>
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl="/api/editor/backups"
+	docLabel="layout"
+	readOnly={lease.readOnly}
+	dirty={saveState.dirty || loadedPreview}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
 
 {#if layoutModalOpen && docLayoutProfile}
 	<div
