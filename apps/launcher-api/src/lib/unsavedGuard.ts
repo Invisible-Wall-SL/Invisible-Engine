@@ -1,3 +1,4 @@
+import { onMount } from 'svelte';
 import { beforeNavigate, goto } from '$app/navigation';
 import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
 
@@ -25,16 +26,28 @@ import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
  * without the hook having fired (a same-URL navigation), so a stale ticket can never let a
  * LATER navigation past unasked.
  *
- * `willUnload` navigations (a real unload — refresh, tab close, an off-app link) are NOT
- * handled here: cancelling one only re-triggers the browser's own dialog, so the page keeps
- * its `beforeunload` listener for those and they are left alone.
+ * `willUnload` navigations (a real unload — refresh, tab close, an off-app link, the top bar's
+ * project switch) skip the dialog: cancelling one only re-triggers the browser's own prompt.
+ * They are covered by the `beforeunload` listener registered alongside, which asks the browser's
+ * native "Leave site?" instead — `beforeunload` never fires for a client-side navigation, and
+ * `beforeNavigate` cannot hold a real unload, so a page needs both and gets both from this call.
  *
- * Call it at component init, like `onMount` — it registers a lifecycle hook.
+ * Call it at component init, like `onMount` — it registers lifecycle hooks.
  *
  * @param cost Read at navigation time: the question to ask, or `null` when nothing is at risk.
  */
 export function guardUnsavedWork(cost: () => ConfirmOptions | null): void {
 	let approved = false;
+
+	onMount(() => {
+		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+			if (!cost()) return;
+			e.preventDefault();
+			e.returnValue = '';
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
+	});
 
 	beforeNavigate((navigation) => {
 		if (approved) {

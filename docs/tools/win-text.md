@@ -205,8 +205,6 @@ build/publish of the game.
 - **A translated win message ends in an English symbol name.** — `{symbolName}` is translated on
   its own, in Localization's **Symbol names** section. Translate and review the names as well as
   the templates.
-- **Leaving the page drops unsaved edits without asking.** — This page has no leave warning: the
-  tool bar, Back or closing the tab discards anything not saved. **Save** first.
 
 ## Known limitations / TODOs
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ColorField from '$lib/ColorField.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
@@ -1040,6 +1041,17 @@
 			lease.release();
 		};
 	});
+
+	guardUnsavedWork(() =>
+		dirty
+			? {
+					title: 'This game config has unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
 </script>
 
 <svelte:head><title>Invisible Game Config — {data.projectKey}</title></svelte:head>

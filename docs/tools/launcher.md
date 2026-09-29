@@ -258,9 +258,10 @@ Deploy = push to `main` (Railway auto-deploys); verify the live URL picked it up
 - **"Invalid email or password" with the right password.** — A disabled account, or one whose
   login expiry date has passed, gets the same message as a wrong password, and an expiry or a
   revoked session also signs you out mid-session. Ask an admin to check your account in `/admin`.
-- **Switching tools from the tool bar loses unsaved work in some tools.** — A tool-bar switch is an
-  in-app navigation, so the browser's own "leave site?" prompt does not fire. Invisible Sound
-  and the Component Editor ask first; Invisible Game Config, Win Text and Localization do not.
+- **Switching tools from the tool bar loses unsaved work in Invisible FX, Flipbook and
+  Symbols.** — A tool-bar switch or Back is an in-app navigation, so the browser's own "leave
+  site?" prompt does not fire. Sound, the Component Editor, Game Config, Win Text and Localization
+  ask first; FX and Flipbook warn only on a reload or tab close, and Symbols does not warn at all.
   Save before you switch.
 
 ## Known limitations / TODOs
