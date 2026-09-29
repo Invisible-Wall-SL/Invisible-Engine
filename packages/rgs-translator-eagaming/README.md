@@ -85,8 +85,8 @@ import { createPlay4FunSessionState } from 'rgs-translator-eagaming';
 
 const session = createPlay4FunSessionState('S27932');
 session.startRound(); // call before each new bet+play (the action array starts empty)
-session.takeSeq(2); // position for a 2-action `bet+play` post; advances BY TWO
-session.takeSeq(0); // a non-stored call (balance/config): reports, consumes nothing
+session.seq; // the position the next stored action goes at
+session.advance(2); // the server accepted a 2-action `bet+play`: moves BY TWO
 session.bindRound('G123abc'); // record gid from server response
 session.endRound(); // call after a successful collect
 ```
@@ -95,7 +95,7 @@ The fetcher (below) auto-binds gid from responses, so you usually only call `sta
 
 ### `createPlay4FunFetcher(config, session)`
 
-HTTP transport that builds the URL with `sid`/`seq`/`gid`, posts the body, parses JSON, and auto-binds the returned gid.
+HTTP transport that builds the URL with `sid`/`seq`/`gid`, posts the body, parses JSON, and auto-binds the returned gid. An unanswered request (network error, no answer in 15 s, 5xx, empty 200) is resent at the same `seq`/`gid` every second for up to 90 s, and `seq` advances only once the server accepts it — see "Resending" in `docs/reference/play4fun-protocol.md`, which also covers the round-opening `bet`.
 
 ```ts
 import { createPlay4FunFetcher, createPlay4FunSessionState } from 'rgs-translator-eagaming';

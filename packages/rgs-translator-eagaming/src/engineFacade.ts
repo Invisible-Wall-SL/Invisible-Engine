@@ -25,6 +25,7 @@
  * is preserved across calls within the same playing session.
  */
 
+import { publishRgsConnection } from 'constants-shared/rgsConnection';
 import { getDeliveryProfile, hostBoolean, hostServicePath } from 'delivery-profile';
 
 import {
@@ -39,7 +40,12 @@ import {
 } from './betOptions';
 import { readMappedPaytable, type DeclaredPayEntry } from './paytable';
 import { createPlay4FunSessionState, type Play4FunSessionState } from './sessionState';
-import { createPlay4FunFetcher, type Play4FunPostResult } from './eagamingFetcher';
+import {
+	createPlay4FunFetcher,
+	isSessionIdle,
+	type Play4FunPostResult,
+	type Play4FunResendPolicy,
+} from './eagamingFetcher';
 import {
 	buildBetActions,
 	buildHeartbeat,
@@ -982,11 +988,20 @@ const rgsLocation = (rgsUrl: string): { baseUrl: string; endpoint: string } => {
 	return { baseUrl: buildBaseUrl(rgsUrl), endpoint: profile.rgs.endpoint };
 };
 
+let resendPolicy: Partial<Play4FunResendPolicy> = {};
+/** Tune how long the transport waits and resends before asking the player to reload. The defaults
+ *  are `DEFAULT_RESEND_POLICY`; a fixture shortens them to walk the give-up path in milliseconds. */
+export const setResendPolicy = (policy: Partial<Play4FunResendPolicy>): void => {
+	resendPolicy = policy;
+};
+
 const fetcherFor = (sid: string, rgsUrl: string) => {
 	const profile = getDeliveryProfile();
 	return createPlay4FunFetcher(
 		{
 			...rgsLocation(rgsUrl),
+			resendPolicy,
+			onConnection: publishRgsConnection,
 			withCredentials: profile.rgs.withCredentials,
 			...(profile.rgs.simpleRequest ? { contentType: 'text/plain;charset=UTF-8' } : {}),
 			sid,
@@ -1054,8 +1069,8 @@ export const requestAuthenticate = async (options: {
 	}
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
-	// A resume is up to a dozen requests in a row where a boot used to be one, so a dropped one must
-	// cost the resume, not the boot.
+	// A resume is up to a dozen requests in a row where a boot used to be one. A refused one costs the
+	// resume, not the boot; one the transport gives up on leaves the player at the reload prompt.
 	const open = findOpenRound(configResponse);
 	const resumed = open
 		? await resumeOpenRound(options.sessionID, fetcher, open).catch((err: unknown) =>
@@ -1475,16 +1490,22 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
  *
  *  - A round is OPEN (`session.gid`). The partner answers `not authorized` (code 118) to an
  *    out-of-band call mid-round, and a poll has no business interrupting a spin anyway.
- *  - The request failed. A poll that cannot reach the server must leave the last known balance
- *    alone; blanking the HUD on a dropped packet is worse than a slightly stale number.
+ *  - The request failed, or the session is busy — a spin in flight, a resend under way, or the
+ *    connection given up on. A poll is one attempt, never queued behind a spin and never the reason
+ *    a reconnect screen appears: the player's next action finds out, with its own resends. A poll
+ *    that cannot reach the server leaves the last known balance alone; blanking the HUD on a
+ *    dropped packet is worse than a slightly stale number.
  */
 export const requestBalance = async (options: { sessionID: string; rgsUrl: string }) => {
 	const session = sessionFor(options.sessionID);
-	if (session.gid) return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+	if (session.gid || !isSessionIdle(session)) {
+		return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
+	}
 
 	try {
 		const result = await fetcherFor(options.sessionID, options.rgsUrl).post({
 			body: buildHeartbeat(),
+			resend: false,
 		});
 		if (isPlay4FunError(result.response)) {
 			return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };

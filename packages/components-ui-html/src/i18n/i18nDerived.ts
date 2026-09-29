@@ -27,4 +27,9 @@ export const i18nDerived = {
 	lossLimitReached: () => stateI18nDerived.translate(UI_TEXT.lossLimitReached),
 	singleWinLimitReached: () => stateI18nDerived.translate(UI_TEXT.singleWinLimitReached),
 	settings: () => stateI18nDerived.translate(UI_TEXT.settings),
+	reconnecting: () => stateI18nDerived.translate(UI_TEXT.reconnecting),
+	pleaseWait: () => stateI18nDerived.translate(UI_TEXT.pleaseWait),
+	connectionLost: () => stateI18nDerived.translate(UI_TEXT.connectionLost),
+	connectionLostInfo: () => stateI18nDerived.translate(UI_TEXT.connectionLostInfo),
+	reload: () => stateI18nDerived.translate(UI_TEXT.reload),
 };

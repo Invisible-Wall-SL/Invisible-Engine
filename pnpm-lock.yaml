@@ -1889,6 +1889,9 @@ importers:
 
   packages/rgs-translator-eagaming:
     dependencies:
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
       delivery-profile:
         specifier: workspace:*
         version: link:../delivery-profile

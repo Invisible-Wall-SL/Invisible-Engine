@@ -28,6 +28,7 @@
 		"lint": "eslint *.ts*"
 	},
 	"dependencies": {
+		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*"
 	},
 	"devDependencies": {
