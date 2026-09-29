@@ -155,7 +155,8 @@ const captureConfig = (
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
 	// The bet-option table, when the server declares one. Null leaves every bet on the legacy lines
-	// encoding, which is what the lines-family mock (and every server before the 2-complex node) needs.
+	// encoding, which is what a lines-family game that sells nothing (and every server before the
+	// 2-complex node) needs.
 	const options = readServerBetOptions(cfg);
 	if (options) {
 		capturedBetOptions.set(sid, options);
@@ -1042,9 +1043,10 @@ export const requestAuthenticate = async (options: {
 	let cfg = captureConfig(options.sessionID, eventsOf(configResponse));
 
 	// Some servers answer the balance probe WITHOUT the boot config and expose it as its own
-	// (non-stored) `config` action instead. Ask explicitly, but only as a FALLBACK: the lines mock
-	// rejects unknown actions and emits its config on the session's first call only — so probing
-	// first would burn that call on an error and lose the config for the whole session.
+	// (non-stored) `config` action instead — among them our lines mock for a game that sells an ante
+	// or a buy, which sends its config ONLY when asked, so a session is pinned to its bet table only
+	// by a client that asked. Ask explicitly, but only as a FALLBACK: a server that predates the
+	// action answers it with an error.
 	if (!cfg) {
 		const probe = await fetcher.post({ body: [{ action: 'config' }] });
 		configResponse = probe.response;
@@ -1089,8 +1091,9 @@ export const requestAuthenticate = async (options: {
 		config: {
 			betLevels: ladder?.betLevels ?? [
 				// PLACEHOLDER ladder — the client inventing limits the RGS never agreed to. Reached
-				// against a server that declares no `betOptions` (the lines-family mock), and against
-				// one that does when no operator embed page declares `betMultipliers` (the book mock).
+				// against a server that declares no `betOptions` (a lines-family game that sells
+				// nothing), and against one that does when no operator embed page declares
+				// `betMultipliers` (both our mocks' table games).
 				100_000, // $0.10
 				200_000, // $0.20
 				500_000, // $0.50
@@ -1115,7 +1118,7 @@ export const requestAuthenticate = async (options: {
 				disabledSpacebar: false,
 				// A table of ONE option declares there is nothing to buy. No table at all declares
 				// nothing, so the game's own authored menu stands — which is what every server before
-				// the 2-complex node, the lines-family mock included, has always had.
+				// the 2-complex node, and a lines-family game that sells nothing, has always had.
 				disabledBuyFeature: serverOptions?.betOptions.length === 1,
 				displayNetPosition: false,
 				displayRTP: false,

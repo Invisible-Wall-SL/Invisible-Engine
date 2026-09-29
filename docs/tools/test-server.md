@@ -218,5 +218,6 @@ TEST_SERVER_LOCAL=/path/to/local-games PORT=8080 node services/test-server/serve
 
 The service is **public** and the mock RGS is **unauthenticated** — acceptable
 because it's mock money on a faithful-but-fake RGS, no R2 writes, no real spend.
-A shared `sessionID=demo` means users share one mock balance (resets on
-restart). Add a secret/random session later if needed.
+The launch URL's `sessionID=demo` is a placeholder: the game swaps it for a
+minted id per browser TAB, so each tab has its own mock balance (resets on a
+restart or a publish) and a reload keeps it.

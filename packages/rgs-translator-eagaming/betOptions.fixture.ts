@@ -8,9 +8,9 @@
  *
  * SIX claims:
  *
- *  1. A SERVER THAT DECLARES NOTHING LEAVES EVERYTHING ALONE. This is the parity gate: the
- *     lines-family mock and every server before the 2-complex node send no `betOptions`, and must
- *     keep the legacy lines encoding and the coded placeholder ladder.
+ *  1. A SERVER THAT DECLARES NOTHING LEAVES EVERYTHING ALONE. This is the parity gate: a
+ *     lines-family game that sells nothing and every server before the 2-complex node send no
+ *     `betOptions`, and must keep the legacy lines encoding and the coded placeholder ladder.
  *  2. THE LADDER IS `betOptions[0] × M` OVER THE OPERATOR'S MULTIPLIERS. The BASE option is what a
  *     rung means — a buy is the same M priced through a different option, not a separate rung.
  *  3. THE OPTION INDEX IS MATCHED BY NAME, NOT POSITION — AND REFUSES RATHER THAN GUESSES. The

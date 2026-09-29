@@ -19,9 +19,10 @@
  * the wire context all agree, and it is the thing to re-confirm with the partner before shipping —
  * a per-line-vs-total misread yields a game that plays correctly with every number wrong.
  *
- * ALL OF IT IS OPTIONAL. A server that declares no `betOptions` (the lines-family mock, every server
- * before the 2-complex node) leaves every consumer on the pre-existing path. The book mock declares a
- * table, as the partner's Book-of games do.
+ * ALL OF IT IS OPTIONAL. A server that declares no `betOptions` (a lines-family game that sells
+ * nothing, every server before the 2-complex node) leaves every consumer on the pre-existing path.
+ * The book mock declares a table, as the partner's Book-of games do, and so does a lines-family game
+ * that sells an ante or a buy, as their Stargate does.
  */
 
 import { readHostGameSettings } from 'delivery-profile';
@@ -56,7 +57,8 @@ const positiveNumbers = (value: unknown): number[] | null => {
 
 /**
  * Read the bet-option table out of a boot `config` context. Returns null unless the server declared
- * a usable one — the gate that keeps every legacy server (and the lines-family mock) on the old path.
+ * a usable one — the gate that keeps every legacy server (and a lines-family game that sells nothing)
+ * on the old path.
  */
 export const readServerBetOptions = (config: unknown): ServerBetOptions | null => {
 	if (typeof config !== 'object' || config === null) return null;
