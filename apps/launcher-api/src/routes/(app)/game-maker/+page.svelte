@@ -887,6 +887,8 @@
 											>
 												Play ↗
 											</a>
+											<!-- An absolute game-server URL, so SvelteKit's resolve() does not apply. -->
+											<!-- eslint-disable svelte/no-navigation-without-resolve -->
 											<a
 												class="play live"
 												href={liveUrl(p.url)}
@@ -896,6 +898,7 @@
 											>
 												Live ↗
 											</a>
+											<!-- eslint-enable svelte/no-navigation-without-resolve -->
 											<select
 												class="play-lang"
 												title="Language the Play and Live links open the game in"
