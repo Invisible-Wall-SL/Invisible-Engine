@@ -84,7 +84,9 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
   stale-save orphan. `check:launcher-gates`
   now also scans the three new routes. Build green; `svelte-check` clean on every touched file
   (the one hit, `editorStorage.ts` `DOC_VERSION`, is pre-existing — see [editor.md](editor.md)).
-  **Owed:** a two-profile browser test of History → Restore on each tool.
+  **Live (#847, `ad4c0661`):** the three new routes went 404 → 200 (`/api/editor/backups` unchanged),
+  a flow History → Restore was clicked through on `test2` (see [flow.md](flow.md)), and /symbols +
+  /config render History…. **Owed:** a two-profile test (restore from a stale tab → 409) in a browser.
 
 
 ### 2026-09-29 — error reporting + a real `/api/health`

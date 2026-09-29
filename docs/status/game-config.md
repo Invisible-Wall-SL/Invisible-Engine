@@ -686,7 +686,8 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   backs up) — server side in [launcher.md](launcher.md) 2026-09-29. `/config` has a
   **History…** button (shared `$lib/DocHistoryModal.svelte`) that lists them and restores one through
   `POST /api/game-config/backups?project=` with this tab's ETag, then reloads. Build + checks green;
-  ⏳ restore not click-tested in a browser (list verified live).
+  Live (#847): the button renders and `GET /api/game-config/backups?project=test2` answers 200 (empty —
+  no config save since deploy). ⏳ A config restore not click-tested (the flow restore was; same modal).
 - 2026-09-29 — **Scatter pays authorable, import from a pasted partner capture, a paytable drift
   banner + publish/deliver gate, RTP + max win on the info page.** Full write-up: _Scatter pays,
   pasted partner captures, the paytable gate, RTP + max win_ above. New: `shownPaytable`,
