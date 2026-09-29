@@ -353,6 +353,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — spine assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
+  - **Backed up nightly** (encrypted, to the separate bucket `invisible-backups`): everything here except `comfyui-models/`, `comfyui-nodes/`, `tools/`, `test_server/` (but `games.json` is), `_shared/storybook/` and each project's `published/`, `deploy/`, `batch/`, `video/` — see "Backups" below.
   - `<client>/<project>/published/` — **published runtime snapshots** (online Game Maker, 2026-09-29):
     `pointer.json` (the version players boot + ≤5 retained, CAS-written) and one `<id>/` per version
     holding `runtime.json` + a frozen copy of `deploy/`. Written only by Publish / rollback; players
@@ -628,6 +629,51 @@ legacy branch in `launch.py` + `toolLaunch.ts` (tracked in the atlas-maker / she
 files). Rotating a signing secret signs everyone out of that tool (they reopen it from the
 launcher); there is no other session state to clean up.
 
+## Backups (2026-09-29)
+
+Nightly, encrypted, **off-bucket** backups of the launcher Postgres and the authored R2 sources.
+
+- **Workflow:** `.github/workflows/nightly-backup.yml` runs `scripts/backup/iwbackup.py` at 02:37 UTC.
+- **Where they go:** the separate R2 bucket **`invisible-backups`**, never `invisibleassets`.
+- **Encryption:** age, to public keys. The job cannot decrypt what it wrote.
+- **Nightly self-test:** every dump is test-restored into a throwaway `postgres:18`, and every row
+  count is compared.
+- **Alerting:** a failure opens the issue **"Nightly backup failed"**.
+
+Design, the R2-versioning comparison, owner setup, restore runbooks and the 2026-09-29 test restore
+are in **[docs/guides/backups.md](guides/backups.md)**.
+
+| Prefix in `invisible-backups` | Holds | Lifecycle (owner-set) | Bucket lock |
+| --- | --- | --- | --- |
+| `postgres/` | `pg_dump -Fc` + per-table row counts (`.tar.age`) | expire 35 d | 7 d |
+| `r2-docs/` | authored docs + `_backup/manifest.tsv` (`.tar.gz.age`) | expire 90 d | 7 d |
+| `r2-assets/` | authored source assets + manifest (`.tar.age`) | expire 14 d | 7 d |
+| `_restore-drill/` | scratch re-uploads from drills | expire 7 d | — |
+
+**GitHub `backups` environment** (deployment branches: `main` only; no required reviewers):
+
+- Secrets:
+  - `BACKUP_DATABASE_URL`: the public-proxy URL of a read-only `backup_reader` role;
+  - `BACKUP_SRC_R2_ACCESS_KEY_ID` + `BACKUP_SRC_R2_SECRET_ACCESS_KEY`: R2 token
+    `backup-source-reader`, Object Read only, scoped to `invisibleassets`;
+  - `BACKUP_R2_ACCESS_KEY_ID` + `BACKUP_R2_SECRET_ACCESS_KEY`: R2 token `backup-writer`, Object
+    Read & Write, scoped to `invisible-backups` only.
+- Variables:
+  - `BACKUP_AGE_RECIPIENTS`: required; the owner's age public keys, space-separated;
+  - `BACKUP_R2_BUCKET` and `BACKUP_R2_ENDPOINT`: optional, default `invisible-backups` on the
+    main account endpoint;
+  - `BACKUP_SRC_R2_BUCKET` and `BACKUP_SRC_R2_ENDPOINT`: optional.
+- Everything is dormant until `BACKUP_DATABASE_URL` is set: the run is a green no-op with a
+  warning.
+
+The **age identity** (the private key) lives only with the owner: a password manager plus an
+offline copy, with a second break-glass key. It is never in Railway, GitHub or a session. Losing
+every identity makes the backups unreadable.
+
+**Railway's built-in Postgres backups** (Backups tab: Daily 6 d / Weekly 27 d / Monthly 89 d; PITR
+optional) exist only on **Pro/Enterprise**. Turn them on if the workspace is on Pro. They complement
+ours, but they live inside Railway and are deleted with the volume.
+
 ## DNS (Cloudflare)
 
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.
@@ -649,5 +695,9 @@ All values below were exposed (committed and/or pasted in chat during setup) and
 | **R2 access token** (Access Key ID + Secret; one ID started `a6f88a7d…`)                                                          | Cloudflare R2 → **Manage R2 API Tokens**. Used as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` on Railway **launcher**, **atlas-backend**, **atlas-tool**.                             | Cloudflare dashboard → R2 → API Tokens → create a NEW token (scoped to bucket `invisibleassets`, read+write) → delete the old token.                                                                                           | Update `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` on all three Railway services → click **Apply changes / Deploy** on each (a plain redeploy does NOT apply staged vars).                                                                                                            |
 | **Postgres password**                                                                                                             | Inside `DATABASE_URL` on the Railway **launcher** service (Postgres lives in the `Invisible launcher` project).                                                                       | Easiest: Railway Postgres service → **Variables** → rotate `PGPASSWORD`/regenerate credentials (or via `psql`: `ALTER USER … WITH PASSWORD …`). Railway exposes a reference `DATABASE_URL`; if you set it manually, update it. | Redeploy the **launcher** so it reconnects with the new `DATABASE_URL` → **Apply changes / Deploy**. Re-run `scripts/seed.mjs` only if needed (data unaffected).                                                                                                                    |
 | **CF Access service-token secret** (`CF-Access-Client-Secret`; Client ID `bb044437409520caf86021625f8553e5.access` is non-secret) | Cloudflare **Zero Trust → Access → Service Auth** (the token in front of `comfy.invisiblewall.org`). Used as `CF_ACCESS_CLIENT_SECRET` on Railway **atlas-backend** + **atlas-tool**. | Zero Trust → Access → Service Auth → **Rotate/Regenerate** the service token (or create a new one and update the Access policy to allow it, then delete the old).                                                              | Update `CF_ACCESS_CLIENT_ID` (if it changed) + `CF_ACCESS_CLIENT_SECRET` on **atlas-backend** and **atlas-tool** → **Apply changes / Deploy** on each. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
+| **Backup source-reader R2 token** (`backup-source-reader`) | Cloudflare R2 → API Tokens. Object Read only on `invisibleassets`. GitHub env `backups` secrets `BACKUP_SRC_R2_ACCESS_KEY_ID` / `BACKUP_SRC_R2_SECRET_ACCESS_KEY`. Not used by any Railway service. | Create a new token with the same scope, then delete the old one. | Update the two secrets. Actions → **Nightly backup** → Run workflow → green. |
+| **Backup writer R2 token** (`backup-writer`) | Cloudflare R2 → API Tokens. Object Read & Write on `invisible-backups` only. GitHub env `backups` secrets `BACKUP_R2_ACCESS_KEY_ID` / `BACKUP_R2_SECRET_ACCESS_KEY`. | Create a new token with the same scope, then delete the old one. A leaked copy cannot decrypt backups. The 7-day bucket lock stops it deleting the last week. | Update the two secrets → Run workflow → green. |
+| **Backup DB role** (`backup_reader` password) | Inside `BACKUP_DATABASE_URL` (GitHub env `backups`). | `ALTER ROLE backup_reader PASSWORD '…';` via Railway → Postgres → Data. If the secret holds the superuser URL instead, rotating the Postgres password (row above) breaks the backup too. | Update `BACKUP_DATABASE_URL` → Run workflow → green. |
+| **Backup age identity** (private key; public half in the `BACKUP_AGE_RECIPIENTS` variable) | Owner's password manager + an offline copy, never in a service. | `age-keygen -o new.txt`, then replace the old public key in `BACKUP_AGE_RECIPIENTS`. **Keep the old identity** until lifecycle has expired every archive made to it (90 d), or those become unreadable. | Run workflow, then do restore drill A (docs/guides/backups.md) with the new key. |
 
 > After every rotation, **verify the runtime** (not just the dashboard): probe the live URL / a no-secret diagnostic to confirm the new value took, then remove the diagnostic.

@@ -4,7 +4,7 @@
 >
 > This file is a THIN status layer — current operational state + open items only. For any URL, env-var name, R2 key layout, tunnel id, or rotation procedure, go to **docs/INFRA.md**; do not duplicate its tables here.
 
-**One-line state:** Healthy and serving — all cloud services live on one Railway project; the only owed work is owner-side security hardening (secret rotation + tool-gate secrets) and a couple of unverified/blocked items.
+**One-line state:** Healthy and serving — all cloud services live on one Railway project; the only owed work is owner-side security hardening (secret rotation + tool-gate secrets) and a couple of unverified/blocked items. **Backups:** nightly encrypted Postgres + authored-R2 backups are built and test-restored, but **dormant until the owner creates the backup bucket, tokens, age keys and the `backups` environment** (see Blocked).
 
 ## Current state
 The topology is **cloud-stateless Railway services + a shared R2 system-of-record**. ComfyUI is no longer a single local box: it now runs in **three** places — the local RTX 4070 over the Cloudflare named tunnel (the original transport, still wired), **RunPod R&D pods** for artist experimentation (`/comfyui`, a fleet), and a **RunPod Serverless endpoint**, which is what the Atlas Maker actually generates on — live `atlas-tool` runs `COMFY_TRANSPORT=serverless` (owner-confirmed 2026-08-18). So the **local box is no longer on the generation path**: `COMFY_URL` + the `CF_ACCESS_*` vars are still set but unused there, and a production generation failure is a RunPod/worker-image problem rather than "is the local ComfyUI up". This is what retired the "blocked until it's installed locally" class of problem (see Blocked, below). See docs/INFRA.md for the diagram and the service/env tables.
@@ -22,6 +22,14 @@ The topology is **cloud-stateless Railway services + a shared R2 system-of-recor
 4. **Launcher OOM-on-bake (Railway RAM):** the editor bake/export path has 502'd mid-bake from the launcher running out of memory (bake retries 5xx as a soft cover). Durable fix = more RAM on the launcher service / stream exports rather than buffering. See `gotcha_bake_export_502_launcher_oom`.
 
 ## Blocked (owner / external)
+- **Nightly backups setup (owner, ~25 min; the workflow is a green no-op until done):** the full numbered list is "One-time owner setup" in [guides/backups](../guides/backups.md). In short:
+  - Cloudflare: create R2 bucket `invisible-backups`. Add lifecycle rules `postgres/` 35 d, `r2-docs/` 90 d, `r2-assets/` 14 d, `_restore-drill/` 7 d, and abort multipart after 1 d. Add 7-day bucket-lock rules on the first three prefixes.
+  - Cloudflare: create R2 tokens `backup-writer` (Object R&W, that bucket only) and `backup-source-reader` (Object Read, `invisibleassets` only).
+  - Postgres: create the `backup_reader` role (`GRANT pg_read_all_data`).
+  - Your machine: `age-keygen` twice (main + break-glass). Store both identities offline.
+  - GitHub: environment `backups`, restricted to `main`, with secrets `BACKUP_DATABASE_URL`, `BACKUP_SRC_R2_ACCESS_KEY_ID`, `BACKUP_SRC_R2_SECRET_ACCESS_KEY`, `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY` and variable `BACKUP_AGE_RECIPIENTS`.
+  - Then: run the workflow once, and do restore drill A with your real key.
+  - **Railway:** if the workspace is on **Pro**, also enable Postgres → Backups → Daily + Weekly. It is Pro/Enterprise only; if the tab is missing or locked, you are on Hobby and ours is the only DB backup.
 - **Monitoring setup (owner, ~30 min; everything is dormant until done):** (1) create a Sentry org in the **EU** region with projects `game-runtime` (Browser JS), `launcher` (Node), `pipeline-tools` (Python), alert rule "new issue → email" on each; (2) GitHub → Settings → Secrets and variables → Actions: secret `PUBLIC_SENTRY_DSN` (game-runtime DSN), optional variable `PUBLIC_SENTRY_SAMPLE_RATE`; the next runtime release bakes it; (3) Railway launcher: `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (launcher DSN) → Apply changes; (4) Railway atlas-tool + sheet-tool: `SENTRY_DSN` (pipeline-tools DSN) → Apply changes; (5) Railway launcher → Settings → Deploy → Healthcheck Path `/api/health`, timeout 300; (6) Better Stack monitors per the INFRA table; (7) Watch the repo (Custom → Issues) so "Runtime release failed" issues reach you.
 - **⚠️ HIGHEST PRIORITY — live anonymous-access exposure + secret rotation (owner-side, Railway/CF dashboards, ~30 min):** ~~set `ATLAS_TOOL_SECRET` + `SHEET_TOOL_SECRET`~~ (both set — every non-`/healthz` path answered 403 on 2026-09-29); **next: set `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET`** on launcher + each tool so the tools take their scope from a signed token rather than the URL ([INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29)); and **rotate the setup-time secrets that were exposed**: the R2 token (read+write whole bucket, shared by ~4 services), the Postgres password, and the CF Access service-token secret. Also rotate `COMFY_ORG_API_KEY` and `EDITOR_DOC_SECRET`. Procedure + rotation checklist in docs/INFRA.md "Security / secret rotation". After each rotation, **verify the runtime, not just the dashboard.**
 - **GitHub repo security settings (owner-only, repo is PUBLIC as of 2026-09-28; visibility still being decided):** enable Secret scanning + Push protection (Settings → Code security), and a branch ruleset on `main` requiring the `Secrets / check-secrets` check (free on a public repo). Detail and the exact list: 2026-09-28 below.
@@ -29,6 +37,47 @@ The topology is **cloud-stateless Railway services + a shared R2 system-of-recor
 - **ComfyUI-Manager prerequisite** for Blueprints model auto-install — needs ComfyUI-Manager at security level "middle" or below on whichever ComfyUI generates (else 403). The baked R&D pod image already ships it at `middle`; the **local** install is the one still to confirm. See docs/INFRA.md. (The feature itself is **code-complete**, not unbuilt — install queue, poll, reboot, wait-for-back, recheck and a manual checklist, behind `BLUEPRINT_AUTO_INSTALL_MODELS`. What it owes is this prerequisite plus one live run — a real Manager, a catalogued model, a real download + reboot: [atlas-maker](atlas-maker.md) open item 7. The genuinely unbuilt piece is the `r2_key` resolution against the `comfyui-models/` mirror: [comfyui](comfyui.md) open item 9.)
 
 ## Recent changes
+- 2026-09-29 — **Nightly backups + restore runbooks** ([guides/backups](../guides/backups.md)).
+  - **What runs:** `.github/workflows/nightly-backup.yml` runs `scripts/backup/iwbackup.py` at
+    02:37 UTC. It writes three age-encrypted archives to a separate R2 bucket, `invisible-backups`:
+    - `postgres/`: a `pg_dump` taken in an exported repeatable-read snapshot, plus per-table row
+      counts from the same snapshot;
+    - `r2-docs/`: about 2,200 authored docs, 42 MB → 5.4 MB;
+    - `r2-assets/`: about 13,400 authored source assets, 3.3 GB.
+  - **Selection:** include-by-default. It excludes model weights, `tools/`, built `test_server/`
+    bundles (except `games.json`), the Storybook build, and each project's `published/`,
+    `deploy/`, `batch/` and `video/` outputs.
+  - **Nightly self-test:** each dump is restored into a throwaway `postgres:18` and the row counts
+    are compared.
+  - **Alerting:** a failure opens or updates the issue "Nightly backup failed".
+  - **Public-repo safety:** no artifacts; the log shows counts and sizes only; each connection-string
+    component is masked; secrets sit in a `main`-only `backups` environment; and the job holds no
+    decryption key.
+  - **Research findings:**
+    - **R2 has no object versioning** (`PutBucketVersioning` is unsupported), so the nightly copy is
+      the recommendation, at under $1/month.
+    - **Railway's built-in DB backups are Pro/Enterprise only.**
+  - **Test restore, from production sources read-only into scratch targets** (local PG 18, S3
+    emulator, local dir):
+    - **Postgres:** all 17 tables' row counts matched, and 10 stable tables were md5-identical to
+      production.
+    - **R2:** all 2,199 docs and all 13,431 assets were byte-verified against their backup-time
+      ETags.
+    - **Scratch-prefix re-upload:** ETag-identical to production.
+    - **Guards:** each one refused as designed.
+  - **Found by the drill:** 17 case-only key collisions in `borut/bookofborut/`, which silently
+    overwrote each other on a Windows disk. `restore-r2` now detects them and never routes an R2
+    upload through the filesystem.
+  - **Content check (drill detail):** `users`, `games`, `projects`, `clients`, `app_settings`, `role_tool_access`, `shared_rigs`, `cost_months`, `tool_installs` and `drizzle.__drizzle_migrations` were compared with production by an md5 over every row, with `TimeZone`/`DateStyle` pinned. All identical.
+  - **Hardened after a `code-reviewer` pass, then re-drilled end to end:**
+    - In Actions, errors print only their exception type, and `pg_*` errors are cut to one scrubbed line. Tested: a `#` in the password and an unreachable host leaked nothing.
+    - URLs are parsed by libpq, so `?host=` / `hostaddr` / `service` / a trailing-dot Railway host are all refused. Remote targets need `--allow-remote`.
+    - The manifest is built from the GET responses, not the listing. Tested: an object deleted and one overwritten between list and GET gave a green backup and a verified restore.
+    - `restore-r2` verifies everything before writing anything, keeps Content-Type and Cache-Control, and survives Windows-hostile keys: `:`, `aux`, trailing dots, `\` traversal, and a file/folder clash.
+    - Postgres and R2 back up independently, so one failing does not cost the other its night.
+    - Object reads retry 3 times, and in-flight fetches are bounded by bytes.
+    - Secrets are passed only to the "Back up" step; dependencies are hash-pinned; checkout has `persist-credentials: false`. `scripts/check-secrets.mjs` now exempts pip `--hash=sha256:` pins from its generic-hex rule; the fixture was added.
+  - **Still owed by the owner:** everything under Blocked, "Nightly backups setup".
 - 2026-09-29 — **Game dev servers boot again after the error-tracking change.** Vite dev SSR externalized the `error-tracking` package (no svelte dep) and Node's ESM loader could not resolve its extensionless re-exports, so every game's `vite dev` showed an error overlay. `packages/config-vite` now sets `ssr.noExternal: ['error-tracking']` for all six apps; production builds were never affected.
 - 2026-09-29 — **Monitoring + error tracking.** Sentry (free plan, EU region recommended) wired into the game runtime, the launcher (server + browser) and atlas-tool/sheet-tool — all no-ops until DSNs are set; partner deliveries off unless their profile opts in. `/api/health` checks the DB + migration state (503 when behind). Runtime-release failures now open/update a GitHub issue. Uptime: Better Stack free, exact monitor config in docs/INFRA.md "Monitoring & error tracking". **Owner actions owed** — see Blocked.
 - 2026-09-28 — **secret scanning hardened + server-side backstop.** `scripts/check-secrets.mjs` now knows Anthropic (`sk-ant-…`), OpenAI project/admin/service keys (the hyphens broke the old `sk-` regex), GitHub classic + fine-grained tokens, RunPod `rpa_`, Cloudflare API/tunnel tokens, AWS/R2 key pairs, Slack/Discord webhooks, Google, Stripe, Hugging Face, npm, Civitai, any PEM private key and credentialed DB/Redis URLs; documentation placeholders (`xxxx`, `<token>`, `${VAR}`, `user:password@`) are ignored. It gained `--diff <base>` and `--history` modes and fixtures (`node scripts/check-secrets.test.mjs`, fake keys assembled at runtime so neither our scanner nor GitHub push protection trips on the test file). New workflow `.github/workflows/secrets.yml` runs it on every PR's added lines and every push to `main` — the hook alone is skipped by `--no-verify` or an un-configured clone. It prints file/line/TYPE only, never the value, because Actions logs are public on a public repo.

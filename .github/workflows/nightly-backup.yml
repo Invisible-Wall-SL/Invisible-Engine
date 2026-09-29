@@ -1,0 +1,150 @@
+# Nightly backup — the launcher Postgres + the authored R2 sources, encrypted, to a SEPARATE bucket.
+#
+# What, why and how to restore: docs/guides/backups.md. The tool is scripts/backup/iwbackup.py.
+#
+# THIS REPO IS PUBLIC, so this log is world-readable. The rules that keep it safe:
+#   - no artifacts, ever; archives go straight to the backup bucket, encrypted with `age` to PUBLIC
+#     keys (the job cannot decrypt what it wrote — only the owner's offline identity can);
+#   - the tool prints counts, sizes and table names only — never object keys, rows or URLs — and
+#     masks every connection-string component before anything could echo it;
+#   - no `set -x`; secrets reach the tool as env vars, never as command-line arguments;
+#   - the secrets live in the `backups` environment, which the owner restricts to `main`, so a
+#     workflow edited on a branch cannot read them.
+#
+# Dormant until configured: with no BACKUP_DATABASE_URL secret the run is a green no-op with a
+# warning, so the schedule does not open a failure issue every night before the owner sets it up.
+
+name: Nightly backup
+
+on:
+  schedule:
+    # 02:37 UTC — off the top of the hour, where GitHub delays and drops scheduled runs.
+    - cron: '37 2 * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Back up only one side (blank = both)'
+        type: choice
+        options: ['', pg, r2]
+        default: ''
+
+concurrency:
+  group: nightly-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    # The real fence is the `backups` environment's branch policy (main only): a workflow edited on a
+    # branch could drop this `if`, but not reach environment secrets.
+    if: github.repository == 'Invisible-Wall-SL/Invisible-Engine' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: backups
+    # `issues: write` is for the failure alert below and nothing else.
+    permissions:
+      contents: read
+      issues: write
+    # An empty Postgres the dump is test-restored into every night, then thrown away with the runner.
+    services:
+      restore-check:
+        image: postgres:18
+        env:
+          POSTGRES_USER: restorecheck
+          # Trust auth: the container is reachable only from this runner and dies with it.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: restore_check
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U restorecheck" --health-interval 5s --health-timeout 5s
+          --health-retries 20
+    # Only non-secret configuration at job level. The secrets are handed to the ONE step that needs
+    # them ("Back up"), so checkout, setup-python, the PGDG script and pip never see them.
+    env:
+      PG_BIN_DIR: /usr/lib/postgresql/18/bin
+    steps:
+      - name: Configured?
+        id: gate
+        env:
+          HAS_DB: ${{ secrets.BACKUP_DATABASE_URL != '' }}
+          HAS_SRC: ${{ secrets.BACKUP_SRC_R2_ACCESS_KEY_ID != '' && secrets.BACKUP_SRC_R2_SECRET_ACCESS_KEY != '' }}
+          HAS_DEST: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID != '' && secrets.BACKUP_R2_SECRET_ACCESS_KEY != '' }}
+          HAS_AGE: ${{ vars.BACKUP_AGE_RECIPIENTS != '' }}
+        run: |
+          if [ "$HAS_DB" != true ]; then
+            echo "::warning::Nightly backup is not configured yet (no BACKUP_DATABASE_URL in the 'backups' environment) — nothing was backed up. Setup: docs/guides/backups.md"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          missing=""
+          [ "$HAS_SRC" = true ] || missing="$missing BACKUP_SRC_R2_ACCESS_KEY_ID/BACKUP_SRC_R2_SECRET_ACCESS_KEY"
+          [ "$HAS_DEST" = true ] || missing="$missing BACKUP_R2_ACCESS_KEY_ID/BACKUP_R2_SECRET_ACCESS_KEY"
+          [ "$HAS_AGE" = true ] || missing="$missing BACKUP_AGE_RECIPIENTS"
+          if [ -n "$missing" ]; then
+            echo "::error::Nightly backup is half-configured; missing:$missing"
+            exit 1
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          sparse-checkout: scripts/backup
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+
+      # The server is Postgres 18 and pg_dump refuses a server newer than itself; Ubuntu 24.04 only
+      # ships 16, so the client comes from the PostgreSQL project's own apt repo (PGDG). The Python
+      # deps are exact, hash-checked pins.
+      - name: Install pg_dump 18, age, Python deps
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-18 age > /dev/null
+          "$PG_BIN_DIR/pg_dump" --version
+          age --version
+          pip install -q --require-hashes -r scripts/backup/requirements.txt
+
+      - name: Back up
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ONLY: ${{ inputs.only }}
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_SRC_R2_ENDPOINT: ${{ vars.BACKUP_SRC_R2_ENDPOINT || 'https://175d2ae4501d5de0a1ca970f2bb31448.r2.cloudflarestorage.com' }}
+          BACKUP_SRC_R2_BUCKET: ${{ vars.BACKUP_SRC_R2_BUCKET || 'invisibleassets' }}
+          BACKUP_SRC_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_SRC_R2_ACCESS_KEY_ID }}
+          BACKUP_SRC_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SRC_R2_SECRET_ACCESS_KEY }}
+          BACKUP_R2_ENDPOINT: ${{ vars.BACKUP_R2_ENDPOINT }}
+          BACKUP_R2_BUCKET: ${{ vars.BACKUP_R2_BUCKET || 'invisible-backups' }}
+          BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+          BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+          BACKUP_AGE_RECIPIENTS: ${{ vars.BACKUP_AGE_RECIPIENTS }}
+          RESTORE_CHECK_DATABASE_URL: postgresql://restorecheck@localhost:5432/restore_check
+        run: python scripts/backup/iwbackup.py backup ${ONLY:+--only "$ONLY"}
+
+      # A red scheduled run notifies nobody reliably; an issue notifies everyone watching the repo.
+      # One open issue collects every failure (a comment each) until closed.
+      - name: Alert — open or update the "Nightly backup failed" issue
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly backup failed"
+          body="Run: ${RUN_URL}
+
+          Last night's database and/or R2 backup did not complete, so the newest restorable backup is older than 24 h. Read the run log, fix, re-run the workflow by hand (Actions → Nightly backup → Run workflow), and close this issue once a run is green. Runbook: docs/guides/backups.md"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

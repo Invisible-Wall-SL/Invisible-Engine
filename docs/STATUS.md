@@ -189,6 +189,11 @@ the docs were just stale — remaining tail = live-verify). See each tool's
   every PuLID path via InsightFace). Nothing was switched; renders are now stamped with their
   models' licence status. Decide the switches in the recommendation table.
   ([reference/model-licences](reference/model-licences.md), [status/atlas-maker](status/atlas-maker.md))
+- **Nightly backups setup** (owner, 2026-09-29) — the encrypted nightly Postgres + authored-R2
+  backups are built and test-restored but dormant until the owner creates the `invisible-backups`
+  bucket (lifecycle + lock rules), two scoped R2 tokens, a read-only DB role, age keys and the
+  `backups` GitHub environment; plus Railway's own Backups tab if on Pro.
+  ([guides/backups](guides/backups.md), [status/infra](status/infra.md))
 - ~~**prod DB migrations applied?**~~ — resolved: migrations are applied through **0014** (the
   concurrency lease table), owner-confirmed 2026-08-04. ([status/infra](status/infra.md))
 
