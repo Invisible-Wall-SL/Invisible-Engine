@@ -1477,7 +1477,7 @@
 		flex-direction: column;
 		gap: 10px;
 	}
-	.projects li {
+	.projects > li {
 		border: 1px solid #23232e;
 		border-radius: 10px;
 		padding: 12px 14px;
