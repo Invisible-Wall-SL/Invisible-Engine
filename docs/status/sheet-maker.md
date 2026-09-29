@@ -2,11 +2,11 @@
 
 > Design: [docs/design/atlas-per-user-session.md](../design/atlas-per-user-session.md) · Guide: [docs/tools/sheet-maker.md](../tools/sheet-maker.md) · Agent: `.claude/agents/atlas-python-tools.md`
 
-**One-line state:** Live on Railway (`sheet-tool`, R2-backed, CPU-only). Project-file workflow + FX picker + atlas round-trip shipped; some flows still owner-live-verify owed.
+**One-line state:** live on Railway (`sheet-tool`, R2-backed, CPU-only) — packs sprites into sheets, imports `.plist` atlases verbatim, and hands its AI manifest to the Atlas Maker over R2. Since 2026-09-29 it takes its scope from a launcher-signed launch token; several flows are still owed a live browser pass.
 
 ## Current state
 Works today on `main` / live:
-- Pack loose sprite PNGs into one packed sheet, name each region, edit per-region **AI fields**, and export **libGDX/Spine `.atlas`**, **TexturePacker JSON**, and the **Invisible AI manifest** — the manifest is handed to the Atlas Maker over R2 (needs an Atlas Maker restart to appear). Pure Pillow/CPU; no ComfyUI.
+- Pack loose sprite PNGs into one packed sheet, name each region, edit per-region **AI fields**, and export **libGDX/Spine `.atlas`**, **TexturePacker JSON**, and the **Invisible AI manifest** — the manifest is handed to the Atlas Maker over R2 (it appears there after **↻ Refresh from R2**, or on switching to / deep-linking into it — no restart). Pure Pillow/CPU; no ComfyUI.
 - **Project-file workflow (B19)** — Sheets rail with Load / Refresh / Reset, plus **Save / Save As** and blank/duplicate-name guards.
 - **New sheet names itself first** — `New sheet…` opens a name dialog before clearing anything; a name already in the rail is flagged live and confirmed on Create, and **Save As** asks before replacing an existing sheet of the same name (the server writes whatever name it is given).
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
@@ -48,10 +48,10 @@ Works today on `main` / live:
 1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker and now the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
 2. **Per-user session parity (Phase 4) — planned, unbuilt** (design `atlas-per-user-session.md`): thread the launcher `user` id and scope any server-remembered view state / canvas defaults per user. Minimal — the tool is largely stateless server-side (compose is synchronous, geometry rides in the request).
 
-3. **Signed launch tokens — the cut-over.** **LIVE 2026-09-29 14:17Z** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
+3. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
 
 ## Blocked (owner / external)
-- None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
+- None.
 
 ## Recent changes
 - 2026-09-29 — **The Sheet Maker's scope comes from a launcher-signed token; `/healthz` is gate-exempt.** Same gate as the Atlas Maker (`iw_common/launch.py`, audience `sheet`): the launcher redirect carries only `?iw_launch=<token>`, the tool swaps it for a signed `iw_sheet_session` cookie and scopes every request from it; `?client=`/`?project=` in a URL are ignored, and the project picker shows "(set by Launcher)" once signing is on (it never switched R2 scope — `list_projects()` only ever returned the current project). Old `?k=` handoff accepted until 2026-10-13. `test_launch_gate.py` covers the handler wiring. Env + cut-over: [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).

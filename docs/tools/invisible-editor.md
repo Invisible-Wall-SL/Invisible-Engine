@@ -32,15 +32,19 @@ template for the project's game type.
 The page is a three-pane layout under a top bar:
 
 - **Top bar** — the shared `ToolTopBar` (emblem → launcher home, tool name,
-  online-tool switcher), the active project (`client/project`), a
-  **layoutType** pill group (`desktop · tablet · landscape · portrait`),
-  undo/redo (↶ ↷), scene/asset counters, and the save status pill.
-- **Left pane** — the **Screens** list on top, then a tabbed panel that switches
-  between **Library**, **Outline**, and (in advanced modes) **Template** /
-  **Components**.
+  online-tool switcher) with the scene/asset counters, and below it an action row
+  with the save status pill, **Save**, **History…**, slot/asset warnings and the
+  Template-editor toggle.
+- **Left pane** — the **Screens** list. The active screen expands in place to its
+  outline (the node tree, plus template slots when a template is loaded).
 - **Centre pane** — the **canvas**: the authoring frame for the active screen,
-  with the placed nodes drawn at their real textures.
-- **Right pane** — the **Properties** panel for the current selection.
+  with the placed nodes drawn at their real textures. Its top row carries the
+  device-layout pills (`desktop · tablet · landscape · portrait` by default),
+  undo/redo (↶ ↷) and the canvas actions.
+- **Right pane** — tabbed **Properties | Library** (plus **Template** in the
+  Template editor). Properties edits the current selection, the screen, the Canvas
+  Size and Game Settings; Library holds the elements, the art/spine/sheet library
+  and the Components section.
 
 The two side panes are resizable (drag the dividers; widths persist per
 project).
@@ -542,13 +546,14 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 
 #### Symbol size on the reel
 
-**Symbol size comes from the art.** There is no symbol-size number: every symbol fits
-its reel cell by its own art — a sprite by its picture, a flipbook by its clip's bounds
-box, a spine by the rig's Bounds frame (or the skeleton size Spine exported) — centred
-on the cell. To change one symbol's size, change its art (crop it, or set the rig's
-Bounds in the Rigger). Resizing the reel cell (`cellSize`) still scales the grid _and_
-the symbols together. (An earlier "Symbol size (× cell)" control and
-`reelGrid.symbolSizeRatios` were removed.)
+**Symbol size comes from the art.** There is no symbol-size control: every symbol is fitted
+inside its reel cell by its own art, centred, with its aspect ratio kept — a sprite by its
+picture (or its **Art bounds**, above), a flipbook by its clip's bounds box, a spine by the
+rig's Bounds frame (or the skeleton size Spine exported) — so the same picture reads the same
+on every board. To change how one symbol fills its cell, change its art: crop it, set its
+**Art bounds**, or set the rig's **Bounds** in Invisible Rigger. Resizing the reel cell itself
+(`cellSize`) scales the grid _and_ the symbols together. (An earlier "Symbol size (× cell)"
+control and `reelGrid.symbolSizeRatios` were removed.)
 
 #### Symbol overflow — room for art that spills past the reel
 
@@ -712,7 +717,7 @@ game on the next **Publish** — the same trip as the rest of your art.
 
 ### Advanced modes (optional)
 
-- **Components** — the left **Components** tab lists reusable prefabs (overlays,
+- **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
   UI groups, scenery), grouped by category. **Place** one to drop a component
   instance into the active screen; instances' params are editable in Properties.
   Authoring components themselves now lives in the separate **Invisible
@@ -736,9 +741,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   starts a fresh undo history, and your next edit saves it over the project. Open **History…**
   and restore the version from just before the load — a load always keeps one.
 - **A Text you placed never shows the live balance or win.** A plain **Text** element only ever
-  shows the words you typed. Place the built-in **Text Box** from the **Components** tab and pick
-  its **live value source** instead. The canvas can't run the game, so the real number appears
-  only in the game.
+  shows the words you typed. Place the built-in **Text Box** from the Library tab's
+  **Components** section and pick its **live value source** instead. The canvas can't run the
+  game, so the real number appears only in the game.
 - **An image shows another atlas's art in the game.** When two atlases have a region of the same
   name, an image picked before picks were tied to their atlas stores only the bare name, and the
   game can resolve it to the other atlas. Re-pick the frame; a new pick remembers its atlas.
@@ -756,9 +761,6 @@ game on the next **Publish** — the same trip as the rest of your art.
   boundary.)
 - **No in-editor book-event playback or timeline.** Verify animated behaviour by
   running the live game, not in the editor.
-- **`EDITOR_DOC_SECRET` must be set on the launcher** for the live-doc fetch to
-  serve; when unset the endpoint refuses and games fall back to the checked-in
-  `editor-scenes.ts` fixture.
 - **Some HUD parity gaps remain.** Rotation now ships for HUD elements, but the
   corner logo/game-name containers still ignore `scale` in-game, so scaling those
   two corner texts in the editor won't ship yet.

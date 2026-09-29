@@ -6,47 +6,52 @@
 ## Overview
 
 ```
-                 app.invisiblewall.org  (Cloudflare DNS, CNAME → Railway, DNS-only/grey)
-                          │
-                   ┌──────▼───────┐
-                   │   LAUNCHER    │  SvelteKit (adapter-node) + Postgres
-                   │  invisible-   │  auth (email+password, scrypt), roles, tool pages
-                   │  engine       │  Railway project: "Invisible launcher"
-                   └──┬────────┬───┘
-            /atlas →  │        │  → /spine (full-page, no iframe; static view.html)
-        redirect to   │        │
-   ┌──────────────────▼─┐   (calls)
-   │   ATLAS-TOOL        │      │
-   │  Python ui_server   │      ▼
-   │  (ported local tool)│   ┌─────────────────┐
-   │  Railway: atlas-    │   │  ATLAS-BACKEND   │  FastAPI (services/atlas-backend)
-   │  tools              │   │  Railway: atlas- │  SDXL workflow → ComfyUI, compose/slice
-   └─────────┬───────────┘   │  backend         │
-             │               └────────┬─────────┘
-             │ both reach ComfyUI ─────┘
-             ▼
-   comfy.invisiblewall.org  (Cloudflare NAMED tunnel → local ComfyUI :8188, RTX 4070)
-   protected by Cloudflare Access (service token)
-             │
-        ┌────▼─────┐
-        │   R2     │  bucket "invisibleassets" — shared asset/manifest store
-        └──────────┘
+ Cloudflare DNS (zone invisiblewall.org) — app. and games. are DNS-only CNAMEs to Railway
+ │
+ ├─ app.invisiblewall.org ──► LAUNCHER (SvelteKit, adapter-node) ──► Postgres (Railway)
+ │                            auth, roles, every tool page (full-page, never an iframe),
+ │                            publish, the runtime assemble, signed tool launch tokens
+ │        │ 303 + ?iw_launch=<token>
+ │        ├──────────────► SHEET-TOOL  (Python, services/sheet-tool)
+ │        └──────────────► ATLAS-TOOL  (Python, services/atlas-tool) ── generation ──┐
+ │                                                                                   ▼
+ │     RunPod Serverless endpoint (image atlas-comfy-worker) ◄ production generation
+ │     comfy.invisiblewall.org → a person's own ComfyUI (Cloudflare tunnel + Access) ◄ "My computer"
+ │     RunPod R&D pods, the launcher's /comfyui fleet (image atlas-comfy-pod) ◄ interactive R&D
+ │
+ ├─ games.invisiblewall.org ─► INVISIBLE TEST SERVER (Node, services/test-server)
+ │                            serves published games + the shared online runtime, mock RGS
+ │
+ └─ R2 bucket invisibleassets — the shared system of record every service above reads/writes
+    R2 bucket invisible-backups — nightly encrypted backups (GitHub Actions, see "Backups")
+
+ GitHub Actions: runtime release/rollback → R2 `_runtime/`; builds the two RunPod images → GHCR
+ atlas-backend (FastAPI, services/atlas-backend) — legacy, nothing calls it, slated for removal
 ```
 
 ## Services (Railway)
 
-**Consolidated structure (2026-05-30):** ALL services now live in **ONE Railway project**, environment **`production`**, so they can share variables. Service names + domains were cleaned up.
+**One Railway project, environment `production`** (consolidated 2026-05-30), so the services
+share variables. Railway's commit statuses name it `Invisible Pipeline` (see below); some older
+notes call it `Invisible launcher`.
 
 | Service                         | URL                                                                        | Stack                            | Root dir                                                           |
 | ------------------------------- | -------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------ |
 | **launcher** (Invisible-Engine) | `app.invisiblewall.org`                                                    | SvelteKit / Node (pnpm monorepo) | repo root, build `pnpm --filter launcher-api build`                |
 | **atlas-tool**                  | `atlas-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/atlas-tool/Dockerfile`    |
-| **atlas-backend**               | `atlas-backend-production-0a70.up.railway.app`                             | FastAPI / Python                 | **repo root**, Dockerfile Path `services/atlas-backend/Dockerfile` |
+| **atlas-backend** (legacy)      | `atlas-backend-production-0a70.up.railway.app`                             | FastAPI / Python                 | **repo root**, Dockerfile Path `services/atlas-backend/Dockerfile` |
 | **sheet-tool**                  | `sheet-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/sheet-tool/Dockerfile`    |
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
-| **Postgres**                    | internal (`postgres.railway.internal`); public proxy on `*.proxy.rlwy.net` | Postgres                         | —                                                                  |
+| **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
+
+Outside Railway: the **RunPod Serverless endpoint** (Atlas Maker / Flipbook generation — see
+`COMFY_TRANSPORT` below) and the **R&D pod fleet** (§ "ComfyUI R&D pod"), both run images that
+GitHub Actions builds into **GHCR** (`atlas-comfy-worker.yml`, `atlas-comfy-pod.yml`). The
+**online engine** is not a service at all: `runtime-release.yml` builds it into R2 as a versioned
+release the test server serves (see "Runtime releases" in
+[design/games-deploy](design/games-deploy.md)).
 
 ### ⚠️ launcher build-time binary: `ffmpeg-static` (2026-09-23)
 
@@ -78,7 +83,7 @@ Each list is exactly what that service's Dockerfile `COPY`s, so **a new build in
 
 > ### ⚠️ The launcher has no healthcheck, so every push to `main` is a brief launcher outage
 >
-> Because it watches no paths, **the launcher rebuilds on every push** — including the engine pushes that trigger a runtime release, and it is the slower of the two. On `13571da2` the release went green at **12:48:47Z** and the launcher only answered at **12:50:31Z**: a 104s window in which `/api/editor/runtime` answers 502 or refuses the connection. An online game booted in that window used to fall straight through to the engine's sample game — no project art, no project config — which is where "my runtime release wiped the game" comes from (see [engine status, 2026-09-18](status/engine.md)). The game now retries for ~75s and says so on screen when it still can't get through, but **the window itself is still open**.
+> Because it watches no paths, **the launcher rebuilds on every push** — including the engine pushes that trigger a runtime release, and it is the slower of the two. On `13571da2` the release went green at **12:48:47Z** and the launcher only answered at **12:50:31Z**: a 104s window in which `/api/editor/runtime` answers 502 or refuses the connection. An online game booted in that window used to fall straight through to the engine's sample game — no project art, no project config — which is where "my runtime release wiped the game" comes from (see [engine history, 2026-09-18](status/engine-history.md)). The game now retries for ~75s and says so on screen when it still can't get through, but **the window itself is still open**.
 >
 > **The fix is a Railway healthcheck on the launcher service** (Settings → Deploy → Health Check Path `/api/health`, timeout 300s), so Railway holds the old container until the new one is ready. Since 2026-09-29 [`/api/health`](../apps/launcher-api/src/routes/api/health/+server.ts) is a **readiness** check: 200 only when Postgres answers AND its recorded migrations reach the newest one the build carries — so the same setting also keeps a build whose migration failed from ever going live (see "Monitoring & error tracking" below). NOT SET as of 2026-09-29 — verify in the dashboard before assuming the window is closed.
 
@@ -113,7 +118,7 @@ success  Invisible Pipeline - Sheet Tool     No deployment needed - watched path
 
 So a push is fully out when **every service you expected to build says `Success -`** and the rest say `No deployment needed`. Which services _should_ build depends on the PATHS the commit touches (Watch Paths, above): `services/_shared/**` builds four — launcher, atlas-tool, atlas-backend, sheet-tool (the test-server does not watch `_shared`); a single service's dir builds that one plus the launcher; `docs/**` or `apps/**` builds only the launcher. Their rows settle independently and minutes apart — on `bb74ebc2` the three skips landed at once, Atlas Tool went green at +1m, the Launcher a little after — so a half-`pending` reading is mid-rollout, not a failure. (No `failure`/`error` row appears in the last 20 commits on `main`, so the wording Railway uses for a failed build is not recorded here; treat anything that is neither `success` nor `pending` as one and read its description.)
 
-**The deployments API is the WEAKER read — don't reach for it first.** `deployments?sha=…` → `/deployments/<id>/statuses` returns bare `in_progress` rows with an empty description, no service name and no commit, only a project URL: the repo-root Python services share ONE deployment record (`Invisible Pipeline / production`) and the launcher is its own project, so _which_ service succeeded is genuinely not recoverable there. It also leaves stale `in_progress` rows behind forever — on `bb74ebc2` it still showed two `in_progress` and no `success` at a moment when the commit-status API already had Atlas Tool green. Those rows mean nothing. Everything the old "count `success`" advice was working around is an artefact of this endpoint, not of Railway.
+**The deployments API is the WEAKER read — don't reach for it first.** `deployments?sha=…` → `/deployments/<id>/statuses` returns bare `in_progress` rows with an empty description, no service name and no commit, only a project URL: the repo-root Python services share ONE deployment record (`Invisible Pipeline / production`) and the launcher has a record of its own, so _which_ service succeeded is genuinely not recoverable there. It also leaves stale `in_progress` rows behind forever — on `bb74ebc2` it still showed two `in_progress` and no `success` at a moment when the commit-status API already had Atlas Tool green. Those rows mean nothing. Everything the old "count `success`" advice was working around is an artefact of this endpoint, not of Railway.
 
 **Rows still `pending` are NOT proof of a flake — deploys are wildly uneven, so wait before re-triggering.** (Measured before the commit-status read above, by counting `success` on the deployments API — hence the `n/4` shorthand; the patience is what carries over.) Measured the same day: `234e4c69` went 4/4 in **6 minutes**, while `ec07abaa` three minutes later was still at **1/4 after 27 minutes** and only reached 3/4 at **+34**. Both were fine. Give a deploy **half an hour** before treating it as the builder flake documented above; re-pushing early just queues another round of builds behind the ones already running, which is what makes the next one look stuck too.
 
@@ -147,7 +152,7 @@ There were briefly **two environments** (`production` + a stray `atlas`), each w
 
 ### Auto-migrate on boot (2026-06-13)
 
-The launcher now applies pending Drizzle migrations **itself**, at server startup, before serving any request — via the SvelteKit `init` server hook (`src/hooks.server.ts` → `runMigrations()` in `src/lib/server/db/migrate.ts`, the `drizzle-orm/postgres-js` programmatic migrator pointed at the committed `drizzle/` folder). So pushing a schema migration + its schema-dependent code in ONE deploy is now safe — the new code's first boot brings the prod schema up to date itself; **no manual `db:migrate` step**. Properties: never crashes boot (a missing `DATABASE_URL`, unlocatable folder, or migration error is logged, reported to Sentry, and turns `/api/health` red — 503 — so with the Railway healthcheck set the failed build is never promoted and the previous container keeps serving; a crash-loop would instead be an outage whenever no healthcheck is set); idempotent + transactional (tracked in `__drizzle_migrations`). Manual `db:push` still works for out-of-band use. (Always-confirm-the-env lesson above still holds: the migrator targets whatever `DATABASE_URL` the service runs with.)
+The launcher now applies pending Drizzle migrations **itself**, at server startup, before serving any request — via the SvelteKit `init` server hook (`src/hooks.server.ts` → `runMigrations()` in `src/lib/server/db/migrate.ts`, the `drizzle-orm/postgres-js` programmatic migrator pointed at the committed `drizzle/` folder). So pushing a schema migration + its schema-dependent code in ONE deploy is now safe — the new code's first boot brings the prod schema up to date itself; **no manual `db:migrate` step**. Properties: never crashes boot (a missing `DATABASE_URL`, unlocatable folder, or migration error is logged, reported to Sentry, and turns `/api/health` red — 503 — so with the Railway healthcheck set the failed build is never promoted and the previous container keeps serving; a crash-loop would instead be an outage whenever no healthcheck is set); idempotent + transactional (tracked in `__drizzle_migrations`). **The workflow is `pnpm --filter launcher-api db:generate` → commit the new `drizzle/` file → deploy**; never `db:push` against production (it records nothing in the journal — the incident below). `/api/health` reports `schema: current` once the boot migrator has applied every migration the build ships. (Always-confirm-the-env lesson above still holds: the migrator targets whatever `DATABASE_URL` the service runs with.)
 
 > ⚠️ **The migrator compares by `created_at` THRESHOLD, not per-hash** (verified in `drizzle-orm` `pg-core/dialect.js` `migrate()`): it reads the newest `created_at` in `drizzle.__drizzle_migrations` and applies every journal entry whose `when` (folderMillis) is greater. So an **empty** migrations table makes it replay from `0000`. **This bit us on 2026-06-13:** prod's schema was originally created with `db:push` (which writes the tables but records NOTHING in `__drizzle_migrations`), so the first auto-migrate boot tried to replay `0000` → `relation "sessions" already exists` → aborted → `0010` (the `game_type` column) never applied → every authed route 500'd. **`db:migrate` would NOT have fixed it** — it replays from the same empty journal. The real fix is to **baseline** an already-provisioned DB: apply the pending migration's effect, then insert ONE row with `created_at` = the latest applied migration's `when`. We ran (2026-06-13): `ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "game_type" text;` + `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) SELECT 'baseline-0010', 1781337176046 WHERE NOT EXISTS (…)`. Prod is now baselined through `0010`, so future migrations apply cleanly on deploy.
 >
@@ -155,12 +160,17 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 
 > ⚠️ **Railway gotcha (cost us hours):** adding an env var only **stages** it; you must click the **"Apply changes / Deploy"** banner. A plain "Redeploy" does NOT apply staged vars. When a var "isn't working", verify what the _runtime_ actually sees rather than re-checking the dashboard. For launcher tool URLs we now keep a **code default** (`env.ts`) so it works regardless.
 
-## ComfyUI tunnel (the ONLY local piece)
+## ComfyUI tunnel (optional — a person's own GPU)
 
-- **Local:** ComfyUI on `localhost:8188` (RTX 4070, 8GB) + `cloudflared` connector. Nothing else runs locally.
-- **Tunnel:** Cloudflare **named tunnel** `comfy-gualtiero` (id `1e0057ee-6787-4bbc-a1af-936d7fe7603a`), config at `C:\Users\gualt\.cloudflared\config.yml`, ingress `comfy.invisiblewall.org → http://localhost:8188`.
-- **Auth:** Cloudflare **Access** (Service Auth) in front. Backends send `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. Client ID (non-secret): `bb044437409520caf86021625f8553e5.access`.
-- **⚠️ User-Agent gotcha (cost us hours):** Cloudflare blocks the default `Python-urllib/x` UA with **403**. All ComfyUI calls must send a custom UA (`InvisibleAtlas/1.0`). Already handled in `atlas-backend/comfy.py` and `atlas-tool/cloud_paths.py`.
+Production generation runs on the RunPod Serverless endpoint (`COMFY_TRANSPORT=serverless`, below).
+The tunnel is what ⚙ _Run generation on_ = **My computer** reaches; nothing in production depends
+on it being up.
+
+- **Local:** ComfyUI on `localhost:8188` + a `cloudflared` connector, both managed by the desktop
+  Invisible Launcher.
+- **Tunnel:** Cloudflare **named tunnel** `comfy-gualtiero`, ingress `comfy.invisiblewall.org → http://localhost:8188`.
+- **Auth:** Cloudflare **Access** (Service Auth) in front. Backends send `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`).
+- **⚠️ User-Agent gotcha (cost us hours):** Cloudflare blocks the default `Python-urllib/x` UA with **403**. All ComfyUI calls must send a custom UA (`InvisibleAtlas/1.0`). Handled in `iw_common.comfy.cf_headers()`.
 - **ComfyUI models are mirrored to R2 (B36):** model files live at R2 `comfyui-models/<subfolder>/<file>` (subfolders match ComfyUI's `Shared\Models` layout: `checkpoints/`, `loras/`, `vae/`, `controlnet/`, …). Seed/refresh with `py scripts/seed-comfyui-models.py` (owner, `R2_*` env). The launcher pulls them via `GET /api/launcher/models-manifest` (admin-only; returns each model with a 6-h presigned R2 URL) → **Sync models** button → downloads R2→client directly (not through Railway) → restart ComfyUI.
   - **The mirror has four arcs, and the fourth was missing until 2026-09-07.** `seed-comfyui-models.py` is desktop→R2, `runpod/pull-models.py` is R2→volume, **Sync models** is R2→desktop — all one way, out of the desktop. Nothing went **volume→R2**, so anything BORN on the pod could never reach a desktop or the serverless worker: a LoRA trained there, and every set `fetch-models.py` pulls straight onto the volume (which bypasses R2 on purpose — routing 50 GB of public weights through a home uplink and back "costs two transfers and buys nothing"). `runpod/push-models.py` closes it. **Dry run by default** (`--apply` to write), because it rewrites the manifest the launcher serves to every desktop; it never deletes, MERGES the manifest rather than replacing it, skips files already in R2 at the same size, and caps at 5 GB (`--include-large` to override) since the case it exists for is the small irreplaceable artifact, not a public checkpoint anyone can re-fetch. A file already in R2 but absent from the manifest is re-indexed with no transfer — exactly the state `fetch-models.py` leaves behind. **Not baked into the pod image** (the Dockerfile copies only `services/atlas-comfy-pod/tools/`), so it is pasted onto a pod. **Caveat:** the manifest is read-modify-write, so two runs at once — or one racing `seed-comfyui-models.py` — can drop entries; these are owner-run maintenance scripts, and the seeder has always had the same shape.
 - **Fresh-machine setup is automated (B35):** the desktop Invisible Launcher auto-installs `cloudflared.exe` (official standalone, into `_tools/`, no admin) and provisions `~/.cloudflared/{config.yml,<id>.json,cert.pem}` by fetching the credentials bundle from the portal after owner login (`POST /api/launcher/login` → short-lived token → `GET /api/launcher/tunnel-bundle`, role `admin` only). The bundle lives in R2 at `tools/invisible-launcher/cloudflared-bundle.json` — (re)seed it with `node apps/launcher-api/scripts/seed-tunnel-bundle.mjs` (owner, `R2_*` env). On write the launcher repoints the `credentials-file:` line to the new machine's path.
@@ -169,14 +179,11 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 
 ## ComfyUI R&D pod (RunPod)
 
-On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.33.1`) and from the local RTX-4070 tunnel above. Only these pods expose an interactive UI. Each is reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
+On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.33.1`) and from the local tunnel above. Only these pods expose an interactive UI. Each is reached through RunPod's proxy at `https://<podId>-8188.proxy.runpod.net`. See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
 
 - **This is now a FLEET, not one pod.** The launcher keeps several pods on **different GPU cards** and the artist starts whichever has a free GPU. Two operational cautions: **(1) run only ONE pod at a time when they share a Network Volume** — concurrent pods writing the same volume (models + custom nodes) risk write conflicts; **(2) a stopped pod does NOT reserve its GPU**, so a Start can fail ("not enough free GPUs") on scarce cards (e.g. Blackwell) — which is exactly why we keep more than one card.
 - **The fleet is admin-managed in the DB, not env** — `app_settings` key **`runpodPods`** = JSON `[{id,label}, …]`, edited under the launcher's **Admin → Settings → "ComfyUI R&D pod fleet"** (add/remove pods, each = pod id + label like "RTX 4090"). Each pod's ComfyUI URL is **derived from its id** (`https://<id>-8188.proxy.runpod.net`); no per-pod URL is stored. `RUNPOD_POD_ID`/`COMFY_RND_URL` are now only the **legacy single-pod fallback** (synthesized as a "Default" pod when `runpodPods` is empty).
-- **Current pods (examples):** all attached to Network Volume **`Invisible_RunPod_Storage`** (persists ComfyUI + models + custom nodes across stop/start):
-  - RTX PRO 4000 — id `m3ppwxc7ttkrfq`
-  - RTX 4090 — id `avpq09jo5c9uyt`
-  - RTX PRO 4500 Blackwell (32 GB) — id `a1tqn0tzbqtvr1` (name `ComfyUI_RD`)
+- **Every pod attaches Network Volume `Invisible_RunPod_Storage`** (persists ComfyUI + models + custom nodes across stop/start). The fleet spans several cards (RTX PRO 4000, RTX 4090, RTX PRO 4500 Blackwell 32 GB); the current list is in Admin → Settings.
 
 ### "Access to <podId>-8188.proxy.runpod.net was denied" — clicking through from a tool
 
@@ -207,11 +214,11 @@ The 403 is a bare `Content-Length: 0` from `Server: cloudflare` with **no block 
 
 **Configure every pod as `HTTP 8189` + `TCP 8188`.** RunPod will not give one container port both, and both are needed — TCP for the clickable direct link, HTTP for the proxy hostname the launcher probes and a human pastes. The pod image forwards `8189 → 8188` (`services/atlas-comfy-pod/tools/port-forward.py`, started by `start.sh`) so ComfyUI answers on both. **Never put 8188 in the HTTP box**: exposing it as TCP removes its HTTP proxy (that hostname answers 404), and a pod set to `HTTP 8188 + TCP 8188` — or TCP-only — is unreachable by every route at once while ComfyUI runs fine. The launcher probes 8189 then 8188 and falls back to the direct endpoint, so an older pod still works.
 
-**TCP 8188 is therefore REQUIRED pod config, not a nicety** — a pod without it cannot be opened from the launcher at all. The card marks such a pod **⚠ not reachable** and states the one-time fix, rather than degrading into a copy-the-url chore that would read as normal UX. Note the direct endpoint is plain `http://` (no TLS) — acceptable for internal R&D, but it is unencrypted.
+**TCP 8188 is therefore REQUIRED pod config, not a nicety** — a pod without it cannot be opened from the launcher at all. The card marks such a pod **⚠ not reachable** and states the one-time fix, rather than degrading into a copy-the-url chore that would read as normal UX.
 
 A launcher **same-origin proxy** would also work (the `same-origin` row above proves it, and it is rule 3's sanctioned "same-origin serve"), but proxying ComfyUI including its `/ws` socket is real work — don't start there.
 
-> Unconfirmed: whether this is **new** RunPod behaviour or something we simply had not hit. It could not be compared against an older pod (`a1tqn0tzbqtvr1` was stopped, returning 404). Starting an old pod and clicking through from the launcher would settle it.
+> Unconfirmed: whether this is **new** RunPod behaviour or something we simply had not hit. It could not be compared against an older pod (the one tried was stopped, returning 404). Starting an old pod and clicking through from the launcher would settle it.
 
 ### Debugging "ComfyUI disconnected" on a pod
 
@@ -363,7 +370,42 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 ## Environment variables (names only)
 
-**Launcher:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `RESEND_API_KEY`, `R2_*`, `ATLAS_BACKEND_URL`, `ATLAS_TOOL_URL` (has code default), `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the tool launch tokens — see "Tool launch tokens"), `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` / `ATLAS_BLUEPRINT_SECRET` (legacy handoff, used only while the matching signing secret is unset; remove after the cut-over), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`, `ADDRESS_HEADER` + `XFF_DEPTH` (have code defaults), `CF_API_TOKEN`, `CF_ZONE_ID`, `GAMES_BASE_URL` (has code default), `TEST_SERVER_SECRET` (only if the test server sets one — sent as a header on the launcher's `/refresh` pokes), `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (has code default), `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (has code default), `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` (all optional, Admin → Costs). `PARTNER_RGS` (optional, partner launches). `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (optional, error reporting — server / browser), `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`, `PUBLIC_SENTRY_SAMPLE_RATE` (optional, see "Monitoring & error tracking").
+**Launcher** (read through `ENV` in `apps/launcher-api/src/lib/server/env.ts`; "default" = has a
+code default, so the dashboard need not set it):
+
+- **Core:** `DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`, `R2_ENDPOINT`,
+  `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `BODY_SIZE_LIMIT` + `ADDRESS_HEADER` +
+  `XFF_DEPTH` (defaults in `scripts/start.mjs`).
+- **Tools:** `ATLAS_TOOL_URL`, `SHEET_TOOL_URL`, `TEST_SERVER_URL`, `GAMES_BASE_URL` (defaults);
+  `TEST_SERVER_SECRET` (only if the test server sets one — sent as a header on the launcher's
+  `/refresh` pokes); `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the tool
+  launch tokens — see "Tool launch tokens"); `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` /
+  `ATLAS_BLUEPRINT_SECRET` (legacy handoff, used only while the matching signing secret is unset;
+  remove after the cut-over); `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`; `EDITOR_DOC_SECRET`
+  (fallback for the deploy token, which normally lives in Admin → Settings).
+- **Export / bake:** `KTX2_ENCODE` (default OFF — encode GPU-compressed KTX2 page twins; CPU- and
+  memory-heavy, see [design/gpu-compressed-textures](design/gpu-compressed-textures.md)),
+  `PAGE_WEBP` (default ON — near-lossless WebP pages), `SOUND_TRANSCODE` (default ON) +
+  `SOUND_MAX_KBPS` (default 128).
+- **Localization:** `ANTHROPIC_API_KEY`, or `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY`
+  (+ optional `LOCALIZATION_LLM_MODEL`) for an OpenAI-compatible provider.
+- **ComfyUI / RunPod:** `RUNPOD_API_KEY`, `RUNPOD_DATA_CENTER_ID`, `COMFY_VOLUME_POD_ID`,
+  `COMFY_VOLUME_URL`, `GITHUB_ACTIONS_TOKEN`, legacy `RUNPOD_POD_ID` / `COMFY_RND_URL` — see
+  "Launcher integration" above.
+- **Publishing / engine status:** `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (default),
+  `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (default), `PARTNER_RGS` (optional,
+  partner launches), `CF_API_TOKEN` + `CF_ZONE_ID` (optional cache purge — see below).
+- **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
+  `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
+- **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +
+  `PUBLIC_SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`,
+  `PUBLIC_SENTRY_SAMPLE_RATE`.
+
+**Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+(read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
+`?secret=`; the launcher and the runtime-release Actions hold it too), `CASCADE_GAMES`,
+`CONTRACT_TIMEOUT_MS`, `CONTRACT_TTL_MS` (optional), `TEST_SERVER_LOCAL` (local dev only). See
+[tools/test-server](tools/test-server.md).
 
 > **Admin → Costs (running-cost dashboard):** `/admin` → **Costs** reads each paid provider's own API and shows balance / spend / breakdown per provider. Every credential is **optional and read-only**; an unset provider renders a "not configured" card naming the vars it wants, so the page is useful with none of them set. Set on the **launcher-api** service → **Apply changes / Deploy**.
 >
@@ -401,15 +443,22 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
 >   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
-> **Cloudflare cache auto-purge (game republish):** after the desktop launcher uploads a bundle to R2 `test_server/<key>/` and calls `POST /api/launcher/register-game`, the launcher purges the edge cache for that game (game filenames are stable, so the edge otherwise serves stale files). Set on the **launcher-api** Railway service: `CF_API_TOKEN` (a Cloudflare API token scoped to **Zone → Cache Purge** on the `invisiblewall.org` zone) and `CF_ZONE_ID` (the `invisiblewall.org` zone id). `GAMES_BASE_URL` is the public game origin (`https://games.invisiblewall.org`, code default). **If `CF_API_TOKEN` or `CF_ZONE_ID` is unset, the purge is a silent no-op** — publishing still works, but the edge keeps serving stale files. After setting → **Apply changes / Deploy**.
+> **Game freshness — no edge cache in front of `games`.** `games.invisiblewall.org` is a DNS-only
+> CNAME to Railway (checked 2026-09-29: responses come from Railway's edge with no Cloudflare
+> headers), so there is no CDN copy to purge. Freshness is the test server's own headers: a game's
+> `index.html` and `assets/…` are `no-store, must-revalidate`, and `_app/immutable/…` is
+> content-hashed and cached for a year. After `POST /api/launcher/register-game` the launcher still
+> calls Cloudflare's purge for the game's URLs (`cfPurge.ts`); with `games` DNS-only that call has
+> no effect, and with `CF_API_TOKEN` / `CF_ZONE_ID` unset it is skipped. The two vars only matter
+> if `games` is ever switched to proxied.
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
-**atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table). **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
+**atlas-tool** (and the legacy atlas-backend): `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `COMFY_TRANSPORT` + `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` (generation target — below), `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table), `BLUEPRINT_AUTO_INSTALL_MODELS`, the `VIDEO_*` knobs below. **sheet-tool:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SHEET_PROJECT`, `SHEET_STAGING`. **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
 
 > **The blueprint importers and the live settings refresh read node CONTRACTS the same way** (Flipbook video mode + the Atlas Maker's 🎛 Blueprint settings, via `POST /video/nodespecs` → `comfy_specs`): a node's full `/object_info` declaration — an input's min/max/step, a COMBO's option list — not only the model lists above, and **for the target the render will run on**: the Atlas Maker follows ⚙ _Run generation on_; a video render always runs on the service default (`COMFY_TRANSPORT`), so the Flipbook reads the pod's contracts in production. Same source rules as ⟳ (`comfy_catalog._probe_sources`): _RunPod_ = a pinned `COMFY_CATALOG_URL` or a discovered running pod, never `COMFY_URL`; _My computer_ = `COMFY_URL` only. Nothing answering is normal: the importer says so in the modal and types the setting from the baked value (no range, no list), the panels keep the list the blueprint was published with, and in between sits the target's catalog — **⟳ Refresh model lists also caches every published blueprint's select lists** for its target, so a blueprint's dropdown shows the last-seen pod list while no pod is running.
 
-> ⚠️ **`COMFY_URL` must be the TUNNEL to a person's own ComfyUI — never a RunPod address.** It is what ⚙ _Run generation on_ = **My computer** resolves to (`iw_common.comfy.comfy_url` calls it "the full ComfyUI tunnel base URL"), so pointing it at a pod makes that choice silently render in a data centre. Found live 2026-09-04 with `COMFY_URL=https://pdn5pxpkrchofk-8188.proxy.runpod.net`: the panel read _"your ComfyUI has never answered at https://…proxy.runpod.net"_ — true, and it sends you off to restart a tunnel that was never the problem. Correct value: **`https://comfy.invisiblewall.org`** (the named tunnel `comfy-gualtiero`). The tool now refuses such a render and says so rather than reporting it as unreachable (`ui_server.local_target_misconfigured`). RunPod addresses belong in `RUNPOD_ENDPOINT_ID` (serverless) and `COMFY_CATALOG_URL` (the optional model-list override) — not here.
+> ⚠️ **`COMFY_URL` must be the TUNNEL to a person's own ComfyUI — never a RunPod address.** It is what ⚙ _Run generation on_ = **My computer** resolves to (`iw_common.comfy.comfy_url` calls it "the full ComfyUI tunnel base URL"), so pointing it at a pod makes that choice silently render in a data centre. Found live 2026-09-04 with `COMFY_URL` set to a pod's `https://<podId>-8188.proxy.runpod.net`: the panel read _"your ComfyUI has never answered at https://…proxy.runpod.net"_ — true, and it sends you off to restart a tunnel that was never the problem. Correct value: **`https://comfy.invisiblewall.org`** (the named tunnel `comfy-gualtiero`). The tool now refuses such a render and says so rather than reporting it as unreachable (`ui_server.local_target_misconfigured`). RunPod addresses belong in `RUNPOD_ENDPOINT_ID` (serverless) and `COMFY_CATALOG_URL` (the optional model-list override) — not here.
 >
 > **`COMFY_TRANSPORT` picks which ComfyUI the atlas-tool generates on — production is `serverless`.** Since 2026-09-03 it is only the **default**: ⚙ Global settings → _Run generation on_ (`run_on`: blank / `pod` / `local`) overrides it per render, as an env override on the render subprocess — `pod` = `serverless`, `local` = `http` over the tunnel (`COMFY_URL` + `CF_ACCESS_*`, or the user's own registered tunnel from `_users/<slug>/comfy.json`). An explicit `local` never wakes a RunPod pod and preflights `<url>/system_stats` so a machine that isn't answering fails in one sentence.
 > `serverless` submits the api-prompt graph to a **RunPod Serverless endpoint** (`RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY`); unset or `http` uses the **local ComfyUI over the tunnel** (`COMFY_URL` + the two `CF_ACCESS_*` vars). Live `atlas-tool` is on `serverless` (2026-08-18), so `COMFY_URL`/`CF_ACCESS_*` are **not** on the generation path there even though they're still set — a generation failure in production is a RunPod/worker-image issue, not a local-tunnel one. Changing this var silently changes which machine's installed nodes/models a pipeline needs, which is exactly how gpt_image and the FLUX ControlNet path were blocked for months. `RUNPOD_API_KEY` is shared with the `/comfyui` R&D pod fleet; `RUNPOD_ENDPOINT_ID` is the serverless endpoint only.
@@ -456,7 +505,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > It is an easy paste to get wrong, because the advice just below — _set the endpoint's image
 > to the immutable `:<sha>`_ — reads identically for both, while `/comfyui`'s **Update to
 > `<sha>`** button displays a full `ghcr.io/…/atlas-comfy-pod:<40-char sha>` that is correct
-> for a POD and wrong for the endpoint. Found live 2026-09-14 on endpoint `zygcn869ff2uyx`,
+> for a POD and wrong for the endpoint. Found live 2026-09-14 on the production endpoint,
 > pinned to `atlas-comfy-pod:964daead…` — the SemanticLayers commit, i.e. someone reaching
 > for a node pack that at the time existed only in the pod image.
 >
@@ -653,7 +702,7 @@ are in **[docs/guides/backups.md](guides/backups.md)**.
 **GitHub `backups` environment** (deployment branches: `main` only; no required reviewers):
 
 - Secrets:
-  - `BACKUP_DATABASE_URL`: the public-proxy URL of a read-only `backup_reader` role;
+  - `BACKUP_DATABASE_URL`: the connection URL of a read-only `backup_reader` role;
   - `BACKUP_SRC_R2_ACCESS_KEY_ID` + `BACKUP_SRC_R2_SECRET_ACCESS_KEY`: R2 token
     `backup-source-reader`, Object Read only, scoped to `invisibleassets`;
   - `BACKUP_R2_ACCESS_KEY_ID` + `BACKUP_R2_SECRET_ACCESS_KEY`: R2 token `backup-writer`, Object
@@ -677,29 +726,33 @@ ours, but they live inside Railway and are deleted with the volume.
 ## DNS (Cloudflare)
 
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.
+- `games` = CNAME → Railway (the test server), **DNS-only** as well.
 - `comfy` = the named tunnel (proxied/orange, behind Access).
 
 ## Security / secret rotation
 
-All values below were exposed (committed and/or pasted in chat during setup) and **must be rotated**. Rotation is the real fix — it invalidates the leaked value. (History-scrubbing is optional and the user's call; do NOT force-push as part of this.) Never paste the new values into any doc or commit.
-
-### B9.1 — `comfy_org_api_key` (DONE in working tree, ROTATION still owed)
-
-- **What was changed (2026-05-29):** in the separate `Invisible_Pipeline` repo, `tools/Invisible Atlas Maker/atlas_config.json` had the live key value (a `comfyui-…` token, now removed). The value was replaced with `""` plus a `_comfy_org_api_key_note` pointing to the `COMFY_ORG_API_KEY` env var. Code already reads env-first (`batch_atlas.py:comfy_org_api_key()` → `os.environ.get("COMFY_ORG_API_KEY") or config`), so the empty value is safe. Added `.gitignore` entries (`atlas_config.local.json`, `*.secret.json`, `.env*`) in that repo for future local secret files. The scrubbed `atlas_config.json` stays tracked (it holds non-secret config) but now carries no secret.
-- **User must:** (a) **Rotate** at `platform.comfy.org` → API Keys → revoke the leaked key, create a new one. (b) Set the new key as `COMFY_ORG_API_KEY` env var wherever gpt_image runs: locally for the desktop Atlas Maker, and on Railway **atlas-backend** + **atlas-tool** services (Variables → add → Apply changes/Deploy). (c) Commit the scrubbed `atlas_config.json` + `.gitignore` in the `Invisible_Pipeline` repo. (d) Optional: history-scrub the old value (`git filter-repo`/BFG) — only the user should decide this.
+A rotation runbook: where each secret lives, who reads it, and what to redeploy. Never paste a
+value into any doc or commit. After a rotation, **verify the runtime** (below), not the dashboard.
+Railway variables only take effect after **Apply changes / Deploy** — a plain redeploy does not
+apply staged vars.
 
 ### B9.2 — Rotation checklist for setup-time secrets
 
-| Secret                                                                                                                            | Lives in                                                                                                                                                                              | How to rotate                                                                                                                                                                                                                  | Redeploy after                                                                                                                                                                                                                                                                      |
-| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **R2 access token** (Access Key ID + Secret)                                                          | Cloudflare R2 → **Manage R2 API Tokens**. Used as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` on Railway **launcher**, **atlas-backend**, **atlas-tool**, **sheet-tool** and the **test server**, and as the GitHub Actions repo secrets `R2_*` read by the runtime release and rollback workflows (miss those and every engine release fails). Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md).                             | Cloudflare dashboard → R2 → API Tokens → create a NEW token (scoped to bucket `invisibleassets`, read+write) → delete the old token.                                                                                           | Update `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` on all three Railway services → click **Apply changes / Deploy** on each (a plain redeploy does NOT apply staged vars). **Desktops:** since launcher v1.0.56 no publisher machine needs this key — ☁ Publish uploads through the portal (`api/launcher/game-upload`) as the signed-in `gamePublish` user. Only the owner's own launcher config may still hold a copy (the Settings opt-in *Publish games straight to R2*, the owner-only *Publish models / nodes / tunnel creds* and *Seed Atlas*, and `build_and_publish.py`); re-enter it there via *R2 credentials…*. A desktop left holding the old key falls back to the portal on its first rejected publish.                                                                                                            |
-| **Postgres password**                                                                                                             | Inside `DATABASE_URL` on the Railway **launcher** service (Postgres lives in the `Invisible launcher` project).                                                                       | Easiest: Railway Postgres service → **Variables** → rotate `PGPASSWORD`/regenerate credentials (or via `psql`: `ALTER USER … WITH PASSWORD …`). Railway exposes a reference `DATABASE_URL`; if you set it manually, update it. | Redeploy the **launcher** so it reconnects with the new `DATABASE_URL` → **Apply changes / Deploy**. Re-run `scripts/seed.mjs` only if needed (data unaffected).                                                                                                                    |
-| **CF Access service-token secret** (`CF-Access-Client-Secret`; Client ID `bb044437409520caf86021625f8553e5.access` is non-secret) | Cloudflare **Zero Trust → Access → Service Auth** (the token in front of `comfy.invisiblewall.org`). Used as `CF_ACCESS_CLIENT_SECRET` on Railway **atlas-backend** + **atlas-tool**. | Zero Trust → Access → Service Auth → **Rotate/Regenerate** the service token (or create a new one and update the Access policy to allow it, then delete the old).                                                              | Update `CF_ACCESS_CLIENT_ID` (if it changed) + `CF_ACCESS_CLIENT_SECRET` on **atlas-backend** and **atlas-tool** → **Apply changes / Deploy** on each. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
+| Secret | Lives in / read by | How to rotate | Redeploy after |
+| --- | --- | --- | --- |
+| **R2 access key** (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, bucket `invisibleassets`) | Cloudflare R2 → API Tokens. Read by: Railway **launcher**, **atlas-tool**, **sheet-tool**, **Invisible-test-Server**, **atlas-backend** (legacy); GitHub Actions repo secrets (`runtime-release.yml`, `runtime-rollback.yml` — miss those and every engine release fails); the owner's desktop launcher only if its Settings opt-in *Publish games straight to R2* (or the owner-only model/node/tunnel publishing, *Seed Atlas*, `build_and_publish.py`) is used; owner-run maintenance scripts (`apps/launcher-api/scripts/*`, `scripts/seed-comfyui-models.py`); a RunPod pod while `pull-models.py` / `push-models.py` runs. Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md). | Create a new token scoped to `invisibleassets` (read+write), switch every consumer, then delete the old token. | Each Railway service → Apply changes / Deploy; update the two Actions secrets; re-enter it in the owner's launcher via *R2 credentials…*. Since launcher v1.0.56 no publisher desktop needs it — ☁ Publish goes through the portal (`api/launcher/game-upload`), and a desktop still holding the old key falls back to the portal on its first rejected publish. |
+| **Postgres password** | Inside `DATABASE_URL` on the **launcher** (and `BACKUP_DATABASE_URL` if it holds that role — see the backup row). | Railway Postgres service → Variables → regenerate credentials (or `ALTER USER … WITH PASSWORD …`). | Launcher → Apply changes / Deploy; `/api/health` must read `db: ok`. |
+| **CF Access service token** (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) | Cloudflare Zero Trust → Access → Service Auth (the token in front of `comfy.invisiblewall.org`). Read by **atlas-tool** (+ legacy atlas-backend). | Rotate/regenerate the service token, or create a new one, allow it in the Access policy, then delete the old. | atlas-tool → Apply changes / Deploy. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
+| **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |
+| **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
+| **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
+| **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |
+| **`COMFY_ORG_API_KEY`** (gpt_image) | platform.comfy.org → API Keys. Read by atlas-tool (+ legacy atlas-backend), and locally by the desktop Atlas Maker. | Create a new key, switch consumers, revoke the old. | atlas-tool → Apply changes / Deploy. |
 | **Backup source-reader R2 token** (`backup-source-reader`) | Cloudflare R2 → API Tokens. Object Read only on `invisibleassets`. GitHub env `backups` secrets `BACKUP_SRC_R2_ACCESS_KEY_ID` / `BACKUP_SRC_R2_SECRET_ACCESS_KEY`. Not used by any Railway service. | Create a new token with the same scope, then delete the old one. | Update the two secrets. Actions → **Nightly backup** → Run workflow → green. |
 | **Backup writer R2 token** (`backup-writer`) | Cloudflare R2 → API Tokens. Object Read & Write on `invisible-backups` only. GitHub env `backups` secrets `BACKUP_R2_ACCESS_KEY_ID` / `BACKUP_R2_SECRET_ACCESS_KEY`. | Create a new token with the same scope, then delete the old one. A leaked copy cannot decrypt backups. The 7-day bucket lock stops it deleting the last week. | Update the two secrets → Run workflow → green. |
 | **Backup DB role** (`backup_reader` password) | Inside `BACKUP_DATABASE_URL` (GitHub env `backups`). | `ALTER ROLE backup_reader PASSWORD '…';` via Railway → Postgres → Data. If the secret holds the superuser URL instead, rotating the Postgres password (row above) breaks the backup too. | Update `BACKUP_DATABASE_URL` → Run workflow → green. |
 | **Backup age identity** (private key; public half in the `BACKUP_AGE_RECIPIENTS` variable) | Owner's password manager + an offline copy, never in a service. | `age-keygen -o new.txt`, then replace the old public key in `BACKUP_AGE_RECIPIENTS`. **Keep the old identity** until lifecycle has expired every archive made to it (90 d), or those become unreadable. | Run workflow, then do restore drill A (docs/guides/backups.md) with the new key. |
 
-> This table covers the setup-time secrets only. **Every** secret — including the deploy token, `TEST_SERVER_SECRET`, the tool launch signing secrets (no dual-key window: expect a short 403 window), RunPod, GitHub, Cloudflare API and LLM keys — with all its consumers, the rotation order and how to verify it, is in **[docs/guides/rotate-a-secret.md](guides/rotate-a-secret.md)**.
+> This table is the summary. **Every** secret — including the GitHub, Cloudflare API and LLM keys it leaves out — with all its consumers, the rotation order and how to verify it, is in **[docs/guides/rotate-a-secret.md](guides/rotate-a-secret.md)**. The tool launch signing secrets have no dual-key window: expect a short 403 window while one is rotated.
 
 > After every rotation, **verify the runtime** (not just the dashboard): probe the live URL / a no-secret diagnostic to confirm the new value took, then remove the diagnostic.

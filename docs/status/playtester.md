@@ -2,9 +2,10 @@
 
 > Design: [docs/design/invisible-playtester.md](../design/invisible-playtester.md) · Playbooks: [docs/playtest/](../playtest/README.md) · Agent: [.claude/agents/game-playtester.md](../../.claude/agents/game-playtester.md)
 
-**One-line state:** Phase 1 shipped — the `game-playtester` Claude Code subagent + per-project
-playbook format deliver the full play → detect → fix → verify → runtime-release loop today,
-invoked from a Claude Code session. Phases 2–3 (a `/playtest` launcher card + an Agent-SDK
+**One-line state:** Phase 1 shipped — the `game-playtester` subagent + playbooks for `lines`,
+`borut-remake` and `ways`, invoked from a Claude Code session. Since 2026-09-28 a headless
+real-clock drive (GPU `chrome-headless-shell`, 60 fps) runs live games unattended, so the
+frozen-rAF limit no longer blocks spins. Phases 2–3 (a `/playtest` launcher card + an Agent-SDK
 fix-worker) are designed, not built.
 
 ## Current state
@@ -15,12 +16,19 @@ fix-worker) are designed, not built.
   `app.stage` assertions), and with fix authority fixes on a branch, re-verifies live, and ships
   engine changes via the runtime release. Granted the browser-preview MCP
   tools plus Glob/Grep/Read/Edit/Write/Bash.
-- **Playbooks** — `docs/playtest/README.md` (format) + `docs/playtest/lines.md` (worked example
-  for the reference Book-of build: boot-clean, spin math, free-spin trigger + run, bet/affordance,
-  symbol-state grid). One file per game; add a launch config for games outside this repo.
-- **Honest limits are encoded** — no visual-polish pass/fail (WebGPU screenshot timeout + frozen
-  preview ticker); those are reported as **human-eyes**. Trap list (baked-data masking, silent
-  stale-baked fallback, frozen ticker) is in the agent file.
+- **Playbooks** — `docs/playtest/README.md` (format) + `lines.md` (the reference Book-of build:
+  boot-clean, spin math, free-spin trigger + run, bet/affordance, symbol-state grid, S7 resume of
+  an open round), `borut-remake.md` (the live online remake: Claude-in-Chrome and headless
+  real-clock drive paths, owner-triaged dispositions) and `ways.md` (a ways server + client, with
+  the `WIN_MODEL=ways` mock). One file per game; add a launch config for games outside this repo.
+- **Three drive paths** — the Browser preview pane (boot + static render + source-import actor on
+  a dev build; its tab is hidden, so rAF is frozen), Claude-in-Chrome (foreground, needs a visible
+  tab) and the headless real clock (`chrome-headless-shell` over a CDP pipe with GPU flags; worked
+  script `scripts/playtest/win-countup-repro.mjs`, exits 1 on a count-up stall). A stall seen only
+  under a hand-stepped clock is unconfirmed until it reproduces on the real clock.
+- **Honest limits are encoded** — no visual-polish pass/fail; those are reported as
+  **human-eyes**. Trap list (baked-data masking, silent stale-baked fallback, frozen ticker) is in
+  the agent file.
 
 ## Open items / next
 1. **Phase 2 — `/playtest` launcher card (report-only).** Registry entry + route + headless
@@ -51,8 +59,8 @@ without a source-map build), loading-bar fill, turbo effect, fullscreen — huma
   folded into `docs/playtest/lines.md` (mock-RGS wiring, deterministic `BIG_WIN`/`FORCE_TRIGGER`
   levers, human-eyes for animation/idle-return).
 - **Not yet exercised:** a full fix run (agent finds a real bug → fixes on a branch → re-verifies
-  live → runtime-release). The frozen-rAF limit means animation/return-to-idle assertions still
-  need a solution or stay human-eyes.
+  live → runtime-release). Animation timing and return-to-idle are now observable on the headless
+  real clock; visual polish stays human-eyes.
 
 ## Harness notes (from smoke runs — bake these into the playbook)
 - **Browser handle:** `window.__PIXI_APP__` works directly (`__PIXI_DEVTOOLS__.app` is unset in
@@ -85,10 +93,46 @@ the Claude-in-Chrome MCP** — the `game-playtester` agent now has those tools +
 Confirmed working on the Borut remake: tap-to-start, base spins, BUY FEATURE, full free-spin round.
 **Caveat:** Chrome throttles rAF on a hidden tab, so the game **pauses whenever its tab loses
 visibility** — the user must keep the game tab visible (side-by-side) for the whole run, and a
-"stuck" round is usually just `document.visibilityState==='hidden'`, not a bug. Remaining gap: a
-**headless** path (for unattended/CI runs where no human keeps a tab focused).
+"stuck" round is usually just `document.visibilityState==='hidden'`, not a bug. The unattended
+gap is closed by the headless real-clock path (2026-09-28, see Current state).
 
 ## Recent changes
+- 2026-09-28 — **Live check of #807/#810 on the headless real clock** (#836): `bookofborutremake`
+  passes (intro holds and releases on tap, book reveal, two-stage outro tap, idle with credit).
+  `test2`–`test6` lost their free-spin intro/outro because they still bind the retired composers;
+  affected projects + the migration are in [flow.md](flow.md). `borut-remake.md` gained the
+  headless drive path.
+- 2026-09-28 — **Real-clock repro tooling** (#808, #809): the reported free-spin big-win count-up
+  stall does not reproduce at 60 fps (20/20 count-ups completed) — it was an artefact of
+  hand-stepping Svelte's rAF. `scripts/playtest/win-countup-repro.mjs` is the reusable driver;
+  `lines.md` documents the real-clock setup and warns against stepping `raf.tasks`.
+- 2026-09-28 — `lines.md` S7: a round left open is finished on the next boot (#801, offline gate
+  `pnpm check:resume`).
+- 2026-09-21 — `ways.md` playbook + `WIN_MODEL=ways` on the standalone mock (#746), so a ways
+  round can be scripted locally.
+- **2026-07-30 — lines slam-never-skips-a-celebration (verify-only)** — verified the 2026-07-30
+  change in `apps/lines/src/game/unskippablePresentation.ts` (`startsCelebration` + `opensCelebration`
+  re-arm) and `apps/lines/src/game/utils.ts` (`playBookEvent` passes `startsCelebration(bookEvent)`).
+  Boot clean on the flow-v1 path (default local; `getFlowV2()` undefined). Exercised the real
+  `roundSkip` singleton in the running build: `startsCelebration` classifies freeSpinEnd / freeSpinRetrigger /
+  setWin(big≥6) = true and setWin(small/medium) / reveal / OOB-winLevel = false; `runBookEventPresentation`
+  re-arms (un-trips) the token before a big-win/outro/retrigger/updateFreeSpin dispatch and LEAVES it
+  tripped for ordinary setWin + reveal; unskippable-depth opens/closes balanced. No defects; the animated
+  play-in-full + tap-gate is human-eyes (frozen rAF in the Browser pane — needs foreground Claude-in-Chrome).
+- **2026-07-30 — follow-up: slam skips free-spin INTRO during scatter-match (verify-only, PASS)** —
+  verified the two-part window-lock fix. `startsCelebration` now returns true for `freeSpinTrigger`
+  (re-arm clears an upstream reel-roll slam); `runBookEventPresentation` mirrors unskippable-`depth`
+  into `stateUi.unskippablePresentationActive` on the 0↔1 edges (`enterUnskippable`/`exitUnskippable`),
+  and `isCelebrationLocked()` ORs `hasUnskippablePresentation()` so the button is `stop_disabled` for the
+  WHOLE window (scatter match + intro + book reveal) — before any celebration screen mounts. Live
+  cross-module identity proof (spinStop reads the same `state-shared` barrel the game writes): flag TRUE
+  during `freeSpinTrigger` + `setExpandingSymbol` dispatch, FALSE before/after, nesting (resume-path
+  replay) doesn't clear early; while true `runSpinOrSlamStop({isIdle:false})` early-returns (token NOT
+  tripped, no `stopButtonClick`) vs control (flag false → tripped + broadcast); an upstream slam is
+  re-armed at `freeSpinTrigger` (token false at dispatch); ordinary `setWin(small)` leaves flag false +
+  token tripped; `playBet` finally force-clears the flag (utils.ts:125). Console clean. NOTE: earlier a
+  raw `/@fs/.../src/stateUi.svelte.ts` import read a DUPLICATE module instance (all-false) — always read
+  `state-shared` state via the BARREL `packages/state-shared/index.ts` to match the game's singleton.
 - 2026-07-21 — Phase 1 built: `game-playtester` subagent + `docs/playtest/` playbook format +
   `lines` starter playbook; design doc + this status registered.
 - 2026-07-21 — Smoke run of `lines` S1/S2 (dry run, no fixes): validated the play→detect loop and
@@ -110,28 +154,3 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
   ("SAMURAI SPIN", "mothership Land values") — recorded as a regression guard in the remake playbook.
   Wired the Claude-in-Chrome tools + escalation rule into the agent so it does this automatically next
   time. Round pause at 18/20 was the tab going hidden (visibility throttle), not a bug.
-
-- **2026-07-30 — lines slam-never-skips-a-celebration (verify-only)** — verified the 2026-07-30
-  change in `apps/lines/src/game/unskippablePresentation.ts` (`startsCelebration` + `opensCelebration`
-  re-arm) and `apps/lines/src/game/utils.ts` (`playBookEvent` passes `startsCelebration(bookEvent)`).
-  Boot clean on the flow-v1 path (default local; `getFlowV2()` undefined). Exercised the real
-  `roundSkip` singleton in the running build: `startsCelebration` classifies freeSpinEnd / freeSpinRetrigger /
-  setWin(big≥6) = true and setWin(small/medium) / reveal / OOB-winLevel = false; `runBookEventPresentation`
-  re-arms (un-trips) the token before a big-win/outro/retrigger/updateFreeSpin dispatch and LEAVES it
-  tripped for ordinary setWin + reveal; unskippable-depth opens/closes balanced. No defects; the animated
-  play-in-full + tap-gate is human-eyes (frozen rAF in the Browser pane — needs foreground Claude-in-Chrome).
-
-- **2026-07-30 — follow-up: slam skips free-spin INTRO during scatter-match (verify-only, PASS)** —
-  verified the two-part window-lock fix. `startsCelebration` now returns true for `freeSpinTrigger`
-  (re-arm clears an upstream reel-roll slam); `runBookEventPresentation` mirrors unskippable-`depth`
-  into `stateUi.unskippablePresentationActive` on the 0↔1 edges (`enterUnskippable`/`exitUnskippable`),
-  and `isCelebrationLocked()` ORs `hasUnskippablePresentation()` so the button is `stop_disabled` for the
-  WHOLE window (scatter match + intro + book reveal) — before any celebration screen mounts. Live
-  cross-module identity proof (spinStop reads the same `state-shared` barrel the game writes): flag TRUE
-  during `freeSpinTrigger` + `setExpandingSymbol` dispatch, FALSE before/after, nesting (resume-path
-  replay) doesn't clear early; while true `runSpinOrSlamStop({isIdle:false})` early-returns (token NOT
-  tripped, no `stopButtonClick`) vs control (flag false → tripped + broadcast); an upstream slam is
-  re-armed at `freeSpinTrigger` (token false at dispatch); ordinary `setWin(small)` leaves flag false +
-  token tripped; `playBet` finally force-clears the flag (utils.ts:125). Console clean. NOTE: earlier a
-  raw `/@fs/.../src/stateUi.svelte.ts` import read a DUPLICATE module instance (all-false) — always read
-  `state-shared` state via the BARREL `packages/state-shared/index.ts` to match the game's singleton.

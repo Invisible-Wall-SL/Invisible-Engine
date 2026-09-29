@@ -1,6 +1,8 @@
 # Perspective board mode — a swap-in-place board on a converging grid
 
-> Status: PROPOSED (2026-08-20), unbuilt. Driven by the "Knights of the Golden Label" concept art:
+> Status: BUILT — build-plan steps 0–6 are on `main` and in the shared runtime (off unless a
+> project authors it); current state in [status/engine.md](../status/engine.md). Proposed
+> 2026-08-20. Driven by the "Knights of the Golden Label" concept art:
 > an isometric tavern-yard board whose tiles converge toward the back, with upright characters
 > standing on them. Owner decisions (2026-08-20) are folded in below: **the board does not roll**
 > (symbols swap in place), **the win dim stays a per-symbol grey** (no cell geometry involved), and

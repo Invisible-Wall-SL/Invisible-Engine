@@ -8,7 +8,7 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 - **`docs/status/<tool>.md`** — each tool/area's **living current state** (done / broken / next). Read the one for the tool you're touching; update it when you finish work. See `docs/status/README.md` for the four-surfaces model (design = plan · status = current state · tool guide = UI · agent = pointers; one fact, one home).
 - **`docs/history.md`** — a **frozen archive** of done work up to 2026-07-29. Read-only: never append. New done-detail goes in `docs/status/<tool>.md`.
 - Per-area guides: `apps/launcher-api/CLAUDE.md`, `services/atlas-tool/CLAUDE.md`.
-- Claude helpers: per-tool subagents in `.claude/agents/` — `engine-pixi-svelte`, `book-of-game`, `launcher-studio`, `atlas-python-tools`, `infra-railway`, `invisible-flow`, `invisible-fx`, `invisible-components`, `invisible-rigger`, `invisible-symbols`, `invisible-flipbook`, `invisible-game-maker`, `invisible-localization`, `invisible-ftp-browser`, `game-playtester` (automated QA — plays a game, detects bugs, fixes + re-verifies; driven by `docs/playtest/<game>.md`), plus `code-reviewer`, `docs-keeper`; skill `/deploy`. Per-game-template agents (e.g. `book-of-game`) own a specific slot type and build on `engine-pixi-svelte`. (Note: some tool agents may need a Claude Code restart to register.)
+- Claude helpers: per-tool subagents in `.claude/agents/` — `engine-pixi-svelte`, `book-of-game`, `launcher-studio`, `atlas-python-tools`, `infra-railway`, `invisible-flow`, `invisible-fx`, `invisible-components`, `invisible-rigger`, `invisible-symbols`, `invisible-flipbook`, `invisible-game-maker`, `invisible-game-config`, `invisible-localization`, `invisible-ftp-browser`, `game-playtester` (automated QA — plays a game, detects bugs, fixes + re-verifies; driven by `docs/playtest/<game>.md`), plus `code-reviewer`, `docs-keeper`, `pipeline-concurrency` (save paths, leases, R2 conditional writes); skill `/deploy`. Per-game-template agents (e.g. `book-of-game`) own a specific slot type and build on `engine-pixi-svelte`. (Note: some tool agents may need a Claude Code restart to register.)
 
 ### Hard rules (non-negotiable)
 1. **Never commit secrets.** A pre-commit hook (`scripts/check-secrets.mjs`) blocks them; enable it once per clone: `git config core.hooksPath scripts/git-hooks`. Secrets live in env vars only.
@@ -65,7 +65,7 @@ packages/      → 30 shared libraries
 | Particles | @barvynkoa/particle-emitter |
 | Filters | pixi-filters 6 |
 | Build | Vite 6 + Turbo 2 |
-| Testing | Playwright (E2E), Chromatic (visual regression), Storybook |
+| Testing | Node fixture gates (root + launcher `check:*` scripts, run by CI's Lint workflow), Storybook stories, and play-QA via the `game-playtester` agent. No E2E or visual-regression suite runs: no package implements the `e2e*` Turbo tasks and the Chromatic CLI is never invoked (upstream-SDK leftovers). |
 | i18n | Lingui 5 |
 | Fonts | WebFontLoader |
 
@@ -90,7 +90,7 @@ pnpm build        # Build all packages and apps
 pnpm storybook    # Launch Storybook component explorer
 pnpm lint         # Run ESLint across workspace
 pnpm format       # Run Prettier across workspace
-pnpm e2e          # Run Playwright E2E suite
+pnpm check:rgs    # RGS money/protocol fixture gates (Lint runs these and the other check:* gates)
 ```
 
 Per-app (e.g. from `apps/lines/`):
@@ -132,38 +132,20 @@ When you finish meaningful work, write it up per **rule 6**: the detail goes in 
 - Spine runtime: `@esotericsoftware/spine-pixi-v8` for PixiJS 8 compatibility
 - Avoid deprecated v7 APIs: `PIXI.Loader`, `PIXI.utils`, `PIXI.Container.sortableChildren` (use `sortChildren()`)
 
-## Project state (as of 2026-04-30)
+## Where the project stands
 
-**Phase 1 — Translator + protocol verification:** ✅ done
-- `rgs-translator-eagaming` package: types, sessionState, translator, fetcher
-- Verified protocol from real Hot Fruits captures (Play4Fun on EAGaming brand)
-- Mock RGS server (Play4Fun-faithful)
-- Smoke tests for protocol round-trip
-- Demo overlay (paste-into-game-tab presentation panel)
+The live state is in the committed docs, not here: **`docs/STATUS.md`** (cross-cutting roadmap,
+owner/external blockers, the map of every tool's docs) and **`docs/status/<tool>.md`** (each tool's
+current state). Read those; don't copy their content into this file.
 
-**Phase 2 — engine game running on Play4Fun:** ✅ done
-- Engine-shaped facade (`engine-facade.ts`): drop-in replacement for `rgs-requests`
-- Vite alias in `apps/lines` enables it via `PUBLIC_RGS_TRANSPORT=play4fun`
-- `apps/lines` runs unmodified against the local mock through our facade:
-  - Symbol mapping (`PIC*` → `H*`/`L*`/`S`) in facade
-  - Amount scaling (Play4Fun cents ↔ engine API millions) in facade
-  - Event-vocabulary adapter (`playedSpin` → `reveal`, `spinWin` → `winInfo`,
-    `gameEnd` → `setTotalWin`, `gameRoundOver` → `finalWin`)
-  - Reveal board padded 3 rows → 5 rows for the engine's animation buffer
-  - Two-step balance flow: `requestBet` returns interim, `requestEndRound`
-    returns final (wallet "fills up" in sync with the count-up animation)
-  - bookEvent amounts use the engine's `BOOK_AMOUNT_MULTIPLIER` (fixed-point
-    bet-multipliers), not absolute amounts
-- Verified end-to-end: correct symbols, correct math, correct round flow
-
-**Phase 3 — Studio platform + cloud pipeline tools:** 🚧 in progress (as of 2026-05-29)
-- **`apps/launcher-api`** — SvelteKit (adapter-node) launcher/portal on Railway, live at **app.invisiblewall.org**. Invite-only email+password auth (scrypt) + sessions in Postgres/Drizzle, roles, per-role tool manifest, full-bleed tool pages (no nav menu). `/spine` = Spine Viewer hosted fully from R2 (DONE). `/atlas` = online Atlas Maker UI (minimal stub for now).
-- **`services/atlas-backend`** — FastAPI (Python) generation service on Railway. Drives the user's LOCAL ComfyUI over a Cloudflare named tunnel (`comfy.invisiblewall.org`, protected by Cloudflare Access service token). Ported from `Invisible_Pipeline/tools/Invisible Atlas Maker`: `/generate-region` (SDXL), `/slice`, `/compose`. Assets/manifests in Cloudflare R2 (bucket `invisibleassets`).
-- **Infra:** DNS on Cloudflare; Railway (launcher + atlas-backend + Postgres); R2 (shared asset repo); Cloudflare Tunnel → local ComfyUI (RTX 4070) — only ComfyUI stays local, everything else is cloud.
-
-> **For the full live state + exact next steps, read the memory file `project_invisible_pipeline_tools.md`** (auto-loaded). It has the current blocker, service URLs, and the ordered to-do (finish Access fix, remove /debug/access, build the full Atlas UI, port FLUX/gpt pipelines, security cleanup, launcher cleanup). Related memory: `project_pipeline_infra`, `project_studio_platform`, `feedback_launcher_ux`, `feedback_auth_password`.
-
-(Phase 1 & 2 below were the RGS-translator work; Phase 3 is the separate Studio/launcher initiative.)
+Two facts that shape most work:
+- **Online games boot one shared runtime** (`apps/lines`) and talk to the **Play4Fun** RGS through
+  the engine-shaped facade in `packages/rgs-translator-eagaming` (`engineFacade.ts`, selected with
+  `PUBLIC_RGS_TRANSPORT=play4fun`). The dev/test mock RGS is `services/test-server`. See the Comm
+  Translator section below.
+- **The Studio launcher** (`apps/launcher-api`, app.invisiblewall.org) hosts the authoring tools and
+  publishes games; the Python pipeline tools (`services/atlas-tool`, `services/sheet-tool`) and
+  ComfyUI generation on RunPod sit behind it. Service map: `docs/INFRA.md`.
 
 ## Comm Translator (rgs-translator-eagaming → Play4Fun protocol)
 

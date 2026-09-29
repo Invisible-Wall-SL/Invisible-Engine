@@ -10,20 +10,20 @@ You work on the cloud-hosted Python asset pipeline.
 - **`services/atlas-tool`** — the LOCAL `Invisible Atlas Maker` (stdlib `http.server` UI + `batch_atlas.py` engine) re-hosted on Railway. Key adaptation:
   - `cloud_paths.py` is a drop-in for the local `project_paths.py`: `input_dir/batch_dir/atlas_dir/manifest_dir` point at a **local staging dir** that mirrors an R2 prefix 1:1, so the original pathlib/PIL code is unchanged. It also provides `comfy_url` + `cf_headers`.
   - `storage.py` = R2 (boto3): get/put/list/delete + `pull_prefix`/`push_dir`/`push_file`. Staging hydrates from R2 at startup; writes mirror back to R2.
-  - ComfyUI is **remote** (tunnel): refs are uploaded via `POST /upload/image` (not shared disk); variants come back via `/view` and are written into staging `batch_dir` + R2.
+  - ComfyUI is **remote**: `COMFY_TRANSPORT=serverless` (RunPod, the production default) or `http` (a ComfyUI over the tunnel — ⚙ *Run generation on* → *My computer*). Never a shared disk: refs are uploaded, outputs come back and are written into staging `batch_dir` + R2.
 - **`services/atlas-backend`** — FastAPI. `workflows.py` (SDXL region build), `comfy.py` (ComfyUI client), `compose.py` (Pillow atlas compose/slice), `r2.py`. Endpoints `/generate-region`, `/compose`, `/slice`, `/comfy/stats`.
 
 ## Hard-won gotchas (do not regress)
 - **Cloudflare 403 on `Python-urllib` UA** — every ComfyUI HTTP call MUST send a custom `User-Agent` (`InvisibleAtlas/1.0`) plus the `CF-Access-Client-Id`/`Secret` headers. See `cloud_paths.cf_headers()` / `comfy.py`.
 - ComfyUI can't see the cloud filesystem — never assume a shared input/output dir. Upload refs; fetch outputs via `/view`.
-- `atlas-tool` reads R2 into staging **only at container start** → after changing R2 data (e.g. `seed_r2.py`), the service must be **restarted**.
+- Staging hydrates from R2 at start and per project on first use, then only on **↻ Refresh from R2** (force-hydrate + prune) or a manifest activation (exact-key re-read) — it does not poll. After changing R2 data out-of-band, refresh; don't assume the staged copy is current.
 - No secrets in code (`comfy_org_api_key` etc.) — env only.
 
 ## Current state / open items
 Per-tool CURRENT state lives in `docs/status/atlas-maker.md`, `docs/status/sheet-maker.md`,
-`docs/status/font-maker.md` (and `docs/status/infra.md` for the tunnel/Access/R2 wiring). The
-still-open pipeline items (gpt_image blocked on the `Images to RGB` node + `COMFY_ORG_API_KEY`;
-the FLUX ref/ControlNet path unproven) are tracked there — read + update those, not this prompt.
+`docs/status/font-maker.md` and `docs/status/comfyui.md` (RunPod pods, worker image, nodes), plus
+`docs/status/infra.md` for the tunnel/Access/R2 wiring. Open items are tracked there — read +
+update those, not this prompt.
 
 ## How to work
 Validate Python with `py -m py_compile services/<svc>/*.py`. Deploy = push to `main`

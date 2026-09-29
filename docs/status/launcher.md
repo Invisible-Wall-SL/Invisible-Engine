@@ -1,153 +1,109 @@
 # Launcher / Studio platform — status
 
-> Design: [unified-project-repo](../design/unified-project-repo.md) · [r2-client-isolation-and-scaffold](../design/r2-client-isolation-and-scaffold.md) · [project-explicit-tool-scoping](../design/project-explicit-tool-scoping.md) · [unified-tool-bar](../design/unified-tool-bar.md) · Guide: [tools/launcher.md](../tools/launcher.md) (portal) · [tools/invisible-launcher.md](../tools/invisible-launcher.md) (desktop) · Agent: `.claude/agents/launcher-studio.md`
+> Design: [unified-project-repo](../design/unified-project-repo.md) · [r2-client-isolation-and-scaffold](../design/r2-client-isolation-and-scaffold.md) · [project-explicit-tool-scoping](../design/project-explicit-tool-scoping.md) · [unified-tool-bar](../design/unified-tool-bar.md) · [multi-user-concurrency](../design/multi-user-concurrency.md) · Guide: [tools/launcher.md](../tools/launcher.md) (portal) · [tools/invisible-launcher.md](../tools/invisible-launcher.md) (desktop) · Agent: `.claude/agents/launcher-studio.md`
 
-**One-line state:** Shipped and live at **app.invisiblewall.org** — the SvelteKit (adapter-node) portal that every Invisible tool is reached through; auth, sessions, roles, admin, and the client→project model all work.
+**One-line state:** Shipped and live at **app.invisiblewall.org** — the portal every Invisible tool
+is reached through, with auth, roles, admin and the client → project model all working. Desktop
+publishing goes through the portal (no R2 key on any publisher's machine), and players boot
+published snapshots.
 
 ## Current state
-The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + Postgres:
+The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, with Postgres
+(`docs/INFRA.md`):
 
 - **Auth / sessions** — invite-only email+password (scrypt), server-side sessions in Postgres/Drizzle, "remember me" (`REMEMBER_TTL_DAYS` vs `SESSION_TTL_HOURS`). Not signed in → `/login`.
-- **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for the deploy token, `fontPublish`/`blueprintPublish` for shared-library writes).
-- **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings → Deploy token** (view masked / reveal once / set / rotate). Login expiry configurable.
-- **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization actually bills at (OpenAI or Anthropic) for month-to-date spend, cached 10 min behind a Refresh, with euro figures at the ECB rate. Every credential is optional; an unconfigured provider renders a card naming its env vars rather than disappearing. Below the cards, a **monthly history** per calendar year (Europe/Madrid, matching the Spanish tax year): the open month tracks live and freezes when it ends, with an admin-entered EUR-as-charged column as the authoritative figure. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs and `docs/INFRA.md`.
-- **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified single-project repo shared by all tools — the old per-`<tool>/` namespaces were retired 2026-06-02). Home game cards are scoped to the active project (`games.project_key`; null = global).
-- **Tool pages** — full-page, never iframes: each route (`/atlas`, `/spine`, `/sheet`, `/editor`, `/rigger`, `/localization`, `/fonts`, `/files`, `/storybook`) runs an auth+role gate then serves in-launcher or `throw redirect(303,…)`. Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
+- **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for every publish path, `fontPublish`/`blueprintPublish` for shared-library writes, `adminPanel`).
+- **Access scoping** — ONE gate for tool APIs, `$lib/server/toolScope.ts`: `gate()` (auth + tool + the session's project, re-checked every request), `requireProjectScope` for APIs that name a project, and the single `allowedPrefixes()`. Desktop-facing routes go through `$lib/server/launcherAuth.ts`. Pinned in CI by `check:launcher-gates`, `check:project-scope`, `check:lease-scope`, `check:deploy-read`.
+- **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
+- **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
+- **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
+- **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; spine/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
-- **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`), and `/onboarding` links to them. CLAUDE.md rule #9 keeps a new/renamed tool from shipping doc-less.
-- **Download links / install paths** — desktop **Invisible Launcher** (`.exe`, separate `invisible-launcher` repo) served over open routes `/api/launcher/download` + `/api/launcher/latest` (no session — the desktop app has none); it self-updates via the manifest. Also `/api/launcher/projects` (session-scoped project sync) + `/api/launcher/deploy-token` (`gamePublish`-gated).
-- **The desktop launcher's build setup is DERIVED, not hand-typed** (2026-09-08). `GET /api/launcher/projects` sends each project's authored **game kind** (`projects.game_type`) and, when no desktop has ever published a profile for it, a **derived launcher profile** built from that kind (`src/lib/server/launcherProfile.ts`). A stored profile still wins; a `kind: 'comfy'` workspace and the shared default `cloud` scope are never given one. The kind→mock-protocol map is the single `src/lib/server/mockProtocol.ts`, shared with the online publish, so the same game can't be dealt different mocks from the two ends.
-- **DB migrations** — on-boot migrator with the prod-safety discipline: **`db:push` is BANNED on prod** (use `db:generate` + the migrator); `reconcilePushProvisioned` replays every journal migration tolerating duplicate-object errors so a push-provisioned DB reconciles with no baseline overshoot.
-- **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference) plus Games and Local tools, Invisible Wall emblem branding, DNS-only (grey-cloud) CNAME to Railway (proxying breaks Railway TLS). Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent (see unified-tool-bar).
+- **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
+- **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
+- **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); all 20 (`0000`–`0019`) are live and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
-1. **Onboarding** is a basic first version — a fuller per-role walkthrough is planned (backlog B6).
-2. **Local-tool install paths not persisted** (backlog B5) — local tool cards describe the tool but per-user install paths / download bookmarks aren't stored yet.
-3. **Refactor debt** — the gate + "resolve active (client,project)" prelude is copy-pasted across ~9 cookie-authed routes and there are two divergent `allowedPrefixes()` kept in lockstep by hand; per-request DB fan-out (~4 sequential queries, resolved twice per navigation) is a known perf cost. *(The desktop-facing half of this item is DONE: the `Bearer` parser + `validateSession` + role check that sat in six routes is now `requireLauncherAdmin` / `requireLauncherPublisher` in `$lib/server/launcherAuth.ts` — 2026-09-18 below.)*
-4. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. The CODE half landed 2026-09-18 (every publish endpoint now reads the capability, so the grant actually reaches them); the grant itself is still owed in /admin → Roles. It now also opens the desktop Sync's
-   zero-login clone (`git-credentials`, 2026-09-28).
-5. **Deploy the soft-delete change normally — no manual migration step.** `0019_project_soft_delete.sql` (additive, nullable `projects.deleted_at`) is applied by the launcher itself at boot via the `init` hook → `runMigrations()`, so schema + code ship in ONE deploy (`docs/INFRA.md` §"Auto-migrate on boot", 2026-06-13). An earlier draft of this entry said to run `db:migrate` first; that advice was stale and is wrong for this repo.
-6. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. The native pop-ups they sat next to are done (see Recent changes, 2026-09-18); these are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
-7. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed with **zero** unique files). Now that purge exists these can be cleaned up, but neither has a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
-8. **`canAccessProject` is paid per request on three hot paths.** `requireProjectScope` costs four
+1. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. Every publish endpoint reads the capability (2026-09-18); the grant itself is owed in /admin → Roles. It also opens the desktop Sync's zero-login clone (`git-credentials`).
+2. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. These are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
+3. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed). Purge needs a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
+4. **`canAccessProject` is paid per request on three hot paths.** `requireProjectScope` costs four
    queries (`listProjects` + two grant reads inside `canAccessProject`, then `projectClientKey`).
    `/api/sounds/file` GET pays it on every audio range request, and `/api/lease` pays the same four
-   on every 10 s heartbeat of every open tool tab. `sessionProjectScope` pays the same
-   `canAccessProject` on every `gate()`d request while the session sits on a non-default project —
-   +2 queries over the old raw read for a non-admin (+3 on an unassigned project), +0 for an admin
-   (+1 unassigned); the default skips it — including the editor's per-image `/api/editor/asset` and
-   `/regions` streams. `canAccessProject` already holds the project row, so returning its client
-   would drop one; a single keyed query (the live project row plus the two grant `EXISTS`) instead
-   of listing every project would make it about one.
+   on every 10 s heartbeat of every open tool tab. `sessionProjectScope` pays `canAccessProject` on
+   every `gate()`d request while the session sits on a non-default project (+2 queries for a
+   non-admin, +3 on an unassigned project; the default skips it), including the editor's per-image
+   `/api/editor/asset` and `/regions` streams. `canAccessProject` already holds the project row, so
+   returning its client would drop one; a single keyed query (the live project row plus the two
+   grant `EXISTS`) would make it about one.
+5. **Owed browser checks:** a two-profile restore-from-a-stale-tab test of the doc backups (expect
+   409); the signed-in refusals of the 2026-09-28 access pass (a non-admin `adminPanel` holder, a
+   user without a client grant, a role without a lease's tool) — pinned offline, not yet clicked
+   through with non-admin test accounts.
 
 ## Blocked (owner / external)
-- **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services — and, since launcher v1.0.56, by no publisher's desktop), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
-- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GAMES_BASE_URL` (legacy home Games bridge), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
+- **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
+  since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop.
+- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending).
 
 ## Key lessons / gotchas
-- **Never `db:push` on prod** — it replays from 0000 on an empty `__drizzle_migrations` (500s) and reports spurious PK-recreate drift; baseline/reconcile instead. (`gotcha_drizzle_automigrate_baseline`)
-- The **desktop launcher self-updates only as the frozen `.exe`** via the Update button; a source `.py` copy never updates. (`gotcha_launcher_source_copy_never_updates`, `reference_launcher_release`)
-- More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
+- **Never `db:push` on prod** — it records nothing in `__drizzle_migrations`, so the boot migrator replays from 0000 (500s). Generate a migration instead.
+- **`build` is not a type-check** — a type error ships green; prefer designs a missing type can't break and verify contracts in a Node fixture over the real modules (`apps/launcher-api/CLAUDE.md`).
+- The **desktop launcher self-updates only as the frozen `.exe`** via the Update button; a source `.py` copy never updates.
+- Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
 
-### 2026-09-29 — desktop publishing needs no R2 key; builds say which build they are
-Readiness audit §3.2, with desktop launcher v1.0.56 (`invisible-launcher` repo).
-- **☁ Publish goes through the relay by default.** The launcher now uses `api/launcher/game-upload`
-  as the signed-in `gamePublish` user, and asks for no R2 credentials. Direct-to-R2 is an owner
-  opt-in in Settings, and it falls back to the relay when R2 is unreachable OR rejects the saved
-  key. **So the bucket's write key can be rotated without touching a desktop.**
-- **Sized against real bundles.**
+### 2026-09-29 — docs caught up with the code
+Open items for onboarding (it is a per-role walkthrough with guide links), local-tool install
+paths (persisted in `tool_installs`), the one `allowedPrefixes()` and the 0019 migration (live —
+`schema: current`) were already done and are closed. The portal guide now lists Sound for artist,
+pipelineTester and audio, says `build` is not a type-check, and points at INFRA for env vars; the
+desktop launcher's registry description names publishing; this file's Recent changes were pruned
+to 2026-09-08 onward.
 
-  | Bundle | Files | Size | Largest file |
-  | --- | --- | --- | --- |
-  | Book of Borut Remake | 370 | 87 MB | 4.9 MB |
-  | Ways of Waves | 597 | 140 MB | 6.2 MB |
-  | unoptimised Test1 | 319 | 390 MB | 30.6 MB PNG |
+### 2026-09-29 — desktop publishing needs no R2 key; builds say which build they are (#866)
+With desktop launcher v1.0.56 (`invisible-launcher` repo).
+- **☁ Publish goes through the relay by default** (`api/launcher/game-upload`) as the signed-in
+  `gamePublish` user, with no R2 credentials. Direct-to-R2 is an owner opt-in and falls back to the
+  relay when R2 is unreachable or rejects the saved key — so the bucket's write key can be rotated
+  without touching a desktop.
+- **Sized against real bundles** (87–390 MB, largest file 30.6 MB): each file is its own PUT, so
+  the only real limit is per file — adapter-node's `BODY_SIZE_LIMIT` (code default 32M). Presigned
+  URLs were not needed, and would point at the R2 host the Spanish ISP block null-routes.
+- **Relay GET** reports the limit actually enforced, `min(64 MB cap, BODY_SIZE_LIMIT)`, and with
+  `?key=` lists `{path, size, md5}` of the game's prefix so a republish skips unchanged files.
+- **Provenance:** `packages/config-vite/provenance.js` → `buildProvenance()` (version, builtAt,
+  `engineSha` compiled, `gameSha`, `lockfileSha256`, `launcherVersion`), baked into
+  `window.__IE_BUILD__` and written as `build-info.json` beside the bundle (and into `EMBED.md` §5).
+- **Refusals as data:** `bake-editor-doc.mjs` and `build-delivery.mjs --json` emit the flow,
+  paytable and missing-art refusals as `{gate, error, details, override}`; the launcher shows the
+  reason and offers the named override behind an explicit confirmation. Checks:
+  `check:game-bundle-relay` (39), `check:build-provenance` (23). Runbook:
+  [guides/publisher-runbook.md](../guides/publisher-runbook.md).
 
-  Railway allows about 15 min per request and each file is its own PUT, so the only real limit is
-  per file: adapter-node's `BODY_SIZE_LIMIT` (code default 32M). The relay therefore carries these
-  bundles, and presigned URLs were **not** needed. They would also defeat the relay's other reason
-  to exist, because they point at `*.r2.cloudflarestorage.com`, the host the Spanish ISP block
-  null-routes.
-- **Relay GET** now reports the limit actually enforced, `min(64 MB cap, BODY_SIZE_LIMIT)`. The cap
-  alone claimed 64 MB while the adapter 413'd anything over 32. With `?key=` it also lists
-  `{path, size, md5}` of what the game's prefix holds, so a republish skips unchanged files. This is
-  safe because the commit verifies every file arrived before registering. `ListedObject` gained
-  `etag`.
-- **Provenance.** `packages/config-vite/provenance.js` produces `buildProvenance()`: version,
-  builtAt, `engineSha` (the compiled engine, not the pin), `gameSha`, `lockfileSha256` (always
-  measured, since the install may rewrite it) and `launcherVersion`. It is baked into
-  `__IE_BUILD__` through the shared base and `apps/lines` (`buildStamp`). It is exposed at runtime
-  as `window.__IE_BUILD__` (`game/buildInfo.ts`, frozen). It is also written by the launcher as
-  `build-info.json` beside the bundle, which `build-delivery.mjs` puts into `EMBED.md` §5 and
-  `--json` `build`.
-- **Refusals as data.** `bake-editor-doc.mjs` writes the flow and paytable gate refusals to
-  `IE_BUILD_REFUSAL_JSON` as `{gate, error, details, override: {flag, env}}`, and
-  `build-delivery.mjs --json` carries the same shape for missing art, plus the bake's when it runs
-  the build itself. The launcher shows the reason and offers the named override behind an explicit
-  confirmation.
-- `check:game-bundle-relay` gains the limit parsing (32 → 39). `node scripts/check-build-provenance.mjs` (`check:build-provenance`) runs 23 checks over the real
-  provenance module and the real bake, against a fake portal that refuses each gate.
-- Runbook: [guides/publisher-runbook.md](../guides/publisher-runbook.md).
+### 2026-09-29 — rolling backups for every whole-doc save (#847, #857)
+- `docBackups.ts` `putDocWithBackup(target, text, baseEtag, mode)` owns copy-before-PUT and
+  prune-after-PUT for scenes, Flow v2, Symbols, Game Config and component defaults
+  (`editor/<project>/component-defaults-backups/<slug(id)>/`). A save that will 409 takes no
+  backup; a force save always backs up; a duplicated project starts its own history; only an
+  `'auto'` copy opens the 5-minute coalescing window (a restore of the oldest backup no longer
+  loses it on the next autosave).
+- History endpoints: `/api/flow-v2/backups`, `/api/editor/symbols/backups`,
+  `/api/game-config/backups`, `/api/editor/component-defaults/backups` (each behind its route's own
+  gate + project scope). `check:doc-backups` (184). Live (#847): the routes answer and a flow
+  History → Restore was clicked through on `test2`. Owed: open item 5.
 
-### 2026-09-29 — component defaults get rolling backups too
-- `saveComponentDefaults` writes through `putDocWithBackup` with a new `component-defaults` stem;
-  backups are per component under `editor/<project>/component-defaults-backups/<slug(id)>/`
-  (outside the sidecar listing's prefix), skipped by project duplicate.
-  `GET/POST /api/editor/component-defaults/backups?project=&component=` (the component-defaults
-  save's own gate, now `lib/server/editorAccess.ts`). UI + detail in
-  [component-editor.md](component-editor.md). `check:doc-backups` 184, `check:launcher-gates` 319.
-- **Helper fix (all five docs):** only an `'auto'` copy opens the 5-minute coalescing window now.
-  Restoring the OLDEST backup at the 20 limit prunes that backup (the doc holds it again), and when
-  the restore also opened the window the next autosave skipped its copy — so one edit later the
-  restored version existed nowhere. A new check reproduces it and fails on the old helper.
-- The component-defaults save route answers a storage failure with a retryable **502** instead of
-  a 400 carrying the raw SDK message (the backup's HEAD/COPY put R2 on that path).
+### 2026-09-29 — error reporting + a real `/api/health` (#852)
+- `/api/health` is readiness: 200 only when Postgres answers (3 s) and the migrations journal
+  reaches the newest migration the build ships; 503 names the state only. A failed boot migration
+  is reported to Sentry and turns it red.
+- Sentry, dormant until DSNs are set: server `handleError` + `init` (`SENTRY_DSN`), browser
+  `hooks.client.ts` (`PUBLIC_SENTRY_DSN`); no query values, cookies, headers or user are sent.
 
-### 2026-09-29 — rolling backups cover Flow v2, Symbols and Game Config, not just scenes
-- **One helper for every whole-doc save.** `editorDocBackups.ts` became `docBackups.ts`:
-  `putDocWithBackup(target, text, baseEtag, mode)` owns the copy-before-PUT, prune-after-PUT
-  order, and a `DocBackupTarget { docKey, prefix, stem }` (built in `projectPaths.ts` from the
-  caller's own client/project) says which doc. `editorStorage.saveDoc`, `saveFlowV2Doc`,
-  `saveSymbolsDoc` and `saveGameConfigDoc` all write through it. Scenes keep
-  `editor/backups/scenes-*` byte-for-byte, so existing backups stay listable and restorable; the
-  new ones are `editor/flow-v2-backups/flow-v2-*`, `symbols/backups/symbols-*` and
-  `config/backups/config-*`. Ids are validated per stem, so an id minted for one doc is a 400 on
-  another's route.
-- **A save that will 409 takes no backup.** When the stored doc already fails the save's own
-  precondition (exists under a `null` baseEtag, or its ETag differs), the helper throws
-  `ConflictError` before copying. Before this, a stale tab's refused autosaves copied the current
-  bytes on every retry, and retention could push real history out. A save that races in between
-  the HEAD and the PUT can still leave one inert orphan (see the module comment).
-- **A force save ("overwrite theirs") always backs up**, even inside the 5-minute window,
-  whatever the client asked for. It replaces bytes the author never saw, and the old
-  `'auto'` default could coalesce it away.
-- **A duplicated project starts its own history.** `planDuplicate` skips the four backup prefixes
-  (both scopes), so a copy no longer re-bases and writes up to 80 of the source's backups.
-- **History endpoints** (response shapes shared with `/api/editor/backups`):
-  `GET/POST /api/flow-v2/backups` (session project, `flow` gate; the GET's `?project=` and the
-  POST's body `projectKey` refuse a stale tab with 409 `scope-mismatch`),
-  `GET/POST /api/editor/symbols/backups?project=` and `GET/POST /api/game-config/backups?project=`
-  (each with its route's own gate + `requireProjectScope`). A restore goes through the doc's
-  ordinary save with `'always'`, so it keeps the CAS and backs up what it replaces. The saves also
-  accept `backup: 'always'`, matching the editor's form field.
-- **Verified:** `check:doc-backups` (new, 149 checks) runs the real modules and the four real route
-  handlers over an in-memory R2. It replaces the source-slicing
-  `scripts/verify-editor-doc-backup.mjs`, which sliced the deleted module and asserted the old
-  stale-save orphan. `check:launcher-gates`
-  now also scans the three new routes. Build green; `svelte-check` clean on every touched file
-  (the one hit, `editorStorage.ts` `DOC_VERSION`, is pre-existing — see [editor.md](editor.md)).
-  **Live (#847, `ad4c0661`):** the three new routes went 404 → 200 (`/api/editor/backups` unchanged),
-  a flow History → Restore was clicked through on `test2` (see [flow.md](flow.md)), and /symbols +
-  /config render History…. **Owed:** a two-profile test (restore from a stale tab → 409) in a browser.
-
-
-### 2026-09-29 — error reporting + a real `/api/health`
-
-- **`/api/health` is now readiness, not liveness:** 200 only when Postgres answers (3s budget) and `drizzle.__drizzle_migrations` reaches the newest journal entry the build ships; 503 with `db: down|unconfigured`, `schema: behind|unknown` otherwise (states only — it is public). `migrate.ts` records its boot result (`getMigrationState`) and a failed migration is reported to Sentry and turns health red instead of only logging — with the Railway healthcheck set (owner, still owed) a build whose migration failed is never promoted. Verified locally: no DB → 503 `unconfigured`; unreachable DB → 503 `down`, `boot: failed`, in 0.3s.
-- **Sentry, dormant until the DSNs are set:** server `handleError` + `init` (`SENTRY_DSN`, `$lib/server/errorTracking.ts`, lazy `@sentry/node`), browser `hooks.client.ts` (`PUBLIC_SENTRY_DSN`, runtime env). Verified against a local fake ingest: a thrown server error arrived tagged `route/method/status`, a browser error arrived tagged `launcher-client`; neither carried the `sid`/`token` query values, the session cookie, headers or a user.
-### 2026-09-29 — published runtime snapshots (Game Maker)
+### 2026-09-29 — published runtime snapshots (Game Maker) (#841)
 - Players boot an immutable snapshot Publish writes to R2 `<client>/<project>/published/`; new routes
   `/api/published/f/<token>/<project>/<id>/…` (immutable asset serving, streamed) and
   `POST /api/game-maker/rollback`; `/api/editor/runtime` picks snapshot vs live by `authoring=1`.
@@ -155,466 +111,83 @@ Readiness audit §3.2, with desktop launcher v1.0.56 (`invisible-launcher` repo)
   launcher-wide cap of 2 assembles). Detail in [game-maker.md](game-maker.md).
 
 ### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
-- **Stranded symbol spines are reported** (`SymbolExportIndex.spinesMissing`, twin of
-  `EditorArtIndex.spinesMissing`) — bake warning, publish log, boot warning. Detail in
-  [symbols.md](symbols.md).
-- **The online publish now tells the author, not just the server log.** `PublishResult` gained
-  `spinesMissing: { scene, symbols }` and the Game Maker appends a ⚠ note listing them after a
-  publish. Previously both reports reached only `console.warn` on the server.
-- **`POST /api/editor/export-boot`** (deploy-token gate, like the other `export-*` routes) runs
-  `exportBootSplashes`, and `bake-editor-doc.mjs` calls it before the pull. The boot splash was
-  exported only inside `ensureDeployExports` (online path), so a desktop/delivery build shipped
-  whatever `_boot/` the last online publish had left, or nothing. Best-effort in the bake: a
-  launcher without the route answers 404 and a broken splash never blocks a build.
-- **`pull-project-assets.mjs` prunes `sounds/`** — detail in [sound.md](sound.md).
+- Stranded symbol spines are reported (`SymbolExportIndex.spinesMissing`) at bake, publish and
+  boot, and the online publish now shows the author a ⚠ note (`PublishResult.spinesMissing`).
+- `POST /api/editor/export-boot` (deploy-token gate) exports the boot splash, and
+  `bake-editor-doc.mjs` calls it before the pull, so desktop/delivery builds ship the current one.
+- `pull-project-assets.mjs` prunes `sounds/` — detail in [sound.md](sound.md).
 
-### 2026-09-28 — access checks tightened on six more launcher surfaces
-One pass over the remaining launcher routes that decided access from a login alone, or from
-something the request named. The pure decisions live in `$lib/accessRules.ts` so the fixture can
-assert them without a database.
+### 2026-09-28 — access checks consolidated and tightened (#811, #812, #814, #818, #826, #827)
+One pass over every launcher route that decided access from a login alone or from something the
+request named. What exists now:
+- **`requireProjectScope(user, project)`** (`toolScope.ts`) on every session-gated authoring API
+  that takes a project; refusal is a 403, unknown keys included. Component routes use
+  `requireOptionalProjectKey`. Publish (`game-maker/publish`, `register-game`) requires
+  `canAccessProject`.
+- **`sessionProjectScope`** re-checks the session's stored project on every `gate()` and
+  `resolveToolScope` read, and clears it (compare-and-clear) once access is gone; save actions
+  scope through `resolveActionScope` and never fall back from a named project.
+- **`/api/lease`** requires access to the project, the project's own client, and the tool the lease
+  is for; `/api/deploy/f/…` serves from the project's DB client; `partner-session` mints only for a
+  card the caller could see; `git-credentials` is `gamePublish`-gated; creating/duplicating under a
+  client needs that client; `adminPanel` holders who are not admins cannot act on admin accounts;
+  a password reset signs the user out everywhere; the DB browser masks `app_settings` values not on
+  an allow-list.
+- **Served R2 content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,
+  `/api/files/download`) takes its headers from `$lib/server/userContent.ts` (extension allow-list,
+  `nosniff`, sandbox CSP, attachment for HTML/SVG/XML); baseline security headers on every dynamic
+  response in `hooks.server.ts`; `ADDRESS_HEADER`/`XFF_DEPTH` default in `scripts/start.mjs`; login
+  timing is uniform.
+- The pure decisions live in `$lib/accessRules.ts`; `check:launcher-gates` (292),
+  `check:project-scope` (41), `check:lease-scope` (26) and `check:deploy-read` (30) run in CI and
+  each was mutation-tested. Verified live on each deploy that every touched route still boots and
+  refuses a signed-out caller; the signed-in refusals are open item 5.
 
-- **`GET /api/launcher/git-credentials`** now goes through `requireLauncherPublisher` — the
-  `gamePublish` gate `deploy-token` already had. The desktop launcher fetches both in the same
-  Sync, and its `fetch_git_credentials` already treats any non-200 as "not configured" and falls
-  back to Git's own sign-in, so a non-publisher's Sync still works; it just prompts. Until Open
-  item 4's grant is made, only admins get the zero-login clone.
-- **`POST /api/lease`** also requires the caller to hold the tool the lease is for
-  (`leaseEntitlingTool` + the new `userHasTool` in `launcherAuth.ts`, which reads both override
-  tables). `componentEditor` maps to `editor`, because that page and its APIs gate on `editor`. A
-  `toolId` naming no tool is refused. The project/client checks from #814 are unchanged. Cost: two
-  override reads per request, run in parallel with `canAccessProject`. The `flipbook`, `fx` and
-  `flow-v2` page gates used to read the role alone and ignore per-user overrides. They now gate on
-  the layout's resolved `tools`, as Game Maker does, so a page and its lease agree on who holds
-  the tool.
-- **`GET /api/partner-session`** only mints for a card the caller could be shown on home: a global
-  card (`projectKey` null) or one whose project passes `canAccessProject`. Anything else is the
-  same 404 as an unknown key.
-- **Game Maker `?/create` and `POST /api/game-maker/duplicate`** require that the caller may create
-  under the destination client (`mayCreateUnderClient` in `clients.ts`). Admins may use any client,
-  and unassigned is open to everyone (it is the form's default). Anyone else needs a client grant.
-  The create and duplicate pickers now list only those clients, and the duplicate dialog falls back
-  to Unassigned when the source's client is not among them. A refusal is a 403 with a message.
-- **`/admin`**: holders of the `adminPanel` capability who are not admins can no longer confer the
-  admin role (`createUser`, `setRole`). They also can no longer act on an admin's account
-  (`setRole`, `setActive`, `setExpiry`, `resetPassword`, `setToolAccess`, `revokeSession`,
-  `revokeAllSessions`, `deleteUser`, `loadSessions`), or change the admin role's tool matrix
-  (`setRoleToolAccess`). The rule is `adminAccountDenial`; admins are unaffected.
-- **`resetPassword` signs the user out everywhere** (`revokeUserSessions` in `admin.ts`). An admin
-  resetting their own password keeps the session they are using. `setActive` and
-  `revokeAllSessions` use the same helper.
-- **DB browser**: `app_settings.value` is masked unless the row's key is on an allow-list
-  (`settingValueVisible`). Column-name redaction could not see that `value` holds the deploy token.
-  A new setting stays hidden until it is added to the list.
-- **Checks:** `check:launcher-gates` 221 → 292. It covers the rule decisions (every `TOOLS` id's
-  lease entitlement, prototype keys, client targeting, the admin-account rule for every non-admin
-  role, setting visibility), plus a source scan confirming each route/action applies them.
-  `git-credentials` joins the publish-gated list. `check:lease-scope` 14 → 26: a role without
-  the tool, a per-user revoke, an unknown `toolId`, and five real page `toolId`s still reaching the
-  lease. Against `main`'s route sources, 16+ gate checks and 6 lease checks fail by name.
-  svelte-check: 62 errors, none in a changed file. `build` green.
-- **Live (#826, `c8b2954c`; served build ID flipped 18:29:18 UTC).** The signed-out `/editor` shell
-  loads `boot-splash.js?v=c8b2954c0f2d`. Every touched route boots and refuses a signed-out caller:
-  `git-credentials` answers 401 with no bearer and with a bad one (so does `deploy-token`),
-  `partner-session` and `/api/lease` answer 401, and the `admin`, `game-maker`, `flipbook`, `fx`
-  and `flow-v2` data loads redirect to `/login`. `/api/health` is 200. **Not probed live:** the
-  signed-in refusals (a non-admin `adminPanel` holder, a user without a client grant, a role
-  without the lease's tool). They need non-admin test accounts, and the browser pane here holds no
-  launcher sign-in. They are pinned offline by `check:launcher-gates` and `check:lease-scope`.
-- Items already closed earlier the same day, with their own entries below: the session project
-  re-check (#818), `/api/lease` project scope (#814), and `/api/deploy/f/` serving from the
-  project's own client (#812).
+### 2026-09-18 — publish capability, native pop-ups, spine guard
+- **`gamePublish` now actually lets someone publish.** `game-maker/publish` + `publish-all` checked
+  `adminPanel`, and `register-game`, `game-upload` and `projects` (POST) compared a literal `'admin'`
+  role; all now read `GAME_PUBLISH_CAPABILITY` through `$lib/server/launcherAuth.ts`
+  (`requireLauncherAdmin` / `requireLauncherPublisher`), which replaced six copies of the bearer
+  parser. `tunnel-bundle`, `models-manifest` and `comfyui-nodes` stay owner-only by design.
+- **No native browser pop-ups remain** (46 calls in 11 files): `src/lib/dialogs.svelte.ts`
+  (`askConfirm` / `askMessage` / `askText`, one `<DialogHost>` in the layout, FIFO). The
+  `beforeNavigate` unsaved-work guards go through `src/lib/unsavedGuard.ts`, which **cancels first
+  and re-issues on confirm** (`history.go(delta)` for Back/Forward). `check:native-dialogs` fails on
+  a re-introduced call. Out of scope: `static/rigger/cinematic.js` (6 calls, vanilla JS).
+- **A spine the build could not resolve no longer ships in silence.** `EditorArtIndex.spinesMissing`
+  collects every placed spine whose bundle prefix resolved to nothing; the bake, the online publish
+  and game boot all report it (`$lib/spineBundleKey.ts`, `check:spine-bundle-key`). A bundle NAME
+  from a `spine`-kind param is still unguarded.
+- Desktop launcher v1.0.54–1.0.55: **📦 Deliver** (a partner-hosted build with ▶ Play it) and a
+  publish that backfills engine packages a game repo's `package.json` predates — see
+  [tools/invisible-launcher](../tools/invisible-launcher.md) and
+  [status/engine-history](engine-history.md) (2026-09-18).
 
-### 2026-09-28 — response headers for served R2 content, baseline headers, login defaults
-- **Served project content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,
-  `/api/files/download`) now takes its headers from ONE helper, `$lib/server/userContent.ts`: the
-  `Content-Type` comes from an extension allow-list (the stored R2 type is ignored), every response
-  carries `X-Content-Type-Options: nosniff` and a locked-down `sandbox` CSP, and HTML / SVG / XML /
-  unknown types are sent as `Content-Disposition: attachment`. `fetch()`, `<img>`, `<audio>` and
-  `FontFace` ignore the disposition, so tool loading is unchanged; only opening such a URL directly
-  now downloads it. The FTP upload stores the allow-list type instead of the browser's `File.type`.
-- **Storybook view** keeps serving its HTML/JS inline (types by extension, never the stored type)
-  under its own CSP: no plugins, HTTPS-only external loads, no form posts, no `<base>` rewrite,
-  framed only by itself. Checked against the published engine storybook: no CSP violations.
-  Storybook trees (`_shared/storybook/`, `<client>/<project>/storybook/`) are no longer writable
-  through the file browser — `publish-storybook.mjs` is their only writer.
-- **Baseline headers** in `hooks.server.ts` on every dynamic response: HSTS (1 y, subdomains),
-  `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN` +
-  `frame-ancestors 'self'` (a route's own CSP, e.g. streamed content, is kept). No full page CSP —
-  the tools were not audited for one. Static files served by adapter-node don't pass through hooks.
-- **Login:** `ADDRESS_HEADER=x-forwarded-for` / `XFF_DEPTH=1` now default in `scripts/start.mjs`
-  (the dashboard still wins), and `verifyCredentials` runs one scrypt even when no account matches,
-  so response time is uniform.
+### 2026-09-17 — publishing from a line that cannot reach R2
+- **`POST`/`PUT /api/launcher/game-upload`** relays a built bundle through Railway into
+  `test_server/<key>/`, verifying every file before it registers and carrying the project pin
+  forward (`$lib/server/gameBundleRelay.ts`, `check:game-bundle-relay`). The online-runtime guard is
+  ported and fails closed. `scripts/publish-game-via-portal.mjs` is its plain-node twin (resumable;
+  pokes `/refresh` and waits for the new bundle). `BODY_SIZE_LIMIT` got its 32M code default.
+- A desktop ☁ Publish now builds the latest engine, game layer included — game repos no longer
+  carry `apps/lines/src` ([status/engine-history](engine-history.md), 2026-09-17).
 
-### 2026-09-28 — a revoked project grant reaches the open session
-`sessions.activeProjectKey` was access-checked only when it was SET (`setProject`, an explicit
-`?project=` in `resolveToolScope`, publish). Everything that later READ it trusted it: the R2
-`gate()` behind ~60 `/api/editor/*`, `/api/flipbook/*`, `/api/fx/*`, `/api/rigger/*`, `/api/fonts/*`,
-`*/save` routes and the FTP browser (`ftpScope.ts`); the `getActiveScope` fallback of every tool page
-loader's `resolveToolScope`; and three routes that copied the raw read — `(app)/spine/file`,
-`(app)/spine/skeletons` and `/api/editor/assets`. So after an admin revoked a user's project or
-client grant, that user kept reading and writing the project until they switched project or the
-session ended, while the layout's selector already showed `cloud`.
+### 2026-09-16 — Game Maker card: `shared runtime` chip + a protocol-drift warning
+The card read "lines runtime" on every game (it's one shared bundle); it now reads
+`shared runtime`, and an amber `protocolDrift` chip flags a published mock protocol that trails the
+game kind (both read `mockProtocol.ts`). `gameProfileChips.fixture.ts`. Doc: `docs/tools/game-maker.md`.
 
-- **One re-checking read:** `sessionProjectScope(user, sessionToken)` in `$lib/server/toolScope.ts`.
-  It runs the SAME `canAccessProject` rule as the selector on the stored key; an inaccessible one
-  falls back to the default — what the layout shows — and is **cleared** so the next request takes
-  the fast path. The clear is compare-and-clear (`clearActiveProjectKey(token, expected)` in
-  `auth.ts`, `WHERE active_project_key = expected`), so a request that found the key stale can
-  never undo a switch the user made in the meantime. No user → the default and nothing cleared
-  (nothing was revoked).
-- **Wired in:** `gate()` and `resolveToolScope`'s fallback both resolve through it;
-  `/api/editor/assets` (a hand copy of `gate()`) now calls `gate()`; the two spine routes call it
-  directly. The layout keeps its own check — it already holds the accessible list, so it pays
-  nothing extra.
-- **Save actions never fall back from a named project.** The editor and localization save actions
-  scoped through `resolveToolScope(url)`, so a tab whose `?project=` was refused fell back to the
-  session — which is now `cloud` — and only the doc etag stood between the tab's document and
-  `cloud` (`force=1` or two absent docs got through). They now use `resolveActionScope`: the page's
-  `?project=` through `requireProjectScope` (403 when refused), else the re-checked session
-  project, and no session re-sync on save.
-- **Cost:** the default project is never checked — it is where the fallback lands anyway — so it
-  costs what it did (two queries: `cloud` has no client, so `getActiveScope` makes its second
-  lookup). A session on a non-default project pays `canAccessProject` per request; the numbers are
-  in Open item 8 with the sibling `requireProjectScope` cost.
-- **A tab left open on the revoked project** behaves like one left open across a project switch:
-  the routes with a stale-tab guard (`cinematics`, `flipbook`, `flow-v2` and `fx` save,
-  `rigger/text`) refuse it — the session says `cloud`, the body names the old project — the editor
-  and localization saves 403, and the other gated writes act on `cloud`, which the user can reach.
-  It can no longer touch the revoked project either way.
-- **Checks:** `check:project-scope` 20 → 41 — the real `toolScope.ts` with `auth.ts`'s session
-  reads and the two tool-override tables stubbed alongside `projects.ts`: a granted stored project
-  is the scope and stays stored; a revoked one yields the default AND the default's R2 prefix from
-  `gate()` (never the revoked one's), is cleared with the key that failed, and the next request
-  checks nothing; no token / no user is the default, and no user clears nothing; `resolveToolScope`
-  neither falls back to a revoked stored project nor honours a `?project=` naming it, while a
-  granted `?project=` still wins and syncs; a save on a revoked `?project=` is a 403 that never
-  resolves its client. (The compare-and-clear's `WHERE` lives in the SQL, which the stub does not
-  run.) `check:launcher-gates` 214 → 221 — a source scan over all of `src/` fails by name if
-  anything outside `auth.ts`, `toolScope.ts`, the layout and `projects.ts`'s soft-delete write
-  names `getActiveProjectKey` / `getActiveScope` / `sessions.activeProjectKey` (identifiers, so an
-  aliased import is caught too), and both save actions must scope through `resolveActionScope`.
-  Mutation-tested twelve ways (access check skipped; `gate()` back on the raw read; the fallback
-  back on `getActiveScope`; no clear; the default checked; an unconditional clear; no user treated
-  as allowed; a missing user clearing; `resolveActionScope` falling back like the loader; the
-  editor save back on `resolveToolScope`; `spine/file` back on a raw read, plain or aliased) —
-  each fails by name.
-- svelte-check `--workspace apps/launcher-api`: COMPLETED, 2975 files, 65 errors — identical to
-  `main`, none in a changed file.
-- **Live (#818, `14a5ec14`; Railway deployment success 15:21:46 UTC).** The running build is the
-  merge commit: the signed-out `/editor` shell loads `boot-splash.js?v=14a5ec140b42`, and that
-  `BUILD_ID` is `RAILWAY_GIT_COMMIT_SHA`. Every touched route boots and refuses a signed-out caller
-  as before: `/spine/skeletons`, `/spine/file`, `/api/editor/assets`, `/api/editor/regions` and
-  `/api/files/list` all return `401 Not authenticated`. The `editor`, `localization` and `symbols`
-  data loads return `redirect → /login`, and `/api/health` is 200. **Not probed live:** the
-  revocation itself. That needs a signed-in non-admin session whose grant an admin removes and
-  restores, and the browser pane here holds no launcher sign-in. It is pinned offline by
-  `check:project-scope`.
+### 2026-09-09 — project delete is a soft delete, purge is separate
+`?/deleteProject` was one unguarded click. Now: `projects.deleted_at` (migration 0019) tombstones the
+row — its `read_token` and client survive and **Restore** is one click, R2 untouched; games go with
+the project. **Purge** is a separate action on an already-deleted project, needs the key typed,
+erases both R2 roots (`<client>/<project>/`, `editor/<project>/`) and refuses on a slug collision
+or on project data outside those roots. `ConfirmDialog.svelte` (native `<dialog>`, page inert while
+busy) and a lazy `GET /api/admin/project-footprint` show the exact object count and bytes.
+`projectPurge.fixture.ts` (13).
 
-### 2026-09-28 — `/api/lease` only coordinates on a project the caller can reach
-`POST /api/lease` required a login and nothing else, so anyone signed in could acquire or take over
-the lease on any `(tool, client, project, doc)`. That put a false "someone is editing" banner in
-front of another client's authors, and the not-held answer carries the holder's name and email, so
-it also told the caller who was editing that client's docs. The lease is still a coordination hint
-rather than the write gate, but it now answers only for projects the caller can access.
-
-- After the login check, every action (acquire / heartbeat / release / takeover) calls
-  `canAccessProject(user, body.projectKey)`, the same rule as the selector and `requireProjectScope`.
-  It also refuses a body `clientKey` that is not the project's own client
-  (`projectClientKey ?? UNASSIGNED_CLIENT`), so a lease can't be keyed on a made-up client. Both
-  refusals are `403 {error:'forbidden'}` in the route's `json({error})` convention, and an unknown
-  project gets the same answer. A not-held lease is still a `200` answer.
-- **Client unchanged.** Every `new LeaseState` (editor, flow-v2, symbols, win-text, config,
-  localization, sound, fx, flipbook, components) passes its loader's `clientKey`/`projectKey`, which
-  `resolveToolScope` or `getActiveScope` compute with that same `?? UNASSIGNED_CLIENT` rule. A tab
-  on a project it can no longer reach fails open on its first acquire, so it is not read-only. A tab
-  that was already an observer when the 403s began keeps its last banner, and Take over does nothing
-  until a reload. That happens only when access is revoked, or when an admin moves the project to
-  another client while tabs are open.
-- **Checks:** `check:launcher-gates` (200 → 214). The per-handler scan deliberately skips a body
-  `projectKey`, because the doc-save routes send it only as a stale-tab guard. Every handler that
-  reads that field must now be named, and an unnamed one fails. It is named either as acting on it
-  (`api/lease`, where every handler must call `canAccessProject(` and `projectClientKey(`) or as a
-  stale-tab guard whose source compares it `!==` the session's project (`cinematics/save`,
-  `flipbook/save`, `flow-v2/save`, `fx/save`, `rigger/text`). Mutation-tested five ways, and each
-  fails by name: a new route acting on `body.projectKey` (plain and destructured), a stale-tab guard
-  that stops comparing, lease's access check dropped, and lease's field renamed.
-- New `check:lease-scope` (14) runs the REAL handler with only the Postgres boundary stubbed
-  (`projects`, `auth`, `db`, `lease`). All four actions on another client's project are refused
-  before the lease is touched. An unknown project gets the same answer, and a made-up client or the
-  unassigned sentinel on an assigned project is refused. Own and unassigned projects still reach the
-  lease, and 400 / 401 are unchanged. The unfixed route fails 7 of the 14, and dropping only the
-  client check fails 2. Both checks run in CI (`lint.yml`). `svelte-check` shows the same 65 errors
-  before and after.
-- **Live (#814, `9811ea71`; Railway Launcher status success 15:10 UTC).** Probed from a signed-in
-  admin session on app.invisiblewall.org with a throwaway `toolId: 'probe'` key:
-  - a `release` on a project that doesn't exist answered `200 {released:true}` on the old deploy
-    at 15:08, and `403 {error:'forbidden'}` after it;
-  - an `acquire` on the session's own project (`invisible_wall/bookofborutremake`, the key the
-    win-text loader hands its page) under a made-up `clientKey` is `403`;
-  - the same `acquire` with the real client is `200 held:true`, and its `release` is
-    `200 {released:true}`, so the path every tool page takes is unchanged.
-
-### 2026-09-28 — `/api/deploy/f/…` serves from the project's own client
-`GET /api/deploy/f/<token>/<client>/<project>/<...rel>` checked the token against `<project>` and
-then served `<client>/<project>/deploy/<rel>` for whatever `<client>` the caller sent. So a project's
-read token also read `<otherClient>/<project>/deploy/`, which exists only as an orphan where the key
-was once used under another client (moving a project is a DB-only `assignProjectToClient`; R2
-stays put).
-
-- **The fix serves from the DB client and ignores the URL segment.** The new
-  `projectReadClient(project, token)` in `projects.ts` returns the client to serve from, or `null`
-  to refuse. It uses `projectClientKey ?? UNASSIGNED_CLIENT`, the same pair `/api/editor/runtime`
-  builds `assetBase` from and the runtime assemble exports into. The token and the client come from
-  ONE `projects` row read, run in parallel with the deploy-token read, so the per-asset path gets no
-  extra query. `projectAllowsRead` now delegates to it, so the runtime, doc and mock gates share one
-  rule.
-- **Serve, not 404.** The runtime is the only producer of these URLs and always sends the DB
-  client, so a mismatch has one legitimate source: a game opened before its project moved client.
-  That tab keeps its old `assetBase`; it is now served the project's current tree instead of a 404.
-  The segment stays in the URL shape because every live game's `assetBase` carries it.
-- **Covered by `pnpm --filter launcher-api check:deploy-read`** (30 checks, wired into the lint
-  workflow next to `check:project-scope`). It runs the real route, the real `runtime` route and the
-  real `projects.ts`. Only Postgres, the deploy-token setting, R2 and the runtime assemble are
-  stubbed, and the Postgres stub answers by the key the query actually filtered on. It pins these
-  cases: a foreign segment gets the project's own tree, never the orphan; the shared token doesn't
-  reopen it either; unassigned projects resolve to `unassigned/`; the old gate refusals are
-  unchanged; and a runtime `assetBase` round-trips to the tree it names, including across a client
-  move. Against the old route it fails 7 of 30.
-- **Live (#812, deployed 15:04Z).** The Book of Borut remake boots on live data, with no stale
-  fallback. All 74 `/api/deploy/f/` requests return 200, every one under
-  `invisible_wall/bookofborutremake` (the same count as the pre-deploy baseline). All 28 texture
-  pages named inside its atlases, spritesheets and bitmap fonts resolve relative to their parent
-  and return 200. The console shows no errors, and the base game renders.
-  The deploy marker: the game's own read token under a wrong client segment went from 404 to 200.
-  Pixi 8 fetches page images in a worker, so they appear in neither the page's resource timing
-  nor the pane's network log. They were checked by resolving the pages from the parents by hand.
-
-### 2026-09-28 — a tool grant is no longer a project grant on the authoring APIs
-Session-gated authoring endpoints resolved whatever project the request named once the caller's
-ROLE had the tool: `/api/game-config` (GET + **PUT**) and `/api/game-config/server-paytable`,
-`/api/win-text` (GET + **PUT**), `/api/editor/symbols` (GET + **PUT**), `/api/sounds` (GET +
-**PUT**), `/api/sounds/file` (**POST** mints a presigned upload into the project, GET streams),
-`/api/editor/component` (GET, **POST**, **DELETE**), `/api/editor/component-defaults` (GET,
-**POST**) and `/api/editor/components` (GET). Anyone with one of those tools could read and write
-any client's project by editing the query string or body — the per-user project grants the
-selector enforces were never consulted. Each route carried its own copy of the same "default it,
-resolve its client" lines, which is why the gap was everywhere at once. The two publish entry
-points had a sibling of it: they accepted any project that merely EXISTED.
-
-- **One resolver:** `requireProjectScope(user, project)` in `$lib/server/toolScope.ts`, the API
-  counterpart of `resolveToolScope`. It applies the SAME `canAccessProject` rule, and unlike the page
-  resolver it never falls back — a page can land on the session's project because it shows which
-  one it chose, an API call writes the one it names. Refusal is a **403**, including for an unknown
-  key (no oracle for which keys exist). It returns the trimmed key, and the routes use that, so the
-  key checked is the key used.
-- **The default** (no `?project=` → `cloud`) is access-checked like any other key. Every user is
-  granted `cloud`, and the app cannot remove its row (`ensureDefaultProject` on every page load,
-  and /admin refuses to delete it), so in practice it always passes — and if the row were ever gone
-  there would be no project to write, so failing closed beats writing to an orphan prefix.
-- **Optional projects:** the component routes treat "no project" as the SHARED library, not the
-  default, so they use `requireOptionalProjectKey(user, project)` — `undefined` when none is named,
-  otherwise the same check. `component-defaults` requires a project and still 400s without one.
-  The body-borne `project` of the component and component-defaults POSTs goes through it too.
-- **Publish:** `POST /api/game-maker/publish` and the desktop launcher's
-  `POST /api/launcher/register-game` now require `canAccessProject` instead of `projectExists` — the
-  same rule as the Game Maker list, `publish-all` and `/api/launcher/projects`, which only ever offer
-  accessible projects. Single publish then PINS the session to the project it built, so a crafted
-  body used to hand every session-scoped tool (the `resolveToolScope` fallback, the R2 `gate()`)
-  another client's project. For an admin nothing changes (they can access every live project).
-- The tool gates (`requireGameConfigAccess`, `requireSoundAccess`, the local `gate` in win-text,
-  symbols and the three component routes) now return the non-null user the resolvers take, so the
-  natural call order is gate first. `gameConfigScope`, `resolveSoundScope` and the two local
-  `resolveScope`s are deleted. Every page already sends its loader's project, so an author on a
-  project they can reach sees no change.
-- **Checks:** `pnpm --filter launcher-api check:project-scope` (20) runs the REAL `toolScope.ts`
-  with only the Postgres boundary (`projects.ts`) stubbed via `node:test`'s `mock.module` — granted
-  → scope, another client's / unassigned / unknown → 403 without resolving its client, the default
-  is checked, the checked key is the returned one, and the optional form never turns "no project"
-  into the default. `check:launcher-gates` (149 → 200) gained a source scan judged PER HANDLER:
-  every `src/routes/api` handler that takes a project (`?project=`, `body.project`, or a destructured
-  body `project`) must call one of the checks or be token-gated (`projectAllowsRead` / the deploy
-  token), else be on a named exempt list with its reason. Mutation-tested five ways (optional check
-  skipped; "no project" mapped to the default; client resolved before refusing; one POST unchecked
-  beside a checked GET; publish back on `projectExists`) — each fails by name. Both run in CI
-  (`lint.yml`).
-- **Audit of the other project-taking routes:** token-gated by design — `deploy`, `editor/doc`,
-  `editor/runtime`, `editor/export-*`, `editor/symbol-defaults`, `game-config/doc`,
-  `game-config/mock`, `localization/strings`, `win-text/doc` (the per-project read token, or the
-  deploy token that the build runner holds for every project). Exempt with a reason —
-  `admin/project-footprint` and `admin/spines` (gated on `adminPanel`, which spans every project);
-  `flipbook/clip`, `fx/effect` and the `*/save` routes that compare a body `projectKey` (scoped by
-  the SESSION; the param only refuses a stale tab). **Still open** — see Open items.
-- `ScopeOptions` gained the `includeSharedSheets` field `allowedPrefixes` already read, clearing
-  the two type errors `toolScope.ts` carried.
-
-- 2026-09-18 — **Granting "Build & publish games" now actually lets someone publish.** `gamePublish` opened `GET /api/launcher/deploy-token` and nothing else: every *next* step of a publish was gated somewhere the grant could not reach, so a granted developer got the token and then a 403. Two distinct shapes, both fixed:
-  - **Gated on the wrong capability.** `POST /api/game-maker/publish` and `/publish-all` checked `ADMIN_PANEL_CAPABILITY` ("Phase 1 keeps publish an admin operation"), so the only way to let a developer publish was to hand them the whole admin panel. Both now check `GAME_PUBLISH_CAPABILITY`.
-  - **Gated on a literal role string.** `register-game`, `game-upload` and `projects` (POST) compared `user.role !== 'admin'` against a hard-coded `const *_ROLE = 'admin'` — a shape NO role or per-user override can ever satisfy, so the /admin matrix was decorative there. All three now go through the capability.
-  - **The owed helper shipped with it** (open item 3): `$lib/server/launcherAuth.ts` — `requireLauncherAdmin(request)` / `requireLauncherPublisher(request)` / `userHasCapability(user, key)` — replacing the four-line `Bearer` parser + `validateSession` + role check that had been copied into six routes (plus `deploy-token`, `git-credentials`, `comfy/register`, which now share the parser). The DECISION is a dependency-free `$lib/launcherGates.ts` so it can be asserted offline.
-  - **Left owner-only deliberately, and now says so:** `tunnel-bundle` (the Cloudflare credentials that let a machine *be* `comfy.invisiblewall.org`), `models-manifest` and `comfyui-nodes` (presigned multi-GB downloads into the owner's own ComfyUI). These are not steps of anyone's publish, so `requireLauncherAdmin` keeps comparing the literal `admin` role — there is deliberately no capability that opens them.
-  - `capabilityDefault()` is **unchanged**: `gamePublish` still defaults to `admin` only. Making a publisher stays an explicit act in /admin → Roles.
-  - Covered by `pnpm --filter launcher-api check:launcher-gates` (149 checks): admin passes, a role-level or per-user grant passes, an ungranted role is 403, no session is 401, an `adminPanel` grant does NOT open publish and no grant opens an owner-only route — plus a source scan that fails by name if any handler under `src/routes/api` compares a role string again.
-### 2026-09-18 — every native browser pop-up in the launcher is gone
-`window.confirm()` / `alert()` / `prompt()` no longer appear anywhere in `apps/launcher-api/src`.
-The real count was **46 calls across 11 route files** (36 `confirm`, 5 `alert`, 5 `prompt`) — three
-times the "~15" this file used to claim, because the estimate was never re-counted as tools were
-added.
-
-- **The foundation that was missing**: `src/lib/dialogs.svelte.ts` — `askConfirm(): Promise<boolean>`,
-  `askMessage(): Promise<void>`, `askText(): Promise<string | null>`, rendered by ONE
-  `<DialogHost>` mounted in `(app)/+layout.svelte`. Promise-returning on purpose: a native
-  `confirm()` is an EXPRESSION in the middle of a handler, so `await askConfirm({…})` keeps the
-  control flow the author already wrote instead of turning 46 call sites into 46 new pieces of
-  resume-in-a-callback state. Requests queue FIFO — `confirm()` blocked the thread so two could
-  never overlap, but an un-awaited `askConfirm()` can, and dropping the second would silently
-  answer it `false`.
-- **One dialog implementation, not two.** `ConfirmDialog.svelte` grew three OPTIONAL props rather
-  than being forked: `message` (plain text, newlines preserved, so the ported strings survive
-  verbatim), `hideCancel` (the `alert()` shape), `input` (the `prompt()` shape — seeded, selected
-  on open, Enter submits). Its two existing direct callers (admin delete + purge) are untouched.
-- **Destructive styling + typed guards**: every delete is `danger`; the unrecoverable ones
-  (component, FX effect, flipbook clip, an FTP folder) require the name typed first.
-- **The `beforeNavigate` unsaved-work guards were the hard part** — they call `navigation.cancel()`
-  SYNCHRONOUSLY, and a dialog cannot answer in time. They were NOT converted naïvely; they now go
-  through `src/lib/unsavedGuard.ts`, which **cancels first, always**, and re-issues the navigation
-  itself on confirm. Cancelling is the safe default: the worst case of a bug there is a navigation
-  that needs a second click, never work discarded silently. The re-issue is kind-specific —
-  `goto(to)` for a link/`goto`, but `history.go(delta)` for Back/Forward, because SvelteKit
-  counteracts a cancelled popstate with its own `history.go` and replaying that with `goto` would
-  push a NEW entry, quietly turning Back into Forward.
-- **Pinned by a scan, not by a type.** These are globals on `window` — always in scope, always
-  correctly typed — so no compiler can object to one, and this app's `build` doesn't type-check
-  anyway. `apps/launcher-api/nativeDialogs.fixture.ts`
-  (`pnpm --filter launcher-api check:native-dialogs`) reads the sources, strips comments, and fails
-  on any re-introduced call; it mutation-tests its own regex against the exact shapes it removed.
-  `ConfirmDialog`'s own confirm handler was renamed `accept()` for it: a local named `confirm`
-  shadows the global and is indistinguishable from it to any source scan.
-- **Out of scope:** `static/rigger/cinematic.js` (6 calls). Vanilla JS served as-is; it cannot
-  import a Svelte component, so it needs a vanilla dialog of its own.
-
-- 2026-09-18 — **A desktop ☁ Publish now backfills the engine packages a game repo's `package.json` never learned about** (`invisible-launcher` #13, `LAUNCHER_VERSION` 1.0.55). The 2026-09-17 entry below made every game repo compile the submodule's own `apps/lines/src` — current by construction — but nothing advanced the repo's own manifest to match. So the first time the engine gained a workspace package, every repo scaffolded before it built the CURRENT game layer against a manifest that had never heard of it, and `vite build` died on `Rollup failed to resolve import "engine-game"`. **Measured against the engine's 31 workspace deps: 3 of 4 real game repos were broken** — `bookofborut` missing `engine-flow-v2`/`engine-fx`/`engine-game`/`game-config`, `test1` missing `engine-game`/`game-config`, `bookofborutremake` missing `engine-game`; only `test6` (scaffolded after the fix below) was complete.
-  - **It is `new-game.mjs`'s own rule, applied to an EXISTING repo.** The scaffolder derives a new repo's deps from `apps/<SEED_APP>/package.json` wholesale precisely because two hardcoded lists rotted there ("never gained `engine-game` or `game-config`"). `backfill_workspace_deps` reads the same manifest — the seed app name parsed out of the scaffolder's `SEED_APP`, falling back to `apps/lines` — and declares at `workspace:*` whatever the game repo does not, in the section the engine declares it in.
-  - **Only packages the game's workspace can actually REACH.** A game repo globs `engine/packages/*` and `.`, so a `workspace:*` on an engine app or a `tools/*` spike would fail the install outright — worse than the bundle error. The backfill proposes only names it can see under `engine/packages/`, keyed by the name each package declares, and says which it left out.
-  - **Deliberately NOT committed, and re-applied every build.** The dependency exists only because of the submodule advance one step earlier, and that advance is itself uncommitted on purpose (the clone is hard-reset to `origin/<branch>` before every build; the recorded pin is left alone). Committing the manifest without the pin would declare deps for an engine the repo does not claim to use, and would push to a game repo's `main` from a GUI button on every machine that builds. The progress log names what it added and says to commit it.
-  - **The presync now runs as its own process**, ahead of the build command it used to be glued into — there has to be a seam between "engine is at origin/main" and "pnpm installs", which is the only window the backfill works in. Its output goes to the same build log, and a failed presync now aborts with its own message instead of an anonymous `Build failed (exit N)`.
-  - **Both broken repos fixed at rest too** — [test1@38b4543](https://github.com/Invisible-Wall-SL/test1/commit/38b4543), [Book-of-Borut@da5125b](https://github.com/Invisible-Wall-SL/Book-of-Borut/commit/da5125b) (manifest + refreshed lockfile). Verified by reproducing the exact Rollup failure with the submodule advanced to `origin/main` (100bef39), then `pnpm install --no-frozen-lockfile && pnpm build` → exit 0, no unresolved imports, in both.
-  - Covered by `verify_dep_backfill.py` (40 checks: the measured missing sets, the no-op that does not even touch the file, the unreachable-package carve-out, an already-declared dep never rewritten, `SEED_APP` resolution + its fallbacks, soft failure, manifest formatting, and the presync → backfill → install ordering asserted against the source).
-  - **Proved through `build_game` itself, not just the fixture** — the fixture can only assert the presync → backfill → install ordering against the source. A throwaway clone of `test1`, pinned by its own local `origin` to the commit *before* today's manifest fix (so the hard reset really does restore the old manifest every run), was built twice through the real `build_game` synced path: **backfill stubbed out → `Rollup failed to resolve import "engine-game"` after 90s; backfill live → built in 92s**, with `Declared 2 engine package(s) …` in the progress log between the advance and the build. Same repo, same command, one difference.
-  - **The same two repos carried a SECOND rot of this exact shape, and it is the one that would still have failed a publish.** `vite.config.js` aliased `rgs-requests` to `engine/packages/rgs-translator-eagaming/**stake-facade.ts**`, which engine [#406](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/406) renamed to `engine-facade.ts` four months ago — and the launcher sets `PUBLIC_RGS_TRANSPORT=play4fun` on **every** desktop build, so that branch is always taken: `[vite:load-fallback] Could not load … stake-facade.ts — ENOENT`. The corrected path had been sitting **uncommitted** in both working copies, which is why a local `pnpm build` looked fine while every publish discarded it at the hard reset. Fixed at rest ([test1@d8dfa45](https://github.com/Invisible-Wall-SL/test1/commit/d8dfa45), [Book-of-Borut@16c322e](https://github.com/Invisible-Wall-SL/Book-of-Borut/commit/16c322e)) and re-verified under publish-faithful conditions (HEAD's config, `PUBLIC_RGS_TRANSPORT=play4fun`, engine at origin/main): exit 0 for both. **The lesson generalises past dependencies:** on a synced clone, any local repair that is not committed is undone before every build, so "it builds here" is not evidence — build what `origin/main` says, with the env a publish sets. A sweep of all four repos' committed configs (`vite`/`svelte`/`tsconfig`/`package.json`/`pnpm-workspace`) for engine paths that no longer exist now comes back clean.
-  - **Repo sweep:** two more checkouts carry an `engine/` submodule — `iGaming/Borut/Book of Borut` (a stale duplicate clone of the same remote as `borut/bookofborut`; `git pull` brings both fixes) and `iGaming/Borut/HotFruits` (dormant since 2026-05-23, engine pinned to May, no `build:engine`/`bake:doc`/`pull:assets` scripts — it predates this pipeline, so a manifest patch alone would be a false green). No other live game repo is affected.
-  - **Released as v1.0.55** (`py build_and_publish.py`, manifest live at `/api/launcher/latest`, sha256 `bc18a3e3…`). The published build was still **1.0.52**, so this one exe carries three releases: the portal fallback (#11, 1.0.53), 📦 Deliver (#12, 1.0.54) and this backfill. **#12 had already taken 1.0.54** on `main`, hence 1.0.55 — two user-facing changes cannot share a version, because the self-updater only compares `LAUNCHER_VERSION` against that manifest, so a machine already on 1.0.54 would never be offered the other one. *(Build gotcha: PyInstaller cannot overwrite `dist/Invisible_Launcher.exe` while a launcher is running from it — `PermissionError: [WinError 5]`. Renaming the running exe aside works and leaves the open app alone; killing it is not needed.)*
-
-- 2026-09-18 — **A spine the build could not resolve shipped in silence — the one asset class with no dangling guard.** Reported as `Spine: key "invisible_wall/bookofborutremake/spines/R_Cage_Freespin/" is not found in loadedAssets` on the live `waysofwavesbuild`, whose free-spin cage was simply absent.
-  - **The chain could not follow the key and never said so.** `bundleFromAssetKey` answers "which bundle of MINE is this", so a prefix under ANOTHER project's root is `null`. `exportSpineBundle` returns `null` on that and `editorArtExport` swallowed it with a bare `continue`, while `rewriteSpineKeys` — skipping on the *same* condition — left the foreign prefix in the doc as the runtime lookup key. Export nothing, look up something: exactly the stranded asset rule 8 exists to prevent, and nothing between authoring and the browser console mentioned it. The sprite/region and flipbook-clip halves of the dangling-binding guard had covered this class since 2026-07-03; spines never got one.
-  - **The guard.** `EditorArtIndex.spinesMissing` collects every PLACED spine `assetKey` that names an R2 bundle prefix and resolved to nothing. **All three publish paths report it:** `bake-editor-doc.mjs` (desktop/CLI), `publishGame.ts` (the ONLINE publish — which computed the index and discarded it, so the path that actually shipped this bug said nothing), and `warnMissingAssets` once at game boot. Non-fatal, like the region guard; only a dangling flipbook clip still bails.
-  - **What is reportable is narrower than "unresolved", twice over,** because a false alarm on every publish is how a guard gets ignored. `parseSpineBundleKey` (`$lib/spineBundleKey.ts`) means only a real bundle ADDRESS qualifies — a coded/game-bundled key (`bigwin`, `fsIntroNumber`) parses to nothing — and a bundle NAME supplied by a `spine`-kind param is excluded because it is project-rooted by construction. Then `staticSpineKeyIsReachable` excludes a static key the runtime can never request: `LayoutNodeView` falls back to it only when the bound param is empty, and `resolveComponentParams` seeds every param from its def default, so a binding with a non-empty default permanently shadows it. That is not hypothetical — `Button_Square`'s **pinned v11 snapshot is immutable** and still carries the Borut prefix on exactly such a node, and `resolveReferencedDefs` walks pinned versions, so without this every `test6` publish would warn about art no game ever requests.
-  - **Not made to follow the reference, deliberately.** Copying another project's bundle into this game's `deploy/` would put one client's art in another client's bundle, and `sharedSpinePromote`'s "COPY, DON'T REFERENCE" already settles the question: `_shared/spines/` is how a bundle is borrowed across projects. The authoring side re-points the pin instead — see [component-editor status](./component-editor.md) (2026-09-18).
-  - **Still silent, and owed:** `symbolExport.ts` drops a `null` from the same `exportSpineBundle` with the same bare `continue` (symbol cells, `highlight`, `boardGlow`, `anticipation.spineKey`, rig layers) — see [symbols status](./symbols.md). And the NAME half is unguarded: a `spine`-param value or a cinematic rig name pointing at a deleted/renamed PROJECT bundle still ships as nothing. `BUILTIN_SPINE_NAMES` (`engine-layout`) is the allowlist that would make it reportable without false alarms; not done here because it widens the warning surface across every existing project at once.
-  - Files: `$lib/spineBundleKey.ts` (new, dependency-free), `editorArtExport.ts`, `publishGame.ts`, `scripts/bake-editor-doc.mjs`, `apps/lines/src/editor-scenes.ts`. Launcher + lines build clean, ESLint clean on every changed file (the package-wide `pnpm lint` has 157 pre-existing errors in route `.svelte` files, unchanged by this), and `pnpm --filter launcher-api check:spine-bundle-key` (`spineBundleKey.fixture.ts`, 26 assertions over the real module, beside `pickSheets.fixture.ts`) passes — which is the actual gate here, since this app's `build` is a bare `vite build` that strips types without checking them.
-
-- 2026-09-18 — **📦 Deliver on the desktop launcher — the build a partner hosts, with a ▶ Play it beside it** (`invisible-launcher`, separate repo). Not a publish: nothing uploaded, no card registered, the test server never told. It ends in a folder, a zip and an embed contract. **Nothing in `apps/launcher-api` changed, and could not have** — `publishGame.ts` points a project at the prebuilt `_runtime/<id>` bundle and is explicitly never a build; there is no `child_process` anywhere in this app, and it runs on Railway. The online launcher cannot compile a game, so "add a build button to the portal" is a much larger question (a build runner it dispatches to) and was not this. The desktop launcher is what has game repos checked out. Full story, the two engine seams it needed (`--print-env` / `--skip-build`, because a GUI cannot `spawnSync` a `vite build` that never exits) and the two defects it surfaced: [status/engine](engine.md) (2026-09-18). Guide: [tools/invisible-launcher](../tools/invisible-launcher.md).
-
-- 2026-09-17 — **A game can now be published from a line that cannot reach R2 at all** (`POST`/`PUT /api/launcher/game-upload`). Spanish ISPs null-route whole Cloudflare anycast ranges under the LaLiga anti-piracy court orders, and `175d2ae…r2.cloudflarestorage.com` resolves INTO them (`172.64.66.1`, `172.64.190.1`). **Measured on a blocked line:** DNS answers normally, TCP 443 to both addresses never connects (25 s, no SYN-ACK), while `cloudflare.com`, `api.cloudflare.com`, `app.invisiblewall.org` and `games.invisiblewall.org` all connect in ~25 ms. So it is **R2's S3 API specifically** — not Cloudflare, not our zone, not the test server.
-  - **What that broke, and what it didn't.** The desktop launcher writes R2 with its own credentials, so `publish_game()` died at its very first call — the online-publish guard's manifest read — with a bare `ConnectTimeoutError` and `Nothing was uploaded`. Bypassing that guard would NOT have helped: the bundle upload, the stale-file prune and the `games.json` merge immediately behind it all use the same blocked endpoint. Reading the dialog as "a server I don't need for this build" is the natural mistake — nothing the *game* talks to was down, only the storage the build has to land in. The portal, the online Game Maker publish (which runs entirely on Railway) and the exe download were unaffected throughout.
-  - **The relay.** `PUT …/game-upload?key=&path=` takes one built file and Railway — which is not behind the block — writes `test_server/<key>/<rel>`; `POST …/game-upload?key=` then verifies, prunes and merges the manifest. Logic in `$lib/server/gameBundleRelay.ts`, auth identical to `register-game` (bearer session token from `/api/launcher/login`, role `admin`). It relays the UPLOAD, not the build — a cloud build farm stays deferred ([invisible-game-maker](../design/invisible-game-maker.md) §"Considered and rejected").
-  - **The online-runtime guard is ported, and still fails closed** (`assertNotOnlinePublished`, the mirror of `publishGame.ts`'s `hasOwnBuiltBundle` and a port of the Python `_assert_not_online_runtime`). An absent manifest reads as empty, so anything that throws is a transient read failure and the relay refuses rather than risk replacing a live online game with a compiled build. Re-checked before **every** file, so an online publish landing mid-upload stops the rest of it.
-  - **It verifies before it registers, which the direct-to-R2 path does not.** A file-by-file upload can be interrupted half way — a dropped line mid-matchday is exactly how we got here — and registering then hands the test server a game with missing chunks: a white screen with no visible cause. One prefix listing answers both "did everything arrive" and "what is now stale", so the check is free.
-  - **The pin is carried forward, not dropped and repaired.** `upsertTestServerGame` replaces the entry wholesale, and losing `projectKey`/`docBase`/`readToken` is what once left `waysofwavesbuild` (project `test6`) dealing the mock's default 5×3 lines board against a stepped `ways` client. `register-game` re-stamps it moments later, but only if the publisher gets that far, so the relay preserves the existing pointer and the entry is never briefly unpinned.
-  - **`node apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <buildDir> --protocol … --project …`** is the plain-node twin of `publish-game-bundle.mjs`: same positional arguments, same resulting manifest entry and portal card, but through the portal instead of straight to the bucket. It ships the files **already on disk** — a publish the launcher refused is recoverable without rebuilding — and re-running resumes, because each PUT is idempotent. It calls `register-game` itself, so the card, pin and cache purge are unchanged.
-  - **`BODY_SIZE_LIMIT` now has a code default of `32M`** (`scripts/start.mjs`, which sets it before importing `build/index.js` and yields to anything already in the environment). adapter-node caps bodies at **512 KB** and exposes no build-time option, and a real bundle had **89 of 528 files over that cap** (largest 5.9 MB) — so the relay would have 413'd on exactly the art and audio that matter, only for big files, which is a confusing way to discover an env var. Per `apps/launcher-api/CLAUDE.md` §Conventions, non-secret config must not depend on the dashboard. ⚠️ **If the Railway service's start command is set in the dashboard to `node build/index.js`** it bypasses the wrapper — set `BODY_SIZE_LIMIT` as a service variable in that case.
-  - **`MOCK_PROTOCOLS` is now a value, with `MockProtocol` derived from it** (`testServerManifest.ts`), plus a shared `isMockProtocol`. The first draft validated with a `Record<MockProtocol, true>` "exhaustive by construction" — which this app is precisely the wrong place for: there is no `svelte-check`, no `check` script, and a type error builds green, so the guide already records a missing `Record` key shipping silently. One value, type derived, no copies.
-  - **`pnpm --filter launcher-api check:game-bundle-relay`** asserts the relay's contract over the real module (32 checks): every prefix-escape case (`..`, absolute, `C:/`, backslashes, `./`, trailing `/`, an escaping key), the bundle content types, and the protocol validator. The client chooses the path these keys are built from, and an escape would reach `test_server/games.json` or a shared `_runtime/*` bundle — every game at once — so those cases are asserted rather than assumed.
-  - **Two bugs the first live run found, both now fixed — and both about "published" ≠ "playable".**
-    - **`split('://', 1)` means different things in Python and JS**, and the port was literal. Python's second argument is a MAXSPLIT (`['https', 'host']`, so `[-1]` is the host); JS's is a LIMIT on the returned elements, so `'https://games.invisiblewall.org'.split('://', 1).pop()` is the string **`"https"`**. Every game the script registered therefore got `rgs_url=https/api/<key>` stored in its portal games row: the new bundle loaded fine and then died on `TypeError: Failed to fetch` the instant it called its RGS — a broken URL, presenting as a broken build. Now `new URL(gamesOrigin).host`. New `--register-only` repairs an existing card's URL without re-sending the bundle (re-uploading 137 MB to fix a query string is not a repair path on a blocked line).
-    - **The script uploaded, registered, and never made the test server look again.** It leaned on `register-game` to poke `/refresh`, but that only fires when the project pin actually CHANGED — so re-publishing an already-pinned game poked nothing, and the server kept serving its previous in-memory bundle with every new file 404ing. It now pokes `/refresh` itself and then polls the served `index.html` for this build's content-hashed bundle marker before claiming success, the same contract as `verify_deploy_live()` in `Invisible_Launcher.py`; on timeout it reports "uploaded, not yet serving" instead of "done".
-    - **Diagnostic worth keeping:** `POST /refresh` answers `{"status":"refreshing"}` when no hydrate was running and `{"status":"already-refreshing","queued":true}` when one is. So two pokes in a row tell you whether a hydrate is in flight — which is how "the files are not in R2" was distinguished from "the server has not re-read R2" without any R2 access at all.
-  - **The desktop ☁ Publish now falls back to the relay by itself** (`invisible-launcher` #11, `LAUNCHER_VERSION` 1.0.53). `publish_game` became a thin wrapper over the unchanged `_publish_game_direct`, re-routing through `publish_game_via_portal` only when the direct route fails for CONNECTIVITY. `_is_r2_unreachable` matches botocore's connection errors *through the `raise … from` chain* the pre-flight guard wraps them in — a check on the top-level type alone never matches, because the guard re-raises a RuntimeError — and deliberately does NOT match a bad credential, a 403 or the online-runtime refusal: a fallback that fires for the wrong reason hides a real problem behind a second route to the same bucket. It passes a `token_provider` rather than a token, because a full bundle outlives the ~8-minute portal token and the relay must re-mint on a 401 instead of dying at file 400 of 528. Covered by `verify_publish_fallback.py` (21 checks, mostly about what must NOT re-route).
-  - **Still outstanding:** that fix reaches other machines only via an exe release (`py build_and_publish.py`), and **that upload goes to R2** — so it has to be run from an unblocked line. Until then, running the launcher from source gets the fallback, and `publish-game-via-portal.mjs` is the way through for anyone on the exe. (The exe *self-update* itself comes from `app.invisiblewall.org`, so once released it does reach a blocked machine.)
-- 2026-09-17 — **A desktop ☁ Publish now builds the latest engine, game layer included.** The publish presync was already advancing the `engine/` submodule to `origin/main` correctly; what shipped stale was the copy of `apps/lines/src` the scaffolder stamped into each game repo. Game repos no longer carry application source — `config-svelte` points the build at the submodule's own `apps/lines/src`, which reaches every existing repo through the submodule with **no `.exe` release and no per-repo commit**. Nothing in `apps/launcher-api` changed. Full story, evidence and the two build scripts that had to follow the source: [status/engine](engine.md) (2026-09-17).
-
-- 2026-09-16 — **The Game Maker card stopped printing "lines runtime" on every game, and now flags a
-  published protocol that trails the game kind.** The card mixes LIVE state (kind, config) with the
-  LAST PUBLISHED manifest (runtime, protocol), and both halves misled. (a) Every online game is
-  served from ONE shared bundle, so `${runtimeId} runtime` said nothing about the game — and since
-  that id is historically `lines`, it read as a game TYPE: a cluster game showing "lines runtime"
-  looks misconfigured. It reads **`shared runtime`** now, and only names the bundle if a second one
-  ever exists (`SHARED_RUNTIME_ID` in `testServerManifest.ts`, which `runtimeFor` also returns, so
-  the chip and the stamp cannot disagree). (b) `protocol` is stamped at publish, so it silently
-  disagrees with the kind whenever a kind changes — or gains a protocol it lacked when the game was
-  last published. That is how `test4` sat on the `lines` mock, paid by paylines instead of clusters,
-  with every other chip on its card looking healthy. A new **amber `warn`-toned `protocolDrift`
-  chip** compares the two and names the fix; `ProfileChip` gained an optional `tone`, and the card a
-  `.chip.warn` style. The comparison reads `protocolFor` from `mockProtocol.ts` — THE one map, the
-  same one publish and the desktop derivation read — because a second copy is exactly the drift
-  being reported. Verified with `gameProfileChips.fixture.ts` over the real modules (this app's
-  `build` strips types without checking them, so a green build proves neither fix):
-  `verify-launcher-profile.mts` still green on the shared map. Doc: `docs/tools/game-maker.md`.
-- 2026-09-09 — **Deleting a project was one unguarded click, and it stranded 2.3 GB.** `?/deleteProject` was a bare `<button class="danger">Delete</button>` inside a `use:enhance` form sitting ONE button away from **Rescaffold**, with no confirmation, no busy state and no undo. The owner misclicked it on `test6`: the row vanished, `ON DELETE SET NULL` nulled its games card, its `read_token` (the `k=` in the published game URL) went with the row so the live game could no longer fetch its authoring data, and **2,488 R2 objects / 2.26 GB** were left reachable by nothing in the UI. It was only recoverable because delete never touched R2 — and the token was recovered from the `k=` still sitting in the surviving game row's URL.
-  - **Delete is now a soft delete.** New nullable `projects.deleted_at` (migration `0019_project_soft_delete.sql`, purely additive). `listProjects` filters tombstones, so the project leaves every picker and grant, but its row — crucially its `read_token` and `client_key` — survives and **Restore** is one click. Nothing in R2 is touched, by design: the safety net that saved `test6` is now the documented behaviour rather than an accident.
-  - **`projectExists` stayed live-only, and `projectKeyTaken` is new.** A tombstone still owns the primary key, so `!projectExists` no longer implies insertable — all four creation paths (`/admin`, `/game-maker`, `api/game-maker/duplicate`, the desktop `POST /api/launcher/projects` upsert) now answer *"that key is a deleted project — restore or purge it"* instead of a 500 on a PK violation. The desktop upsert refuses rather than silently resurrecting a project someone deleted.
-  - **Games go WITH the project** (`softDeleteProject` deletes them in one transaction and drops any session parked on it back to the default). Nulling them — the old behaviour — is what left two cards in the live Games grid pointing at a project that no longer existed.
-  - **Purge is a separate, explicitly-labelled action on an already-deleted project** — never the button next to Rescaffold. It erases both R2 roots a project owns (`<client>/<project>/` **and** `editor/<project>/`, mirroring `planDuplicate`'s source roots so the two features can't disagree about what a project IS), then hard-deletes the row. It demands the project key typed in full, **re-validated server-side**.
-  - **The purge refuses on a prefix collision.** `r2Slug` maps every non-alphanumeric to `_` and truncates at 60 chars while a key legally holds BOTH `-` and `_`, so `my-game` and `my_game` are two projects sharing ONE prefix — and `editor/<project>/` drops the client segment, so they collide across clients too. Purging either would silently delete the other's work. No such pair exists in the bucket today; `collidingProjectKeys` is what stops one being purgeable tomorrow, and it is re-checked at the moment of deletion, not just when the dialog was rendered.
-  - **New `ConfirmDialog.svelte`** (`docs/ui-inventory.md` §17) — the launcher's first real modal, native `<dialog>` + `showModal()`. That call is the actual fix for "I clicked something else by mistake": it makes the rest of the page **inert**, so no neighbouring button can be clicked or tab-reached while an action is in flight — no hand-maintained `disabled` list. Escape and backdrop are suppressed while busy; a failure keeps the dialog OPEN with the reason inside it; a `beforeunload` guard covers closing the tab mid-purge.
-  - **The dialog shows measured numbers, not a vague warning** — lazy `GET /api/admin/project-footprint` (the `/api/admin/spines` precedent: an R2 listing per project on every admin page view is not acceptable) reports the exact object count, byte total and games at risk. The delete that caused all this never put "2,488 files" in front of anyone.
-  - **A purge also refuses when the project has data OUTSIDE the roots it would delete** (`findStrayProjectPrefixes`). `assignProjectToClient` only updates a DB column — it never moves R2 objects — and `projects.client_key` is `ON DELETE SET NULL`, which fires on tombstoned rows too. So a project created under client `a` and later re-assigned to `b` has its bytes at `a/<slug>/` while its roots say `b/<slug>/`: the purge would delete an empty prefix, hard-delete the row, and strand the real data with no row left to purge it from — the exact failure this feature exists to prevent, re-created by the fix for it. Both refusals are re-checked at write time, and the roots are derived ONCE from the row so the guard and the delete provably cover the same keys.
-  - **Caught by review before shipping, worth recording:** (a) the typed key was routed through a bound hidden `<input>`, but Svelte flushes template effects in a **microtask** while `requestSubmit()` dispatches `submit` synchronously and `enhance` builds `new FormData(form)` before its first `await` — so every purge would have been rejected as a mistyped key until you clicked a second time, training the operator to double-click a purge button. It is set on the `FormData` in the enhance callback now. (b) The delete dialog listed games from `listGamesForProject`, which deliberately includes GLOBAL (`project_key IS NULL`) games — so it named games the delete would never touch; new `listGamesOwnedByProject` uses the same strict predicate as `softDeleteProject`. (c) `result.type === 'error'` fell into the success branch, closing the dialog on a crashed purge.
-  - Verified: `pnpm --filter launcher-api build` green; `svelte-check` **66 errors / 24 warnings, unchanged from baseline and zero in any file added here** (the two in `admin/+page.svelte` are the pre-existing tablist a11y warning and the `BootMarkPreview` type). New offline fixture `projectPurge.fixture.ts` — **13 assertions** over the real compiled modules covering both R2 roots and the three collision classes (`-` vs `_`, cross-client via `editor/`, >60-char truncation) plus the real production roster; it imports the split-out `projectRoots.ts` so its documented esbuild command runs with no `$env` stub. ⏳ **Not browser-verified** — `/admin` is auth-gated. Not yet deployed.
-
-- 2026-09-08 — **🏗 Scaffold: an online project gets a standalone build in one press** (desktop `invisible-launcher` v1.0.45; the portal needs no change). The derived-profile work below gave an online-created project a correct build recipe, but pressing ☁ Publish then stopped at *"Build folder is EMPTY — the project's portal profile has no repo URL"*, because a portal project genuinely has no repo: Game Maker ships it through the shared runtime bundle. Scaffolding one was a manual detour through 🎮 New Project, which derives the key from a typed display name rather than using the portal key verbatim — and a game whose cloud key and portal project key disagree registers *global*, visible under every project.
-  - **`_scaffold_project_repo`** runs the engine's own scaffolder for an EXISTING portal project: portal key = repo slug = cloud key, so it lands in exactly the `root` the card already points at; template from the project's game kind; client from the project. Then first commit, `gh repo create --private --push`, and a setup publish so every machine clones it on the next Sync. Best-effort at each step, mirroring 🎮 New Project — no remote still leaves a valid local repo whose build works.
-  - **The button is behind `project_needs_scaffold`** and appears only on a synced game project with no repo (neither announced by the portal profile nor sitting on disk), disappearing once used. A local "Load from folder" project and a ComfyUI workspace never get it. The empty-folder build error now names it instead of the old 🎮 New Project workaround.
-  - Cloud authoring data is untouched — the scaffolded build pulls it live from R2, which is why this adds a repo and nothing else.
-  - Fixtures extended: `verify_game_kinds.py` 36 → **44** (the predicate's six cases, plus source assertions that the card renders the button behind it and that the build error points at it) and `verify_project_dialog.py` 15 → **32**, whose new claim resolves every free global `_scaffold_project_repo` reads against the module via AST. That handler only runs on click, so a mistyped global would otherwise be a `NameError` the user finds.
-- 2026-09-08 — **An online-created project is now buildable on the desktop without hand-typing its setup.** `GET /api/launcher/projects` served `projects.launcher_profile` verbatim — a column ONLY the desktop's owner-only "⬆ Setup" ever wrote. So a project created in Game Maker or `/admin` synced down with no `game` block and no repo, ☁ Publish refused it ("no 'Cloud publish' section"), and its build command / cwd / output dir / protocol / cloud key were copy-pasted from another project before it could ever be built. That was never a real question: a standalone game builds one way, and the only variable — the mock RGS protocol — is already recorded as the project's game kind.
-  - **The profile is derived when nothing is stored** — `launcherProfile.ts` (`derivePublishBlock` / `launcherProfileFor`). Stored-with-a-`game`-block wins; `kind: 'comfy'` is left alone (a ComfyUI workspace is not a game); the shared default `cloud` scope is excluded by the route, because every user can reach it and a ☁ Publish button that cannot work would appear on every launcher.
-  - **A derived profile is flagged `derived: true`**, and the desktop prefers a LOCAL publish block over it. Sync is server-authoritative but must never be server-destructive, and a derived block is a default, not a decision — without the flag, the first sync after this change would have overwritten every hand-tuned build command.
-  - **`protocolFor` moved to its own leaf module** (`mockProtocol.ts`) so the derivation and `mockContract.ts` share one map. Two copies is exactly how a `ways` project gets dealt the payline mock from one publish path and the ways mock from the other.
-  - **The response now carries `gameType`**, and `POST` accepts one — applied **on create only**, validated against `selectableGameKinds()`. A desktop-scaffolded Book-of game used to land on the portal with no kind at all and default to `lines`, so every kind-derived surface described it as a payline slot. Applying it on update too would be worse: the portal owns the kind once the project exists, and any ⬆ Setup from a machine would revert a kind changed online.
-  - **Desktop side** (`invisible-launcher` v1.0.44, separate repo): `GAME_TEMPLATES` grew from 2 to the 5 protocols the test server implements; the Edit dialog shows a **read-only "Game kind — authored in the portal"** row (plus a *custom build* tick as the escape hatch) instead of a template picker the portal would overwrite on the next Sync; and `publish_game`'s protocol clamp — a two-way `"book" or "lines"` ternary that silently **downgraded** ways/cluster/scatter to the payline mock, leaving the client drawing one game while the server dealt another — now clamps against the full set.
-  - Verified offline over the real modules: `apps/launcher-api/scripts/verify-launcher-profile.mts` (17 checks — protocol parity, the pin-first build command, stored-wins, both carve-outs, the shape `_synced_entry` reads) and, in the launcher repo, `verify_game_kinds.py` (36) + `verify_project_dialog.py` (15, builds the real Tk dialog headless). `pnpm --filter launcher-api build` green. ⏳ **Owner live-verify owed:** Sync on a real machine, then ☁ Publish an online-created project.
-- 2026-09-07 — **Admin → Games: renaming a game "didn't update the dropdown", because that dropdown was never showing the game.** Owner renamed the `test6` card from `Test_rowsPerReel` to `Ways On Waves` and reported the old name surviving a refresh in the row's `<select>`. Nothing was stale: the only `<select>` in a game row is the `?/setGameProject` **project scope**, populated from `data.projects` with `{p.name}` — the *project's* name, a separate record that the game rename correctly leaves alone. The tell was already on screen: `waysonwavesbuild` ("Ways On Waves (Build)") showed the same `Test_rowsPerReel`, which no per-game label could do. It read as a bug because the games rows carry **no column headers**, so an unlabelled dropdown sitting after a name field looks like the name field's echo. Fixed at the readability level rather than the data level: a header row (`key` · Game name · Launch URL · Project scope), a `title` on the select, and a sentence in the panel hint saying the project name is not the game's and lives on the **Projects** tab. Also converted both game selects from `selected` on `<option>` to `value` on `<select>` — the pattern the Projects panel already uses, and the one that survives a re-render after `use:enhance` invalidates. ⏳ Not browser-verified — `/admin` is auth-gated; `pnpm --filter launcher-api build` green.
-
-- 2026-08-27 — **Four of the six launcher `check:*` scripts failed in any fresh checkout, and the error blamed the code rather than the missing file.** `tsconfig.scripts.json` extends `tsconfig.json`, which extends `./.svelte-kit/tsconfig.json` — GENERATED by `svelte-kit sync`, so gitignored and absent until something runs `dev` or `build`. `check:symbol-stage-geometry`, `check:sound-bindings`, `check:sounds-doc` and `check:rig-fx-overrides` all die there with `Error: File './.svelte-kit/tsconfig.json' not found.` buried under a ~10 KB minified dump of `get-tsconfig`, which reads as four broken checks. It bites **git worktrees hardest** — a new worktree never runs the app, so the sweep is red from the first minute and every real failure hides in the noise. Fixed with a `pre<script>` hook on exactly those four (`node scripts/ensure-svelte-kit.mjs`), which runs `svelte-kit sync` **only when the file is missing** — sync costs ~3 s against ~2 s for the check itself, and it is missing exactly once per checkout (measured: cold 3.1 s, warm 1.5 s). The guard exits non-zero if `svelte-kit` cannot be resolved, so a broken install still stops the check with a legible message instead of the tsconfig dump. Only those four are hooked: `check:symbol-state-parity`, `check:game-config-defaults` and `gen:game-config-defaults` run plain `tsx` with no `--tsconfig`, and were verified to pass with `.svelte-kit` deleted. pnpm 10.5.0 runs `pre` hooks by default, including on colon-containing script names — both confirmed empirically here rather than assumed. Verified by deleting `apps/launcher-api/.svelte-kit` and running the whole sweep cold: 5 of 6 green, the sixth being the pre-existing `check:game-config-defaults` drift (see [game-config.md](game-config.md)).
-
-- 2026-08-26 — **The CRT splash still doubled "every now and then", so it now latches across a document hop — and records a trail that names the culprit.** The `handsOff` fix earlier the same day covered the four tools that redirect to another ORIGIN, but a tool open legitimately spans two SAME-ORIGIN documents in plenty of other places: `/rigger` → `/rigger/view.html`, and every in-tool full navigation (`/fx?effect=…`, `/flipbook?clip=…`, `newClip()`, VideoMode's jump to a packed clip, Editor → Component Editor — seven call sites). Each document boots its own splash, and the second replaying the power-on sweep, logo and BIOS dateline IS the reported double. Static reading could not narrow it further: the launcher has no client-side `goto` at all (only three `invalidateAll` calls, and `invalidateAll` does not set `navigating`), so every remaining path is a full page load whose trigger depends on what the user clicked and when — which is exactly why it presents as intermittent. Rather than keep guessing, the splash now coordinates: a `sessionStorage` heartbeat (per-TAB, survives navigation), rewritten on every 60 ms poll tick so it means *a splash was up a moment ago* and holds however long the first ran. Inside 1500 ms the new splash CONTINUES — no sweep, no logo, no BIOS, no `minMs` floor — and the hop reads as one boot. New `$lib/splashTrail.ts` + the inlined vanilla twin in `boot-splash.js`; cross-origin can't share storage, so `handsOff` stays for the Python tools. **The trail doubles as the diagnostic**: every start records URL + nav type + impl, a continuation logs where it came from, and `window.__IW_SPLASH_TRAIL__` shows both halves — the only place a cross-document double is visible at once. Verified offline by `node scripts/verify-boot-splash.mjs`, which runs the real splash source over stubbed DOM with one shared storage: cold open → full boot, hop → continues, cold again after 1.7 s → full boot (a latch that never expires would mean a tool opened cold never shows its logo again). `BootSplash.svelte` compiles clean, 0 warnings. ⏳ Not browser-verified — the launcher is auth-gated.
-
-- 2026-08-26 — **The CRT boot splash played TWICE when opening Atlas Maker, Sheet Maker, the Spine Viewer or the Rigger.** Those four tool cards don't lead to a launcher page: their `+page.server.ts` throws `redirect(303, …)` to another document — the Python origin (`splash_html`) or the static `view.html` (`boot-splash.js`) — each of which boots the same CRT itself. A click from the home grid is still a SvelteKit client-side navigation, so `(app)/+layout.svelte` mounted `<BootSplash>` after its 200 ms delay; SvelteKit then resolved the redirect to a non-route URL by falling back to `location.href` (`server_fallback` → `native_navigation`), and the destination document opened with a fresh power-on sweep, logo and BIOS dateline. Two full plays back to back, no double-mount anywhere — one screen per document, but two documents. Fixed by declaring the hop in the registry: `ToolDef.handsOff` (set on `atlasTool`, `sheetMaker`, `spineViewer`, `rigger`) makes the layout skip the splash so the destination owns the one loading screen. Kept as a registry flag rather than an id list in the layout, and written up in [ui-inventory.md §12](../ui-inventory.md) so the next redirecting tool sets it. Not affected, and re-read to be sure: a HARD load of those URLs never double-splashed (a 303 carries no HTML, so `hooks.server.ts` cannot inject into it), and `invalidateAll()` doesn't set `navigating`, so an in-tool refresh can't trigger the layout splash either. ⏳ Not browser-verified — the launcher is auth-gated.
-
-- 2026-08-20 — **…and then the preview was a BLACK BOX — the renderer was sized against a `display: none` panel.** With the loader fixed the skeleton loaded fine, but nothing appeared. Measured live: the canvas was **800×600 CSS inside a 362×204 box**. The panel sits in an admin tab rendered with `hidden`, so `new Application({ resizeTo: el })` stood the renderer up against a 0×0 element — and `resizeTo` cannot cope with that, because it hands the 0 to `TextureSource.resize`, whose **`width ||= this.width` reads 0 as "keep what you have"**. The stage therefore kept Pixi's 800×600 DEFAULT forever, `autoDensity` wrote that back as an inline `width: 800px` (which beats the stylesheet's `width: 100%`), and the mark was drawn — correctly — at the centre of an 800×600 stage inside a window with `overflow: hidden`. Off-window, so: black. Confirmed on the live page by forcing the canvas to `100%`, which made the mark appear. Fix: drop `resizeTo` and drive the size from a **`ResizeObserver`** that ignores a zero measurement — it fires on the `display: none`→visible transition, which is the moment the real size first exists. **The general trap, for any future preview in a tabbed panel:** a Pixi `resizeTo` is silently a no-op while its target is hidden, and fails OPEN at 800×600 rather than at 0, so it looks like a render bug rather than a sizing one.
-
-- 2026-08-20 — **The boot-mark preview never rendered anything — `loadFxSpine` was loading its atlas pages with `Assets.load`.** Owner reported `Could not load 'R_InvisibleEngine'` under the preview canvas. Read live from the admin page's own console: `PixiJS Warning: [Assets] /spine/file?dir=…&name=S_InvisibleEngine.png&pp=1&shared=1 could not be loaded as we don't know how to parse it`, then `TypeError: Cannot read properties of null (reading 'source')`. **Pixi's resolver picks a loader by the URL's apparent EXTENSION and strips the query string FIRST**, so `/spine/file?…` reads as extension-less, the load resolves to `null`, and `tex.source` throws — killing the whole skeleton load. This is [the same trap the FX emitters already hit](fx.md) on `/api/editor/asset?key=…`, and the fix is the one they already carry: `loadPageSource` (fetch the bytes → `createImageBitmap` → `ImageSource`). **Not preview-only** — `loadFxSpine` is also the `/fx` tool's Tier-B backdrop loader, so every backdrop skeleton was failing the same way. Second bug in the same three lines: `pp=1` (prefer a `.png` page over lossy-WebP) was passed on the PAGE request, where it does nothing — the WebP→PNG preference is a rewrite of the page lines INSIDE the atlas text, which is where the Viewer's `view.html` puts it; moved onto the atlas request. **Verified live against the real R2 bundle** (probed from a logged-in tab, no deploy): page `S_InvisibleEngine.webp` decodes to a 2048×2048 bitmap through the fixed path, `R_InvisibleEngine.irig` parses with `width 1000.5 / height 902.11` (so the fit rule has real numbers) and animations `Loop`, `Loop_copy` — matching the saved mark. `svelte-check` clean on every touched file. **Also found, and self-healed by the probe:** `_shared/spines/R_InvisibleEngine/`'s atlas named a page `S_InvisibleEngine.png` that promotion never copied (the bundle's real page is `.webp`) — `fetchSpineBundleFile`'s missing-page heal re-derived the atlas on first read, which is exactly what that heal is for.
-
-- 2026-08-20 — **Boot-mark panel: saving no longer wipes the fields, and there's a live preview.** Owner reported the Animation box going blank on save, leaving no way to tell what was selected. Cause: SvelteKit's default `enhance` `update()` RESETS the form on success; the native reset blanks the DOM inputs while the Svelte state behind `bind:value` keeps its value, so state and display diverged (the bundle `<select>` reset visually too). Both forms now pass `update({ reset: false })` and re-seed from the server's canonical values, and a **Currently saved** readout shows what is actually stored next to the working copy. Beyond the fix, the free-text Animation input became a **dropdown of the clips actually on the skeleton** — read client-side from the rig, so it cannot disagree with it; a saved clip no longer present stays listed as `(not on this rig)` rather than silently snapping elsewhere. New `$lib/BootMarkPreview.svelte` renders the mark live at the chosen animation/size/background, reusing the FX tool's `loadFxSpine` (PIXI's atlas loader can't be used — it resolves page images relative to `dirname(atlasURL)` and `/spine/file?dir=…&name=…` has no real path). Fidelity is load-bearing: it copies `LoaderSpine`'s fit rule, forces 16:9 so screen-fill reads true, and passes `shared: true` — a new `&shared=1` on `/spine/file` + `fetchSpineBundleFile({forceShared})` — so it resolves exactly as the export does instead of previewing a same-named project bundle. Renderer readiness is `$state` because it comes up async; without that a bundle already selected on mount would never load. ⏳ Not browser-verified (auth-gated). **Wart:** `$lib` importing `loadFxSpine` from a tool route — hoist it to `$lib` when a third consumer appears.
-
-- 2026-08-20 — **Boot marks get a SIZE knob** (owner request once the logo rendered). `BootSplashRef.size` / `BootSplashEntry.size`, a multiplier on `LoaderSpine`'s automatic fit rather than an absolute size — the fit normalizes the spine parser's `scale` away, so the existing `scale` field could not express it, and a relative value holds across every screen instead of needing a per-device number. Clamped 0.1–3 (`normalizeBootSplashSize`); `1` is omitted from the stored ref so an untouched mark stays byte-identical to one saved before the knob existed — "unset" and "set to 1" must not be two shapes. Slider in Admin → Settings (engine tier) and Scene Editor → Game Settings (game tier). Fixture now 24 assertions, incl. that `size` survives the `normalizeGameSettings` whitelist like `bootLoader` did. ⏳ Value only visible after a publish — there is no live preview of the splash.
-
-- 2026-08-20 — **`_shared/spines/` had no writer, so the engine boot mark was unfillable.** Shipping the mark earlier the same day told admins to "publish a bundle there with the FTP Browser or the Rigger" — the Rigger cannot: `riggerBundlePrefix` always writes `<client>/<project>/spines/<dir>`. A grep for writers of the shared root found NONE; every reference is a read (`resolveBundlePrefix`, `listProjectAssets`, `loadSharedSkeletonIndex`) and the only thing that ever populated it was the one-off June unified-repo migration. So the tier resolved shared-only against a root nothing could fill. The owner found it immediately, looking at `_shared/rigs/` and asking whether that was meant instead. **It is NOT** — `_shared/rigs/<id>.json` holds a skeleton DOC (bones/slots/skins/animations, see `api/rigger/rigs/save`) with no atlas and no page textures; it is applied onto art in the Rigger and cannot be rendered by a game. Fixed with `sharedSpinePromote.ts` — the missing writer, modelled on the shared font/blueprint libraries: it copies a project bundle's skeleton + `.atlas` + every page into `_shared/spines/<bundle>` and merges the entry into a shared `skeletons.json` (created on first promotion), pruning leftovers from a previous promotion of that same bundle only. **Copy, not reference**, deliberately: the mark opens every game, so it must survive the authoring project being renamed or deleted, and a client must not be able to change what plays in front of everyone else's game. Driven from Admin → Settings → Engine boot mark ("Bring a spine into the shared library"), with a lazy `GET /api/admin/spines?project=` picker — folding it into the page load would put one R2 read per project on every admin page view. Refuses a bundle its project's own index doesn't list, with the fix named in the message. `launcher-api` builds clean. ⏳ Not browser-verified.
-
-- 2026-08-20 — **Admin → Settings gains the engine boot mark** — the global spine that opens every game, replacing the old vendor loader gif. Picks from `_shared/spines/` only (a project bundle must not be able to shadow the engine's own mark), stored in `app_settings.bootSplashEngine`, exported to each project's `deploy/_boot/` by `bootSplashExport.ts` inside `ensureDeployExports`. Full story + the ordering finding in [engine.md](engine.md); guide in [tools/launcher.md](../tools/launcher.md) §Admin → Settings → Engine boot mark.
-
-- 2026-08-20 — **Measured: `art` and `symbols` ARE the runtime assemble.** With the `Server-Timing` header live (#379), three requests against `bookofborutremake` give the breakdown the export audit needed. Two clean runs, ms: `art` 35179 / 34205 · `symbols` 30406 / 29696 · `rigFx` 5035 / 4031 · `effects` 4064 / 4638 · `componentDefs` 2520 / 1459 · `fonts` 2336 / 1837 · everything else (`doc`, `gameConfig`, `flow`, `flowV2`, `flipbooks`, `cinematics`, `localization`, `winText`) **under 500ms each**. Totals 38.5s and 36.3s. `art` and `symbols` run in the SAME `Promise.all`, so they overlap and `art` is the critical path — which means **both must move off the read path to gain anything**: dropping one just promotes the other. Moving both would take the assemble from ~37s to roughly **8s** (`componentDefs` + `rigFx`/`effects` would then dominate). **A claim from #379 is corrected here:** it said the gateway gives up "around 33s". Not reliable — the 502 was real (observed at 33.5s) but the two LONGER runs (36.3s, 38.5s) both returned 200, so the endpoint fails INTERMITTENTLY upstream rather than at a threshold, and no value of `RUNTIME_ATTEMPT_TIMEOUT_MS` prevents it. The rest of #379's finding stands: our 60s cap was never reached in any of the three runs, so it was never the binding limit. Next: move `exportEditorArt` + `exportEditorSymbols` to save/publish (`publishGame.ts` already calls `ensureDeployExports`), which is the "THE REAL FIX" note in `runtimeBundleCache` — now with a target instead of a guess.
-
-- 2026-08-20 — **`/api/editor/runtime` reports its own per-step cost, and the slow-fetch warning stopped pointing at the wrong knob.** Investigating a `[runtime] live data fetch took 40860ms of a 60000ms cap` warning on the live Book of Borut Remake turned up something worse than the warning said: **the endpoint already 502s.** Measured from outside — cold request **502 at 33.5s**, immediate retry **200 at 34.2s** (177 KB). The boot survives only because `fetchRuntimeWithRetry` joins the in-flight assemble, exactly the rescue `runtimeBundleCache` was built for; the failure is invisible from the game. **The binding limit is the GATEWAY (~33s), not our `RUNTIME_ATTEMPT_TIMEOUT_MS` (60s, never reached)** — so the warning's own advice ("raise it") would have changed nothing while making players wait longer on a real outage. Warning + constant doc now say so. **The cost scales with project CONTENT, not fixed overhead:** same endpoint, same moment — `bookofborutremake` 33s/177 KB, `test3` 4.8s/53 KB, `test5` 2.8s/17 KB. The exporters walk each project's assets on every read, so every project trends toward the slow number as it fills up; the new test projects are fast only because they are nearly empty. `runtimeBundleCache` already names the real fix ("stop exporting on the read path entirely … the per-step timings are the data for that work") — but those timings only ever reached the launcher's `console.info`, which is the wrong place for them, since whoever is debugging a slow boot is looking at a browser. They now ride a **`Server-Timing` header** (`Access-Control-Expose-Headers` set, or a cross-origin reader could not see it), so "which exporter cost the 33 seconds" is readable from any game tab. Threaded as an optional out-parameter — the pattern `buildRuntimeBundle` already used internally — so a cache HIT or an in-flight join emits NO header rather than someone else's numbers. Step names are sanitised to RFC7230 tokens (`cinematics:load` → `cinematics_load`), verified against the real step list. Both apps build; eslint clean. ⏳ **The header appears only after a launcher deploy** — nothing measured yet; the export audit is the follow-on work.
-- 2026-08-18 — **Costs gains a monthly/yearly history, euros, and an OpenAI card; the top-up ledger is retired.** The prepaid-top-up ledger was the wrong shape — topping up needs card authentication, so it could never be driven from here — and is replaced by a **monthly history** (`cost_months`, migrations `0016` drop + `0017` create; split in two because drizzle-kit can't tell a new table from a rename and its prompt is a TUI that ignores piped input). Months are **Europe/Madrid calendar months** grouped into calendar years to match the Spanish tax year, and have two states: **open** (the current month, rewritten from the live estimate on every snapshot so it rises and falls as providers revise) and **locked** (frozen at the last observed value once the month ends, never recomputed — a filed number must stop moving, and no provider can rebuild a past month: RunPod publishes no spend history at all, Railway is current-cycle only, R2's retention is short). Known limitation, documented rather than hidden: a month freezes at the last value seen *while the page was in use*, so the final days are missing if nobody opens it. **The EUR column is the corrective and the authoritative figure** — the real bank charge, typed in, deliberately NOT a conversion (converting January at August's rate isn't valid for tax, and card FX spread means it never matches anyway); it parses both `1.234,56` and `1,234.56`. Stored under a reserved `total` provider key so one month is one row set. To make the cards and the table the same number, **every collector is now month-to-date** against the Madrid month (R2 prorates storage by days elapsed, since its rate is per GB-*month*). Also: an **OpenAI collector** (`/v1/organization/costs`) — the provider Localization actually spends at, since `translate.ts` prefers the OpenAI-compatible path; the page shows whichever LLM provider is active rather than parking a dead card for the other. Its units differ from Anthropic's on all three axes (dollars-as-number vs cents-as-string, Unix seconds vs RFC 3339, Bearer vs `x-api-key`), each verified. **Euro figures** on the live cards convert at the ECB reference rate via Frankfurter with the rate + publication date printed, failing to USD-only rather than a stale multiplier. Two collector bugs fixed along the way, both mine and both the same shape — returning on HTTP status *before* parsing the body, which reduced a GraphQL 400 carrying an `errors[]` to "HTTP 400"; the collectors now self-diagnose (Railway introspects its own schema and reports the offending field, the measurement enum, and the `EstimatedUsage` shape). **Railway currently returns usage units, not dollars**, so its card deliberately shows raw measurements and NO total rather than pricing them at a guessed rate. **Verified:** launcher build green + `svelte-check` clean on every touched file. **Owner-verify owed:** the live monthly table after the first rollover, and whether Railway exposes a cost-denominated measurement at all.
-- 2026-08-18 — **Admin → Costs: one page for what the pipeline is spending.** New tab on `/admin` with a card per paid provider, plus a manual top-up ledger. Server side is `src/lib/server/costs/`: one collector per provider behind a shared `ProviderCost` shape, an orchestrator (`index.ts`) with a 10-minute in-process snapshot cache + explicit Refresh, and `ledger.ts` over a new `cost_top_ups` table (migration `0015_loud_triton.sql`, additive). **What each provider can actually answer differs, and the UI is built around that rather than hiding it:** RunPod (`myself { clientBalance currentSpendPerHr }`, reusing the existing `RUNPOD_API_KEY` — **no new secret**) is the ONLY real prepaid balance, and also gives per-pod `costPerHr` + a runway estimate; Anthropic's Admin API `cost_report` gives spend but **no balance endpoint at all**; Railway gives a current-cycle estimate; R2 has **no billing API**, so its dollars are stored bytes + class A/B op counts × published rates. Providers that only estimate are pilled amber `estimate`, never green `live`, and a `null` figure renders as an em dash so "unknown" can't be misread as `$0.00`. An unconfigured provider still renders a card naming its env vars — a missing card would read as zero. Because Anthropic has no balance, "credit left" is derived: recorded top-ups − spend measured **from the date of the first ledger entry** (the collector takes a `since`, so the two sides cover the same window); Railway/R2 (fixed windows) and RunPod (real balance) show the recorded total without a derived remainder. Two API details verified against the docs rather than assumed, both silent-wrongness traps: Anthropic returns `amount` in **cents as a decimal string** (`"123.45"` = $1.23), and R2 analytics needs an **account**-scoped token — the existing `CF_API_TOKEN` is zone-scoped for cache purge and cannot read it. The load streams the snapshot instead of awaiting it, so four provider APIs can never put a 20 s wall in front of user management, and every collector is fail-safe (`Promise.allSettled` + per-collector try/catch) so a billing page can't break `/admin`. New optional env: `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`. **Verified:** launcher build green **and** `svelte-check` clean on every touched file (run ephemerally via npx — it isn't a repo dep; the repo has 62 pre-existing errors elsewhere, none in this change). **Owner-verify owed:** the live page, and the Railway `estimatedUsage` query — Railway doesn't document the usage side of its schema, so the card surfaces Railway's own GraphQL error verbatim if a field name differs.
-- 2026-08-17 — **Launch currency picker, beside the language one.** Every generated play URL has always carried `currency=USD` (`publishGame.ts`), but the engine never read it: `Authenticate.svelte` set `stateBet.currency` from the RGS's echoed `balance.currency`, and both the mock test server and the Play4Fun facade answer a hardcoded `USD` — so there was no way to see the HUD in any other currency. Now `stateUrlDerived.currency()` (`packages/state-shared`) reads + sanitises `?currency=` (`/^[A-Za-z]{3,4}$/` → uppercase, else empty — a malformed code reaching `Intl.NumberFormat` THROWS and would take boot down), and `Authenticate` uses `launchCurrency || authenticateData.balance.currency`, i.e. **the URL wins over the RGS**, with a seed before the branch so replay links get it too. Launcher side: `LAUNCH_CURRENCIES` + `withCurrency()` in `$lib/gameLaunch.ts` (`withLocale`'s `URL.searchParams.set` logic generalised to `withParam` — appending is the trap, the game reads the FIRST occurrence and the URL already has one), a **Currency** select next to **Language** on the home Games header and on `/game-maker`'s Play row, both remembered in `localStorage` and shared across the two pages. Currency changes only *formatting* — the mock wallet is currency-agnostic — which is the point: it's how you check a HUD against `CHF 1,234.50` (wide) or `₩1,234.50`. Verified offline that all 33 offered codes format without throwing, and that the rewrite replaces rather than appends on a real published URL shape. `/game-maker`'s **Copy URL** still copies the player's URL, without the authoring overrides.
-- 2026-08-17 — **Boot splash extended to HARD loads of a tool page.** The first pass only covered client-side navigation (`<BootSplash>` in `(app)/+layout.svelte`), so a tool reached by a full page load showed nothing — the tool pages are `ssr = false`, so the browser sat on a blank shell while the chunk + `load` landed. That is not a rare path: **Flipbook's open-a-clip / new-clip are `window.location.href` navigations** (which is how it surfaced), as are a refresh, a typed URL, and a link out of a static tool. `hooks.server.ts` now injects `/shared/boot-splash.js` (the vanilla twin, `?v=BUILD_ID`) into the shell at a `<!--iw-boot-splash-->` placeholder in `app.html` whenever the path matches a `TOOLS[].url` — tool name + `bootPhrases(id)` ride along as data attributes, so there is still ONE phrase source. A new ROOT `+layout.svelte` calls `window.IWBoot?.done()` on mount (the root, not `(app)`, so an error page lifts the splash too). `boot-splash.js` gained `data-settle-ms` (default 400 ms for the static apps, which are up by `window.load`; the launcher passes 8000 since an `ssr = false` page has barely started loading its data by then) — the 20 s cap still guarantees it can never strand a tool. Keyed off the registry, so a new tool or a new full-page navigation inherits it with no per-page wiring.
-- 2026-08-17 — **One loading screen for every tool: the CRT boot splash.** The launcher used to open a tool behind a dimmed spinner card while the Python tools (Atlas / Sheet Maker) booted with the 80s CRT terminal — two different "the tool is loading" screens. Now every stack boots the same way: new `$lib/BootSplash.svelte` (Svelte twin of `iw_common/splash.py` — scanlines, vignette, power-on sweep, ASCII emblem, typed `> phrase ..... [ OK ]` loop) is mounted by `(app)/+layout.svelte` for any client-side navigation to a TOOL route in flight >200 ms; per-tool WORK phrase pools live in `$lib/bootPhrases.ts` (`bootPhrases(toolId)`). The static WebGL apps get the same screen from a vanilla twin, `static/shared/boot-splash.js` (auto-installs from a `<script data-tool data-phrases>` first in `<body>`; lifts on `IWBoot.done()`, called at the end of `boot()` in `static/{spine,rigger}/view.html`; fails open on `window.load`+400 ms and a 20 s cap so it can never strand a tool behind itself). The splash holds a 900 ms floor from first paint so the logo plays instead of blinking, and bails out mid-line the moment the tool arrives. **The dimmed overlay stays — for in-tool work only:** extracted as `$lib/BusyOverlay.svelte` (spinner + label + detail + optional progress), with the Editor canvas' asset-load card as its reference use. The rule (docs/ui-inventory.md §12): tool NOT open yet ⇒ CRT boot splash; tool already open, loading a part of itself ⇒ overlay. Verified live on `localhost:3010` (splash covers 1280×720 at z 9999, phosphor `rgb(51,255,102)` on black, types + auto-scrolls, lifts on `ready` → `onfinished`; the static twin verified installing and lifting inside `/spine` + `/rigger`).
-- 2026-08-17 — **Three new roles: `pipelineTester` (Pipeline Tester), `localizationReviewer` (Localization Reviewer), `audio` (Music / SFX).** Roles are code, not data — there is no admin-panel "add role" — so they went into `ROLE_TOOLS`/`ROLES` in `src/lib/roles.ts`; the `users.role` column is plain `text`, so no migration. Baselines: pipeline tester = the whole authoring + build chain (game maker, config, editor, flow, fx, flipbook, symbols, components, atlas, sheet, fonts, spine viewer, localization, win text, files, storybook, desktop launcher) **without** any publish capability (those stay admin-default); localization reviewer = localization + win text; music/SFX = files + storybook + desktop launcher (no audio tool exists yet). Role ids are camelCase like tool ids, so a new `ROLE_LABELS` + `roleLabel()` feeds every surface that prints a role (admin users list + both role selects + the roles matrix header, launcher home pill, onboarding) — printing the raw id under `text-transform: capitalize` would read "PipelineTester". The roles matrix now scrolls horizontally (7 columns no longer fit and `overflow: hidden` clipped them). Verified offline over the real `roles.ts` (every role resolves a label + only known tool ids + `effectiveToolIds`/`manifestForRole` agree); launcher build green.
-- 2026-08-04 — **Multi-user concurrency Phase 2c-rest batch B — lease + presence rolled to the three PER-ITEM tools (fx, flipbook, components).** Unlike the whole-project-doc tools, each edits ONE item at a time and each item (effect / clip / component) is its OWN R2 object, so the lease `docKey` is the OPEN item's id and switching items re-keys the lease. `LeaseState` gained **`switchDoc(docKey: string | null)`** (purely additive — the fixed-docKey tools never call it and stay byte-compatible): releases the current lease against the OLD key (release BEFORE the re-key), resets `resolved`/`held`/`heldBy` so the new item starts clean, then acquires the new key — or, for `null`/empty, goes INERT (`readOnly` false, no fetch) so a brand-new unsaved item is freely editable. `docKey` moved into a private mutable `#docKey`; observer-poll + fail-open + always-takeover invariants intact. **fx / flipbook**: open/new are full navigations (mount re-seeds), so in-page re-keys are first-save-of-a-new-item (→ `switchDoc(persistedId)` in the save transport, guarded by a `leasedId` mirror so a re-save is a no-op), Save-As (copy's first save re-keys; declined overwrite restores the original), and delete-of-open (→ `switchDoc(null)`); untitled sentinel ⇒ `null`. Save / Save-As / Delete (+ flipbook plist import) disabled when `readOnly`; `blockWhen: () => lease.readOnly` on the doc saveState; `<PresenceBanner>` in the subbar/meta. **components**: re-keys in `openComponent` beside the existing `adoptEtag` (stored def ⇒ `def.id`; never-saved draft ⇒ `null` until its first save re-keys onto `saved.id` in the transport's `i === -1` branch); `closeComponent` (+ delete-of-open, which calls it) ⇒ `switchDoc(null)`. The bespoke versioned-`confirm()` conflict UX is untouched — the lease only gates the draft saveState + disables "Save component" + shows the banner. **Promote-to-shared is NOT leased** (global `_shared/editor-components/<id>` key no per-project lease can cover; `If-Match` is its floor, as flow-v2's library was left). Each `onMount` does the initial `switchDoc` (inert when nothing open) + `pagehide`/teardown `release()`. **rigger stays out** (Phase 0's tables, separate). Verified offline (**37 assertions**) over the REAL compiled `leaseState.svelte.ts`; launcher build green. **Owner-verify owed:** live two-profile + item-switch test.
-- 2026-08-04 — **Multi-user concurrency Phase 2c-rest batch A — lease + presence rolled to the four WHOLE-PROJECT-DOC tools (symbols, win-text, config, localization).** Mechanical mirror of the 2c-core template (editor/flow-v2): each page declares ONE `LeaseState { toolId, clientKey, projectKey, docKey: toolId, enabled: projectKey.length > 0 }` before its doc `saveState`, adds `blockWhen: () => lease.readOnly` to that ONE doc saveState, renders `<PresenceBanner {lease} />` in the read-only branch of its `ToolTopBar` `meta` snippet (replacing the save pill) and disables Save when `lease.readOnly`, and `start()`s on mount / `release()`s on `pagehide` + teardown. Tool ids `symbols` / `winText` / `gameConfig` / `localization`; `docKey === toolId` (one lease per project doc). symbols folds the lease lifecycle into its existing ResizeObserver `onMount`; the other three added an `onMount` matching flow-v2's shape. localization saves via a SvelteKit FORM action — irrelevant, since `blockWhen` gates `saveState.save()` regardless of transport; its `+page.server.ts` load now also returns `clientKey` (it previously didn't) so the page can key the lease. No `_shared/*` global key was leased (none of the four has a second global-key saveState). Launcher build green. **Still TODO — 2c-rest batch B:** the per-ITEM tools (fx, flipbook, components; rigger via Phase 0's tables), which lease per selected item. **Owner-verify owed:** live two-profile test.
-- 2026-08-04 — **Multi-user concurrency Phase 2c-core — CLIENT lease + presence wired into editor + flow-v2 (2 tools, to prove the pattern).** New `$lib/leaseState.svelte.ts` (`LeaseState` rune) owns the client lease lifecycle against `POST /api/lease`: ctor `{ toolId, clientKey, projectKey, docKey, enabled }` (+ injectable `fetch`/`endpoint`), `start()` acquires → on `held` heartbeats on the acquire-provided `heartbeatMs` (~10s) → a heartbeat returning `held:false` (taken over) flips read-only and STOPS beating; `takeover()` always available; `release()` best-effort on unload (`sendBeacon`, else `keepalive` fetch). Exposes reactive `held`/`readOnly`/`heldBy` (`{name,email,mine,activeAgoMs}`, preferring the server `activeAgoMs`). **`enabled:false` no-ops entirely** and **`readOnly` fails OPEN** before the first acquire + on any error (`enabled && resolved && heldBy!==null`) so a blip can't wedge a doc (the CAS floor guards writes there). New `$lib/PresenceBanner.svelte` (shown when `readOnly`: names the holder, or "You have this open in another tab" for `heldBy.mine`; "active N ago"; always-enabled **Take over**). New `SaveState.blockWhen?: () => boolean` — when true, BOTH autosave arming AND `save()` no-op (returns false); absent/false ⇒ zero behavior change. **Wiring:** editor doc + flow-v2 doc saveStates get `blockWhen: () => lease.readOnly`, render `<PresenceBanner>` in the chrome (replacing the save pill when read-only), `start()` on mount + `release()` on destroy/`pagehide`. The editor TEMPLATE + flow-v2 LIBRARY saveStates are left UNLEASED — GLOBAL `_shared/*` keys a per-project lease can't cover (their `If-Match` CAS is the floor). Verified offline over the REAL compiled `.svelte.ts` modules (esbuild type-strip → `compileModule` → mock `fetch`; **39 assertions**: acquire held/not-held, disabled no-op, acquire-error fail-open, heartbeat→taken-over flips readOnly + stops beating, takeover→held, release posts/skips-when-not-held, `blockWhen` blocks both save paths + unchanged when false). Launcher build green. **Still TODO — 2c-rest:** thread the same into symbols/fx/flipbook/win-text/game-config/localization/components (rigger via Phase 0's tables); each leases its OWN per-project doc, globals stay unleased. **Owner-verify owed:** live two-profile test + migration 0014.
-- 2026-08-04 — **Multi-user concurrency Phase 2a — full per-tool migration LANDED.** Every authoring surface now consumes `$lib/saveState.svelte.ts` + `$lib/SaveStatusBadge.svelte`; no tool hand-rolls save/dirty/etag/conflict any more (11 `SaveState` instances across 9 pages: editor doc [leading 1200ms] + editor template [manual, global key]; flow-v2 doc [trailing 800ms] + flow-v2 library [trailing 800ms, global key], both rendering the shared badge; symbols, fx, flipbook, win-text, game-config, localization, components — manual). The editor keeps a BESPOKE pill (span+Retry error, relative-time saved, interleaved crossType/preview) driven off `saveState`; banner/`confirm()` tools keep their bespoke conflict UX off `state.status`/`state.message` (components' versioned-confirm + promote-to-shared preserved; promote uses a SEPARATE key so it does NOT flow through the draft's `SaveState`, which would clobber the draft etag). **Fixed a real helper bug the migration surfaced:** cancel-on-success must fire only in LEADING mode (editor), else flow-v2's mid-flight edit — whose fresh trailing-debounce timer must survive the in-flight success — would be dropped (fixture tests 12/13 lock it). **Flagged (preserved verbatim, owner-decides):** symbols/fx/localization `onclick={save}` passes the click event as `force`, so their manual Save has always force-overwritten (conflict `confirm()` dead on that path). Offline fixture now **36 assertions** over the real compiled module; launcher build green. Per-tool two-profile live test owner-owed.
-- 2026-08-04 — **Multi-user concurrency Phase 2a — shared save-state helper + pill BUILT (migration staged).** New `$lib/saveState.svelte.ts` (`SaveState` rune class) consolidates the save/dirty/etag/conflict/autosave state machine eight authoring pages hand-rolled after Phase 1: an injected `save(ctx)` transport (so `fetch` and SvelteKit form actions both fit — the caller owns the wire, the helper owns state+policy), a held ETag re-adopted from every success, the `idle/saving/saved/error/conflict/scope-mismatch` machine, no-re-arm-on-conflict/scope-mismatch, force/overwrite, the `null`=create path, and — crucially — BOTH debounce semantics the two autosavers actually ship (`resetDebounceOnEveryEdit`: flow-v2's 800ms *trailing* reset-on-every-edit vs the editor's 1200ms *leading* arm-on-clean→dirty-edge, discovered during the audit — do NOT unify them). New `$lib/SaveStatusBadge.svelte` renders the common pill for the two pill consumers (editor, flow-v2 doc + library), parameterized where their pills had DRIFTED (`okAccent`: flow "Saved" green vs editor grey; `actionClass`: editor purple `.save-btn` vs flow grey pill). Banner/`confirm()` tools (win-text, config, localization, symbols, fx, flipbook, components) keep bespoke conflict UX driven off `state.status`/`state.message` — the badge is not forced on them. `docs/ui-inventory.md` §10 added. Verified offline over the REAL compiled `.svelte.ts` module (esbuild TS-strip → Svelte `compileModule` → run under `svelte/internal/client` with fake timers + mock transport; **31 assertions**: machine transitions, ETag adoption, no-re-arm, force, scope-mismatch terminality, both debounces, canAutosave veto, create-path, coalescing). Launcher build green. **The eight page migrations are NOT landed** — held for an owner API-shape confirm + a per-tool two-profile live test, since mass-editing eight untested authoring pages behind an unreviewed API is the loud-data-loss risk this whole effort exists to prevent. Parity checklist recorded in the design doc's Phase 2a section.
-- 2026-08-04 — **Multi-user concurrency Phase 2b — soft-lease BACKEND landed (backend-only, zero-regression).** New Postgres `doc_leases` table (migration `0014_clammy_angel.sql`) keyed by the composite PK `(tool_id, client_key, project_key, doc_key)` — per-project granularity for now — holding `holder_user_id` (FK→users, cascade), `holder_session_id` (the hashed session id, never the raw cookie), `acquired_at`/`heartbeat_at`/`expires_at`. New `$lib/server/lease.ts`: `acquire` (ONE conditional upsert — `ON CONFLICT DO UPDATE ... WHERE expired-or-same-holder` — so the DB adjudicates and two racing acquires can't both win; returns `{held:true,lease}` or `{held:false,heldBy,activeAgoMs}`), `heartbeat` (extends only while still ours; not-held after a takeover so the client can flip read-only), `release` (best-effort, holder-only), `takeover` (force-acquire, always allowed so a crashed tab can't wedge a doc), plus exported pure predicates `isTakeable`/`isSameHolder` and `LEASE_HEARTBEAT_MS`=10s/`LEASE_TTL_MS`=45s. New endpoint `POST /api/lease` (action discriminator: acquire/heartbeat/release/takeover), session-auth'd (`locals.user` + `sessionIdFromToken` added to `auth.ts`); not-held is a `200 {held:false}` answer via `json()`, never an error status. **Nothing calls it yet** (client wiring + read-only banner are Phase 2c) so this is a pure addition. Verified offline via esbuild bundle of the REAL `lease.ts` against an in-memory fake DB modelling the conditional-upsert semantics (27 assertions: absent→grant, expired→grant, self→refresh-preserving-acquiredAt, live-other→deny, two-racers→exactly-one, heartbeat-after-takeover→not-held, release/expiry); launcher build green. Migration NOT applied (`db:migrate`/`db:push` not run). **Owner-verify owed:** the SQL `setWhere` predicate + the two-profile Phase 4 test can only be confirmed against a live Postgres.
-- 2026-08-04 — **Phase 1 residuals closed (fail-open + components + component-defaults).** (a) The `baseEtag` fail-open is shut: new `$lib/server/writeGuard.ts` (`writeBaseEtagJson`/`writeBaseEtagForm`) makes the precondition REQUIRED — a save that sends neither `baseEtag` (string=`ifMatch`, or `null`=create) nor `force:true` is a 400 — applied to every save endpoint (editor doc, flow-v2, flow-v2 library, symbols, fx, flipbook, win-text, game-config, localization, component, template, component-defaults). Kind is exempt (it uses the `ifNoneMatch`/`overwrite` create-guard model, no `baseEtag`, so it never fell open). (b) Components thread the etag end-to-end (see component-editor status). (c) Per-project component defaults are CAS-guarded. Also fixed a latent `ConflictError` missing-import in `componentStorage.ts` (component conflicts were throwing `ReferenceError`→502). Verified offline over the REAL modules against an in-memory S3 ETag-CAS fake (34 assertions); launcher build green. **Phase 1 is now complete bar a live two-profile verify.**
-- 2026-08-04 — **Multi-user concurrency Phase 0 + Phase 1 are SHIPPED and audited** (design: [multi-user-concurrency](../design/multi-user-concurrency.md)). The R2 chokepoint (`r2.ts`) carries conditional writes end-to-end: `PutPrecondition`/`precondition()`, `getObjectTextWithEtag()`, `ConflictError` (412-only), `jsonBaseEtag`/`formBaseEtag`. 16 storage helpers + 13 authoring surfaces (editor, flow-v2, flow-v2 library, symbols, fx, flipbook, win-text, game-config, localization, component, kind, template, componentDefaults) thread the etag load→save, distinguish absent-vs-malformed, answer `409 {error:'conflict'}` via `json()`/`fail()` with a **non-destructive** conflict banner, and refuse `409 scope-mismatch` (non-forceable) on the session-gated tools. **Residual inside Phase 1** (small, enumerated in the design doc's Phase 1 header): (1) `baseEtag` still FAILS OPEN at every endpoint — the "make it required + 400" trigger was never pulled; (2) components don't carry the etag load→editor→save (`loadComponent`/`listComponents`/GET emit none), so shared-scope defs stay last-writer-wins-on-pointer with version-bump recovery; (3) `saveComponentDefaults` is the last unguarded whole-doc author write; (4) no shared `$lib/saveState.svelte.ts` — 8 pages hand-roll (a Phase-2 prerequisite, not a Phase-1 blocker). **Phase 2** (Postgres soft lease + presence/takeover) and **Phase 3** (Python tools, blocked on atlas-per-user-session Phase 1) not started.
-- 2026-07-28 — **Tool-bar responsiveness + icon drift fixed across the four HTML twins** (rigger/spine static `view.html`, atlas `ui_server.py`, sheet `ui.html`). (1) Each twin's hand-copied `ICON` map had drifted — six online tools (gameMaker, gameConfig, flow, fx, flipbook, winText) plus rigger/symbols on the non-rigger twins rendered icon-less; all 17 online tools are now covered. (2) The twins collapsed labels only at a blunt `@media (max-width:1100px)` *viewport* breakpoint, so with the full switcher the labelled row overflowed its real track and `overflow:hidden` **silently clipped** the rightmost tools. Replaced with the measured ResizeObserver collapse from `$lib/ToolTopBar.svelte` (icon-only exactly when the labelled row overflows the bar's own width, with re-expand hysteresis) + `overflow-x:auto` on `.compact` so an over-full icon-only row scrolls instead of clipping. Added the same scroll fallback to `ToolTopBar.svelte`. New guard `scripts/check-toolbar-icons.mjs` asserts every twin covers every online tool (run it to prevent re-drift). **Live tools need a redeploy** (launcher for the static twins; atlas + sheet Railway services for the Python twins).
-- 2026-07-27 — Engine deploy pill gained a **"release pending" (C2)** state: `$lib/server/engineSource.ts#enginePending` compares the live runtime bundle's stamped commit against engine `main` (GitHub compare API, path-filtered to `apps/lines/`+`packages/`, cached ~60s, 4s timeout), merged into `EngineDeployStatus` by the `(app)` layout load. Distinct non-pulsing amber pill (`.engine-pending`). Gated on `GITHUB_ENGINE_READ_TOKEN` (falls back to `GIT_CLONE_TOKEN`); absent ⇒ identical to before (green, never "pending").
-- 2026-07-27 — Online tools grouped by game-making **stage** (`TOOL_STAGES` in `roles.ts`, single source; `TOOL_BAR_ORDER` derived from it): home grid renders one colour-accented section per stage; top-bar switcher tints each icon by stage. The `tools=` payload now bakes a per-tool `accent`, so the four HTML twins (atlas/sheet/rigger/spine) tint their icons to match. (The twins' `TOOL_ICONS` mirrors were completed 2026-07-28 — see below.)
-- 2026-06-20 — Prod `app_settings` created + migrator hardened (`reconcilePushProvisioned` replaces baseline-overshoot). ([history](../history.md))
-- 2026-06-14 — Launcher now serves the tool guides at `/docs/[slug]`; onboarding links fixed; CLAUDE rule #9 institutionalized. ([history](../history.md))
-- 2026-06-12 — Deploy token moved to admin-managed `app_settings` + `gamePublish`-gated route. ([history](../history.md))
-- 2026-06-11 — Desktop launcher pulls accessible projects from the cloud (`/api/launcher/projects`), grouped by client. ([history](../history.md))
-- 2026-06-02 — R2 unified single-project repo (`<client>/<project>/`); per-client isolation, per-tool namespaces retired. ([history](../history.md))
+### 2026-09-08 — online projects buildable on the desktop
+`GET /api/launcher/projects` derives a build profile from the project's game kind when none is
+stored (flagged `derived: true`, so a local block wins), sends `gameType`, and accepts one on create
+only; `protocolFor` moved to `mockProtocol.ts`. Desktop v1.0.44–1.0.45 added the read-only game-kind
+row and **🏗 Scaffold** for a project that has no repo. `verify-launcher-profile.mts` (17).

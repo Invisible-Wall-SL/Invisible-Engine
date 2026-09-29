@@ -26,10 +26,12 @@ rendering/runtime foundation the tool agents build on.
 
 ## Engine-specific rules (beyond CLAUDE.md house style)
 - **Engine changes target `main`** via feature branches — never per-game engine branches.
-- **Online games run the SHARED runtime bundle** (`_runtime/lines`); ship engine changes with
-  `scripts/publish-runtime-bundle.mjs` + `POST games.invisiblewall.org/refresh` — a `main`
-  merge alone does NOT reach a live game ([[reference_runtime_release]],
-  [[gotcha_online_game_engine_runtime_release]]).
+- **Online games run the SHARED runtime bundle, and a merge to `main` IS a release.** The
+  `Runtime release` workflow auto-runs on every push to `main` touching `apps/lines/**` or
+  `packages/**`: gates, build, an immutable `_runtime/lines@<version>`, then a pointer flip that
+  re-points EVERY online game. Verify the engine change (boot the game, run the gates) before
+  merging, not after. Rollback = the `Runtime rollback` workflow. How it works + the manual
+  path: "How the runtime ships" in `docs/status/engine.md` ([[reference_runtime_release]]).
 - **No game submodule to bump** — a desktop build advances its `engine` submodule to
   `origin/main` itself, and a game repo carries no source to mirror into.
 - **Baked data masks bugs in dev games** — `apps/lines` dev has no baked doc; verify against the

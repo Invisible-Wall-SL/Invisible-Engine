@@ -466,7 +466,7 @@ the same cadence, conflicts, and force-overwrites EXACTLY as today.
 > localization, components — manual. The badge renders flow-v2's two pills; the editor keeps a
 > BESPOKE pill (span+Retry error, relative-time saved, interleaved crossType/preview) driven
 > off `saveState`; the banner/`confirm()` tools keep their bespoke conflict UX off
-> `state.status`/`state.message`. Per-tool live two-profile test is still owner-owed.
+> `state.status`/`state.message`. Per-tool live two-profile test: owner-verified live 2026-08-04 (#219).
 >
 > **Flagged pre-existing latent bug (NOT touched — preserved verbatim):** symbols, fx and
 > localization bind `onclick={save}` (bare handler), which passes the click EVENT as the
@@ -539,10 +539,9 @@ What makes the tools usable for 2–3 people on a project.
 > not-held is `200 {held:false}` via `json()`. **Granularity decision made:
 > per-project for now** (`docKey` = the tool's single project doc / its tool id).
 > Verified offline over the real module against an in-memory conditional-upsert
-> fake (27 assertions). Migration NOT applied; the SQL predicate + two-user test
-> are owner-verify owed.
+> fake (27 assertions). Migration 0014 applied and the two-user test run — owner-verified live 2026-08-04 (#219).
 >
-> **Sub-phase 2c-core — BUILT 2026-08-04 (editor + flow-v2 only; 2c-rest pending).**
+> **Sub-phase 2c-core — BUILT 2026-08-04 (editor + flow-v2; 2c-rest followed the same day, below).**
 > The CLIENT lease integration + presence UI, wired into TWO tools to prove the
 > pattern. Files:
 > - **`$lib/leaseState.svelte.ts`** (`LeaseState` rune) — owns the client lifecycle
@@ -572,7 +571,7 @@ What makes the tools usable for 2–3 people on a project.
 >   disabled no-op, acquire-error fail-open, heartbeat→taken-over flips readOnly + stops
 >   beating, takeover→held, release posts (and skips when not-held), and `blockWhen`
 >   blocking both autosave + manual save (and unchanged when false). Launcher build green.
->   **Owner-verify owed:** the live two-profile test (below) + migration 0014.
+>   Live two-profile test + migration 0014: owner-verified live 2026-08-04 (#219).
 >
 > **Sub-phase 2c-rest batch A — BUILT 2026-08-04 (symbols, win-text, config,
 > localization).** The four WHOLE-PROJECT-DOC authoring tools, wired MECHANICALLY to
@@ -587,8 +586,8 @@ What makes the tools usable for 2–3 people on a project.
 > `blockWhen` gate sits on `saveState.save()`, so the transport is untouched; its
 > `+page.server.ts` load now also returns `clientKey` (it previously didn't) so the
 > page can key the lease. No global `_shared/*` key was leased (none of the four has a
-> second global-key saveState). Launcher build green. **Owner-verify owed:** the live
-> two-profile test.
+> second global-key saveState). Launcher build green. Live two-profile test: owner-verified live
+> 2026-08-04 (#219).
 >
 > **Sub-phase 2c-rest batch B — BUILT 2026-08-04 (fx, flipbook, components).** The three
 > per-ITEM authoring tools. Unlike the whole-project-doc tools, each edits ONE item at a
@@ -624,7 +623,7 @@ What makes the tools usable for 2–3 people on a project.
 >   (esbuild strip → `compileModule` → mock fetch): `switchDoc(newId)` releases-old-then-acquires-new,
 >   `switchDoc(null)` inert-from-fresh (no fetch) + release-only-when-held, not-held→held switch,
 >   fixed-docKey lease unchanged (acquire/takeover/release all target its key), disabled no-op.
->   Launcher build green. **Owner-verify owed:** the live two-profile + item-switch test.
+>   Launcher build green. Live two-profile + item-switch test: owner-verified live 2026-08-04 (#219).
 >
 > Original plan (2c is the residual):
 

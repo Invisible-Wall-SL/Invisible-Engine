@@ -4,7 +4,10 @@
 > current tool's name, and a horizontal switcher listing every other online tool
 > the signed-in user is entitled to. One look, one nav model, everywhere.
 
-Status: **Phase 1 in progress** (launcher Svelte tools). Owner-agreed 2026-06-12.
+Status: **SHIPPED** — all four build-plan steps: `ToolTopBar` in every launcher tool, the
+`tools=` redirect payload (`$lib/server/toolBar.ts`), the HTML twins (atlas, sheet, rigger and
+spine `view.html`) and the docs. Owner-agreed 2026-06-12. Current state in
+[status/launcher](../status/launcher.md).
 
 ## Why
 
@@ -91,10 +94,11 @@ The **HTML twins carry the tint too** (2026-07-27): `toolBarParams` bakes an
 `static/rigger/view.html`, `static/spine/view.html`) sets `ic.style.color = accent`
 (hex-validated) after building the icon — so the twin bar matches the Svelte bar.
 
-> ⚠️ Remaining gap (pre-existing, not colour-specific): each twin keeps its OWN
-> partial mirror of `TOOL_ICONS` (~9 of the 17 tools). A tool missing from a twin's
-> `ICON` map renders label-only there — no icon, so no visible tint. Completing the
-> four mirrored maps (or serving one shared icon set) is the real fix.
+> Each twin keeps its OWN mirror of `TOOL_ICONS`; a tool missing from a twin's `ICON` map
+> renders label-only there (no icon, so no tint). All four twins cover every online tool (19 on
+> 2026-09-29), and `node scripts/check-toolbar-icons.mjs` fails when a new tool is missing from
+> one — run it when adding a tool (it is not in CI). Serving one shared icon set would remove the
+> copies altogether.
 
 ## Data flow for the Python tools
 

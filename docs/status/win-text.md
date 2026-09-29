@@ -2,12 +2,10 @@
 
 > Design: [docs/design/invisible-win-text.md](../design/invisible-win-text.md) · Guide: [docs/tools/win-text.md](../tools/win-text.md) · Agent: _none yet — closest are `launcher-studio` (tool page) + `engine-pixi-svelte` (render)_
 
-**One-line state:** Built on `main` — latest: **expanded Book-of wins now say "on N reels"**
-(`toast.expanded`), ⏳ owner visual-verify in the remake. Earlier — W1–W8 (doc/storage, endpoints, engine resolver, the four
-families, the `/win-text` page, registry + docs, the Localization `winText` origin, bake +
-runtime-bundle wiring) are in, plus **W9: win text now NAMES the paying symbol** (`{symbolName}`,
-authored in `/symbols`) and "N of a kind" is gone from every default; ⏳ owner visual-verify the
-page and a real authored win in-game.
+**One-line state:** shipped — `/win-text` authors the win-message templates (toasts that name the
+paying symbol or show it as an image, "on N reels" for expanded Book-of wins, free-spin retrigger
+copy, optional tier captions), which ship through both bundle paths and feed Invisible Localization.
+Owed: an owner visual pass on the page and on a real authored win in-game.
 
 ## Current state
 
@@ -274,10 +272,10 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
    message draws on the line and reads through a translation. The conflict path needs the real
    check the concurrency plan asks for: **two profiles, two users, one project, racing saves** —
    a green build proves nothing about it.
-2. **Bitmap-font glyph risk** — the win line stamps BITMAP text (`winLine.text.font`, default
-   `gold`). A font baked with digits but no letters black-screens the game on a letter (see
-   `gotcha_bitmap_font_missing_glyph_blackscreen`). Authored win text is the first thing to put
-   arbitrary LETTERS on that font. Worth a guard/warning in the tool.
+2. **Bitmap-font glyph coverage** — the win line stamps BITMAP text (`winLine.text.font`, default
+   `gold`). The engine no longer black-screens on a missing glyph (`sanitizeBitmapText.ts` drops
+   it), but a font baked with digits only now silently drops every LETTER of an authored message.
+   Worth a warning in the tool when a template uses characters the chosen font lacks.
 3. **Match counts are `[2,3,4,5]` in the page** — every current template is a 5-reel board. The
    doc accepts any count key, so only that list widens for a wider board.
 4. **Win-level aliases are listed in the page** (`big`/`superwin`/`mega`/`epic`/`max`) — unlike
@@ -290,6 +288,7 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-09-29 — **Guide refreshed to match the UI** ([tools/win-text](../tools/win-text.md)).
 - 2026-09-28 (security) — **`/api/win-text` refuses a project the caller cannot access.** It
   resolved any `?project=` once the role had `winText`, so a `PUT` could overwrite another client's
   win copy. It now scopes through the launcher-wide `requireProjectScope` (403 on an inaccessible or
@@ -309,32 +308,6 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
   ⏳ owner visual-verify the toast on a flipbook-bound symbol — **engine change, so the remake needs a
   runtime release.**
-- 2026-08-18 — **an inline symbol no longer shrinks the message it sits in.** The symbol is sized from
-  the font, but its height was also fed back into the row auto-fit, so a boxed bar shrank itself to fit
-  its own picture — dramatic with the bitmap HUD fonts, whose line box is well under 1em against a
-  symbol drawn at 1.1em. The row now fits against the TEXT's measured height and the symbol is drawn at
-  that height (clamped to the box). `MessageSymbol` also now scales by the board's live cell instead of
-  `SYMBOL_SIZE`, so the requested height is honoured on a non-square board. Files:
-  `InlineImageText.svelte`, `MessageSymbol.svelte`, `test-inline-image-box.mjs`,
-  `InlineImageMessage.stories.svelte`. See the section above.
-- 2026-08-18 — **expanded Book-of wins get their own info-bar sentence** (`toast.expanded`, default
-  `You win {amount} with {symbolName} on {count} reels`), because `kind` is a REEL count once the
-  special has filled the columns and the old sentence miscounted what was on screen. Gated on a new
-  per-spin `stateGame.expandedSymbol` (set by `expandBookColumns`, cleared by `reveal` / feature end,
-  coded + flow paths). Files: `winText.ts`, `winTextStorage.ts`, `/win-text` page, `stateGame.svelte.ts`,
-  `bookEventHandlerMap.ts`, `flowEffects.ts`, `docs/tools/win-text.md`. See the section above.
-- 2026-08-10 — **symbol-as-image: spine symbols now render** (bug fix on the same-day feature). The
-  first cut drew a `<Sprite>` from the static sprite `assetKey`, so spine high symbols fell back to
-  the name ("2Cowboys"). Now `InlineImageText` mounts a game bound component (`messageSymbol` /
-  `MessageSymbol.svelte`) that renders any symbol type via `<Symbol>`, scaled to text size; added a
-  side margin per image to restore the space the text runs trim. Files: `MessageSymbol.svelte` (new),
-  `InlineImageText.svelte`, `registerInlineImage.ts` (`INLINE_IMAGE_BOUND_COMPONENT`), `Game.svelte`
-  (resolver + registration). `engine-layout` + `lines` build.
-- 2026-08-10 — **symbol-as-image toast toggle** (`toast.symbolAsImage`): the info-bar win toast can
-  render the paying symbol's sprite instead of its name, sized to the text. New engine-layout
-  `inlineImage.ts` (sentinel) + `registerInlineImage.ts` + `InlineImageText.svelte`; `LayoutNodeView`
-  text branch, `stateMessage.richText`, `flowEffects.showWinInfoMessage`, `Game.svelte` resolver,
-  `winText.ts`/`winTextStorage.ts`/`/win-text` toggle. Off by default (parity). See the section above.
 - 2026-07-29 — added a **Free spins** family: the `freeSpins.retrigger` template (default
   `You won +{count} Extra Free Spins`), authored in `/win-text` and auto-harvested into
   `/localization` like the toasts. Backs a free-spin RETRIGGER celebration screen: a new
@@ -345,8 +318,5 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   prune), the `/win-text` page, `componentCatalog.ts` (source keys), `Game.svelte`/`stateUi`.
   Verified `node scripts/test-win-text-symbol-names.mjs` (retrigger default/override/interpolate/
   localize + harvest) + `engine-layout` build. Pairs with Invisible Flow FS-4 (retrigger authorable).
-- 2026-07-24 — W9: win text names the paying symbol (`{symbolName}` from `SymbolsDoc.names`);
-  every "N of a kind" default replaced; `showMessage` gained a `symbol` pin; `winCycle` bake gap
-  fixed on the way past.
 - 2026-07-16 — tool built: doc/storage/endpoints, engine resolver + the four families, `/win-text`
   page, registry + docs, Localization `winText` origin, bake + runtime-bundle wiring.

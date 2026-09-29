@@ -1,8 +1,10 @@
 # Free-spin symbol reveal — the chosen book symbol merged into an intro Spine rig
 
-> Status: built on `feat/free-spin-intro-symbol-reveal` (2026-07-13). Reusable across
-> every Book-of game. Verified: engine builds clean (`lines` + `launcher-api`). Pending:
-> author a `specialBook` scene with a real intro rig + bone, then live-verify.
+> Status: BUILT — merged to `main` 2026-07-13 (`d997cae9`) and in the shared runtime; reusable
+> across every Book-of game, and played live on `bookofborutremake` (a second-feature freeze was
+> fixed 2026-07-20 — see [status/engine-history.md](../status/engine-history.md)). A sibling
+> on-node form, `RevealSymbolRider`, rides the symbol on a bone of a spine node placed directly in a
+> scene.
 
 ## The ask
 
@@ -51,7 +53,7 @@ setExpandingSymbol (book event)
        intro animation finishes
 ```
 
-## Pieces (all on this branch)
+## Pieces (all on `main`)
 
 1. **`packages/pixi-svelte` · `SpineBoneAttach.svelte`** — added opt-in `followRotation` /
    `followScale`. Position path unchanged (existing Invisible FX Tier-B callers unaffected);

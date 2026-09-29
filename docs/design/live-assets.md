@@ -69,9 +69,10 @@ game's mixed `.webp`/`.png` frame keys.
 
 ### 3. Cache-bust
 
-`symbolsStatic.png` has a stable name and can serve stale from browser/Cloudflare even
-after a correct republish. On publish, content-hash the pulled filenames OR purge the
-Cloudflare path for the game's `assets/` prefix.
+`symbolsStatic.png` has a stable name and can serve stale from a browser cache even after a
+correct republish. **Closed** — see "Asset cache-busting" (2026-07-03) and "Published snapshots"
+(2026-09-29) below. (Neither host has a Cloudflare cache in front: `app.` and `games.` are
+DNS-only, so there is no edge copy to purge.)
 
 ## Build order
 
@@ -79,7 +80,7 @@ Cloudflare path for the game's `assets/` prefix.
    (share `write_texturepacker_json`). Verify `deploy/` now holds a game-loadable spritesheet.
 2. **Puller:** `pull-project-assets.mjs` — list+mirror `deploy/` → `static/assets/`. Manual run first.
 3. **Wire prebuild** hook in the game, so `pnpm build` pulls then builds.
-4. **Cache-bust** on publish.
+4. **Cache-bust** on publish (done — see below).
 5. **Runtime override** in the engine loader (last — biggest engine surface).
 6. Prove end-to-end: edit atlas online → `pnpm build` → republish → new graphic shows.
 
@@ -194,9 +195,8 @@ load that came with re-saving. The real cause is the unclosed gap #3 above:
 - **Stable URL + mutable content.** The editor-art / symbol exporters wrote each
   sheet to a STABLE deploy URL (`editor-art/<stem>/<stem>.json` + page). Re-packing
   overwrote the same URL, so any browser / Cloudflare copy served stale
-  (`deployServe.ts` sets `cache-control: public, max-age=60`, and the edge can
-  stretch that). The runtime re-exports every boot, but a cache at a stable URL
-  never re-fetches.
+  (`deployServe.ts` sets `cache-control: public, max-age=60`). The runtime
+  re-exports every boot, but a cache at a stable URL never re-fetches.
 
 **Fix — content-versioned filenames.** `sheetVersion()` (`assetVersion.ts`) stamps a
 short content hash into every exported sheet's filenames
@@ -207,7 +207,12 @@ re-export). One `headObject` HEAD per sheet — no page bytes stream through the
 process, so the memory-flat `copyObject` path is preserved. A changed atlas ships
 at a NEW URL the cache has never seen; the exporter's existing prune drops the old
 version. Runtime + bake share the exporters, so both paths version identically.
-(Spine bundles + Font Maker pages still use stable names — same class, deferred.)
+Where the stable-name case stands now: spine atlas **pages** are content-addressed through
+`deploy/_pages/<hash>` (`pageStore.ts`), and **players** never read the live tree at all — they
+boot a published snapshot whose files are served `immutable` under a new id per publish (below).
+What still keeps a stable name is a spine bundle's `.json`/`.atlas` and a Font Maker page inside the
+live `deploy/` tree, which only **authoring** boots read, under `max-age=60`; a standalone build
+bakes them in and the test server serves them `no-store`.
 
 **Fix — dangling-binding guard.** The exporters already knew both the bound names
 and the shipped names but never compared them. They now emit `missing: string[]` —

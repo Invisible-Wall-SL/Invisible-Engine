@@ -169,8 +169,8 @@ translated in step 8.
 - A symbol is in the dictionary but on no strip. It shows **unused**, and it can never be dealt
   ([The strips are the gate](../tools/game-config.md#the-strips-are-the-gate)).
 - A word painted into bet-mode card art can't be changed or translated by any field.
-- The test server's mock follows a config save within seconds. **Players** get the config frozen
-  into the last Publish. After a math change on a live game, republish (step 10).
+- A config save reaches **Live ↗**, and the test-server mock that deals it, within seconds.
+  **Players** get the config, and the board their mock deals, frozen into the last Publish. After a math change on a live game, republish (step 10).
 
 **Done when:** there are no errors at the top of the page (warnings don't block), the page is
 saved, and there's no red partner-reference box.

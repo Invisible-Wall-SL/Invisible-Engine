@@ -2,11 +2,11 @@
 
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** ✅ **SHIPPED + live-verified (owner-confirmed 2026-08-04).** All five build-plan
-phases landed AND the grid-dimensions enhancement — an authored config drives the
-symbols/paytable/paylines/bet-modes AND resizes the board in the game, the mock RGS and the Scene
-Editor preview — and the owner has clicked through the `/config` + `/editor` launcher surfaces and
-tested it end-to-end. The live-verify gap that was the last open item is closed.
+**One-line state:** shipped — an authored `/config` doc drives symbols, paytable (scatter pays
+included), paylines, bet modes, grid (stepped too), win model, cascade, reel behaviour and win
+tiers in the game, the mock RGS and the Scene Editor preview. The original five phases were
+owner-verified live on 2026-08-04; later panels (paste-capture import, drift banner, History…)
+are build/fixture-verified with the browser click-through listed under open items.
 
 ## Current state
 
@@ -86,20 +86,11 @@ guarantee traded for a runtime one, as planned.
   followed, and the boot check correctly errored that the three symbols have no art. Stub reverted;
   re-verified back to template values.
 
-**Still hardcoded, on purpose:** grid dimensions. `BOARD_DIMENSIONS`/`BOARD_SIZES` derive from
-`INITIAL_BOARD`, not from `numReels`/`numRows`, so an authored grid size does NOT yet resize the
-board — scene geometry and layout coordinates are pinned to it, and that deserves its own change.
-The scatter paytable row is also still synthesized (`[2, 20, 200]`) because those multipliers have
-no home in the engine config shape; only the scatter's SYMBOL is read from the config now.
-
 **Deviation from the design doc, deliberate:** Phase 1 called for a Zod `GameConfigDoc` in the
 launcher. It has none. A Zod mirror would be a second, hand-copied answer to "what is a valid
 config" inside an app whose `build` is not a type-check — the `COMPONENT_PARAM_KINDS` failure mode
 (see `apps/launcher-api/CLAUDE.md`). The canonicalizer + validator are that one answer and produce
 better 400s. Reversible if a use case demands Zod.
-
-All five build-plan phases are done, plus the grid-dimensions enhancement. What remains is
-verification the local environment couldn't reach, plus one deferred follow-up.
 
 ## The grid-dimensions enhancement (numReels/numRows resize the board)
 
@@ -119,9 +110,8 @@ commits, three surfaces:
   `reelGridWarnings` compares the node to the config, not the template. Build-verified; the rendered
   preview is owner-verify-owed (launcher-only).
 
-**Deliberately still hardcoded:** grid dimensions are the board COUNT + pixel size. Nothing else
-about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
-in the Scene Editor per game.
+**Only the board's reel/row count comes from the config.** The scene-geometry anchors and the HUD
+layout stay authored in the Scene Editor per game.
 
 ## Stepped grids — SHIPPED (2026-08-24, #445 `553848a4`, runtime-released)
 
@@ -391,9 +381,9 @@ outro). `WinVisual` builds the chain from `activeWinLevelChain(winLevelData.leve
 `escalateTiers` is on AND tiers are authored; the count-up stays ONE continuous count (driven by
 `WinGate`/`winState`, untouched).
 
-**The `/config` Win tiers panel.** New section after Bet modes: add/remove/reorder tiers (↑/↓), edit
-name/threshold/type/spineKey/duration/animation names/sfx/bgm, an escalation toggle + start-tier select,
-and a resolved-ladder preview. Written SPARSELY (the block + flags exist only once a tier is added), so
+**The `/config` Win tiers panel.** Add/remove/reorder tiers (↑/↓), name/threshold/type, an
+escalation toggle + start-tier select, and a resolved-ladder preview (the per-tier presentation fields
+moved to the `win` component — section above; the stings to Invisible Sound). Written SPARSELY (the block + flags exist only once a tier is added), so
 an un-authored config stays byte-identical. Inline `winLevels`/`escalateFrom`/`escalateTiers` validator
 issues render under the panel. `docs/tools/game-config.md` updated in the same change (rule 9).
 
@@ -565,7 +555,7 @@ Four gaps around the paytable, closed together because they share one comparison
   `undeclared` mean what the boot check means). `/config` shows it live against unsaved edits (a
   red box above the panels, plus a "Partner reference … matches / N rows differ · Forget it" line in
   Symbols). The online **Publish** refuses with a `paytable-drift` `PublishBlockedError`
-  (`$lib/server/paytableDrift.ts`), overridable by the owner role only — same model as
+  (`$lib/server/paytableDrift.ts`), overridable by the admin role only (`OWNER_ROLE`) — same model as
   `invalid-flow`; the Game Maker page asks. The desktop half: `GET /api/game-config/doc` answers 409
   `{ reason: 'paytable-drift', details }` and `bake-editor-doc.mjs` bails listing the rows unless
   run with `--allow-paytable-drift` (env `ALLOW_PAYTABLE_DRIFT=1`) — it used to treat any non-200
@@ -603,70 +593,35 @@ Four gaps around the paytable, closed together because they share one comparison
   **Not verified:** the `/config` capture dialog and banner in a browser (needs a launcher login —
   owner-verify, below).
 
-## Sounds panel — the game-wide sound SLOTS (2026-08-25)
+## Sounds — authored in Invisible Sound
 
-New `sounds` block on `GameConfigDoc` + a **Sounds** section in `/config`: which cue the game plays
-at each named presentation moment. This is the game-wide half of the sound-binding work; the
-per-symbol half is `/symbols` → Symbol sounds. **The full story — why 26 of 53 shipped sounds had
-never played, and the slot model — is in `docs/status/engine.md` (2026-08-25).**
-
-What is specific to this tool:
-
-- **`packages/game-config/src/sounds.ts`** owns the catalogue (`SOUND_SLOTS`), the binding type
-  (`GameSounds`), the resolver (`resolveSounds` → `slot`/`pick`), the departure-only normalizer
-  (`normalizeSounds`), and the id-free picture/royal routing (`landSlotForSymbol`). Dependency-free
-  like the rest of the package, so it is fixture-verifiable offline —
-  `packages/game-config/sounds.fixture.ts`, 36 claims.
-- **The default is INVERTED from every other optional block here.** Elsewhere absent means "what the
-  engine did before this block existed"; for sound that was *nothing*, so absent resolves to the full
-  catalogue instead. A block that defaulted to the old behaviour would ship the fix switched off.
-- **The panel stores only DEPARTURES.** A binding equal to the catalogue is dropped on normalize, so
-  a config that opens the panel and saves serialises byte-identically to one written before the block
-  existed — and keeps TRACKING the catalogue rather than pinning that day's copy. `resolveSounds`
-  is read through everywhere for the same reason `resolveReelBehaviour` is: the tool and the engine
-  must not be able to answer "what does absent mean" differently.
-- **`enabled: false` is the only silence**; an empty `names` list means "give me the default back",
-  which is the far likelier accident. The `+`/`−` rung controls refuse to go below one for that
-  reason.
-- Verified: the fixture above, `pnpm --filter launcher-api build` (green — a bundle check, not
-  types), `pnpm --filter launcher-api check:sound-bindings`, and a live spin in `apps/lines` proving
-  the resolved bindings reach Howler. ⏳ **The `/config` Sounds panel itself is not owner-verified in
-  the browser** — build-green only, same caveat every launcher panel carries.
+The `sounds` block still lives on `GameConfigDoc` (`packages/game-config/src/sounds.ts`: slot
+catalogue, resolver, departure-only normalizer, `sounds.fixture.ts`), but it is authored in
+[Invisible Sound](sound.md); `/config`'s **Sounds** section is only a pointer. The slot model and
+its inverted default are in [sound.md](sound.md) and [engine.md](engine.md) (2026-08-25).
 
 ## Open items / next
 
-0. ✅ ~~**Un-scopeable atlas refs**~~ — CLOSED (2026-08-20, three changes, see Recent changes):
-   `parseScopedFrameRef` degrades one instead of dropping the art; `RegionPicker` no longer writes
-   them (`SheetAsset.manifestKey` + the shared `pickSheetsFrom`); and every doc that already holds
-   one — clips, card params, the layout doc, component defs — is repaired on the ship path. The one
-   deliberate gap left: the repair's candidate test is loose by design (`needsAtlasRefRepair`
-   accepts any path-shaped prefix), so a non-art string containing `::` is offered to the resolver
-   and survives only because the resolver declines it. Tightening that would need the component
-   DEFS at `loadDoc` time, which it cannot see; the fixture pins the behaviour instead.
-
-1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
-   panels, off-grid payline block, raw-JSON paste, save round-trip, the `Match grid` repair flow,
-   per-payline colour in-game, AND a non-5×3 end-to-end spin all verified live. The one gap offline
-   verification couldn't reach is closed.
-2. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
+1. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
    would have caught the wild on the first spin. (The PAYTABLE half is done: the boot cross-check
    warns, and **Import paytable from server** fixes it — see above.)
-3. **Owner-verify the paytable import dialog** in a browser on a published project (Book of Borut
+2. **Owner-verify the paytable import dialog** in a browser on a published project (Book of Borut
    remake should show nine *unchanged* rows now that its config was authored from the server) —
    and the **pasted-capture** path: paste a partner `config` response, Keep as reference, Save, see
    the "matches" line; edit one price, see the red banner, and see Publish refuse (admin: publish
-   anyway).
-4. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
+   anyway). Also click-test a config restore from **History…** (the flow restore was tested; same
+   modal).
+3. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
    `3:2 4:10 5:100` while the info page's default shows `3:2 4:20 5:200` — undeclared, so no check
    sees it; authoring the scatter row fixes it per project. The book mock DECLARES `3:2 4:20 5:200`
    but pays 0 (its scatter only triggers the feature). Neither is changed here: both are payouts on
    live test games.
-5. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
+4. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
    config's base-mode `max_win` (the remake: 5,000). What `maxWinMp` means per bet option is not in
    the protocol reference, so it is not read yet. RTP per bet mode (a buy with its own RTP) is also
    not shown — one game-level figure only.
-6. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
+5. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
    whose scatter is called something else gets it `skipped` on import and a permanent
    `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.
 
@@ -677,7 +632,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Blocked (owner / external)
 
-- _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
+- _None._
 
 ## Recent changes
 
@@ -719,19 +674,19 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   `/api/game-config` gate extracted to `gameConfigAccess.ts`. Full write-up: _Paytable import from
   the game server_ above. Fixture `scripts/verify-server-paytable-import.mts` (31).
 
-- 2026-09-10 (follow-up) — **The desktop publish path now pins itself, with no change to the desktop launcher.** The fix below gave the manifest a `projectKey` and taught both of OUR producers to write it — which left the producer that needs it most untouched. `publish_game()` lives in `Invisible_Launcher.py`, a separate app: it writes `test_server/games.json` itself with `{protocol, name, updatedAt}` and **replaces** the entry, so every desktop publish shipped unpinned *and* wiped any pin a CLI run had just set. Owner asked the right question — _"if I publish the game build now is it pinned or do I have to set anything?"_ — and the honest answer was "no, and the preferred button will keep un-pinning it". **The fix needs no Python at all:** `POST /api/launcher/register-game`, which that same launcher calls moments after its manifest write, already requires a validated `project`, so it re-stamps the pointer there. That makes the repair **idempotent** — whatever the manifest write dropped, the registration puts back, every publish, forever. New `pinTestServerGameToProject()` beside `upsertTestServerGame` (same If-Match + retry CAS). **Four rules it holds, each with a test that fails without it:** it PATCHES and never CREATES (an entry with no uploaded bundle would have the test server serve zero files — `no-entry` is reported instead); it spreads the existing entry so `grid`/`cascade`/`runtime`/`updatedAt` survive; it writes NOTHING when the pin is already right (this runs on every publish, and the `/refresh` it triggers re-hydrates every bundle); and it is entirely NON-FATAL — a pin failure rides back as `pin` in the response, never as a failed registration, because a publish with no card is worse than a publish with a wrong board. Known seam, documented rather than papered over: `/refresh` answers 202 and coalesces, so a pin written while the launcher's own refresh is in flight lands on the server's NEXT hydrate — durable in R2 either way, self-healing on the following publish. **Verification:** `verify-test-server-project-pin.mjs` 7 → **14 checks**, the new seven driving the REAL function (TypeScript stripped, not re-typed) against an in-memory R2 with an injectable lost-CAS. Mutation-tested four ways — wholesale replace, create-instead-of-skip, no short-circuit, unconditional write — all four fail it. **Two process lessons worth keeping.** The first mutation run reported a MISS that was the mutation script's own bug: both writers share the `precondition(...)` line and `upsertTestServerGame` comes first, so an unscoped `replace(…, 1)` mutated the wrong function and the suite passed for the right reason on the wrong code — scope a mutation to the function under test. And the launcher `build` earned its keep for once: it caught `const url` colliding with the handler's existing game-url binding (now `url: launcherUrl`), which no amount of reading had.
+- 2026-09-10 (follow-up) — **The desktop publish path pins itself, with no desktop-launcher change.** The desktop launcher's `publish_game()` writes `test_server/games.json` itself and REPLACES the entry, so every desktop publish shipped unpinned and wiped any pin a CLI run had set. `POST /api/launcher/register-game`, which that launcher calls right after, already carries a validated `project`, so it re-stamps the pointer via `pinTestServerGameToProject()` (same If-Match + retry CAS as `upsertTestServerGame`) — idempotent on every publish. Four rules, each with a failing-without-it test in `verify-test-server-project-pin.mjs` (14 checks): it PATCHES and never CREATES (`no-entry` is reported instead); it spreads the existing entry; it writes nothing when the pin is already right (the `/refresh` it triggers re-hydrates every bundle); and it is non-fatal (`pin` rides back in the response). Seam: `/refresh` coalesces, so a pin written mid-refresh lands on the server's next hydrate. **Lesson:** scope a mutation test to the function under test — an unscoped `replace(…, 1)` mutated the sibling writer and the suite "passed" on the wrong code.
 
-- 2026-09-10 (fix) — **The live contract pull asked for the GAME key where it needed the PROJECT key, so every desktop-published game silently ignored its config.** Owner reported two presentation bugs on the live `waysofwavesbuild` (project `test6`): a second "M" symbol drawn as a flat sprite that _"is not set anywhere… should never appear in the game"_, and _"the clear explosion… is actually missing the last Row completely… as if the config file was not used for this calculation"_. That last instinct was exactly right, and neither bug was in the presentation. **One root cause.** The 2026-08-21 work below made the mock PULL each game's math from `GET /api/game-config/mock?project=…` instead of trusting the publish snapshot — and asked for `project=<gameKey>`. That is right only because `publishGame.ts` publishes under `key = projectKey`; every **desktop-launcher** title names its own key, so this game asked the launcher for a project called `waysofwavesbuild`, got a **401**, and fell all the way back to the mock's built-in **5×3 Hot Fruits default** (7 line symbols + scatter, 5 paylines, `lines` scoring) — while its client drew the stepped **5×[3,4,4,4,4] `ways`** board `test6` authored. **Both symptoms fall out of that, and neither points back here.** (1) The default pool deals `PIC7`, which `linesMapping` maps to **`L5`** — a symbol `/config` does not declare and `/symbols` only had a stale mock-up row for (`S_Test_Mockup::MOBYDICK_0017_Layer-45.png` at `sizeRatios 0.3`), so it landed as a flat sprite beside the SCATTER's `f_ghost_idle` flipbook of the same raft art: two "M"s, one animated, one not. The same defect ran the other way too — `PIC8`/`PIC9` (`H5` mermaid, `L3` oyster) are authored, never dealt, and so appear only on the pre-spin cosmetic strips, which is why the idle board looked richer than any spun one. (2) With the server dealing **3** rows into a **4**-row window, the client's last visible row was the facade's own **bottom padding row** (`padReel` duplicates the edge cell, hence the stacked identical crabs) — and `visibleColumnPositions` + `tumbleBoardSlideDown`'s land guard both correctly treat the last strip entry as off-screen buffer, so it never exploded and never played `land`. Reel 0 draws 3 rows, so it cleared fully: the "only the left column works" shape in the report. **The fix is the pin.** `TestServerGameEntry` gained `projectKey`; both producers write it (`publishGame.ts`, and `publish-game-bundle.mjs` via a new `--project` / `--launcher` / `--read-token` trio); `refreshContract` reads `meta.projectKey ?? key`, so every online-published entry is byte-identical and only the mismatched ones change. Two adjacent holes closed with it: the CLI publisher **replaced** the whole manifest entry, so re-publishing a bundle deleted any pointer the online publisher had written (it spreads the previous entry now), and it rejected `--protocol ways|cluster|scatter` outright, silently downgrading such a game to `lines`. **And the silence is gone:** a game with no pointer now logs one line on its first spin naming both the cause and the consequence — because "the mock is quietly dealing a different game than the client draws" produces only unexplainable *presentation* bugs, which is three days of looking in the wrong file. **Verification:** new `scripts/verify-test-server-project-pin.mjs` (7 checks) drives the REAL `refreshContract` sliced out of `services/test-server/server.mjs` against a stub `fetch` — the pinned URL, the game-key fallback, the no-pointer path warning exactly once across three calls — plus the publisher's merge rule and a check that both protocol lists agree. Mutation-tested both ways (the pin reverted to `key`, the `...previous` spread removed); each fails it. **One fixture bug found on the way, worth the note:** the first draft's `check()` helper was synchronous, so every `async` assertion returned an unresolved promise and printed a ✓ unconditionally — a green run that proved nothing. If a fixture has async checks, make one fail on purpose before believing the green.
+- 2026-09-10 (fix) — **The live contract pull asked for the GAME key where it needed the PROJECT key, so every desktop-published game ignored its config.** `refreshContract` requested `project=<gameKey>`, right only because online publishes use `key = projectKey`; a desktop title (`waysofwavesbuild` → project `test6`) got a 401 and fell back to the mock's built-in 5×3 Hot Fruits default while its client drew the authored stepped `ways` board. Symptoms looked purely presentational: an undeclared `L5` (from `PIC7`) drawn as a flat sprite, and the bottom row never exploding because the client's last visible row was the facade's padding. **Fix:** `TestServerGameEntry.projectKey`, written by `publishGame.ts` and `publish-game-bundle.mjs` (`--project` / `--launcher` / `--read-token`); `refreshContract` reads `meta.projectKey ?? key`. The CLI publisher now spreads the previous entry and accepts `--protocol ways|cluster|scatter`; a game with no pointer logs one line on its first spin. **Lesson:** a synchronous `check()` over async assertions printed ✓ unconditionally — make one async check fail on purpose before trusting a green run.
 
-- 2026-08-27 (fix) — **The emerge cascade shipped with two real defects; both are fixed and both now have a test that fails without the fix.** Reported within minutes of the previous entry going live: _"the behaviour now seems very broken and there is a long delay between the landing and the explosion of the matching symbols"_. Both were invisible to the 548 checks that were passing, and both are worth recording because the assertions that missed them were the obvious ones. **(1) THE REFILLS OVERLAPPED THE SURVIVORS.** `tumbleBoardAppear` placed every arriving symbol in the same pass that started the survivors' slide — and a refill's seat is very often the seat a survivor is still sitting in, because the refills stack DIRECTLY above the survivors, making the topmost survivor's old seat the bottom refill's new one. For the whole 200 ms slide the new symbol sat on top of a symbol that had not left yet. The handler is now two phases: the survivors vacate (awaited), then the arrivals surface. The survivors' own `land` beat moved into phase 2 so it runs ALONGSIDE the arrivals rather than gating them — putting it in phase 1 would have added its entire cap to every step for a picture nobody is waiting on. A reveal has no survivors, so phase 1 is empty there and that path is unchanged. **(2) THE LONG BEAT CAP WAS PAID ON ART NOBODY AUTHORED.** `INTRO_BEAT_CAP_MS` is 2000 ms, sized off the reference spines so an authored emerge sets its own pace. But an un-authored `intro` INHERITS `land` (or the resting `static` art), and neither reliably reports completion — so every project that had not yet bound an intro, which is every project, paid the full 2000 ms on every arrival. Measured: **2650 virtual ms per cascade step against the shipped slide's 1500**. A cap the common case always pays is not a runaway guard, it is the pace. A new `hasAuthoredSymbolState` (reusing `resolveSymbolState`, so "authored" means exactly what the renderer means) decides it: authored art gets the long cap, everything else gets `TRANSIT_BEAT_CAP_MS` — what the landing it fell back to would have cost anyway. The cascade is back to **1500 ms, identical to the slide**, asserted as that equality rather than as "is fast" so it cannot drift as either presentation is re-timed. **Verification:** 548 → **553 checks**. The two new behavioural assertions are stated on the virtual CLOCK, because that is what the player experiences: no refill is placed before the LAST survivor slide has finished, and an un-authored emerge costs exactly what the slide costs — plus a third confirming an authored intro still gets the longer cap, and a fourth pinning the difference to the two constants (read out of `symbolBeat.ts`, not restated). The harness gained a controllable `authoredIntro` predicate, defaulting to nothing-authored, because a fixture that could only exercise one answer would not be testing the rule. Mutation-tested three ways — the cap paid unconditionally, the phases collapsed back into one, and the cap policy inverted — all three fail it. **The lesson for the next timing feature:** every assertion in part 10 was about ORDER and CONTENT, and both defects were about TIME. A presentation fixture needs at least one assertion denominated in milliseconds.
+- 2026-08-27 (fix) — **Emerge: refills overlapped survivors, and un-authored intros paid the long cap.** (1) `tumbleBoardAppear` now runs in two phases — survivors vacate (awaited), then arrivals surface — because a refill's seat is often the seat a survivor is still leaving; the survivors' `land` beat runs alongside the arrivals, not before them. (2) `INTRO_BEAT_CAP_MS` (2000 ms) is paid only when `hasAuthoredSymbolState` says the intro is authored; an inherited `land`/`static` gets `TRANSIT_BEAT_CAP_MS`, so an un-authored emerge costs exactly what the slide costs (1500 ms/step, asserted as that equality). `verify-swap-in-place-mode.mjs` asserts both on the virtual clock. **Lesson:** a presentation fixture needs at least one assertion denominated in milliseconds — every earlier assertion was about order and content, and both defects were about time.
 
-- 2026-08-27 (follow-up) — **The emerge style governs a WIN too, not just the spin.** Owner, first thing on trying it: _"it seems to work for the Spin, but when the symbols match for a win, the New symbols still fall down from the top, and I think we should really have the same behaviour, not 2 different one!"_ Correct, and the gap was structural: the style was wired into `presentReveal` (the `reveal` book event), while a cascade step is a DIFFERENT book event handled in `bookEventHandlerMap.tumbleBoard`, which always broadcast `tumbleBoardSlideDown`. That handler now picks its arrival from the same `swapStyle`, so there is one answer for the whole game. **The fix is deliberately ASYMMETRIC, and that is the part to remember.** A cascade has two populations on the overlay, and only one of them is arriving: `combineTumbleReel` stacks the refills ABOVE the survivors — the engine's gravity model, and the board the SERVER scored the next step against — so a symbol that did not win still changes seat. Placing everything instantly would land on the RIGHT board and show the player a non-winning symbol teleporting down its column; the tempting "nothing moves at all" reading is worse still, because filling the hole in place produces a DIFFERENT board from the one the server scored ([[gotcha_cascade_client_board_diverges_from_server_board]] is that bug, already paid for once). So `tumbleBoardAppear` now asks which LAYER a symbol came from — by object identity against `stateTumble.adding`, since a survivor and a refill can hold equal `rawSymbol`s — and answers twice: a refill appears (`duration: 0`, `intro`, its own emerge cue), a survivor slides (200 ms `backOut`, `land`), exactly as the slide moves it. A REVEAL has no survivors (`keepBase: false`), so it reduces to the previous behaviour and the reveal path is byte-identical. **Verification:** `verify-swap-in-place-mode.mjs` 533 → **548 checks**, with a part 10 that drives a REAL cascade step against a board that has survivors — the BOTTOM visible row explodes, deliberately, because a survivor below an exploded cell keeps its seat and exploding the top row would leave nothing moving for the assertions to catch. It asserts both halves (one instant placement per column, two 200 ms ones), that only the refills ask for an emerge cue, that every visible cell still reports a landing whichever way it arrived, and that the settled column is `[pad, refill, survivor, survivor, pad]` — refill above, not in the hole. Mutation-tested five ways (the branch removed, the branch inverted, survivors placed instantly, refills treated as survivors, and the refill spliced into the hole instead of above); all five fail it, including the board-divergence one. The coded handler's branch is asserted at SOURCE level, because `bookEventHandlerMap.ts` reaches XState, the flow interpreter and the RGS and cannot be stood up in a Node fixture. **Known seam:** `tumbleBoard` is a flow-ownable book event, so a flow-v2 doc that owns it drives the cascade with its own Broadcast cues and this branch is bypassed — `tumbleBoardAppear` is in the generated vocabulary, so such a doc can author the appear directly.
+- 2026-08-27 — **Emerge governs a cascade WIN too, asymmetrically.** `bookEventHandlerMap.tumbleBoard` picks its arrival from the same `swapStyle` as the reveal. A cascade has two populations: refills APPEAR (`duration: 0`, `intro`, emerge cue) while survivors still SLIDE (200 ms, `land`), identified by object identity against `stateTumble.adding`. Filling holes in place instead would produce a board different from the one the server scored — refills stay stacked above survivors (`combineTumbleReel`'s gravity model). Known seam: a flow-v2 doc that owns `tumbleBoard` bypasses this branch and must author `tumbleBoardAppear` itself.
 
-- 2026-08-27 — **A third swap style: `emerge` — the board surfaces in place, and NOTHING travels.** Owner ask, for a marine slot: _"I would like the symbols after the explosion to emerge from the water… I do not think right now I am able to do this, as the symbols always seem to roll from the top."_ They were right, and the gap was narrower than it looked: `swapInPlace` already killed the roll, and `clearBoard` already gave them the sink (the outgoing symbols play their authored explosion and leave). What was missing was the other half — every existing style still ARRIVES from somewhere. `dropIn` queues the new board a strip above the window and slides it into its seats over 200 ms; `columnCascade` does the same per column. Neither is reachable-by-shortening: a fall that lands in 1 ms is still a fall, and its `land` beat still fires AFTER the movement rather than instead of it. **What changed:** `SWAP_STYLES` gained `'emerge'`; `emergeRevealBoard` is the column cascade's skeleton with both motions removed (same opener, same absolute per-column stagger, same scoped re-init, same settle — only the column's own beat differs); a new `tumbleBoardAppear` cue places every symbol at `duration: 0` and plays a new authored `intro` state there. **Three decisions worth keeping.** (1) **A cue of its own, not a flag on `tumbleBoardSlideDown`** — a slide with `duration: 0` reaches the same seats but keeps the slide's contract (tween, then `land`), and the whole point of this style is that the arrival animation REPLACES the landing one; folding a "do not actually move" branch into the step every cascade runs is also the one change that could not be made without touching the shared bundle's hot path. (2) **The state is set BEFORE the placement** — one Svelte flush, so the cell's first painted frame is already the intro art; reversed, the symbol's resting art paints for one frame at full size on its final seat, a hard pop of the whole board, which is exactly the picture the style exists to avoid. (3) **The stagger default differs from the cascade's** (`0`, not 140 ms) because the defining picture does: a cascade is sequential by nature, an emerge is "the board appears" with a sweep as an opt-in flourish. `normalizeReelBehaviour` also stopped comparing `swapStyle` against the one non-default literal by hand — a per-literal check silently DROPPED `'emerge'` on the next save, handing the author back a drop-in; it is written against `SWAP_STYLES` now, and the fixture guards that. `swapStyleUsesColumnStagger` is the one home for "which styles spend the stagger", so the validator, the picker and the presentation cannot disagree. **Verification:** `reelBehaviour.fixture.ts` 56 → **76 checks** (round-trip, the unrecognised-style fallback, the stagger live for both staggered styles and inert for the drop-in); `verify-swap-in-place-mode.mjs` 412 → **533 checks**, with a new part 9 whose central assertion is a MEASUREMENT rather than an inference — the harness's `Tween` now keeps a ledger of every `set` it is asked for, because an emerge and a drop-in broadcast nearly the same cues, settle on identical boards and leave every symbol on the same seat, so the only place the difference lives is the duration. Every emerge placement is `0`; the shipped drop-in in the same run is not, which is what stops "nothing travels" passing for want of anything that could travel. Mutation-tested seven ways (the appear travels, it inherits the cascade default stagger, the padding guard is removed, the state is set after the placement, the appear is swapped back to a slide, the intro cue is dropped, the scatter counter is dropped) — all seven fail it. **Also verified live** in `apps/lines` against the mock, in real Chrome (the in-app preview pane suspends rAF, so the game never boots there): `dropIn` issues 25 tweens at `duration: 200`, `emerge` issues 31 at `duration: 0` and none above; with no `reelBehaviour` at all the reels still roll. **One fixture bug found on the way:** its ordering assertion used an `indexOf` over the whole handler block, where `tumbleBoardDrain`'s earlier `symbolY.set(` would have made it pass by accident; it is scoped to the appear handler and whitespace-collapsed now, so prettier folding a call across lines cannot fail it either.
+- 2026-08-27 — **Third swap style `emerge`: the board surfaces in place, nothing travels.** `SWAP_STYLES` gained `'emerge'`; `emergeRevealBoard` is the column cascade's skeleton with both motions removed, and a new `tumbleBoardAppear` cue places each symbol at `duration: 0` playing a new authored `intro` state. Decisions: a cue of its own rather than a zero-duration slide (a slide keeps its tween-then-`land` contract); the intro state is set BEFORE placement, or the resting art pops for one frame; default stagger `0` (an emerge "appears", a cascade is sequential). `normalizeReelBehaviour` is written against `SWAP_STYLES` — a per-literal check silently dropped `'emerge'` on save. `swapStyleUsesColumnStagger` is the one home for which styles spend the stagger.
 
-- 2026-08-21 — **The clear step works under a column cascade too, per column — un-gating a choice the first cut wrongly removed.** Owner, on first live use: _"I do not understand why when I select column cascade, I can't select Clear the board before the new symbols fall in anymore. I would like that option also available in the cascade but per column."_ They were right and the original reasoning was wrong. `clearBoard` shipped gated to `swapStyle: 'dropIn'`, justified as "a `columnCascade` already empties each column by DRAINING it, so a clear there would be two clears for one round". A drain and a clear are not the same beat done twice — they are two different PICTURES of one beat: a drain slides the column out of the bottom of the window, a clear pops it in place. Under a cascade the clear therefore REPLACES the drain, per column, and deciding between them is exactly what this block exists for. **What changed:** the schema's only remaining precondition is `swapInPlace` (a rolling round replaces nothing, it re-spins); `clearBoardBeforeDrop` became `boardClearsOutgoing`, because what clears depends on the style and the old name asserted otherwise; `clearBoardBeforeDrop()` became `clearOutgoingSymbols(reelIndex?)`, one implementation serving both styles — absent ⇒ the whole board ahead of the drop-in, a column ⇒ that column on its own beat, in place of `tumbleBoardDrain`. The cascade reads the flag ONCE before the sweep, so a mid-round config swap cannot produce a board that half drained and half popped. **The load-bearing part is not the feature, it is the SCOPING**: `tumbleBoardRemoveExploded` filtered EVERY column, and a cascade runs its columns concurrently on an absolute stagger — so column `i + 1` can be mid-explosion when column `i` reaches its removal, and an unscoped filter takes the neighbour's symbols with it. Invisible in the end state (each column's own `keepBase: false` init resets `base` regardless) and visible in the live game only as a column emptying before its turn. The cue gained an optional `reelIndex` (absent ⇒ every column, byte-parity for the existing cascade and for the drop-in clear), mirroring the scoping `tumbleBoardInit` / `tumbleBoardSlideDown` already had. **Verification:** `verify-swap-in-place-mode.mjs` 355 → **411 checks**, with a new part 8 driving the per-column clear on the virtual clock: the clear takes the drain's place rather than joining it, each column runs explode → remove → refill → slide in order, each explode is aimed at exactly its own visible rows, the sweep stays strictly left to right, and the settle contract survives by object identity. The scoping hazard is asserted DIRECTLY — every removal's before/after column lengths must differ at exactly one index — plus a guard that the columns genuinely overlap in that run, so the assertion is not passing for want of anything to catch. Mutation-tested four ways (unscoped removal, clear-in-addition-to-drain, exploding the whole board per column, re-gating the schema to `dropIn`); all four fail it.
+- 2026-08-21 — **The clear step works under a column cascade, per column.** `clearBoard` needs only `swapInPlace` now: under `dropIn` it clears the whole board before the drop, under `columnCascade` it REPLACES that column's drain (`clearOutgoingSymbols(reelIndex?)`; resolved flag `boardClearsOutgoing`). The cascade reads the flag once before the sweep. **Load-bearing:** `tumbleBoardRemoveExploded` takes an optional `reelIndex`, because concurrently staggered columns would otherwise remove a neighbour's mid-explosion symbols; absent ⇒ every column (parity).
 
-- 2026-08-21 — **Reel behaviour: the board's mode moved out of the Scene Editor and into this config, and grew a clear step.** Owner call: _"I do not think the scene editor and especially the Perspective option should be the place where we control this from a UI — it should be something we set in the config, in a new section called Reel behaviour, per game."_ They were right, and for a reason worth recording: a `reelGrid` node is authored **per `layoutType`**, so `perspective.swapInPlace` / `swapStyle` / `columnStaggerMs` (shipped in #407 and #425) let a schema express a board that ROLLED IN PORTRAIT AND SWAPPED IN LANDSCAPE, or swept at two speeds depending on the phone — not a configuration anyone would author on purpose, and not a bug anyone would think to look for. All three moved verbatim into a new `reelBehaviour` block on `GameConfigDoc` (`packages/game-config/src/reelBehaviour.ts`), authored in a new **Reel behaviour** panel, and were DELETED from `ReelGridPerspective` + its resolver + the editor panel (nothing authored them yet, so there is nothing to migrate — the editor section now says where they went). A fourth knob joins them: **`clearBoard`**, the drop-in's own opener — every visible cell plays its authored `explosion` state and leaves before the new board falls, reusing `tumbleBoardInit` → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`, i.e. exactly the two cascade steps the drop-in omits, run for their own sake. **No new cues.** **The dependencies live in `resolveReelBehaviour`, not in a consumer** — `clearBoard` needs `swapInPlace` AND the `dropIn` style (a `columnCascade` already empties each column by DRAINING it, so a clear there would be two clears for one round), because resolving it honestly and re-gating it at the call site is the same rule written twice and one of the two eventually gets it wrong. But the STORED value survives its preconditions being switched off: a setting the author ticked must not vanish because they changed style to compare — the panel and the validator say it is inert instead. The engine reads the block through a new `deps.reelBehaviour` on `createGameState`, the same seam the board grid already arrives on, passed as the ACCESSOR so the live runtime bundle (which resolves after module evaluation) is not frozen out. Off by default end to end: an un-authored project stores no block, and `verify-swap-in-place-mode.mjs` asserts its drop-in sequence is unchanged cue for cue. **Verification:** new `reelBehaviour.fixture.ts` (56 offline checks — defaults, the two dependency rules, `0`-vs-absent for the stagger, sparse storage, the validator's four "saves but does nothing" warnings) and `verify-swap-in-place-mode.mjs` grew to **355 checks** (was 288), now driving the REAL `resolveReelBehaviour` rather than a stub so the whole chain `/config` block → resolver → engine accessors is exercised, plus a new part 7 that drives the clear step on the virtual clock (order, that the explode is awaited, that only the visible rows explode, and that the settle contract survives the clear — by object identity). Mutation-tested: ignoring the preconditions, clearing after the new board is queued, exploding the padding rows, and re-reading the stale node field each fail it.
+- 2026-08-21 — **Reel behaviour moved from the Scene Editor into this config.** `swapInPlace` / `swapStyle` / `columnStaggerMs` lived on the per-`layoutType` `reelGrid` node, so one game could roll in portrait and swap in landscape. They moved verbatim into a `reelBehaviour` block (`packages/game-config/src/reelBehaviour.ts`, **Reel behaviour** panel), plus `clearBoard`. Dependencies live in `resolveReelBehaviour`, never re-gated at a call site; a stored value survives its preconditions being switched off (panel + validator say it is inert). The engine reads it through `deps.reelBehaviour` on `createGameState`, passed as an accessor so the live runtime bundle isn't frozen out. Fixtures: `reelBehaviour.fixture.ts`, `verify-swap-in-place-mode.mjs`.
 
 - 2026-08-21 — **A `ways` game's grid never reached the mock at all** (#432, follow-up to the entry below). Probing the newly-live contract endpoint for `test3` returned `{"protocol":"ways","cascade":true}` — **no `grid`**. `projectGrid` derived a board for `lines`/`cluster`/`scatter` and returned `undefined` for everything else, on the written reasoning that "`ways` needs nothing beyond the board". That is backwards: for the lines mock **the board IS the grid**, so every ways project has silently fallen back to the shared `apps/lines` 5×3 no matter what it authored — which is the whole of the reported 8×4-vs-5×3 mismatch, and was invisible while the contract only ever moved at publish time. Now only `book` is exempt (it runs `createBookMock`, which owns its own board and is handed no grid).
 
@@ -793,63 +748,20 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
   **All four picker lists were the SAME hand-copied derivation**, which is how they could have drifted apart without anyone noticing. They now share `pickSheetsFrom` (`$lib/pickSheets.ts`), and `pickManifestKey` — "which of a folder's JSONs IS the manifest" — has one implementation used by both the picker's listing and `resolveManifestKey`. A disagreement between those two is precisely the bug, so they no longer get to disagree. A sheet with no resolvable manifest is still listed under its prefix: its frames stay pickable, and a ref scoped by it degrades to the bare frame name rather than vanishing.
 
-  **What this does NOT fix:** docs authored before today keep their un-scopeable refs. `/config`'s are repaired on the ship path; the Scene Editor doc's are not, so they resolve through the bare-name degradation — right art wherever the frame name is unique, ambiguous wherever it isn't. See Open item 0.
-
   Verified: new `node apps/launcher-api/pickSheets.fixture.ts` (12 assertions, runs directly because `$lib/pickSheets.ts` is dependency-free by design) pins the manifest choice, the folder attribution including the nested-JSON trap and a JSON-less sheet, and — the regression itself — that a sheet WITH a manifest can never yield its output prefix. `launcher-api` builds clean; eslint clean on the changed files.
-
-- 2026-08-20 — **A buy-feature card's button art was simply absent in-game — the region picker stores an atlas ref the runtime cannot scope by.** Owner's console on the live Borut remake: `Sprite: key "invisible_wall/bookofborutremake/sheets/S_Game_UI2/::T_UI_BuyBack_glow.png" is not found in the loadedAssets`. The frame exists and the sheet ships; the KEY is unresolvable. An `image`-kind card param stores `<atlas>::<frame>`, and `RegionPicker` builds the atlas half from its `sheets[].key` — which for a Sheet-Maker sheet is the R2 OUTPUT PREFIX (`…/sheets/S_Game_UI2/`), not the `<path>/<name>.json` manifest key. The editor-art export registers a sheet's frames under its MANIFEST key, so the ref named a namespace that is never registered.
-
-  **Two failures, not one.** `parseScopedFrameRef` demands a full manifest key, and on anything else returned the WHOLE value as a bare region name — so the sprite looked up a key no sheet can ever carry (nothing draws), and `editorArtExport`'s `addImageRef`, which shares that helper, filed the same string as a dangling region (it is the sole entry in the project's `editorArt.missing`). Both readers were consistently wrong in the same way, which is why nothing flagged it.
-
-  **Fixed on the ship path, with a degradation behind it.** `loadGameConfigDoc` — the loader `runtimeBundle`, `editorArtExport` and `publishGame` all go through, and the exact counterpart of `loadFlipbookDoc` — now repairs `betModePresentation.*.cardParams` refs through the shared `createAtlasRefResolver`, so the prefix resolves to the real manifest key and the export ships the sheet under the same key the runtime looks up. Gated on a repairable ref actually being present, so a correctly-authored config costs no R2 calls. The editor's own read path (`loadGameConfigDocWithEtag`) is deliberately NOT repaired — it backs the conditional-write contract, and a save must round-trip what was loaded. Behind that, `parseScopedFrameRef` now degrades an un-scopeable prefix to the BARE frame name (which the `sprites` loader registers alongside every scoped frame) instead of a guaranteed miss, so an unrepaired ref from anywhere still renders. That loses the atlas pin, so it is a safety net, not the fix.
-
-  **The root cause is still open and is NOT config-specific:** `RegionPicker`'s `sheets[].key` comes from `listSheets`, which reports the R2 prefix, so every consumer — `/config` card params, the Scene Editor's image params, `/components`, `/symbols` — can still store an un-scopeable ref today. Only the config's is repaired on ship; the editor doc's is not. The clean fix is for the picker's sheet entries to carry the RESOLVED manifest key (`resolveManifestKey`), which would make every new pick canonical. Filed under Open items.
-
-  Verified: new `node packages/engine-layout/scopedFrameRef.fixture.ts` (19 assertions) pins all three prefix shapes — full manifest key keeps the atlas pin, an un-scopeable prefix degrades to the bare region, and a region name that merely CONTAINS `::` survives whole (the parity case a naive split would break). Also fixed a pre-existing type error it exposed: `needsAtlasRefRepair` called `.includes` on a value TS had narrowed to `never` (its `ref is string` guards narrow an already-string argument away in their negative branches) — it shipped only because nothing type-checks `packages/`. `apps/lines` + `launcher-api` build clean; eslint clean.
 
 - 2026-08-20 — **`/config`'s Identity section is gone — three of its four fields were write-only.** Owner: "I want you to do that only if they are used, otherwise I want them removed". They are not used. A whole-repo search for `providerName` / `gameName` / `gameID` found **no reader**: only the `GameConfigDoc` type requiring them, the six `apps/*/game/config.ts` samples declaring them, the committed defaults, and fixtures setting them to satisfy the type. The section's own hint claimed they were "shown on the info page and used in the RGS handshake" — neither is true here: the info page renders from `infoManifest`, the RGS handshake goes through the Play4Fun facade which sends none of them, and the on-screen title comes from the launcher's project name via `applyHudGameNameDefault`. The only `gameID` in the RGS code is a COMMENT in `Authenticate.svelte` showing what a Stake RGS sends BACK. So the fields asked an author to invent values that changed nothing, which is why every project still read `sample_provider` / `0_0_lines` — there was never a reason to edit them. **`rtp` stays** (it is read — `gameProfile.ts` renders the "97% RTP" line), so the section is now "Return to player" with that one field. **The doc fields stay in `GameConfigDoc`**: that shape mirrors the upstream Stake config and is the contract if this ever talks to a Stake RGS directly, and removing them would churn six app configs, three committed defaults, the normalizer and every fixture for no gain. A comment at the old site records what happened and the condition for giving them a UI again — something reads them, and then seeded from the project's client + name rather than typed. This supersedes the previous suggestion to seed them from the project: seeding a field nobody reads is still a field nobody reads. Doc (rule 9): `docs/tools/game-config.md`'s panel list now describes a **Return to player** panel and records why the Identity trio went.
 
 - 2026-08-20 — **The lines template advertised a payout no player could win.** Owner's `/config` on `test4` showed `symbols.W.paytable — W pays in the paytable but appears on no reel strip`. It is not a `test4` problem: the committed **`lines.json` template** carried it (`W` = `{3:5, 4:10, 5:20}`, on no strip), so EVERY project seeded from lines inherited an unwinnable advertised payout — `ways` and `scatter` were already clean. `validateGameConfigDoc` has flagged exactly this for a while ("the `W` bug, generalized"), so the warning was correct and simply unactioned. **Behaviour-neutral to remove:** `projectWild` (publishGame) gates the mock's wild on the SAME `symbolsInPlay` set — "a wild that merely sits in the dictionary with a paytable but is never dealt stays wild-less" — so nothing read the row except the INFO PAGE, which showed three payouts a player cannot collect. Fixed at source (`apps/lines/src/game/config.ts` → `paytable: null`) and regenerated. **The alternative fix was deliberately NOT taken:** putting `W` on the strips would make the wild actually deal, which changes hit frequencies and starts feeding the mock a wild — that is game MATH and belongs with a math export, not a lint fix. The residual warning is now the milder branch of the same rule (`W is in the dictionary but appears on no reel strip`), which is the honest state: the sample declares a wild it does not deal. **Existing projects keep the old row** — their authored config lives in R2, so `test4` needs "Reset to template default" or W's paytable cleared by hand to clear the warning there. Also: the bet-mode **RTP** input gained the `min`/`max` bounds the identity RTP already had (both were already `type="number"` — an earlier claim that RTP was free text was wrong). Both apps build; eslint clean.
 
 - 2026-08-20 — **A ways math VERIFIER — so an arriving math export can be checked instead of trusted.** `apps/ways` ships cosmetic padding reels and says so in `config.ts` ("inventing those here would be fabricating game math"); `apps/lines` ships real 217-cell strips that came from the math SDK export. The export itself has to come from a math engine, so the gap that COULD be closed here is the check that receives one. `pnpm --filter game-config-spike run waysmath` reads any Game Config doc, deals boards off its strips (independent uniform stop per reel, `numRows` consecutive cells with wraparound — the property a uniform strip set does not have), scores them with the ways rule priced per WAY (`totalBet / waysCount`, #357), and reports RTP, hit rate, best spin, scatter-trigger rate and per-symbol contribution. Everything is read from the doc — paying symbols, wilds, scatters, board shape — so it verifies any project, not just `apps/ways`. **What it says about the current placeholder:** 0.13% RTP against a declared `rtp: 0.97`, a 3+ scatter board **1 spin in 6** (lines, for contrast: 1 in 1,190), and a declared wild `W` that appears on no strip and therefore can never land. **Two guards against the tool itself lying.** `waysCrosscheck` holds the doc-scorer against `mock-rgs-server`'s `evaluateWays` over 40,000 random boards — symbol, run length, ways count AND pay amount, with and without wild substitution — because a second implementation of one rule is how a measurement quietly stops describing the game; the mock evaluator can't just be imported, being bound to its own PIC/SCAT vocabulary and hardcoded paytable. And the tool REFUSES to print an RTP for a non-`ways` doc (it would understate the return by the ratio of the two divisors and still read like a measurement) — it prints the strip diagnostic and stops. It also prints its own scope every run: base-game symbol pays only, no free-spin feature (the award structure isn't declared in the config, so no total RTP is computable), and the reminder that the client never computes wins — the RGS does, and in production it is external. Lives in `tools/game-config-spike` rather than a new workspace package, deliberately: adding one churned `pnpm-lock.yaml` with unrelated lingui peer re-resolution, which CI's `--frozen-lockfile` would have had to swallow. Verification tooling only — no engine or runtime change.
-- 2026-08-19 — **`/config` can author the win model** — new "How wins are decided" panel above Paylines, picking lines / ways / cluster / scatter. **The picker DELETES `winModel` when Lines is chosen** rather than writing `{type:'lines'}`: the server normalizes that away on save, so writing it would leave the page permanently "Unsaved" (reloaded doc ≠ in-memory doc). Switching to another arm seeds exactly the defaults `normalizeWinModel` would fill, so the tool shows what would actually be stored. Paylines gain a banner when the model isn't lines — they stay saved (switching back restores them) but don't affect play, mirroring the validator, which already skips payline checks there. A blunt note warns that a non-lines model only changes what the config **declares** — the engine has no runtime for those types yet, so the game still plays as lines. ⏳ **NOT live-verified:** `/config` is auth-gated (correctly 303s to `/login`), so the panel needs an owner click-through — specifically that arms switch cleanly and a Lines project doesn't read dirty after saving.
-
 - 2026-08-19 — **Per-type committed defaults: `scatter` ships its own, and a silently-dropped tier set was repaired.** `gameConfigDefaults` had exactly one template (`lines`) and fell back to it for every other type, so a project marked anything else inherited the lines dictionary and its 20 paylines. `scatter.json` now ships with `winModel: {type:'scatter', minCount:8}`, the minimum **derived from the game's own paytable** rather than written down (a game whose smallest paying row is 8 has `minCount: 8` by definition; hard-coding it would let the model drift from the payouts). Measured: ways 3, cluster 5, scatter 8. **⚠️ Regression found + fixed here:** the generator reads `winLevelMap.ts` as a sibling of the config, and Phase A moved `apps/lines`' copy into `engine-game` — the surrounding `try/catch` cannot tell "this game has no tiers" from "the file moved", so regenerating silently dropped **all 10 win tiers** (112 lines) from the lines default while still validating clean. Now tries sibling → `engine-game`, and **warns loudly** when neither is found. **`ways`/`cluster` are deliberately unregistered:** their upstream sample configs ship `paddingReels: { basegame: '', … }` — empty-string placeholders, and the strips are the in-play gate, so such a default would seed a blank board. Closing it needs real strips authored in those configs; synthesizing them is game math, not packaging. `--check` stays green and usable as a CI gate.
 
-- 2026-08-19 — **`winModel` added to `GameConfigDoc` — a project can now state HOW it pays** (Phase C of [game-type-templates](../design/game-type-templates.md)). A discriminated union: `lines` | `ways` (direction, minKind) | `cluster` (minCluster, adjacency) | `scatter` (minCount). **The `lines` arm deliberately carries NO payline data** — `paylines`/`paylineColors` stay where they already live. Because `lines` is the default, `normalizeWinModel` **drops** it rather than storing it, so every config authored before this field normalizes byte-identically and **not one stored doc is rewritten**. The design doc's first sketch had the `lines` arm own `paylines`; that would have meant migrating every authored doc in R2 for no functional gain. Read it via **`resolveWinModel()`** — never `doc.winModel` directly — so "absent means lines" lives in exactly one place. Validation now follows the model: a non-lines doc **skips the payline checks** (that table is inert, not wrong, for a game that never reads it) and gets its own bounds check instead (more adjacent reels than the grid is wide; a cluster bigger than the board); the generic symbol checks still run for every model. 13 checks in `pnpm --filter game-config-spike run doc`, the load-bearing two being byte-identical round-trip and `lines`-explicit ≡ omitted. **Still lines-shaped and awaiting the next slice:** `getPaylines`/`getNumLines`/`paylineColor` in `engine-game`, and the `/config` UI (no per-arm editor yet — a `ways` model can be stored but not yet authored in the tool).
+- 2026-08-19 — **`winModel` on `GameConfigDoc`** — `lines` | `ways` | `cluster` | `scatter`. The
+  `lines` arm carries no payline data and `normalizeWinModel` DROPS it, so every older doc is
+  byte-identical; read it via `resolveWinModel()`, never `doc.winModel`. A non-lines doc skips the
+  payline checks and gets its own bounds check.
 
-- 2026-08-18 — **Bet-mode card follow-up: fields overflowed their columns and the pickers sat on
-  three different baselines.** The page had no `box-sizing` reset, so every `width: 100%` field was
-  its track _plus_ 20px of padding+border — the Description/Dialog textareas visibly spilled past
-  their column edge, and the same held for the paytable-grid inputs. Border-box now applies to
-  `.fld` controls, `.grid td input` and `.body`. The Card-graphics cluster was the other half: its
-  `repeat(auto-fill, minmax(100px, 1fr))` tracks fitted 1–3 fields per group depending on how wide
-  that group's column happened to land, so a colour swatch could sit beside an unrelated text field
-  and no two groups shared a row — and the three control types size themselves independently (a
-  22px `ColorField` swatch, a 28px `RegionPicker` bar, a 34px `<select>`). Each group is now a
-  one-field-per-row stack inside its own panel, and every control is pinned to one `--fld-h: 34px`
-  (the two child components via `:global` + border-box, or the pinned height would have grown them
-  by their own padding). Measured in a harness built from the page's real CSS: all groups top-align,
-  row 1 at one Y and row 2 at another across all five, zero overflow past any field or the card.
-- 2026-08-18 — **The bet-mode card was rebuilt: it was hard to read, and one line of CSS was why.**
-  `label input { width: 180px }` applied to CHECKBOXES too, so **Feature** / **Buy bonus** were
-  stretched 180px wide and their words sat a label-width from the box they belonged to, floating in
-  the dead space between Max win and Kind — the single thing that made the row look broken. Fixed
-  page-wide (`input[type='checkbox']` keeps its intrinsic width), which also tidies the Big-win
-  tiers' escalation toggle. On top of that the card is now four labelled blocks — **Math · Menu ·
-  Copy · Card graphics** — on fixed grid tracks so fields line up down the page instead of a
-  wrapping flex that re-flowed per mode; **colour-coded by kind** (blue `base` / gold `buy` / teal
-  `ante`) on the rail, key and header tags, reusing the menu-preview chip palette so a card and its
-  chip match (and `mp-base`, which had no colour at all, got one); card-graphics params **bucketed
-  by their declared `group`** and laid out in columns, so Panel/Icon/Spine/Button read as clusters
-  and the group is named once instead of suffixing every field. Also: a win tier's **Name** was on
-  the 52px numeric `label.mini` width and truncated every one of them ("SUPER W"). Dead CSS from the
-  old layout removed — the page now builds with **zero** unused-selector warnings. Verified live
-  against `bookofborutremake` (4 modes, picked card art) and `test2`.
-- 2026-08-18 — **Per-mode Button copy set on Book of Borut Remake.** All three buy modes had no
-  `text.button`, so the card fell back to the derived `BUY`; each now carries `BUY FEATURE`, which
-  also makes it a translatable row (the wording is additionally baked into the `T_UI_BuyBack*`
-  ribbon art, which no config field or translation can reach — see the tool guide's note).
 - 2026-08-07 — **Payline coverage-regeneration + per-project wild on the mock RGS.** Two follow-ups to
   the per-project grid (#259): (a) the lines mock now regenerates a full-coverage payline set
   (`standardPaylines`/`coversAllRows` in `scripts/mock-rgs-server.mjs`) when a game's authored lines
@@ -862,79 +774,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   paytable, the roll and `/symbols` — a dictionary-only paytable stays dead everywhere. No snapshot /
   no in-play wild ⇒ committed default ⇒ Hot Fruits / Book of Borut byte-identical. Verified offline
   (`node` fixture, 20 assertions: default parity, 5×5 coverage, wild-substitution math).
-- 2026-08-05 — **Phase 8: Paylines panel auto-loads the live server set; Reel-strips panel removed.**
-  New `apps/launcher-api/src/lib/server/rgsConfig.ts` (`fetchServerPaylines`, best-effort, returns
-  `null` on any failure) + `ENV.TEST_SERVER_URL`; `+page.server.ts` probes only when the project has a
-  mock (test-server manifest) and passes `serverPaylines`; the Paylines panel previews the RGS's real
-  lines (colour editor keyed to match the runtime `paylineColor` mapping) or falls back to the saved doc.
-  Reel-strips section + dead `stripText`/`frequencies` helpers + strip CSS deleted. Build + node-harness
-  verified (book=10, lines=5, unreachable=null). See the Phase 8 section above.
-
-- 2026-08-05 — **Phase 7: server-authoritative paylines & reel strips (colour-only in the tool).**
-  The facade publishes the RGS's declared boot config to `globalThis.__IE_SERVER_CONFIG__`
-  (`captureConfig`, the `__IE_WIN_LEVELS__` bridge in reverse); `game/gameConfig.ts` reads it live
-  (`serverConfig()`, not memoised) so `getPaylines`/`getNumLines`/`getSymbolsInPlay` follow the server
-  and `paddingReels` auto-generates cosmetic strips from the in-play set. `/config` paylines + strips
-  panels locked read-only (paylines keep the colour swatch). Absent server config ⇒ byte-identical.
-  Engine/facade build + typecheck; 18-check node harness against the book mock (all pass). Needs a
-  Runtime release + republish to reach online games. See the Phase 7 section above.
-
-- 2026-08-04 — **Live-verified + closed (owner-confirmed).** The owner clicked through `/config` +
-  `/editor` in the deployed launcher and ran an end-to-end (incl. non-5×3) spin. The one remaining
-  open item — the launcher-only live-verify — is done; the tool is shipped and verified.
-
-- 2026-08-03 — **Config-authored win tiers (big-win levels) + sequential escalation.** New OPTIONAL
-  `winLevels?` tier list + `escalateTiers?`/`escalateFrom?` on `GameConfigDoc`, resolver in
-  `winLevels.ts`, validators, ~30 spike checks (all pass; the CRLF `lines.json` drift is the lone
-  pre-existing failure). Runtime routes `engineFacade.ts` `computeWinLevel`/big-win gate (via the
-  `globalThis.__IE_WIN_LEVELS__` bridge) and the engine's win-level lookup (`activeWinLevelData` in
-  `gameConfig.ts`, consumed by `bookEventHandlerMap`/`flowEffects`/`unskippablePresentation`) through
-  the authored tiers. Escalation in `WinAnimation`/`WinVisual` (per-tier intro+idle chain, final-tier
-  outro on count-up, one continuous count). `/config` "Win tiers" panel + guide. Un-authored ⇒
-  byte-identical (coded `winLevelMap` + coded ladder, both untouched). Needs a Runtime release +
-  republish to reach online games. See the "Config-authored win tiers" section above.
-
-- 2026-07-28 — **Phase 6 (all four sub-phases): bet modes authorable + localizable.** Engine +
-  schema build + typecheck + spike verified; 6a/6b verified live in the running game; 6c/6d
-  build-verified (launcher render owner-verify-owed).
-
-  - **6a** `betModePresentation` schema + `resolveBetModes` + validator warnings
-    in `packages/game-config` (14 new spike checks).
-  - **6b** `apps/lines/src/game/betModeMeta.ts` builds `stateMeta.betModeMeta` from the active config
-    (uppercased keys preserve the RGS wire contract; source strings translated at render); `Game.svelte`
-    seeds it at boot; render-time `translate()` in `BonusCards`/`ModalBuyBonusConfirm`/HUD
-    `betAmountLabel`. Live buy menu shows the config's BONUS·$100·BUY card, not the placeholder.
-    `DEFAULT_BET_MODE_META` kept for the un-wired dev apps.
-  - **6c** the `/config` Bet modes panel becomes per-mode cards with kind/order/copy + a resolved-menu
-    preview; presentation written sparsely.
-  - **6d** `/localization` auto-collects the bet-mode copy into a "Bet modes" section (`harvestBetModes`,
-    new `gameConfig` origin), read-only source, same pattern as its Win Text section.
-  - See Phase 6 above. Remaining Phase-6 follow-up: bet-mode ASSETS (icon/dialog art) via the
-    live-asset pipeline, and retiring `DEFAULT_BET_MODE_META` once every dev app seeds from config.
-
-- 2026-07-27 — **Grid-resize repair UX + per-payline colours** (this change; launcher surface
-  owner-verify-owed, engine + schema build + typecheck-verified):
-
-  - **`/config` Grid** — a `Match grid` button appears whenever a strip set or payline no longer
-    matches `numReels` (the state a reel-count change leaves), padding/truncating every strip and
-    payline to the grid in one click (new reels clone the last reel; new payline cells start on row
-    0). The Reel-strips editor now renders a column PER `numReels`, not per existing strip entry, so
-    the reels a widen added are authorable instead of a dead-end error. Fixes the "changed board
-    size → error with no way to add strips" report.
-  - **Per-payline colour** — new OPTIONAL `paylineColors: Record<lineId, '#rrggbb'>` on
-    `GameConfigDoc` (an Invisible-Engine extension, NOT part of the math export; a paste-in config
-    omits it). `normalizePaylineColors` keeps only colours for a line that exists and is a valid hex
-    (`#rgb`/`#rrggbb`, expanded), so it's idempotent and an un-coloured config is byte-identical to
-    before. Rides the existing config bake→pull chain — no new asset class. `/config` Paylines panel
-    gets a colour swatch per line (tints the line id + active cells; ⌫ clears).
-  - **Runtime** — `paylineColor(lineIndex)` in `game/gameConfig.ts` maps a win's `meta.lineIndex` →
-    payline id → colour. `winLineColorFor()` in `flowEffects.ts` feeds it to all three `winLineShow`
-    dispatch sites (coded `winInfo` handler, `showWinLine` flow effect, resting win cycle) as a new
-    `winLineShow.color`. `WinLine.svelte` draws the core line + glow in that colour when set (else
-    the single Symbols-tool default → parity), and publishes it as `stateGame.winLineColor` (cleared
-    on hide) — the REUSABLE win-colour hook any asset component can read to tint itself to the
-    winning line. `apps/lines` build passes; `game-config` typecheck + spike pass (the pre-existing
-    CRLF `lines.json` byte-identical drift check is unrelated).
+- 2026-07-27 — **Per-payline colours.** Optional `paylineColors: Record<lineId, '#rrggbb'>`
+  (not part of a math export); `paylineColor(lineIndex)` feeds all three `winLineShow` sites, and
+  `WinLine.svelte` publishes the colour as `stateGame.winLineColor` — the hook any component can
+  read to tint itself to the winning line.
 
 - 2026-07-27 — **Fix: online reel stopped rolling.** The grid-dimensions `rebuildBoard()` reassigned
   `stateGame.board = buildBoard()`, orphaning the `enhancedBoard` (createEnhanceBoard) that closes
@@ -944,31 +787,9 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 ...buildBoard())`) so render + enhancedBoard stay on the same reels. Also repointed the dangling
   `boardRaw()` `board` reference (left undeclared when #97 removed `const board`) to `stateGame.board`.
   Ships to online games via a Runtime release.
-- 2026-07-27 — Grid-dimensions enhancement (branch `game-config-grid`): the authored numReels/numRows
-  resize the board in the game (`boardDimensions()` + `rebuildBoard()`), the mock RGS (parameterized
-  `createMockRgs`), and the Scene Editor preview (`drawReelGrid` from config, `reelGridWarnings` vs
-  config). Fixed a latent CRLF drift-gate bug (`.gitattributes` `eol=lf` for the generated config
-  JSON). Game + mock verified locally; launcher surfaces owner-verify-owed.
 - 2026-07-24 — Phase 5: `publish-symbol-defaults.mjs` now gates its symbol set on the AUTHORED game
   config (fetched from `GET /api/game-config/doc`) when a project has one, falling back to the
   compiled module — so the Symbols grid mirrors what actually ships. Fixed a self-inflicted
   regression: `constants.ts` (imported standalone by that script) must not pull in
   `gameConfig`→`editor-scenes`, so the `paddingReels()` accessor moved to `gameConfig.ts` and its
   consumers import it there.
-
-- 2026-07-24 — Phase 4: the `/config` tool — `roles.ts` registration (icon, TOOLS, ROLE_TOOLS,
-  TOOL_BAR_ORDER, TOOL_DOC_SLUG), the page (Identity/Grid/Bet modes/Symbols/Paylines/Reel
-  strips/raw-JSON panels, in-play badges + strip frequencies from the gate, inline validation), the
-  session-gated `PUT/GET /api/game-config`, and the `docs/tools/game-config.md` guide. Page render +
-  save round-trip are live-verify owed (needs the launcher); build + parsers fixture-verified.
-
-- 2026-07-24 — Phase 3: `config` in both bundle paths + `GET /api/game-config/doc`,
-  `bakedGameConfig()`, `game/gameConfig.ts` (memoised resolution + boot validation), `SymbolName`
-  widened to `string`, and the paytable/strips/info-manifest consumers moved off the compiled
-  module. Verified live in the running game.
-
-- 2026-07-24 — Phase 2: `generate-game-config-defaults.ts` + the committed
-  `$lib/data/gameConfig/lines.json`, `gameConfigDefaults.ts` (`resolveGameConfig` owns the
-  precedence + provenance), drift gate in both the script and the fixture.
-- 2026-07-24 — Phase 1: `packages/game-config` (schema + in-play gate + validator),
-  `gameConfigStorage.ts` with ETag CAS, `game-config-spike` fixture, `invisible-game-config` agent.

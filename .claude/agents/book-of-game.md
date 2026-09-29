@@ -61,8 +61,8 @@ the engine plumbing already exists; what each title needs is Thermopylae's captu
   `freeSpinEnd` (which also broadcasts `specialBookHide`).
 - **Symbol map / sizes** — `SYMBOL_INFO_MAP` + the symbol set/states in
   [`apps/lines/src/game/constants.ts`](apps/lines/src/game/constants.ts). Note the book symbol
-  is the combined scatter+wild; size now resolves via `reelGrid.symbolSizeRatios` (Scene
-  Editor) ahead of the coded map — see `docs/design/invisible-symbols-state-machine.md`.
+  is the combined scatter+wild. Symbols are sized by their own art (Art bounds / Rigger Bounds
+  box) — there is no size knob; see `docs/design/invisible-symbols-state-machine.md`.
 
 ## Rules specific to Book-of work
 - **Deactivate via config, never gut.** The book symbol's scatter and wild paths, free spins,

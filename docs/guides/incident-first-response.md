@@ -257,7 +257,7 @@ time in UTC, and the full error string.
 | --- | --- | --- |
 | `/healthz` down, or the game key missing | the test server is down or failed to read R2 | Railway → Invisible-test-Server logs; redeploy |
 | the balance reset | expected: mock balances are per tab and reset on a restart or a publish | nothing |
-| the board, paylines or win model are wrong | the mock follows the project's Game Config live (re-read about every 10 s), and falls back to the published manifest when the launcher cannot be reached | check the Game Config; check the launcher (§ 2) ([test-server](../tools/test-server.md)) |
+| the board, paylines or win model are wrong | players' mock follows the game's published version and **Live ↗**'s mock the saved Game Config (each re-read about every 10 s); when the launcher cannot be reached, the mock keeps its last board or the published manifest | check the Game Config; check the launcher (§ 2) ([test-server](../tools/test-server.md)) |
 
 **Partner RGS**
 

@@ -1,7 +1,9 @@
 // Publish a built game bundle to R2 so the Invisible Test Server
-// (services/test-server) can serve it. The OWNER runs this after building a
-// game; it uploads every file under <buildDir> to  test_server/<gameKey>/...
-// and registers the game in the manifest  test_server/games.json.
+// (services/test-server) can serve it. An owner-side fallback: it uploads every file under
+// <buildDir> to  test_server/<gameKey>/...  and registers the game in the manifest
+// test_server/games.json, writing R2 directly with the owner's key. The normal path is the
+// desktop launcher's ☁ Publish, which needs no R2 key; its plain-node twin is
+// publish-game-via-portal.mjs (same arguments, through the portal).
 //
 //   R2_ENDPOINT=... R2_BUCKET=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 //     node apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <buildDir> \
@@ -22,17 +24,12 @@
 // three appear verbatim in the public game URL. `--read-token` is the project's public read token
 // (the `k=` in that URL); `--launcher` is the launcher origin (https://app.invisiblewall.org).
 //
-// Examples (each game is its OWN standalone repo with the engine as a submodule;
-// build with `pnpm build` → build/. The engine's apps/lines is a stale copy.):
-//   # Hot Fruits (C:\…\Projects\iGaming\Borut\HotFruits):
+// Examples (a game is its own repo with the engine as a submodule; `pnpm build` → build/.
+// Build through the desktop launcher where possible — it advances the engine submodule to
+// origin/main first, which a hand build does not):
 //   PUBLIC_RGS_TRANSPORT=play4fun pnpm build
-//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits <HotFruits>/build \
-//     --protocol lines --name "Hot Fruits"
-//
-//   # Book of Borut (its own repo):
-//   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
-//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs bookofborut <repo>/build \
-//     --protocol book --name "Book of Borut"
+//   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <repo>/build \
+//     --protocol lines --name "Display Name"
 //
 //   # Ways on Waves (Studio project `test6`) — a game whose key is NOT its project key:
 //   node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs waysofwavesbuild <repo>/build \

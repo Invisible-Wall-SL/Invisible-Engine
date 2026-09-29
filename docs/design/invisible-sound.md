@@ -28,8 +28,8 @@ else is downstream of it.
 
 ### 1.2 A name that exists is not a name that plays
 
-`docs/status/engine.md` (2026-08-25): **26 of the 53 sounds in every game's audiosprite had never
-been played by any code path.** `tumble_win_1…5` — a five-rung ladder cut for the cascade pop —
+`docs/status/engine-history.md` (2026-08-25): **26 of the 53 sounds in every game's audiosprite had
+never been played by any code path.** `tumble_win_1…5` — a five-rung ladder cut for the cascade pop —
 shipped from the fork playing nothing, while appearing in the Flow editor's sound dropdown, which
 is generated from the `SoundName` union (`packages/engine-flow-v2/src/reference/soundEnums.generated.ts`)
 and therefore lists **names, not wiring**.

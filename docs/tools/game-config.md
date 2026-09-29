@@ -1,7 +1,7 @@
 # Invisible Game Config
 
 Author **what a game plays** — its symbol dictionary and payouts, paylines, grid,
-bet modes, and identity/RTP. This is the frontend's **contract with the math**, not
+bet modes, win model and RTP. This is the frontend's **contract with the math**, not
 the math itself: the server stays the authority on outcomes; this doc tells the
 client what to draw and what to expect.
 
@@ -39,8 +39,8 @@ before — an un-authored project still runs the compiled template.
 - **Grid** — reel count and visible rows, **per reel**. This is the board's size
   everywhere: the game renders this many reels and rows, the Scene Editor draws its
   preview at this size, and a dev game's mock RGS deals it. Changing the reel count
-  re-shapes the row list but leaves paylines and strips alone — mismatches surface
-  as errors rather than silently trimming your work.
+  re-shapes the row list but leaves paylines alone — mismatches surface as errors
+  rather than silently trimming your work.
 
   Give the reels **different row counts** for a **stepped board** — a `3/4/5/4/3`
   diamond, a `2/3/4/5/6` ramp. Each column then draws, and is dealt, at its own
@@ -436,7 +436,7 @@ That disagreement also stops the game shipping, because the info page would quot
 prices the partner's server doesn't pay:
 
 - **Publish** in [Invisible Game Maker](game-maker.md) refuses the game. An admin
-  (owner role) can publish anyway after confirming.
+  can publish anyway after confirming.
 - **Desktop publish / delivery builds** stop at the bake too, listing the rows, unless
   run with `--allow-paytable-drift`.
 
@@ -503,10 +503,18 @@ pick up the ways template), just set _How wins are decided_ → **Ways** and sav
 ## How it reaches the game
 
 Pure config, no assets, so it travels verbatim through the bake — no export/pull
-step. On save it lands in the project's cloud storage; a live load (**Live ↗**) picks it up at
-once, players get it with the next Publish (or build), and the game resolves **your authored
-config → the baked config → the compiled template**, in that order. An un-authored project falls all
-the way through to the compiled template and is byte-identical to a stock build.
+step. On save it lands in the project's cloud storage and the game resolves **your
+authored config → the baked config → the compiled template**, in that order. An
+un-authored project falls all the way through to the compiled template and is
+byte-identical to a stock build.
+
+Who sees a save when:
+
+- **You, on the game's Live ↗ link** (and the launcher's Games cards) — within seconds.
+- **Players** (the Game Maker's **Play ↗** / the published URL) — only after the next
+  **Publish**, which freezes the config into a new published version. See
+  [Game Maker](game-maker.md).
+- **A desktop build** — on its next build.
 
 ## Reaching the server
 
@@ -526,8 +534,8 @@ version of this config the game you opened is drawing**:
 
 There is no way for either game to be dealt a different board from the one it draws.
 
-Two cases where that doesn't hold, both of which the game says out loud in the
-browser console as a `[game-config]` error naming both boards:
+Two cases where client and server disagree, both of which the game says out loud in
+the browser console as a `[game-config]` error naming both boards:
 
 - **A game published before this existed** (or built through the desktop launcher).
   Its server entry has no pointer back to this config, so it keeps dealing whatever
