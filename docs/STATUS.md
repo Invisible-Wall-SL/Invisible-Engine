@@ -184,6 +184,11 @@ the docs were just stale — remaining tail = live-verify). See each tool's
   imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
   same API export bakes them in. No env var needed (⟳ and the reader discover a running pod
   since #576). ([status/flipbook](status/flipbook.md))
+- **Model licences for shipped art** (owner, 2026-09-29) — every built-in image default is
+  non-commercial as wired today (RMBG-2.0 cutout, gameIconInstitute SDXL LoRA, FLUX.1-dev + Redux;
+  every PuLID path via InsightFace). Nothing was switched; renders are now stamped with their
+  models' licence status. Decide the switches in the recommendation table.
+  ([reference/model-licences](reference/model-licences.md), [status/atlas-maker](status/atlas-maker.md))
 - ~~**prod DB migrations applied?**~~ — resolved: migrations are applied through **0014** (the
   concurrency lease table), owner-confirmed 2026-08-04. ([status/infra](status/infra.md))
 
