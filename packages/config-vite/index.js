@@ -123,8 +123,8 @@ const deliveryProfilesDefine = () => {
 const debugBuild = () => dev || process.env.PUBLIC_IE_DEBUG === '1';
 
 /** The commit a build was cut from — the identity an error report names as its `release`. The
- * runtime release passes it explicitly; `GITHUB_SHA` covers any other build run by an Action. */
-export const buildSha = () => process.env.PUBLIC_BUILD_SHA || process.env.GITHUB_SHA || '';
+ * runtime release passes it explicitly (`PUBLIC_BUILD_SHA: github.sha`). */
+export const buildSha = () => process.env.PUBLIC_BUILD_SHA || '';
 
 /**
  * The Invisible Debug switch + the build stamp (`docs/design/invisible-debug-framework.md`).
