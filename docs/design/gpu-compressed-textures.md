@@ -26,10 +26,13 @@ back into the uncompressed full-res pages.
 
 - **Encode** — `apps/launcher-api/src/lib/server/ktx2Encode.ts` wraps `ktx2-encoder`
   (bundles the Binomial `basis_encoder.wasm`; runs in Node). `encodePageToKtx2(bytes)`
-  decodes via `sharp` → raw RGBA, encodes **UASTC q1 + Zstd + mipmaps** (validated sweet
-  spot: ~9 s, ~3.5 MB, ~345 MB peak for a 2048×4096 page). Returns null (→ ship WebP) when
-  a page is < 1 Mpix, > 12 Mpix (encoder hard cap — we don't downscale, it would desync
-  atlas frame rects), or on any failure. stdout is silenced (the wasm spams per-slice).
+  decodes via `sharp` → raw RGBA, encodes **UASTC q1 + Zstd, no mipmaps** (validated sweet
+  spot: ~9 s, ~3.5 MB, ~345 MB peak for a 2048×4096 page). The encoded size comes from
+  `targetSize()` in `ktx2Dimensions.ts`: pages over 4096 px on a side or 11 Mpix are downscaled,
+  and every page is floored to whole 4×4 blocks (see "Block alignment" and "Automatic
+  downscaling" below) — the encoder reports the size it used and callers rescale their coords to
+  it. Returns null (→ ship WebP) when a page is < 1 Mpix, or on any failure. stdout is silenced
+  (the wasm spams per-slice).
 - **Export funnel** — `editorArtExport.ts` `exportManifest()` / images loop: after the
   verbatim page copy, `encodeSheetKtx2(...)` writes a `.ktx2` page + a SECOND spritesheet
   JSON whose `meta.image` points at it (identical frame rects), recorded as
@@ -62,7 +65,7 @@ else (Samsung, desktop, **arcade/kiosk**) → the uncompressed full-res original
 `?quality=high` / `?quality=low` force it. So the low/high split is **compressed vs uncompressed
 at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone fits in memory.
 KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
-cost) — `ktx2Encode` takes a `mipmaps` opt for a future downscale tier.
+cost) — `encodePageToKtx2` takes a `mipmaps` opt, off by default, for a future downscale tier.
 
 ## Spine / rig atlases (the dominant VRAM)
 
@@ -103,9 +106,10 @@ alters the bytes produced for an unchanged source.
 ## Automatic downscaling (no manual resize)
 
 `ktx2Encode` auto-downscales the COMPRESSED variant so its longest side ≤ `DEFAULT_MAX_DIMENSION`
-(4096 — clears the encoder's ~12 Mpix cap AND every iPhone GPU's `MAX_TEXTURE_SIZE`) and returns
-the encoded dimensions. Pages ≤4096 ship at full resolution; only larger ones (e.g. a 4096×8096
-cinematic → 2072×4096) shrink — **in the pipeline, so no source art is touched**. Callers rescale
+(4096 — every iPhone GPU's `MAX_TEXTURE_SIZE`) and its area ≤ `MAX_ENCODE_PIXELS` (11 Mpix, under
+the encoder's ~12 Mpix hard cap), then block-aligns it, and returns the encoded dimensions. Pages inside both limits ship at full resolution (less ≤3 px of block
+alignment); only larger ones shrink — by `targetSize()`, a 4096×8096 cinematic → 2072×4092, and a
+4096×4096 page, over the area cap, → 3316×3316 — **in the pipeline, so no source art is touched**. Callers rescale
 the matching coords by the same factor: `toTexturePackerJson(set, file, sx, sy)` for sheets, and
 `rewriteAtlasForKtx2` for spine (page-aware: rewrites each downscaled page's `size:` line + rescales
 its region `bounds`/`offsets`/`orig`/… — uniform scale, so rotated regions stay correct; UVs are

@@ -179,8 +179,11 @@ mounting.
 
 ## 5. Phase 5 — Ship a real game on a FlowDoc (the end-to-end proof)
 
-**Goal:** the acceptance scenario runs in a **baked, shipped** game. Nothing above is real
-until this lands — **no shipped game runs a FlowDoc today** (`invisible-flow.md` §0).
+**Goal:** the acceptance scenario runs in a **baked, shipped** game.
+
+> **Closed (owner-confirmed 2026-08-04).** `bookofborutremake` runs an authored flow-v2 doc in
+> production, and #807 (2026-09-28) retired the coded free-spin intro/outro, so a game's flow now
+> owns them outright. State: [docs/status/flow.md](../status/flow.md).
 
 - Author the complete `loading → basegame → win-branch` FlowDoc in the editor for a real
   project (lines reference first, then Borut), bake it (`BakedBundle.flow`, the Phase-6
@@ -418,7 +421,7 @@ Phase 3 (engine-state)   → richer branching (parallel to 1–2)
 Phase 6 (universal tray) → scales it to every component/screen
 Phase 7 (behaviour/catalog) → long tail
 Phase 8 (action trigger → intent pins) → SHIPPED (Spin, §8)
-Phase 9 (value dataflow pins → value edges) → NEXT (§11; mirrors Phase 8's shape)
+Phase 9 (value dataflow pins → value edges) → re-plan on v2 (§11 targets the retired v1 editor)
 ```
 
 **Phases 1 → 2 → 4 → 5** is the critical path to the owner's exact flow running in a shipped
@@ -428,11 +431,9 @@ making *value* dataflow explicit (engine signal → HUD display), the symmetric 
 
 ## 10. Rule-9 / docs debt to fold in
 
-- **`docs/tools/editor.md` is missing** — the Scene Editor (the more complex tool) has no
-  tool doc, only `component-editor.md` exists. Rule 9: write it (grounded in the real route
-  UI) as part of this work, and refresh `component-editor.md` + `flow.md` as the authoring
-  surface changes (the pending Flow Phase-3/7 `docs-keeper` audit).
-- Record each phase in `docs/STATUS.md` as it lands (rule 6).
+- The Scene Editor guide now exists (`docs/tools/invisible-editor.md`). Refresh it,
+  `component-editor.md` and `flow.md` as the authoring surface changes (rule 9).
+- Record each phase in `docs/status/flow.md` as it lands (rule 6).
 
 ---
 
@@ -443,7 +444,12 @@ making *value* dataflow explicit (engine signal → HUD display), the symmetric 
 > Phase 9 makes *value* dataflow explicit (an engine-owned value SOURCE becomes an output pin
 > the HUD's display input pins wire into). The build plan below is preserved as-authored.
 >
-> Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
+> **Superseded as a build plan (unbuilt).** It was written against the v1 `/flow` editor
+> (`packages/engine-flow`, `FlowScreenNode`, screen-node value pins), which was retired
+> 2026-07-13. The v2 graph ([invisible-flow-v2.md](invisible-flow-v2.md)) already carries typed
+> data pins, so the goal stands but the steps below do not apply as written: re-plan on v2 before
+> building. Keep §11.1–11.3 for the problem statement and the locked rules. Tracked as open
+> item 5 in [docs/status/flow.md](../status/flow.md).
 
 ### 11.1 Problem statement + the agreed model
 

@@ -10,11 +10,12 @@ An online **frame-animation authoring tool**, in two modes.
 Either way the saved artifact is a `FlipbookClip` in the project's cloud storage at
 `<client>/<project>/clips/<id>.clip.json`.
 
-> **Status (as of 2026-08-26):** **Clips: authoring + shipping.** You can create, order,
+> **Status (as of 2026-09-29):** **Clips: authoring + shipping.** You can create, order,
 > preview, save, rename, copy and delete clips, and the tool warns you when a clip
 > references a region its sheet no longer has. Clips now travel the full
 > export → `deploy/` → bake → pull → `registerFlipbooks` chain, so a clip **does**
-> reach a shipped game. Four consumers read one: **Invisible FX** (a layer's particle
+> reach a shipped game — as long as something in the project plays it: a clip nothing
+> places, binds or cues is left out of the build. Four consumers read one: **Invisible FX** (a layer's particle
 > art), the **Symbols State Machine** (a symbol×state cell), the **Scene Editor** (a
 > placed `flipbook` element — drag it from the Library's Flipbooks section) and the
 > **Rigger** (an animation event key's **Play flipbook**, so a clip plays on a rig's own

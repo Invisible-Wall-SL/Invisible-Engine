@@ -11,8 +11,8 @@ door for the whole pipeline: online tools are reached *through* the launcher
 
 - **Source:** `apps/launcher-api/`
 - **Live URL:** **app.invisiblewall.org**
-- **Where it runs:** cloud — Railway project `Invisible launcher`, with a
-  Postgres database for users and sessions.
+- **Where it runs:** cloud — the `launcher` service on Railway, with a Postgres
+  database for users and sessions.
 
 ## Signing in
 
@@ -40,7 +40,7 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 | `animator` | Animator | Invisible Spine Viewer, Invisible Rigger, Spine Editor |
 | `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher) — **without** the publish capabilities, which stay admin-default |
 | `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
-| `audio` | Music / SFX | Invisible Sound, Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
+| `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
 
 Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;
@@ -48,26 +48,28 @@ local tool cards show an "install" tag.
 
 ## How tool pages work
 
-**Tools are always full-page — never iframes.** Each online tool route
-(`/atlas`, `/spine`) is a server `load` that:
+**Tools are always full-page — never iframes.** Each online tool route is a
+server `load` that:
 
 1. redirects to `/login` if you're not authenticated;
 2. returns **403** if your role isn't entitled to that tool;
-3. otherwise `throw redirect(303, …)` straight to the tool.
+3. otherwise renders the tool inside the launcher — or, for the Atlas Maker,
+   Sheet Maker, Spine Viewer and Rigger, `throw redirect(303, …)` straight to it.
 
 For the Atlas Maker, the redirect target is the external tool URL
 (`ATLAS_TOOL_URL`) with a short-lived **signed launch token** (`?iw_launch=`)
 naming you, your role and your current project; the tool turns it into its own
 session. The Sheet Maker works the same way (see [INFRA](../INFRA.md), "Tool
 launch tokens"). For the
-Spine Viewer it redirects to the static `/spine/view.html` document served by
-the launcher itself.
+Spine Viewer and the Rigger it redirects to their static `view.html` documents
+(`/spine/view.html`, `/rigger/view.html`) served by the launcher itself.
 
 ## Other pages
 
-- **`/onboarding`** ("Getting started" link in the header) — a guided
-  walkthrough. Currently a first version; a fuller per-role onboarding is
-  planned (backlog B6).
+- **`/onboarding`** ("Getting started" link in the header) — a walkthrough for
+  your role: how the studio works, your online tools (each with a **Read the
+  guide** link), your local tools (download, plus a box to save where you
+  installed each one), and where to get help.
 - **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
   Games, Sessions, **Costs**, Settings (deploy token, layout default, **engine
   boot mark**, ComfyUI pod fleet, edge cache).
@@ -231,31 +233,24 @@ so a figure copied off a Spanish statement needs no reformatting. Note this is
 deliberately *not* a conversion of the USD estimate: converting January's cost
 at today's rate is not valid for taxation.
 
-## Config / env (names only — values in Railway)
+## Config / env
 
-`DATABASE_URL`, `ORIGIN`, `REMEMBER_TTL_DAYS`, `SESSION_TTL_HOURS`,
-`RESEND_API_KEY`, `R2_*` (R2 access for spine assets), `ATLAS_BACKEND_URL`,
-`ATLAS_TOOL_URL` (has a code default so it works without the dashboard),
-`ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the Atlas /
-Sheet Maker launch tokens), `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` /
-`ATLAS_BLUEPRINT_SECRET` (legacy handoff, only while the signing secret is
-unset), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`.
-
-Admin → Costs (all optional, read-only, each degrades to a "not configured"
-card): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
-`CF_ANALYTICS_TOKEN`, `OPENAI_ADMIN_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`.
-
-Non-secret config (URLs, flags) is given a **code default** in
-`src/lib/server/env.ts` because Railway env vars only *stage* until you click
-"Apply changes / Deploy".
+Every env var the launcher reads is listed (names only) in
+[INFRA](../INFRA.md) → "Environment variables". Non-secret config (URLs, flags)
+has a **code default** in `src/lib/server/env.ts`, because Railway env vars only
+*stage* until you click "Apply changes / Deploy".
 
 ## Running locally (developers)
 
 ```bash
 pnpm --filter launcher-api dev      # dev server on port 3010
-pnpm --filter launcher-api build    # build + type-check (no separate check script)
+pnpm --filter launcher-api build    # production bundle — NOT a type-check
 ```
-DB helpers: `db:generate` / `db:migrate` / `db:push` / `db:seed`.
+`build` is a bare `vite build`, so a type error still builds green; from the
+repo root, `pnpm lint` and `pnpm check:undefined-names` are what CI checks.
+Schema changes: edit `src/lib/server/db/schema.ts`, run `db:generate`, commit
+the migration — the launcher applies it at boot. Never run `db:push` against
+production. `db:seed` seeds a local database.
 Deploy = push to `main` (Railway auto-deploys); verify the live URL picked it up.
 
 ## Traps
@@ -272,8 +267,5 @@ Deploy = push to `main` (Railway auto-deploys); verify the live URL picked it up
 
 - **DNS must stay grey-cloud (DNS-only):** `app` is a CNAME to Railway;
   proxying through Cloudflare breaks Railway's TLS.
-- Onboarding is a basic first version (backlog B6).
-- Local-tool download links + per-user install paths are not yet persisted
-  (backlog B5) — local tool cards currently only describe the tool.
-- TODO: confirm a single launcher/Postgres behind `app.invisiblewall.org`
-  (backlog B3) so users/sessions aren't split across duplicate services.
+- Open items (refactor debt, per-request DB cost, owed owner grants) are tracked
+  in [status/launcher](../status/launcher.md).

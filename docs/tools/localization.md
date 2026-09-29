@@ -1,9 +1,9 @@
 # Invisible Localization
 
-Write a game's text once, then auto-translate it into many languages with Claude
-and review every line before it ships. Built **inside the launcher** — it's a
-light UI + a single Claude call + R2 storage, so it's a real full-page route, not
-an external service.
+Write a game's text once, then machine-translate it into many languages and review
+every line before it ships. Built **inside the launcher** — a light UI, one
+translation call per batch and R2 storage — so it's a real full-page route, never
+an iframe.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
 - **Access:** sign in at `app.invisiblewall.org`, then open `/localization`
@@ -91,6 +91,16 @@ It skips empty cells, asks for confirmation, and still needs **Save** — the
 intended flow being: translate → Save → open the game with Game Maker's **Live ↗** (an
 authoring boot shows unreviewed text, see below) → read it in context → approve.
 
+## Saving alongside other people
+
+- **Someone else saved first.** If a colleague saved this project's strings while you
+  were editing, **Save** does not overwrite them: a dialog titled _Someone else saved
+  this translation set_ appears. **Overwrite theirs** replaces their save with yours;
+  cancelling keeps your edits on screen so you can reload and redo them on top.
+- **Someone else is editing.** While another person has the table open for editing, a
+  banner names them and the page is read-only for you (Save is hidden). **Take over**
+  is always offered if you need to edit anyway.
+
 ## Storage
 
 The whole table is a single JSON document in R2 (bucket `invisibleassets`) at:
@@ -121,10 +131,12 @@ Shape:
 }
 ```
 
-`origin` is `"editor"` for rows auto-collected from the Scene Editor, `"manual"`
-otherwise (absent ⇒ manual). On **Save**, auto-collected rows with **no**
-translation are _not_ persisted — they're re-derived from the editor doc
-(`<client>/<project>/editor/scenes.json`) on every load, so the table self-heals when
+`origin` says which section a row belongs to: `"manual"` for hand-authored rows
+(absent ⇒ manual), otherwise the auto-collected source — `"editor"` (Scene Editor),
+`"winText"`, `"symbols"`, `"flow"`, `"gameConfig"` (bet modes) or `"uiText"` (Game UI).
+On **Save**, auto-collected rows with **no** translation are _not_ persisted — they're
+re-derived from their owning tool's data (for Scene Editor rows, the editor doc
+`<client>/<project>/editor/scenes.json`) on every load, so the table self-heals when
 text is added or removed in the editor; once a row has a translation it's stored
 so the work survives. No database table — it's R2-only, so there's no migration.
 

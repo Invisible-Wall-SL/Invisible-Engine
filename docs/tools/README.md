@@ -44,6 +44,12 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Launcher** (desktop ComfyUI + tunnel manager; also builds, publishes and delivers games) | your machine | admin · developer · artist · pipeline tester · music/SFX | [invisible-launcher.md](invisible-launcher.md) |
 | **Spine Editor** (third-party) | your machine (licensed) | admin · animator | [spine-editor.md](spine-editor.md) |
 
+## Services behind the tools (no launcher card)
+
+| Service | Where it runs | Used by | Doc |
+|---|---|---|---|
+| **Invisible Test Server** (hosts published game builds + a mock RGS) | cloud (`games.invisiblewall.org`) | Game Maker publish, the desktop launcher | [test-server.md](test-server.md) |
+
 > The full role list (admin · developer · artist · animator · pipeline tester ·
 > localization reviewer · music/SFX) and what each one gets is in
 > [launcher.md](launcher.md#roles-and-the-tool-manifest).

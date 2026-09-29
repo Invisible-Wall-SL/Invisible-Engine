@@ -52,26 +52,17 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
   edits bindings within that fixed grid). NOTE: the **global highlight** below is the one
   global binding now authorable on top of the fixed grid — it is not per-symbol-per-state.
 
-## Symbol size lives on the reel (moved out 2026-06-18)
+## Symbol size — sized by its own art (no size knob)
 
-Symbol render size is **NOT** a Symbols State Machine concern. A short-lived global
-`defaultSizeRatios` field on the symbols doc was added then **removed**: size is a _layout_
-concern, so it now lives on the reel's `reelGrid.symbolSizeRatios` and is edited in the
-**Scene Editor** — see
-[`docs/design/invisible-editor.md`](./invisible-editor.md) ("Symbol size on the reel"). This
-tool is once again only about _which asset maps to each symbol×state_.
+Symbol render size is **not** a Symbols State Machine concern, and there is no size knob
+anywhere any more. The earlier `defaultSizeRatios` doc global and the later reel-level size
+field were both removed: each symbol is fitted inside its reel cell by its own art, aspect
+kept. To change how a symbol fills its cell, change the box its art is sized by — **Art
+bounds** for a sprite region, or the **Bounds** box in Invisible Rigger for a spine. See the
+guide's ["Symbol size on the reel"](../tools/invisible-editor.md#symbol-size-on-the-reel).
 
-- **Where size lives now:** `ReelGridNode.symbolSizeRatios?: { width, height }` on the layout
-  doc (`scenes.json`), edited via the reel's "Symbol size (× cell)" control in the Scene
-  Editor's `EditorProperties`. `1` = the art fills one reel cell; absent ⇒ the game's coded
-  per-symbol sizes (parity). It travels on the layout doc like every other reelGrid field —
-  no symbols-doc involvement and no bake step beyond the normal scene bake.
-- **Back-compat only on the symbols side:** the per-cell `SymbolCell.sizeRatios` field stays
-  **optional** purely for back-compat _reads_ — the engine's size resolver still honours a
-  baked per-cell override ahead of the reel value — but the Symbols State Machine no longer
-  **authors** size at any level (the size panel + per-cell size inputs were removed).
-- **Resolution order (at render):** baked per-cell `sizeRatios` (legacy override) > reel
-  `reelGrid.symbolSizeRatios` > coded `SYMBOL_INFO_MAP` size > `{ width: 1, height: 1 }`.
+- A per-cell `sizeRatios` left in an older symbols doc is ignored at render. Per-LAYER
+  `sizeRatios` (× cell) on a symbol layer is a different, live field (`SymbolLayer.svelte`).
 - **Scope reality.** cluster / scatter / ways / price keep self-contained `SYMBOL_INFO_MAP`s
   and don't use the baked symbols pipeline.
 
@@ -591,8 +582,8 @@ lined up.
 		"H1": {
 			"static": { "type": "sprite", "assetKey": "h1.webp" },
 			"win": { "type": "spine", "assetKey": "H1", "animationName": "h1" },
-			// sizeRatios is OPTIONAL on a cell (back-compat reads only; size is now set on the
-			// reel — reelGrid.symbolSizeRatios in the Scene Editor). One entry per authored
+			// sizeRatios on a cell is legacy and ignored at render (symbols are sized by their
+			// own art). One entry per authored
 			// state; unset states fall through.
 		},
 		// … only symbols/states the user changed need appear (sparse overrides)
@@ -679,9 +670,7 @@ done when it travels **export → `deploy/` → bake → pull → register**.
   `highlight` (2026-06-17) and `winLine` (2026-06-17, styled 2026-06-18) — see their sections
   above. Each is sparse (absent = byte-identical to before), forwarded verbatim through
   `symbolExport.ts` → `bake-editor-doc.mjs` → `bundle.symbols.*`, and consumed by the per-game
-  engine accessor (`bakedWinLineConfig()`). (Symbol _size_ was briefly a doc global here too —
-  `defaultSizeRatios` — but it has since moved to `reelGrid.symbolSizeRatios` on the reel,
-  edited in the Scene Editor; see "Symbol size lives on the reel" above.)
+  engine accessor (`bakedWinLineConfig()`). (Symbol _size_ is not authored here or anywhere; see "Symbol size" above.)
 
 ## Per-project defaults — automatic publish (added 2026-06-12)
 

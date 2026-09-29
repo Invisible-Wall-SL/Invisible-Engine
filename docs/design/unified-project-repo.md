@@ -1,6 +1,8 @@
 # Unified project repo — one R2 tree per (client, project)
 
-Status: design proposal (2026-06-02). **Supersedes the per-tool split** introduced in
+Status: **SHIPPED 2026-06-02** — R2 is one tree per `(client, project)` and the old per-tool
+namespaces are deleted; current state in [status/launcher](../status/launcher.md) and
+[status/infra](../status/infra.md). **Supersedes the per-tool split** introduced in
 [`r2-client-isolation-and-scaffold.md`](./r2-client-isolation-and-scaffold.md) — but only
 the `<tool>/` top-level segment. **Client/project isolation is preserved**; we are
 reorganizing _within_ a project, not loosening separation.

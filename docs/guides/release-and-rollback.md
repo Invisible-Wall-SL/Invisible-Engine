@@ -243,21 +243,21 @@ Then follow section 2 from step 2.
 | One game looks or plays wrong since someone published it | **Make live** on its previous version ([Publish and deliver](publish-and-deliver.md), section B) |
 | Every online game broke right after an engine merge | **Runtime rollback** → `rollback` (section 4), then revert on `main` |
 | One online game broke after an engine merge, and the others are fine | The engine is shared, so it is still an engine problem. Roll back if players are affected, or `pin` that game to the previous release as a stopgap (section 5), then fix forward. |
-| The mock RGS deals or pays the wrong math | Neither. The mock follows the live Game Config. Fix it in `/config`, then publish. |
+| The mock RGS deals or pays the wrong math | Neither. Players' mock follows the game's published version, and **Live ↗** the saved Game Config. Fix it in `/config`, check it on **Live ↗**, then publish. |
 | A desktop-built game or a partner delivery is broken | Neither. Those builds carry their own engine. Fix it, then ☁ Publish or 📦 Deliver again. |
 | Something broke and nobody published or merged | Neither, yet. See [Incident first response](incident-first-response.md). |
 | Authored files or the database were lost or corrupted | A restore: [Backups and restores](backups.md) |
 
 |  | Content: **Make live** | Engine: **Runtime rollback** |
 | --- | --- | --- |
-| Moves | one game's published version (`<client>/<project>/published/pointer.json`) | the shared engine pointer (`test_server/_runtime/lines/current.json`), or one game's pin |
+| Moves | one game's published version (`<client>/<project>/published/pointer.json`), and with it the math the players' mock RGS deals | the shared engine pointer (`test_server/_runtime/lines/current.json`), or one game's pin |
 | Affects | that one game | every online game not pinned |
 | Where | `/game-maker` → the card → **Published versions** | GitHub Actions → **Runtime rollback** |
 | Who | `gamePublish` holders with access to the project | anyone with write access to the repo |
 | Takes effect | on each player's next load | when the run goes green, about 45 seconds |
 | Kept | 5 versions per game | the newest 10 releases, plus the current, previous and pinned ones |
 | Undo | **Make live** on the newer version | `promote` |
-| Leaves alone | the engine, and the mock RGS math | every game's published content, and `main` |
+| Leaves alone | the engine | every game's published content, and `main` |
 
 ## Related
 

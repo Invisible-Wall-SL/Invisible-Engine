@@ -2,241 +2,66 @@
 
 > Design: [docs/design/atlas-per-user-session.md](../design/atlas-per-user-session.md) · Guide: [docs/tools/atlas-maker.md](../tools/atlas-maker.md) · Agent: `.claude/agents/atlas-python-tools.md`
 
-**One-line state:** _(2026-09-20)_ **⧉ Duplicate atlas — author a setup once, then copy it per extraction pass.** Every region, its source refs, the layout and all settings come across under a new name; the regions take a required tag (`frame_001` → `bg_frame_001`) because variants are keyed by region name project-wide, so a same-name copy would silently move the ORIGINAL onto the copy’s art — measured. The refs are shared by value on purpose: one source sequence, many passes. Built + verified offline and on an R2-less boot; no copy has been rendered through ComfyUI yet. Was _(2026-09-18)_ **A region can have AI LAYERS — more pictures out of one source, packed on the same page in register with it.** `➕🗂` on a card makes `<base>_<suffix>` an ordinary generated slot (own prompt, seed and variants) that borrows the base’s reference image BY REFERENCE and is cropped to the base’s footprint at compose, so two independent renders line up; asked for as a "duplicate the atlas page" button, which cannot be made safe because a region’s sources and committed output are keyed by NAME across the whole project. Built + verified offline and on an R2-less boot; no AI layer has been rendered through ComfyUI yet. Was _(2026-09-17)_ **Every unlocked card is back on its latest variant the moment a render finishes** — a variant pick now stores WHICH batch it was made from (`variant_at`), so "has this slot rendered since?" is read off the manifest instead of reconstructed by a post-render hook that had to survive a background job, a browser poll and every blanket save. Measured on the owner's live bucket: 3 unlocked pins named art 3–4 renders old, so those cards — and the atlas composed from them — showed a file the owner had long re-rendered past. Was _(2026-09-17)_ **The layout is switchable in place, so an atlas born `pack` can become `grid` without losing its prompts** — `Layout` in 🧩 Atlas settings, offered only on a from-scratch atlas, clearing the old layout's rects as it goes. Shipped because the `grid` work below fixed nothing for the atlas the owner actually had: layout was written at creation and nothing migrated it, so they set 2048×2048, saved, hard-refreshed (values intact) and Create Atlas still returned **1028×25652**. Was _(2026-09-17)_ **A third layout, `grid`, makes the page size the author's instead of the packer's** — Atlas width/height + cell size are read, never overwritten, and the grid re-flows on every Create Atlas (owner: *"i do not get the correct resize and atlas size I set in the atlas settings"*). On a branch, not live-verified. Was: Live on Railway (`atlas-tool`). SDXL generate → slice → compose → deploy proven end-to-end; **FLUX (txt2img *and* the ref/ControlNet path) and gpt_image both proven on the RunPod backend** (owner-tested 2026-08-18) — the old "only SDXL ControlNets are installed on the local 4070" ceiling is gone.
+**One-line state:** live on Railway (`atlas-tool`), generating on the RunPod serverless backend by
+default (⚙ *Run generation on* can pick *My computer*). SDXL, FLUX (txt2img + ref/ControlNet) and
+gpt_image all run; atlases are `pack`, `grid` or authored-geometry. Blueprints are in live use; AI
+layers and Duplicate atlas are built but not yet rendered live. Since 2026-09-29 the tool takes its scope from a launcher-signed
+launch token and stamps every render with model-licence provenance.
 
 ## Current state
 Works today on `main` / live:
 
-- **Frame trim is back, it works on a `grid` atlas, and it no longer crops by default**
-  _(2026-09-17)_. Owner: *"the old drop down, where I could select if the image was full or cropped
-  to the alpha is now gone and I need it back asap!"* — plus *"its default should be not to crop
-  the image!"*
-  - **#719's measurement was true and beside the point.** `pack_trim_mode` really was called only
-    inside `auto_pack_layout`, so hiding the row on `grid` looked justified — but the CROPPING it
-    governs still happened there, in `fit_to_region`, which crops the element to its alpha content
-    on the way into the cell. The control vanished while the behaviour stayed. **Hiding a live
-    control is the same fault as showing a dead one**, which is what #719 existed to fix.
-  - `pack_trim` now lives in `batch_atlas` (`pack_trim_mode`, `keep_full_frame`) because
-    `fit_to_region` reads it and `batch_atlas` cannot import `ui_server`; `ui_server` delegates, so
-    there is ONE normalizer. Read through the same `ATLAS_META` channel `region_box` already uses.
-  - **Gated on `is_from_scratch AND NOT is_atlas_bound`**, so a `.atlas`-bound rig slot, a
-    Sheet-Maker cell and a legacy cell-grid region never read it — the Sheet-Maker parity contract
-    is untouched, and removing the gate breaks `test_sheet_handoff`, i.e. the pre-existing suite
-    proves it. `is_atlas_bound` is not redundant: the Source `.atlas` row renders on every panel,
-    so a manifest can carry `layout: pack` AND `atlas_file`.
-  - **Precedence:** `pack_trim` answers WHAT is placed (ink bbox vs authored canvas), `fit_mode`
-    answers HOW it maps into the rect. Orthogonal, except at the explicit-`contain` short-circuit,
-    which maps the whole canvas but centres it BY THE INK — bypassed under `keep`, because being
-    ink-blind is the entire content of the setting.
-  - **The proof it had to come back, measured:** the flipbook export stamps `fit_mode: "contain"`
-    on every grid region, so grid composes through `_packer_compose_tile`. Three frames of one 60px
-    square walked across a 320 canvas into a 400 cell compose **byte-identical** under `alpha` (ink
-    pinned at 170,170,230,230 — the animation is gone) and step 49 → 124 → 199 under `keep`.
-  - **`PACK_TRIM_DEFAULT` is now `keep`, and the blast radius is real.** Every manifest with no
-    explicit `atlas.pack_trim` changes on its next Create Atlas. On `grid` only the composed pixels
-    change. **On `pack` the page is re-measured at full canvas, so it GROWS and every rect moves** —
-    measured 2012×2512 (5.1 Mpx) → 1028×25652 (26.4 Mpx), ~5× the area, and there is no page-size
-    ceiling in the packer or the deploy. Tight symbol packing must now be asked for explicitly.
-    Nothing rewrites a stored manifest and the default is never written into one.
-  - Fixtures: `test_pack_trim` 39 → 87 (incl. the different-pixels proof at three cell sizes),
-    `test_layout_aware_panel` 144 → 169. 7 mutations tried, 7 caught.
-  - **Known gap, deliberately not fixed:** `/parityscan`'s SHEET PARITY verdict recomposes through
-    `_packer_compose_tile` by design, so a correctly composed `keep` page reads `DIFFERS`. Mirroring
-    `fit_to_region` there means installing `ATLAS_META` inside a request thread of a threaded
-    server — the global-state hazard this codebase warns about.
-
-- **Create Atlas no longer writes an EMPTY page over a good one** _(2026-09-17, #728)_. Owner:
-  *"my atlas is always empty now… it was working before!"* `grid_layout` correctly refuses when
-  there is no cell size, but its note only reached `pre_note` and **compose ran anyway** — and
-  compose skips every region with no rect on a from-scratch atlas (the `_unplaced` gate #712
-  widened to grid), so it drew ZERO regions, wrote a blank page, and `publish_pack_page` repointed
-  the manifest at it. A correct refusal upstream became a destroyed page downstream. `pack` had the
-  same hole via "nothing generated yet".
-  - `nothing_is_placed(m)` stops the compose subprocess and the post-hook, leaving `source_image` /
-    `source_image_path` untouched, and reports the layout function's OWN note verbatim.
-  - **A partially laid-out atlas still composes** — some rects and some blanks is the normal
-    working state, so the guard fires only on ZERO. Pinned hard; that is the regression risk.
-  - `run_compose` now sets `running=True` BEFORE the slow prepare steps, or the fix was reachable
-    but invisible: `poll()` ends on the first `running:false` and would show the previous run's log.
-  - Fixture: `test_no_empty_compose.py` (69 checks) with a fake bucket seeded with the good page, so
-    "the page was destroyed" is measurable in pixels; against pristine `main` it reproduces the bug.
-    6 mutations tried, 6 caught.
-
-- **A variant pick is spent by the next render — as a fact of the manifest, not a cleanup**
-  _(2026-09-17)_. Owner report: *"when I generate a new variation it is not automatically
-  getting added to my grid, and I will have to go and select it from the variations on each
-  card."* The behaviour was already designed, documented and unit-tested; what was missing was
-  anywhere durable to keep it.
-  - **`variant_at` — the newest variant id that existed when the pick was made.** Stamped by
-    `apply_region_edits` **only when the pick actually changes**, and read by the single shared
-    predicate `batch_atlas.effective_variant(region, newest_id)`: a pick is live while nothing
-    newer than its own batch exists, spent once something is, and never spent while LOCKED.
-    Picking #3 of 5 still keeps #3 — the other four were there when it was picked.
-  - **It replaces an in-memory snapshot.** `_drop_superseded_picks` used to compare each slot's
-    newest id against one taken before the subprocess started, so a correct card depended on the
-    post-render hook completing, the browser's poll loop reaching `refreshCards()`, and no
-    blanket `saveAll()` posting the card's stale id back in between — `collect()` sends every
-    card's pick on every save. Any one of those missing pinned the slot to old art permanently,
-    with nothing on screen to say so. The sweep is now housekeeping over the whole manifest
-    (it keeps a stored pin meaning "this is the file in use", and reports what it cleared);
-    the card and Create Atlas no longer depend on it having run.
-  - **`output_view` returns the pick it resolved**, and the page build + `/cardsdata` both take
-    it from there. The card's image and its `data-variant` came from two different reads before,
-    which is how a card could display one file while re-asserting another on the next save.
-  - **Legacy pins date themselves to their own id**, so an old pin with newer art beside it reads
-    as spent — which is what repairs the owner's stuck cards without them re-picking anything.
-  - Measured before theorising: a read-only sweep of all 203
-    manifests in the bucket found 211 pins, **3** of them unlocked-and-stale (2 in
-    `s_whalerscreamrestest`, 1 in `S_New_Boot` — both atlases the owner was working in that day),
-    and 0 stale locked pins. All three verified fixed against their exact stored shape.
-  - Fixtures: `py test_variant_pick.py` (**64** checks, was 44) — added the no-cleanup-ever-runs
-    case, the blanket-save revival, curating #3 of 5, a deleted newest (ids can go DOWN, so the
-    comparison is strictly-greater and never `!=`), legacy pins and non-numeric ids. Also driven
-    through the real `run_render` with only the ComfyUI subprocess faked.
-  - **Not verified live:** no R2, no GPU, no browser — everything is asserted offline, including
-    against the owner's real region shapes copied out of the bucket.
-- **The Atlas settings panel follows the layout — a field that does nothing is no longer on
-  screen** _(2026-09-17)_. Owner: *"all options that are not used when the Layout dropdown is set
-  to pack the art should be hidden from the UI and viceversa."* This is the trap that cost three
-  rounds: an editable Atlas width/height on a `pack` atlas looked like an input and was silently
-  overwritten. Measured split, held to the source by a fixture that greps `ui_server.py`:
-  `grid_layout` reads `cell_width` and never writes `atlas["width"]`; `auto_pack_layout` does the
-  reverse. **The Frame trim half of that split was WRONG and was reverted the same day** — see the
-  bullet above: `pack_trim_mode` was indeed called only inside `auto_pack_layout`, but the CROPPING
-  it names still happened on a grid atlas through `fit_to_region`, so hiding the row removed a
-  control over live behaviour. Frame trim is shown on both layouts again.
-  - **`pack`:** cell width/height hidden (nothing reads them); Frame trim shown; Atlas
-    width/height shown **read-only** with a note. Kept visible deliberately — they are the only
-    readout of the page the packer produced, which is how `1028×25652` was spotted in the first
-    place. **`grid`:** cell fields shown and editable, Frame trim hidden, width/height editable.
-  - **Reuses the Pipeline selector's show/hide mechanism** one layer down — `data-layout` +
-    `layoutVisible(g,L)` + `applyAtlasLayout()`, mirroring `data-pipe`/`pipeVisible`/`applyPipe`
-    — rather than inventing a second one. `data-ro-layout` carries the readonly flip, which
-    `data-pipe` had no equivalent for.
-  - **The server ALSO emits the initial hidden/readonly state**, so there is no flash of wrong
-    fields before the JS runs. `layout_row_visible` is the Python twin of the JS `layoutVisible`,
-    and a fixture runs both and compares — they cannot drift.
-  - **Rows are hidden, never omitted.** `cfgData()` reads `[data-cfg]` values, and a
-    `display:none` control still has one, so a hidden field round-trips its stored value and
-    `grid → pack → grid` returns the cell size. The `_ATLAS_GEOM_KEYS` blank-skip is now the
-    second net rather than the first, so a never-set hidden row cannot invent `cell_width: 0`.
-  - **`readonly`, not `disabled`** — a disabled input posts nothing, and the value would depend
-    on the blank-skip to survive. Pinned by a mutation.
-  - **The `.atlas`-bound panel is unchanged**, verified by rendering `origin/main`'s loop and the
-    new helper over the same bound manifest and diffing: structure byte-identical, only the
-    deliberate tooltip rewrites differ.
-  - Fixtures: `py test_layout_aware_panel.py` (144 checks), including one that runs the
-    **shipped** `applyAtlasLayout` under node against the markup the server really emits and
-    requires the repainted panel to equal what the server would have rendered for that layout,
-    both directions. 13 mutations tried, 13 caught.
-  - **Not verified:** never rendered in a real browser — the toggle runs against a hand-written
-    DOM shim, so the CSS (dimming, the note) is unverified by anything but reading.
-
-- **The Layout gate keyed off the wrong thing, and locked out the atlases that needed it most**
-  _(2026-09-17, fixing the #717 gate the same day)_. #717 gated the Layout row on
-  `is_from_scratch(m)` — "the manifest already has a `layout`" — reasoning that a `.atlas`-bound
-  atlas must be protected. That conflated two different shapes, and the owner hit it immediately:
-  *"that option is gone, and before it was there and everything worked!"*
-  - **Measured against the owner's real bucket** (`invisible_wall/test6/manifests/`) rather than
-    inferred — the fourth inference this thread that turned out wrong, so it was read directly.
-    **Genuinely bound** (carry `atlas.atlas_file`): `S_CaughtSymbols`, `S_UI`, both `Whaler`
-    atlases — correctly refused. **Authored-geometry but bound to nothing** (no `layout`, no
-    `atlas_file`, but real rects + `texturepacker_json`): `S_New_Boot_Sink` (1934×968, 13 regions),
-    `S_New_Boot`, `S_New_Lobster_Idle` — **these could never reach the grid.** The catch-22: the
-    dropdown that assigns a layout was withheld from exactly the atlases with no layout.
-  - **New `can_choose_layout(m)` = `not is_atlas_bound(m)`**, beside an UNCHANGED
-    `is_from_scratch` — compose, slice, the page pointer and the deploy all read that one and still
-    mean what they meant. The two ask different questions: "does the tool already lay this out"
-    versus "would handing it the layout destroy something that only exists outside it".
-  - **A third option, and it had to exist before the row could appear.** `_control_html` normalised
-    an unrecognised value to `pack`, so simply showing the row would have displayed "Pack the art"
-    for an authored atlas and one save would have fed 13 real rects to the packer — a worse bug
-    than the one being fixed. `Authored geometry (leave as is)` maps to a BLANK value, which
-    `_ATLAS_GEOM_KEYS` already skips on save, so it is a structural no-op. **This reverses #717's
-    no-blank rule for this case only, and for the opposite reason:** there blank would have looked
-    changeable while doing nothing; here "does nothing" is the honest meaning. The ordering (blank
-    skip above the switch) can only be pinned by reading the source, and is.
-  - **Leaving authored geometry is the one destructive switch, and the reply says what is given
-    up** — naming the region count, that the trim goes with it, and that nothing can put it back.
-  - One deliberate difference from `main`: a manifest carrying BOTH `atlas_file` and a
-    `layout` no longer gets the row. Strictly safer, and pinned as such.
-  - Fixtures: `py test_authored_geometry_layout.py` (141 assertions) using the real bucket shapes;
-    `test_layout_switch.py` updated where it had encoded the old gate as a fact.
-    `test_layout_aware_panel.py` needed no edit — its byte-for-byte bound-panel golden still
-    passes. 8 mutations tried, 8 caught.
-
-- **`Layout` — switching an existing atlas between `pack` and `grid`** _(2026-09-17)_. The `grid`
-  bullet below shipped a layout nothing could reach: `layout` was written only at atlas-CREATION
-  time, so the owner's existing atlas stayed `pack` and behaved exactly as before the fix — *"I am
-  generating with the new code, but the results are the same, how is it possible?"* Re-exporting
-  would have produced a grid atlas but discarded every prompt, seed and ref already on its regions.
-  - **Offered ONLY on an atlas that is already from-scratch** (`is_from_scratch`). An atlas whose
-    geometry comes from a bound `.atlas` has no layout, and converting it to `pack` would re-pack
-    and destroy that geometry. The render gate is a module-level filter (`atlas_geom_fields_for`)
-    with no bypass — nothing else iterates `ATLAS_GEOM_FIELDS`.
-  - **Switching CLEARS the previous layout's rects** (`_LAYOUT_SWITCH_CLEARED_KEYS` =
-    `_PACK_GEOM_KEYS` minus `fit_mode` — the fit is the author's choice, not a measurement). It
-    matters most in the over-capacity case, where `grid_layout` deliberately changes nothing:
-    stale pack rects would otherwise be deployed as if they were the grid. The reply COUNTS what
-    it cleared rather than claiming it unconditionally — an ungenerated atlas loses nothing.
-  - **The unconditional `continue` in the save path is load-bearing.** Without it, posting
-    `atlas_layout: "freeform"` falls through to the generic `atlas[mk] = sv` and writes an
-    unrecognised layout — which reads as ".atlas-bound" and silently disables **every**
-    from-scratch gate in the tool. Pinned by a mutation.
-  - **The status line had to survive its own page reload.** `saveCfg` reloads after 900 ms, which
-    wiped the one warning that the region cards are about to come back unplaced on purpose (and
-    the reload is what brings them back, so it can't be dropped). Long replies now hold for 5 s.
-  - Fixtures: `py test_layout_switch.py` (173 assertions — the settings/save path; `test_grid_layout.py`
-    keeps the grid maths). 13 mutations tried, 13 caught.
-  - **Not verified:** no browser and no live service — everything is asserted at the rendered-HTML,
-    helper and `/saveconfig` levels, never against the owner's real atlas.
-
-- **A third layout: `grid` — an atlas whose page size is the AUTHOR'S, not the packer's**
-  _(2026-09-17)_. Owner report against the new Flipbook ref export: *"i do not get the correct
-  resize and atlas size I set in the atlas settings"*. Measured cause, not guessed: the export
-  wrote `layout: "pack"`, and `auto_pack_layout` packs at a hardcoded `AUTO_PACK_MAX_WIDTH = 2048`
-  with `height=0`, never reads `cell_width`/`cell_height`, and then **overwrites**
-  `atlas["width"]`/`["height"]` with its own result (`ui_server.py`). Since `ATLAS_GEOM_FIELDS` are
-  per-manifest with no global fallback, the four fields the owner typed existed only on that
-  manifest — and the packer discarded them every run.
-  - **`grid_layout(m)` sits beside `auto_pack_layout(m)`, with the contract inverted.** It READS
-    `atlas.width/height/cell_width/cell_height` and never writes them; `cols = width // cell_width`,
-    region `i` → `((i % cols) * cw, (i // cols) * ch, cw, ch)`, in **manifest order** across
-    `regions` then `rotated_regions` — the export writes frames in frame order and that order IS
-    the animation, so it is never sorted.
-  - **Recomputed on every Create Atlas, never frozen at authoring time.** That is the entire fix:
-    edit the cell size in Settings, re-run, the grid re-flows. Pinned by a fixture that re-runs the
-    layout at a new cell size and asserts every rect moved *and* that the author's page survived.
-  - **`fit_mode` SURVIVES a re-flow.** `_GRID_CLEARED_KEYS` is `_REPACK_CLEARED_KEYS` minus
-    `fit_mode`: on `pack` that field is derived output, on `grid` it is the author's choice.
-  - **One page, and over-capacity changes NOTHING.** `batch_atlas.py` has no page concept at all
-    (a manifest carries a single `source_image`), so overflow does not exist to spill into. Create
-    Atlas returns a note naming capacity, count and the three knobs rather than laying out a
-    partial grid, which would look like a successful run. Multi-page remains unbuilt — see Open items.
-  - **Six `layout == "pack"` gates were judged one at a time**, behind a new shared
-    `batch_atlas.is_from_scratch(m)` rather than a seventh copy of the string compare. Widened: the
-    page-pointer update + its mid-compose re-read, the index delete affordance, compose's
-    `_unplaced` skip, and `slice_atlas.slice_regions` (a 7th gate found during the work) — each
-    because `region_box`'s fallback answers `(0, 0, cell_w, cell_h)` on a grid, so an un-rected
-    region would stack in the top-left cell or be sliced from it. Left pack-only **deliberately**:
-    `auto_pack_layout`'s own entry, and `_deployatlas`'s blank-rect DROP — a pack rect is stamped
-    only after measuring non-empty art, so a blank one is definitionally a fault, whereas a blank
-    grid cell is the ordinary "not generated yet" state and dropping it would turn a visible hole
-    into a missing frame. That judgement is itself pinned by a fixture so it is not "fixed" later.
-  - Fixtures: `py test_grid_layout.py` (90 checks) + the export half in `test_video_to_refs.py`,
-    including an end-to-end that exports, runs the real `grid_layout`, then re-runs it at a halved
-    cell. 18 mutations tried, 18 caught.
-  - **Not verified:** no live run — no R2, no ComfyUI, no deployed service. The Settings-panel
-    round-trip (typing Atlas width → `_saveconfig` → `m["atlas"]["width"]`) is read-verified only;
-    that path is unchanged and already wrote those fields. `fit: cover`/`fill` pixel behaviour is
-    asserted to reach the manifest, not to render correctly.
+- **Three layouts, chosen per atlas** _(2026-09-17)_. `pack` (the packer owns the page: it
+  measures the art, places it with MaxRects and OVERWRITES `atlas.width/height`), `grid` (the author
+  owns the page: `grid_layout` READS `atlas.width/height/cell_width/cell_height` and never writes
+  them; region `i` → cell `i` in manifest order — frame order IS the animation, never sorted — and
+  it re-flows on every Create Atlas), and **Authored geometry** (a blank value: rects that came from
+  somewhere else, left as they are). `batch_atlas.is_from_scratch(m)` is the one shared "the tool
+  lays this out" test for compose, slice, the page pointer and deploy.
+  - **Switching layout** (🧩 Atlas settings → `Layout`) is offered whenever
+    `can_choose_layout(m)` = `not is_atlas_bound(m)` — a manifest with `atlas.atlas_file` (a real
+    `.atlas` rig) never gets it. Switching CLEARS the previous layout's rects
+    (`_LAYOUT_SWITCH_CLEARED_KEYS`, keeping `fit_mode`) and counts what it cleared; leaving authored
+    geometry is the one destructive switch and the reply names what is lost. The save path's
+    unconditional `continue` for `atlas_layout` is load-bearing: an unrecognised layout reads as
+    ".atlas-bound" and silently disables every from-scratch gate.
+  - **The panel follows the layout.** `pack`: cell fields hidden, width/height shown READ-ONLY (the
+    only readout of the page the packer made). `grid`: cell fields and width/height editable. Rows
+    are hidden, never omitted, so a hidden field round-trips its value; `readonly`, not `disabled`
+    (a disabled input posts nothing). `layout_row_visible` (Python) and `layoutVisible` (JS) are
+    compared by `test_layout_aware_panel.py`, so the server's first paint and the JS repaint cannot
+    drift.
+  - **A `grid` atlas is ONE page**: over capacity it changes nothing and returns a note (open item
+    12). `_deployatlas` drops a blank rect only on `pack` — a blank grid cell is "not generated yet".
+  - Fixtures: `test_grid_layout.py`, `test_layout_switch.py`, `test_authored_geometry_layout.py`,
+    `test_layout_aware_panel.py`. ⏳ Never driven in a real browser or against the owner's atlas.
+- **Frame trim** (`atlas.pack_trim`: `keep` = the full authored canvas, `alpha` = crop to the ink)
+  shows on both `pack` and `grid`, default **`keep`** _(2026-09-17)_. It lives in `batch_atlas`
+  (`pack_trim_mode`, `keep_full_frame`) because `fit_to_region` does the cropping on a grid too.
+  Gated on `is_from_scratch AND NOT is_atlas_bound`, so `.atlas`-bound slots and Sheet-Maker cells
+  never read it (`test_sheet_handoff` fails without the gate). `pack_trim` answers WHAT is placed,
+  `fit_mode` HOW it maps into the rect. **Blast radius of the `keep` default:** a `pack` manifest with
+  no explicit `pack_trim` is re-measured at full canvas on its next Create Atlas, so its page grows
+  (measured 5.1 → 26.4 Mpx) and every rect moves; tight packing must now be asked for. Known gap:
+  `/parityscan` recomposes through `_packer_compose_tile`, so a correct `keep` page reads `DIFFERS`.
+- **Create Atlas never writes an EMPTY page over a good one** _(2026-09-17, #728)_.
+  `nothing_is_placed(m)` stops compose and its post-hook when ZERO regions are placed (a partial
+  layout still composes — that is the normal working state), leaving `source_image` untouched and
+  reporting the layout's own note. `run_compose` sets `running=True` before its slow prepare steps,
+  or `poll()` shows the previous run's log. `test_no_empty_compose.py`.
+- **A variant pick is spent by the next render, as a fact of the manifest** _(2026-09-17)_.
+  `variant_at` (the newest variant id when the pick was made) is stamped only when the pick changes;
+  `batch_atlas.effective_variant(region, newest_id)` keeps a pick live until something newer exists,
+  never spends a LOCKED one, and compares strictly-greater (ids can go down). `output_view` returns
+  the pick it resolved so a card's image and its `data-variant` come from one read. Legacy pins date
+  themselves to their own id. `test_variant_pick.py` (64). ⏳ Not verified live.
 - **From-scratch atlases (auto-pack)** — create a brand-new atlas in the tool (no Sheet Maker / `.atlas` needed) and grow it region-by-region. **`＋ New atlas`** asks for the name in a dialog first (sanitised the way `r2_slug` stores it; a name already in the manifest dropdown is flagged live and confirmed on Create, which then sends `overwrite:true`), writes an empty `pack`-layout manifest (`atlas.layout:"pack"`, no bound `.atlas`) and makes it active — a bare `/newatlas` call without the flag still switches to the existing atlas instead of overwriting; **`＋ Add region`** / per-card **🗑** append/remove name-only regions; each is generated from its prompt like any other. **Create Atlas then auto-packs**: `auto_pack_layout` (ui_server) measures each region's ALPHA-trimmed variant, runs the ported MaxRects packer (`pack.py`, a lockstep copy of `sheet-tool/packer.py` `pack()`), and stamps `x/y/w/h(/rotated)` + `atlas.width/height` back onto the manifest BEFORE the compose subprocess reads it. Region size is entirely emergent from the trimmed art (no per-region size to set); the page auto-sizes and re-packs every Create Atlas, so the atlas morphs as regions are added. Placement is 1:1 — the packed rect equals the trimmed bbox, so compose's default `contain` path scales by 1.0 (verified: packer no-overlap/in-bounds, `auto_pack_layout` stamping + ungenerated-skip, and `fit_to_region` exact-fill). **The geometry is derived output and only the packer owns it:** anything it did not just place is stripped of its rect, so a region can never carry a previous page's placement into `_deployatlas`'s manifest-regions fallback, which emits the TexturePacker `.json` from those same fields (see the 2026-09-16 entry — a stale rect there shipped a frame showing the wrong art). Both the pack note and the deploy note name every region left out of the frame map. After compose, `publish_pack_page` mirrors the composed page to `<C>/<P>/atlas/<stem>_new.webp` and repoints the manifest at it, so a `pack` atlas's declared page and its rects always come from the same producer (2026-09-16 in "Recent changes"). The page auto-crops to the layout's used bounding box on BOTH axes (`AUTO_PACK_MAX_WIDTH` = 2048 is only a cap), so a small atlas is a snug page, not a 2048-wide sheet of empty space — this is `pack.py`'s one intentional divergence from `sheet-tool/packer.py` `pack()` (which keeps its fixed sheet width); the `_MaxRects` core stays identical and compose parity (`_packer_compose_tile` ↔ `packer.compose`) is untouched. **Owner live-verify owed** (a real generate + Create Atlas + deploy through a from-scratch atlas on the GPU/tunnel).
 - The local Python Atlas Maker (stdlib `http.server` + Pillow) **re-hosted on Railway** — `cloud_paths.py` staging mirrors the R2 prefix 1:1, `storage.py` write-through, ComfyUI reached over the Cloudflare tunnel (refs via `/upload/image`, outputs via `/view`).
 - **SDXL** generate / slice / compose / deploy — the proven, default pipeline.
 - Per-region card: prompt edit, seed lock/unlock, style/shape ref pick — **rembg (background-removal) toggle**, refs uploaded locally or **picked from R2** via `/fsbrowse`, one-click "lock the seed that made this".
 - **Self-contained manifests** — Windows path/trailing-dot normalisation done in R2; `.atlas` + source-page upload (B10) repoints the manifest to staging-relative paths.
 - **FLUX builder complete** — txt2img proven live (2026-05-30, ~105s on the 8GB 4070).
-- **Blueprints** (an Atlas Maker feature, NOT a separate tool — [design](../design/invisible-blueprints.md)) — shareable ComfyUI workflows in a global `_shared/blueprints/` R2 library; pick one in the Atlas Maker to "generate with this network". **Code-complete (all 8 phases), owner live-verify owed.** Committed + publish-gated (`ATLAS_BLUEPRINT_SECRET`); Settings has the resolved-workflow (`/blueprintresolved`) export for debugging.
+- **Blueprints** (an Atlas Maker feature, NOT a separate tool — [design](../design/invisible-blueprints.md)) — shareable ComfyUI workflows in a global `_shared/blueprints/` R2 library; pick one in the Atlas Maker to "generate with this network". **All 8 phases built and in live use** — the owner has published, picked and rendered with blueprints (e.g. the 2026-09-09 background-removal and processing-blueprint reports below). Publishing is the launch token's `blueprintPublish` capability (the legacy `bp=` secret only until the 2026-10-13 cut-over); Settings has the resolved-workflow (`/blueprintresolved`) export for debugging. Still owed live: model auto-download (open item 7).
 - **Sheet-derived FX cells auto-derive** on load/Process from their base region (not AI-generated), keyed on `shine.fx_layer_info` + `mode in FX_PRESETS` — no wasted ComfyUI credits.
 - **Region Overlay Inspector** (`/atlasview`, the `🖼 View atlas` button — [guide](../tools/atlas-maker.md#-view-atlas--the-region-overlay-inspector)) — the composed page with each manifest rect outlined, plus **three separate readings** per region, kept apart because they know different amounts:
   1. **Sheet parity** (`MATCHES SHEET` / `DIFFERS` + delta / `NO SOURCE`) — the headline and the only *evidence* of how a region was placed. Server-side (`/parityscan`, on demand — it opens every source image): recompose the tile from the region's source art through the REAL `_packer_compose_tile` and diff it against the page's rect pixels. Directly predicts whether a re-Create-Atlas would move the region. Tolerance `max Δ 2`/channel is pure slack — the test is deterministic, so a real sheet-composed region matches **byte-identically** (`max Δ 0`); a placement difference reads `max Δ 255`. The comparison must replay compose's `canvas.paste(img, …, img)`, which is not a no-op (PIL applies the mask to every band: a semi-transparent pixel lands as `src * a`).
@@ -247,22 +72,16 @@ Works today on `main` / live:
 - **A Sheet-Maker cell composes byte-identically to its sheet** — the two composers used to disagree on what a rect MEANS: `sheet-tool/packer.py` `compose` scales against the **full art canvas** with a `min(…, 1.0)` clamp (**never upscales**) then centres the visible bbox, while `batch_atlas.fit_to_region` alpha-cropped to the **ink bbox** and scaled that to fill the rect with **no clamp** (upscales). Same `bounds:`, art up to ~2.5× bigger with its origin shifted from a centred inset to the rect's corner — and since the Rigger prefers the **deployed** page as soon as one exists (`editorRegions.ts` `findDeployedPage`), a Create-Atlas + deploy silently swapped a rig's pixels from the sheet's convention to the atlas's and offset every attachment. Now an **EXPLICIT** `fit_mode:"contain"` (only `sheet-tool/atlas_writers.py` writes it) routes to `_packer_compose_tile`, a verbatim replay of `packer.compose` — so republishing is a no-op for placement. **Explicit-only by design:** the default fallback also resolves to `contain` for legacy cell-grid regions, which keep their alpha-crop + letterbox. Proven byte-identical to the real `packer.compose` across 8 cases (rect bigger/smaller/equal, asymmetric padding, fully-transparent, rotated, rotated+downscale, non-square); 22/22 no-regression vs the pre-change function at `PADDING_PCT` 0.0 **and** 0.12. Keep `_packer_compose_tile` in lockstep with `packer.compose`. **Because it is explicit-only, it is only as good as whoever preserves the field** — the `Open in Atlas Maker` handoff dropped it (and forced the `fill` fallback) until 2026-09-01, so the parity path never ran for the route that carries sheets into this tool; see "Recent changes".
 - **FX layers register with their base through compose** — `fit_to_region` alpha-crops each region independently, which mis-scaled every FX layer (a glow's halo makes its alpha bbox bigger than its base's, so the glyph shrank to ~54% and drifted up to ~15px when the halo clipped a canvas edge). `batch_atlas.layer_registration_crop` now crops a LAYER — FX or AI (`layer_of`) — to its BASE's bbox grown by the two slots' size ratio — same scale, concentric, halo kept to whatever the packed slot can carry. Guarded: art whose canvas ≠ its base's falls back to self-cropping; the one tolerated exception is that canvas symmetrically GROWN, which is what an offset drop shadow is built on, and it is FX-only (only `shine.make_shadow` grows one — an AI layer rendered at another size is not a base canvas with margin round it). The same resolver (`layer_registration`) also carries the base's transform to the sheet-parity path, so a layer is never placed by its own ink there either; see "Recent changes" 2026-09-18.
 
-- **Flipbook video sessions run in THIS service** (`video_runner.py` + the `/video/*` routes in `ui_server.py`), because the blueprint library, the generic runner, the RunPod Serverless transport and the packer all already live here. The feature is the Flipbook's — its state lives in [flipbook status](flipbook.md), design in [invisible-flipbook-video.md](../design/invisible-flipbook-video.md). It deliberately does NOT touch the active-manifest globals, so it is unaffected by (and does not worsen) the per-user isolation gap in open item 4.
+- **Flipbook video sessions run in THIS service** (`video_runner.py` + the `/video/*` routes in `ui_server.py`), because the blueprint library, the generic runner, the RunPod Serverless transport and the packer all already live here. The feature is the Flipbook's — its state lives in [flipbook status](flipbook.md), design in [invisible-flipbook-video.md](../design/invisible-flipbook-video.md). It deliberately does NOT touch the active-manifest globals, so it is unaffected by (and does not worsen) the per-user isolation gap in open item 5.
 
 ## Open items / next
-1. ✅ ~~**`_shadow` FX cells lose their drop offset under sheet-parity compose.**~~ — **DONE (2026-09-18)**, offline; live verify owed like every other compose change. The drop was lost twice over and both halves are closed. See "Recent changes" below.
-2. **The re-pack/deploy frame guards are owed ONE live run (owner).** #684 + #686 are on `main` and everything about them is proved offline — real packer, real compose subprocess, real frame writer, 67 assertions, both guards proved against the behaviour they replace — but against a fake bucket and no GPU. **The run:** on a from-scratch atlas, generate two regions → Create Atlas → deploy; then delete one region's variant → Create Atlas → deploy again. **Pass =** the second deployed `.json` carries a frame for the surviving region ONLY, its `meta.size` equals the new page's real pixel size, and the deploy note names the dropped region. Distinct from item 3, which is the `.atlas`-BOUND compose/slice path — this one is a from-scratch `pack` atlas, and the guards only fire on that layout. It does, however, close the "Owner live-verify owed" note on the auto-pack bullet in "Current state".
+2. **The re-pack/deploy frame guards are owed ONE live run (owner).** #684 + #686 are on `main` and everything about them is proved offline — real packer, real compose subprocess, real frame writer, 67 assertions, both guards proved against the behaviour they replace — but against a fake bucket and no GPU. **The run:** on a from-scratch atlas, generate two regions → Create Atlas → deploy; then delete one region's variant → Create Atlas → deploy again. **Pass =** the second deployed `.json` carries a frame for the surviving region ONLY, its `meta.size` equals the new page's real pixel size, and the deploy note names the dropped region. Distinct from item 3, which is the `.atlas`-BOUND compose/slice path — this one is a from-scratch `pack` atlas, and the guards only fire on that layout. 
 3. **`.atlas` compose/slice (B10 / Part A) — live browser smoke-test owed** against live R2 (Part B = repoint the stale Windows-path `atlas.atlas_file`/`source_image` fields, owner + R2 creds).
-4. ✅ ~~**FLUX ref/ControlNet path unproven**~~ — **DONE (owner-tested 2026-08-18).** shape_ref / ControlNet generates on the **RunPod** backend, which carries its own ControlNet models; it was only ever blocked on what the local 4070 had installed.
 5. **Per-user session isolation — planned, unbuilt** (design `atlas-per-user-session.md`): the active-manifest resolver is process-global, so two users on one project clobber each other's open selection + see each other's render progress. Phases 1–3 (thread `user` id → per-user overlay → per-user render state).
-6. **Signed launch tokens — the cut-over.** **LIVE 2026-09-29 14:17Z** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** (or earlier with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools) delete the legacy branch (`LaunchGate._legacy_gate`/`_legacy_scope`, `buildToolHandoff`'s unsigned path, the `bp` secret handling in `_resolve_publish`) and remove `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` from Railway. The person-level lease ([multi-user-concurrency](../design/multi-user-concurrency.md) Phase 3) can now key on the token's `uid`.
-7. **Blueprints: owner live-verify + model auto-download** — the 8 phases are code-complete but unverified live; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7). **Advanced 2026-09-15, not closed:** `enrich_from_catalog` removes the blocker that made this unreachable for an uploaded blueprint (a derived declaration had no `url`/`base`, so nothing was ever installable) — but it is proved only against injected fixtures. **The live half is still owed: a real Manager, a real whitelist, a real download.**
-8. ✅ ~~**The New-blueprint modal can't bind a graph whose knobs were "converted to input".**~~ — **DONE (2026-09-01)**, ported from the Flipbook's video twin the same day it was fixed there, so the two modals are back in step. See "Recent changes" below.
-
-9. ✅ ~~**Seed the RunPod model catalog once (owner).**~~ — **DONE (2026-09-04)**: ⟳ discovers a running pod itself; just start one on /comfyui and press it. See "Recent changes".
+6. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** (or earlier with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools) delete the legacy branch (`LaunchGate._legacy_gate`/`_legacy_scope`, `buildToolHandoff`'s unsigned path, the `bp` secret handling in `_resolve_publish`) and remove `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` from Railway. The person-level lease ([multi-user-concurrency](../design/multi-user-concurrency.md) Phase 3) can now key on the token's `uid`.
+7. **Blueprints: model auto-download** — picking, running and publishing are in live use; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7). **Advanced 2026-09-15, not closed:** `enrich_from_catalog` removes the blocker that made this unreachable for an uploaded blueprint (a derived declaration had no `url`/`base`, so nothing was ever installable) — but it is proved only against injected fixtures. **The live half is still owed: a real Manager, a real whitelist, a real download.**
 10. **The real *My computer* render over the tunnel is owed (owner).** The `http` transport has been off the production path since 2026-08-18; the new setting puts it back on demand. Start ComfyUI + the desktop launcher's tunnel, pick *My computer* in ⚙ Global settings, render one region. **Attempted 2026-09-07 and it got further than expected:** the request crossed the tunnel and ComfyUI answered — refusing the graph for a missing node pack, not a transport fault. So what is still owed is a render against a local ComfyUI whose node set actually matches (`services/atlas-comfy-pod/tools/sync-local-nodes.py`, then a ComfyUI restart, then the PuLID weights), or the same blueprint on RunPod. **Half of that is now done:** `sync-local-nodes.py` put `PuLID_ComfyUI` on the local box at the pinned SHA and, after a restart, the five `Pulid*` classes register and the preflight passes on the graph that failed (1152 classes, no pack lost). What is left is purely WEIGHTS - the PuLID SDXL ip-adapter and InsightFace `antelopev2` - so the render is still owed. See "Recent changes".
 
-11. ✅ ~~**A save made during a render's FX rebuild is still lost.**~~ — **DONE (2026-09-14).** The slow job no longer writes its own stale copy of the whole manifest; it re-applies only the fields it owns, onto a manifest re-read inside the lock. Same treatment for the two neighbouring cycles in `run_compose`. See "Recent changes".
 12. **A `grid` atlas is ONE page — multi-page is unbuilt.** `batch_atlas.py` has no page concept at all (a manifest carries a single `source_image`), so a grid whose cells do not hold every region **refuses** rather than spilling onto a second page. For the Flipbook ref export this caps a run at whatever fits — e.g. 64 frames at a 256px cell in a 2048² page. **Next, if it bites:** multi-page reaches compose, the page pointer, deploy and the launcher's consumption of the descriptor — it is not a layout-level change, which is why it was deliberately not folded into the grid work.
 
 13. **Model licences — owner decision.** Every built-in image default is non-commercial today
@@ -272,9 +91,10 @@ Works today on `main` / live:
     `blocked`/`unknown` provenance, like Sound's licence summary.
 
 ## Blocked (owner / external)
-_Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
+_Nothing._
 
 ## Recent changes
+- 2026-09-29 — **Guide refreshed to match the UI** ([tools/atlas-maker](../tools/atlas-maker.md)): signed launch, RunPod as the default backend, render ownership.
 - 2026-09-29 — **The Atlas Maker's scope comes from a launcher-signed token; a render can only be stopped by whoever started it (or an admin); `/healthz` is gate-exempt.**
   - **What:** the launcher now mints a 120 s HMAC-signed token after its own access check (`toolLaunch.ts`), and `iw_common/launch.py` verifies it, turns it into a signed 12 h session cookie, drops the token from the URL (303) and scopes every request from the session alone. Details, env and the 2026-10-13 cut-over: [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).
   - **Blueprint publishing** is the token's `blueprintPublish` capability (the legacy `bp=` path stays only for the window). The Flipbook video proxy sends a server-to-server token (`typ:"api"`, refused in a URL; a redirect token is refused as a header) as `X-IW-Launch`, minted per request, and resolves the capability only on its publish route.
@@ -616,16 +436,10 @@ _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
     `width`/`height` still bind to `EmptyLatentImage`); then the tool booted locally and the actual
     modal driven in a browser, including a two-hop relay (`345.width → 380 → 355.value`), the
     settings-panel textarea, and the published payload through the real `validate_against_graph`.
-- 2026-08-18 — **gpt_image and the FLUX ref/ControlNet path both work, on RunPod** (owner-tested). These were the two oldest blockers on this tool and they had the same root cause: they needed nodes/models installed on the **local** 4070 behind the tunnel (`Images to RGB` + `COMFY_ORG_API_KEY`/credits for gpt_image; FLUX ControlNets for shape_ref). Moving generation to the RunPod backend — whose worker image bakes the custom nodes and whose volume carries the models — retired the constraint rather than satisfying it. **The live Railway `atlas-tool` runs `COMFY_TRANSPORT=serverless`** (owner-confirmed 2026-08-18) — so the RunPod endpoint, not the local tunnel, is the production generation path, and the local 4070 + tunnel are no longer in the loop for Atlas Maker generation at all. Worth knowing when diagnosing: a generation failure in production is a RunPod/worker-image problem (cold start, missing baked node, endpoint quota), **not** "is Gualtiero's ComfyUI running".
 - 2026-08-15 — **each serverless variant gets a unique filename** (`_next_variant_filename`). ComfyUI names saves with an incrementing per-output counter, but every serverless job lands on a FRESH worker whose counter restarts at `00001` — so each new variant of a region collided on `<region>_00001_.png` and overwrote the previous one. The transport now mirrors ComfyUI's scheme locally (highest existing id in the batch dir + 1, same `<region>_<NNNNN>_.png` shape the gallery globs). It also prefers the **`SaveImage`** output — the one whose worker filename is region-prefixed — over any preview/temp image the graph may also emit, so a preview never gets persisted as a variant.
 - 2026-08-13 — **`batch_atlas` gained a second ComfyUI transport, selected by `COMFY_TRANSPORT`** ([design](../design/comfyui-serverless.md) §Pipeline changes, build-plan step 2). Unset / `http` (DEFAULT) = the unchanged live-ComfyUI path (`/upload/image` + `/prompt` + `/history` + `/view`); `serverless` = submit the SAME api-prompt graph to a RunPod Serverless endpoint (`RUNPOD_ENDPOINT_ID`/`RUNPOD_API_KEY`): `POST /run` with `{input:{workflow, images:[{name, image:<b64>}]}}`, poll `GET /status/{id}` (~2s, 30-min cap), decode the returned base64 image and persist it through the SAME `_persist_variant` path. The "which LoadImage refs, what filename" routing is factored into `_iter_workflow_refs` so both transports share it (`_upload_workflow_refs` for http, `_serverless_workflow_images` for base64). No behaviour change when `COMFY_TRANSPORT` is unset. _(The endpoint has since been created and generated for real — see the 08-15 and 08-18 entries above.)_
 - 2026-08-11 — **the render subprocess now reads the SAME `atlas_config.json` the UI writes** (root-cause: selected blueprint / global settings never applied). `batch_atlas.load_config` read `SELF/atlas_config.json` (script dir — not shipped in the cloud image), while `ui_server` writes to `staging_root/atlas_config.json` (R2-backed, per client/project). So every GLOBAL-only setting — the **pipeline selector** above all — was stuck on its `_DEFAULTS` value (`sdxl`), silently generating built-in SDXL even when a blueprint was picked. `load_config` now prefers the staging copy (via `cloud_paths.resolve()['staging_root']`, resolvable in the subprocess from `IW_CLIENT_NAME/IW_PROJECT_NAME`), falling back to the script-dir file for the local tool. Diagnosed via the new `Pipeline: … (built-in|blueprint)` log line (#306) + the loud no-silent-SDXL guard (#305). PER_ATLAS settings were unaffected (they travel in the manifest via `apply_manifest_settings`).
 - 2026-08-11 — **from-scratch atlases: generate/compose on a bare atlas block** (#301 follow-up) — a `pack` manifest's `atlas` block has no `source_image`/`width`/`height` until art is packed, so generation `KeyError`'d on `atlas["source_image"]` (it's only a built-in style-ref fallback; a blueprint ignores it) and composing before any art would `KeyError` on `atlas["width"]`. Generation now reads `atlas.get("source_image") or ""`; compose-before-any-art returns a readable "nothing to compose yet" line. Live-verified path: New atlas → single region → blueprint render.
-- 2026-08-11 — **from-scratch atlases (auto-pack)** — `＋ New atlas` / `＋ Add region` / per-card 🗑 + a packed Create Atlas (`pack.py` + `auto_pack_layout`) let you build an atlas from prompts with no Sheet Maker, region sizes emergent from trimmed art. Shipped #301; page auto-crops to used bbox (2048 = cap). Owner live-verify continuing.
-- 2026-07-16 — **a Sheet-Maker cell now composes byte-identically to its sheet** (explicit `fit_mode:"contain"` → `_packer_compose_tile`), so republishing an atlas stops re-offsetting rigged art. Needs an `atlas-tool` redeploy + a re-Create-Atlas to take effect on existing pages ([detail in history](../history.md)).
-- 2026-07-16 — **Region Overlay Inspector: retracted the unsound producer inference, added sheet parity + placement mode.** The `FILLS`/`INSET` badge was being presented as a producer verdict ("one page, two producers") — it cannot know that (full-bleed art and FX halos FILL under either composer), so the summary/legend/docs now describe only what is measured. Replaced as the headline by the **recompose test** (`/parityscan`): re-run the region's source art through the real `_packer_compose_tile` and diff against the page. Offline-proven on a known-mix page, 7/7: sheet-composed → MATCHES SHEET `max Δ 0` (incl. rotated); atlas-fill-composed → DIFFERS `2.73x, origin (38,38)→(0,0), max Δ 255`; legacy cell-grid contain → DIFFERS (same); explicit cover → DIFFERS `2.14x×3.33x`; **full-bleed sheet-composed → FILLS *and* MATCHES SHEET** (the false positive that motivated the change); no variant → NO SOURCE. Parity is exact, so `PARITY_TOL = 2` is slack for a lossy round-trip, not a real need.
-- 2026-07-16 — **`🖼 View atlas` now opens the Region Overlay Inspector** (`/atlasview`) instead of the bare page bytes, making the rect-convention difference visible + screenshottable. Same art + same 100×100 rect measures 46×46 under the packer vs 100×100 under `fit_to_region` (2.17×, origin 27,27 → 0,0).
-- 2026-07-16 — fixed FX layers composing offset + shrunk against their base (`fx_registration_crop`); needs an `atlas-tool` redeploy + a re-Create-Atlas to take effect on existing pages.
 - 2026-07-06 — sheet-derived FX cells now auto-derive on load/Process instead of being AI-generated ([detail in history](../history.md)).
 - 2026-05-30 — FLUX proven live (~105s txt2img); B10 `.atlas`/source upload + R2 ref picking landed ([detail in history](../history.md)).
 - 2026-05-29 — R2 seeded (1158 objects); tool hydrates + lists manifests ([detail in history](../history.md)).

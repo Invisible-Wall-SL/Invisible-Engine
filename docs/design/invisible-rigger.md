@@ -10,22 +10,10 @@
 
 ## 0. Status
 
-**BUILT — Phases 0–6 are on `main` and the tool is registered/deployed** (verified
-2026-06-29; this §0 was previously a stale "not built" plan header). What shipped: bones,
-mesh (move/add/remove/region→mesh/CDT/UV), weights (bind/per-vertex/brush/auto-weight-to-chain),
-animation (keyframing, dopesheet, curves, graph editor, slot/event/draw-order channels),
-rig + animation libraries, isolated-mesh edit, mesh-**deform** animation timelines,
-IK constraint authoring + the IK mix timeline,
-`.irig` export + R2 save. **Genuinely
-outstanding:** ship-from-Rigger (rule-8 export→deploy→bake→pull→register — rigs only save to
-R2 today), Phase 3.6 visual texture-panel UV editor +
-hull editing, and the better auto-weights algorithm (a proximity chain-skinner shipped; the
-quality gate against a real character mesh is still open). **The whole tool still needs
-owner live-verify** (headless spikes use un-mangled spine-core, not the vendored minified
-runtime).
-
-(Historical plan note: nothing ships until it travels the full asset chain (§8); Phase 0
-(§7) was the make-or-break gate — both spikes passed.)
+This document is the **plan**. How far the plan got — what is built, what is open, what still
+needs live verification — lives in [docs/status/rigger.md](../status/rigger.md), and the user
+guide is [docs/tools/rigger.md](../tools/rigger.md). Cinematic mode has its own design
+([invisible-cinematic](invisible-cinematic.md)) and status ([cinematic](../status/cinematic.md)).
 
 ## 1. Why this tool exists (the goal)
 
@@ -218,25 +206,27 @@ Meshes that touch atlas regions are the Atlas Maker's domain — `/rigger` autho
 skeleton + weights; atlas/page generation stays with the Atlas Maker. Define the
 handoff in Phase 3, don't duplicate the packer.
 
-## 9. Open questions (resolve during Phase 0/1)
+## 9. Open questions
 
-- Binary `.skel` support — read-only import first, or skip until needed? (JSON is the
-  authoring format; `.skel` is an optional export.)
-- Final extension name (`.irig` working title) + whether the sidecar is one file or
-  per-resource.
-- ~~Collaboration model in R2 — last-write-wins + lock flag in the sidecar, or
-  something with optimistic concurrency.~~ **RESOLVED 2026-07-16: both, and the
-  lock does NOT live in the sidecar** — a soft lease in Postgres for coordination
-  plus R2 `If-Match` for correctness. A lock stored in the blob is clobberable by
-  the very race it exists to prevent. Owned by
-  [multi-user-concurrency](multi-user-concurrency.md); note its Phase 0 targets
-  the Rigger's global `_shared/rigs|animations/index.json` RMW races first.
-- Undo/redo architecture for the editable document (command stack) — decide before
-  Phase 2 since every later phase depends on it.
+Resolved during the build:
 
-> Build status: see [docs/status/rigger.md](../status/rigger.md); detailed phase log in [docs/history.md](../history.md).
+- **Binary `.skel`** — read-only (view) support; editing and export are JSON only.
+- **Extension** — `.irig` is final. Out-of-band data sits beside the bundle rather than in
+  one `.irig.meta.json`: `source.json` (the atlas snapshot's origin + revision) and
+  `text.json` (localized text elements). One exception to §2.2: an image's pivot is stored
+  inline as a `pivot` key on the region attachment, because the 4.2 loader ignores it and the
+  rendered geometry is unchanged.
+- **Collaboration model** — a soft lease in Postgres for coordination plus R2 conditional
+  writes for correctness; the lock does NOT live in the sidecar (a lock stored in the blob is
+  clobberable by the very race it exists to prevent). Owned by
+  [multi-user-concurrency](multi-user-concurrency.md).
 
-## 10. Deferred build — Phase 3.6: visual UV editor + hull editing
+Still open:
+
+- **Undo/redo for rig editing.** Only Cinematic mode has a command history (snapshot-based,
+  scoped to the cinematic document, written so it can be pointed at the rig document).
+
+## 10. Phase 3.6: visual UV editor + hull editing
 
 A larger, inherently-visual build deferred out of the mesh phase (Phase 3): a **visual UV
 editor panel** — show the region's texture image and drag vertices in UV space — plus

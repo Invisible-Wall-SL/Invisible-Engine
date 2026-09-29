@@ -1,10 +1,10 @@
 # Invisible Component Editor — status
 
-> Design: [docs/design/invisible-editor.md](../design/invisible-editor.md) (§8) · Guide: [docs/tools/component-editor.md](../tools/component-editor.md) · Agent: `.claude/agents/invisible-components.md` (component-focused; not a registered spawnable agent)
+> Design: [docs/design/invisible-editor.md](../design/invisible-editor.md) (§8) · Guide: [docs/tools/component-editor.md](../tools/component-editor.md) · Agent: [`.claude/agents/invisible-components.md`](../../.claude/agents/invisible-components.md)
 >
 > Companion tool: [Scene Editor status](./editor.md) — that tool **places** component instances; this tool **authors** the `ComponentDef`s (and reuses the Scene Editor's canvas/outline/properties machinery).
 
-**One-line state:** Built — component authoring (instances/params/signals) + the per-project **"This game's defaults"** surface (2026-09-17) + pin-by-default versioning with a true multi-version store and version browser are on `main` at `/components`, registered + documented; ⏳ the **behaviour/timeline** layer is unbuilt (this is the *declare* half only), and editor render paths are largely not browser-verified.
+**One-line state:** Built at `/components` — authoring (instances/params/signals), per-project "This game's defaults" with version history, and pin-by-default multi-version defs are on `main`. The behaviour/timeline layer is unbuilt (this is the *declare* half only).
 
 ## Current state
 Standalone authoring tool for **components** (prefabs) at `/components` — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` tool entry only controls the home-grid card). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component.
@@ -16,20 +16,20 @@ Shipped capabilities on `main`:
 - **Button-state-driven spine animations** (2026-06-25) — `SpineNode.stateAnimations` (hover/pressed/selected/disabled/spinning cascade), authored via "Plays on button state"; blank-default spine = a state-only overlay over a resting button image.
 - **Versioning** — pin-by-default with a **true multi-version store** (v2): a changed save bumps `version` AND retains every historical `<id>.v<N>.json` snapshot, so an instance resolves the EXACT def it pinned (editor preview, bake, and shipped game); a missing pin renders latest + a `versionMismatch` warning, never a silent upgrade. Outdated instances are **flagged** in the Scene Editor and updated per instance (never bulk). A **version browser** (top-bar `Version` dropdown + **Inspect** read-only + **Back to latest**) browses retained snapshots non-destructively.
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
-- **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Both editor canvases resolve it (see [editor status](./editor.md)).
+- **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Each save backs up the version it replaces (newest 20 per component, under `component-defaults-backups/`); **History…** beside it opens the shared version-history modal (#857). Both editor canvases resolve it (see [editor status](./editor.md)).
 
 ## Open items / next
 1. **Behaviour / timeline layer (§8.5–8.7) — the next large phase, unbuilt.** Signal-triggered tweens, spine playback, particle bursts, and a single count-up data binding are designed (`BehaviorTrack`/`TweenStep`) but not authorable here yet; the `Component variables` block is purely the *declare* half. No per-signal track UI exists. v1 behaviour ceiling is intentionally low; anything needing branching/RGS math/stateful logic stays a coded `mount`.
-2. ✅ ~~**B4 HUD migration**~~ — **DONE for `apps/lines` (shipped 2026-06-08):** the live Balance/Win/Bet readouts render as `hudReadout` component instances behind the parity gate. Remaining tail: owner live-verify.
-3. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
-4. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
-5. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
+2. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
+3. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
+4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
 
+- 2026-09-29 — **Guide refreshed to match the UI** ([tools/component-editor.md](../tools/component-editor.md)): HUD Readout and Free-Spin Counter types, the Space selector, the version browser, save conflict / read-only states.
 - 2026-09-29 — **Version history for this game's component defaults.** `saveComponentDefaults` now
   writes through `docBackups.putDocWithBackup` (the helper Scenes/Flow/Symbols/Config use — see
   [launcher.md](launcher.md) 2026-09-29): the version each save replaces is kept (newest 20 per

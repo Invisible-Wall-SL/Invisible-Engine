@@ -212,7 +212,7 @@ desktop builds relate to the online path.
 | Publish buttons are disabled | A bulk republish is running | Wait for it to finish, or **Stop after this game** |
 | The game stops on *"This game could not load"* | The game could not load its published data. The launcher is unreachable, or the link's token is wrong. | [Incident first response](incident-first-response.md) |
 | Make live returns 409 | Another publish or switch landed first | Reload the page and retry |
-| The game shows one paytable or board, and the server deals or pays another | The Game Config changed after the last publish (see the trap in section A) | Publish again |
+| The game shows one paytable or board, and the server deals or pays another | The test server could not re-read the game's config (launcher unreachable, or a game published before the mock followed its config) and kept its last board | Publish again. If it persists, [Incident first response](incident-first-response.md) |
 | A desktop ☁ Publish or 📦 Deliver fails | See the failure table | [Publisher runbook](publisher-runbook.md#other-failures) |
 
 ## Related

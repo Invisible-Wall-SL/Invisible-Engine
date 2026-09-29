@@ -74,13 +74,17 @@ following controls:
 - **Open effect…** — a dropdown of every effect already saved in this project; pick one
   to open it (this loads the effect's layers and restores the last-selected layer). A
   just-saved effect appears here immediately, without a reload.
-- **🗑 Delete** — deletes the open effect from cloud storage (after a confirm) and
-  clears the editor. Disabled until an effect has actually been saved/opened.
+- **🗑 Delete** — deletes the open effect from cloud storage and clears the editor. The
+  confirm asks you to type the effect's name first. Disabled until an effect has actually
+  been saved/opened.
 - **▶ Play / ❚❚ Pause** — toggles the live emitters in the preview.
 - **Reset view** — re-centres and re-fits the preview camera.
 
 The right of the sub-bar shows a transient save status (a green confirmation or a red
 error) and a live **layer count**.
+
+**+ New** and **Open effect…** ask before they throw away unsaved changes, and closing the
+tab with unsaved changes gets the browser's own "leave page?" prompt.
 
 ### Build the layers
 
@@ -133,6 +137,12 @@ saved effect (only the layer's chosen bone name + offset are).
 With a layer selected, the right **Inspector** edits it:
 
 - **Layer → Name** — rename the layer (its key, shown in the Layers panel).
+- **Particle → Kind** — **Sprite (atlas art)** (the default; the **Art** section below
+  picks the frames) or **Spine clip**, where every particle is a small Spine instance
+  playing a clip. For a Spine clip, pick a **Skeleton** from the project's Spine bundles,
+  then an **Animation**, and tick **Loop each particle's clip** if it should repeat. Keep
+  **Max particles** low for this kind (tens, not hundreds) — a Spine particle is far
+  heavier than a sprite. The option is disabled when the project has no Spine bundles yet.
 - **Art → Atlas** — a dropdown of the project's atlases. Pick one and a checkbox list of
   its **regions** appears below; tick the regions you want as the particle frames. (If
   the project has no usable atlases yet, the panel tells you to make one in the Atlas or
@@ -232,6 +242,14 @@ name (or use **⧉ Save As…**) to keep them separate. Once saved (or opened), 
 stable, so renaming an effect and saving again updates the same file in place rather than
 spawning a duplicate. Reopening an effect restores its layers, the Inspector, and the
 layer you last had selected.
+
+**Two people on one effect.** Only one person edits an effect at a time. If someone else
+(or another tab of yours) has it open, a banner reads "*name* is editing this — read-only"
+and Save, Save As and Delete are disabled; **Take over** moves editing to you, and the
+other tab turns read-only. If someone saved the effect after you opened it, **⤓ Save**
+stops and asks **Overwrite their effect with yours?** Effects have **no version history**,
+so overwriting permanently replaces their version — cancel and use **⧉ Save As…** to keep
+both.
 
 ### Getting a saved effect into a game
 

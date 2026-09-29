@@ -164,6 +164,10 @@ tool top bar). Switch projects from the launcher before opening the tool.
 6. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
+   If someone else saved this project's symbols since you opened the page, Save does not
+   replace their work silently: a **Someone else saved these symbols** dialog asks first.
+   **Overwrite theirs** saves your version over theirs (theirs is kept in **History…**);
+   cancelling keeps your edits on screen, unsaved, and the next Save asks again.
 7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
    and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
    re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the
@@ -270,16 +274,18 @@ There is no symbol-size number — not in this tool, and not on the reel either 
 Editor's old "Symbol size (× cell)" control has been removed). Every symbol fits its reel cell
 by its own art, keeping its proportions:
 
-- A **sprite** fits by its picture; a **flipbook** by its clip's
+- A **sprite** fits by its picture — or by its
+  [Art bounds](./invisible-editor.md#symbol-size-on-the-reel) box, when the Scene Editor sets one
+  for that region; a **flipbook** by its clip's
   [bounds box](./flipbook.md#the-bounds-box--declaring-the-size-a-clip-is-drawn-at) when it has
   one.
 - A **spine** fits by the rig's **declared box**, centred on the cell — the
   [Bounds frame](./rigger.md#bounds-the-rigs-size-frame) in the Invisible Rigger, or the skeleton
   size the Spine Editor wrote on export. Not by the pixels the rig happens to show.
 
-So to make one symbol bigger or smaller, change its art: crop the sprite, box the clip, or
-resize the rig's Bounds frame. A per-cell `sizeRatios` left in an old doc is still read but no
-longer changes the size.
+So to make one symbol bigger or smaller, change its art: crop the sprite or set its Art bounds,
+box the clip, or resize the rig's Bounds frame. A per-cell `sizeRatios` left in an old doc is
+still read but no longer changes the size.
 
 ### Highlight (win frame)
 
@@ -908,7 +914,7 @@ game it must travel the standard live-assets chain, exactly like editor art and 
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
   overrides + the asset index), plus the optional globals `symbols.highlight` and
   `symbols.winLine` (each omitted when unset — `winLine` is written only as
-  `{ enabled: false }`).
+  `{ enabled: false }`). Symbol size is not in this doc — symbols are sized by their art.
 - **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded
@@ -1085,7 +1091,8 @@ that is the art to change rather than the text.
 - **Preview endpoints are still `editor`-gated.** The sprite/spine preview endpoints
   (`/api/editor/regions`, `/api/editor/spine`) are gated on the `editor` tool, so a user
   who holds **only** the `symbols` tool will get a 403 on previews. The default roles
-  (`admin`, `developer`, `artist`) hold both, so this only bites a narrowly-scoped role.
+  (`admin`, `developer`, `artist`, `pipelineTester`) hold both, so this only bites a
+  narrowly-scoped role.
 - **Default-art cells render as placeholder chips until project assets are seeded.** The
   tool previews **only** from R2 (sprites under the project's `sheets/`/`manifests/`,
   spines under `spines/`). A game's base symbol art lives in its repo, not those prefixes,

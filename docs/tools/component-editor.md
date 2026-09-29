@@ -63,8 +63,16 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
     on the canvas and the whole component becomes the click area; you then pick the
     **Action** (spin, menu, turbo, …) on each placed instance back in the Scene
     Editor. No extra wiring needed.
+  - **HUD readout** — an empty value readout (filed under `UI`), pre-declared with a
+    **source** (balance / win / bet …) and the engine-fed **value**. Drop your own
+    background and text, then on the text that shows the number set **Bind to param →
+    Text ← value**. You pick the **source** on each placed instance.
+  - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
+    caption and **X OF Y** value), already wired to the engine. Swap the frame art,
+    restyle the text or edit the label, then save.
 - **Library** — existing components grouped by category. Click a row to open it for
-  editing; the `✕` button deletes it (with a confirm) from R2 and the list.
+  editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
+  component's name, and every saved version goes with it.
 
 Creating opens the new component immediately. The Scene Editor's "Open Component
 Editor" also deep-links here (`/components?id=<id>`) and opens that component on
@@ -89,6 +97,15 @@ With a component open, the layout switches to the familiar three-pane editor:
 
 The footer shows the component name and its node count. Panel widths are
 resizable and persist under this tool's own key.
+
+The editor bar above the panes shows the open component (**◇ name**) and a **Space**
+selector:
+
+- **Game (main box)** — the default. The component is positioned in the game's main box,
+  relative to the board, so the canvas matches this project's layout.
+- **Canvas (full-window overlay)** — for a full-window layer such as a free-spin intro dim
+  or a modal backdrop, authored in raw window pixels. Place a Canvas component on a
+  Canvas-space screen in the Scene Editor so the editor and the game match.
 
 ### 3. Bind the engine variables
 
@@ -204,11 +221,17 @@ The panel then shows the restored values; the component you are editing is left 
 
 ### 5. Save
 
-Click **Save component** in the top bar. It POSTs the draft to
-`/api/editor/component` scoped to the active project; the header pill shows
-*Saving… → Component saved* (or a *Save failed* pill with the error). On success
-the sidebar list updates without a reload. Use **← All components** to return to
-the library (it confirms first if you have unsaved edits).
+Click **Save component** in the editor bar. It saves the draft to the active project; the
+pill beside it shows *Saving… → Component saved* (or a *Save failed* pill with the error).
+On success the sidebar list updates without a reload. Use **← All components** to return
+to the library (it confirms first if the component or this game's defaults have unsaved
+edits).
+
+If someone else saved the component after you opened it, Save asks **Save yours as a NEW
+version on top of theirs?** — **Save on top** keeps their save as its own version, so
+nothing is lost. Only one person edits a component at a time: when someone else (or
+another tab of yours) has it open, a banner reads "*name* is editing this — read-only",
+Save is disabled, and **Take over** moves editing to you.
 
 The server **bumps the component's `version`** automatically when the saved draft
 differs from the stored one (a re-save with no change keeps the version; a brand-new
@@ -219,9 +242,13 @@ one to latest** from its Properties panel in the Scene Editor (see §6). Every s
 also **retains the superseded def**: the server keeps each historical version (a
 `<id>.v<N>.json` snapshot beside the `<id>.json` latest pointer), so a pinned instance
 resolves the EXACT def it was authored against — in the editor preview, in the bake,
-and in the shipped game. Loading an older version is available via
-`GET /api/editor/component?id=…&version=<N>` (the UI to browse versions is not built
-yet).
+and in the shipped game.
+
+**Browse older versions.** While a component is open, the editor bar has a **Version**
+dropdown listing every saved version (the latest is marked). Pick one and click
+**Inspect** to load it **read-only** onto the canvas — an amber **◷ Inspecting vN
+(read-only)** pill shows, and Save, Promote and editing are blocked. **← Back to latest**
+returns to the editable current version. Inspecting never changes what is saved.
 
 **Spines from another project are re-pointed on save.** A spine node's rig belongs to the
 project it was rigged in, and the build only ever ships rigs from the project being built (or
@@ -343,18 +370,12 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   engine still renders the latest def and surfaces a `versionMismatch` warning rather
   than silently passing it off as the pin — the pin is never mutated or auto-upgraded.
   Outdated instances are **flagged** in the Scene Editor's Properties panel and can be
-  **updated to latest** per instance (§6). A **version browser** lives in the top bar
-  while a component is open: a `Version` dropdown lists every retained snapshot (the
-  latest is marked), and **Inspect** loads the selected version **read-only** onto the
-  canvas (an amber `Inspecting vN (read-only)` pill shows; Save / Promote / editing are
-  blocked) so you can review an older def without touching the saved latest. **Back to
-  latest** restores the editable current def. Inspection never writes to R2 — it GETs
-  the immutable `<id>.v<N>.json` snapshot and discards it; there is no "restore to this
-  version" action yet (restoring would just be a normal save of the inspected def, which
-  bumps a new version on top — deliberately left out so browsing stays purely
-  non-destructive). One precise engine remainder: the bake walks only top-level scene
-  pins, not the transitive nested-pin closure — to be widened when a game first nests a
-  pinned instance (no game pins any version yet).
+  **updated to latest** per instance (§6). The version browser (§5) is read-only: there is
+  no "restore to this version" action yet (restoring would just be a normal save of the
+  inspected def, which bumps a new version on top — deliberately left out so browsing
+  stays purely non-destructive). One precise engine remainder: the bake walks only
+  top-level scene pins, not the transitive nested-pin closure — to be widened when a game
+  first nests a pinned instance (no game pins any version yet).
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond

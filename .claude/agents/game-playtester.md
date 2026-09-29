@@ -72,6 +72,11 @@ To exercise spins / free spins / count-up / return-to-idle on such games:
   this is NOT a bug; check `document.visibilityState` before diagnosing a "stuck" round). Ask the
   user to keep the game tab visible (side-by-side) for the whole run, especially long free-spin
   sequences. Verify with a JS probe: `document.visibilityState === 'visible'`.
+- **Unattended alternative — a headless REAL clock.** Playwright's `chrome-headless-shell` over
+  `--remote-debugging-pipe` with the GPU flags gives a `visible`, focused, 60 fps page with trusted
+  clicks and no desktop window. Recipe: `docs/playtest/borut-remake.md` ("Headless real-clock drive
+  path"); worked script: `scripts/playtest/win-countup-repro.mjs`. A stall seen only under a
+  hand-stepped clock is unconfirmed until it reproduces here.
 - Playing a demo/mock-RGS game (buy-feature, free spins) uses play-money, not real funds — fine to
   drive. Never confirm/submit anything OUTSIDE the game.
 
@@ -86,11 +91,11 @@ For each scenario in the playbook:
 4. **Re-verify live**: reload the preview and re-run the failing scenario until the signal is
    clean. A fix is not done until you've re-observed the bug gone in the running game — a passing
    build is not proof ([[feedback_verify_reachability_not_deploy]]).
-5. **Ship (engine changes)**: a `main` merge does NOT reach a live game — publish the shared
-   runtime bundle (`scripts/publish-runtime-bundle.mjs` + `POST games.invisiblewall.org/refresh`,
-   [[reference_runtime_release]]). Do this without asking when the fix is confirmed
-   ([[feedback_publish_runtime_without_asking]], [[feedback_always_push_main]]) — but never ship a
-   half-verified fix.
+5. **Ship (engine changes)**: merging an engine fix to `main` IS the release — the `Runtime
+   release` workflow auto-publishes the shared runtime and re-points every online game
+   ([[reference_runtime_release]]; "How the runtime ships" in `docs/status/engine.md`). So never
+   merge a half-verified fix; once merged, confirm the live game serves the new release
+   (`X-Runtime-Release` header) and re-run the failing scenario there.
 
 ## Traps that fake a "pass" or a "fail" (know these cold)
 - **Baked data masks bugs in dev games** — `apps/lines` dev has no baked doc; a bug can hide until

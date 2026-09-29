@@ -65,56 +65,57 @@ on `POST /refresh`, secret-gated when `TEST_SERVER_SECRET` is set).
 
 ### Publishing a game — one-click from the desktop launcher (preferred)
 
-The desktop **Invisible Launcher** has a **☁ Build & publish** button on the Projects
-toolbar. Select a project whose `game.publish` block is filled in (cloud key, display
-name, protocol `lines`/`book`, build cwd/cmd/out, build env), click it, and it:
+The desktop **Invisible Launcher** has a **☁ Publish** button on each project card. Sign in with
+an account that holds **Build & publish games** (`gamePublish`), then press it on a project whose
+cloud-publish settings are filled in (cloud key, display name, protocol, build cwd/cmd/out, build
+env — derived from the project's game kind for projects created online). It:
 
-1. **builds** the game (`pnpm …`, with the play4fun env),
-2. **uploads** the `build/` bundle to R2 `test_server/<key>/` + merges the manifest,
-3. **refreshes** the test server (`POST /refresh`),
+1. **builds** the game — after hard-resetting the repo to `origin/main` and advancing the engine
+   submodule to the engine's `origin/main`, so the build is always on the latest engine,
+2. **uploads** the `build/` bundle **through the portal** (`api/launcher/game-upload`), which
+   writes R2 `test_server/<key>/`, verifies every file arrived and merges the manifest — no R2
+   credentials on your machine (from launcher v1.0.56),
+3. **refreshes** the test server (`POST /refresh`) and waits until it serves the new build,
 4. **registers** the game in the portal's `/admin → Games` (via
-   `POST /api/launcher/register-game`, owner login) — so it appears in the portal with
-   no manual step.
+   `POST /api/launcher/register-game`) — so it appears in the portal with no manual step,
 5. **shares the project SETUP** to the portal (`POST /api/launcher/projects`): the
-   machine-independent profile — `repo.url`/`branch` (captured from the build folder's
-   git remote) + the `game.publish` block. Every OTHER launcher then gets it on **↻ Sync
-   from cloud**, which `git clone --recurse-submodules` the repo into
-   `Projects/<client>/<key>` and can Build & publish with no typing. This is why building
-   from a real checkout matters — a freshly-synced _empty_ folder has no remote to
-   capture, which is the failure mode that left a project un-clonable (build then runs
-   `pnpm` in an empty dir → `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`). One-time bootstrap for
-   such a project: `apps/launcher-api/scripts/seed-project-profile.mjs` (or Build & publish
-   it once from its real checkout). Added in launcher **v1.0.8**.
+   machine-independent profile — `repo.url`/`branch` (captured from the build folder's git remote)
+   + the publish block. Every OTHER launcher gets it on **↻ Sync**, which clones the repo (with its
+   submodule) into `Projects/<client>/<key>` and can publish with no typing. A freshly-synced
+   _empty_ folder has no remote to capture; bootstrap such a project once with
+   `apps/launcher-api/scripts/seed-project-profile.mjs`, or 🏗 Scaffold it if it only exists online.
 
-> The build step needs Node + pnpm + the game's repo on that machine, so it's an
-> owner/dev action. Artist boxes that only sync ComfyUI won't build.
+> The build step needs Node + pnpm + the game's repo on that machine. Detail, including what each
+> build refusal means: [tools/invisible-launcher](invisible-launcher.md) and the
+> [publisher runbook](../guides/publisher-runbook.md).
 
 ### Publishing a game — CLI (equivalent)
 
-Build the game with the Play4Fun transport, then run the publish script (R2
-write creds in env). This does steps 1–2 above; add the `/admin` row by hand
-(or use the launcher button, which also does steps 3–4):
+Build the game with the Play4Fun transport, then run one of the two publish scripts. Both upload
+the bundle and merge the manifest:
 
-Each game is its **own standalone repo** (with the engine as a submodule under
-`engine/`), built with `pnpm build` → `build/`. (The engine's `apps/lines` is a
-**stale copy** — don't build from there.) First build per repo needs the engine's
+- `apps/launcher-api/scripts/publish-game-via-portal.mjs` — through the portal with your portal
+  sign-in; needs no R2 credentials, works on a line that cannot reach R2 directly, and registers
+  the portal card itself (`--no-register` to skip).
+- `apps/launcher-api/scripts/publish-game-bundle.mjs` — straight to R2 with the owner's `R2_*`
+  write credentials in the env; add the `/admin` row by hand afterwards.
+
+A game is its **own repo** (the engine as a submodule under `engine/`), built with `pnpm build` →
+`build/`. A hand build uses the engine commit the repo has pinned — the desktop launcher's publish
+is what advances it to the latest engine, so prefer that. First build per repo needs the engine's
 `pixi-svelte` dist once: `pnpm --filter pixi-svelte build`.
 
 ```bash
-# Hot Fruits — from C:\…\Projects\iGaming\Borut\HotFruits:
+# from the game repo:
 PUBLIC_RGS_TRANSPORT=play4fun pnpm build
-node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs hotfruits <HotFruits>/build \
-  --protocol lines --name "Hot Fruits"
-
-# Book of Borut — from C:\…\Projects\iGaming\Borut\Book of Borut:
-PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_RGS_GAME=book pnpm build
-node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs bookofborut <repo>/build \
-  --protocol book --name "Book of Borut"
+node <engine>/apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <repo>/build \
+  --protocol lines --name "Display Name" --project <projectKey>
 ```
 
-**Pass `--project` for any game authored in the Studio** — with `--launcher` and
-`--read-token`, all three together (see "The project pin" below). Without them the mock
-ignores the project's Game Config entirely and deals its default 5×3 lines board:
+The portal script requires `--project` and stamps the project pin itself. With
+`publish-game-bundle.mjs`, **pass `--project` for any game authored in the Studio** — with
+`--launcher` and `--read-token`, all three together (see "The project pin" below). Without them
+the mock ignores the project's Game Config entirely and deals its default 5×3 lines board:
 
 ```bash
 node <engine>/apps/launcher-api/scripts/publish-game-bundle.mjs waysofwavesbuild <repo>/build \
@@ -187,7 +188,7 @@ Three places share this shape; keep them in lockstep:
 
 ### The project pin — `projectKey` + `docBase` + `readToken`
 
-These three are **the pointer** the server uses to re-read the project's live Game Config
+These three are **the pointer** the server uses to re-read the project's Game Config
 (above) instead of the frozen `grid` snapshot. **A game without them is not playing its own
 math.** It still runs — it deals the mock's built-in **5×3 Hot Fruits default** (7 line
 symbols + scatter, 5 paylines, `lines` scoring) while the client draws whatever `/config`

@@ -29,7 +29,8 @@ start the next one instead of waiting for a specific GPU to free up.
   launcher deliberately does **not** auto-redirect — the pods are on-demand and may be
   stopped, so the panel frames each one with live status + Start/Stop controls instead
   of dumping you on a RunPod error page.
-- **Access:** admin, developer, artist.
+- **Access:** the `admin`, `developer` and `artist` roles by default; admins can grant or
+  revoke it per role or per user in the admin panel.
 
 The panel has two shapes depending on how the launcher is configured:
 
@@ -123,9 +124,9 @@ the two things people conflate:
   many nodes each pack registers. **These live in the pod's container image, not on the
   volume**: a pack you install with ComfyUI-Manager is written into the running
   container and **disappears the next time RunPod recreates the pod** (which happens on
-  resume). To keep a pack, it has to be added to the pod image
-  (`services/atlas-comfy-pod/Dockerfile`) and the image rebuilt. The panel says so
-  inline, because this is the single most confusing thing about the fleet.
+  resume). To keep a pack, an admin bakes it into the pod image with **Custom nodes →
+  Add & commit** (above). When the pod can tell which packs are not on the volume, those
+  carry a **container** badge — lost on the next recreate.
 
 The panel reads once when the page loads and again when you press **Refresh** (press it
 right after installing something — the server caches the answer for a minute). It never
@@ -220,13 +221,13 @@ fails with a missing-node/model error rather than producing art.
   in; the pod's container start command has to launch ComfyUI itself. If that's not set
   up, Start boots the GPU but the row stays "starting" forever because ComfyUI never
   answers. See the pod setup in `docs/INFRA.md` ("ComfyUI R&D pod").
-- **You can see the pod's models/nodes, but not change them from here.** *What's
-  installed* lists them; installing a checkpoint/LoRA or a custom node still happens on
-  the pod itself (web terminal / SSH / ComfyUI-Manager), not from this page.
+- **Models can be seen here, not installed.** *What's installed* lists them; putting a
+  checkpoint/LoRA on the Network Volume still happens on the pod itself (web terminal /
+  SSH / ComfyUI-Manager). Custom nodes are the exception: admins add them to the image
+  from **Custom nodes**.
 - **"Which packs are permanent?" is only answered when the pod can tell us.** Without a
-  reporting route on the pod, the panel lists the packs ComfyUI loaded but cannot say
-  which sit on the volume and which are container-only — hence the blanket warning
-  rather than a per-pack marker.
+  reporting route on the pod, *What's installed* lists the packs ComfyUI loaded but
+  cannot mark which are container-only, so no **container** badge appears.
 - **Blueprint round-trip is owner-verify-owed.** The Atlas Maker blueprint pipeline is
   code-complete but a full live generate through a published blueprint is still owed
   (see `docs/design/invisible-blueprints.md` §7). Treat a freshly published blueprint

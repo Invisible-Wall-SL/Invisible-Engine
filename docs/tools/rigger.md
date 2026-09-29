@@ -319,6 +319,12 @@ a rival answer to the same question. Move the box, or bind a different bone.
   influence, and a dropdown to add a bone. The **🖊 Weight brush** paints weight
   toward a chosen target bone (radius / strength / subtract-to-erase), with a
   blue→red heatmap on the vertices showing the current weight map.
+- **Auto-weight to chain:** select the chain's ROOT bone in the inspector, then
+  **② Auto-weight to chain** (or **↻ Auto-weight to chain** on an already-weighted
+  mesh) smooth-skins the mesh across that bone and all its children. Each vertex is
+  weighted to its nearest bones (up to four) by distance to the bone segments;
+  zero-length bones are skipped. It replaces the mesh's current weights. It is a
+  starting point — refine the result with the brush.
 
 #### Pivot — the point an image hangs from (**✥ Set pivot**)
 
@@ -385,7 +391,7 @@ sits in the outline under Skins.
    **Bake + place**.
 
 What that does: the string is rasterised **once per locale** — the source language plus every
-locale whose translation is **reviewed** in `/localization` — packed onto a page inside the
+locale that has a translation in `/localization` — packed onto a page inside the
 rig's own atlas, and placed as a slot on its **own bone**, with one region attachment per
 locale named `<id>@<locale>`. The source locale is the setup attachment.
 
@@ -397,10 +403,14 @@ the deform you author once drive every language.
 In game, the slot is switched to the player's language automatically; a language with no baked
 variant falls back to the source art.
 
-- **✎** re-bakes an element (after you change the font, size, colour, or after a translation is
-  reviewed). A re-bake reloads the rig's atlas, so the tool **saves the rig first** — it asks.
-  Existing attachments keep their authored placement, mesh and weights; only newly-reviewed
-  locales are added.
+- **Opening a rig keeps its text current.** If `/localization` gained a language or a string
+  changed since the last bake, the rig re-bakes and saves itself on open (it won't while you
+  have unsaved edits). A translation wider than the source language is re-rasterised at a
+  smaller font size so it fits the same width; one that cannot fit at the smallest size ships
+  wide and the panel warns.
+- **✎** re-bakes an element by hand (after you change the font, size or colour). A re-bake
+  reloads the rig's atlas, so the tool **saves the rig first** — it asks. Existing attachments
+  keep their authored placement, mesh and weights.
 - **✕** removes the element, its slot, its attachments and its atlas regions.
 
 Three things to know before you use it:
@@ -408,10 +418,12 @@ Three things to know before you use it:
 - **The text is ART.** Changing a string is a pipeline step (re-bake, re-save), not a runtime
   one. Use it for `FREE SPINS`-style display copy; anything dynamic (a win amount, a counter)
   stays a live text node in the Scene Editor.
-- **A mesh is authored against ONE locale's rendering.** A longer translation (German is the
-  usual offender) is stretched onto the same mesh. Keep the mesh simple if the lengths differ a
-  lot.
-- **Unreviewed translations are not baked.** Review them in `/localization` first, then re-bake.
+- **A mesh is authored against ONE locale's rendering.** Other locales share its vertices as
+  linked meshes, so a longer translation (German is the usual offender) is stretched onto the
+  same mesh and the width fit above cannot apply. Keep text as a plain region unless it really
+  needs to deform.
+- **Translations are baked whether or not they are reviewed.** The panel shows how many are
+  unreviewed; fix a string in `/localization` and re-open the rig to reship the art.
 
 ### Animate (Animate mode)
 
@@ -966,12 +978,10 @@ they appear in no scene.
   (e.g. attachment type checks via `constructor.name` failing under the minified
   runtime, and a double-flipped Y in canvas placement). Verify each action in the
   browser before relying on it.
-- **Auto-weights is not built.** Weight painting is manual only — bind, per-vertex
-  numeric edits, and the visual brush. Spike 2 (auto-weights quality) is still
-  **OPEN**: a cheap proximity algorithm scored poorly against artist ground truth,
-  and the available corpus is the wrong test data (no representative character
-  mesh). A proper auto-weights algorithm is future work; the manual brush is the
-  guaranteed path meanwhile.
+- **Auto-weights is proximity-only.** **Auto-weight to chain** weights by distance to
+  the bones, which does not know about the mesh's shape (an arm vertex near the torso
+  bone picks up torso weight). A shape-aware algorithm, checked against a real
+  character mesh, is future work; the brush is the way to fix up the result.
 - **No lossless desktop-Spine project round-trip.** `.irig` is the Spine _runtime
   export_ format; the desktop editor's proprietary `.spine` project file can't be
   authored. Desktop Spine can _import_ our JSON, but that's an import, not a
@@ -986,17 +996,13 @@ they appear in no scene.
   **draw-order, events and mesh deform** — have all since shipped.
 - **Undo covers cinematics only.** Rig editing (Setup / Animate) still has no undo
   stack; the one added for Cinematic mode is scoped to the cinematic document.
-- **Localized text needs fonts + reviewed translations to exist first.** With no font in the
+- **Localized text needs fonts + translations to exist first.** With no font in the
   project's catalog, or no keys in `/localization`, the Add-text panel has nothing to offer.
-  Only **reviewed** translations become locale variants — deliberately, because a string baked
-  into art cannot be corrected at runtime. Per-locale art also multiplies atlas space by the
-  locale count for each text element.
+  Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string
+  corrected in `/localization` reaches the art the next time the rig is opened. Per-locale art
+  also multiplies atlas space by the locale count for each text element.
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
-- ~~**Shipping a rig is a separate step.**~~ **Resolved 2026-08-04:** a rig now
-  travels the full export → `deploy/` → bake → pull → register chain, so "it
-  renders in `/rigger`" *does* now mean it ships. (Publishing the game is still
-  its own action, as for every asset class.)
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
   a name that matches an existing bundle case-insensitively (this was added after
   two same-name rigs got stuck); use distinct names.

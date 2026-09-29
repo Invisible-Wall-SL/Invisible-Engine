@@ -1,42 +1,46 @@
 # Invisible Launcher (desktop)
 
-The small Windows desktop app that runs on the **local GPU machine** and keeps
-the only two local pieces of the pipeline alive: **ComfyUI** and the
-**Cloudflare tunnel**. Everything else (the portal, Atlas Maker, atlas-backend,
-R2) is cloud-hosted — the Invisible Launcher is how a workstation joins the
-pipeline.
+The small Windows desktop app that turns a workstation into a **build machine** for standalone
+games: it syncs your projects from the portal, builds them against the latest engine, and
+publishes (☁ Publish) or packages them for a partner (📦 Deliver). It can also run **ComfyUI** on
+your own GPU and open the **Cloudflare tunnel** to it, for when you choose *Run generation on → My
+computer* in the Atlas Maker — production generation runs in the cloud and does not need it.
 
-> This replaces the old "download ComfyUI yourself" flow. Artists/devs no longer
-> install ComfyUI by hand — the launcher fetches the correct build for them.
+## What it is
+
+- **Where it runs:** on your Windows machine, as a single `.exe` — it is the one Invisible tool
+  that is not a page in the launcher. It signs in to the portal to fetch your projects and to
+  publish.
+- **Access:** listed under *Local tools* for **admin**, **developer**, **artist**,
+  **pipelineTester** and **audio**. Publishing needs the **Build & publish games**
+  (`gamePublish`) capability, which an admin grants in /admin → Roles.
 
 ## What it does
 
-- **Install / Update ComfyUI** — downloads the official **Windows portable**
-  build (`ComfyUI_windows_portable_nvidia.7z`) straight from GitHub, extracts it
-  (no manual 7-Zip step — the launcher uses an installed 7-Zip if present, else
-  auto-fetches the tiny standalone `7zr.exe`), installs the ComfyUI-Manager
-  requirements (so `--enable-manager` works), and wires up the config paths
-  (`comfyui_dir` / `python_exe`). Installs to
-  `C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\`. A **progress bar**
-  (determinate during the download %, indeterminate while extracting) shows
-  feedback throughout.
-- **Start ComfyUI** — launches the shared ComfyUI service on `localhost:8188`.
-- **Start tunnel** — brings up the `comfy-gualtiero` Cloudflare named tunnel so
-  the cloud Atlas Maker can reach this machine's GPU at
-  `comfy.invisiblewall.org`.
-- **Check for updates** (header) — compares the running `LAUNCHER_VERSION`
-  against the published manifest and, if a newer build exists, downloads it and
-  updates itself in place (see *Self-update* below).
+- **Projects → ☁ Publish / 📦 Deliver / 🏗 Scaffold** — sync, build and ship a game; see
+  *Projects* below. This is what most people use it for.
+- **Install / Update ComfyUI** *(optional)* — downloads the official **Windows portable** build
+  (`ComfyUI_windows_portable_nvidia.7z`) from GitHub, extracts it (an installed 7-Zip, or the
+  standalone `7zr.exe` it fetches), installs the ComfyUI-Manager requirements and wires up the
+  config paths (`comfyui_dir` / `python_exe`). Installs to
+  `C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\`, with a progress bar throughout.
+- **Start ComfyUI** — launches ComfyUI on `localhost:8188`.
+- **Start tunnel** — brings up the Cloudflare named tunnel so the cloud Atlas Maker can reach this
+  machine's GPU at `comfy.invisiblewall.org` (*Run generation on → My computer*).
+- **Sync models** *(admin)* — pulls the shared model mirror from R2 onto this machine's ComfyUI.
+- **Check for updates** (header) — compares the running `LAUNCHER_VERSION` against the published
+  manifest and, if a newer build exists, downloads it and updates itself in place (see
+  *Self-update* below).
 
 ## Getting it
 
 1. Sign in to the portal at **app.invisiblewall.org** (invite-only).
-2. On the launcher home, find **Invisible Launcher** under *Local tools* and
-   click **Download** — this serves the `.exe` from R2 (open route
-   `/api/launcher/download`).
-3. Run the `.exe` (no install step — it's a single file). On first run it
-   self-installs its few Python UI dependencies.
-4. Click **Install / Update ComfyUI**, then **Start tunnel**.
+2. On the launcher home, find **Invisible Launcher** under *Local tools* and click **Download** —
+   this serves the `.exe` (open route `/api/launcher/download`).
+3. Run the `.exe` (no install step — it's a single file). On first run it self-installs its few
+   Python UI dependencies.
+4. Sign in with your portal account, then **↻ Sync** your projects. Only if you want to generate on
+   your own GPU: **Install / Update ComfyUI**, then **Start tunnel**.
 
 ## How it's distributed
 

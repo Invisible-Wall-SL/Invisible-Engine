@@ -174,11 +174,12 @@ publish, which:
    the game kind (`book` for book-of games, `ways` / `cluster` / `scatter` for those
    kinds, otherwise `lines`); `runtime` is the shared engine bundle id. It also writes
    the pointer (launcher origin + read token) the test server uses to re-read the
-   project's [Game Config](/docs/game-config) live, so the **mock** picks up a new grid,
-   payline set or win model within seconds of a save, with no re-publish. The **players'
-   game** does not: it keeps the config frozen in the published version until the next
-   Publish (see _Traps_). The board/cascade values written here are only the fallback for
-   when the launcher can't be reached.
+   project's [Game Config](/docs/game-config), so the **mock** deals each game the board it
+   draws: **Live ↗** is dealt your saved config, picking up a new grid, payline set or win
+   model within seconds of a save, and players are dealt the published version's math. A math
+   change therefore reaches players, game and server together, at the next **Publish**. The
+   board/cascade values written here are only the fallback for when the launcher can't be
+   reached.
 4. **Registers the portal game** with a launch URL that points the generic
    runtime at _this_ project's published version
    (`…/<key>/?runtime=1&project=<key>&k=<readToken>&…`), gated by the read token,
@@ -198,9 +199,11 @@ game) plus a few seconds to copy its files.
   version freezes, so an edit saved while the publish runs cannot slip an error past it. An **admin** gets a **Publish anyway**
   button (a flow error can hang or skip a round for players); anyone else is told to fix it in
   Invisible Flow or ask an admin.
-- **Paytable drift.** The authored paytable disagrees with the partner reference kept in
-  [Game Config](game-config.md#the-partner-reference-and-the-publish-check); the dialog lists the
-  rows. An **admin** gets **Publish anyway**; anyone else fixes the rows in `/config`.
+- **Paytable drift.** Only when the project keeps a captured partner paytable as a reference
+  ([Game Config](game-config.md#the-partner-reference-and-the-publish-check) → Symbols → import
+  from a pasted capture): if the paytable the info page would show disagrees with it, the dialog
+  lists the differing rows. Same rule as flow errors — an **admin** gets **Publish anyway**;
+  anyone else fixes the rows in `/config` or asks an admin.
 - **A game with its own desktop build.** Final — republish it from the desktop launcher.
 
 Step by step, with what to do after each refusal: the
@@ -208,6 +211,11 @@ Step by step, with what to do after each refusal: the
 
 A project with **no** saved flow still publishes, with a note under the card that it plays
 without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
+
+After a successful publish, notes under the card can also flag (never blocking): sounds with a
+non-commercial or missing licence, and **⚠ spine bundles that resolved to nothing** — a rig
+placed in a scene or bound to a symbol that will be missing in-game. Re-pick the rig in the
+Scene Editor or Invisible Symbols and publish again.
 
 When it finishes, the page reloads the row to show the new state: a **Play ↗**
 link that opens the game exactly as players get it (the published version), a
@@ -243,8 +251,8 @@ the list: date, who published it, **engine <commit>** (the engine release that w
 live when it was published), a red **flow errors** tag on one an admin published
 past the flow check, and **live** on the one players get. **Make live**
 on any other version switches players back to it after a confirmation. Nothing is
-rebuilt — it takes effect on each player's next load, and you can switch forward
-again the same way. Making a version live changes the game's DATA only: the game
+rebuilt — it takes effect on each player's next load (the mock RGS deals players that
+version's math too), and you can switch forward again the same way. Making a version live changes the game's DATA only: the game
 stays on the engine that is live now, and the confirmation names the engine the
 version was published on. Taking the engine back is a separate step — the
 **Runtime rollback** workflow (see [games-deploy](../design/games-deploy.md)).
@@ -364,9 +372,10 @@ graduate later; its R2 authoring data carries over.
 
 - **One shared runtime for every kind.** There is a single prebuilt engine bundle (its id is
   historically `lines`); it adapts to the win model the project's
-  [Game Config](game-config.md) declares, so ways, cluster and scatter games play as themselves
-  — once that config is **saved** (see _Making a ways game_ there). A kind that needs bespoke
-  compiled code the shared bundle cannot carry would need a bundle of its own; none exists yet.
+  [Game Config](game-config.md) declares and stands payline-only surfaces down off-lines, so
+  ways, cluster and scatter games play as themselves — once that config is **saved** (see
+  _Making a ways game_ there). A kind that needs bespoke compiled code the shared bundle cannot
+  carry would need a bundle of its own; none exists yet.
 - **Reskin / template games, not yet fully custom behavior.** Background, scenery,
   HUD, free-spin intro/counter/outro, loading splash, board position/shape/spin
   feel, fonts, localized text, and per-instance prefab art are already driven by
@@ -375,9 +384,9 @@ graduate later; its R2 authoring data carries over.
   TypeScript; the declarative behavior-track format that unlocks it fully online
   is the **Phase 4** engine project (`tracks?: BehaviorTrack[]`, reserved but not
   built).
-- **Per-game math is not authored here.** The grid, paylines, paytable, win model and bet modes
-  live in [Invisible Game Config](game-config.md); a project that never saves a config there runs
-  the engine's compiled `lines` template, whatever its game type.
+- **Per-game math is not authored here.** Symbols, paytable, paylines, win model, bet modes, reel
+  strips and board size live in [Invisible Game Config](game-config.md); a project that never
+  saves a config there runs the engine's compiled `lines` template, whatever its game type.
 - **Publish needs a capability, not just the tool** — see **Access** above. Granting
   **Build & publish games** to `developer` / `pipelineTester` is an explicit act in
   `/admin → Roles`.
@@ -385,3 +394,7 @@ graduate later; its R2 authoring data carries over.
   on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
+- **A published version freezes data, not the engine.** Every online game runs the live
+  engine release; after an engine change that needs new game data, republish (the amber
+  badge above is the prompt). Rolling a game back to an old version does not roll its engine
+  back.

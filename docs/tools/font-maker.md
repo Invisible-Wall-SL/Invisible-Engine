@@ -17,8 +17,9 @@ shared `invisibleassets` R2 bucket). It has three tabs:
   bake a BMFont (XML descriptor + page PNG) entirely in the browser, then save.
 
 The output is byte-compatible with what the games already load: a BMFont `.xml`
-descriptor + page PNG, where the catalog `name` equals the descriptor's
-`<info face>` so a game resolves `<BitmapText fontFamily={name}>` by it.
+descriptor + page PNG. Games and the Scene Editor pick a font by its catalog **id**
+(the Folder / id you set when saving), so two fonts that share a typeface name — say,
+two gradient variants of one family — stay separate.
 
 - **Where it runs:** the launcher itself, at `/fonts` — a real full-page route
   inside `(app)`, behind the auth + role gate. It is **never an iframe** and
@@ -49,8 +50,9 @@ a **Size** slider — drive every live preview across the View and Generate tabs
    live PIXI render of your Sample text at the current Size.
 2. **Edit** (bitmap fonts baked here only) reopens that font's saved bake recipe
    in the Generate tab so you can tweak params and re-bake.
-3. **Delete** removes the entry and its R2 files after a confirm step. Delete is
-   hidden for `_shared` fonts unless you hold `fontPublish`.
+3. **Delete** removes the entry and its R2 files after an inline **Delete? → Yes,
+   delete** confirm. Delete is hidden for `_shared` fonts unless you hold
+   `fontPublish`.
 
 ### Import — bring in an existing font
 
@@ -69,7 +71,9 @@ a **Size** slider — drive every live preview across the View and Generate tabs
 3. Set the **Folder / id** (1–64 chars: letters, digits, `-`/`_`, starting with a
    letter or digit). It defaults to a slug of the face/family name.
 4. Pick the **Save target** (Project, or Shared library if you can publish) and
-   **Save**.
+   click **Save to project** / **Save to shared library**. If the id is already taken,
+   the panel says so and Save stays disabled until you pick a new id or tick
+   **Overwrite the existing** font.
 
 ### Generate — bake a bitmap font from a TTF/OTF
 
@@ -102,7 +106,9 @@ a **Size** slider — drive every live preview across the View and Generate tabs
    built from the baked descriptor + page blob), so it doubles as a metrics
    self-check. The panel reports page size, page count, glyph count, kerning
    count, and any characters the font lacked (skipped).
-6. Pick the **Save target** and **Save**. Generated fonts also persist an
+6. Pick the **Save target** and click **Save to project** / **Save to shared
+   library** (a taken id needs the same **Overwrite the existing** tick as Import).
+   Generated fonts also persist an
    authoring-only re-bake recipe (the source font + bake params) so they can be
    reopened via **Edit** later; the recipe is never shipped to a game.
 

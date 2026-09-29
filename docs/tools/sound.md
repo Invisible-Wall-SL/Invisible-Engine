@@ -257,6 +257,9 @@ Nothing extra to do — this happens on publish:
 3. The game loads each one, and any sound named the same as a built-in engine sound
    **replaces** it.
 
+A sound you remove or rename leaves the game the same way: the next publish (or desktop
+build) no longer carries the old file.
+
 That last point is how you re-skin the engine's default audio: upload a sound named
 `sfx_reel_stop_1` and the game plays yours instead of the shipped one, with nothing to
 bind.

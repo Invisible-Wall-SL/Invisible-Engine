@@ -397,7 +397,7 @@ than at a dead token, so check the name first (the "endpoint's image" box in
 
 ### comfy.org API key (`COMFY_ORG_API_KEY`)
 
-[INFRA § B9.1](../INFRA.md#b91--comfy_org_api_key-done-in-working-tree-rotation-still-owed) covers
+[INFRA § B9.2](../INFRA.md#b92--rotation-checklist-for-setup-time-secrets) covers
 revoking it at platform.comfy.org. Pattern: **overlap**.
 
 **Consumers:**

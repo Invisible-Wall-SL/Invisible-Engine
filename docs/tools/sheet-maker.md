@@ -92,8 +92,10 @@ and follow its name, so renaming/resizing the base updates them and deleting the
 base removes them (and their copies). They're drawn with a dashed purple outline
 and a mode badge on the canvas, and untick to remove. Because the names follow
 the convention, the effect travels the pipeline without any manual re-naming.
-6. In the Atlas Maker, press **↻ Refresh from R2** (Session bar) for the new manifest to
-   appear, then generate art from it.
+6. In the Atlas Maker, press **↻ Refresh from R2** (Session bar) and the new manifest appears
+   in the manifest dropdown — no restart; the Atlas Maker does not poll R2 on its own. Opening
+   the sheet through **Open in Atlas Maker** activates it directly, and switching to a manifest
+   always re-reads its latest export from R2 first. Then generate art from it.
 
 ### Starting a new sheet
 

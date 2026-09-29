@@ -27,8 +27,9 @@ runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launche
   drops unused symbols; un-published falls back to `lines.json`).
 - Authors `highlight` (win-frame spine, sparse, spine-only, default `payframe`) and `winLine`
   (sparse; enabled/line/text; passed verbatim to `bundle.symbols.winLine`).
-- **Symbol SIZE does NOT live here** — it moved onto `reelGrid.symbolSizeRatios` in the Scene
-  Editor; baked per-cell `sizeRatios` are honoured back-compat only ([[project_reelgrid_three_knobs]]).
+- **Symbol SIZE is not authored anywhere** — each symbol is fitted to its cell by its own art
+  (Art bounds for a sprite, the Rigger Bounds box for a spine); a legacy per-cell `sizeRatios` is
+  ignored at render.
 
 ## Contracts you must preserve
 1. **Sparse writes.** A new `Scene.*`/cell field is dropped unless it survives the

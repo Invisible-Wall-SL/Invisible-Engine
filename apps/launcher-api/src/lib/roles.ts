@@ -243,7 +243,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'invisibleLauncher',
 		name: 'Invisible Launcher',
 		description:
-			'Desktop app that installs/updates ComfyUI + starts the Cloudflare tunnel for the cloud pipeline.',
+			'Desktop app that syncs your projects, builds them on the latest engine and publishes or delivers them — and can run ComfyUI on your own GPU.',
 		kind: 'local',
 		icon: TOOL_ICONS.invisibleLauncher,
 		install: {

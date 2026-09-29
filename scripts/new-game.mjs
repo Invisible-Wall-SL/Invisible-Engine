@@ -333,19 +333,12 @@ pnpm install
 pnpm dev          # http://localhost:${port}
 \`\`\`
 
-## Move the engine pin
-The desktop launcher's publish advances the submodule to \`origin/main\` before
-every build, so a published build is always current without this. Use it to move
-the COMMITTED pin (what a plain \`git clone\` + \`pnpm build\` here gets).
-
-This repo's \`pnpm-workspace.yaml\` globs \`engine/packages/*\`, so the root
-\`pnpm-lock.yaml\` pins the engine packages' deps. The pin and the lockfile MUST
-move together — bumping the pin alone breaks the launcher's frozen install
-(\`ERR_PNPM_OUTDATED_LOCKFILE\`). Use the engine's helper, which does both atomically:
-\`\`\`bash
-node engine/scripts/bump-game-engine.mjs        # advances engine + refreshes lockfile, one commit
-git push origin main
-\`\`\`
+## Which engine a build gets
+The desktop Invisible Launcher builds this repo (☁ Publish / 📦 Deliver) and advances the
+\`engine/\` submodule to the engine's \`origin/main\` before every build, so a build is always
+on the latest engine. Don't bump the submodule by hand — the committed pin is only what a bare
+\`git clone\` + \`pnpm build\` gets. Each build records the engine commit it compiled in
+\`build-info.json\`.
 
 ## Build / deploy
 \`\`\`bash

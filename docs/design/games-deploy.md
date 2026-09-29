@@ -32,8 +32,8 @@ remove, and it's why the old engine/launcher/pipeline split was retired. We are
 A shipped game is different from engine-dev code:
 
 - it ships to a client and deploys on **its own cadence**;
-- it can pin a **specific engine commit** for a hand-over, so a delivered build is
-  reproducible;
+- every build records the **engine commit it actually compiled** (`build-info.json`, also
+  baked into the game as `__IE_BUILD__`), so a delivered build is traceable;
 - it has its own deploy target.
 
 So each standalone game lives in **its own repo**, with this engine vendored as a
@@ -60,7 +60,7 @@ Repos used to carry a scaffold-time COPY of `apps/lines/src`, and it went stale
 immediately — the desktop launcher advances the submodule to `origin/main` before
 every build, so `packages/*` were current while the game layer was frozen at
 scaffold day, and 53 of the last 60 engine commits touch `apps/lines/src`. See
-the 2026-09-17 entry in [status/engine](../status/engine.md). A leftover `src/` in
+the 2026-09-17 entry in [status/engine-history](../status/engine-history.md). A leftover `src/` in
 an older repo is ignored, with a build-log notice naming `git rm -r src`.
 
 | Repo | Contains | Deploys as |
@@ -83,18 +83,18 @@ push/deploy steps. It writes no application source — there is none to write.
 
 ### Which engine a build gets
 
-A **desktop-launcher publish** advances the submodule to `origin/main` first, so a
-published build is always on the latest engine. That is the normal path and needs
-no action.
+**The latest `main`, always.** Both desktop-launcher builds — ☁ Publish and 📦 Deliver —
+hard-reset the game repo to `origin/main` and advance the `engine/` submodule to the engine's
+`origin/main` before building, and they fill in any engine package the repo's `package.json`
+predates. That advance is deliberately **not committed**: it is redone on every build, so there is
+no engine version to choose and no way for a build to fall behind.
 
-The **committed pin** is what a plain `git clone` + `pnpm build` gets, and it is
-what a hand-over should be cut from. Move it deliberately — the pin and the
-lockfile must travel together, or the launcher's frozen install fails with
-`ERR_PNPM_OUTDATED_LOCKFILE`:
-
-```bash
-node engine/scripts/bump-game-engine.mjs      # advances engine + lockfile, one commit
-```
+**Never bump a game repo's engine submodule by hand**, and never mirror engine code into a game
+repo. The committed pin is only what a bare `git clone` + `pnpm build` would get; build through the
+launcher instead. What makes a build traceable is not the pin but its provenance record —
+`build-info.json` beside the bundle (engine commit compiled, game commit, lockfile hash, launcher
+version), also baked into the game as `__IE_BUILD__`. See
+[tools/invisible-launcher](../tools/invisible-launcher.md).
 
 ## Runtime releases (the online games' engine)
 

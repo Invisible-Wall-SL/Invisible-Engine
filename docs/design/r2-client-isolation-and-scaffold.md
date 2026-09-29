@@ -1,6 +1,10 @@
 # R2 client isolation + canonical project scaffold
 
-Status: design proposal (2026-05-30). Two coupled changes:
+Status: **SHIPPED 2026-05-30** (migration + code deploy). Its `<tool>/<client>/<project>/` layout
+was then **superseded on 2026-06-02 by [unified-project-repo](./unified-project-repo.md)** (one
+`<client>/<project>/` tree per project); client isolation and the canonical scaffold carried over.
+Read §1 below as history, not the current R2 layout — current state in
+[status/launcher](../status/launcher.md). Two coupled changes:
 
 1. **Client isolation (Option B):** R2 layout becomes `<tool>/<client>/<project>/…` (was `<tool>/cloud/<project>/…`). Storage is siloed per client.
 2. **Canonical scaffold:** one source of truth for the per-project skeleton + seed files, used by both the migration and the launcher's `createProject` action.

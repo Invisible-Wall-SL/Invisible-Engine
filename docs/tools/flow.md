@@ -52,19 +52,28 @@ signals that components — and spines placed on a screen — listen for), waits
 
 Sign in to the launcher (`app.invisiblewall.org`) and open **Invisible Flow** (the top-bar
 switcher lists it as **Flow**). The FlowDoc is scoped to the project selected in the top
-bar — the sub-bar shows the active `client / project`. Switching projects loads that
-project's saved flow. If a project has no saved flow yet the editor opens on its game type's
-**starter flow** (the `book-of` one for a type without its own), and the save pill reads
-**New — unsaved** until your first edit saves it.
+bar's project selector; switching projects loads that project's saved flow. If a project has
+no saved flow yet, the editor opens on its game type's **starter flow** (loading → tap → base
+game → win; the `book-of` one for a type without its own) so you start from something that
+works. The save pill then reads **New — unsaved**, and your first edit saves it as the
+project's own flow.
 
 ### Read the sub-bar
 
-Across the top the sub-bar shows the active **client / project** scope, an **exec / data**
-legend, a live **node / exec / data** count, and a validation pill (**✓ valid** or **⚠ N
-issues**). The **save pill** on the right reports the auto-save state — **Saving…**,
-**Unsaved changes**, **Saved**, or **Save failed — retry** (click to retry).
-Next to it are **↶ Undo**, **↷ Redo** and **History…** (see [Undo, redo and version
-history](#undo-redo-and-version-history)).
+Across the top the sub-bar shows a **Flow** breadcrumb (it becomes **Flow ↳ &lt;function&gt;**
+while you edit a function body), an **exec / data** legend, and — in the main flow — the
+buttons **＋ Comment**, **⤵ Collapse** and **▣ Group** (plus **⤴ Expand group** when a group
+is selected; see [Comment boxes and inline groups](#comment-boxes-and-inline-groups)). On the
+right are **↶ Undo**, **↷ Redo** and **History…** (see [Undo, redo and version
+history](#undo-redo-and-version-history)), the **save pill**, a live **node / exec / data**
+count, and a validation pill (**✓ valid** or **⚠ N issues**).
+
+The save pill reports the auto-save state — **Saving…**, **Unsaved changes**, **Saved**, or
+**Save failed — retry** (click to retry). If someone else saved the flow while you were
+editing it reads **⚠ Someone else saved this** and autosave pauses with your changes still on
+screen: **Reload theirs** discards yours and loads their version, **Overwrite with mine**
+replaces theirs. When another person (or another tab of yours) is editing the flow, a banner
+reads "*name* is editing this — read-only" instead; **Take over** moves editing to you.
 
 ### Add nodes (the palette)
 
@@ -519,7 +528,7 @@ cancel to end a running autoplay as well.
 ### Reusable functions (Collapse to Function)
 
 Select two or more nodes (marquee-drag or shift-click) and the sub-bar's **⤵ Collapse**
-button appears. Name the new function and it is extracted into a **functionCall** node in
+button becomes active. Name the new function and it is extracted into a **functionCall** node in
 its place, with its logic moved into a reusable **function body**. Functions live in a
 **shared library** (global across every project, not project-scoped), so a function you
 collapse in one project is available everywhere.
@@ -532,6 +541,18 @@ collapse in one project is available everywhere.
 - **Rename** the open function inline in the breadcrumb (its id stays stable, so existing
   call sites keep resolving). **Delete** a function from the palette's **✕** — blocked with
   a message while any call site still references it.
+
+### Comment boxes and inline groups
+
+- **＋ Comment** adds a labelled box for grouping and annotating part of the flow. With nodes
+  selected, the box is sized to wrap them (the nodes stay where they are); with nothing
+  selected, it drops into open space above the graph. Comments are notes only — the game
+  ignores them.
+- **▣ Group** collapses the selected nodes (two or more) into one **inline group** node in
+  this flow. Unlike **⤵ Collapse**, a group stays in this project's flow and does not go into
+  the shared function library. Select a group and **⤴ Expand group** puts its nodes back
+  inline. If the selection cannot be grouped, the reason appears as a ⚠ note beside the
+  buttons.
 
 ### Validation
 
@@ -579,8 +600,8 @@ There is **no Save button** — the editor **auto-saves**. Every edit marks the 
 writes the project's `editor/flow-v2.json`. A burst of edits coalesces into one save. The
 save pill in the sub-bar reflects the state (**Saving… / Unsaved changes / Saved / Save
 failed — retry**). The shared **function library** auto-saves the same way to its global
-key, shown as a separate **Library …** pill. The standalone dev sample (no real project) is
-never persisted.
+key, shown as a separate **Library …** pill; because the library is shared by every project,
+its conflict pill reads **⚠ Library changed elsewhere**.
 
 The game reads the saved `editor/flow-v2.json` through the bake → bundle chain, so authoring
 here is what the shipped game actually runs — from the next Publish on.

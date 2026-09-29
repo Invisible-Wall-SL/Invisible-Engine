@@ -360,12 +360,12 @@ break it. The shared bundle adapts instead, via everything above. The bundle id 
 compatibility; the name is historical and means "the shared engine runtime". Revisit per-type bundles
 only for a type that needs bespoke COMPILED code the shared bundle cannot carry.
 
-**What Phase D still owes:** the engine READS the model but does not yet **evaluate** a non-lines win
-— it presents whatever the RGS reports. A project can therefore declare itself ways, validate as ways
-and be dealt ways wins by the mock, and still be _played_ as lines by the client. The config resolver
-says exactly that at boot rather than letting the symptom (line wins on a ways config) look like a
-math bug. Closing this is the phase's real gate, together with a ways project actually published and
-played end-to-end.
+**Phase D is closed.** All four models are honoured end to end, and #392 removed the boot warning
+that said otherwise. The client still **evaluates** no win by design: the RGS decides and the engine
+presents what it reports (anticipation's reach is the one place the client reads a board). The
+cost is that the mock's evaluator must mirror the client's `payoutDivisor()`, which `pnpm check:rgs`
+guards. Ways projects have been published and played live against the test server. Current state:
+[status/engine.md](../status/engine.md) open item 0.
 
 ## Phase E — a game type as a first-class authoring kind
 
@@ -502,18 +502,15 @@ per-type bundle with bespoke compiled code, which is the one case Phase D left o
 
 The honest list of what this plan has not delivered, in the order it matters:
 
-1. **A ways project published and played end-to-end.** The Phase D gate. Everything else is verified
-   offline or against the mock.
-2. **Cluster/scatter presentation in the client.** `ways` is now honoured everywhere the client reads
-   the model — priced per way (#357), drawn as merged per-reel bars (#360), and, as of
-   `createWaysReach`, teased by reel anticipation with a reach that converges on the board's real
-   payout. `cluster`/`scatter` remain declaration-only: every model-aware surface falls back to line
-   behaviour, and the boot warning now names only those two. Closing them is a board MECHANIC
-   (tumble/cascade), not a reach implementation — see the scoped-out section above.
+1. ✅ ~~**A ways project published and played end-to-end.**~~ Done: ways projects run on the test
+   server and have been played live (`test6`), with a scripted playbook in
+   [playtest/ways.md](../playtest/ways.md).
+2. ✅ ~~**Cluster/scatter presentation in the client.**~~ Done by Phase F: the cascade and the
+   multiplier collect are in the shared runtime, `scatter` has an evaluator, and the boot warning is
+   gone. What remains for those two is the wire and the math (Phase F's own list above).
 
    Worth knowing: the client still never DETERMINES wins. It receives `winInfo` with positions from
-   the RGS. The only place it evaluates a board is anticipation, which is why that was the whole of
-   the work here.
+   the RGS. The only place it evaluates a board is anticipation.
 
 3. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board

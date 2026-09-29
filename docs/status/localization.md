@@ -2,19 +2,19 @@
 
 > Guide: [docs/tools/localization.md](../tools/localization.md) · Agent: none yet (launcher tool — closest owner `.claude/agents/launcher-studio.md`)
 
-**One-line state:** shipped — in-launcher, project-scoped string table with batch translate → unreviewed → human-review → save to R2; needs a translation provider configured (Anthropic, or any OpenAI-compatible endpoint).
+**One-line state:** shipped — a project-scoped string table in the launcher: auto-harvested game text, batch machine translation (Anthropic or any OpenAI-compatible endpoint) landing unreviewed, per-cell or bulk human review, save to R2. Only reviewed strings reach players.
 
 ## Current state
 
-Live in the launcher at `/localization` (granted to `developer` + `artist`; `admin` always), scoped to the **active project**. A single Claude call + R2 storage — no external service, no DB table.
+Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipelineTester` and `localizationReviewer`; `admin` always), scoped to the **active project**. One provider call per batch + R2 storage — no DB table.
 
 - **Table** — a spreadsheet-style view of the game's text. **Auto-collected sections** harvest every localizable string, source read-only (the owning tool edits it): **per-screen** from the Scene Editor (text nodes, component `text`/`label` params, and text authored inside custom components); a **Win text** section from Invisible Win Text's templates (incl. the built-in info-bar toast defaults); a **Symbol names** section from the Invisible Symbols State Machine's display names (`H1` → "Banana"/"Bananas"); a **Flow messages** section from Invisible Flow's `textMessage` nodes; a **Bet modes** section from Invisible Game Config's bet-mode copy (buy-feature card title/description/button, confirm-dialog body, HUD bet badge); and a **Game UI** section carrying the engine's own coded chrome. Each string's translation key **is the source text**, so identical strings share one translation. A **manual** section holds hand-authored rows (editable `key` + `source`). A **No longer in scenes** section surfaces removed-but-translated rows.
   - Symbol-name rows key on the **trimmed** name (unlike scene/win text, keyed on the exact literal): `resolveSymbolName` trims before it calls the resolver, so a padded key would never match. Only _authored_ names harvest — an unnamed symbol resolves to its bare id and must never become a row; numeric-only names ("7") are skipped.
 - **Global settings** — source language, target languages, an optional context/glossary that guides every translation, and a **Never translate** list (comma-separated terms kept verbatim in every language).
   - Not a prompt instruction: each occurrence is **masked** to a `{{DNTn}}` token before the request and the ORIGINAL matched text is restored after it (`localizationMask.ts`), so the model translates the sentence around the term and physically cannot localize the term. Case-insensitive, whole-word, longest-term-first; the restore keeps the source's own casing. Verified offline (16 assertions, `tsx`).
 - **Batch translate** — "Translate this row" / "Translate all missing" batches the selected strings + target langs into **one** call, returning strict JSON. Results land **unreviewed** (amber dot) — never auto-saved. Two interchangeable providers (`translate.ts`), same prompt and same JSON contract: **Anthropic** (`claude-sonnet-4-6`, with a **prompt-cached** system prompt of fixed instructions + your glossary), or **any OpenAI-compatible `/chat/completions` endpoint** when `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set (which wins if both providers are configured). The OpenAI path sends `response_format: json_object` and retries once without it on a 400, since some providers reject the field.
-- **Review + save** — editing a cell (or clicking its dot) marks it reviewed (green); nothing persists until **Save**. On save, auto-collected rows with no translation are **not** stored (re-derived from `editor/<projectKey>/scenes.json` each load, so the table self-heals); translated rows are kept.
-- **Storage** — one JSON doc per project in R2: `localization/<projectKey>/strings.json` (`sourceLang`, `targetLangs`, `context`, `protectedTerms[]`, `entries[]` with `origin: editor|winText|symbols|manual`; anything not `manual` is an auto origin — re-derived each load, untranslated ones not persisted). R2-only, no migration.
+- **Review + save** — editing a cell (or clicking its dot) marks it reviewed (green); **Mark reviewed** (with an all-languages / one-language scope and a confirm) marks every filled cell in scope at once. Nothing persists until **Save**. On save, auto-collected rows with no translation are **not** stored (re-derived from `editor/<projectKey>/scenes.json` each load, so the table self-heals); translated rows are kept.
+- **Storage** — one JSON doc per project in R2: `localization/<projectKey>/strings.json` (`sourceLang`, `targetLangs`, `context`, `protectedTerms[]`, `entries[]` with an `origin` — `manual` or one of the auto origins (`editor`, `winText`, `symbols`, `flow`, `gameConfig`, `uiText`); anything not `manual` is an auto origin — re-derived each load, untranslated ones not persisted). R2-only, no migration.
 - **Engine consumption** — the engine's text resolver swaps translations in-game by source-text key (reviewed-only).
 
   - **Bet modes** harvest from `resolveBetModes`, i.e. the RESOLVED copy the game renders — so the derived defaults a config never overrides (`BUY`/`PLAY`/`ACTIVATE`, a title falling back to the mode key) are translatable too. Only the `base` mode's bet badge is taken; its title/description/button have no surface (the buy menu lists non-default modes only).
@@ -23,11 +23,14 @@ Live in the launcher at `/localization` (granted to `developer` + `artist`; `adm
 ## Open items / next
 
 1. Potential `<DataTable>` extraction (shared with admin) per the reuse-check backlog — infra done, extraction pending.
-2. Surface an "N translated, 0 reviewed" signal — the bake ships reviewed-only, silently.
+2. Surface an "N translated, 0 reviewed" signal — the bake ships reviewed-only, silently. (Bulk **Mark reviewed** exists; a per-language unreviewed count does not.)
+3. Pick default target languages per project (today every project starts empty).
 
 ## Blocked (owner / external)
 
-- **A translation provider on the launcher's Railway service.** Secret, no code default; until one is set the tool loads and edit/save work, but Translate returns a clear "No translation provider configured" error. Either `ANTHROPIC_API_KEY` (a Claude **API** key — a separate paid account from the owner's Claude subscription, which is why the OpenAI-compatible path exists), or all three of `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` + `LOCALIZATION_LLM_MODEL` to run on a free tier. Also: pick default target languages per project.
+- _None._ A provider was configured and verified live on 2026-08-15 (OpenAI-compatible path). The
+  tool still answers "No translation provider configured" on any deployment without one — env vars
+  in the [guide](../tools/localization.md#env).
 
 ## Recent changes
 

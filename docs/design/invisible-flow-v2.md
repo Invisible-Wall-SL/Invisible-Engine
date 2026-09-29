@@ -1,9 +1,11 @@
 # Invisible Flow v2 — a Blueprint-style presentation graph
 
-> **Status: DRAFT / strawman for discussion (2026-07-07).** Not yet built. Supersedes the
-> authoring model in `invisible-flow.md` (v1) if adopted. The v1 _runtime primitives_ mostly
-> survive; the _authoring model_ is redrawn. Written after the owner decided to rebuild Flow around
-> an Unreal-style reusable node graph, before any code.
+> **Status: BUILT — this is the model `/flow-v2` implements** (the v1 `/flow` editor was retired
+> 2026-07-13). Written 2026-07-07, before any code, as the plan to rebuild Flow around an
+> Unreal-style reusable node graph; it superseded the authoring model in `invisible-flow.md` (v1),
+> whose _runtime primitives_ mostly survive. Current state lives in
+> [docs/status/flow.md](../status/flow.md); the schema in
+> [invisible-flow-v2-schema.md](invisible-flow-v2-schema.md).
 
 ## 1. Why v2
 
@@ -142,7 +144,7 @@ reused.
 - **Rebuilt:** the _one_ existing flow (book-of reveal + free-spin lifecycle). Preproduction, one
   flow — cheapest it will ever be to change.
 
-## 8. Decisions (resolved 2026-07-07) + the one still open
+## 8. Decisions (resolved 2026-07-07; loops settled since)
 
 1. **Layering — DECIDED: custom per-container z-order** (not a fixed band set). See §4.
 2. **Functions — DECIDED: shared cross-template library from day one**, gated by declared
@@ -153,11 +155,11 @@ reused.
 4. **Cue scoping — DECIDED:** components declare the cues they bind → the container aggregates its
    components' cues → the template vocabulary lists them, so the Fire-Cue picker is scoped, never
    blind.
-5. **Loops — OPEN, under discussion.** Whether the flow needs `ForEach` at all, or the template
-   should emit granular per-item events instead. The crux: does the flow iterate collections an
-   event carries (author controls per-item timing/order), or does the template pre-bake iteration by
-   firing one event per item? Trade-off + strawman recommendation being worked out before it lands
-   in the schema. (If included: a typed collection pin + `$item` scope + sequential/parallel body.)
+5. **Loops — DECIDED: the flow iterates.** A `forEach` node takes a typed `list<T>` pin, exposes
+   `$item` and the loop index to its body, and runs it in `sequence` or `parallel` mode, so the
+   author controls per-item timing and order (the reference `winInfo` choreography is a
+   `forEach`). The alternative — the template firing one event per item — was not adopted.
+   Schema: [invisible-flow-v2-schema.md](invisible-flow-v2-schema.md) (`forEach`).
 6. **Migration — DECIDED: hard cut.** No side-by-side v1/v2; retire v1 authoring, rebuild the one
    existing flow on v2.
 7. **Storage — DECIDED: one FlowDoc per project + a separate shared function-library doc.**
@@ -185,7 +187,12 @@ reused.
    `freeSpinEnd`/win overlays are the same-shaped follow-up. A non-screen-driving flow (or no v2 doc)
    keeps the coded presentation verbatim (parity).
 
-## 9. Phased build (strawman — not started)
+## 9. Phased build (as planned — all phases landed)
+
+Phases 0–5 are built: schema + validator in `packages/engine-flow-v2`, the `/flow-v2` canvas,
+Functions (shared library + Collapse-to-Function), the runtime interpreter in `apps/lines`, and the
+hard cut (v1 authoring retired 2026-07-13). What is still open is in
+[docs/status/flow.md](../status/flow.md).
 
 - **Phase 0** — this doc + a throwaway **canvas spike**: event node → a couple of action nodes → a
   function call node, just to feel the graph. No runtime.

@@ -33,6 +33,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Atlas Maker** | [status/atlas-maker](status/atlas-maker.md) | [design/atlas-per-user-session](design/atlas-per-user-session.md) | [tools/atlas-maker](tools/atlas-maker.md) | `atlas-python-tools` |
 | **Sheet Maker** | [status/sheet-maker](status/sheet-maker.md) | — | [tools/sheet-maker](tools/sheet-maker.md) | `atlas-python-tools` |
 | **Font Maker** | [status/font-maker](status/font-maker.md) | [design/invisible-font-maker](design/invisible-font-maker.md) | [tools/font-maker](tools/font-maker.md) | `atlas-python-tools` |
+| **ComfyUI** (our RunPod hosting of it) | [status/comfyui](status/comfyui.md) | [design/runpod-comfyui-backend](design/runpod-comfyui-backend.md) | [tools/comfyui](tools/comfyui.md) | `atlas-python-tools` |
 | **Game Maker** | [status/game-maker](status/game-maker.md) | [design/invisible-game-maker](design/invisible-game-maker.md) | [tools/game-maker](tools/game-maker.md) | `invisible-game-maker` |
 | **Game Config** | [status/game-config](status/game-config.md) | [design/invisible-game-config](design/invisible-game-config.md) | [tools/game-config](tools/game-config.md) | `invisible-game-config` |
 | **Localization** | [status/localization](status/localization.md) | — | [tools/localization](tools/localization.md) | `invisible-localization` |
@@ -42,15 +43,17 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Spine Viewer** | [status/spine-viewer](status/spine-viewer.md) | — | [tools/spine-viewer](tools/spine-viewer.md) | `launcher-studio` |
 | **Launcher / platform** | [status/launcher](status/launcher.md) | [design/unified-project-repo](design/unified-project-repo.md) | [tools/launcher](tools/launcher.md) | `launcher-studio` |
 | **Engine & games** (runtime) | [status/engine](status/engine.md) | [design/flow-driven-game](design/flow-driven-game.md) | — | `engine-pixi-svelte` |
+| **Invisible Playtester** (automated QA) | [status/playtester](status/playtester.md) | [design/invisible-playtester](design/invisible-playtester.md) | [playtest/](playtest/README.md) | `game-playtester` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
 
-**Not tracked here (by design):** third-party tools — **ComfyUI**, **Spine Editor**, **Storybook** —
-keep their own upstream docs (we only ship a `docs/tools/` guide for how we host/launch them). The
-**desktop Invisible Launcher** (publish-only) is covered inside [status/launcher](status/launcher.md).
-**Invisible Blueprints** is an **Atlas Maker feature**, not a separate tool (no registry entry) —
-shareable ComfyUI workflows the Atlas Maker picks from; code-complete, owner live-verify owed.
-Tracked in [status/atlas-maker](status/atlas-maker.md). **Flow-driven game** is an initiative on top
-of Invisible Flow, tracked in [status/flow](status/flow.md) — see [its design doc](design/flow-driven-game.md).
+**Not tracked here (by design):** the third-party **Spine Editor** and **Storybook** keep their own
+upstream docs (we only ship a `docs/tools/` guide for how we host/launch them); **ComfyUI** is
+listed above only for our hosting of it. The **desktop Invisible Launcher** (publish-only) is
+covered inside [status/launcher](status/launcher.md). **Invisible Blueprints** is an **Atlas Maker
+feature**, not a separate tool (no registry entry) — shareable ComfyUI workflows the Atlas Maker
+picks from, tracked in [status/atlas-maker](status/atlas-maker.md). **Flow-driven game** is an
+initiative on top of Invisible Flow, tracked in [status/flow](status/flow.md) — see
+[its design doc](design/flow-driven-game.md).
 
 Cross-cutting design docs (not tools — platform/pipeline plans):
 - [multi-user-concurrency](design/multi-user-concurrency.md) — **lost-update prevention**: doc leases + R2 conditional writes, so two users stop overwriting each other. Agent: `pipeline-concurrency`.
@@ -59,11 +62,12 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md) — the earlier per-tool R2 layout the unified repo superseded + project scaffolding.
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
-- [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile + `config.json` that carry which RGS a build talks to and how the host page passes a session. Phase 1 built; Phases 2–3 (protocol deltas, packaging) unbuilt.
+- [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js` and the `build-delivery.mjs` handover. Phases 1, 3 and 4 built; Phase 2 (protocol deltas) partly.
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
 - [play4fun-protocol](reference/play4fun-protocol.md) — **the RGS wire contract** (transport, actions, events, the boot `config`), read off the partner's own reference client. Read it before touching `rgs-translator-eagaming`.
+- [model-licences](reference/model-licences.md) — the licence status of every built-in generation model and what a render is stamped with.
 
 ## Guides & runbooks
 
@@ -84,133 +88,90 @@ tool guides rather than restating them.
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-2. **Blueprint models: the `r2_key` half.** The ComfyUI-Manager auto-install itself is NOT unbuilt —
-   it is code-complete and wired into every run ([atlas-maker](status/atlas-maker.md) open item 7),
-   and what it owes is a LIVE run, not code. What is genuinely unbuilt is resolving a declared model
-   against the `comfyui-models/` R2 mirror, so a private or trained model — the kind no Manager URL
-   can fetch — still has to reach a machine by hand ([comfyui](status/comfyui.md) open item 9).
-3. **Delivery builds, Phase 2** ([design](design/delivery-builds.md)) — Phase 1 (profile +
-   `config.json`) shipped 2026-09-14; Phase 3 (the embeddable `game.js` a partner's page includes,
-   plus same-origin `rgs.source: 'host'`) shipped 2026-09-17; server-supplied bet levels +
-   jurisdiction (the operator's ladder and opening rung, turbo/autoplay/buy locked off when the
-   licence says so) shipped 2026-09-28. Still unbuilt: a **package-for-delivery mode** on
-   `publish-game-bundle.mjs`. The bet-mode enum this item used to name does not exist; see the
-   design doc. Also open: about a dozen host settings the operator already declares and we still
-   answer ourselves — `minNormalBet`/`maxNormalBet` (units unconfirmed) among them. The RTP readout
-   `showTheoreticalPayback` switches on shipped 2026-09-29 (info page rules, with the max win).
-4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
-   refresh [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders
-   (rule 9).
+1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate
+   ([status/rigger](status/rigger.md)).
+2. **Blueprint models reach the rendering machine by themselves.** Resolving a declared model
+   against the `comfyui-models/` R2 mirror is built (#604): a missing model is reported with where
+   its bytes are. Nothing yet copies it onto the pod or desktop that renders, so a private or trained
+   model still travels by a manual **Sync models** / `pull-models.py` run
+   ([status/comfyui](status/comfyui.md) open item 9, [status/atlas-maker](status/atlas-maker.md)).
+3. **Delivery builds — the rest of Phase 2** ([design](design/delivery-builds.md)). Built: the
+   profile + `config.json`, the embeddable `game.js`, server-supplied bet levels + jurisdiction
+   locks, and the handover (`EMBED.md`, `--zip`) in `build-delivery.mjs`. Open: the line/way bet
+   encoding, `minNormalBet`/`maxNormalBet` (units unconfirmed), the other host settings we still
+   answer ourselves, and the cascade vocabulary (waits on a real capture).
+4. **Concurrency Phase 3 — the person-level lease for the Python tools**, now unblocked because
+   the signed launch token carries a real user id (#863)
+   ([design](design/multi-user-concurrency.md)).
+5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
+   no UI yet).
 
-**Recently closed** (2026-08-05 → 08-20):
+**Recently closed** (2026-09-28 → 09-29, #811–#870):
 
-- **`ways` is a first-class authoring kind** (2026-08-20, #361–#364 + the filled layout). It now has
-  a slot template, a `/flow` emitter palette, its own `/flow-v2` vocabulary + starter flow seed, and
-  a FILLED reference layout — on top of the win model, per-way pricing and ways mock protocol that
-  landed in #355/#357/#360. It needed no new art: `apps/ways` ships the same `reelsFrame` atlas as
-  `apps/lines`, frame-for-frame. **`cluster` / `scatter` were scoped OUT on 2026-08-19 — and that
-  decision was REVERSED the next day** (see the next entry). Their win models were already declared
-  and correctly priced. ([status/editor](status/editor.md) · [status/flow](status/flow.md))
-
-- **The cascade (tumble) + multiplier-collect mechanics are in the shared runtime** (2026-08-20,
-  #375 then #377 — cluster Phases 1–2, then scatter Phases 1–2). This reverses the 2026-08-19
-  scope-out above, which was right that a cascade is a board **mechanic** rather than a template and
-  wrong about what one costs. Two findings shrank it: the tumble is an **overlay** that mounts for
-  the duration of a cascade and unmounts again (`boardHide → tumbleBoardShow → init → explode →
-  removeExploded → slideDown → boardSettle → tumbleBoardHide → boardShow`), so a game that never
-  tumbles never mounts it — the seam that let the mechanic land in the shared runtime without putting
-  its risk on `lines` or `bookOf`; and **`explosion` was already an authorable symbol state**, so a
-  cascade's defining animation is authored in `/symbols` like any other and the mechanic needed no
-  symbol tooling of its own. Landed: `stateTumble.svelte.ts`, `TumbleBoard`/`TumbleSymbol`, three
-  book events, seven `/flow` cues and a registered `/flow-v2` `cluster` vocabulary, then scatter's
-  `boardMultiplierInfo` + six more cues on a `SCATTER_VOCAB` that INHERITS `CLUSTER_VOCAB` (the two
-  share the whole cascade, so declaring the tumble surfaces twice would only let them drift). Both
-  live in `apps/lines` because that IS the shared runtime bundle. Whether the `cluster` / `scatter`
-  **templates** get built is now a separate, much smaller question.
+- **Players boot a frozen published snapshot**, with rollback and an honest boot-failure screen
+  (#841, #843, #845, #849); the mock RGS deals players the same published math and Live ↗ the
+  saved draft (#870). ([status/game-maker](status/game-maker.md))
+- **Versioned engine runtime releases** with a one-click rollback workflow, gated on
+  undefined-names/engine/RGS checks and verified by the served bundle (#831, #844, #848, #850).
   ([status/engine](status/engine.md))
+- **Resilient RGS transport** — a lost request is resent at the same seq, never double-staked, with
+  a reconnecting overlay (#858). ([status/engine](status/engine.md))
+- **Version history + undo** — rolling backups with a shared History modal for scenes, flow,
+  symbols, config and component defaults; flow-v2 undo/redo; conditional `.irig` saves with rig
+  backups; a manual Save checks for a newer save again (#821, #832, #847, #857, #859).
+  ([status/flow](status/flow.md), [status/editor](status/editor.md), [status/rigger](status/rigger.md))
+- **Publish gates** — an invalid flow, paytable drift, or missing art/spines now refuse a publish or
+  delivery unless overridden (#833, #839, #855). ([status/flow](status/flow.md),
+  [status/game-config](status/game-config.md), [status/game-maker](status/game-maker.md))
+- **Launcher authorization hardening + security headers** (#811, #812, #814, #818, #826, #827)
+  and **secret scanning in CI** (#838). ([status/launcher](status/launcher.md),
+  [status/infra](status/infra.md))
+- **Signed tool launch tokens** — Atlas and Sheet Maker take their scope from a launcher-signed
+  token; live 2026-09-29 (#863, #865). ([status/atlas-maker](status/atlas-maker.md))
+- **Desktop publishing goes through the portal**, needs no R2 key, and every build records which
+  build it is (#866, desktop launcher v1.0.56). ([status/launcher](status/launcher.md))
+- **Play fixes** — hold-Space continuous play, buys priced by the server's bet table on the mocks and
+  the facade, a demo session per tab (#813, #820, #824, #829, #840, #846, #853, #854).
+  ([status/engine](status/engine.md))
+- **Operability** — error tracking, a readiness `/api/health` (reports all migrations, through
+  `0019`, current) and nightly encrypted backups with a tested restore, the last two dormant until
+  owner setup (#852, #860, #864). ([status/infra](status/infra.md))
 
-- **Invisible Cinematic — Phases 0–3 COMPLETE + Tweak Mode** (built 2026-08-17, tweak 2026-08-18).
-  Double-clicking a strip now opens its clip in the animator with the rest of the stage posed around
-  it — the "overwrite an animation" ask that the Phase 1→2→3 run had skipped. A fourth mode inside `/rigger`:
-  stage several rigs as actors, author them on an NLE-style sequencer (strips · layers · blending),
-  key property / camera / visibility channels, drop named cues, undo/redo. Saves per project to R2,
-  travels the ship chain with the rigs it casts, plays in-game through `<Cinematic>` off one shared
-  evaluator, and is triggered from an authored flow by the **`playCinematic`** node. ⏳ The engine
-  half has not yet run in a real game. ([status/cinematic](status/cinematic.md))
-- **ComfyUI generation moved to RunPod — both local-GPU blockers are GONE** (owner-verified
-  2026-08-18). **gpt_image** and the **FLUX ref/ControlNet path** both generate on the RunPod
-  backend; neither depends on what is installed on the local 4070 any more. Supporting work: the
-  serverless worker went cu128 / torch 2.8 so one image covers Blackwell through Ampere, a
-  free-VRAM-conditional ComfyUI restart between jobs fixed the DepthAnything OOM, and each
-  serverless variant now gets a unique filename instead of overwriting the last (all 08-15); the
-  multi-pod R&D fleet + baked pod image landed 08-13.
-  ([status/comfyui](status/comfyui.md), [status/atlas-maker](status/atlas-maker.md))
-- **Localization reaches the game.** A project's translations were never actually loaded (catalog
-  merged at module-eval, before the runtime fetch; `label` params skipped the resolver) — fixed, plus
-  per-launch language + currency, bulk review, and reviewed-only builds. ([status/localization](status/localization.md))
-- **Text as localized ART in a rig** — a `/localization` key rasterises into rig art and the
-  attachment swaps with the game's language. ([status/rigger](status/rigger.md))
-- **Authored text fits its frame** — authorable layout profiles, width-only text-box auto-fit (and
-  the Info Bar gained the box), win copy that NAMES the paying symbol, and the symbol rendered as an
-  inline image — boxed rows included. ([status/editor](status/editor.md), [status/win-text](status/win-text.md))
-- **Engine fixes:** the runtime fetch aborting exactly as the response arrived; free spins rolling on
-  by themselves after a big win; stacked pictures; reel anticipation. ([status/engine](status/engine.md))
-
-**Earlier — closed 2026-08-04:** **Concurrency Phase 2 — COMPLETE** (the whole soft-lease + presence
-story). 2b the BACKEND (`doc_leases` + `lease.ts` + `POST /api/lease`, DB-adjudicated conditional
-upsert, migration 0014, PR #206); 2a the shared `saveState.svelte.ts` + `SaveStatusBadge` every
-authoring tool saves through (PR #209, a helper bug + a sticky-conflict-on-target-switch regression
-caught in review and fixed); 2c the client `LeaseState` rune + `PresenceBanner` + `SaveState.blockWhen`
-read-only gate across **all** authoring tools — editor + flow-v2 (2c-core, PR #211, observer poll
-auto-recovers a freed/expired lease, takeover always reachable, fails open on error), then
-symbols/win-text/config/localization (2c-rest-A, PR #215) and the per-ITEM fx/flipbook/components via
-`LeaseState.switchDoc` (2c-rest-B, PR #216). **Owner-verified live 2026-08-04** (two-profile test per
-tool; migration 0014 applied). Phase 3 is **partly shipped** (3a, 2026-09-07: conditional writes in `iw_common/storage.py` + a CONTAINER lease for the Flipbook video runner, which is a documented departure from "leases live in Postgres" — see the design doc); the PERSON-level Python lease is still blocked on a real user id reaching those origins. · **Concurrency
-Phase 1 — COMPLETE + verified** (the conditional-write floor is
-live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
-load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR
-#204; owner-verified live) · **Concurrency Phase 0 — COMPLETE + verified**
-(rigger indexes → Postgres earlier; the last two RMW-on-a-global-key sites —
-`test_server/games.json` + the fonts catalog — now guarded with `If-Match` + CAS retry, PR #201;
-owner-verified live) ·
-**Invisible Game Config** (all phases + grid/bet-modes/win-tiers shipped and live-verified) ·
-**Ship-from-Rigger** rule-8 wiring (a rig now travels export→deploy→bake→pull→register into a game) ·
-**Flow-driven-game Phase 5** (a shipped title runs an authored FlowDoc) · **Rigger mesh-deform
-animation timelines** (per-vertex `deform` dopesheet channel → Spine 4.2 keyframes, merged +
-owner-confirmed) · **Rigger Phase 3.6a/b/c** (visual UV panel + constraint edges + hull promote/demote,
-owner-verified live; only the minor 3.6d hull-loop reorder remains) · **B4 HUD migration — apps/lines
-flip** (live Balance/Win/Bet readouts render as `hudReadout` component instances, shipped 2026-06-08;
-the docs were just stale — remaining tail = live-verify). See each tool's
-`docs/status/<tool>.md`.
+**Earlier milestones** (detail in each status file): `ways` as a first-class authoring kind and the
+cascade + multiplier-collect mechanics in the shared runtime (2026-08-20,
+[status/engine](status/engine.md)); **Invisible Cinematic** Phases 0–3 + Tweak Mode (2026-08-18 —
+⏳ its engine half has not yet run in a real game, [status/cinematic](status/cinematic.md));
+ComfyUI generation on RunPod (2026-08-18, [status/comfyui](status/comfyui.md)); localization reaching
+the game ([status/localization](status/localization.md)); concurrency Phases 0–2 + 3a
+([design](design/multi-user-concurrency.md)).
 
 ## Blocked on owner / external (not code)
 
-- ~~**gpt_image generation**~~ — resolved: generates on the **RunPod** backend, owner-tested
-  2026-08-18. It no longer depends on the `Images to RGB` node / ControlNets being installed on the
-  local GPU. ([status/atlas-maker](status/atlas-maker.md))
-- ~~**FLUX ref/ControlNet path**~~ — resolved the same way: proven on RunPod 2026-08-18, so the
-  "only SDXL ControlNets are installed locally" constraint no longer gates it.
-- ~~**Book of Borut remake quotes the wrong paytable**~~ — resolved 2026-09-28: its `/config` now
-  authors exactly the server's table (re-measured from R2), and the book mock pays whatever
-  `/config` authors once `services/test-server` is redeployed, so the two cannot drift apart again.
+- **Secret rotation** — rotate the secrets listed in [INFRA § Security / secret
+  rotation](INFRA.md#security--secret-rotation); since launcher v1.0.56 no publisher's desktop holds
+  the R2 key. ([status/infra](status/infra.md))
+- **Monitoring setup** — Sentry DSNs, the launcher healthcheck path `/api/health`, and the uptime
+  monitors ([INFRA § Monitoring](INFRA.md#monitoring--error-tracking-2026-09-29)); dormant until done.
+  ([status/infra](status/infra.md))
+- **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
+  done. ([status/infra](status/infra.md))
+- **Legacy tool-key cut-over, 2026-10-13** — remove the old tool handoff and its secrets once the
+  window closes. ([status/atlas-maker](status/atlas-maker.md) item 6,
+  [status/sheet-maker](status/sheet-maker.md))
+- **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
+  ([status/launcher](status/launcher.md))
+- **Game Maker → Republish all** so the games published before snapshots stop booting live data.
+  ([status/game-maker](status/game-maker.md))
+- **Approve the test2–test6 free-spin data migration** (their free-spin intro/outro broke when the
+  coded screens were retired). ([status/flow](status/flow.md))
+- **Model licences for shipped art** — decide the switches in the recommendation table; every
+  built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
+- **Partner replay check** — run [the checks owed on the live
+  node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
+- **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.
   ([status/engine](status/engine.md))
-- **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04) — the one
-  imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
-  same API export bakes them in. No env var needed (⟳ and the reader discover a running pod
-  since #576). ([status/flipbook](status/flipbook.md))
-- **Model licences for shipped art** (owner, 2026-09-29) — every built-in image default is
-  non-commercial as wired today (RMBG-2.0 cutout, gameIconInstitute SDXL LoRA, FLUX.1-dev + Redux;
-  every PuLID path via InsightFace). Nothing was switched; renders are now stamped with their
-  models' licence status. Decide the switches in the recommendation table.
-  ([reference/model-licences](reference/model-licences.md), [status/atlas-maker](status/atlas-maker.md))
-- **Nightly backups setup** (owner, 2026-09-29) — the encrypted nightly Postgres + authored-R2
-  backups are built and test-restored but dormant until the owner creates the `invisible-backups`
-  bucket (lifecycle + lock rules), two scoped R2 tokens, a read-only DB role, age keys and the
-  `backups` GitHub environment; plus Railway's own Backups tab if on Pro.
-  ([guides/backups](guides/backups.md), [status/infra](status/infra.md))
-- ~~**prod DB migrations applied?**~~ — resolved: migrations are applied through **0014** (the
-  concurrency lease table), owner-confirmed 2026-08-04. ([status/infra](status/infra.md))
+- **Re-publish the imported video blueprint with a pod running** — ＋ Blueprint on the same API
+  export bakes in the bounds and lists it lacks. ([status/flipbook](status/flipbook.md))
 
 ## History
 

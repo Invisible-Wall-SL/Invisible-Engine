@@ -10,8 +10,8 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
 
 - **Scoped mode** (`developer` and other non-admin holders of the tool): a file
   manager for the shared Cloudflare R2 bucket (`invisibleassets`), **strictly
-  scoped to the active client/project**. It only ever shows the namespaces that
-  belong to the project you currently have selected — no other client's/project's
+  scoped to the active client/project**. It only ever shows the folder tree that
+  belongs to the project you currently have selected — no other client's/project's
   files, no cross-project `_shared` access.
 - **Full server mode** (`admin`): a two-tab "full server" browser:
   - **R2 Storage** — the WHOLE `invisibleassets` bucket from the root, browse
@@ -21,9 +21,10 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
 
 - **Where it runs:** the launcher itself, at `/files` (a real page inside
   `(app)`, behind the auth + role gate — not a redirect, not an iframe).
-- **Storage layout (scoped mode):** the project's own folder, `<client>/<project>/…`,
-  is the one top-level folder (its `editor/`, `localization/`, `sounds/`, `spines/`,
-  `deploy/` … sit inside it).
+- **Storage layout (scoped mode):** the project's one folder,
+  `<client>/<project>/`, with everything the tools keep for it underneath (art
+  inputs, sheets, spines, fonts, sounds, config, the `deploy/` exports the game
+  reads, …). That folder is the browser's root.
 - **Access:** `admin`, `developer`, `pipelineTester` and `audio` (Music / SFX) roles
   — artists/animators don't get it.
   Overridable per role/user via the admin panel like any other tool. The full
@@ -35,10 +36,14 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
 - **Browse / navigate** — folders first, then files with name, human-readable
   size, and last-modified. Click a folder to descend; a breadcrumb walks back
   up. "Load more" pages large folders.
-- **Download** — streams the object as an attachment.
-- **Upload / overwrite** — multipart upload of one or more files into the
-  current folder. Re-uploading the same name overwrites it (this is also how you
-  "update" a file).
+- **Download** — always saves the file (never opens it in the tab).
+- **Upload / overwrite** — upload one or more files into the current folder.
+  Re-uploading the same name overwrites it (this is also how you "update" a file).
+  A file is stored with the type its extension says, whatever your browser
+  reports. **Storybook folders** (`<client>/<project>/storybook/`,
+  `_shared/storybook/`) refuse uploads and moves into them with _"Storybooks are
+  published with publish-storybook.mjs, not uploaded here"_ — they are published
+  builds, written only by that script.
 - **Delete** — a single file, a multi-select of files, or a whole folder
   **recursively** (R2 has no native folder, so the recursive delete enumerates
   every key under the prefix).
@@ -88,7 +93,7 @@ trusted:
   depth).
 - Uploads sanitize each filename to a bare basename (no path separators, no
   escapes) before building the destination key, and enforce a per-request size
-  cap.
+  cap. Writes into a storybook tree are refused.
 
 ## API endpoints
 
@@ -122,7 +127,8 @@ Railway/Postgres tab, under `/api/db/` (admin-only, `gateFull`):
 
 - Folders only exist as key prefixes, so there's no "new empty folder" — a
   folder appears once you upload a file into that path.
-- Uploads are held in memory server-side; very large files are capped per
-  request. Not yet smoke-tested against live R2.
+- Uploads go through the launcher in one request, so a single upload is limited
+  to about 32 MB by default; bigger files go in through the tool that owns them.
+  Not yet smoke-tested against live R2.
 - Large-folder pagination (`Load more`) and recursive move/delete on very large
   trees need live verification.
