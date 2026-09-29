@@ -22,14 +22,25 @@ One small Node service that does two jobs:
    `scripts/mock-rgs-server-book.mjs` for `book`-of games), refactored into a
    `createMockRgs()` factory.
 
-   **The mock follows the project's config, live.** The board it deals — grid,
+   **The mock follows the config its game draws.** The board it deals — grid,
    paylines, in-play symbols, win model, tumbling — is not owned by the manifest
    below. The server re-reads it from the project's [Invisible Game Config](/docs/game-config)
-   (`GET <launcher>/api/game-config/mock`, at most once every ~10s per game) and
-   rebuilds that game's mock as soon as the answer changes, carrying player balances
-   across. So resizing a board in `/config` takes a save and a reload — not a
-   republish. The manifest's `grid`/`cascade` are only the fallback for a launcher
-   that can't be reached, or an entry published before this existed.
+   (`GET <launcher>/api/game-config/mock?source=…`, at most once every ~10s per game)
+   and rebuilds that game's mock as soon as the answer changes, carrying player
+   balances across. Which config depends on who is playing:
+
+   - **Players** of an online (Game Maker) game boot its **published** snapshot, so
+     the game's mock follows `source=published`: a change reaches it on **Publish**
+     (or a rollback), never from an unpublished save.
+   - **Authoring boots** (launcher links carrying `ie_authoring=1`) boot the **saved**
+     config, so they are dealt by that game's separate *authoring mock* at
+     `/api/<gameKey>/authoring/…`, which follows `source=live` — resize a board in
+     `/config`, save, reload Live ↗. The launcher points `rgs_url` there itself.
+   - **Desktop-launcher builds** have one mock that follows `source=live`, since
+     their config was baked from the saved data when they were built.
+
+   The manifest's `grid`/`cascade` are only the fallback for a launcher that can't be
+   reached, or an entry published before this existed.
 
 ```
 launcher portal  → opens →  https://games.invisiblewall.org/<gameKey>/?…&rgs_url=games.invisiblewall.org/api/<gameKey>
@@ -146,7 +157,8 @@ params. After that, every logged-in user can launch from any machine.
 | `GET /healthz`                | `{ ok, games: [...] }`                                |
 | `GET /`                       | simple index listing hosted games                     |
 | `GET /<gameKey>/[path]`       | serve the game bundle (path defaults to `index.html`) |
-| `* /api/<gameKey>/rgs/engine` | mock RGS for that game                                |
+| `* /api/<gameKey>/rgs/engine` | mock RGS for that game (players)                      |
+| `* /api/<gameKey>/authoring/rgs/engine` | an online game's authoring mock (live config) |
 | `POST /refresh[?secret=]`     | re-hydrate bundles from R2                            |
 
 ## Manifest contract (`test_server/games.json`)
@@ -205,7 +217,9 @@ never as a failed registration — and it pokes `/refresh` only when something c
 `/refresh` coalesces, a pin written while a refresh is already in flight takes effect on the
 server's *next* hydrate; it is durable in R2 either way.
 
-All of it is guarded by `node scripts/verify-test-server-project-pin.mjs`.
+All of it — and which `source` each mock asks for — is guarded by
+`node scripts/verify-test-server-project-pin.mjs`; the launcher's side of the contract by
+`pnpm --filter launcher-api check:mock-contract`.
 
 ## Local dev
 

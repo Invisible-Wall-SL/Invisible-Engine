@@ -221,8 +221,8 @@ winners simply vanish, which reads as a bug and is not one.
 
 **Reload the game after changing it.** The tumble is dealt by the server, and the
 Invisible Test Server re-reads this config on its own (see _Reaching the server_
-below) — so to test it, a save plus a reload of **Live ↗** is enough. Players get it with the
-next Publish (see _Traps_).
+below) — so a save plus a reload of **Live ↗** is enough to try it. Players get it
+when you **Publish**.
 
 ### Collecting multipliers
 
@@ -512,11 +512,19 @@ the way through to the compiled template and is byte-identical to a stock build.
 
 The half of this config that is **math** — the grid, paylines, which symbols are in
 play, the win model, tumbling — has to be dealt by the RGS, not just drawn by the
-client. On the Invisible Test Server it is: the mock re-reads this config directly
-(within a few seconds of a save) and rebuilds the board it deals, so **save, reload
-the game (Live ↗), done**. The server needs no republish, and cannot be dealing a different
-board from the one you authored here — but a player's game still carries the config of the last
-Publish (see _Traps_).
+client. On the Invisible Test Server it is, and the server always deals **the same
+version of this config the game you opened is drawing**:
+
+- **Live ↗** (and the game cards on the launcher home) open an _authoring_ boot:
+  the game draws the config as you last **saved** it, and the server's authoring mock
+  re-reads the saved config within a few seconds. So to try a change: **save, reload
+  Live ↗, done** — no publish needed.
+- **Play**, and the URL you copy for players, open the **published** game: it draws
+  the config as it was at the last **Publish**, and the server deals exactly that,
+  however much you have edited since. Your change reaches players when you Publish
+  (and a rollback in Game Maker takes the server back with it).
+
+There is no way for either game to be dealt a different board from the one it draws.
 
 Two cases where that doesn't hold, both of which the game says out loud in the
 browser console as a `[game-config]` error naming both boards:
@@ -529,16 +537,13 @@ browser console as a `[game-config]` error naming both boards:
 
 ## Traps
 
-- **You changed the math, reloaded with Play ↗, and the game only half follows it.** — The test
-  server deals from your saved config within seconds, but a player's game (**Play ↗**,
-  **Copy URL**) carries the config frozen at the last Publish, so until you publish the two
-  disagree. The board follows the server, while the info page and paytable keep the old values,
-  and the browser console logs a `[game-config]` error or warning naming the difference. Test
-  config changes with **Live ↗** in [Game Maker](game-maker.md), and **Publish** before anyone
-  else plays it.
-- **A saved change to the board broke the round that was open in another tab.** — When the board
-  changes, the test server drops rounds dealt on the old one (balances are kept). Reload every
-  open game tab after saving a math change.
+- **You changed the math, reloaded with Play ↗, and nothing changed.** — Working as intended: a
+  player's game (**Play ↗**, **Copy URL**) and the board the server deals it both stay on the
+  last Publish. Test config changes with **Live ↗** in [Game Maker](game-maker.md), and
+  **Publish** when players should get them.
+- **A change to the board broke the round that was open in another tab.** — When the board a game
+  is dealt changes (a save, for **Live ↗** tabs; a Publish or rollback, for **Play ↗** tabs), the
+  test server drops rounds dealt on the old one (balances are kept). Reload those tabs.
 - **A mode's Card graphics don't show in the Scene or Component Editor.** — Both editors draw each
   card with its component's own defaults; a mode's **Card graphics** are applied only when the
   running game builds its buy menu. Open the buy menu in the game (Game Maker's **Live ↗**) to

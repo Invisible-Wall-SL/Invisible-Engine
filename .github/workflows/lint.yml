@@ -142,4 +142,4 @@ jobs:
       # their `pre` scripts run. `event-bound-flags` fails on `onclick={save}` where `save(force = false)`
       # — the click event arrives as `force`, and every manual Save skips the conflict check.
       - name: launcher gates hold
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token
+        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token
