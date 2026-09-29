@@ -250,6 +250,7 @@ import blueprint_models  # noqa: E402
 import comfy_specs  # noqa: E402
 import shared_taxonomy  # noqa: E402
 import model_mirror  # noqa: E402
+import model_provenance  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -3242,7 +3243,8 @@ def _next_variant_filename(region_name: str) -> str:
     return f"{region_name}_{mx + 1:05d}_.png"
 
 
-def _run_region_serverless(region: dict, wf: dict) -> Image.Image:
+def _run_region_serverless(region: dict, wf: dict,
+                           provenance: dict | None = None) -> Image.Image:
     """Run one region through the RunPod Serverless transport. Base64-encodes
     the LoadImage refs into input.images[] (same names the http path uploads),
     submits the identical api-prompt graph, decodes the returned base64 image and
@@ -3285,7 +3287,7 @@ def _run_region_serverless(region: dict, wf: dict) -> Image.Image:
     # next-free local id (mirrors ComfyUI's counter) keeps every variant, and the
     # PNG still carries its embedded seed so lock / Create Atlas work unchanged.
     filename = _next_variant_filename(rname)
-    _persist_variant(rname, filename, blob)
+    _persist_variant(rname, filename, blob, provenance=provenance)
     return Image.open(io.BytesIO(blob)).convert("RGBA")
 
 
@@ -3299,6 +3301,7 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     # default sdxl path (region_pipeline isn't one of the three -> sdxl branch).
     pipe = region_pipeline(region)
     out_node = "17"
+    bp = None
     if pipe in ("sdxl", "flux", "gpt_image"):
         wf = build_workflow(region, style, atlas_path)
     else:
@@ -3331,10 +3334,19 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     # …and that the files those nodes NAME are on the target. Free: it reads the
     # /object_info entries the call above already fetched.
     assert_graph_models_present(wf)
+    # Licence provenance of the models this graph loads, stamped beside the
+    # variant (see model_provenance). Bookkeeping only: never fails a render.
+    prov = None
+    try:
+        prov = model_provenance.provenance(wf, pipeline=pipe, blueprint=bp)
+        print(f"[provenance] {region['name']}: commercial={prov['commercial']} "
+              f"blocked_by={prov['blocked_by']}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[provenance] {region.get('name')}: skipped ({e})", flush=True)
     # Serverless transport: submit the SAME api-prompt graph as a RunPod job
     # (base64 refs in, base64 image out) instead of talking to a live ComfyUI.
     if COMFY_TRANSPORT == "serverless":
-        return _run_region_serverless(region, wf)
+        return _run_region_serverless(region, wf, provenance=prov)
     # Cloud: the remote ComfyUI can't read our staging refs — upload each
     # LoadImage source first and rewrite the node to the uploaded name.
     _upload_workflow_refs(wf)
@@ -3396,13 +3408,15 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 # setup assumed. Persist the fetched bytes (PNG keeps its embedded
                 # seed metadata) into staging BATCH_DIR — so the gallery's variant
                 # globbing/seed-reading works unchanged — and mirror to R2.
-                _persist_variant(region["name"], meta["filename"], blob)
+                _persist_variant(region["name"], meta["filename"], blob,
+                                 provenance=prov)
                 return Image.open(io.BytesIO(blob)).convert("RGBA")
     emit(diag("COMFY_TIMEOUT", CATALOG, name=region["name"]))
     raise TimeoutError(f"Region {region['name']} timed out after 20 min")
 
 
-def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
+def _persist_variant(region_name: str, filename: str, blob: bytes,
+                     provenance: dict | None = None) -> None:
     try:
         BATCH_DIR.mkdir(parents=True, exist_ok=True)
         fname = os.path.basename(filename) or f"{region_name}_view.png"
@@ -3425,6 +3439,32 @@ def _persist_variant(region_name: str, filename: str, blob: bytes) -> None:
                 pass
     except Exception as e:  # noqa: BLE001
         print(f"[persist] variant write failed: {e}", flush=True)
+        return
+    _persist_provenance(fname, provenance)
+
+
+def _persist_provenance(fname: str, provenance: dict | None) -> None:
+    """Write `<variant stem>.provenance.json` beside the variant, mirrored to R2.
+
+    Variant ids get reused (a deleted id comes back round), so a render with
+    no stamp REMOVES any sidecar left at that name rather than letting an old
+    render's models be read as this one's. Best-effort throughout."""
+    try:
+        side = BATCH_DIR / model_provenance.sidecar_name(fname)
+        if provenance is None:
+            side.unlink(missing_ok=True)
+            return
+        body = json.dumps(provenance, indent=2, ensure_ascii=False).encode("utf-8")
+        side.write_bytes(body)
+        r2_prefix = project_paths.resolve().get("r2_project_prefix")
+        if r2_prefix:
+            try:
+                storage.put(f"{r2_prefix}/batch/{side.name}", body,
+                            "application/json")
+            except Exception:  # noqa: BLE001 — R2 mirror is best-effort
+                pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[provenance] sidecar write failed for {fname}: {e}", flush=True)
 
 
 # PADDING_PCT and SHAPE_REF_FILL_PCT are loaded from atlas_config.json at top.
