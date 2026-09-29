@@ -117,7 +117,7 @@ blocked partner host ([INFRA § R2](../INFRA.md#r2-cloudflare-object-storage)).
 | `/healthz` answers 503 `"ok":false`, `games` empty | the games host failed to read R2 at boot (a bad R2 key, R2 unreachable, or the unreadable-object case above). It retries in the background | Railway → Invisible-test-Server logs; check the R2 key; redeploy |
 | 502 or refused on the data request, or "could not load" just after a push to `main` | the launcher is down, or mid-deploy (every push redeploys it). A player's game retries for up to 2 minutes before it gives up | reload once the deploy is up; if it persists, § 2 |
 | launcher links (**Live ↗**, the Games cards) are slow, then show a layout-only boot | an authoring boot assembles everything live. A full project measured 83–97 s, which can outrun the client. Player boots read the published snapshot and answer quickly, so a slow **Live ↗** is not an outage | check with **Play ↗**, which is what players get. Report it to a developer (the Game Maker read-path item in [status/game-maker](../status/game-maker.md)) |
-| a game serves old files after a republish | the Cloudflare edge cache. The per-game purge after a desktop publish covers only that game's own `test_server/<key>/` files, not the shared runtime, and it silently does nothing when `CF_API_TOKEN` is unset (Railway only) | /admin → **Purge edge cache (whole zone)**; safe, since game files are `no-store` or content-hashed |
+| a game serves old files after a republish | not an edge cache: `games` is DNS-only, with no CDN in front of it ([INFRA](../INFRA.md#dns-cloudflare)). `index.html` and `assets/…` are `no-store`, so old files mean your browser kept a page, or the games host has not re-read R2 | reload with `?cb=<anything>`; then check `lastHydrate` on `/healthz` (the row above). The /admin **Purge edge cache** button has nothing to purge for `games` |
 | "Engine update available" badge on the card | this game was published before the current engine release | **Republish + Reconcile** on the card |
 
 **Escalate** to the engine lead, with:
@@ -218,7 +218,7 @@ problem, not "is the local ComfyUI up" ([atlas-maker](../tools/atlas-maker.md#pr
 | 403 from ComfyUI over the tunnel | the Access service token is wrong, or a client sent Python's default User-Agent | the same `curl` check; every code path already sends `InvisibleAtlas/1.0` |
 | model dropdowns red, "unavailable" | nothing has ever been read for that machine | start any pod on `/comfyui`, press **⟳ Refresh model lists**, then stop the pod |
 | R&D pod: Start fails with "not enough free GPUs" | a stopped pod does not reserve its card | start a different pod in the fleet ([comfyui](../tools/comfyui.md)) |
-| R&D pod: the link is denied when clicked, but works when pasted | RunPod's proxy rejects cross-site navigations | give the pod `TCP 8188` ([INFRA](../INFRA.md#access-to-podid-8188proxyrunpodnet-was-denied--clicking-through-from-a-tool)) |
+| R&D pod: the link is denied when clicked, but works when pasted | RunPod's proxy rejects cross-site navigations | give the pod `TCP 8188` ([INFRA § ComfyUI R&D pod](../INFRA.md#comfyui-rd-pod-runpod), the "Access … was denied" box) |
 | R&D pod: "ComfyUI disconnected" | the progress socket dropped; the error is kept in `/history` | `node scripts/comfy-last-error.mjs <pod url>` ([INFRA](../INFRA.md#debugging-comfyui-disconnected-on-a-pod)) |
 | R2 timeouts from a local tool or script, in Spain | the LaLiga block | [above](#first-is-it-spain) |
 
@@ -230,7 +230,9 @@ time in UTC, and the full error string.
 **Which RGS?** Look at the game URL:
 
 - `rgs_url=games.invisiblewall.org/api/<key>` is **our mock RGS** on the test server. It is fake
-  money.
+  money. A launcher link (**Live ↗**, a Games card) uses `…/api/<key>/authoring`, the same game's
+  authoring mock, which deals the saved Game Config instead of the published one
+  ([test-server](../tools/test-server.md)).
 - A launch through `/api/partner-session`, or a partner-hosted delivery build, talks to a **partner
   RGS** that speaks the Play4Fun protocol ([reference](../reference/play4fun-protocol.md)).
 

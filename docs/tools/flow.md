@@ -649,6 +649,11 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **The flow owns `setWin` and the big-win celebration never plays.** The big-win overlay and its
   count-up are started by the `winUpdate` action. Keep it in the `setWin` chain, with `amount` and
   `winLevel` fed from Game Signals `setWin`.
+- **After tidying the flow, the engine's own presentation came back — say, a second count-up just
+  before the free-spin outro total.** The flow runs only the moments it has an **event** node (or
+  a wired Game Signals pin) for; delete the `setWin` event node and the engine's own win count-up
+  and big-win overlay run again for every winning spin, the last free spin included. Keep the
+  event node for any moment you mean to control, and trim its chain instead of deleting it.
 - **The free-spin outro shows nothing, or sits at 0.00 with no tap.** The outro's total and its tap
   both hang off the `freeSpinOutroCountUp` action: the visual draws nothing until it runs, and the
   Tap to Continue arms only when that count finishes. A held **show Free-spin outro** placed

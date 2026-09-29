@@ -58,7 +58,7 @@ secrets.
 | Surface | What it tells you |
 | --- | --- |
 | **Engine pill** in the launcher home page's header | `Engine deployed · <commit> · <age>`, plus `· up to date`, `· last release failed` or `· rolled back`. Also `Releasing engine…` while a release builds, and `Release pending · N ahead` when `main` has engine commits the live bundle lacks. Hover the pill for the full commit and the failure. |
-| `https://games.invisiblewall.org/healthz` | `runtimes` gives the release each runtime's pointer named at the server's last refresh, for example `{"lines": "<version>"}`. `pinned` lists the games serving their own release. |
+| `https://games.invisiblewall.org/healthz` | `runtimes` gives the release each runtime's pointer named at the server's last refresh, for example `{"lines": "<version>"}`. `pinned` lists the games serving their own release. `lastHydrate.succeeded: false` means its last refresh failed, so it still serves the release it had before. |
 | The **`X-Runtime-Release`** header on an online game's page | the release that answered, as `lines@<version>`. Only games on the shared runtime send it. Desktop builds do not. |
 | The `bundle.<hash>.js` named in that page | the exact build being served. It is unique per build. |
 | `__IE_BUILD__.sha` in an online game tab's console | the engine commit your browser actually loaded |
@@ -72,9 +72,11 @@ curl -sI "https://games.invisiblewall.org/<game key>/index.html?cb=$RANDOM" \
   | grep -i x-runtime-release
 ```
 
-**Never fetch a bare `_app/immutable/bundle.<hash>.js` URL to check a release.** If you fetch it
-before the server has the release, the 404 is cached at the Cloudflare edge for hours, on the exact
-file every game then needs. Always load the page with a `?cb=` query, as above.
+**Never fetch a bare `_app/immutable/bundle.<hash>.js` URL to check a release.** Fetched before the
+server has the release, it answers a 404 with no cache headers, which a browser (or any cache in
+between) may keep, on the exact file every game then needs. When `games` was behind the Cloudflare
+proxy this held for hours; it is DNS-only today ([INFRA](../INFRA.md#dns-cloudflare)), but the
+page check is the reliable one. Always load the page with a `?cb=` query, as above.
 
 ## 1. Before you merge an engine PR
 
@@ -157,9 +159,10 @@ step failed, or you see it yourself):
    also redeploys it on Railway, and it loads everything from R2 before it listens. Wait until
    `/healthz` answers, then repeat step 2. If it stays down, see
    [Incident first response](incident-first-response.md).
-4. **If one file is stuck at the Cloudflare edge,** an admin can press **Purge edge cache (whole
-   zone)** in `/admin` → *Edge cache & build*. It is safe: game files are either `no-store` or
-   content-hashed.
+4. **There is no edge cache to purge.** `games` is DNS-only, straight to Railway, so the
+   **Purge edge cache (whole zone)** button in `/admin` → *Edge cache & build* does nothing for it.
+   A stale file after steps 1–3 is the server's own state: read `lastHydrate` on `/healthz`, and
+   see [Incident first response](incident-first-response.md) for a refresh that failed.
 
 ## 4. Roll the engine back
 
