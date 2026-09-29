@@ -217,6 +217,11 @@ read it in context → review what's good → **Save** → publish.
   balance, a counter) and a text box still reading the placeholder `Text` are skipped on purpose.
   If real wording is missing and it is not in the art, report it to the developers: it needs a
   collector before it can be translated.
+- **A translation runs past the ends of its plaque.** — Translations are often longer than the
+  source, and text is shrunk to fit only when it has a box to fit. In the
+  [Scene Editor](invisible-editor.md), give the Text Box a **box width** and tick **auto-fit font
+  to box**. In-game prompts from a Flow **Text Message** on the info bar, and win messages, draw
+  through the **Info Bar** component, so set the same two on that instance.
 
 ## Env
 

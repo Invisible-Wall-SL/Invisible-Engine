@@ -60,7 +60,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
-   (`Book intro`, `Book idle`); a game that **cascades or clears its board** adds
+   (`Book reveal`, `Book idle`); a game that **cascades or clears its board** adds
    `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
    [The Intro state](#the-intro-state) below). Stacked-picture tall art is **not** a grid column — it is
@@ -75,7 +75,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
    Two states borrow another's binding when they have none of their own, and a cell showing
    borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
    the donor. `Clear reel` borrows `Explosion` (see [Two explosions](#two-explosions));
-   `Book intro` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
+   `Book reveal` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
    replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
    Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost

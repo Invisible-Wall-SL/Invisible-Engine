@@ -27,7 +27,7 @@ there before you open a tool. See [the launcher guide](../tools/launcher.md).
 | Mock RGS it spins against | `lines` | `book` (buy feature + free spins) | `ways` |
 | Laid-out reference to import | yes | yes | yes (shares the lines art) |
 | Starter flow | the Book-of starter (lines has no flow vocabulary of its own) | Book-of starter, with the `specialBook` screen and the expanding-symbol beats | ways starter, without the `specialBook` screen or the expanding beats |
-| Extra authoring | — | `Book intro` / `Book idle` symbol states; the **Expanded symbol win** message | **Save Game Config once** (step 5); paylines don't apply |
+| Extra authoring | — | `Book reveal` / `Book idle` symbol states; the **Expanded symbol win** message | **Save Game Config once** (step 5); paylines don't apply |
 
 All three run on the same shared engine runtime. Each game type is data plus a mechanic, not a
 separate app ([design](../design/game-type-templates.md)).
@@ -124,7 +124,7 @@ layout uses them in place of the reference art.
 in the cell editor, then **Save**. Give every symbol a **Name** and **Plural**. Win Text uses them
 in step 7. Guide: [symbols-state-machine.md](../tools/symbols-state-machine.md#how-to-use-it).
 
-**Book of:** you also get `Book intro` and `Book idle` columns. Left empty, they borrow `Win`.
+**Book of:** you also get `Book reveal` and `Book idle` columns. Left empty, they borrow `Win`.
 
 **Why here:** you need the art from step 3. The names you set here feed Win Text and
 Localization later.
@@ -170,7 +170,8 @@ translated in step 8.
   ([The strips are the gate](../tools/game-config.md#the-strips-are-the-gate)).
 - A word painted into bet-mode card art can't be changed or translated by any field.
 - A config save reaches **Live ↗**, and the test-server mock that deals it, within seconds.
-  **Players** get the config, and the board their mock deals, frozen into the last Publish. After a math change on a live game, republish (step 10).
+  **Players** get the config, and the board their mock deals, frozen into the last Publish. After
+  a math change on a live game, republish (step 10).
 
 **Done when:** there are no errors at the top of the page (warnings don't block), the page is
 saved, and there's no red partner-reference box.

@@ -73,7 +73,7 @@ cheaper than a leaked write key.
 | Holder | What it holds |
 | --- | --- |
 | Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`, and until the cut-over the legacy `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` |
-| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN` |
+| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set |
 | Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
@@ -101,7 +101,7 @@ how to **verify** the change.
 How to create and revoke it: [INFRA rotation table](../INFRA.md#b92--rotation-checklist-for-setup-time-secrets),
 first row. Pattern: **overlap**.
 
-**Consumers.** The INFRA row names three services. The real list is longer:
+**Consumers.** The INFRA row names them in short. In full:
 
 - **Railway:** the launcher, atlas-tool, sheet-tool, Invisible-test-Server, and atlas-backend
   (parked).
@@ -267,7 +267,8 @@ tracked in the atlas-maker and sheet-maker status files.
 
 ### Deploy token (`app_settings.deployToken`, bootstrap `EDITOR_DOC_SECRET`)
 
-**Missing from INFRA.md.** [status/infra](../status/infra.md) lists it as owed.
+The [INFRA rotation table](../INFRA.md#b92--rotation-checklist-for-setup-time-secrets) has the
+short row. This entry adds every consumer.
 
 **Lives in:**
 
@@ -315,8 +316,9 @@ developer. Do not edit the row yourself.
 ### `TEST_SERVER_SECRET`
 
 Optional: when it is set, the test server's `POST /refresh` demands it, as the
-`x-test-server-secret` header or `?secret=`. `.github/workflows/runtime-release.yml` says to add the GitHub secret "only if the test
-server sets one", and whether production sets it is not recorded anywhere.
+`x-test-server-secret` header or `?secret=`. `.github/workflows/runtime-release.yml` says to add
+the GitHub secret "only if the test server sets one". Whether production sets it is not recorded
+in the docs: look at the Invisible-test-Server service's Variables in Railway.
 
 **Consumers:**
 
@@ -333,22 +335,24 @@ If the launcher's copy is missing or stale, a Game Maker Publish still succeeds 
 gets a 403, and the game goes live only on the test server's next hydrate.
 
 **Pattern: single value.** Update the GitHub secret and both Railway vars (test server and
-launcher) together, while no
-Runtime release or rollback is running. Otherwise that run's live check times out and opens a
-"Runtime release failed" issue.
+launcher) together, while no Runtime release or rollback is running. Otherwise that run's live
+check times out and opens a "Runtime release failed" issue.
 
-**Verify.** With the new value in `$TEST_SERVER_SECRET`, this must answer 202:
+**Verify.** With the new value in `$TEST_SERVER_SECRET`, this must answer 202. Send it as the
+header, as the launcher does, so the value never sits in a URL or an access log:
 
 ```bash
-curl -s -X POST "https://games.invisiblewall.org/refresh?secret=$TEST_SERVER_SECRET"
+curl -s -X POST -H "x-test-server-secret: $TEST_SERVER_SECRET" \
+  "https://games.invisiblewall.org/refresh"
 ```
 
-The old value must answer 403.
+The old value must answer 403. A launcher left on the old value shows no error anywhere (Publish
+ignores the refresh's answer), so compare the two Railway values by eye as well.
 
 ### RunPod API key (`RUNPOD_API_KEY`)
 
-**Not in the INFRA rotation table.** Pattern: **overlap**. Create the new key before you revoke
-the old one.
+The INFRA rotation table has the short row. Pattern: **overlap**. Create the new key before you
+revoke the old one.
 
 **Consumers:**
 
@@ -440,8 +444,9 @@ each token does and which permissions it needs is in
 Pattern: **overlap**. Both are read by the launcher only.
 
 - **`CF_API_TOKEN`**, the zone cache purge.
-  - When it is unset or broken, a republish still succeeds but the edge keeps serving stale game
-    files, silently.
+  - `games` and `app` are DNS-only today, so the purge has nothing of ours to drop. The token only
+    matters if `games` is ever put behind the Cloudflare proxy (the "Game freshness" note in
+    [INFRA](../INFRA.md#environment-variables-names-only)). A broken token breaks nothing visible.
   - Verify: /admin → purge the edge cache, and it must report success. That purges the whole
     `invisiblewall.org` zone. It is harmless, but do it off-peak.
 - **`CF_ANALYTICS_TOKEN`**, account analytics for Admin → Costs.
@@ -453,7 +458,7 @@ All of these are **overlap**, launcher-only, and degrade to a message rather tha
 
 | Var | Used by | Verify |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Localization **Translate** (the Anthropic path); also the local `scripts/i18n-translate.mjs` | translate one row in `/localization` |
+| `ANTHROPIC_API_KEY` | Localization **Translate** (the Anthropic path); also the local `scripts/i18n-translate.mjs`, which reads `OPENAI_API_KEY` instead with `--provider openai` (a personal key in your own shell; nothing stores it) | translate one row in `/localization` |
 | `LOCALIZATION_LLM_API_KEY` | Localization **Translate**, when the OpenAI-compatible provider is configured (it wins over Anthropic) | the same |
 | `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY` | Admin → Costs, read-only | the provider's card shows spend |
 | `RAILWAY_API_TOKEN` | Admin → Costs, the Railway card | the card shows usage |
@@ -514,7 +519,7 @@ Desktop-launcher sign-ins are the same sessions, so they end as well.
 
 ### Leftovers: delete, don't rotate
 
-- **`RESEND_API_KEY`** is listed in INFRA's launcher env vars, but no code reads it. If it exists
+- **`RESEND_API_KEY`**: no code reads it, and INFRA's env tables dropped it. If it still exists
   in Railway, delete it and revoke it at the provider.
 - **`HF_TOKEN`** is read only by `fetch-models.py` on a pod, for a gated Hugging Face repo. None
   is gated today, and nothing stores it. If one was ever pasted onto a pod, revoke it on Hugging
