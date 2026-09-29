@@ -27,6 +27,7 @@
  */
 import {
 	isScatterSymbol,
+	normalizeGameConfigDoc,
 	resolveBetModes,
 	resolveWinModel,
 	symbolsInPlay,
@@ -458,9 +459,12 @@ export function mockContractOfBundle(
 	bundle: Pick<RuntimeBundle, 'config' | 'symbols'>,
 	projectKey: string,
 ): MockContract {
+	// Normalized like the live read (`loadGameConfigDoc`) and the client (`getActiveGameConfig`): a
+	// snapshot keeps the stored shape of its day, and a later migration in `normalize.ts` must reach
+	// the mock the same way it reaches the game drawing it.
 	return deriveMockContract(
 		protocol,
-		bundle.config ?? null,
+		bundle.config ? (normalizeGameConfigDoc(bundle.config) ?? null) : null,
 		bundleSymbolFacts(bundle.symbols),
 		projectKey,
 	);
