@@ -97,6 +97,13 @@ export interface SnapshotMeta {
 	flow: 'absent' | 'valid' | 'overridden';
 	/** The shared engine runtime the game was served from when this was published. */
 	runtime: string;
+	/**
+	 * The engine release that runtime's pointer named at publish (`_runtime/<runtime>/current.json`)
+	 * — a RECORD, not a pin: the game keeps following the pointer, so an engine release or rollback
+	 * still reaches it. Shown next to the version so a data rollback says which engine it was made on.
+	 * Null when no versioned release existed yet; absent on snapshots from before this was recorded.
+	 */
+	engine?: { version: string; shortCommit: string } | null;
 	/** Objects + bytes copied from `deploy/`. */
 	files: number;
 	bytes: number;
@@ -236,7 +243,7 @@ export async function stageSnapshot(
 	client: string,
 	project: string,
 	bundle: RuntimeBundle,
-	meta: Pick<SnapshotMeta, 'by' | 'flow' | 'runtime'>,
+	meta: Pick<SnapshotMeta, 'by' | 'flow' | 'runtime' | 'engine'>,
 ): Promise<SnapshotMeta> {
 	const id = newSnapshotId();
 	const deployPrefix = `${SUB.deploy(client, project)}/`;
