@@ -18,9 +18,11 @@
 # the bundle it just built — a 202 from /refresh and a `released` stamp prove the upload, not the
 # serving (see apps/launcher-api/scripts/verify-runtime-live.mjs).
 #
-# ROLLBACK (the upload overwrites `_runtime/<id>/` in place; there is no older copy to point back
-# at): revert the bad commit on `main`, which re-releases through this workflow, or dispatch it
-# with "Use workflow from" set to a known-good branch/tag. See docs/status/engine.md.
+# VERSIONED: each release is uploaded to its own immutable `_runtime/<id>@<version>/` and only then
+# made live by ONE write of the pointer `_runtime/<id>/current.json` — nothing being served is ever
+# overwritten. ROLLBACK is therefore a pointer flip with no rebuild: the "Runtime rollback" workflow
+# (runtime-rollback.yml). Untick "promote" to upload a release without making it live, for a canary.
+# See "Runtime releases" in docs/design/games-deploy.md.
 #
 # One-time setup — add these under Settings → Secrets and variables → Actions:
 #   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (Railway → Invisible launcher
@@ -47,10 +49,15 @@ on:
         description: 'POST /refresh and verify the new bundle is served (unticked: no live check)'
         type: boolean
         default: true
+      promote:
+        description: 'Make it live (unticked: upload + record only — pin a canary game to it, then promote it from "Runtime rollback")'
+        type: boolean
+        default: true
 
 concurrency:
   # `inputs.runtime` is empty on a push event → fall back to 'lines' so a push- and a dispatch-
   # triggered release for the same runtime still serialize into one group.
+  # "Runtime rollback" is deliberately NOT in this group; the pointer write is a compare-and-swap.
   group: runtime-release-${{ inputs.runtime || 'lines' }}
   cancel-in-progress: false
 
@@ -93,6 +100,8 @@ jobs:
       # show "Releasing engine…" while it runs. `continue-on-error` — the stamp must never fail a
       # release; the final `released` stamp (after upload) is the one that matters.
       - name: Stamp release as building
+        # An unpromoted (canary) upload makes nothing live, so it must not show "Releasing engine…".
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.promote }}
         continue-on-error: true
         env:
           GITHUB_SHA: ${{ github.sha }}
@@ -124,7 +133,7 @@ jobs:
           PUBLIC_DELIVERY_PROFILES: '*'
         run: pnpm --filter ${{ env.RUNTIME }} build
 
-      - name: Publish to _runtime/${{ env.RUNTIME }}
+      - name: Publish to _runtime/${{ env.RUNTIME }}@<version> and promote it
         env:
           GITHUB_SHA: ${{ github.sha }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -133,19 +142,22 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
-            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"
+            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build" \
+            ${{ (github.event_name == 'workflow_dispatch' && !inputs.promote) && '--no-promote' || '' }}
 
       # The test server hydrates every bundle from R2 on boot and on POST /refresh — nowhere else,
       # there is no timer — and /refresh answers 202 before the hydrate runs. So this step POSTs
-      # /refresh, then polls a game on this runtime until its served index.html names the
-      # `bundle.<hash>.js` this job just built, re-POSTing /refresh with backoff (a hydrate that
-      # began mid-upload can finish without the new files; a rebooting server drops the request).
+      # /refresh, then polls a game that follows the pointer until its served index.html names the
+      # `bundle.<hash>.js` this job just built from the release it just promoted (`X-Runtime-Release`),
+      # re-POSTing /refresh with backoff (a hydrate that read the pointer before the flip finishes on
+      # the old release; a rebooting server drops the request).
       # If it never matches, the job FAILS: the bundle is in R2 but every online game is still on
       # the previous engine, which must read as red, not as a green run with a warning. The
       # deadline (15 min) outlasts a test server reboot, which can coincide with a merge to main.
       - name: Refresh the test server and verify the served bundle
-        # Auto push-releases always verify; a manual dispatch honours its refresh checkbox.
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.refresh }}
+        # Auto push-releases always verify; a manual dispatch honours its refresh checkbox, and an
+        # unpromoted release has nothing new to serve.
+        if: ${{ github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote) }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -155,3 +167,19 @@ jobs:
         run: |
           node apps/launcher-api/scripts/verify-runtime-live.mjs \
             "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"
+
+      # Without this, a release that fails after the `building` stamp (a gate, the build, the upload)
+      # left the launcher on "Releasing engine…" until the stamp aged out 30 min later. Puts the stamp
+      # back to the release the pointer still names and records the failure next to it.
+      - name: Stamp the failed release
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
+            "${{ env.RUNTIME }}" --status failed
