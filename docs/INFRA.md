@@ -606,7 +606,7 @@ of the launch that made it: a role or tool-access change applies at the user's n
 12 h); rotating a signing secret ends every session of that tool immediately. On Railway a tool with
 no secret at all refuses everything but `/healthz` (it is only open in local dev).
 
-**Owner setup — the change is inert until this is done.** Generate two NEW random values (e.g.
+**Owner setup** _(done and verified live 2026-09-29 — both secrets are Shared Variables referenced by the launcher + the one tool each; kept here for a rotation)_. Generate two NEW random values (e.g.
 `openssl rand -base64 48`; not the R2 key, not the old gate secret) and set each on BOTH ends:
 
 | Var | Set on | Notes |
