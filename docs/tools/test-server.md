@@ -214,6 +214,20 @@ Run the server against a local directory instead of R2 (no creds needed):
 TEST_SERVER_LOCAL=/path/to/local-games PORT=8080 node services/test-server/server.mjs
 ```
 
+## Traps
+
+- **A game opened from this server's own page shows the engine's sample game.** — The list at
+  `games.invisiblewall.org` links each game with no launch parameters, so an online (Game Maker)
+  game cannot find its project and runs the engine's sample instead, with nothing on screen saying
+  so. Open games from the launcher: Game Maker's **Play ↗** / **Live ↗** or the portal's
+  **Games** section.
+- **Your balance jumped back to the starting amount.** — Every publish of _any_ game refreshes the
+  server, and a refresh resets every test wallet; a server restart does too. It is fake money —
+  carry on. Each browser tab also has its own wallet, so two tabs show different balances.
+- **A round stopped or a bet was refused after someone saved the game's math.** — When the board
+  changes the server drops rounds dealt on the old one, and after a restart a game with a fixed
+  bet table refuses a stale tab's bet rather than guess its price. Reload the game tab.
+
 ## Security note (MVP)
 
 The service is **public** and the mock RGS is **unauthenticated** — acceptable

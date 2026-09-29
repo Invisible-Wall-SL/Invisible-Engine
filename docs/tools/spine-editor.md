@@ -56,6 +56,17 @@ you through it:
   engine and the online tools consume — keep frame/region names stable so atlas
   page references resolve.
 
+## Traps
+
+- **A symbol exported from Spine draws tiny in its reel cell (or overflows it).** The game fits a
+  spine symbol by the skeleton size Spine writes on export — the box round every attachment in
+  the setup pose, including ones at zero opacity or scaled up for an effect — not by what you can
+  see. Leave effect attachments empty in the setup pose and key them on in the animations, then
+  re-export.
+- **A rig you swapped in plays nothing, or its blast is silent.** A few game moments look up
+  animations or events by exact name (the reel-anticipation overlay, the wild's explosion sound).
+  See [the Symbols State Machine's Traps](symbols-state-machine.md#traps) for the names.
+
 ## Known limitations / TODOs
 
 - **Licence-gated:** the editor will not launch without a valid Esoteric licence;

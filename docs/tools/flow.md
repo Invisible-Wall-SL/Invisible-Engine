@@ -29,8 +29,8 @@ signals that components — and spines placed on a screen — listen for), waits
   so a value's type is legible from the wire alone. Wires are **type-checked at connect
   time** — an incompatible wire simply won't drop.
 - **It validates against a template vocabulary.** The flow is written against the game
-  template's declared **events / actions / cues / collections** (today only the
-  `book-of` template exists). The palette offers exactly those names, and a live
+  template's declared **events / actions / cues / collections** — `book-of`, `ways`,
+  `cluster` and `scatter` are registered. The palette offers exactly those names, and a live
   **Validation** panel flags anything unresolved or mis-wired.
 - **Deterministic preview.** Pick one of your event nodes and run its handler headlessly
   against a fixed sample; the panel lists the resulting ordered timeline (each effect /
@@ -53,9 +53,9 @@ signals that components — and spines placed on a screen — listen for), waits
 Sign in to the launcher (`app.invisiblewall.org`) and open **Invisible Flow** (the top-bar
 switcher lists it as **Flow**). The FlowDoc is scoped to the project selected in the top
 bar — the sub-bar shows the active `client / project`. Switching projects loads that
-project's saved flow. If a project has no saved flow yet the editor opens on a built-in
-**sample** graph so you always have something to work from; a sample that isn't bound to a
-real project is marked **"sample · not saved"** and is never persisted.
+project's saved flow. If a project has no saved flow yet the editor opens on its game type's
+**starter flow** (the `book-of` one for a type without its own), and the save pill reads
+**New — unsaved** until your first edit saves it.
 
 ### Read the sub-bar
 
@@ -547,8 +547,9 @@ launcher's build run the same validation over the saved flow and refuse a flow w
 error, listing them. Warnings and blue hints never block. An admin can publish anyway from the
 refusal dialog; a desktop build takes `--allow-invalid-flow` (or `ALLOW_INVALID_FLOW=1`). The
 check uses the project's saved screens and the shared function library the game ships with, so
-fix what the panel shows and save. A game that is already published loads the saved flow each
-time it starts, so a later save reaches players without a new Publish — keep the panel green.
+fix what the panel shows and save. Each Publish freezes the flow into the published version players
+boot, so a later save reaches players only on the next Publish — Game Maker's **Live ↗** plays your
+current saved flow before then (see [Publish and deliver](../guides/publish-and-deliver.md)).
 
 Two of them read your **screens**, not just the graph. A Show Container with **Hold until this
 screen completes (tap)** ticked holds the round until that screen completes, and there is no
@@ -581,8 +582,8 @@ failed — retry**). The shared **function library** auto-saves the same way to 
 key, shown as a separate **Library …** pill. The standalone dev sample (no real project) is
 never persisted.
 
-The game reads the saved `editor/flow-v2.json` at runtime through the bake → bundle chain,
-so authoring here is what the shipped game actually runs.
+The game reads the saved `editor/flow-v2.json` through the bake → bundle chain, so authoring
+here is what the shipped game actually runs — from the next Publish on.
 
 ### Undo, redo and version history
 
@@ -609,6 +610,44 @@ the version it replaces so it can be undone from the same list, and the page rel
 the restored flow. History covers the project's flow only — the shared function library has
 no version history yet.
 
+## Traps
+
+The two cue traps (splice in series; fire after the screen shows) are in
+[Scene cues](#scene-cues--animate-a-placed-character). These are the others.
+
+- **Show / Hide nodes do nothing and the game runs its old screens.** The flow only drives the
+  screens when it handles `load` — a `load` event node or a wired Game Signals **load** pin.
+  Without it the game ignores the flow's Show / Hide (and logs `HALF-ON FLOW IGNORED` in the
+  console) so it can still reach the base game. Handle `load`, then **show every screen the game
+  needs** — base game, HUD, overlays — because once the flow drives the screens, anything it
+  doesn't show stays off.
+- **Taking over `winInfo` made the win line disappear.** Owning an event switches off everything
+  the engine did for it, including the traced win line, its stamped amount and the lit paying
+  symbols. Re-author them: a **ForEach** over the event's `wins`, and per win `showWinLine` →
+  `animateWinSymbols` → … → `hideWinLine`, as the starter flow's `winInfo` chain does.
+- **The flow owns `setWin` and the big-win celebration never plays.** The big-win overlay and its
+  count-up are started by the `winUpdate` action. Keep it in the `setWin` chain, with `amount` and
+  `winLevel` fed from Game Signals `setWin`.
+- **The free-spin outro shows nothing, or sits at 0.00 with no tap.** The outro's total and its tap
+  both hang off the `freeSpinOutroCountUp` action: the visual draws nothing until it runs, and the
+  Tap to Continue arms only when that count finishes. A held **show Free-spin outro** placed
+  *before* the action waits for a tap that can never arm, and Validation cannot see it. Keep the
+  order in [Free-spin intro and outro](#free-spin-intro-and-outro--the-flow-holds-the-round): show,
+  count-up, held show, hide.
+- **A Game Signals value reads nothing (`signal-cross-event` in Validation).** A Game Signals data
+  pin carries the payload of *its own* event, so wired into a node on another event's chain it is
+  empty every time. Move the node onto that event's chain, or feed it from the event it already
+  runs on. Pulling an event's data without wiring its exec pin does not take that moment over.
+- **Tapping outside an authored menu doesn't close it.** The seeded dim backdrop is a picture, not
+  a button. For an outside tap to close the menu, add a button covering the window behind the
+  menu's own buttons, give it the **close (dismiss screen)** action in the Scene Editor, and wire
+  the extra `onClose` pin it adds to the menu's **show** node into a **hide** of the menu.
+- **The music you started never hands back, or an old track resumes mid-song.** There is one music
+  channel: a `soundMusic` cue pauses whatever was playing, and nothing resumes it except the
+  engine's own returns ([the two music beds](sound.md#the-two-music-beds)). Asking for a paused
+  track again resumes it where it stopped. Fire a second `soundMusic` for the track to return to,
+  with a `soundStop` for it first if it should restart from the top.
+
 ## What it does not do yet
 
 - **It does not edit the platform state machine or the math.** The XState platform FSM
@@ -624,8 +663,9 @@ no version history yet.
 
 - **Containers and the template are data-only.** The set of containers (scene id + z) and
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
-  palette shows/hides whatever containers the document already declares. Only the `book-of`
-  template vocabulary exists today; an unknown template id falls back to it.
+  palette shows/hides whatever containers the document already declares. `book-of`, `ways`,
+  `cluster` and `scatter` vocabularies are registered (only `book-of` and `ways` ship a starter
+  flow); an unknown template id falls back to `book-of`.
 - **Cues inside a component instance aren't offered.** The **Cues** section collects signal
   names from spines and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own

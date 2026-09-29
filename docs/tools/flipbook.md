@@ -118,6 +118,11 @@ the clip you are editing — unsaved frame order, fps, bounds and name all survi
 
 - **Click a region** in the right-hand grid to **append** it to the end of the frame
   list. Click a run of regions in order and you have your animation.
+- **Detected animations** (under the Source sheet picker) offers each consecutively-numbered
+  run of regions as one click. Clicking one **replaces** the frame list (it asks first if the
+  clip already has frames). Runs are found across every sheet in the project and labelled by
+  sheet, with the selected sheet's highlighted; sheets are combined into one run only when
+  their frame numbers don't overlap, as in a multipacked atlas.
 - **Drag a frame** in the centre list to move it. Frames are numbered **1…N** so the
   order is never ambiguous.
 - **⧉** duplicates a frame in place — this is how you **hold** a pose.
@@ -606,6 +611,15 @@ full-size PNG *and* a region to regenerate). Use **Every** to bring a long rende
 - **The generated videos are authoring artifacts.** They live under
   `<client>/<project>/video/<session>/` and never ship — a game gets the packed sheet and
   the clip, never a video file.
+
+## Traps
+
+- **A symbol plays another symbol's animation, while its still frame is right.** The clip holds
+  another sheet's frames. Every Sheet Maker sheet numbers its regions the same way
+  (`frame_0000…`), and **Detected animations** lists the runs of _every_ sheet in the project, so
+  check the sheet label before you click an offer. Clips made from an offer before 24 July 2026
+  could silently take a different sheet's frames: open the clip, pick its own sheet, apply that
+  sheet's offer, and save.
 
 ## What it does not do yet
 

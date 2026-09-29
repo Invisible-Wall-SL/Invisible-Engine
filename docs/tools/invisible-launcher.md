@@ -285,6 +285,16 @@ operator.
   card's *Cloud publish* settings, same as a publish — a data-only project has to
   be 🏗 Scaffolded first.
 
+## Traps
+
+- **A fix you made in a synced project's folder vanished, or never reached the build.** — Every ☁
+  Publish hard-resets a synced project's folder to the game repo's `origin` before building, which
+  discards uncommitted edits, so only what is committed **and pushed** is built. Commit and push the
+  fix to the game repo first. (A project added with *Load from folder* is left as it is.)
+- **The publish result says the live server "hadn't caught up".** — The build did upload; the test
+  server just had not switched to it within the wait. Reopen the game from the portal in a minute
+  or so to confirm.
+
 ## Related
 
 - [Publisher runbook](../guides/publisher-runbook.md) — the one-page checklist for ☁ Publish and

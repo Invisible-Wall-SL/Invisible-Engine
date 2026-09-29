@@ -30,7 +30,19 @@ Per-app (e.g. `apps/lines`): `pnpm dev` (Vite, port 3001), `pnpm storybook` (600
 - `packages/` — shared libs (`pixi-svelte` is the core declarative PixiJS↔Svelte bridge).
 - `services/atlas-backend` — FastAPI generation backend (Python).
 - `services/atlas-tool` — the re-hosted Python Atlas Maker (Python).
-- `docs/` — INFRA, STATUS, this file.
+- `docs/` — INFRA, STATUS, this file; `docs/tools/` (one guide per tool), `docs/status/` (each
+  tool's current state), `docs/guides/` (walkthroughs and runbooks, below).
+
+## Guides and runbooks
+- **New to authoring?** [Build your first game](guides/build-your-first-game.md) walks a lines /
+  Book-of / ways reskin from Game Maker to Deliver, linking each [tool guide](tools/README.md).
+- **Operating the platform:** [publish and deliver](guides/publish-and-deliver.md) ·
+  [publisher runbook](guides/publisher-runbook.md) (desktop builds) ·
+  [release and rollback](guides/release-and-rollback.md) ·
+  [rotate a secret](guides/rotate-a-secret.md) ·
+  [incident first response](guides/incident-first-response.md) ·
+  [backups and restores](guides/backups.md).
+- Each tool guide ends with a **Traps** section: the mistakes authors actually make in that tool.
 - `.claude/` — agents, skills, commands for working with Claude here.
 
 ## How we work (hard rules — also enforced in CLAUDE.md)
@@ -47,4 +59,5 @@ Railway auto-deploys each service from `main` on push. For the full checklist (b
 ## Working with Claude in this repo
 - Domain subagents exist for focused work: **engine-pixi-svelte**, **atlas-python-tools**, **infra-railway**, plus **code-reviewer**. Use them for tasks in their area.
 - Skills: **`/deploy`** (deploy checklist).
-- Keep `docs/STATUS.md` updated as you finish work — it's the shared memory across people and sessions.
+- When you finish work, update that tool's `docs/status/<tool>.md` — the committed docs are the
+  shared memory across people and sessions (see `docs/status/README.md`).

@@ -43,7 +43,9 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
 - **Scope:** components are loaded for the session's **active client/project**
   (shown in the top bar as `client/project`). The library is the project's
   components plus the shared global library; a project component shadows a shared
-  one of the same id. Saving from here writes a **project**-scoped component.
+  one of the same id. A component you create here is **project**-scoped. Saving writes a
+  component back where it came from — so one opened from the shared library (every built-in
+  is one) saves to the shared library; see [Traps](#traps).
 
 ## How to use it
 
@@ -91,36 +93,56 @@ resizable and persist under this tool's own key.
 ### 3. Bind the engine variables
 
 The **Component variables** block at the top of Properties is where you declare the
-component's contract. It has three parts:
+component's contract — the *declare* half; the game supplies the values and fires the
+signals. It has two lists, each with its own add button:
 
-- **Engine params** — tick the engine-provided values this component consumes from
-  the curated catalog (bet, win, balance, …). When a component is bound to a live
-  value feed (a `source` param), Properties shows the bound feed and where to set
-  its default instead of a checklist.
-- **Your params** — custom author inputs. The flow is three steps: **(1)** add a
-  param here (give it a name like `bg` and a kind — string / image / number /
-  color / boolean); **(2)** select a node and, under its **Bind to param**, point a
-  field at the param — an image/region or tint on a sprite, or text / font / size /
-  colour on a text node; **(3)** set the value per instance when you place the
-  component in a scene. Each param can carry a **default** used by the preview and
-  by every placed instance until overridden.
-- **Engine signals** — tick the named moments the engine should fire for this
-  component (enter, exit, win, …). You declare the names only; the game maps book
-  events to them.
+- **Variables in use** — click **+ Add variable** to open a searchable picker with two
+  groups:
+  - **Live game values** — Bet, Win, Balance, Total Win, Free Spins, Free-spin Outro Total,
+    Message, Loading Progress, the Auto Spins values and the rest of the engine catalog. A
+    value already added shows *in use*. Adding one only **declares** it — it does not feed a
+    hand-built component (see [Traps](#traps)).
+  - **Custom input** — type a name (e.g. `bg`), pick a kind (**string / image / number /
+    color / boolean**) and click **Add**.
 
-Steps 1 and 2 have a **one-click shortcut per node kind**, which is the usual way
-to do this:
+  Each row shows a badge — **engine** or **yours** — and its kind, and **×** removes it
+  (*Unsubscribe value* / *Delete custom input*). A custom input also gets a **default**
+  field (a region picker for an image, a colour field, a checkbox, a number or text box; a
+  font dropdown when the input drives a font), and a string input gets an **options** box:
+  type comma-separated values and every placed instance shows that input as a dropdown.
+  A component that already carries a live-value **source** (a Text Box, a HUD Readout) has
+  no **+ Add variable** — the block says it is *Engine-fed* and names the source options
+  instead.
+- **Signals in use** — click **+ Add signal** and pick from the engine's signals: Enter,
+  Win, Big Win, Win — count-up complete, Free-spin start / end, the Free-spin outro signals,
+  Book reveal / hide, Board glow show / hide. These are the names a spine or flipbook inside
+  the component can react to under **Plays on signal** (and that a Tap to Continue can arm
+  on). **×** removes one.
 
-- **text** — **Expose as params** creates grouped author params for the node's
-  text / font / size / colour and binds the node's fields to them.
-- **sprite** — **Expose image as param** creates an `image` param and binds the
-  node's frame to it, so each placed instance picks its own art (the sprite's
-  current frame becomes the default).
-- **spine** — **Expose spine as param** does the same for the rig bundle.
+Between the two lists, **Show button images** opens the per-state image set for a button:
+tick the interaction states you need and pick each state's art (bind your background
+sprite's region to **normal**; the engine swaps it on hover / press / selected / …). Each
+state can still be overridden per placement.
 
-Each has an inverse that un-exposes and restores the static value. A bound field
-shows a "bound to … — static value ignored in instances" note so you know the
-instance, not the static value, wins.
+A custom input does nothing until a node reads it. Select a node and use its **Bind to
+param** section to point a field at an input: **Image — atlas frame ← param** or the tint
+on a sprite, **Text ← param** and the font / size / colour fields on a text node. Then set
+the value per placement when you drop the component in a scene; until then the default
+applies.
+
+Most of the time you skip the manual steps and use the **one-click button per node
+kind**, which creates the inputs and binds them for you:
+
+- **text** — **✨ Expose text as params (per instance)** creates inputs for the node's
+  content, font, size and colour, grouped under the node's name.
+- **sprite** — **✨ Expose image as param (per instance)** creates an `image` input bound to
+  the frame; the current frame becomes its default.
+- **spine** — **✨ Expose spine as param (per instance)** does the same for the rig.
+
+Each has an undo button — **Remove exposed parameters**, **Remove exposed image**, **Remove
+exposed spine** — that drops the binding and the input it made and restores the fixed
+value. A field bound by hand shows a *"bound to … — static value ignored in instances"*
+note, so you know the placement's value, not the one typed above, is what shows.
 
 **If an instance control does nothing, the node is not bound.** A component that
 replaces a coded part with its own node (say a HUD Readout whose coded background
@@ -279,6 +301,24 @@ byte-identically to the built-in table. The animation + spine are consumed insid
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
 
+## Traps
+
+- **You edited a built-in or shared component and it changed in another game — or Save was
+  refused.** A component opened from the shared library saves back to the shared library. With
+  the `componentPublish` capability that changes it in every project without its own copy;
+  without it, Save fails with *"Your role cannot publish to the shared component library."* To
+  make one game look different, use [This game's defaults](#4-set-this-games-defaults); for a
+  design of your own, create a new component.
+- **You added a live game value with + Add variable, and the game still shows the placeholder.**
+  Adding a live value only *declares* it; nothing feeds a hand-built component by that name. The
+  only live feed is a **source** param, which the built-in **Text Box** carries. Place a Text Box
+  in the Scene Editor, pick its **live value source**, and remove the unused variable.
+- **A placed instance has no Tap to continue section.** Tap to continue (and On loaded) are offered
+  only on instances of an **Overlay** component, and a component's category is chosen once, when
+  you create it — a Button is always UI. Create it as **Blank** with category **Overlay**.
+- **An instance control does nothing.** The node it should drive isn't bound — see the note at the
+  end of [Bind the engine variables](#3-bind-the-engine-variables).
+
 ## Known limitations / TODOs
 
 These reflect the registered editor design (`docs/design/invisible-editor.md`
@@ -326,11 +366,12 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into
   its bundle — so re-publish (or re-bake) the game after changing them.
-- **Save writes a project component; promote-to-shared is now exposed.** The primary
-  **Save component** always writes a **project** component (which shadows a shared one
-  of the same id). A separate **Promote to shared** button — gated on the
+- **Save writes back to the component's own scope; promote-to-shared is exposed.** The
+  primary **Save component** writes a project component to the project (where it shadows a
+  shared one of the same id) and a shared or built-in one to the shared library. There is no
+  "copy to this project" action yet. A separate **Promote to shared** button — gated on the
   `componentPublish` capability (admin-only by default, grantable per role in
   `/admin`) — writes a `scope:'shared'` snapshot to the `_shared/editor-components/`
-  library. Authoring a SHARED component as its only copy (no project shadow), and a
+  library. Creating a component straight into the shared library (no project copy), and a
   promote-from-the-Library-row affordance for components you are not currently editing,
   are not built yet.

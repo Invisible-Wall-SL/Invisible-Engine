@@ -147,6 +147,19 @@ Translate it there like any other string, review it, and save.
 
 Only **reviewed** translations ship, exactly as for the rest of the game's text.
 
+## Traps
+
+- **The game still says the old wording.** — Players (and Game Maker's **Play ↗**) get the version
+  frozen at the last Publish. Check the new text with **Live ↗** in
+  [Game Maker](game-maker.md), then publish. A game opened from the test server's own list at
+  `games.invisiblewall.org` runs the engine's sample game and never shows authored win text — open
+  it from the launcher.
+- **A translated win message ends in an English symbol name.** — `{symbolName}` is translated on
+  its own, in Localization's **Symbol names** section. Translate and review the names as well as
+  the templates.
+- **Leaving the page drops unsaved edits without asking.** — This page has no leave warning: the
+  tool bar, Back or closing the tab discards anything not saved. **Save** first.
+
 ## Storage
 
 One JSON document per project in R2 (bucket `invisibleassets`):

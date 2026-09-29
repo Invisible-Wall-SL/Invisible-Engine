@@ -221,7 +221,8 @@ winners simply vanish, which reads as a bug and is not one.
 
 **Reload the game after changing it.** The tumble is dealt by the server, and the
 Invisible Test Server re-reads this config on its own (see _Reaching the server_
-below) — so a save plus a reload is enough. No republish.
+below) — so to test it, a save plus a reload of **Live ↗** is enough. Players get it with the
+next Publish (see _Traps_).
 
 ### Collecting multipliers
 
@@ -502,9 +503,9 @@ pick up the ways template), just set _How wins are decided_ → **Ways** and sav
 ## How it reaches the game
 
 Pure config, no assets, so it travels verbatim through the bake — no export/pull
-step. On save it lands in the project's cloud storage; the next build (or live
-runtime fetch) picks it up and the game resolves **your authored config → the baked
-config → the compiled template**, in that order. An un-authored project falls all
+step. On save it lands in the project's cloud storage; a live load (**Live ↗**) picks it up at
+once, players get it with the next Publish (or build), and the game resolves **your authored
+config → the baked config → the compiled template**, in that order. An un-authored project falls all
 the way through to the compiled template and is byte-identical to a stock build.
 
 ## Reaching the server
@@ -513,8 +514,9 @@ The half of this config that is **math** — the grid, paylines, which symbols a
 play, the win model, tumbling — has to be dealt by the RGS, not just drawn by the
 client. On the Invisible Test Server it is: the mock re-reads this config directly
 (within a few seconds of a save) and rebuilds the board it deals, so **save, reload
-the game, done**. There is no republish step, and no way for the server to be
-dealing a different board from the one you authored here.
+the game (Live ↗), done**. The server needs no republish, and cannot be dealing a different
+board from the one you authored here — but a player's game still carries the config of the last
+Publish (see _Traps_).
 
 Two cases where that doesn't hold, both of which the game says out loud in the
 browser console as a `[game-config]` error naming both boards:
@@ -524,5 +526,25 @@ browser console as a `[game-config]` error naming both boards:
   the last publish froze. **Publish it once** and it follows from then on.
 - **A real RGS.** A production server owns its own certified math and does not
   follow the client — there, the config has to be set to the board the server deals.
+
+## Traps
+
+- **You changed the math, reloaded with Play ↗, and the game only half follows it.** — The test
+  server deals from your saved config within seconds, but a player's game (**Play ↗**,
+  **Copy URL**) carries the config frozen at the last Publish, so until you publish the two
+  disagree. The board follows the server, while the info page and paytable keep the old values,
+  and the browser console logs a `[game-config]` error or warning naming the difference. Test
+  config changes with **Live ↗** in [Game Maker](game-maker.md), and **Publish** before anyone
+  else plays it.
+- **A saved change to the board broke the round that was open in another tab.** — When the board
+  changes, the test server drops rounds dealt on the old one (balances are kept). Reload every
+  open game tab after saving a math change.
+- **A mode's Card graphics don't show in the Scene or Component Editor.** — Both editors draw each
+  card with its component's own defaults; a mode's **Card graphics** are applied only when the
+  running game builds its buy menu. Open the buy menu in the game (Game Maker's **Live ↗**) to
+  check them.
+- **Leaving the page drops unsaved edits without asking.** — This page has no leave warning:
+  switching tools from the tool bar, pressing Back or closing the tab discards anything not
+  saved. Watch for **Unsaved** and press **Save** first.
 
 See the design plan in `docs/design/invisible-game-config.md`.

@@ -264,17 +264,22 @@ symbol here and every win message follows — there is nothing to edit in the ot
 - Names are translatable: they go through the same text resolver as every other authored
   string, so a translated build can say "4 Plátanos".
 
-### Symbol size lives on the reel, not here
+### Symbol size comes from the art
 
-This tool no longer sets symbol size — size is a _layout_ concern. To change how big the
-symbol art renders inside each reel cell, open the **Invisible Scene Editor** (`/editor`),
-select the reel, and use the **"Symbol size (× cell)"** Width/Height control on the reel's
-properties (see [the Scene Editor guide](./invisible-editor.md#symbol-size-on-the-reel)).
-That value (`reelGrid.symbolSizeRatios`, `1` = the art fills one cell) applies to every
-symbol on the board; absent ⇒ the game's built-in per-symbol sizes.
+There is no symbol-size number — not in this tool, and not on the reel either (the Scene
+Editor's old "Symbol size (× cell)" control has been removed). Every symbol fits its reel cell
+by its own art, keeping its proportions:
 
-A baked per-cell `sizeRatios` from before this change is still honoured by the engine (it
-wins over the reel value), but the tool no longer authors size at any level.
+- A **sprite** fits by its picture; a **flipbook** by its clip's
+  [bounds box](./flipbook.md#the-bounds-box--declaring-the-size-a-clip-is-drawn-at) when it has
+  one.
+- A **spine** fits by the rig's **declared box**, centred on the cell — the
+  [Bounds frame](./rigger.md#bounds-the-rigs-size-frame) in the Invisible Rigger, or the skeleton
+  size the Spine Editor wrote on export. Not by the pixels the rig happens to show.
+
+So to make one symbol bigger or smaller, change its art: crop the sprite, box the clip, or
+resize the rig's Bounds frame. A per-cell `sizeRatios` left in an old doc is still read but no
+longer changes the size.
 
 ### Highlight (win frame)
 
@@ -497,6 +502,12 @@ the stacked config lives here (there is no per-cell `Stacked picture` grid colum
 - A **Win beat (ms)** number — how long a winning stack stays lit, which is also how long its win
   picture (below) plays for. The cells under a tall picture have no per-symbol win animation for the
   game to wait on, so it holds this fixed time instead. Leave it blank for the built-in 650 ms.
+- **Show the tall picture only at full height** (off by default) — on, a landed stack shorter
+  than the symbol's height shows the normal single symbols; off, it shows the top of the picture.
+- **Cut-off tall pictures at the board edges** (off by default) — on, a stack touching the top
+  or bottom edge draws the visible slice of a picture scrolled partly off-screen, whatever its
+  length and whatever the switch above says. Stacks away from the edges still follow the switch
+  above.
 - For each stacked symbol, a **Height (cells tall)** number (≥ 1) — how many cells the picture spans
   — and **two picture slots**, each with its own preview and its own **Sprite / Spine / Flipbook**
   picker (the same one the grid cells use):
@@ -845,23 +856,30 @@ The default values shown in each column come from a coded FX **ramp** interpolat
 many big tiers there are (the first tier gets the low end, the last the high end), so an escalation
 is sensible no matter how many tiers the config defines.
 
-Above the tier columns are three global pickers (one sting + one loop for the whole mode, not
-per-tier):
+Above the tier columns are three global controls, one for the whole mode rather than per tier:
 
 - **Overlay spine** — swaps _which_ skeleton drives the per-reel overlay. The default is the game's
-  built-in `anticipation` spine; a swapped bundle must expose the `anticipation_intro / _loop / _out`
-  animations, since the game still owns the intro → loop → out chaining (same contract as the board
-  glow). Only R2 spine bundles already available to the project are offered — no new asset class.
+  built-in `anticipation` spine; a swapped bundle must expose the chosen set's intro / loop / out
+  animations (`anticipation_intro / _loop / _out` by default), since the game still owns the
+  intro → loop → out chaining (same contract as the board glow). Only R2 spine bundles already available to the project are offered — no new asset class.
   The tease's two cues — the activation **sting** and the sustained **loop** — are chosen in
   [Invisible Sound](sound.md) → **Reel anticipation**. Their per-tier **volumes** stay here: those are
   part of the intensity ramp below, not a choice of sound.
+- **Overlay animation** — which animation _set_ the overlay plays, for a spine that carries
+  several (e.g. differently sized anticipations). It is a base name: the game appends `_intro`,
+  `_loop` and `_out`, so `anticipation3` plays `anticipation3_intro` and so on. The unnumbered
+  `anticipation` is the default.
+- **Overlay size (cells)** — the box the overlay animation is scaled to fit, in cells (1 = one
+  symbol). Blank keeps the coded narrow beam, `0.56 × 1.6`; for a full-column animation set
+  Height to the reel's row count and Width to about `1`.
 
 Every field falls through to the game's coded value when left at its default, so the doc stays
 sparse: an untouched project ships **no `anticipation` key** and the mode is byte-identical to
 before this panel existed. **Reset to default** (shown once anything is overridden) clears the whole
 section.
 
-Stored as `anticipation: { spineKey?, activationSound?, loopSound?, tiers?: Record<tierAlias, TierFx> }`
+Stored as `anticipation: { spineKey?, animationSet?, overlayWidthCells?, overlayHeightCells?,
+activationSound?, loopSound?, tiers?: Record<tierAlias, TierFx> }`
 — `activationSound` / `loopSound` are no longer authored here (a project that set them before the
 move is still read, one rank below the sound doc), and the `tiers` record is keyed by the config
 big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each value a sparse
@@ -890,16 +908,20 @@ game it must travel the standard live-assets chain, exactly like editor art and 
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored
   overrides + the asset index), plus the optional globals `symbols.highlight` and
   `symbols.winLine` (each omitted when unset — `winLine` is written only as
-  `{ enabled: false }`). Symbol size is not in this doc; it travels on the layout doc as
-  `reelGrid.symbolSizeRatios` (Scene Editor).
+  `{ enabled: false }`).
 - **Pull** — `pull-project-assets.mjs` mirrors `deploy/editor-symbols/` into the game's
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded
   `SYMBOL_INFO_MAP`, and `bakedSymbolAssets()` registers any new sprite sheet / image /
   spine bundle the overrides introduce. Un-baked repos render byte-identical to today.
 
-So a complete rebind is: edit in the tool → **Save** → a tokened game build (export →
-bake → pull → register) → republish.
+How a saved rebind reaches players depends on the game:
+
+- **An online game** (made in [Invisible Game Maker](./game-maker.md)) needs no build: its
+  **Publish** runs the export itself and freezes the result as the version players boot. Edit →
+  **Save** → **Publish** in Game Maker. Until you publish, players keep the previous version.
+- **A desktop-built game** (its own repo) takes the chain above: edit → **Save** → a tokened game
+  build (export → bake → pull → register) → republish.
 
 ## The shared art library
 
@@ -1017,6 +1039,40 @@ same scale.
 One thing to expect: a multiplier cell also draws its **value** (`5X`) over the top as
 bitmap text. Gold text over a gold M is low contrast, so if the number is hard to read,
 that is the art to change rather than the text.
+
+## Traps
+
+- **The wild never explodes.** The dynamite blast _is_ the wild's `Win` animation
+  (`engine-symbol-w` → `wild_dynamite`) — there is no separate explosion mechanic. Bind `Win` to a
+  still (such as the shared `w.png`) and the win beat still runs, showing a picture that never
+  changes, with no error anywhere. Bind `Win` to a spine. The blast _sound_ is fired by an event
+  named `wildExplode` on that animation's timeline, so a custom wild rig needs that event too, or it
+  explodes in silence.
+- **One spine symbol draws far smaller (or bigger) than the others.** A spine fits its cell by the
+  rig's declared box, not by what it visibly shows (see
+  [Symbol size comes from the art](#symbol-size-comes-from-the-art)), so a box that covers more
+  than the resting art shrinks the symbol and a tighter one lets it overflow. Fix the box, not a
+  number — see the Traps of the [Invisible Rigger](./rigger.md#traps) (for a Rigger rig) or the
+  [Spine Editor](./spine-editor.md#traps) (for a Spine export) — then **↻ Reload from R2** here.
+- **A custom anticipation overlay shows nothing while the reels tease.** The game plays exactly
+  `<set>_intro`, then `<set>_loop`, then `<set>_out`, where `<set>` is the **Overlay animation**
+  (default `anticipation`). If the rig has no `<set>_intro`, the loop never starts. Rename the rig's
+  animations to those three names and re-upload it.
+- **The anticipation animation looks squeezed into a thin beam.** The overlay is drawn into a fixed
+  box — `0.56 × 1.6` cells unless you set **Overlay size (cells)** — and whatever animation you
+  pick is scaled to fit it, so picking another animation changes the look, never the size. Set the
+  box size.
+- **Tall stacked pictures show on some spins and single icons on others.** The two stacked
+  switches are independent: **Show the tall picture only at full height** turns short stacks into
+  single icons, and **Cut-off tall pictures at the board edges** is what makes an edge stack draw
+  a cut-off picture. For "whole stacks tall, edge stacks cut off, the rest single icons", turn both
+  on.
+- **A sprite symbol shows another sheet's picture in the game.** A cell picked before frame picks
+  were tied to their sheet stores only the frame name, so when two sheets pack a frame of that name
+  the game can draw the wrong one (the bake warns about the collision). Re-pick the frame in the
+  cell editor — a new pick records its sheet — and save.
+- **A symbol plays a different symbol's flipbook animation.** The clip itself holds the other
+  sheet's frames; fix it in Invisible Flipbook — see [its Traps](./flipbook.md#traps).
 
 ## Known limitations / TODOs
 

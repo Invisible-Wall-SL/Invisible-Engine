@@ -27,8 +27,8 @@ A spreadsheet-style table of the game's text, in two kinds of section:
   open the tool. Each string's translation **key is the source text itself**, so
   identical strings (even across screens) share one translation and the engine's
   text resolver swaps them in-game with no re-keying.
-  - A **No longer in scenes** section appears for text that was removed from the
-    editor but still has saved translations — keep or delete each row.
+  - A **No longer in use** section appears for text that was removed from its
+    owning tool but still has saved translations — keep or delete each row.
 - **Other auto-collected sections.** Text a game shows that does _not_ live on a
   screen is collected the same way — read-only here, owned by the tool named:
   - **Win text** — Invisible Win Text's templates (`{count} OF A KIND`, the
@@ -88,7 +88,7 @@ output before it's persisted.
 For a whole batch, the **Mark reviewed** control beside _Translate all missing_
 approves every filled cell in the chosen scope (one language, or all of them).
 It skips empty cells, asks for confirmation, and still needs **Save** — the
-intended flow being: translate → Save → open the game from the launcher (an
+intended flow being: translate → Save → open the game with Game Maker's **Live ↗** (an
 authoring boot shows unreviewed text, see below) → read it in context → approve.
 
 ## Storage
@@ -96,7 +96,7 @@ authoring boot shows unreviewed text, see below) → read it in context → appr
 The whole table is a single JSON document in R2 (bucket `invisibleassets`) at:
 
 ```
-localization/<projectKey>/strings.json
+<client>/<project>/localization/strings.json
 ```
 
 Shape:
@@ -124,7 +124,7 @@ Shape:
 `origin` is `"editor"` for rows auto-collected from the Scene Editor, `"manual"`
 otherwise (absent ⇒ manual). On **Save**, auto-collected rows with **no**
 translation are _not_ persisted — they're re-derived from the editor doc
-(`editor/<projectKey>/scenes.json`) on every load, so the table self-heals when
+(`<client>/<project>/editor/scenes.json`) on every load, so the table self-heals when
 text is added or removed in the editor; once a row has a translation it's stored
 so the work survives. No database table — it's R2-only, so there's no migration.
 
@@ -175,17 +175,39 @@ each game translates only the subset it sells into.
 **Reviewed vs unreviewed — where each shows up.** Saving is enough to _test_ a
 translation; reviewing is what lets it _ship_:
 
-| Boot                                    | Carries                   | Why                                                                  |
-| --------------------------------------- | ------------------------- | -------------------------------------------------------------------- |
-| Launcher link / Play (`ie_authoring=1`) | reviewed **+ unreviewed** | so you can read machine output in the running game before vetting it |
-| Published player URL                    | reviewed only             | unvetted text must never reach a player                              |
-| Build-time bake (`bake-editor-doc.mjs`) | reviewed only             | the final build never embeds unreviewed strings                      |
+| Boot                                                         | Carries                          | Why                                                                  |
+| ------------------------------------------------------------ | -------------------------------- | -------------------------------------------------------------------- |
+| **Live ↗** / the portal's **Games** cards (`ie_authoring=1`) | reviewed **+ unreviewed**, live  | so you can read machine output in the running game before vetting it |
+| **Play ↗**, **Copy URL**, any player URL                     | reviewed only, as last published | unvetted text must never reach a player                              |
+| Build-time bake (`bake-editor-doc.mjs`)                      | reviewed only                    | the final build never embeds unreviewed strings                      |
 
 The authoring boot asks for the extra strings explicitly (`&authoring=1` on
 `/api/editor/runtime`, sent only when `ie_authoring=1` is in the game URL), and
 the two variants are cached separately, so a player can never be served the
-authoring set. So the loop is: translate → **Save** → open from the launcher and
-read it in context → review what's good → publish.
+authoring set. So the loop is: translate → **Save** → open with **Live ↗** and
+read it in context → review what's good → **Save** → publish.
+
+## Traps
+
+- **Leaving the page loses everything since the last Save, without asking.** — This page has no
+  leave warning: the tool bar, Back or closing the tab discards unsaved translations and review
+  ticks, machine translations included. **Save** before you go.
+- **You fixed a typo in the source text and its translations disappeared.** — The source text _is_
+  the translation key, so changed text is a new, untranslated row, and the old translations move
+  to **No longer in use**. Copy them from the old row into the new one, adjust, then delete the old
+  row. This applies to text owned by every tool that feeds this page (Scene Editor, Win Text, Flow,
+  Game Config, symbol names).
+- **It reads right from Live ↗, but players still see the source language.** — Players get
+  **reviewed** text only, and only from the last Publish. Mark the translations reviewed, **Save**,
+  then publish in [Game Maker](game-maker.md). Nothing warns you when a language has nothing
+  reviewed.
+- **One word stays in English whatever you translate.** — It is painted into the artwork (a
+  "BUY FEATURE" ribbon, a big-win title), not drawn as text, so there is no row for it. It needs
+  per-language art, or a blank version of the art with a text node on top.
+- **Some game text has no row at all.** — Only text a tool collects gets a row. Live values (a
+  balance, a counter) and a text box still reading the placeholder `Text` are skipped on purpose.
+  If real wording is missing and it is not in the art, report it to the developers: it needs a
+  collector before it can be translated.
 
 ## Env
 

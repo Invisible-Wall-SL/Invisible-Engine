@@ -58,7 +58,8 @@ binds `0.0.0.0:$PORT` (default **8766**).
 
 ## Typical workflow
 
-1. **Set a project** (`/api/set-project`).
+1. **Open it from the launcher** with the right project active — the launcher sets the tool's
+   project (see [How to access it](#how-to-access-it)).
 2. **Upload** your loose sprite PNGs (`/api/upload`).
 3. **Arrange** them into a packed sheet (`/api/arrange`).
 4. **Edit** region names, sizes, and the per-region AI fields in the UI.
@@ -91,8 +92,8 @@ and follow its name, so renaming/resizing the base updates them and deleting the
 base removes them (and their copies). They're drawn with a dashed purple outline
 and a mode badge on the canvas, and untick to remove. Because the names follow
 the convention, the effect travels the pipeline without any manual re-naming.
-6. In the Atlas Maker, **restart the service** (hydrate runs at boot) for the
-   new manifest to appear, then generate art from it.
+6. In the Atlas Maker, press **↻ Refresh from R2** (Session bar) for the new manifest to
+   appear, then generate art from it.
 
 ### Starting a new sheet
 
@@ -236,5 +237,3 @@ exports) so it survives container restarts; writes mirror to R2.
   "not configured" page.)
 - Some flows still owe a live browser smoke-test against R2 — see
   [status/sheet-maker](../status/sheet-maker.md).
-- The handoff to the Atlas Maker requires an Atlas Maker **restart** to pick up
-  a newly authored manifest, because that tool hydrates from R2 only at boot.

@@ -65,7 +65,22 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
 - [play4fun-protocol](reference/play4fun-protocol.md) — **the RGS wire contract** (transport, actions, events, the boot `config`), read off the partner's own reference client. Read it before touching `rgs-translator-eagaming`.
 
-## Cross-cutting roadmap — genuinely UNBUILT, prioritized
+## Guides & runbooks
+
+Cross-tool walkthroughs and operations runbooks live in [`docs/guides/`](guides/); each links the
+tool guides rather than restating them.
+
+| Guide | Use it when |
+|---|---|
+| [Build your first game](guides/build-your-first-game.md) | Making a lines / Book-of / ways reskin, Game Maker → Deliver |
+| [Publish and deliver](guides/publish-and-deliver.md) | Getting a game's authored content to players, or cutting a delivery build |
+| [Publisher runbook](guides/publisher-runbook.md) | Shipping a standalone build from the desktop launcher (☁ Publish / 📦 Deliver) |
+| [Release and rollback](guides/release-and-rollback.md) | An engine merge is going out, or a release or a game's content needs rolling back |
+| [Rotate a secret](guides/rotate-a-secret.md) | A key or token is due, leaked or lost |
+| [Incident first response](guides/incident-first-response.md) | A game is blank or stale, the launcher is down, generation fails, the RGS errors |
+| [Backups and restores](guides/backups.md) | Restoring the database or authored files, or running the restore drill |
+
+
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
