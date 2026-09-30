@@ -56,7 +56,15 @@ you create are scoped to the project you have selected.
 2. Click a skeleton to load it. It renders on the central WebGL stage and the
    left **Inspector** populates with the rig's structure under collapsible
    sections: **Bone hierarchy**, **Slots (draw order)**, **Skins**,
-   **Animations**, and **Constraints**.
+   **Animations**, and **Constraints**. If the rig already open has unsaved
+   changes, you are asked first — opening another rig discards them.
+
+> **A rig that fails to load** (the red bar says why, e.g. "Parent mesh not found")
+> leaves **no rig open**: the stage is empty, the Inspector names the rig as not
+> open, and **⤓ .irig**, **💾 Save** and **📦 Save rig to library** are disabled, so
+> nothing can be saved under its name. **🕘** stays available for it — restoring an
+> earlier save is how a rig saved in a broken state is repaired — as do
+> **⟳ Re-sync atlas** and **source…** for an atlas problem. Open another rig to carry on.
 
 > **↻ Refresh from R2** (sidebar) re-reads the rig list — and reloads the rig
 > currently on stage — fresh from cloud storage, bypassing the browser cache.
@@ -654,7 +662,8 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
 
 1. Click **＋ New rig** in the sidebar, name it, optionally pick an **Apply saved
    rig** from the dropdown (see the rig library above — leave it on "— none —" for a
-   blank skeleton), and either:
+   blank skeleton), and either (the new rig opens in place of the open one, so unsaved
+   changes to that one are asked about first):
    - pick an existing project **Atlas (images)** from the dropdown — the server
      assembles a self-contained spine bundle (a synthesised `.atlas` + the packed
      page image + the chosen `.irig` body, blank or the applied rig) from that
@@ -687,9 +696,10 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
     exists, the first Save asks before replacing that `.irig`.
   - Save refuses a rig that would not open again (e.g. a slot on a deleted bone) and
     says why; the stored rig is left as it was.
-- **🕘** (next to 💾 Save) lists the last 20 saved-over versions of the open rig.
-  **Restore** puts one back (your unsaved edits in the tab are discarded; the version
-  it replaces is kept in History too, so a restore can be undone).
+- **🕘** (next to 💾 Save) lists the last 20 saved-over versions of the open rig — or
+  of a rig that failed to load. **Restore** puts one back and reopens the rig (your
+  unsaved edits in the tab are discarded; the version it replaces is kept in History
+  too, so a restore can be undone).
 - Closing or reloading the tab with unsaved rig or cinematic changes asks first.
 - **⤓ .irig** downloads the skeleton locally as Spine 4.2 JSON under the `.irig`
   extension.

@@ -20,7 +20,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredSpineBox`) by `/symbols`, the Scene Editor and the game (`<SpineProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim).
-- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits. The rig library save creates only, and refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too.
+- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig library save creates only, and refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too.
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
@@ -54,12 +54,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    that reason).
 10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
     `sequence`, so the linked mesh shows placeholder art.
-11. **A failed rig switch leaves the previous rig saveable under the new rig's name.**
-    `selectSkeleton` sets `selected` and fetches the new `.irig`'s ETag before the rig loads, and
-    the "Load failed" path never resets `rawDoc`. So 💾 Save writes the PREVIOUS rig's document over
-    the rig that failed to open, on that rig's own ETag (the precondition passes; only 🕘 History
-    keeps the overwritten version), and 📦 offers it under that name. Reproduced 2026-09-30 in a
-    browser against a mock API.
+11. **Stage errors are half hidden.** The error bar (`#err`) sits under the floating mode bar
+    (both at `top: 47px`, the bar on `z-index` 5), so the middle of every stage error is covered
+    at usual widths — a failed open's missing mesh name, a refused save's reason.
 
 ## Blocked (owner / external)
 
@@ -69,6 +66,19 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **A rig that fails to open leaves no rig open — 💾 can no longer save one rig's
+  content under another's name** (was open item 11). Opening S, then a rig that failed to load
+  (e.g. "Parent mesh not found"), left S's document open under the failed rig's selection and
+  `.irig` ETag, so 💾 overwrote the failed rig's `.irig` with S (the precondition passed), 📦
+  offered S to the library under its name and ⤓ downloaded S as it. The open rig is now closed
+  before anything is fetched, and a failed open leaves nothing: ⤓ .irig, 💾 and 📦 are disabled,
+  🕘 stays available to restore an earlier save of the failed rig (the repair), and a failed rig
+  is not what the next visit reopens. Opening a rig from the list, ＋ New rig and upload now ask
+  before discarding unsaved edits (the list click never asked). A save, a restore or a text
+  document answering after a switch no longer lands on the next rig.
+  `tools/rigger-spike/rig-switch.mjs` (37 checks, real page in Chromium; the old page fails 20).
+  Found, not fixed: open item 11 (stage errors half hidden).
 
 - 2026-09-30 — **A rig that will not load can no longer reach the rig library, or leave it.**
   📦 Save rig to library skipped the full parse 💾 Save runs, and the server's `irigDocProblem`
@@ -86,7 +96,7 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   into; its events now come along under the prefix (`rigmerge.mjs`).
   `tools/rigger-spike/irig-save.mjs` pins each rule against spine-core on a synthetic rig and on
   every checked-in rig (all 153 load and pass, `S`'s 180 linked meshes included). The references
-  it still skips are open item 6; a failed rig switch found in review is open item 11.
+  it still skips are open item 6; a failed rig switch found in review is fixed in the entry above.
 
 - 2026-09-30 — **The Skin picker lists the rig's skins as they are, and every edit lands in the
   skin on stage.** The picker's options were built once, when the rig opened, and a `<select>`
