@@ -76,12 +76,17 @@ for (const fn of ['pivotEditable', 'pivotUV', 'pivotBonePos', 'setPivotWorld', '
 		process.exit(2);
 	}
 }
-// `applyAttachmentEdit` is the other half of the contract (it holds the pivot while rotating) and
-// lives outside the block — pull it on its own so the test drives the real one.
-const AE = 'function applyAttachmentEdit(key, value){';
-const ai = html.indexOf(AE);
-if (ai < 0) { console.error('✗ applyAttachmentEdit not found'); process.exit(2); }
-const shippedEdit = html.slice(ai, html.indexOf('\n}', ai) + 2);
+// `applyAttachmentEdit` is the other half of the contract (it holds the pivot while rotating), and
+// both halves reach the image's raw entry through the skin on stage. All of that lives outside the
+// block — pull each on its own so the test drives the real ones.
+function pullOne(name) {
+	const fn = html.indexOf(`\nfunction ${name}(`), cn = html.indexOf(`\nconst ${name} = `);
+	if (fn >= 0) return html.slice(fn + 1, html.indexOf('\n}', fn) + 2);
+	if (cn >= 0) return html.slice(cn + 1, html.indexOf('\n', cn + 1));
+	console.error(`✗ ${name} not found in view.html`);
+	process.exit(2);
+}
+const shippedOutside = ['applyAttachmentEdit', 'rawDocAttEntry', 'rawDocAttSkin', 'activeSkinName'].map(pullOne).join('\n');
 
 const sandbox = {
 	SPINE: { Vector2, RegionAttachment },
@@ -101,7 +106,7 @@ const sandbox = {
 	weightBrush: false, edgePickFirst: null, pathAddMode: false, polyAddMode: false, placePointMode: false,
 };
 vm.createContext(sandbox);
-vm.runInContext(shipped + '\n' + shippedEdit, sandbox, { filename: 'view.html#image-pivot' });
+vm.runInContext(shipped + '\n' + shippedOutside, sandbox, { filename: 'view.html#image-pivot' });
 
 // ---- helpers ---------------------------------------------------------------------------
 let pass = true, checks = 0;

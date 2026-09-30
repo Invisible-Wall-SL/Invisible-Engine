@@ -46,14 +46,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 9. **Skins in the editor.** ＋ add image… makes the new image the slot's setup attachment, one name
    for every skin: added in a skin other than default, it leaves that slot empty in default (and
    still empty once the skin is deleted). Spine's own idiom is a same-named override in the skin —
-   a behaviour decision, not a bug fix. The image placement fields (x, y, rotation, scaleX, scaleY)
-   and the image pivot move the image on stage but write into the FIRST skin holding its name
-   (usually default): with a skin on stage that overrides a same-named image, default's moves, and
-   the one on stage snaps back at the next rebuild (`applyAttachmentEdit`, `pivotRawDef`, probed).
-   Replace image falls back to that first skin too, not to default, when the skin on stage has no
-   image of that name (it matters only with default listed after another skin holding one).
-   Deleting the default skin is still allowed while another exists, though a rig without one draws
-   nothing in a game that sets no skin (renaming it is refused for that reason).
+   a behaviour decision, not a bug fix. Deleting the default skin is still allowed while another
+   exists, though a rig without one draws nothing in a game that sets no skin (renaming it is
+   refused for that reason).
 10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
     `sequence`, so the linked mesh shows placeholder art. **▸ Convert to mesh on a sequence image**
     drops its `sequence` the same way: the mesh names the sequence's base, which the atlas does not
@@ -78,6 +73,17 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-09-30 — **The placement fields, the pivot and replace image edit the image the stage
+  shows** (the lookups open item 9 listed). x / y / rotation / scale and the ✥ pivot moved the
+  image on stage but were written into the first skin holding its name, usually default: with a skin on
+  stage that overrides a same-named image, default's moved and the one on stage snapped back at the
+  next rebuild. Replace image fell back to that first skin rather than to default. All three now go
+  through `rawDocAttSkin` — the skin on stage's image if it has one, else default's — and a pivot
+  held while turning or scaling is read from, and written back to, that one entry.
+  `linkedmesh.mjs` runs all three, shipped, with each skin of a synthetic rig on stage (default
+  listed first and second, with and without a pivot on each skin's image) and on every slot of the
+  CI rigs showing an image; the previous `view.html` fails 67, 823 and 475 of its checks.
+
 - 2026-09-30 — **▸ Convert to mesh and ✎ Draw mesh rewrite the image the stage shows.** They
   rewrote the first skin holding the image's name, usually default: with a skin on stage that
   overrides a same-named image, default's became a mesh of the other skin's quad and the stage did
@@ -85,10 +91,10 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   (`rawDocAttSkin`, which `rawDocAttEntry` reads too); rig-text locale linking and the path / tint
   carry-over are unchanged. `linkedmesh.mjs` runs both, shipped, with each skin of a synthetic rig
   on stage and on every slot of the CI rigs that shows an image, from an empty and an overriding
-  skin; the previous `view.html` fails 14, 266 and 150 of its checks. Found, not fixed: the
-  placement fields, the pivot and replace image look up the same wrong skin (open item 9), Convert
+  skin; the previous `view.html` fails 14, 266 and 150 of its checks. Found, not fixed: Convert
   drops a sequence image's frames (open item 10), and a mesh made from a trimmed image is mapped
-  wrong (open item 12).
+  wrong (open item 12). The placement fields, the pivot and replace image looked up the same wrong
+  skin (fixed in the entry above).
 
 - 2026-09-30 — **A rig that fails to open leaves no rig open — 💾 can no longer save one rig's
   content under another's name** (was open item 11). Opening S, then a rig that failed to load

@@ -270,7 +270,11 @@ a rival answer to the same question. Move the box, or bind a different bone.
   skin (what determines which images/meshes/weights you see and paint) — or pick it
   in the bottom bar's **Skin** picker, which always lists the rig's current skins. A
   new image, point, path, box, clip or linked mesh goes into the active skin, which
-  stays on stage as you edit (a rename included) until the rig is reloaded. Note that
+  stays on stage as you edit (a rename included) until the rig is reloaded. An edit to
+  the image a slot shows — its x / y / rotation / scale, its pivot, **replace image
+  (keep mesh)**, **▸ Convert to mesh**, **✎ Draw mesh** — changes the image you see:
+  the active skin's own, or, when that skin only inherits it, default's, which every
+  skin without its own image there shows too. Note that
   **＋ add image…** also makes the new image the one the slot shows in *every* skin, so
   adding it while another skin is active leaves that slot empty in `default`. Rename (✎),
   delete (🗑, the last skin can't be removed), and **＋ Add skin** (a new skin starts
@@ -296,8 +300,7 @@ a rival answer to the same question. Move the box, or bind a different bone.
   into an editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to
   trace a mesh outline by clicking boundary points (Finish to commit, Esc to
   cancel, Backspace removes the last point). Either one replaces the image you
-  see: the active skin's own, or — when that skin only inherits it — default's,
-  which every skin without its own image there then shows as a mesh too.
+  see (**Skins** above says which skin's that is).
 - **Outline / hull (⬡ Hull):** in the mesh tools row, **⬡ Hull** turns on
   outline editing — it changes which vertices sit on the mesh **outline (hull)**
   rather than floating inside it. Click an **interior** vertex to **promote** it
