@@ -35,6 +35,8 @@
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",
 		"precheck:lease-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:lease-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-lease-scope.ts",
+		"precheck:rigger-writes": "node scripts/ensure-svelte-kit.mjs",
+		"check:rigger-writes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rigger-writes.ts",
 		"precheck:doc-backups": "node scripts/ensure-svelte-kit.mjs",
 		"check:doc-backups": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-doc-backups.ts",
 		"check:spine-bundle-key": "node spineBundleKey.fixture.ts",

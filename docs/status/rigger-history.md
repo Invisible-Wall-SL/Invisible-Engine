@@ -5,6 +5,48 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **Save residuals closed** (former open items 2 and 6).
+  - **Animation library (6a).** `/api/rigger/animations/save` did a plain PUT, so a same-id save
+    from any project silently replaced the studio-wide entry. It now goes through
+    `riggerLibraryWrite.ts` `putLibraryEntry`, which the rig library save shares: `baseEtag: null`
+    creates only, a taken id answers `409 exists` with the entry's etag, `project` and `savedAt`,
+    and the tab's confirmed retry is `If-Match` on that etag (a second concurrent overwrite is
+    `409 conflict`). Nothing is written, blob or Postgres row, on either 409. A tab still running
+    the old `view.html` sends no `baseEtag` and gets a 400 asking it to reload — loud, nothing lost.
+  - **Case-only New-rig clash (6b).** `spineBundleNameTaken` is a read and `claimNewIrig` is
+    `If-None-Match` on the exact-case key, so `Hero` and `hero` created at once both passed.
+    `releaseClaimOnCaseClash` (`spineIndex.ts`) re-lists the spines folder after the claim and
+    before anything else is written; a top-level name differing only by case makes the route
+    delete its own `.irig` and answer 409. Both creates claim before they list and an R2 listing is
+    strongly consistent, so the later lister always sees the other: never both, at worst neither.
+    Used by `rigger/new` and `rigger/upload`. Not closed: a crash between claim and check leaves a
+    lone `.irig` (as it could before).
+  - **Index rebuilds (2).** `rigger/new`, `upload`, `delete` and `editor/spines/reindex` wrote
+    `buildSkeletonsIndex`, which skips a folder with no `.atlas`, so any of them un-listed an
+    unrelated atlas-less rig. All of them and `writeIrig` now call `spineReindex.ts`
+    `reindexProjectSkeletons` (the save's re-derive-then-preserve wiring, extracted);
+    `buildSkeletonsIndex` had no callers left and is removed. The preserve step now keeps a prior
+    entry only while its skeleton file still exists (`atlasMissingFiles`), so deleting one rig
+    from a folder that still holds another atlas-less skeleton does not bring it back. The reindex
+    response adds `rederived`, `preserved` and `atlasMissing`.
+  - **`irigDocProblem` (6c).** Added, matching spine-core 4.2.74 `SkeletonJson` exactly: a skin's
+    `bones` / `ik` / `transform` / `path` / `physics` lists; an animation's IK and transform keys
+    (only with a first key, as the loader reads them), path keys (always), physics keys (except
+    `""`, which keys every physics constraint); draw-order offsets' `slot`; event keys' `name`
+    against the keys of `events`. Names match as `SkeletonData.find*` does (a falsy name throws,
+    `==` comparison). A falsy field the loader reads as absent (`"ik": null`, a skin's
+    `attachments: null`, a bone's `parent: ""`, …) is no longer refused. Still stricter than the
+    loader, on purpose: a truthy field of the wrong type (a 3.x object-form `skins` loads as no
+    skins), a rig with no bones, a constraint with no name, and a constraint's `bones` entries
+    that are not strings (the loader's `==` finds bone `"7"` from `7`). No exporter writes these.
+  - **Gates.** `apps/launcher-api/scripts/check-rigger-writes.ts` (`check:rigger-writes`) runs the
+    real route handlers on an in-memory R2 that can pause a request mid-flight: 34 cases, 27 red on
+    the previous code (every animation-library case, claim-claim-list-list `Hero`/`hero` giving
+    `[200, 200]`, reindex/new/upload/delete dropping atlas-less B). `irig-save.mjs` adds 21 break
+    and 61 near-miss synthetic cases (every falsy value of every field the loader skips) plus a per-name differential on all 153 checked-in rigs (1,529
+    renames, each loader-throws ⇔ check-refuses): 181 cases, 85 red on the previous check.
+    `reindex-preserve.mjs` adds the deleted-file case.
+
 - 2026-09-30 — **＋ add image… in a skin other than default belongs to that skin only; the default
   skin can't be deleted.** `attachRegion` wrote the region into the skin on stage under its own
   name AND set `slots[].attachment` to it — the setup attachment, one name for every skin — so with

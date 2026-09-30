@@ -10,8 +10,11 @@
 //   (b) skeleton, no atlas, source.json -> atlas re-derived, entry kept.
 //   (c) skeleton, no atlas, no source   -> the SAVED rig is reported atlas-missing (endpoint
 //       fails loudly), and a DIFFERENT such folder's prior entry is PRESERVED, never dropped.
+//   (e) a prior entry whose skeleton file is gone is NOT preserved (a deleted rig stays deleted).
+// The R2-backed wiring and the four routes that write `skeletons.json` are driven end to end by
+// `apps/launcher-api/scripts/check-rigger-writes.ts`.
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,7 +37,7 @@ const stubR2Plugin = {
 		build.onLoad({ filter: /.*/, namespace: 'stub-r2' }, () => ({
 			contents:
 				'const nope = () => { throw new Error("pure helper unexpectedly called R2"); };' +
-				'export const getObjectBytes = nope, getObjectText = nope, listAllKeys = nope;',
+				'export const getObjectBytes = nope, getObjectText = nope, listAllKeys = nope, deleteObject = nope;',
 			loader: 'js',
 		}));
 	},
@@ -100,7 +103,7 @@ console.log('\n=== Rigger save hardening: reindex never silently drops a rig ===
 	const outcome = await reindexSkeletonsPreserving({
 		scan: async () => {
 			scans++;
-			return { index: healthy, atlasMissingFolders: [] };
+			return { index: healthy, atlasMissingFolders: [], atlasMissingFiles: {} };
 		},
 		readPriorIndex: async () => {
 			throw new Error('prior index must NOT be read on the healthy fast path');
@@ -132,8 +135,13 @@ console.log('\n=== Rigger save hardening: reindex never silently drops a rig ===
 		scan: async () => {
 			scans++;
 			// First scan: R_Cinematic1 atlas-less. After a re-derive, it resolves.
-			if (scans === 1) return { index: idx(['R_Alpha']), atlasMissingFolders: ['R_Cinematic1'] };
-			return { index: withCinematic, atlasMissingFolders: [] };
+			if (scans === 1)
+				return {
+					index: idx(['R_Alpha']),
+					atlasMissingFolders: ['R_Cinematic1'],
+					atlasMissingFiles: { R_Cinematic1: ['R_Cinematic1.irig', 'source.json'] },
+				};
+			return { index: withCinematic, atlasMissingFolders: [], atlasMissingFiles: {} };
 		},
 		readPriorIndex: async () => idx(['R_Alpha', 'R_Cinematic1']),
 		rederiveAtlas: async (folder, atlasFile) => {
@@ -172,6 +180,10 @@ console.log('\n=== Rigger save hardening: reindex never silently drops a rig ===
 		scan: async () => ({
 			index: idx(['R_Alpha']),
 			atlasMissingFolders: ['R_Cinematic1', 'R_OtherBroken'],
+			atlasMissingFiles: {
+				R_Cinematic1: ['R_Cinematic1.irig'],
+				R_OtherBroken: ['R_OtherBroken.irig', 'R_OtherBroken.png'],
+			},
 		}),
 		readPriorIndex: async () => priorFull,
 		rederiveAtlas: async (folder) => {
@@ -214,18 +226,52 @@ console.log('\n=== Rigger save hardening: reindex never silently drops a rig ===
 // ---------------------------------------------------------------------------------------
 {
 	const fresh = idx(['R_Alpha']);
-	const same = mergePreservingDroppedFolders(fresh, idx(['R_Alpha']), []);
+	const same = mergePreservingDroppedFolders(fresh, idx(['R_Alpha']), [], {});
 	log(same.index === fresh, '(d) merge with no missing folders is identity (byte-parity)');
-	const noPrior = mergePreservingDroppedFolders(fresh, null, ['R_Ghost']);
+	const noPrior = mergePreservingDroppedFolders(fresh, null, ['R_Ghost'], {
+		R_Ghost: ['R_Ghost.irig'],
+	});
 	log(
 		noPrior.index === fresh && noPrior.preservedFolders.length === 0,
 		'(d) merge with no prior index invents nothing',
 	);
 	// A missing folder absent from the prior index cannot be preserved (nothing to keep).
-	const absent = mergePreservingDroppedFolders(fresh, idx(['R_Alpha']), ['R_Unknown']);
+	const absent = mergePreservingDroppedFolders(fresh, idx(['R_Alpha']), ['R_Unknown'], {
+		R_Unknown: ['R_Unknown.irig'],
+	});
 	log(
 		absent.index === fresh && absent.preservedFolders.length === 0,
 		'(d) a missing folder with no prior entry is not resurrected',
+	);
+}
+
+// ---------------------------------------------------------------------------------------
+// (e) A shared atlas-less folder holds two skeletons; one of them was just deleted. Only the
+//     survivor's prior entry is carried forward — the deleted rig must not come back.
+// ---------------------------------------------------------------------------------------
+{
+	const fresh = idx(['R_Alpha']);
+	const prior = {
+		prefix: PREFIX,
+		skeletons: [
+			entry('R_Alpha'),
+			entry('Shared', { name: 'Shared/Keep', skeleton_file: 'Keep.json' }),
+			entry('Shared', { name: 'Shared/Gone', skeleton_file: 'Gone.irig' }),
+		],
+	};
+	const merged = mergePreservingDroppedFolders(fresh, prior, ['Shared'], {
+		Shared: ['Keep.json', 'Keep.png'],
+	});
+	const files = merged.index.skeletons.map((s) => s.skeleton_file);
+	log(files.includes('Keep.json'), '(e) the surviving atlas-less skeleton is preserved');
+	log(
+		!files.includes('Gone.irig'),
+		'(e) the deleted skeleton is NOT resurrected from the prior index',
+	);
+	const allGone = mergePreservingDroppedFolders(fresh, prior, ['Shared'], { Shared: ['Keep.png'] });
+	log(
+		allGone.index === fresh && allGone.preservedFolders.length === 0,
+		'(e) a folder whose skeleton files are all gone preserves nothing',
 	);
 }
 

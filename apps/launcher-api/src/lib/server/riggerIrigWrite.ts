@@ -1,9 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { SUB } from './projectPaths';
-import { ConflictError, getObjectText, headObject, precondition, putObjectText } from './r2';
+import { ConflictError, headObject, precondition, putObjectText } from './r2';
 import { backupIrigBeforeOverwrite, irigBackupsPrefix, pruneIrigBackups } from './riggerIrig';
-import { ensureBundleAtlasFresh } from './spineBundleSync';
-import { reindexSkeletonsPreserving, scanSkeletonsIndex, type SkeletonsIndex } from './spineIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from './spineReindex';
 
 /**
  * Decode + path-guard the `{ dir, stem }` pair every `.irig` endpoint takes. `dir` is the
@@ -116,30 +115,9 @@ export async function writeIrig(
 	);
 
 	const { spinesPrefix, dir, stem } = target;
-	// Re-derive the index so the `.irig` is listed — but a naive project-wide rebuild SILENTLY
-	// DROPS any skeleton folder whose `.atlas` is missing, un-shipping a working rig and letting
-	// THIS save drop a DIFFERENT atlas-less rig. `reindexSkeletonsPreserving` re-derives a missing
-	// atlas from the folder's `source.json` and preserves the prior entry for any folder it still
-	// can't rebuild.
-	const outcome = await reindexSkeletonsPreserving({
-		scan: () => scanSkeletonsIndex(spinesPrefix, spinesPrefix),
-		readPriorIndex: async () => {
-			const prior = await getObjectText(`${spinesPrefix}/skeletons.json`);
-			if (!prior) return null;
-			try {
-				return JSON.parse(prior) as SkeletonsIndex;
-			} catch {
-				return null;
-			}
-		},
-		rederiveAtlas: async (folder, atlasFile) => {
-			const folderPrefix = folder ? `${spinesPrefix}/${folder}` : spinesPrefix;
-			const res = await ensureBundleAtlasFresh(clientKey, projectKey, folderPrefix, atlasFile, {
-				force: true,
-			});
-			return !!res;
-		},
-	});
+	// Re-derive the index so the `.irig` is listed — preserving, so THIS save can never drop a
+	// DIFFERENT atlas-less rig.
+	const outcome = await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix);
 
 	// The rig has no atlas AND no source to rebuild one: writing the rebuilt index would list it
 	// pointing at a missing atlas. Fail LOUDLY — the `.irig` is already saved, so no edit is lost;
@@ -163,10 +141,6 @@ export async function writeIrig(
 			),
 		};
 	}
-	await putObjectText(
-		`${spinesPrefix}/skeletons.json`,
-		JSON.stringify(outcome.index),
-		'application/json',
-	);
+	await writeSkeletonsIndex(spinesPrefix, outcome.index);
 	return { ok: true, etag, backupId, count: outcome.index.skeletons.length };
 }

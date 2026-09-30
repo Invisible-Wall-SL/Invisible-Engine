@@ -106,17 +106,30 @@ const good = () => ({
 	bones: [{ name: 'root' }, { name: 'body', parent: 'root' }, { name: 'arm', parent: 'body' }],
 	slots: [{ name: 'head', bone: 'body', attachment: 'head' }, { name: 'cape', bone: 'body' }],
 	ik: [{ name: 'reach', bones: ['arm'], target: 'root' }],
+	transform: [{ name: 'follow', bones: ['arm'], target: 'body' }],
+	path: [{ name: 'rail', bones: ['arm'], target: 'cape' }],
+	physics: [{ name: 'wobble', bone: 'arm' }],
 	skins: [
 		{ name: 'default', attachments: { head: { head: { width: 32, height: 32 } }, cape: { cape: mesh(), flap: linked('cape') } } },
 		// A linked mesh names the skin its parent is in — unless that is `default`, which is what no
 		// skin means, whichever skin the linked mesh itself sits in.
-		{ name: 'red', attachments: { cape: { redcape: mesh(), redflap: linked('redcape', 'red'), plainflap: linked('cape') } } },
+		{
+			name: 'red', bones: ['arm'], ik: ['reach'], transform: ['follow'], path: ['rail'], physics: ['wobble'],
+			attachments: { cape: { redcape: mesh(), redflap: linked('redcape', 'red'), plainflap: linked('cape') } },
+		},
 	],
+	events: { hit: {} },
 	animations: {
 		idle: {
 			bones: { arm: { rotate: [{ value: 10 }] } },
 			slots: { head: { rgba: [{ color: 'ffffffff' }] } },
+			ik: { reach: [{ mix: 0.5 }] },
+			transform: { follow: [{ mixRotate: 0.5 }] },
+			path: { rail: { position: [{ value: 0.5 }] } },
+			physics: { wobble: { inertia: [{ value: 0.5 }] }, '': { reset: [{}] } },
 			attachments: { default: { cape: { cape: { deform: [{ vertices: [1, 1] }] } } }, red: { cape: { redcape: { deform: [{}] } } } },
+			drawOrder: [{ offsets: [{ slot: 'cape', offset: -1 }] }, {}],
+			events: [{ name: 'hit' }],
 		},
 	},
 });
@@ -177,6 +190,25 @@ function* attachmentKeysOf(doc) {
 	}
 }
 const rename = (obj, from, to) => { obj[to] = obj[from]; delete obj[from]; };
+const CONSTRAINT_KINDS = ['ik', 'transform', 'path', 'physics'];
+const aKind = (kind) => (kind === 'ik' ? 'an IK' : `a ${kind}`);
+/**
+ * Every name an animation's constraint keys, draw order and events hold, with a setter — whether
+ * the loader looks each one up is left to the loader.
+ */
+function* animationNamesOf(doc) {
+	for (const [anim, map] of Object.entries(doc.animations ?? {})) {
+		for (const kind of CONSTRAINT_KINDS) {
+			for (const name of Object.keys(map[kind] ?? {})) {
+				yield { what: `${kind} key "${name}" in "${anim}"`, set: (to) => rename(map[kind], name, to) };
+			}
+		}
+		for (const [i, frame] of (map.drawOrder ?? []).entries()) {
+			for (const o of frame?.offsets ?? []) yield { what: `draw order #${i} in "${anim}"`, set: (to) => { o.slot = to; } };
+		}
+		for (const e of map.events ?? []) yield { what: `event "${e.name}" in "${anim}"`, set: (to) => { e.name = to; } };
+	}
+}
 
 console.log('\n1. irigDocProblem agrees with the official loader');
 {
@@ -190,6 +222,8 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'animation keys a missing bone': (d) => { d.animations.idle.bones.ghost = { rotate: [{ value: 1 }] }; },
 		'animation keys a missing slot': (d) => { d.animations.idle.slots.ghost = { rgba: [{ color: 'ffffffff' }] }; },
 		'ik has no bones list': (d) => { delete d.ik[0].bones; },
+		'ik bones are null': (d) => { d.ik[0].bones = null; },
+		'an animation that is null': (d) => { d.animations.blank = null; },
 	};
 	for (const [label, mutate] of Object.entries(breaks)) {
 		const d = good();
@@ -220,6 +254,28 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'an animation keys a sequence on a mesh that declares none': [(d) => { d.animations.idle.attachments.default.cape.cape = { sequence: [{}] }; }, /reading 'id'/, /attachment "cape" on slot "cape" with sequence keys, but it has no sequence/],
 		'an attachment typed null is one the loader skips, so its sequence keys find nothing': [(d) => { d.skins[0].attachments.cape.nul = { type: null, path: 'seq', sequence: { count: 1 }, width: 32, height: 32 }; d.animations.idle.attachments.default.cape.nul = { sequence: [{}] }; }, /reading 'sequence'/, /attachment "nul" on slot "cape" with sequence keys, but it has no sequence/],
 		'an animation keys a sequence on a bounding box (only a region or mesh reads one)': [(d) => { d.skins[0].attachments.cape.box = { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 32, 0, 32, 32], sequence: { count: 1 } }; d.animations.idle.attachments.default.cape.box = { sequence: [{}] }; }, /reading 'id'/, /attachment "box" on slot "cape" with sequence keys, but it has no sequence/],
+		// A skin's bone and constraint lists, and an animation's constraint keys, draw order and events.
+		'a skin lists a bone that does not exist': [(d) => { d.skins[1].bones.push('ghost'); }, /Couldn't find bone ghost for skin red/, /skin "red" lists bone "ghost"/],
+		'a skin lists an IK constraint that does not exist': [(d) => { d.skins[1].ik = ['ghost']; }, /Couldn't find IK constraint ghost for skin red/, /skin "red" lists ik constraint "ghost"/],
+		'a skin lists a transform constraint that does not exist': [(d) => { d.skins[1].transform = ['ghost']; }, /Couldn't find transform constraint ghost for skin red/, /skin "red" lists transform constraint "ghost"/],
+		'a skin lists a path constraint that does not exist': [(d) => { d.skins[1].path = ['ghost']; }, /Couldn't find path constraint ghost for skin red/, /skin "red" lists path constraint "ghost"/],
+		'a skin lists a physics constraint that does not exist': [(d) => { d.skins[1].physics = ['ghost']; }, /Couldn't find physics constraint ghost for skin red/, /skin "red" lists physics constraint "ghost"/],
+		'a skin lists a transform constraint as an IK one (names are per kind)': [(d) => { d.skins[1].ik = ['follow']; }, /Couldn't find IK constraint follow/, /skin "red" lists ik constraint "follow"/],
+		'a skin lists a bone as null': [(d) => { d.skins[1].bones = [null]; }, /boneName cannot be null/, /skin "red" lists bone "null"/],
+		'a skin lists a constraint named "", even though one is': [(d) => { d.ik.push({ name: '', bones: ['arm'], target: 'root' }); d.skins[1].ik = ['']; }, /constraintName cannot be null/, /skin "red" lists ik constraint ""/],
+		'a renamed constraint strands the skin that lists it': [(d) => { d.transform[0].name = 'moved'; }, /Couldn't find transform constraint follow for skin red/, /skin "red" lists transform constraint "follow"/],
+		'an animation keys an IK constraint that does not exist': [(d) => { d.animations.idle.ik.ghost = [{}]; }, /IK Constraint not found: ghost/, /animation "idle" keys ik constraint "ghost"/],
+		'an animation keys a transform constraint that does not exist': [(d) => { d.animations.idle.transform.ghost = [{}]; }, /Transform constraint not found: ghost/, /animation "idle" keys transform constraint "ghost"/],
+		'an animation keys a path constraint that does not exist, even with no keys': [(d) => { d.animations.idle.path.ghost = {}; }, /Path constraint not found: ghost/, /animation "idle" keys path constraint "ghost"/],
+		'an animation keys a physics constraint that does not exist, even with no keys': [(d) => { d.animations.idle.physics.ghost = {}; }, /Physics constraint not found: ghost/, /animation "idle" keys physics constraint "ghost"/],
+		'an animation keys an IK constraint named "" (only a physics "" means all)': [(d) => { d.ik.push({ name: '', bones: ['arm'], target: 'root' }); d.animations.idle.ik[''] = [{}]; }, /constraintName cannot be null/, /animation "idle" keys ik constraint ""/],
+		'a renamed constraint strands the animation that keys it': [(d) => { d.path[0].name = 'moved'; d.skins[1].path = ['moved']; }, /Path constraint not found: rail/, /animation "idle" keys path constraint "rail"/],
+		'a draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder[0].offsets[0].slot = 'ghost'; }, /Slot not found: null/, /animation "idle" keys draw order for slot "ghost"/],
+		'a later draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder.push({ time: 1, offsets: [{ slot: 'ghost', offset: 0 }] }); }, /Slot not found: null/, /animation "idle" keys draw order for slot "ghost"/],
+		'a draw-order offset names no slot': [(d) => { delete d.animations.idle.drawOrder[0].offsets[0].slot; }, /slotName cannot be null/, /animation "idle" keys draw order for slot "undefined"/],
+		'an event key names an event that is not defined': [(d) => { d.animations.idle.events[0].name = 'ghost'; }, /Event not found: ghost/, /animation "idle" keys event "ghost"/],
+		'the event an animation keys is no longer defined': [(d) => { delete d.events; }, /Event not found: hit/, /animation "idle" keys event "hit"/],
+		'an event key names no event': [(d) => { delete d.animations.idle.events[0].name; }, /eventDataName cannot be null/, /animation "idle" keys event "undefined"/],
 	};
 	for (const [label, [mutate, loaderSays, checkSays]] of Object.entries(named)) {
 		const d = good();
@@ -238,11 +294,38 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'deform keys on a bounding box, which has vertices': (d) => { d.skins[0].attachments.cape.box = { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 32, 0, 32, 32] }; d.animations.idle.attachments.default.cape.box = { deform: [{}] }; },
 		'sequence keys on a region that declares a sequence': (d) => { d.skins[0].attachments.head.flip = { path: 'seq', sequence: { count: 1 }, width: 32, height: 32 }; d.animations.idle.attachments.default.head = { flip: { sequence: [{}] } }; },
 		'sequence keys on a mesh that declares a sequence': (d) => { d.skins[0].attachments.cape.seqcape = { ...mesh(), path: 'seq', sequence: { count: 1 } }; d.animations.idle.attachments.default.cape.seqcape = { sequence: [{}] }; },
+		'IK and transform keys with no first key, on constraints that do not exist': (d) => { d.animations.idle.ik.ghost = []; d.animations.idle.transform.ghost = []; },
+		'a physics key "" keys every physics constraint, even with none defined': (d) => { delete d.physics; delete d.skins[1].physics; delete d.animations.idle.physics.wobble; },
+		"a skin's lists may be null or empty": (d) => { Object.assign(d.skins[1], { bones: null, ik: [], transform: null, path: [], physics: null }); },
+		'a skin lists a bone by a number, which the loader matches with ==': (d) => { d.bones.push({ name: '7', parent: 'root' }); d.skins[1].bones = [7]; },
+		'two constraints may share a name': (d) => { d.transform.push(clone(d.transform[0])); },
+		'a draw-order key with null offsets resets the order': (d) => { d.animations.idle.drawOrder.push({ time: 1, offsets: null }); },
+		'events defined as a list are named by index': (d) => { d.events = [{}]; d.animations.idle.events = [{ name: '0' }]; },
 	};
 	for (const [label, mutate] of Object.entries(fine)) {
 		const d = good();
 		mutate(d);
 		ok(`${label}: the loader accepts it AND so does the check`, loads(d) === null && M.irigDocProblem(d) === null, `loader=${loads(d)} check=${M.irigDocProblem(d)}`);
+	}
+	// Where the loader reads a falsy field as absent, so must the check. Top-level lists are set on
+	// a bare skeleton, so nothing else in it names what they would have held.
+	const bare = () => ({ skeleton: { spine: '4.2.40' }, bones: [{ name: 'root' }] });
+	const falsy = {
+		'"skeleton"': [bare, (d, v) => { d.skeleton = v; }],
+		...Object.fromEntries(['slots', ...CONSTRAINT_KINDS, 'skins', 'animations'].map((f) => [`"${f}"`, [bare, (d, v) => { d[f] = v; }]])),
+		"a bone's parent": [good, (d, v) => { d.bones.push({ name: 'loose', parent: v }); }],
+		...Object.fromEntries(['ik', 'transform', 'path'].map((kind) => [`${aKind(kind)} constraint's bones`, [good, (d, v) => { d[kind][0].bones = v; }]])),
+		"a skin's attachments": [good, (d, v) => { d.skins.push({ name: 'blank', attachments: v }); }],
+		'an animation': [good, (d, v) => { d.animations.blank = v; }],
+	};
+	for (const [field, [base, set]] of Object.entries(falsy)) {
+		for (const v of [null, 0, '', false]) {
+			// null is dereferenced where the loader walks a constraint's bones or reads an animation.
+			if (v === null && (field.endsWith("constraint's bones") || field === 'an animation')) continue;
+			const d = base();
+			set(d, v);
+			ok(`${field} = ${JSON.stringify(v)}: the loader reads it as absent AND so does the check`, loads(d) === null && M.irigDocProblem(d) === null, `loader=${loads(d)} check=${M.irigDocProblem(d)}`);
+		}
 	}
 	// A missing/late parent does not throw in spine-core — it silently makes the bone a ROOT, i.e.
 	// a corrupted hierarchy. The check refuses it; the Rigger itself always topo-sorts.
@@ -419,6 +502,109 @@ console.log('\n7. breaking a linked mesh or an animation attachment key in a che
 			if (loaderErr === null || !ours?.includes(named)) wrong.push(`${file}: loader=${loaderErr} check=${ours}`);
 		}
 		ok(`${label}: on all ${applied} rigs it applies to`, applied > 0 && wrong.length === 0, wrong.slice(0, 3).join(' | '));
+	}
+}
+
+console.log("\n7b. a skin's bone / constraint lists and an animation's constraint keys, draw order and events, in the checked-in rigs: the loader throws ⇔ the check refuses");
+{
+	// One name at a time, renamed to one nothing defines. The loader decides whether it looks the
+	// name up; the check must refuse exactly when it throws, naming it.
+	const tally = new Map();
+	const wrong = [];
+	for (const { file, doc } of rigs) {
+		const count = [...animationNamesOf(doc)].length;
+		for (let i = 0; i < count; i++) {
+			const d = clone(doc);
+			const site = [...animationNamesOf(d)][i];
+			site.set('ghost-ref');
+			const loaderErr = loads(d, anyArt);
+			const ours = M.irigDocProblem(d);
+			const kind = site.what.split(' ')[0] === 'draw' ? 'draw order' : site.what.split(' ')[0];
+			const t = tally.get(kind) ?? { thrown: 0, loaded: 0 };
+			t[loaderErr === null ? 'loaded' : 'thrown']++;
+			tally.set(kind, t);
+			const agree = loaderErr === null ? ours === null : Boolean(ours?.includes('"ghost-ref"'));
+			if (!agree) wrong.push(`${file} ${site.what}: loader=${loaderErr} check=${ours}`);
+		}
+	}
+	const summary = [...tally].map(([k, t]) => `${k} ${t.thrown} thrown / ${t.loaded} loaded`).join(', ');
+	ok(`every animation name, renamed: ${summary}`, tally.size >= 3 && wrong.length === 0, wrong.slice(0, 3).join(' | '));
+
+	const firstAnimation = (d) => Object.values(d.animations ?? {})[0];
+	const namesOf = (d, kind) => (kind === 'bones' ? d.bones : (d[kind] ?? [])).map((c) => c.name);
+	/** A timeline the loader reads for each kind: a first key present. */
+	const keyed = { ik: () => [{}], transform: () => [{}], path: () => ({ mix: [{}] }), physics: () => ({ inertia: [{}] }) };
+	// label → [name the check must give, mutate]; mutate returns falsy when it does not apply, or a
+	// string to name instead.
+	const breaks = {
+		...Object.fromEntries(['bones', ...CONSTRAINT_KINDS].map((list) => [`a skin lists ${list === 'bones' ? 'a bone' : `${aKind(list)} constraint`} that does not exist`, ['ghost-ref', (d) => {
+			const skin = d.skins?.[0];
+			if (skin) skin[list] = [...namesOf(d, list), 'ghost-ref'];
+			return skin;
+		}]])),
+		...Object.fromEntries(CONSTRAINT_KINDS.map((kind) => [`an animation keys ${aKind(kind)} constraint that does not exist`, ['ghost-ref', (d) => {
+			const map = firstAnimation(d);
+			if (map) map[kind] = { ...map[kind], 'ghost-ref': keyed[kind]() };
+			return map;
+		}]])),
+		'an event an animation keys is no longer defined': [null, (d) => {
+			const name = Object.values(d.animations ?? {}).flatMap((a) => a.events ?? []).find((e) => e.name)?.name;
+			if (name) delete d.events[name];
+			return name;
+		}],
+		// Only the kinds some checked-in rig keys (none keys an IK or physics constraint yet).
+		...Object.fromEntries(CONSTRAINT_KINDS.filter((kind) => rigs.some(({ doc }) => Object.values(doc.animations ?? {}).some((a) => a[kind]))).map((kind) => [`${aKind(kind)} constraint an animation keys is renamed`, [null, (d) => {
+			const name = Object.values(d.animations ?? {}).flatMap((a) => Object.keys(a[kind] ?? {})).find((n) => n);
+			if (!name || !namesOf(d, kind).includes(name)) return null;
+			for (const c of d[kind]) if (c.name === name) c.name = 'moved';
+			for (const skin of d.skins ?? []) if (skin[kind]) skin[kind] = skin[kind].map((n) => (n === name ? 'moved' : n));
+			for (const map of Object.values(d.animations)) if (map[kind]?.[name]) map[kind][name] = keyed[kind]();
+			return name;
+		}]])),
+	};
+	for (const [label, [named, mutate]] of Object.entries(breaks)) {
+		let applied = 0;
+		const failed = [];
+		for (const { file, doc } of rigs) {
+			const d = clone(doc);
+			const got = mutate(d);
+			if (!got) continue;
+			applied++;
+			const loaderErr = loads(d, anyArt);
+			const ours = M.irigDocProblem(d);
+			if (loaderErr === null || !ours?.includes(`"${named ?? got}"`)) failed.push(`${file}: loader=${loaderErr} check=${ours}`);
+		}
+		ok(`${label}: the loader throws AND the check names it, on all ${applied} rigs it applies to`, applied > 0 && failed.length === 0, failed.slice(0, 3).join(' | '));
+	}
+	const fine = {
+		'a skin lists every bone and constraint the rig defines': (d) => {
+			const skin = d.skins?.[0];
+			if (skin) for (const list of ['bones', ...CONSTRAINT_KINDS]) skin[list] = namesOf(d, list);
+			return skin;
+		},
+		'an animation keys every constraint the rig defines': (d) => {
+			const map = firstAnimation(d);
+			if (map) for (const kind of CONSTRAINT_KINDS) for (const name of namesOf(d, kind)) map[kind] = { ...map[kind], [name]: keyed[kind]() };
+			return map;
+		},
+		'IK / transform keys with no first key, and a physics "" key, name nothing the loader looks up': (d) => {
+			const map = firstAnimation(d);
+			if (map) Object.assign(map, { ik: { 'ghost-ref': [] }, transform: { ...map.transform, 'ghost-ref': [] }, physics: { '': keyed.physics() } });
+			return map;
+		},
+	};
+	for (const [label, mutate] of Object.entries(fine)) {
+		let applied = 0;
+		const failed = [];
+		for (const { file, doc } of rigs) {
+			const d = clone(doc);
+			if (!mutate(d)) continue;
+			applied++;
+			const loaderErr = loads(d, anyArt);
+			const ours = M.irigDocProblem(d);
+			if (loaderErr !== null || ours !== null) failed.push(`${file}: loader=${loaderErr} check=${ours}`);
+		}
+		ok(`${label}: the loader accepts it AND so does the check, on all ${applied} rigs it applies to`, applied > 0 && failed.length === 0, failed.slice(0, 3).join(' | '));
 	}
 }
 

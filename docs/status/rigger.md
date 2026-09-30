@@ -20,7 +20,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredSpineBox`) by `/symbols`, the Scene Editor and the game (`<SpineProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim).
-- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig library save creates only, and refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too.
+- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig and animation library saves create only (a taken name shows who saved it and when; the confirmed overwrite is `If-Match` on that entry), and the rig library refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too. `＋ New rig` / upload refuse a name that differs from an existing bundle only by case, even when both are created at once. Every `skeletons.json` rebuild (save, new, upload, delete, the editor's reindex) goes through `reindexProjectSkeletons`, so an atlas-less rig is never dropped from the index.
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
@@ -29,11 +29,11 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Open items / next
 
 1. **Rig undo.** Only Cinematic mode has a history; it is written to be pointed at `rawDoc`.
-2. **Index rebuilds can still drop an atlas-less rig.** Save uses `reindexSkeletonsPreserving`, but `rigger/new`, `rigger/delete` and `editor/spines/reindex` still overwrite `skeletons.json` from `buildSkeletonsIndex`, which skips a folder with no `.atlas`.
+2. ~~Index rebuilds could drop an atlas-less rig~~ — fixed 2026-09-30 (Recent changes); kept so the numbers after it stay put.
 3. **Better auto-weights** — the proximity skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative character-mesh gate (Spike 2) is open.
 4. **Localized text** — no rename for a text element (the id is the attachment name); a text element converted to a **mesh** cannot be width-fitted (its locales are linked meshes sharing the source hull); **persistent FX slots** (an always-on, keyable emitter living on the rig, the other half of §12.4a) are unbuilt.
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
-6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim. The server's `irigDocProblem` still skips by-name references spine-core throws on: a skin's `bones` / `ik` / `transform` / `path` / `physics` lists, and an animation's IK / transform / path / physics keys, draw-order slots and event names. Both saves run the tab's full parse first, so only a 🕘 restore, a tab still running an older `view.html`, or a direct POST depends on the server check alone.
+6. ~~Save residuals (animation-library save, case-only New-rig clash, `irigDocProblem` by-name gaps)~~ — fixed 2026-09-30 (Recent changes); kept so the numbers after it stay put.
 7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
    task): `transform` shows a 0.00° constraint effect on ~12 lines rigs and "Transform constraint
    not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
@@ -67,6 +67,18 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **Save residuals closed** (open items 2 and 6). The animation-library save is
+  create-only / `If-Match` like the rig library's (one shared `putLibraryEntry`); `＋ New rig` and
+  upload re-list after their claim and back off on a case-only clash (`Hero` / `hero` created at
+  once can no longer both land); `rigger/new`, `upload`, `delete` and `editor/spines/reindex`
+  rebuild `skeletons.json` through `reindexProjectSkeletons`, so an atlas-less rig is never
+  dropped (`buildSkeletonsIndex` is gone); `irigDocProblem` now also checks a skin's bone and
+  constraint lists and an animation's constraint keys, draw-order slots and event names, and no
+  longer refuses a falsy field the loader skips. Gates: `check:rigger-writes` (real route
+  handlers on an in-memory R2; 27/34 red on the previous code), `irig-save.mjs` (153 rigs, a
+  per-name differential against spine-core; 85 of 181 red on the previous check),
+  `reindex-preserve.mjs`.
 
 - 2026-09-30 — **＋ add image… in a skin other than default belongs to that skin only; the default
   skin can't be deleted** (was open item 9; owner decision A). Adding an image made it the slot's

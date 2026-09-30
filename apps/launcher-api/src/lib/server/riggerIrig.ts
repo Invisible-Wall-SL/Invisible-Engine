@@ -123,24 +123,26 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
  * Why `doc` would not load as a Spine 4.2 skeleton, or null when it would.
  *
  * Mirrors the references `SkeletonJson.readSkeletonData` resolves by NAME and throws on when one
- * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot, a linked
- * mesh's skin and parent, an animation's bone/slot and the skin/slot/attachment its deform and
+ * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot and the
+ * bones and constraints it lists, a linked mesh's skin and parent, an animation's bone/slot, its
+ * constraint keys, draw-order slots and events, and the skin/slot/attachment its deform and
  * sequence keys name — and, for those last two, that the attachment found is one the loader can
  * read (a mesh parent, vertices to deform, a declared sequence). A doc that fails any of them opens
  * as "Load failed" in the Rigger and blanks the rig in every game that binds it. It deliberately
  * does NOT validate field values: the client re-parses through the real loader before posting, and
- * a stricter schema here would refuse documents a newer Rigger wrote.
+ * a stricter schema here would refuse documents a newer Rigger wrote. Where the loader reads a
+ * falsy field (`null`, `0`, `""`, `false`) as absent, so does this.
  */
 export function irigDocProblem(doc: unknown): string | null {
 	if (!isRecord(doc)) return 'the skeleton is not a JSON object';
-	if (doc.skeleton !== undefined && !isRecord(doc.skeleton)) return '"skeleton" is not an object';
+	if (doc.skeleton && !isRecord(doc.skeleton)) return '"skeleton" is not an object';
 	if (!Array.isArray(doc.bones) || doc.bones.length === 0) return 'the skeleton has no bones';
 
 	const bones = new Set<string>();
 	for (const [i, b] of doc.bones.entries()) {
 		if (!isRecord(b) || typeof b.name !== 'string' || !b.name) return `bone #${i} has no name`;
 		if (bones.has(b.name)) return `two bones are named "${b.name}"`;
-		if (b.parent != null) {
+		if (b.parent) {
 			if (typeof b.parent !== 'string') return `bone "${b.name}" has a malformed parent`;
 			if (!bones.has(b.parent)) {
 				return `bone "${b.name}" names parent "${b.parent}", which is not defined before it`;
@@ -150,7 +152,7 @@ export function irigDocProblem(doc: unknown): string | null {
 	}
 
 	const slots = new Set<string>();
-	if (doc.slots !== undefined) {
+	if (doc.slots) {
 		if (!Array.isArray(doc.slots)) return '"slots" is not a list';
 		for (const [i, s] of doc.slots.entries()) {
 			if (!isRecord(s) || typeof s.name !== 'string' || !s.name) return `slot #${i} has no name`;
@@ -162,16 +164,24 @@ export function irigDocProblem(doc: unknown): string | null {
 		}
 	}
 
-	for (const kind of ['ik', 'transform', 'path', 'physics'] as const) {
+	const constraints: Record<ConstraintKind, Set<string>> = {
+		ik: new Set(),
+		transform: new Set(),
+		path: new Set(),
+		physics: new Set(),
+	};
+	for (const kind of CONSTRAINT_KINDS) {
 		const list = doc[kind];
-		if (list === undefined) continue;
+		if (!list) continue;
 		if (!Array.isArray(list)) return `"${kind}" is not a list`;
 		for (const [i, c] of list.entries()) {
 			if (!isRecord(c) || typeof c.name !== 'string') return `${kind} constraint #${i} has no name`;
-			if (kind !== 'physics' && !Array.isArray(c.bones)) {
+			constraints[kind].add(c.name);
+			const boneList = readsAsEmpty(c.bones) ? [] : c.bones;
+			if (kind !== 'physics' && !Array.isArray(boneList)) {
 				return `${kind} constraint "${c.name}" has no bones list`;
 			}
-			const refs = kind === 'physics' ? [c.bone] : (c.bones as unknown[]);
+			const refs = kind === 'physics' ? [c.bone] : (boneList as unknown[]);
 			for (const r of refs) {
 				if (typeof r !== 'string' || !bones.has(r)) {
 					return `${kind} constraint "${c.name}" names bone "${String(r)}", which does not exist`;
@@ -194,11 +204,22 @@ export function irigDocProblem(doc: unknown): string | null {
 	const skins: Skin[] = [];
 	const findSkin = (name: string) => skins.find((s) => s.name === name);
 	let defaultSkin: Skin | undefined;
-	if (doc.skins !== undefined) {
+	if (doc.skins) {
 		if (!Array.isArray(doc.skins)) return '"skins" is not a list (Spine 4.x writes an array)';
 		for (const [i, sk] of doc.skins.entries()) {
 			if (!isRecord(sk) || typeof sk.name !== 'string' || !sk.name) return `skin #${i} has no name`;
-			const attachments = sk.attachments === undefined ? {} : sk.attachments;
+			for (const list of ['bones', ...CONSTRAINT_KINDS] as const) {
+				const refs = sk[list];
+				if (!Array.isArray(refs)) continue;
+				const names = list === 'bones' ? bones : constraints[list];
+				const what = list === 'bones' ? 'bone' : `${list} constraint`;
+				for (const r of refs) {
+					if (!findsByName(names, r)) {
+						return `skin "${sk.name}" lists ${what} "${String(r)}", which does not exist`;
+					}
+				}
+			}
+			const attachments = sk.attachments || {};
 			if (!isRecord(attachments)) return `skin "${sk.name}" has malformed attachments`;
 			for (const slotName of Object.keys(attachments)) {
 				if (!slots.has(slotName)) {
@@ -243,9 +264,13 @@ export function irigDocProblem(doc: unknown): string | null {
 		}
 	}
 
-	if (doc.animations !== undefined) {
+	// The event definitions are the keys `for…in` visits, whatever `events` holds.
+	const events = new Set(Object.keys(Object(doc.events)));
+
+	if (doc.animations) {
 		if (!isRecord(doc.animations)) return '"animations" is not an object';
 		for (const [name, anim] of Object.entries(doc.animations)) {
+			if (readsAsEmpty(anim)) continue;
 			if (!isRecord(anim)) return `animation "${name}" is not an object`;
 			if (isRecord(anim.bones)) {
 				for (const b of Object.keys(anim.bones)) {
@@ -255,6 +280,20 @@ export function irigDocProblem(doc: unknown): string | null {
 			if (isRecord(anim.slots)) {
 				for (const s of Object.keys(anim.slots)) {
 					if (!slots.has(s)) return `animation "${name}" keys slot "${s}", which does not exist`;
+				}
+			}
+			// An IK or transform key is looked up only with a first key present, a path key always, a
+			// physics key unless it is "" — which keys every physics constraint.
+			for (const kind of CONSTRAINT_KINDS) {
+				const keyed = anim[kind];
+				if (!isRecord(keyed)) continue;
+				for (const [c, keys] of Object.entries(keyed)) {
+					const looksUp =
+						kind === 'path' ||
+						(kind === 'physics' ? c !== '' : Array.isArray(keys) && Boolean(keys[0]));
+					if (looksUp && !findsByName(constraints[kind], c)) {
+						return `animation "${name}" keys ${kind} constraint "${c}", which does not exist`;
+					}
 				}
 			}
 			if (isRecord(anim.attachments)) {
@@ -289,9 +328,47 @@ export function irigDocProblem(doc: unknown): string | null {
 					}
 				}
 			}
+			if (Array.isArray(anim.drawOrder)) {
+				for (const frame of anim.drawOrder) {
+					if (!isRecord(frame) || !Array.isArray(frame.offsets)) continue;
+					for (const offset of frame.offsets) {
+						const slot = isRecord(offset) ? offset.slot : undefined;
+						if (!findsByName(slots, slot)) {
+							return `animation "${name}" keys draw order for slot "${String(slot)}", which does not exist`;
+						}
+					}
+				}
+			}
+			if (Array.isArray(anim.events)) {
+				for (const key of anim.events) {
+					const event = isRecord(key) ? key.name : undefined;
+					if (!findsByName(events, event)) {
+						return `animation "${name}" keys event "${String(event)}", which does not exist`;
+					}
+				}
+			}
 		}
 	}
 	return null;
+}
+
+const CONSTRAINT_KINDS = ['ik', 'transform', 'path', 'physics'] as const;
+type ConstraintKind = (typeof CONSTRAINT_KINDS)[number];
+
+/** What `SkeletonData.find*` finds: an empty name throws, and a name matches by `==`. */
+function findsByName(names: ReadonlySet<string>, name: unknown): boolean {
+	if (!name) return false;
+	if (typeof name === 'string') return names.has(name);
+	for (const n of names) if (n == name) return true;
+	return false;
+}
+
+/**
+ * 0, "" or false where the loader reads a property off the value (a constraint's `bones.length`,
+ * an animation's `map.slots`): it finds nothing to walk, so it reads as empty — null throws.
+ */
+function readsAsEmpty(v: unknown): boolean {
+	return !v && v != null;
 }
 
 interface Skin {

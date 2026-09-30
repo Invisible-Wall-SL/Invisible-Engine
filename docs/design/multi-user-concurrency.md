@@ -186,9 +186,12 @@ delete **together**: the two index blobs, `backfillOnce` + its marker, and the n
 backfill is their last consumer). Don't leave them to rot.
 - **NOT in this phase: `skeletons.json`.** *(Scope corrected 2026-07-16 — an
   earlier draft of this doc lumped it in here; that was a category error.)* It is
-  **derived by LIST**, not RMW (`spineIndex.ts:136` `buildSkeletonsIndex` →
-  `listAllKeys:141`), so two concurrent saves each re-derive from current bucket
-  state and the RMW race does not exist. It is **per-project**
+  **derived by LIST**, not RMW (`spineReindex.ts` `reindexProjectSkeletons` →
+  `spineIndex.ts` `scanSkeletonsIndex` → `listAllKeys`), so two concurrent saves each
+  re-derive from current bucket state and the RMW race does not exist. The one read
+  of the prior index carries forward only entries for atlas-less folders whose
+  skeleton file still exists, and every writer carries them the same way, so no
+  writer can drop another's entry. It is **per-project**
   (`<client>/<project>/spines/skeletons.json`), so the Phase 2 lease covers it for
   free. And it has live readers on the **export→deploy path**
   (`editorArtExport.ts:402`, `symbolExport.ts:303`), so making Postgres its source
@@ -254,9 +257,12 @@ The correctness floor. Contained because of the linchpin above.
 > Every overwrite is preceded by a rolling backup (`riggerIrig.ts`, 20 per rig, restorable from
 > the rig's 🕘 History — the `docBackups.ts` design). The studio-wide rig LIBRARY save
 > (`/api/rigger/rigs/save`) creates only (`baseEtag: null`); a taken name answers `409 exists`
-> with the entry's etag, and the confirmed retry is `If-Match` on exactly that entry. Still
-> unconditional: the animation-library save (`/api/rigger/animations/save`). Offline proof:
-> `tools/rigger-spike/irig-save.mjs`.
+> with the entry's etag, and the confirmed retry is `If-Match` on exactly that entry. The
+> animation-library save (`/api/rigger/animations/save`) does the same since 2026-09-30 (one
+> shared `riggerLibraryWrite.ts`). `rigger/new` / `upload` also re-list after the claim and back
+> off on a name differing only by case (R2 keys are case-sensitive; `If-None-Match` guards only
+> the exact key). Offline proof: `tools/rigger-spike/irig-save.mjs`,
+> `apps/launcher-api/scripts/check-rigger-writes.ts`.
 >
 > Everything below is the original plan, left for the rationale; it is DONE except where
 > point 4 above says otherwise.

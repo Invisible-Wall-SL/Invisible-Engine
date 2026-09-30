@@ -590,7 +590,9 @@ self-contained clips, so this is just a copy of the clip's keyframe data.
   sitting" path.
 - **📤 Save to library** — the per-row **📤** button saves the animation to a
   **shared, cross-project** library in R2. It's reusable from any client/project, on
-  any rig. Re-saving a name overwrites the library copy (you're asked to confirm).
+  any rig. The library is shared by every project, so if the name is already taken the
+  tool tells you which project saved it and when, and only replaces it if you confirm (if
+  someone else saves it in the meantime, nothing is replaced and you are asked again).
 - **🗂 Animation library** — opens a modal listing every saved clip (name, duration,
   source project, bone count) with a filter box. **Load** imports a clip onto the
   current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
@@ -1059,4 +1061,5 @@ they appear in no scene.
   retime or re-pose of a curved key (noted in-UI).
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
   a name that matches an existing bundle case-insensitively (this was added after
-  two same-name rigs got stuck); use distinct names.
+  two same-name rigs got stuck), even when two people create `Hero` and `hero` at the
+  same moment — then at least one of them is refused; use distinct names.

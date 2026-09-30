@@ -11,7 +11,7 @@
  * `format`, `runtime`, `pma` (others — `name`, `version`, `dir_b64`, `id` — are
  * carried for the viewer + index round-trip).
  */
-import { getObjectBytes, getObjectText, listAllKeys } from './r2';
+import { deleteObject, getObjectBytes, getObjectText, listAllKeys } from './r2';
 
 /**
  * Is a spine bundle dir named `name` already present under `spinesPrefix` —
@@ -21,12 +21,41 @@ import { getObjectBytes, getObjectText, listAllKeys } from './r2';
  */
 export async function spineBundleNameTaken(spinesPrefix: string, name: string): Promise<boolean> {
 	const lower = name.toLowerCase();
-	const keys = await listAllKeys(`${spinesPrefix}/`);
-	for (const k of keys) {
+	return (await topLevelNames(spinesPrefix)).some((seg) => seg.toLowerCase() === lower);
+}
+
+/**
+ * The second half of a New-rig / upload claim: {@link spineBundleNameTaken} is only a read, so
+ * `Hero` and `hero` created at once both pass it, and their `If-None-Match` claims land on
+ * DIFFERENT keys. Called AFTER the caller's `.irig` claim succeeded and BEFORE it writes anything
+ * else: if another top-level name differing only by case now exists, delete the caller's own
+ * just-claimed `claimedKey` (only it — the bundle holds nothing else yet) and answer `true`.
+ *
+ * Both creates claim before they list, and an R2 listing is strongly consistent, so whichever
+ * lists LATER sees the other's claim — or that claim is already released, meaning the other
+ * backed off. Two case-clashing creates therefore never both succeed; at worst both back off.
+ */
+export async function releaseClaimOnCaseClash(
+	spinesPrefix: string,
+	name: string,
+	claimedKey: string,
+): Promise<boolean> {
+	const lower = name.toLowerCase();
+	const clash = (await topLevelNames(spinesPrefix)).some(
+		(seg) => seg !== name && seg.toLowerCase() === lower,
+	);
+	if (clash) await deleteObject(claimedKey);
+	return clash;
+}
+
+/** Distinct first path segments under `spinesPrefix/` — the bundle folders (and root files). */
+async function topLevelNames(spinesPrefix: string): Promise<string[]> {
+	const names = new Set<string>();
+	for (const k of await listAllKeys(`${spinesPrefix}/`)) {
 		const seg = k.slice(spinesPrefix.length + 1).split('/')[0];
-		if (seg && seg.toLowerCase() === lower) return true;
+		if (seg) names.add(seg);
 	}
-	return false;
+	return [...names];
 }
 
 /** Asset extensions the spine sync uploads — everything else is skipped.
@@ -156,12 +185,19 @@ export interface SkeletonScanResult {
 	 * ([[gotcha_manifest_region_no_geometry_dropped]] is the same class of silent drop).
 	 */
 	atlasMissingFolders: string[];
+	/**
+	 * The file names present in each {@link atlasMissingFolders} folder, so a preserved prior
+	 * entry is kept only while its skeleton file still exists — a deleted rig must not be
+	 * resurrected from the index just because its folder still holds another atlas-less skeleton.
+	 */
+	atlasMissingFiles: Record<string, string[]>;
 }
 
 /**
- * The scan half of {@link buildSkeletonsIndex}: the identical index PLUS the list of
- * skeleton-bearing folders excluded for want of an atlas. `buildSkeletonsIndex` is
- * `(await scanSkeletonsIndex(...)).index`, so its serialized output is byte-unchanged.
+ * Scan a spines prefix into the `skeletons.json` index PLUS the skeleton-bearing folders it
+ * excludes for want of an atlas. Every writer of `skeletons.json` goes through
+ * {@link reindexSkeletonsPreserving} with this as its scan, never writing the bare index — that
+ * would silently drop every atlas-less rig.
  *
  * Lists every object under `${spinesPrefix}/`, groups by folder (relative to the prefix,
  * `''` for the root), and emits one entry per `.skel` / skeleton-`.json` — matching the
@@ -198,13 +234,17 @@ export async function scanSkeletonsIndex(
 
 	const entries: Omit<SkeletonIndexEntry, 'id'>[] = [];
 	const atlasMissingFolders: string[] = [];
+	const atlasMissingFiles: Record<string, string[]> = {};
 	for (const [dir, names] of byDir) {
 		const dirKey = dir ? `${root}${dir}/` : root;
 		const atlases = names.filter((n) => n.toLowerCase().endsWith('.atlas'));
 		if (!atlases.length) {
 			// A skeleton with no atlas would be silently dropped — flag it so the caller can
 			// re-derive the atlas or keep the prior entry rather than un-ship the rig.
-			if (await folderHasSkeleton(dirKey, names)) atlasMissingFolders.push(dir);
+			if (await folderHasSkeleton(dirKey, names)) {
+				atlasMissingFolders.push(dir);
+				atlasMissingFiles[dir] = names;
+			}
 			continue;
 		}
 		const skels = names.filter((n) => n.toLowerCase().endsWith('.skel'));
@@ -248,18 +288,7 @@ export async function scanSkeletonsIndex(
 
 	entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 	const skeletons: SkeletonIndexEntry[] = entries.map((e, id) => ({ ...e, id }));
-	return { index: { prefix, skeletons }, atlasMissingFolders };
-}
-
-/**
- * Build the `skeletons.json` index for a spines prefix in R2 — see {@link scanSkeletonsIndex}
- * for the shape/parity contract. Kept as a thin wrapper so existing callers are unchanged.
- */
-export async function buildSkeletonsIndex(
-	spinesPrefix: string,
-	prefix: string,
-): Promise<SkeletonsIndex> {
-	return (await scanSkeletonsIndex(spinesPrefix, prefix)).index;
+	return { index: { prefix, skeletons }, atlasMissingFolders, atlasMissingFiles };
 }
 
 export interface ReindexOutcome {
@@ -296,20 +325,25 @@ export interface ReindexDeps {
 
 /**
  * Fold the prior index's entries for still-dropped folders back into a freshly-built index,
- * so a skeleton-bearing folder that lost its atlas is NEVER silently removed. A no-op —
- * returns `freshIndex` UNCHANGED (identity) — when nothing needs preserving, so a healthy
- * reindex stays byte-identical to {@link buildSkeletonsIndex}.
+ * so a skeleton-bearing folder that lost its atlas is NEVER silently removed. Only entries whose
+ * skeleton file is still among `filesIn[folder]` are kept, so a deleted rig stays deleted. A
+ * no-op — returns `freshIndex` UNCHANGED (identity) — when nothing needs preserving, so a
+ * healthy reindex stays byte-identical to the scan's own index.
  */
 export function mergePreservingDroppedFolders(
 	freshIndex: SkeletonsIndex,
 	priorIndex: SkeletonsIndex | null,
 	atlasMissingFolders: string[],
+	filesIn: Record<string, string[]>,
 ): { index: SkeletonsIndex; preservedFolders: string[] } {
 	const preservedFolders: string[] = [];
 	const preserved: Omit<SkeletonIndexEntry, 'id'>[] = [];
 	if (priorIndex) {
 		for (const folder of atlasMissingFolders) {
-			const prev = priorIndex.skeletons.filter((s) => s.folder === folder);
+			const files = filesIn[folder] ?? [];
+			const prev = priorIndex.skeletons.filter(
+				(s) => s.folder === folder && files.includes(s.skeleton_file),
+			);
 			if (!prev.length) continue;
 			for (const { id: _id, ...rest } of prev) preserved.push(rest);
 			preservedFolders.push(folder);
@@ -363,7 +397,12 @@ export async function reindexSkeletonsPreserving(deps: ReindexDeps): Promise<Rei
 		return { index: rebuilt.index, rederivedFolders, preservedFolders: [], atlasMissingFolders: [] };
 	}
 
-	const { index, preservedFolders } = mergePreservingDroppedFolders(rebuilt.index, prior, stillMissing);
+	const { index, preservedFolders } = mergePreservingDroppedFolders(
+		rebuilt.index,
+		prior,
+		stillMissing,
+		rebuilt.atlasMissingFiles,
+	);
 	console.warn(
 		`[rigger] reindex: skeleton folder(s) with no atlas and no source to rebuild — ` +
 			`preserved prior entries for [${preservedFolders.join(', ')}]; ` +

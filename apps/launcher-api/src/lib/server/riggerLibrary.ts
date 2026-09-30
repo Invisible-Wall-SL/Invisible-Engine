@@ -26,10 +26,9 @@ import { getObjectText } from './r2';
  * garbage-collectable) instead of a DANGLING ROW (a 404 in the user's face when
  * they click a rig that no longer has a body).
  *
- * NOT fixed here (Phase 1's job): a SAME-id concurrent save still last-writer-wins
- * on both the blob and the row, and the two writers can interleave, leaving a row
- * whose `name`/`stats` describe a different skeleton than the blob. The `<id>.json`
- * writes stay unguarded until `If-Match` lands.
+ * A SAME-id concurrent save is not fixed HERE but at the blob: both saves write `<id>.json`
+ * through `putLibraryEntry` (create-only, or `If-Match` on the etag the author confirmed), so
+ * of two writers of one id only the one whose blob landed goes on to upsert the row.
  */
 
 /** The catalog row shape returned to the Rigger client. Unchanged from the blob era. */

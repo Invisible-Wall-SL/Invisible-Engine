@@ -5,7 +5,8 @@ import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
 import { bundleRevision } from '$lib/server/spineBundleSync';
-import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
+import { releaseClaimOnCaseClash, spineBundleNameTaken } from '$lib/server/spineIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -111,7 +112,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		// the latest page + re-synth the .atlas after the source is recoloured/edited) AND
 		// so consumers can detect a re-packed sheet: `geometryRevision` is the baseline the
 		// self-healing sync (`ensureBundleAtlasFresh`) compares the live manifest against.
-		// Ignored by buildSkeletonsIndex (only skeleton/atlas files are indexed) and a
+		// Ignored by the skeleton index (only skeleton/atlas files are indexed) and a
 		// valid `/spine/file` name.
 		sidecar = JSON.stringify({
 			manifestKey,
@@ -122,15 +123,21 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	// The `.irig` goes FIRST and only if absent: `spineBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
-	// loser gets a 409 before it has written a page or an atlas over the winner's.
-	if (!(await claimNewIrig(`${bundle}/${name}.irig`, JSON.stringify(skeleton))))
+	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
+	// name differing only by case lands on a different key, so it is re-checked by listing.
+	const irigKey = `${bundle}/${name}.irig`;
+	if (!(await claimNewIrig(irigKey, JSON.stringify(skeleton))))
 		throw error(409, `a rig named "${name}" was just created by someone else`);
+	if (await releaseClaimOnCaseClash(spinesPrefix, name, irigKey))
+		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, pageContentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 	if (sidecar) await putObjectText(`${bundle}/source.json`, sidecar, 'application/json');
 
-	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
-	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');
+	await writeSkeletonsIndex(
+		spinesPrefix,
+		(await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix)).index,
+	);
 
 	return json({
 		ok: true,
