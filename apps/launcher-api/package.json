@@ -11,7 +11,7 @@
 		"predev": "node scripts/copy-tool-docs.mjs",
 		"dev": "vite dev --host --port 3010",
 		"prebuild": "node scripts/copy-tool-docs.mjs",
-		"build": "vite build",
+		"build": "vite build && node ../../scripts/sentry-sourcemaps.mjs launcher build",
 		"build:rigger-fx": "vite build --config vite.rigger-fx.config.ts",
 		"build:rigger-text": "vite build --config vite.rigger-text.config.ts",
 		"preview": "vite preview",

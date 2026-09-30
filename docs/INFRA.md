@@ -396,7 +396,8 @@ code default, so the dashboard need not set it):
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +
   `PUBLIC_SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`,
-  `PUBLIC_SENTRY_SAMPLE_RATE`.
+  `PUBLIC_SENTRY_SAMPLE_RATE`; build-time source-map upload: `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
+  `SENTRY_PROJECT` (+ `SENTRY_URL` for a personal token) — see "Readable stack traces".
 
 **Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 (read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
@@ -594,9 +595,67 @@ Fixtures: `pnpm --filter error-tracking check:scrub`, `services/atlas-tool/test_
 delivery profile must opt in with `"telemetry": { "errors": true }` (bake-only; `config.json` cannot
 flip it). Only opt a partner in once they have agreed. See `docs/design/delivery-builds.md`.
 
-**Not done yet:** source-map upload (stack traces from the game bundle are minified — needs a Sentry
-auth token in CI), and the Play4Fun authenticate that gets a bodiless non-2xx still reads as
-success in the facade, so it is not reported (changing it changes boot behaviour).
+**Not done yet:** the Play4Fun authenticate that gets a bodiless non-2xx still reads as success in
+the facade, so it is not reported (changing it changes boot behaviour).
+
+### Readable stack traces — source maps (Sentry only, never served)
+
+The repo and every served bundle are **public**, so a source map must never sit next to the code:
+maps are built, uploaded to Sentry, and **deleted from the build before anything is published**.
+All of it lives in `scripts/sentry-sourcemaps.mjs`; the fixture is
+`node scripts/sentry-sourcemaps.fixture.mjs` (run by `check:all`).
+
+| Surface | How | Release the maps are filed under |
+| --- | --- | --- |
+| **Game runtime** (`runtime-release.yml`) | Always built with `IE_SOURCEMAPS=hidden` (a map, no `sourceMappingURL`). Step *Upload source maps to Sentry and strip them* re-bases the map onto `index.html`, adds a debug-ID snippet to the page, uploads, deletes every `.map`; step *Gate: no source map or sourceMappingURL ships* re-checks; `publish-runtime-bundle.mjs` also refuses any `.map`. | the commit's first 12 chars — what the SDK reports (`__IE_BUILD__.sha`) and the `_runtime/lines@<sha12>` prefix |
+| **Launcher** (Railway build) | `vite.config.js` writes hidden maps **only when `SENTRY_AUTH_TOKEN` is set**; the `build` script's `sentry-sourcemaps.mjs launcher build` step runs `sentry-cli sourcemaps inject` on `build/client/_app`, uploads, deletes every `.map` under `build/`, and fails the build if one is left in `client/_app`. Server code is not minified, so its frames read fine without maps. | `RAILWAY_GIT_COMMIT_SHA` (the server SDK's release; the client SDK sets none — debug IDs resolve without it) |
+
+**Why the game's map is re-based.** The game is ONE inlined file: SvelteKit copies
+`bundle.<hash>.js` byte for byte into a `<script>` in `index.html`, and that copy is what runs. A
+browser numbers an inline script's frames by *document* line/column (the bundle starts at line
+~127), so the staged map describes `index.html` — the same mappings shifted by the bundle's offset —
+and frames find it by **debug ID**, not by URL (the page URL is a different game key on every online
+game). Verified in a real browser: a frame at `/:1956:14340` resolved through the staged map to
+`@sentry/browser/…/helpers.js:63`, the exact call site. `embed` delivery builds and desktop builds
+upload nothing (the release job is the only uploader).
+
+**No token → the upload is skipped with a notice; a failed upload is a `::warning::`.** Neither ever
+fails a release or a launcher deploy — only a map left in the build does. Dry run of the upload (the
+real `sentry-cli` against a local stand-in for Sentry's API, then checks what it assembled):
+
+```bash
+IE_SOURCEMAPS=hidden PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
+node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
+```
+
+(`… launcher apps/launcher-api/build --dry-run` for a launcher build made with `SENTRY_AUTH_TOKEN` set.)
+
+**Owner setup (~10 min, after the Sentry projects above exist):**
+
+1. **Create the auth token.** Preferred: Sentry → Settings → Developer Settings → **Organization
+   Tokens** → *Create New Token*, name `ci-sourcemaps`. Its scope is fixed to `org:ci` (release +
+   source-map upload, nothing else) and it carries the EU region, so no URL is needed. Alternative:
+   a **Personal Token** (User Settings → Personal Tokens) with only **`project:releases`** and
+   **`org:read`** — then also set the variable `SENTRY_URL` = `https://de.sentry.io` in steps 2–3.
+   Copy the token once; Sentry never shows it again.
+2. **GitHub** → repo → Settings → Secrets and variables → Actions: **secret** `SENTRY_AUTH_TOKEN`
+   = the token; **variables** `SENTRY_ORG` = the org slug (from the Sentry URL),
+   `SENTRY_PROJECT` = `game-runtime`, and `SENTRY_URL` only if step 1 used a personal token.
+3. **Railway** → launcher → Variables: `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` =
+   `launcher` (+ `SENTRY_URL` if needed) → **Apply changes** (they stage — see "Railway env vars").
+   Railway passes service variables to the build, which is where they are used.
+4. **Trigger a release:** Actions → *Runtime release* → *Run workflow* (runtime `lines`, both boxes
+   ticked). Green, with step *Upload source maps…* printing `Uploaded source maps for release
+   <sha12>` (a `Source maps not uploaded:` line means a secret/variable is missing). In Sentry →
+   Settings → Projects → game-runtime → **Source Maps → Artifact Bundles**, the new bundle lists
+   `~/index.html.js` + `~/index.html.js.map` with one debug ID, release `<sha12>`.
+5. **Check a readable stack.** Open any online game, and in the browser console run
+   `setTimeout(() => { throw new Error('sourcemap check') })`. The Sentry issue's in-bundle frame
+   must read `helpers.js` in `@sentry/browser` (line 63, `fn.apply(this, wrappedArguments)`), not
+   `/:1956:…`. If it shows raw positions, open the event's *Unminify Code* / processing-error panel.
+   The launcher's first deploy after step 3 uploads its maps the same way (project `launcher`).
+6. **Confirm nothing leaked** (any time): `curl -s https://games.invisiblewall.org/<gameKey>/ | grep -c sourceMappingURL`
+   prints `0`, and the bundle's `….js.map` URL is a 404.
 
 ### Health endpoints
 

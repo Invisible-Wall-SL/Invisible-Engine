@@ -82,7 +82,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   - GitHub: environment `backups`, restricted to `main`, with secrets `BACKUP_DATABASE_URL`, `BACKUP_SRC_R2_ACCESS_KEY_ID`, `BACKUP_SRC_R2_SECRET_ACCESS_KEY`, `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY` and variable `BACKUP_AGE_RECIPIENTS`.
   - Then: run the workflow once, and do restore drill A with your real key.
   - **Railway:** if the workspace is on **Pro**, also enable Postgres → Backups → Daily + Weekly. It is Pro/Enterprise only; if the tab is missing or locked, you are on Hobby and ours is the only DB backup.
-- **Monitoring setup (owner, ~30 min; everything is dormant until done):** (1) create a Sentry org in the **EU** region with projects `game-runtime` (Browser JS), `launcher` (Node), `pipeline-tools` (Python), alert rule "new issue → email" on each; (2) GitHub → Settings → Secrets and variables → Actions: secret `PUBLIC_SENTRY_DSN` (game-runtime DSN), optional variable `PUBLIC_SENTRY_SAMPLE_RATE`; the next runtime release bakes it; (3) Railway launcher: `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (launcher DSN) → Apply changes; (4) Railway atlas-tool + sheet-tool: `SENTRY_DSN` (pipeline-tools DSN) → Apply changes; (5) Railway launcher → Settings → Deploy → Healthcheck Path `/api/health`, timeout 300; (6) Better Stack monitors per the INFRA table; (7) Watch the repo (Custom → Issues) so "Runtime release failed" issues reach you.
+- **Monitoring setup (owner, ~30 min; everything is dormant until done):** (1) create a Sentry org in the **EU** region with projects `game-runtime` (Browser JS), `launcher` (Node), `pipeline-tools` (Python), alert rule "new issue → email" on each; (2) GitHub → Settings → Secrets and variables → Actions: secret `PUBLIC_SENTRY_DSN` (game-runtime DSN), optional variable `PUBLIC_SENTRY_SAMPLE_RATE`; the next runtime release bakes it; (3) Railway launcher: `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (launcher DSN) → Apply changes; (4) Railway atlas-tool + sheet-tool: `SENTRY_DSN` (pipeline-tools DSN) → Apply changes; (5) Railway launcher → Settings → Deploy → Healthcheck Path `/api/health`, timeout 300; (6) Better Stack monitors per the INFRA table; (7) Watch the repo (Custom → Issues) so "Runtime release failed" issues reach you; (8) readable stack traces: a Sentry auth token as `SENTRY_AUTH_TOKEN` + `SENTRY_ORG` / `SENTRY_PROJECT` in GitHub Actions and on the Railway launcher — the numbered steps are docs/INFRA.md "Readable stack traces — source maps".
 - **Secret rotation (owner, Railway / Cloudflare / RunPod dashboards):** rotate the secrets listed
   in docs/INFRA.md "Security / secret rotation", following that table and, for every consumer, the
   order and the verification, [guides/rotate-a-secret](../guides/rotate-a-secret.md). Verify the
@@ -98,6 +98,16 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **Source maps go to Sentry and never ship.** The runtime release now builds the game
+  with hidden maps, and `scripts/sentry-sourcemaps.mjs` re-bases the bundle's map onto
+  `index.html` (the game is one inlined file, so frames are numbered by the page), tags page + map
+  with one debug ID, uploads them for release `<sha12>`, deletes every `.map`, and gates the build;
+  `publish-runtime-bundle.mjs` refuses a `.map` too. The launcher's Railway build does the standard
+  inject → upload → delete when `SENTRY_AUTH_TOKEN` is set. No token = a notice, a failed upload = a
+  warning; neither fails a release. Verified: fixture (`scripts/sentry-sourcemaps.fixture.mjs`, with
+  line- and column-shift mutants), `--dry-run` of the real `sentry-cli` against a local stand-in API
+  for both surfaces, and a real-browser frame resolved through the staged map to the exact call
+  site. Owner setup under Blocked (8); detail in docs/INFRA.md "Readable stack traces".
 - 2026-09-30 — **All six CI checks are required on `main`.** The owner added `check-all (1/3…3/3)`,
   `python tests` and `eslint` beside `check-secrets` in ruleset `24185070` (read back via `gh api`).
   Every name reports on docs-only and code PRs alike: #882 (docs-only test) 8–11 s each, #887 and
