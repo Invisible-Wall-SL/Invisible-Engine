@@ -77,7 +77,6 @@ cheaper than a leaked write key.
 | Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
-| Railway **atlas-backend** (parked, nothing calls it) | R2, CF Access, `COMFY_ORG_API_KEY` |
 | GitHub Actions repo secrets | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `TEST_SERVER_SECRET` (runtime release and rollback), `PUBLIC_SENTRY_DSN` (baked into the game runtime) |
 | GitHub environment `backups` | the five backup secrets; the age public keys are a variable ([INFRA § Backups](../INFRA.md#backups-2026-09-29)) |
 | RunPod | the Serverless endpoint's environment variables (`RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`); a Container Registry Credential (a GitHub token that can read our private GHCR images) |
@@ -103,8 +102,7 @@ first row. Pattern: **overlap**.
 
 **Consumers.** The INFRA row names them in short. In full:
 
-- **Railway:** the launcher, atlas-tool, sheet-tool, Invisible-test-Server, and atlas-backend
-  (parked).
+- **Railway:** the launcher, atlas-tool, sheet-tool and Invisible-test-Server.
 - **GitHub Actions repo secrets:** `runtime-release.yml` and `runtime-rollback.yml` both read and
   write R2 with them. Miss these and the next engine merge fails its release. Online games stay on
   the old engine, and the "Runtime release failed: lines" issue opens.
@@ -178,8 +176,7 @@ and delete it.
 
 **Consumers:**
 
-- atlas-tool (`iw_common.comfy.cf_headers()`, used when **Run generation on** is *My computer*);
-- atlas-backend (parked).
+- atlas-tool (`iw_common.comfy.cf_headers()`, used when **Run generation on** is *My computer*).
 
 Production generation runs on RunPod and never sends these headers. A broken value therefore only
 shows up on the *My computer* path, which is exactly why it can go unnoticed. Test it
@@ -407,7 +404,6 @@ revoking it at platform.comfy.org. Pattern: **overlap**.
 **Consumers:**
 
 - atlas-tool, from the env;
-- atlas-backend (parked);
 - the Atlas Maker's own **⚙ Global settings** field "comfy.org API key". The env var overrides
   that field, but a value typed there is stored, so clear it;
 - the desktop Atlas Maker's env.

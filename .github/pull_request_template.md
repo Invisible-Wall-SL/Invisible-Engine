@@ -14,7 +14,7 @@
 
 - [ ] engine / packages / games
 - [ ] launcher / editor / admin
-- [ ] pipeline tool (atlas-tool / atlas-backend / sheet-tool / test-server)
+- [ ] pipeline tool (atlas-tool / sheet-tool / test-server)
 - [ ] docs / infra / scripts
 
 ## Checklist

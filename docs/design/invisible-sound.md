@@ -135,7 +135,7 @@ single `howl` and call `howl.play(soundName)`. They take a **resolver** instead 
 the built-in one.
 
 **Why banks rather than repacking a per-project audiosprite server-side:** a repack needs ffmpeg in
-`services/atlas-backend` before an uploaded sound is audible at all, and a v1 whose upload button
+a Python service before an uploaded sound is audible at all, and a v1 whose upload button
 works but whose result cannot be heard is a v1 that stalls. Packing stays on the roadmap as an
 *optimisation* (§10), not a precondition. Banks make it optional forever.
 
@@ -384,7 +384,7 @@ library with a read-only index and left the choices in three other tools, which 
 ## 10. Open questions
 
 - **The pack step.** Packing a project's loose banks into one audiosprite needs ffmpeg somewhere —
-  `services/atlas-backend` is the natural host, mirroring what Sheet Maker does for images. Worth
+  `services/sheet-tool` is the natural host, since it already does this for images. Worth
   doing when a project's loose-bank count starts costing mobile load time (§3.2 trap 5), not before.
   It is a pure optimisation: the bank model does not change.
 - **Loudness.** External musicians deliver at wildly different levels. Per-entry `volume` is the

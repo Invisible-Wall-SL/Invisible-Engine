@@ -10,8 +10,7 @@ services, URLs, env vars, the tunnel, R2, DNS, monitoring, backups and secret ro
 
 ## What exists (detail in INFRA — don't restate it here)
 - **Railway** — one project, environment `production`: launcher (`app.invisiblewall.org`) +
-  Postgres, `atlas-tool`, `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`), and
-  the legacy `atlas-backend`. All auto-deploy from GitHub `main`; the Python services and the test
+  Postgres, `atlas-tool`, `sheet-tool` and `Invisible-test-Server` (`games.invisiblewall.org`). All auto-deploy from GitHub `main`; the Python services and the test
   server rebuild only on their Watch Paths.
 - **RunPod** — the Serverless endpoint production generation runs on, and the `/comfyui` R&D pod
   fleet; both images are built by GitHub Actions into GHCR.

@@ -239,13 +239,13 @@ the deploy and unset the flag; data is untouched.
 2. **Config files** — kept separate (`atlas_config.json` + `sheet_config.json`); zero collision, smaller diff.
 3. **Cross-tool editing** — share `manifests/` now; widen the hydrate to the whole tree later if needed.
 4. **Spines** — folded into `<C>/<P>/spines/` + cross-project `_shared/spines/`. Legacy pre-isolation prefixes (e.g. `spines/hotfruits`) need an explicit `--legacy-spine` map at migration time.
-5. **Slug hyphen bug** — fixed as part of this work: a single canonical `r2_slug` (lowercase, non-alphanumerics → `_`, 60-char cap) in `iw_common.context`, the launcher (`r2Slug`), `seed_r2.py`, atlas-backend, and the migration script — all byte-identical.
+5. **Slug hyphen bug** — fixed as part of this work: a single canonical `r2_slug` (lowercase, non-alphanumerics → `_`, 60-char cap) in `iw_common.context`, the launcher (`r2Slug`), `seed_r2.py` and the migration script — all byte-identical.
 6. **Sequencing** — game-cards (needs DB password) + atlas→game live-assets sync remain parked behind this.
 
 ## 9. Implementation status (2026-06-02)
 
 **Code — DONE, builds/compiles clean** (not yet committed/deployed):
-- Python: `iw_common/context.py` (r2_slug + project_prefix), both `cloud_paths.py`, `atlas-tool/{ui_server,batch_atlas}.py`, `sheet-tool/sheet_server.py`, `atlas-tool/seed_r2.py`, `atlas-backend/{paths,workflows}.py`.
+- Python: `iw_common/context.py` (r2_slug + project_prefix), both `cloud_paths.py`, `atlas-tool/{ui_server,batch_atlas}.py`, `sheet-tool/sheet_server.py`, `atlas-tool/seed_r2.py`.
 - Launcher: `projectPaths.ts` (r2Slug + projectPrefix + SUB), `toolScope.ts`, `projectScaffold.ts`, `spine.ts`, `projectAssets.ts`, `editorRegions.ts`, `scripts/r2-sync-spines.mjs`.
 - Migration: `scripts/migrate-r2-unified-repo.py` (dry-run default; `--apply`, `--verify`, `--phase-b --i-verified-cutover`).
 

@@ -30,7 +30,6 @@ Per-app (e.g. `apps/lines`): `pnpm dev` (Vite, port 3001), `pnpm storybook` (600
 ## Where things live
 - `apps/` — the games + `launcher-api` (the Studio portal).
 - `packages/` — shared libs (`pixi-svelte` is the core declarative PixiJS↔Svelte bridge).
-- `services/atlas-backend` — FastAPI generation backend (Python).
 - `services/atlas-tool` — the re-hosted Python Atlas Maker (Python).
 - `docs/` — INFRA, STATUS, this file; `docs/tools/` (one guide per tool), `docs/status/` (each
   tool's current state), `docs/guides/` (walkthroughs and runbooks, below).

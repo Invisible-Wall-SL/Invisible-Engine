@@ -33,7 +33,6 @@ const SCOPES = [
 	'pipeline',
 	'atlas',
 	'atlas-tool',
-	'atlas-backend',
 	'sheet-tool',
 	'test-server',
 	// cross-cutting
