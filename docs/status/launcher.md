@@ -56,6 +56,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+### 2026-09-30 — /admin's cache hint no longer says `games` is behind Cloudflare
+- **The "Edge cache & build" card now matches INFRA's "Game freshness".** `games` is DNS-only like
+  `app.`, so a zone purge drops nothing for either. For a stale game the hint says to reload with
+  `?cb=` and then check `lastHydrate` on the games host's `/healthz`.
+- **`verify-runtime-live.mjs` gives the real reason** it never fetches the bare bundle URL: an early
+  404 has no cache headers, so a browser or proxy may keep it. There is no edge to hold it.
+
 ### 2026-09-29 — Game Config, Win Text and Localization ask before discarding unsaved work
 - **Wired the existing guard into the three pages** that tracked a dirty state but registered
   none (`/config`, `/win-text`, `/localization`): a tool-bar switch, Back, a reload or a tab close
