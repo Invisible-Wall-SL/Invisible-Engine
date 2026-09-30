@@ -17,8 +17,9 @@ tunnel** (⚙ _Run generation on_ = My computer). Nothing in production depends 
 being up. See docs/INFRA.md for the diagram and the service/env tables.
 
 - **Railway (one project, env `production`):** launcher (`app.invisiblewall.org`), `atlas-tool`,
-  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`), + Postgres. All auto-deploy from GitHub
-  `main`; the repo-root Python services and the test server rebuild only on their Watch Paths.
+  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`) and Postgres. All auto-deploy
+  from GitHub `main`; the repo-root Python services and the test server rebuild only on their
+  Watch Paths.
 - **Health:** the launcher's `/api/health` is a readiness check (DB + migrations); atlas-tool and
   sheet-tool `/healthz` name the running commit; the test server's `/healthz` reports its last
   hydrate and answers 503 when it serves nothing (#868). All four answered green on 2026-09-29.
@@ -60,15 +61,15 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    boot re-reads everything, which costs R2 request operations (R2 has no egress fees). Disk growth
    is bounded (lazy hydrate + "Clear local cache"), but **no `railway.json` confirms `/data` is
    persistent — verify whether already done.**
-3. **Launcher OOM-on-bake (Railway RAM):** the editor bake/export path has 502'd mid-bake from the
+2. **Launcher OOM-on-bake (Railway RAM):** the editor bake/export path has 502'd mid-bake from the
    launcher running out of memory (bake retries 5xx as a soft cover). Durable fix = more RAM on the
    launcher service / stream exports rather than buffering.
-4. **cloudflared as a Windows service** (`cloudflared service install`) so a person's tunnel
+3. **cloudflared as a Windows service** (`cloudflared service install`) so a person's tunnel
    survives reboots. Low priority — production generation does not use the tunnel.
-5. **Tool signing secrets have no dual-key window** — each tool verifies against one
+4. **Tool signing secrets have no dual-key window** — each tool verifies against one
    `*_TOOL_SIGNING_SECRET`, so rotating one signs everyone out of that tool for a short 403
    window. Accepting a previous secret during a rotation would close it.
-6. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
+5. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
    ad hoc; `apps/lines` sits at ~189–193 errors per the engine status). Needs it added as a
    devDependency, then a baseline-count gate.
 ## Blocked (owner / external)

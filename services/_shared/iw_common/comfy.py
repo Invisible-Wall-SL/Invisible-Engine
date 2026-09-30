@@ -36,4 +36,3 @@ def cf_headers() -> dict[str, str]:
         h["CF-Access-Client-Id"] = cid
         h["CF-Access-Client-Secret"] = sec
     return h
-

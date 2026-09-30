@@ -25,7 +25,7 @@ Railway auto-deploys each service from GitHub `main` on push. There is no manual
 ## Service-specific notes
 
 - **Launcher** (`Invisible launcher` project): serves `app.invisiblewall.org`. Has Postgres. Routes under `(app)/` require auth+role.
-- **atlas-tool**: on ⚙ *Run generation on* = *My computer* it calls ComfyUI over the `comfy.invisiblewall.org` tunnel with CF Access headers + a custom User-Agent (Cloudflare 403s `Python-urllib`). `atlas-tool` hydrates its staging from R2 **only at container start**, so after seeding R2 you must **restart it**.
+- **atlas-tool**: on ⚙ *Run generation on* = *My computer* it calls ComfyUI over the `comfy.invisiblewall.org` tunnel with CF Access headers + a custom User-Agent (Cloudflare 403s `Python-urllib`). `atlas-tool` hydrates its staging from R2 at start and per project on first use, then only on **↻ Refresh from R2** — after changing R2 data out-of-band, refresh; don't assume the staged copy is current.
 
 ## Secrets
 
