@@ -729,6 +729,72 @@ ours, but they live inside Railway and are deleted with the volume.
 - `games` = CNAME → Railway (the test server), **DNS-only** as well.
 - `comfy` = the named tunnel (proxied/orange, behind Access).
 
+## Branch ruleset on `main` (GitHub)
+
+The repo is public, so rulesets are free. One **active** branch ruleset named `main` (id
+`24185070`, GitHub → Settings → Rules → Rulesets) protects the default branch. It is set by the
+owner only; agents never change repository settings.
+
+**The ruleset, exactly:**
+
+| Setting | Value |
+|---|---|
+| Enforcement status | **Active** |
+| Bypass list | **empty** (nobody bypasses — owner included) |
+| Target branches | **Include default branch** (`main`) |
+| Restrict deletions | **on** |
+| Block force pushes | **on** |
+| Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
+| Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` |
+
+Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
+gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each
+time `main` moves.
+
+**Where the names come from:** `check-all (n/3)` and `python tests` are the jobs in
+`.github/workflows/checks.yml`, `eslint` is `.github/workflows/lint.yml`, `check-secrets` is
+`.github/workflows/secrets.yml`. Renaming a job or the `check-all` matrix renames the check — change
+the ruleset in the same PR, or every PR waits on a check that no longer exists.
+
+**Why a docs-only PR is not blocked:** none of these workflows uses `paths-ignore` (a required check
+skipped that way never reports and the PR waits forever). Checks and Lint always run; their first
+step, `.github/actions/code-changed`, diffs the PR (merge commit vs its base parent) or the push
+(`before..HEAD`), and when every changed file is `docs/**`, `.claude/**` or `*.md` it skips every
+later step, so each job reports success in ~10 s without installing anything. An undecidable diff
+(force-push, new branch) runs everything.
+
+**State (2026-09-30):** the ruleset already has deletions, force pushes, PR-required (0 approvals)
+and `check-secrets` required. The owner's remaining step is to add the other five checks. From a
+terminal with an admin token, the whole ruleset in one call:
+
+```bash
+gh api -X PUT repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --input - <<'EOF'
+{"name":"main","target":"branch","enforcement":"active","bypass_actors":[],
+ "conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},
+ "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
+  {"type":"pull_request","parameters":{"required_approving_review_count":0,
+   "dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,
+   "require_last_push_approval":false,"required_review_thread_resolution":false,
+   "require_extra_approval_for_unattributed_changes":true,
+   "allowed_merge_methods":["merge","squash","rebase"]}},
+  {"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,
+   "do_not_enforce_on_create":false,"required_status_checks":[
+    {"context":"check-all (1/3)","integration_id":15368},
+    {"context":"check-all (2/3)","integration_id":15368},
+    {"context":"check-all (3/3)","integration_id":15368},
+    {"context":"python tests","integration_id":15368},
+    {"context":"eslint","integration_id":15368},
+    {"context":"check-secrets","integration_id":15368}]}}]}
+EOF
+```
+
+`15368` is the GitHub Actions app, so a status of the same name posted by anything else does not
+satisfy the check. Verify afterwards with
+`gh api repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`
+— six names. With no bypass, a direct `git push origin main` is refused: every change lands through
+a PR.
+
 ## Security / secret rotation
 
 A rotation runbook: where each secret lives, who reads it, and what to redeploy. Never paste a
