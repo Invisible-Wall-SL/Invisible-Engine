@@ -5676,8 +5676,8 @@ function renderSlotDetail(){
   // setup attachment exists — this is the "swap _base for _shine" step after duplicating.
   if (attName && regionNames.length){
     const cur = skeleton.getAttachment(slotIndex, attName);
-    if (!isLinkedMeshAtt(cur)){
-      const curPath = (cur && cur.path) || attName;
+    if (cur && !isLinkedMeshAtt(cur)){
+      const curPath = cur.path || attName;
       const rr = document.createElement("label");
       rr.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0 7px;color:var(--dim);";
       const rl = document.createElement("span"); rl.textContent = "replace"; rl.title = "swap this attachment's image, keeping its mesh/UVs/weights/deform"; rl.style.cssText = "width:54px;font-size:11px;";
@@ -6298,8 +6298,8 @@ function pivotEditable(){
   return { slotName: selSlot, slotIndex, attName, att, bone };
 }
 
-// The raw entry of the image the stage shows, where its pivot is stored (`ctx.slotName` is the
-// selected slot, which `rawDocAttEntry` resolves on).
+// The raw entry of the image the stage shows, where its pivot is stored. `rawDocAttEntry` resolves
+// on `selSlot`; every ctx comes from `pivotEditable()`, built from it.
 function pivotRawDef(ctx){
   return ctx ? rawDocAttEntry(ctx.attName) : null;
 }
