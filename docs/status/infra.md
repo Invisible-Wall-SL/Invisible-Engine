@@ -125,9 +125,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     number-picker 26 · engine-layout 296 (276 in its Node `scripts/`, no `@types/node`) · engine-game
     38 · pixi-svelte-storybook 43 · components-shared 25 · -ui-html 24 · -ui-pixi 23 · pixi-svelte
     14 · components-storybook 8 · components-pixi 7 · components-layout 1.
-  - The Windows-taken baseline matched CI in 16 of 17 packages. In `components-shared`, Windows
-    alone reports 7 `svelte(style)` "No Lingui config found" errors. The runner drops exactly that
-    error on win32 (`withoutPlatformNoise`), so the baseline is Linux's and a Windows run agrees.
+  - The Windows-taken baseline matched Linux CI in all 17 packages except for one flaky error. In
+    `components-shared`, 7 `svelte(style)` "No Lingui config found" errors appear on every Windows
+    run, and on 1 Linux CI run in 3 of the same baseline (a YAML-only PR, #916). That run failed.
+    The runner drops exactly that error on every platform (`withoutFlakyErrors`). Its root cause,
+    the style preprocessor sometimes failing to load `lingui.config.ts`, is not investigated.
   - CI time: `svelte-check (1/2)` 2m11s, `(2/2)` 1m52s, in parallel with the other checks.
   - Why lines is below the ad-hoc ~189 and the launcher below ~59: the runner `svelte-kit sync`s
     first, so `$app/*` / `./$types` resolve.
