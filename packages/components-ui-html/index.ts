@@ -1,5 +1,6 @@
 import Modals from './src/components/Modals.svelte';
 import BuyBonusConfirm from './src/components/BuyBonusConfirm.svelte';
+import RoundStartConfirm from './src/components/RoundStartConfirm.svelte';
 import MessageToast from './src/components/MessageToast.svelte';
 import GameVersion from './src/components/GameVersion.svelte';
 import GlobalStyle from './src/components/GlobalStyle.svelte';
@@ -19,6 +20,7 @@ export {
 	i18nDerived,
 	Modals,
 	BuyBonusConfirm,
+	RoundStartConfirm,
 	MessageToast,
 	GameVersion,
 	GlobalStyle,

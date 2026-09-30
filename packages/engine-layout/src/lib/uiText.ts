@@ -56,6 +56,9 @@ export const UI_TEXT = {
 	soundOff: 'SOUND OFF',
 	disable: 'DISABLE',
 	home: 'HOME',
+	history: 'HISTORY',
+	// Operator chrome — shown only where the operator's page declares it
+	sessionTime: 'SESSION TIME',
 	// Bet menu
 	betMenu: 'BET MENU',
 	selectYourBet: 'SELECT YOUR BET',
@@ -84,6 +87,9 @@ export const UI_TEXT = {
 	connectionLost: 'Connection lost',
 	connectionLostInfo: 'Your game is safe. Reload to continue.',
 	reload: 'Reload',
+	// Confirm-before-round (the operator's `confirmGameRoundStart`)
+	roundConfirmTitle: 'START GAME ROUND',
+	roundConfirmMessage: 'Place this bet and start a new game round?',
 } as const;
 
 export type UiTextKey = keyof typeof UI_TEXT;
@@ -113,6 +119,8 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 	soundOff: 'Menu',
 	disable: 'Menu',
 	home: 'Menu',
+	history: 'Menu',
+	sessionTime: 'HUD',
 	betMenu: 'Bet menu',
 	selectYourBet: 'Bet menu',
 	confirm: 'Bet menu',
@@ -136,6 +144,8 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 	connectionLost: 'Connection',
 	connectionLostInfo: 'Connection',
 	reload: 'Connection',
+	roundConfirmTitle: 'Round confirm',
+	roundConfirmMessage: 'Round confirm',
 };
 
 /** One rule block on the info page: a heading and its body copy. */
@@ -186,18 +196,60 @@ export const UI_INFO_RTP_RULE: UiInfoRule = {
 };
 
 /**
- * The rules page with the game's figures: the MAX WIN block carries the cap (`5,000× BET`, from
- * strings every game already translates), and the RTP block is added. Each figure is optional and
- * already formatted — an absent one leaves the page as it was (`rtp` is absent whenever the operator
- * has not allowed it).
+ * The blocks an OPERATOR's declaration adds to the rules page, each only when its flag is stated
+ * (`showBuyBonusPayback`, `showHighChancePayback`, `showBetRanges`, `showCreditValue`) and its figure
+ * is known. Kept apart from {@link UI_INFO_RTP_RULE} only so each can be switched on alone.
  */
-export function infoRulesWithFigures(figures: { rtp?: string; maxWin?: string }): UiInfoRule[] {
+export const UI_INFO_OPERATOR_RULES = {
+	buyRtp: {
+		heading: 'BUY FEATURE RTP',
+		body: 'The theoretical return to player when the feature is bought.',
+	},
+	anteRtp: {
+		heading: 'HIGH CHANCE RTP',
+		body: 'The theoretical return to player while the higher-chance bet is active.',
+	},
+	betRange: {
+		heading: 'BET RANGE',
+		body: 'The lowest and highest total bet this game offers.',
+	},
+	creditValue: {
+		heading: 'CREDIT VALUE',
+		body: 'The value of one credit.',
+	},
+} as const satisfies Record<string, UiInfoRule>;
+
+export interface InfoRuleFigures {
+	rtp?: string;
+	maxWin?: string;
+	buyRtp?: string;
+	anteRtp?: string;
+	betRange?: string;
+	creditValue?: string;
+}
+
+/**
+ * The rules page with the game's figures: the MAX WIN block carries the cap (`5,000× BET`, from
+ * strings every game already translates), and the RTP block is added, followed by any block the
+ * operator declared. Each figure is optional and already formatted — an absent one leaves the page
+ * as it was (`rtp` is absent whenever the operator has not allowed it, and so is every operator
+ * block).
+ */
+export function infoRulesWithFigures(figures: InfoRuleFigures): UiInfoRule[] {
 	const rules = UI_INFO_RULES.map((rule) =>
 		rule.heading === 'MAX WIN' && figures.maxWin
 			? { ...rule, figure: { value: `${figures.maxWin}×`, unit: UI_TEXT.bet } }
 			: rule,
 	);
-	return figures.rtp ? [...rules, { ...UI_INFO_RTP_RULE, figure: { value: figures.rtp } }] : rules;
+	const added: UiInfoRule[] = [];
+	if (figures.rtp) added.push({ ...UI_INFO_RTP_RULE, figure: { value: figures.rtp } });
+	for (const key of Object.keys(
+		UI_INFO_OPERATOR_RULES,
+	) as (keyof typeof UI_INFO_OPERATOR_RULES)[]) {
+		const value = figures[key];
+		if (value) added.push({ ...UI_INFO_OPERATOR_RULES[key], figure: { value } });
+	}
+	return [...rules, ...added];
 }
 
 /**
@@ -216,7 +268,11 @@ export function collectUiTextStrings(): UiTextString[] {
 	for (const [name, source] of Object.entries(UI_TEXT) as [UiTextKey, string][]) {
 		add(source, UI_TEXT_GROUP[name]);
 	}
-	for (const rule of [...UI_INFO_RULES, UI_INFO_RTP_RULE]) {
+	for (const rule of [
+		...UI_INFO_RULES,
+		UI_INFO_RTP_RULE,
+		...Object.values(UI_INFO_OPERATOR_RULES),
+	]) {
 		add(rule.heading, 'Info page');
 		add(rule.body, 'Info page');
 	}

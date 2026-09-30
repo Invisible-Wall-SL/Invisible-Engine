@@ -1,7 +1,15 @@
 import { fromPromise } from 'xstate';
 
 import { API_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
-import { stateBet, stateBetDerived, stateUrlDerived, stateModal } from 'state-shared';
+import {
+	stateBet,
+	stateBetDerived,
+	stateUrlDerived,
+	stateModal,
+	stateOperator,
+	requestRoundStart,
+	spinClock,
+} from 'state-shared';
 import { requestBet, requestEndRound } from 'rgs-requests';
 import { captureRgsFailure } from 'error-tracking';
 
@@ -146,6 +154,17 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 
 	// newGame
 	const newGame = fromPromise(async () => {
+		// The operator's round-start confirmation, asked BEFORE `onNewGameStart` so a refused round
+		// never rolled. A refusal is a clean `bet: null` — the machine runs out through its empty
+		// play/end steps with no request and no error modal. Every paid round passes through here,
+		// autoplay and Space-hold rounds included; free spins never do.
+		const roundStart = requestRoundStart();
+		if (roundStart && !(await roundStart)) return { bet: null };
+
+		// The press is where this round's first spin STARTED (`minSpinDuration`), marked before the
+		// pre-spin so autoplay, Space hold and turbo — which skip the pre-spin — are timed the same.
+		if (stateOperator.minSpinDuration > 0 && !stateUrlDerived.replay()) spinClock.markPress();
+
 		await onNewGameStart();
 
 		const data = await handleRequestBet({ onError: onNewGameError });

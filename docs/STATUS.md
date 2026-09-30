@@ -97,9 +97,12 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    ([status/comfyui](status/comfyui.md) open item 9, [status/atlas-maker](status/atlas-maker.md)).
 3. **Delivery builds — the rest of Phase 2** ([design](design/delivery-builds.md)). Built: the
    profile + `config.json`, the embeddable `game.js`, server-supplied bet levels + jurisdiction
-   locks, and the handover (`EMBED.md`, `--zip`) in `build-delivery.mjs`. Open: the line/way bet
-   encoding, `minNormalBet`/`maxNormalBet` (units unconfirmed), the other host settings we still
-   answer ourselves, and the cascade vocabulary (waits on a real capture).
+   locks, every declared operator host setting (2026-09-30 — neutral when absent; field table in
+   [the protocol reference](reference/play4fun-protocol.md#host-settings--gamesettingsconfig-2026-09-30)),
+   and the handover (`EMBED.md`, `--zip`) in `build-delivery.mjs`. Open: the line/way bet
+   encoding, the host-setting meanings only the partner can confirm (`minNormalBet` units,
+   `errorPanel`, `historyClient` — the reference's owed list), and the cascade vocabulary (waits on
+   a real capture).
 4. **Concurrency Phase 3 — the person-level lease for the Python tools**, now unblocked because
    the signed launch token carries a real user id (#863)
    ([design](design/multi-user-concurrency.md)).

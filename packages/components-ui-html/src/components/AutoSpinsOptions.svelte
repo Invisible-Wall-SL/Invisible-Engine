@@ -1,33 +1,34 @@
 <script lang="ts">
 	import { getContextLayout } from 'utils-layout';
-	import { stateUi, AUTO_SPINS_TEXT_OPTIONS } from 'state-shared';
+	import {
+		stateOperator,
+		autoSpinsOptions,
+		selectedAutoSpinsOption,
+		setAutoSpinsOption,
+	} from 'state-shared';
 	import { OptionsGrid } from 'components-shared';
 
 	import BaseIcon from './BaseIcon.svelte';
 	import BaseButtonContent from './BaseButtonContent.svelte';
 
 	const { stateLayoutDerived } = getContextLayout();
-	const AUTO_SPINS_TEXT_OPTIONS_PORTRAIT = AUTO_SPINS_TEXT_OPTIONS.filter(
-		(value) => value !== '1000',
-	);
 
+	// The landscape grid drops `1000` from the DEFAULT ladder only: an operator's list is offered
+	// exactly as declared, so trimming it would hide an option their licence asked for.
 	const options = $derived(
-		stateLayoutDerived.layoutType() === 'landscape'
-			? AUTO_SPINS_TEXT_OPTIONS_PORTRAIT
-			: AUTO_SPINS_TEXT_OPTIONS,
+		stateLayoutDerived.layoutType() === 'landscape' && !stateOperator.autoplaySpins
+			? autoSpinsOptions().filter((value) => value !== '1000')
+			: autoSpinsOptions(),
 	);
+	const selected = $derived(selectedAutoSpinsOption());
 </script>
 
-<OptionsGrid
-	value={stateUi.autoSpinsText}
-	{options}
-	onchange={(value) => (stateUi.autoSpinsText = value)}
->
+<OptionsGrid value={selected} {options} onchange={(value) => setAutoSpinsOption(value)}>
 	{#snippet option({ option })}
 		<BaseIcon
 			width="100%"
 			height="2rem"
-			border={option === stateUi.autoSpinsText ? '2px white solid' : '2px black solid'}
+			border={option === selected ? '2px white solid' : '2px black solid'}
 		/>
 		<BaseButtonContent>
 			<span style="font-size: 1rem;" class:infinity={option === '∞'} data-test="round-options">

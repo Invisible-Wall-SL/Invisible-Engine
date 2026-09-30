@@ -27,7 +27,7 @@
 
 import { readHostGameSettings } from 'delivery-profile';
 
-import { PLAY4FUN_AMOUNT_MULTIPLIER, play4FunToEngine } from './gameMappings';
+import { amountScale, play4FunAmountMultiplier, play4FunToEngine } from './amounts';
 
 export interface ServerBetOptions {
 	/** Credit cost of each bet option at multiplier 1, indexed by the first bet-context argument. */
@@ -127,6 +127,51 @@ export const buildBetLadder = (
 	return { betLevels, defaultBetLevel: betLevels[index] ?? betLevels[0] };
 };
 
+/** The operator's stake bounds (`minNormalBet` / `maxNormalBet`), in CREDITS; null ⇒ unbounded. */
+export interface BetBounds {
+	minNormalBet: number | null;
+	maxNormalBet: number | null;
+}
+
+let warnedUnclampable = false;
+
+/**
+ * Drop the rungs outside the operator's stake bounds, and move an opening rung that fell outside to
+ * the nearest one left.
+ *
+ * The bounds are read as the lowest/highest TOTAL BASE stake in credits — the unit of everything
+ * else on this protocol (`betOptions`, `gameCost`, the `bet` event's `total`) — so a rung is compared
+ * as `level / amountScale()`, the same scale the facade prices every amount with. The partner has not
+ * confirmed that unit. So if the bounds would leave NO rung — what a misread unit looks like — the
+ * ladder is returned untouched and the mismatch is warned once: a wrong guess must cost a limit,
+ * never a game that cannot place a bet.
+ */
+export const clampBetLadder = (ladder: BetLadder, bounds: BetBounds): BetLadder => {
+	const { minNormalBet: min, maxNormalBet: max } = bounds;
+	if (min === null && max === null) return ladder;
+	const scale = amountScale();
+	const betLevels = ladder.betLevels.filter((level) => {
+		const credits = level / scale;
+		return (min === null || credits >= min) && (max === null || credits <= max);
+	});
+	if (betLevels.length === 0) {
+		if (!warnedUnclampable) {
+			warnedUnclampable = true;
+			console.warn(
+				`[play4fun] minNormalBet ${min} / maxNormalBet ${max} (credits) leave no rung of the ` +
+					`ladder [${ladder.betLevels.map((l) => l / scale).join(', ')}] — not clamped`,
+			);
+		}
+		return ladder;
+	}
+	const defaultBetLevel = betLevels.reduce((best, level) =>
+		Math.abs(level - ladder.defaultBetLevel) < Math.abs(best - ladder.defaultBetLevel)
+			? level
+			: best,
+	);
+	return { betLevels, defaultBetLevel };
+};
+
 /** Strip a `"0:buy bonus"` label down to a comparable key: the part after the colon, alphanumeric
  *  and lowercased, so `buybonus` matches the engine's `BUYBONUS` / `BUY_BONUS`. */
 const normaliseName = (name: string): string =>
@@ -223,6 +268,6 @@ export const betOptionCostRatios = (options: ServerBetOptions): Record<string, n
  * server has no meaning for a zero-multiplier bet.
  */
 export const multiplierForAmount = (displayAmount: number, options: ServerBetOptions): number => {
-	const credits = displayAmount * PLAY4FUN_AMOUNT_MULTIPLIER;
+	const credits = displayAmount * play4FunAmountMultiplier();
 	return Math.max(1, Math.round(credits / options.betOptions[0]));
 };

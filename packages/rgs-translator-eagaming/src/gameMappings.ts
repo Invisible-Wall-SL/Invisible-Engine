@@ -163,27 +163,3 @@ export const pickMappingForConfig = (cfg: { symbols?: readonly string[] }): Game
 /** Resolve a symbol name through the mapping. Unmapped names pass through. */
 export const mapSymbol = (mapping: GameMapping, name: string): string =>
 	mapping.symbols[name] ?? name;
-
-// ---------- amount conversion ----------
-
-/** The engine's API_AMOUNT_MULTIPLIER (constants-shared/bet.ts). Any amount the
- *  engine sends or receives is in millionths-of-a-dollar (1,000,000 = $1.00).
- *  We don't import constants-shared to keep this package free of internal
- *  engine deps; if that constant ever changes, override via env. */
-export const ENGINE_AMOUNT_MULTIPLIER = 1_000_000;
-
-/** Play4Fun uses integer cents (100 = $1.00). Conversion factor between the
- *  two: ENGINE_AMOUNT_MULTIPLIER / PLAY4FUN_AMOUNT_MULTIPLIER = 10,000. */
-export const PLAY4FUN_AMOUNT_MULTIPLIER = 100;
-
-export const AMOUNT_SCALE = ENGINE_AMOUNT_MULTIPLIER / PLAY4FUN_AMOUNT_MULTIPLIER; // 10_000
-
-/** Convert an engine API amount (millions) to Play4Fun cents. Used when sending
- *  bet contexts to a Play4Fun backend. Rounds to integer cents. */
-export const engineToPlay4Fun = (engineAmount: number): number =>
-	Math.round(engineAmount / AMOUNT_SCALE);
-
-/** Convert a Play4Fun cents amount to engine API millions. Used when adapting
- *  responses (balance, win, etc.) for engine consumption. */
-export const play4FunToEngine = (play4FunAmount: number): number =>
-	Math.round(play4FunAmount * AMOUNT_SCALE);

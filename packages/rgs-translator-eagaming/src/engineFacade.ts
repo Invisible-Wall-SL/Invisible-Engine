@@ -26,16 +26,23 @@
  */
 
 import { publishRgsConnection } from 'constants-shared/rgsConnection';
-import { getDeliveryProfile, hostBoolean, hostServicePath } from 'delivery-profile';
+import {
+	getDeliveryProfile,
+	hostBoolean,
+	hostServicePath,
+	readPageOperatorSettings,
+} from 'delivery-profile';
 
 import {
 	betOptionCostRatios,
 	betOptionIndexFor,
 	buildBetLadder,
+	clampBetLadder,
 	multiplierForAmount,
 	readHostBetSettings,
 	readServerBetOptions,
 	serverBetOptionEntries,
+	type BetLadder,
 	type ServerBetOptions,
 } from './betOptions';
 import { readMappedPaytable, type DeclaredPayEntry } from './paytable';
@@ -63,12 +70,11 @@ import type {
 } from './types';
 import {
 	mapSymbol,
-	engineToPlay4Fun,
-	play4FunToEngine,
 	resolveActiveMapping,
 	pickMappingForConfig,
 	type GameMapping,
 } from './gameMappings';
+import { engineToPlay4Fun, play4FunAmountMultiplier, play4FunToEngine } from './amounts';
 
 // ---------- mapping selection ----------
 
@@ -131,17 +137,33 @@ type EngineServerConfig = {
 	symbols: string[];
 	window?: { reels: number; rows: number };
 	paytable?: DeclaredPayEntry[];
+	/** `maxWinMp`, `symbolsPay.scatter` (mapped) and `maxWays` — compared, never adopted, like the
+	 *  paytable (`warnOnServerDeclarationDrift` in `engine-game`). Each only when declared. */
+	maxWinMp?: number[];
+	scatterSymbols?: string[];
+	maxWays?: number;
 };
+
+const positiveList = (value: unknown): number[] | null =>
+	Array.isArray(value) && value.length && value.every((n) => typeof n === 'number' && n > 0)
+		? (value as number[])
+		: null;
 
 const publishServerConfig = (cfg: Play4FunConfigContext): void => {
 	const mapNames = (names: unknown): string[] =>
 		Array.isArray(names) ? [...new Set(names.map((n) => mapSymbol(activeMapping, n)))] : [];
 	const paytable = readMappedPaytable(cfg, activeMapping);
+	const maxWinMp = positiveList(cfg.maxWinMp);
+	const symbolsPay = cfg.symbolsPay as { scatter?: unknown } | undefined;
+	const scatterSymbols = mapNames(symbolsPay?.scatter);
 	(globalThis as { __IE_SERVER_CONFIG__?: EngineServerConfig }).__IE_SERVER_CONFIG__ = {
 		availablePayLines: Array.isArray(cfg.availablePayLines) ? cfg.availablePayLines : [],
 		symbols: mapNames(cfg.symbols),
 		window: cfg.window,
 		...(paytable ? { paytable } : {}),
+		...(maxWinMp ? { maxWinMp } : {}),
+		...(scatterSymbols.length ? { scatterSymbols } : {}),
+		...(typeof cfg.maxWays === 'number' && cfg.maxWays > 0 ? { maxWays: cfg.maxWays } : {}),
 	};
 };
 
@@ -215,13 +237,20 @@ const refuseUnexpressibleMode = (mode: string) => {
  *
  * Only keys the operator actually stated are returned, so a launch outside an embed page (every
  * game we run today) is untouched.
+ *
+ * Autoplay has two spellings — `allowAutoplay: false` and the partner client's own
+ * `autoplayDisabled: true` — and EITHER forbidding it forbids it: a page that states both, one each
+ * way, is read as the stricter. It is stated-allowed only when some statement allows and none
+ * forbids; neither stated is silence.
  */
 const hostJurisdiction = (): Record<string, boolean> => {
 	const out: Record<string, boolean> = {};
 	const enableTurbo = hostBoolean('enableTurbo');
 	if (enableTurbo !== null) out.disabledTurbo = !enableTurbo;
 	const allowAutoplay = hostBoolean('allowAutoplay');
-	if (allowAutoplay !== null) out.disabledAutoplay = !allowAutoplay;
+	const autoplayDisabled = hostBoolean('autoplayDisabled');
+	if (allowAutoplay === false || autoplayDisabled === true) out.disabledAutoplay = true;
+	else if (allowAutoplay !== null || autoplayDisabled !== null) out.disabledAutoplay = false;
 	const allowOutcomeBuy = hostBoolean('allowOutcomeBuy');
 	if (allowOutcomeBuy !== null) out.disabledBuyFeature = !allowOutcomeBuy;
 	const showTheoreticalPayback = hostBoolean('showTheoreticalPayback');
@@ -1096,33 +1125,42 @@ export const requestAuthenticate = async (options: {
 	// declared its multipliers; otherwise the invented placeholder below, which is all a mock can
 	// offer. `buildBetLadder` returns null when either half is missing, so a server that declares
 	// options but is opened outside an embed page still falls back rather than shipping one rung.
+	// Either one is then held to the operator's `minNormalBet` / `maxNormalBet`, which bound the
+	// stake whichever side priced the ladder; with neither declared it passes through untouched.
 	const serverOptions = betOptionsFor(options.sessionID);
-	const ladder = serverOptions ? buildBetLadder(serverOptions, readHostBetSettings()) : null;
+	const ladder = clampBetLadder(
+		(serverOptions ? buildBetLadder(serverOptions, readHostBetSettings()) : null) ??
+			wholeCreditLadder({
+				betLevels: [
+					// PLACEHOLDER ladder — the client inventing limits the RGS never agreed to. Reached
+					// against a server that declares no `betOptions` (a lines-family game that sells
+					// nothing), and against one that does when no operator embed page declares
+					// `betMultipliers` (both our mocks' table games).
+					100_000, // $0.10
+					200_000, // $0.20
+					500_000, // $0.50
+					1_000_000, // $1.00
+					2_000_000, // $2.00
+					5_000_000, // $5.00
+					10_000_000, // $10.00
+					50_000_000, // $50.00
+					100_000_000, // $100.00
+				],
+				defaultBetLevel: 1_000_000,
+			}),
+		readPageOperatorSettings(),
+	);
 
 	return {
 		status: { statusCode: 'SUCCESS' as const },
 		balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
 		// Synthesised config so the bet UI boots. Levels in engine API units.
 		config: {
-			betLevels: ladder?.betLevels ?? [
-				// PLACEHOLDER ladder — the client inventing limits the RGS never agreed to. Reached
-				// against a server that declares no `betOptions` (a lines-family game that sells
-				// nothing), and against one that does when no operator embed page declares
-				// `betMultipliers` (both our mocks' table games).
-				100_000, // $0.10
-				200_000, // $0.20
-				500_000, // $0.50
-				1_000_000, // $1.00
-				2_000_000, // $2.00
-				5_000_000, // $5.00
-				10_000_000, // $10.00
-				50_000_000, // $50.00
-				100_000_000, // $100.00
-			],
+			betLevels: ladder.betLevels,
 			betModes: serverOptions
 				? betModesFromOptions(serverOptions)
 				: { BASE: { mode: 'BASE', costMultiplier: 1, feature: false } },
-			defaultBetLevel: ladder?.defaultBetLevel ?? 1_000_000,
+			defaultBetLevel: ladder.defaultBetLevel,
 			jurisdiction: {
 				socialCasino: false,
 				disabledFullscreen: false,
@@ -1148,6 +1186,21 @@ export const requestAuthenticate = async (options: {
 		},
 		round: resumed?.round,
 		_session: session.snapshot(),
+	};
+};
+
+/**
+ * A ladder priced in money, snapped to whole CREDITS — what the wire can actually stake. At the
+ * protocol's 0.01 every placeholder rung is a whole number of cents already, so nothing moves; under a
+ * declared `denom` a "$1.00" rung the credit cannot express (0.03 ⇒ 33.3 credits) would otherwise be
+ * shown as $1.00 and charged as $0.99. The rung becomes what is charged, duplicates collapse, and the
+ * opening rung follows its own snap.
+ */
+const wholeCreditLadder = (ladder: BetLadder): BetLadder => {
+	const snap = (level: number) => play4FunToEngine(Math.max(1, engineToPlay4Fun(level)));
+	return {
+		betLevels: [...new Set(ladder.betLevels.map(snap))].sort((a, b) => a - b),
+		defaultBetLevel: snap(ladder.defaultBetLevel),
 	};
 };
 
@@ -1282,14 +1335,14 @@ const resumeOpenRound = async (
 };
 
 /** `requestBet`: receive a user-display amount (e.g. 2 for $2.00) — same as
- *  the original rgs-requests does. Convert to Play4Fun cents (×100), send
+ *  the original rgs-requests does. Convert to Play4Fun credits, send
  *  bet+play (auto-collect), translate + adapt the response.
  *
  *  IMPORTANT: amount is in user-display units, NOT engine API millions.
  *  The engine's createPrimaryMachines.ts passes stateBet.betAmount directly
  *  (e.g. 2), and the original rgs-requests multiplies by API_AMOUNT_MULTIPLIER
  *  internally before sending. Our facade does the equivalent: user-amount ×
- *  PLAY4FUN_AMOUNT_MULTIPLIER (100) → cents. */
+ *  `play4FunAmountMultiplier()` (100 at the protocol's denom) → credits. */
 export const requestBet = async (options: {
 	sessionID: string;
 	currency: string;
@@ -1316,7 +1369,7 @@ export const requestBet = async (options: {
 	session.startRound();
 
 	// User-display dollars → Play4Fun cents.
-	const play4FunAmount = Math.max(1, Math.round(options.amount * 100));
+	const play4FunAmount = Math.max(1, Math.round(options.amount * play4FunAmountMultiplier()));
 
 	const betBody: ReturnType<typeof buildBetActions> =
 		serverOptions && optionIndex !== null

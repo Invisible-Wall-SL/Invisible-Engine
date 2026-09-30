@@ -1,4 +1,7 @@
 export const zIndex = {
+	// The operator strip (clock, session time, HOME, HISTORY): over the canvas, under every modal —
+	// a modal the player opened must never have its corner covered by the operator's links.
+	chrome: 40,
 	modal: 50,
 	dialog: 100,
 	info: 150,

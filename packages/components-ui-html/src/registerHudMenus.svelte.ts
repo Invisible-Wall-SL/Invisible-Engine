@@ -14,17 +14,17 @@ import {
 	stateConfig,
 	closeModal,
 	openBetMenu,
-	stateUi,
 	armAutoSpins,
 	setAutoSpinsOption,
 	setAutoSpinsLossLimitOption,
 	setAutoSpinsSingleWinLimitOption,
-	AUTO_SPINS_TEXT_OPTIONS,
-	AUTO_SPINS_TEXT_OPTION_MAP,
-	LOSS_LIMIT_TEXT_OPTIONS,
-	AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP,
-	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
-	AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP,
+	autoSpinsOptions,
+	lossLimitOptions,
+	singleWinLimitOptions,
+	selectedAutoSpinsOption,
+	selectedLossLimitOption,
+	selectedSingleWinLimitOption,
+	autoSpinsOptionValue,
 } from 'state-shared';
 import { getContextEventEmitter } from 'utils-event-emitter';
 
@@ -63,35 +63,26 @@ export function registerHudMenus(): void {
 	registerRepeaterSources({
 		betOptions: repeaterSource(() => betOptionItems()),
 		autoSpinOptions: repeaterSource(() =>
-			optionItems(
-				AUTO_SPINS_TEXT_OPTIONS,
-				AUTO_SPINS_TEXT_OPTION_MAP,
-				stateUi.autoSpinsText,
-				(option) => setAutoSpinsOption(option),
+			optionItems(autoSpinsOptions(), selectedAutoSpinsOption(), (option) =>
+				setAutoSpinsOption(option),
 			),
 		),
 		autoSpinLossLimitOptions: repeaterSource(() =>
-			optionItems(
-				LOSS_LIMIT_TEXT_OPTIONS,
-				AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP,
-				stateUi.autoSpinsLossLimitText,
-				(option) => setAutoSpinsLossLimitOption(option),
+			optionItems(lossLimitOptions(), selectedLossLimitOption(), (option) =>
+				setAutoSpinsLossLimitOption(option),
 			),
 		),
 		autoSpinWinLimitOptions: repeaterSource(() =>
-			optionItems(
-				SINGLE_WIN_LIMIT_TEXT_OPTIONS,
-				AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP,
-				stateUi.autoSpinsSingleWinLimitText,
-				(option) => setAutoSpinsSingleWinLimitOption(option),
+			optionItems(singleWinLimitOptions(), selectedSingleWinLimitOption(), (option) =>
+				setAutoSpinsSingleWinLimitOption(option),
 			),
 		),
 	});
 
 	registerComponentValues({
-		autoSpins: valueSource(() => stateUi.autoSpinsText),
-		autoSpinsLossLimit: valueSource(() => stateUi.autoSpinsLossLimitText),
-		autoSpinsWinLimit: valueSource(() => stateUi.autoSpinsSingleWinLimitText),
+		autoSpins: valueSource(() => selectedAutoSpinsOption()),
+		autoSpinsLossLimit: valueSource(() => selectedLossLimitOption()),
+		autoSpinsWinLimit: valueSource(() => selectedSingleWinLimitOption()),
 		autoSpinsRemaining: valueSource(() => stateBet.autoSpinsCounter),
 	});
 
@@ -162,13 +153,13 @@ function betOptionItems(): RepeaterItem[] {
 }
 
 /**
- * One ladder of TEXT options as tiles — the shape all three autoplay lists share (`'100'`, `'25×'`,
- * `'∞'`). The option text is both the key and the label; `value` is its number from the matching
- * multiplier map (`Infinity` for `∞`), so a flow action can consume the press numerically.
+ * One LIVE ladder of TEXT options as tiles — the shape all three autoplay lists share (`'100'`,
+ * `'25×'`, `'∞'`), the operator's list when its page declared one. The option text is both the key
+ * and the label; `value` is the number it means (`Infinity` for `∞`), so a flow action can consume
+ * the press numerically.
  */
 function optionItems(
 	options: readonly string[],
-	valueMap: Record<string, number>,
 	current: string,
 	commit: (option: string) => void,
 ): RepeaterItem[] {
@@ -176,7 +167,7 @@ function optionItems(
 		const selected = option === current;
 		return {
 			key: option,
-			value: valueMap[option],
+			value: autoSpinsOptionValue(option),
 			values: {
 				label: option,
 				selected,

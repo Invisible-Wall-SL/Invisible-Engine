@@ -10,3 +10,6 @@ export * from './src/continuePress';
 export * from './src/stateFullscreen.svelte';
 export * from './src/stateI18n.svelte';
 export * from './src/stateDebug.svelte';
+export * from './src/stateOperator.svelte';
+export * from './src/spinClock';
+export * from './src/roundConfirm.svelte';

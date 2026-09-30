@@ -1,25 +1,31 @@
 <script lang="ts">
-	import { stateUi, LOSS_LIMIT_TEXT_OPTIONS } from 'state-shared';
+	import {
+		lossLimitOptions,
+		selectedLossLimitOption,
+		setAutoSpinsLossLimitOption,
+	} from 'state-shared';
 	import { OptionsGrid } from 'components-shared';
 
 	import BaseIcon from './BaseIcon.svelte';
 	import BaseButtonContent from './BaseButtonContent.svelte';
 	import { i18nDerived } from '../i18n/i18nDerived';
+
+	const selected = $derived(selectedLossLimitOption());
 </script>
 
 <span class="title">{i18nDerived.lossLimit()}</span>
 
 <OptionsGrid
 	miniSize
-	value={stateUi.autoSpinsLossLimitText}
-	options={LOSS_LIMIT_TEXT_OPTIONS}
-	onchange={(value) => (stateUi.autoSpinsLossLimitText = value)}
+	value={selected}
+	options={lossLimitOptions()}
+	onchange={(value) => setAutoSpinsLossLimitOption(value)}
 >
 	{#snippet option({ option })}
 		<BaseIcon
 			width="100%"
 			height="2rem"
-			border={option === stateUi.autoSpinsLossLimitText ? '2px white solid' : '2px black solid'}
+			border={option === selected ? '2px white solid' : '2px black solid'}
 		/>
 		<BaseButtonContent>
 			<span
