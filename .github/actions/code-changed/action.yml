@@ -1,0 +1,50 @@
+# Did this PR / push change anything besides docs?
+#
+# Checks and Lint are meant to be REQUIRED status checks, and a required check has to report on
+# every PR — a workflow skipped by `paths-ignore` never reports, so a docs-only PR would wait on it
+# forever. Those jobs therefore always run and call this first: on a docs-only change every later
+# step is skipped (`if: steps.<id>.outputs.code == 'true'`) and the job passes in seconds, having
+# installed nothing. It is a step, not a gating job, because a job skipped by `if:` reports ONE
+# check with the matrix name unexpanded (`check-all (${{ matrix.shard }}/3)`), never the three.
+#
+# "Docs" is what paths-ignore used to skip: docs/**, any *.md, .claude/**. Anything the diff cannot
+# decide (an unreachable `before` after a force-push, a new branch, another event) counts as code.
+#
+# Needs the checkout to have fetched the PR merge commit's parent: `fetch-depth: 2`.
+
+name: code-changed
+description: Sets `code` to 'true' unless every changed file is docs, Markdown or .claude/.
+
+outputs:
+  code:
+    description: "'true' when a non-docs file changed (or the change set is unknown)"
+    value: ${{ steps.diff.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - id: diff
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        BEFORE: ${{ github.event.before }}
+      run: |
+        base=''
+        if [ "$EVENT" = pull_request ]; then
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+        elif [ "$EVENT" = push ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
+          base="$BEFORE"
+        fi
+        if [ -z "$base" ] || ! files="$(git diff --name-only "$base" HEAD)"; then
+          echo "::notice::change set unknown — running every step"
+          echo code=true >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        code="$(printf '%s\n' "$files" | grep -Ev '^$|^docs/|^\.claude/|\.md$' || true)"
+        if [ -n "$code" ]; then
+          printf 'non-docs changes:\n%s\n' "$code" | head -20
+          echo code=true >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::docs-only change — skipping the heavy steps"
+          echo code=false >> "$GITHUB_OUTPUT"
+        fi

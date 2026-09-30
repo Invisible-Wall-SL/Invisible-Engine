@@ -13,24 +13,19 @@
 #                      (CPU torch), and the backup job's CLI. No secrets exist here, and the runner
 #                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI.
 #
-# Not a required check today, which is what makes paths-ignore safe (see lint.yml for the caveat).
+# REQUIRED CHECKS: every job name here is a required status check on `main` (docs/INFRA.md
+# "Branch ruleset on main"), so the workflow runs on EVERY PR and push — no paths-ignore, which
+# would leave a docs-only PR waiting forever on a check that never reports. Each job's first step
+# after checkout (`.github/actions/code-changed`) skips the rest on a docs-only change, so those
+# still pass in seconds without installing anything. Renaming a job or the matrix renames the
+# required check: update the ruleset in the same change, or every PR blocks.
 
 name: Checks
 
 on:
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '*.md'
-      - '.claude/**'
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '*.md'
-      - '.claude/**'
 
 concurrency:
   group: checks-${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -47,18 +42,27 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
 
-      - uses: pnpm/action-setup@v5
+      - id: changes
+        uses: ./.github/actions/code-changed
 
-      - uses: actions/setup-node@v5
+      - if: steps.changes.outputs.code == 'true'
+        uses: pnpm/action-setup@v5
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
 
       # The Rigger's text spikes drive a real headless browser; the runner image ships Chrome.
       - name: offline checks
+        if: steps.changes.outputs.code == 'true'
         run: CHROME_PATH="$(command -v google-chrome)" pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4
 
   python:
@@ -67,8 +71,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
 
-      - uses: actions/setup-python@v6
+      - id: changes
+        uses: ./.github/actions/code-changed
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -80,10 +90,12 @@ jobs:
       # The backup job's pins are hash-checked, so they go in on their own; the services' floors
       # (boto3>=…) are then already satisfied by those exact pins.
       - name: install
+        if: steps.changes.outputs.code == 'true'
         run: |
           python -m pip install --require-hashes -r scripts/backup/requirements.txt
           python -m pip install -r services/atlas-tool/requirements.txt -r services/sheet-tool/requirements.txt requests numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: python tests
+        if: steps.changes.outputs.code == 'true'
         run: python scripts/check-python.py

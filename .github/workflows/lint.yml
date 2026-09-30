@@ -31,28 +31,17 @@
 
 name: Lint
 
-# Skipped for docs-only changes. None of the gates below reads Markdown — eslint, a narrow
-# tsc pass, a codegen check, and Node fixtures — so a docs commit can only ever pass, and every run
-# costs a full billed runner minute (47 of August 2026’s 420 commits to main were docs-only).
-# A change touching docs AND code still runs: paths-ignore skips only when EVERY changed file
-# matches. Safe to skip runs only because this is NOT a required status check today, so a skipped
-# run cannot wedge a PR as pending. (Branch protection is free on a PUBLIC repo; on Free it needs
-# Pro/Team only while the repo is private.) If Lint is ever made required, drop paths-ignore or
-# add a docs-only no-op job with the same name — a required check that never runs blocks merge.
+# `eslint` is a REQUIRED status check on `main` (docs/INFRA.md "Branch ruleset on main"), so it
+# runs on EVERY PR and push. It used paths-ignore for docs, but a required check skipped that way
+# never reports and a docs-only PR waits on it forever. Instead the first step after checkout
+# (`.github/actions/code-changed`) skips the rest on a docs-only change: none of the gates below
+# reads Markdown, so the job passes in seconds without installing anything (47 of August 2026's
+# 420 commits to main were docs-only). Renaming the job renames the required check: update the
+# ruleset in the same change, or every PR blocks.
 on:
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '*.md'
-      - '.claude/**'
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '*.md'
-      - '.claude/**'
 
 concurrency:
   group: lint-${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -64,17 +53,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
 
-      - uses: pnpm/action-setup@v5
+      - id: changes
+        uses: ./.github/actions/code-changed
 
-      - uses: actions/setup-node@v5
+      - if: steps.changes.outputs.code == 'true'
+        uses: pnpm/action-setup@v5
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
 
       - name: eslint
+        if: steps.changes.outputs.code == 'true'
         run: pnpm lint
 
       # Undefined-identifier gate — the ONE type error a `vite build` can never catch. An app's
@@ -88,6 +86,7 @@ jobs:
       # under this rule today, so any hit is new and real. A FULL type-check is still owed;
       # `docs/status/engine.md` records the debt it would have to clear first.
       - name: no undefined identifiers
+        if: steps.changes.outputs.code == 'true'
         run: pnpm check:undefined-names
 
       # Generated-fixture gate. `apps/lines/src/game/emitterVocabulary.ts` and the launcher's
@@ -101,6 +100,7 @@ jobs:
       # a generator that has no gate, three real entries stayed missing from the palette until #361
       # regenerated it. This is that gate.
       - name: flow vocabulary is up to date
+        if: steps.changes.outputs.code == 'true'
         run: node scripts/gen-flow-vocabulary.mjs --check
 
       # RGS gate — the client and the server must agree about MONEY, for all four win models.
@@ -115,11 +115,13 @@ jobs:
       # why a plain node script can now import the TS source) and asserts the one invariant that
       # only holds when both halves agree: finalWin ÷ 100 === round.payoutMultiplier.
       - name: rgs win models agree on money
+        if: steps.changes.outputs.code == 'true'
         run: pnpm check:rgs
 
       # Paytable + info-page figures — the import/partner-reference/drift contract `/config` and the
       # publish gate rely on, and the RTP / max-win rules copy every online game renders.
       - name: paytable and info-page figures
+        if: steps.changes.outputs.code == 'true'
         run: pnpm check:paytable && pnpm check:info-figures
 
       # Engine-game fixture gate — the win presentation's tap / hold / outro timeline and its
@@ -129,6 +131,7 @@ jobs:
       # happened to run it. The runner discovers every `*.fixture.ts` in the directory, so a new
       # fixture is gated without editing this file.
       - name: engine-game fixtures pass
+        if: steps.changes.outputs.code == 'true'
         run: pnpm check:engine-game
 
       # Launcher authorization gate. A gate that quietly stops refusing is invisible until someone
@@ -144,4 +147,5 @@ jobs:
       # `toolbar-icons` fails when an online tool is missing from one of the four hand-copied
       # tool-bar icon maps (rigger/spine view.html, atlas/sheet tool) — it renders iconless there.
       - name: launcher gates hold
+        if: steps.changes.outputs.code == 'true'
         run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm check:toolbar-icons

@@ -41,14 +41,19 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   launch tokens").
 - **Repo security settings are on** (the repo is public): secret scanning, push protection and an
   active ruleset on `main`; the `Secrets` workflow also scans every PR and push.
-- **CI runs every offline check** (`.github/workflows/checks.yml`, PRs + `main`, docs-only skipped):
+- **CI runs every offline check** (`.github/workflows/checks.yml`, every PR + push to `main`):
   `check-all (1/3…3/3)` runs `pnpm check:all --exclude-lint` — every fixture, `check-*`/`verify-*`/
   `smoke-*` script, launcher `check:*`, package test, headless spike and codegen `--check`,
   DISCOVERED by file pattern, minus what `Lint` already runs (read from `lint.yml`, so a gate is
   never run twice nor dropped). `python tests` runs `scripts/check-python.py`: every
   `services/*/test_*.py`, the ComfyUI-SemanticLayers suite on CPU torch, and the backup CLI. Every
   deliberate skip carries its reason (`pnpm check:all --list`); a Python test declares a need with
-  `# check: requires <module|network> — why`. **Not required checks yet** — see Open items.
+  `# check: requires <module|network> — why`.
+- **Every would-be required check reports on every PR** — `check-all (1/3…3/3)`, `python tests`,
+  `eslint`, `check-secrets`. Checks and Lint dropped `paths-ignore`; their first step
+  (`.github/actions/code-changed`) skips the rest on a docs-only change (`docs/**`, `.claude/**`,
+  `*.md`), so those jobs pass in ~10 s with no install. Only `check-secrets` is required so far — the
+  owner adds the other five (Blocked; exact ruleset in INFRA "Branch ruleset on `main`").
 
 ## Open items / next
 1. **Remove `atlas-backend`** — delete the Railway service, `services/atlas-backend/`, its Watch
@@ -66,15 +71,14 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 5. **Tool signing secrets have no dual-key window** — each tool verifies against one
    `*_TOOL_SIGNING_SECRET`, so rotating one signs everyone out of that tool for a short 403
    window. Accepting a previous secret during a rotation would close it.
-
-6. **Make the checks required (owner)** — branch protection on `main` for `check-all (1/3)`,
-   `check-all (2/3)`, `check-all (3/3)`, `python tests` (and `eslint` from Lint). Both workflows use
-   `paths-ignore` for docs, so making them required also needs a docs-only no-op job of the same
-   name, or a docs PR waits forever (see the note in `lint.yml`).
-7. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
+6. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
    ad hoc; `apps/lines` sits at ~189–193 errors per the engine status). Needs it added as a
    devDependency, then a baseline-count gate.
 ## Blocked (owner / external)
+- **Require the CI checks on `main` (owner, ~2 min):** add `check-all (1/3)`, `check-all (2/3)`,
+  `check-all (3/3)`, `python tests` and `eslint` to the existing `main` ruleset's required checks
+  (`check-secrets` is already there). The exact ruleset and a one-call `gh api` PUT are in INFRA
+  "Branch ruleset on `main`". The workflows already report all six on every PR, docs-only included.
 - **Nightly backups setup (owner, ~25 min; the workflow is a green no-op until done):** the full numbered list is "One-time owner setup" in [guides/backups](../guides/backups.md). In short:
   - Cloudflare: create R2 bucket `invisible-backups`. Add lifecycle rules `postgres/` 35 d, `r2-docs/` 90 d, `r2-assets/` 14 d, `_restore-drill/` 7 d, and abort multipart after 1 d. Add 7-day bucket-lock rules on the first three prefixes.
   - Cloudflare: create R2 tokens `backup-writer` (Object R&W, that bucket only) and `backup-source-reader` (Object Read, `invisibleassets` only).
@@ -99,6 +103,13 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **Every CI check the owner wants required now reports on every PR** (#PRNUM). Checks
+  and Lint dropped `paths-ignore`, which would have left a docs-only PR pending forever on a required
+  check. A composite action, `.github/actions/code-changed`, diffs the PR merge commit against its
+  base parent (or a push's `before..HEAD`) and, when only `docs/**`, `.claude/**` or `*.md` changed,
+  every later step is skipped — the job passes without installing anything. It is a step, not a
+  gating job, because a job skipped by `if:` reports the matrix name unexpanded. Job and matrix names
+  unchanged. Proof: PROOF. Closed open item 6; the ruleset change itself is the owner's (Blocked).
 - 2026-09-29 — **Test server: the refresh secret reaches it, and `/healthz` stops lying** (#868).
   - The launcher now sends `TEST_SERVER_SECRET` (a new launcher env var, as the
     `x-test-server-secret` header) on Game Maker Publish's and `register-game`'s `/refresh`
