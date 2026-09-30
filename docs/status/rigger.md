@@ -34,6 +34,13 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 4. **Localized text** — no rename for a text element (the id is the attachment name); a text element converted to a **mesh** cannot be width-fitted (its locales are linked meshes sharing the source hull); **persistent FX slots** (an always-on, keyable emitter living on the rig, the other half of §12.4a) are unbuilt.
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
 6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim.
+7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
+   task): `delete` on `symbols/l3` leaves "Path constraint not found: circle_path" — a dangling
+   reference after a bone delete, most likely a real bug; `transform` shows a 0.00° constraint effect
+   on ~12 lines rigs and "Transform constraint not found: particle_control2" on `mm_bg`; `synth`
+   miscounts regions on `buy_button` / `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`,
+   `fs_total_number`, `S`, `W`; `delete` moves one `mm_bg` vertex by 0.01; the mesh spikes throw on
+   `apps/price/.../symbolsSpecial`.
 
 ## Blocked (owner / external)
 
@@ -43,6 +50,21 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **The rigger spikes are a CI gate** (`Checks` workflow, `pnpm check:all`): every
+  spike with a usage line runs; the per-rig ones against `apps/lines/.../anticipation` (regions, a
+  weighted multi-influence mesh, an unweighted mesh, 12 path constraints), plus `W` for `sequence` /
+  `meshremove` and `S` for `retriangulate`. 59 runs, all green. Four harnesses had drifted, none
+  over a bug in shipped code:
+  - **`brush` / `weights`** assumed re-weighting a vertex never moves it. That holds only when its
+    per-bone offsets agree; a bone moved after binding leaves them up to 20 px apart (l1–l4), and
+    keeping the bind pose — what `view.html` does, and what Spine does — must then move the vertex
+    by `Σ Δwᵢ·pᵢ`. Both now PREDICT the landing point from the pre-edit data and assert it to 1e-3,
+    which is stricter than the old `< 0.01` (a 0.05 offset corruption now fails).
+  - **`rigtext-browser` / `rigtext-panel`** mocked the pre-7ac812b8 strings shape, asserted a width
+    growth eac50ae6 removed on purpose, and mocked a save without #832's conditional GET (so the
+    re-bake hung 40 s). They also never found Chromium on Linux; `CHROME_PATH` comes first now.
+    34/34 and 50/50.
 
 - 2026-09-29 — **Docs caught up**: the guide documents **Auto-weight to chain** (it said auto-weights were not built) and the current localized-text behaviour (every translation baked, auto re-bake on open); the design doc's §0/§9 now point here for progress. Status detail split into [rigger-history.md](rigger-history.md).
 - 2026-09-28 — **Multi-author-safe `.irig` save** (#832, live `dd31c4f4`): conditional save with
