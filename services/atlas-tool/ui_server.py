@@ -55,11 +55,14 @@ import model_provenance  # noqa: E402  (licence provenance of the models a rende
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
 import storage  # noqa: E402  (R2 object storage + staging mirror)
 import shared_taxonomy  # noqa: E402  (the one semantic taxonomy every render injects)
+import doc_sync  # noqa: E402  (compare-and-swap saves of manifests + atlas_config)
 from iw_common.diagnostics import canonical, diag, parse_diag_line  # noqa: E402
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpers)
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
+from iw_common import docsave  # noqa: E402  (saved_by stamp + the page precondition)
+from iw_common import lease  # noqa: E402  (the person-level "X is editing" soft lease)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -208,6 +211,75 @@ def _mirror(p: Path) -> None:
         storage.push_file(Path(p), f"{r2_prefix}/{rel}")
     except Exception:  # noqa: BLE001 — best-effort mirror
         pass
+
+
+def _doc_ref(p: Path) -> tuple[str | None, str, str]:
+    """(R2 key — None without R2 —, doc id = its path under staging, and the
+    manifest basename when it is one, for the authored-claim bookkeeping).
+    A path outside staging has no R2 twin — written locally only, exactly as
+    `_mirror` always treated it."""
+    try:
+        rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
+    except ValueError:
+        return None, Path(p).name, ""
+    r2_prefix = str(R2_PREFIX)
+    name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
+    return (f"{r2_prefix}/{rel}" if r2_prefix else None), rel, (
+        name if "/" not in name else "")
+
+
+def _authored_slugs() -> tuple[str, str]:
+    return (project_paths.r2_slug(project_paths.client_name()),
+            project_paths.r2_slug(project_paths.project_name()))
+
+
+def _sync_doc(p: Path, *, force: bool = False) -> None:
+    """Re-read an authored doc from R2 before it is loaded to be changed — see
+    doc_sync.py. Unreadable R2 is reported and staging used as-is; the commit then
+    CASes on the last version this process knew."""
+    key, rel, _name = _doc_ref(p)
+    if not key:
+        return
+    try:
+        doc_sync.sync(key, rel, Path(p), force=force)
+    except doc_sync.Unreadable as e:
+        print(f"[atlas] could not re-read {rel} from R2 ({e}); using staging",
+              flush=True)
+
+
+def _store_doc(p: Path, data: dict, *, user: bool, create: bool = False) -> str | None:
+    """THE write for a manifest or `atlas_config.json` — compare-and-swap in R2
+    (doc_sync.commit / create), never the blind `_mirror`. Raises
+    `docsave.DocConflict` when the precondition fails; the request dispatcher
+    turns that into the page's 409."""
+    key, rel, name = _doc_ref(p)
+    slugs = _authored_slugs()
+    if name:
+        # Claimed BEFORE the write and released once it is known to be in R2 —
+        # the same "not known to be in R2" meaning `_mirror` gives it.
+        project_paths.note_authored(*slugs, name)
+    in_r2 = False
+    try:
+        if create:
+            etag = doc_sync.create(key, rel, Path(p), data, user=user)
+        else:
+            etag = doc_sync.commit(key, rel, Path(p), data, user=user)
+        in_r2 = etag is not None or key is None
+        return etag
+    except docsave.DocConflict:
+        in_r2 = True  # nothing of ours reached staging; R2's copy is the truth
+        raise
+    finally:
+        if name and in_r2:
+            project_paths.clear_authored(*slugs, name)
+
+
+def _precheck_doc(p: Path) -> None:
+    """Refuse a stale page's edit BEFORE a handler touches anything else — for
+    handlers that write a shared key (a region's committed tile) ahead of their
+    manifest save, which a later refusal could not take back."""
+    key, rel, _name = _doc_ref(p)
+    doc_sync.precheck(key, rel)
 
 
 def _unmirror(p: Path) -> None:
@@ -1551,22 +1623,31 @@ def default_placeholder(key: str, typ: str, value) -> str:
 
 
 def load_config() -> dict:
+    _sync_doc(CONFIG_PATH)
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, OSError):
         # First run (empty R2/staging): seed a default so Settings works.
         cfg = dict(DEFAULT_CONFIG)
         try:
-            save_config(cfg)
-        except OSError:
+            # A CREATE: an unreadable staged copy must never become a default
+            # config written over a real one in R2.
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _store_doc(Path(CONFIG_PATH), cfg, user=False, create=True)
+        except (OSError, docsave.DocConflict, doc_sync.Unreadable):
             pass
         return cfg
 
 
-def save_config(cfg: dict) -> None:
+def save_config(cfg: dict, *, user: bool = False) -> None:
+    """`user=True` only for the Settings panel's own fields — an author's edit,
+    checked against the page's loaded version and stamped. Everything else that
+    writes the config (switching the active atlas, a deep-link, New/Duplicate
+    atlas) is a SELECTION: still compare-and-swap, but it neither asks the page
+    nor moves `saved_by.rev`, so two people switching atlases never read as one
+    overwriting the other's settings."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    _mirror(CONFIG_PATH)
+    _store_doc(Path(CONFIG_PATH), cfg, user=user)
 
 
 def active_manifest_name() -> str:
@@ -1609,12 +1690,20 @@ def creative_manifest_path() -> Path:
     if sel.lower().endswith(".atlas"):
         jp = MANIFEST_DIR / f"atlas_manifest_{Path(sel).stem}.json"
         if not jp.exists():
-            jp.write_text(json.dumps({
-                "atlas": {"atlas_file": sel},
-                "style": {"positive_prefix": "", "positive_suffix": "", "negative": ""},
-                "regions": [],
-            }, indent=2, ensure_ascii=False), encoding="utf-8")
-            _mirror(jp)
+            try:
+                _store_doc(jp, {
+                    "atlas": {"atlas_file": sel},
+                    "style": {"positive_prefix": "", "positive_suffix": "",
+                              "negative": ""},
+                    "regions": [],
+                }, user=False, create=True)
+            except docsave.DocConflict:
+                # Somebody (another container) created it first — theirs is it.
+                _sync_doc(jp, force=True)
+            except doc_sync.Unreadable:
+                # Unknown whether it exists: write nothing. An empty stub kept in
+                # staging would later be pushed over the real one.
+                pass
         return jp
     return MANIFEST_DIR / sel
 
@@ -2035,9 +2124,12 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
         }
         out_name = f"atlas_manifest_{stem}.json"
         out_path = MANIFEST_DIR / out_name
-        out_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
-                            encoding="utf-8")
-        _mirror(out_path)
+        try:
+            _store_doc(out_path, manifest, user=True, create=True)
+        except docsave.DocConflict:
+            # The recipe exists in R2 though not in this container's staging —
+            # the same "activate, never overwrite" rule as the check above.
+            _sync_doc(out_path, force=True)
 
         # --- Activate it. ---------------------------------------------------
         try:
@@ -2203,6 +2295,7 @@ def load_manifest() -> dict:
     longer a copy/ingest step here. load_manifest just parses + returns."""
     global _load_warning
     mp = manifest_path()
+    _sync_doc(mp)
     try:
         m = json.loads(mp.read_text(encoding="utf-8"))
         _load_warning = ""
@@ -2225,16 +2318,13 @@ def load_manifest() -> dict:
 
 
 def save_manifest(data: dict) -> None:
+    """An AUTHOR's save of the active manifest: compare-and-swap on the version
+    this request loaded, checked against the version the page loaded, stamped
+    `saved_by`. Raises `docsave.DocConflict` (→ the page's 409) when someone else
+    saved in between. Machine writes use `_write_manifest_at` instead."""
     mp = manifest_path()
     mp.parent.mkdir(parents=True, exist_ok=True)
-    # Claimed BEFORE the write, not just before the push: a prune landing between
-    # the two would unlink the file we just wrote, and the push would then find
-    # nothing to send and never release the claim.
-    project_paths.note_authored(
-        project_paths.r2_slug(project_paths.client_name()),
-        project_paths.r2_slug(project_paths.project_name()), mp.name)
-    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    _mirror(mp)
+    _store_doc(mp, data, user=True)
 
 
 def _refresh_manifest_from_r2(sel: str) -> None:
@@ -2981,17 +3071,38 @@ def _read_manifest_at(mp: Path) -> dict | None:
     config: a background render has to write back the manifest it rendered,
     not whichever one is active when it finishes. Region names (H1, L1, …)
     collide across atlases, so switching manifests mid-render would otherwise
-    apply one atlas's cleanup to another's regions."""
+    apply one atlas's cleanup to another's regions.
+
+    Always re-reads R2 first: this is the "fresh read under the lock" every
+    machine write merges onto, and it must be fresh against R2 — not just
+    against this process — or the write-back CASes on a version it never saw.
+    """
+    _sync_doc(mp, force=True)
     try:
         return json.loads(mp.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
 
-def _write_manifest_at(mp: Path, data: dict) -> None:
+def _write_manifest_at(mp: Path, data: dict) -> bool:
+    """A MACHINE write (render post-hook, FX rebuild, auto-pack, page pointer,
+    fit-mode repair, seeding) of the manifest at `mp`: compare-and-swap on the
+    version its `_read_manifest_at` just read, never checked against a page and
+    never stamped — so it cannot trip an author's precondition (docsave: a
+    matching `rev` is a merge).
+
+    When another container or tool wrote the doc between that read and this
+    write, the change is REBASED onto theirs (doc_sync.rebase) and retried; only
+    if that keeps losing is it dropped, logged, and False returned — callers
+    must not report it as done. Returns whether it landed."""
     mp.parent.mkdir(parents=True, exist_ok=True)
-    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    _mirror(mp)
+    try:
+        _store_doc(mp, data, user=False)
+        return True
+    except docsave.DocConflict as e:
+        print(f"[atlas] machine write to {mp.name} lost a race with another "
+              f"writer ({e.reason}) — not written; re-run to apply", flush=True)
+        return False
 
 
 def _drop_dangling_pick(name: str) -> bool:
@@ -3130,8 +3241,9 @@ def persist_region_fields(mp: Path, results: dict[str, dict],
                 fresh.setdefault("regions", []).append(r)
             r.update(fields)
             written.append(name)
-        if written:
-            _write_manifest_at(mp, fresh)
+        if written and not _write_manifest_at(mp, fresh):
+            # Lost to other writers even after rebasing: say so, never "done".
+            return [], sorted(results)
     return written, skipped
 
 
@@ -4095,7 +4207,10 @@ def publish_pack_page(mp: Path, started_at: float) -> str | None:
         atlas.pop("texturepacker_json", None)
         # `export_prefix` is deliberately LEFT: it is true provenance (where this
         # manifest came from) and it gates the ref auto-seed on activation.
-        _write_manifest_at(mp, m)
+        if not _write_manifest_at(mp, m):
+            return ("⚠ Composed page is in R2, but the manifest could not be "
+                    "repointed at it (other saves kept landing) — Create Atlas "
+                    "again." + tail)
     return (f"Page → {key}" + (f" (was {was})" if was and was != key else "")
             + tail)
 
@@ -4456,6 +4571,21 @@ try:
         encoding="utf-8")
 except OSError:
     COLOR_FIELD_JS = ""
+
+# The fetch wrapper that makes every save carry the version the page loaded and
+# answers a 409 with "reload theirs / overwrite with mine" (doc_sync.py), plus
+# the "X is editing this atlas" heartbeat. A separate file for the same reason as
+# color-field.js — no brace doubling, no Python eating its escapes — but NOT
+# optional: without it every save from the page goes unguarded, so a missing
+# file fails the import instead of degrading silently.
+DOC_GUARD_JS = (Path(__file__).resolve().parent / "doc-guard.js").read_text(
+    encoding="utf-8")
+
+
+def doc_guard_js(docs: dict, me: dict, doc: str) -> str:
+    return (DOC_GUARD_JS.replace("__IW_DOCS__", _js_json(docs))
+            .replace("__IW_ME__", _js_json(me))
+            .replace("__IW_DOC__", _js_json(doc)))
 
 
 # Blueprint exposed-params panel (B43 Phase 8). A static container the client
@@ -5367,6 +5497,7 @@ if(!HAS_PAGE){
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
+<script>{doc_guard_js}</script>
 <script>{color_field_js}</script>
 <script>
 /* Every region paints two thumbs (output + reference), so a 60-region atlas
@@ -5993,6 +6124,9 @@ async function saveCfg(btn){{
  let r=await fetch('/saveconfig',{{method:'POST',body:JSON.stringify(cfgData())}});
  let txt=await r.text();
  if(stat) stat.textContent=txt;
+ // Refused (someone else saved first and the author chose Cancel): keep the
+ // panel as typed — a reload would throw the edits away.
+ if(!r.ok) return;
  // The reload wipes this line, and 900ms is plenty for "Settings saved".
  // A LONGER reply is one the server went out of its way to write — the layout
  // switch reports how many regions just lost their rect, and the reload is
@@ -8087,6 +8221,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         merged = dict(extra_headers or {})
+        # Every doc this request loaded or wrote, as the page must now hold it
+        # (etag + saved_by.rev). The page's fetch wrapper adopts these for the
+        # docs it is showing, so its next save is based on what it just did —
+        # including on a 409, where an earlier doc of the same request landed.
+        vers = doc_sync.versions()
+        if vers:
+            merged.setdefault("X-IW-Doc-Versions", docsave.encode_versions(vers))
         # Default to no-store (config/JSON/HTML are dynamic). A caller that wants
         # a cacheable response (image routes, via imgcache.cache_headers) passes
         # its own Cache-Control, which then wins — don't emit both.
@@ -8295,6 +8436,19 @@ class Handler(BaseHTTPRequestHandler):
         self._responded = False
         try:
             fn()
+        except docsave.DocConflict as e:
+            # Somebody else saved the doc this request was about to write. JSON
+            # 409 for the page's fetch wrapper, which asks the author (reload
+            # theirs / overwrite with mine) — see DOC_GUARD_JS.
+            if not self._responded:
+                self._send(409, "application/json",
+                           json.dumps(e.payload()).encode("utf-8"))
+        except doc_sync.Unreadable as e:
+            if not self._responded:
+                self._send(503, "text/plain; charset=utf-8", (
+                    "✖ Couldn't reach storage to check whether someone else "
+                    f"saved this — nothing was saved. Try again. ({e})"
+                ).encode("utf-8"))
         except Exception as e:  # noqa: BLE001 — a silent drop is worse
             traceback.print_exc()
             errors.capture_request_error(self, e)
@@ -8305,6 +8459,8 @@ class Handler(BaseHTTPRequestHandler):
                            f"{type(e).__name__}: {e}".encode())
             except OSError:
                 pass  # client hung up first
+        finally:
+            doc_sync.end()
 
     def _get(self):
         if urllib.parse.urlparse(self.path).path == "/healthz":
@@ -8316,6 +8472,9 @@ class Handler(BaseHTTPRequestHandler):
         self._resolve_context()
         self._resolve_publish()
         path = urllib.parse.urlparse(self.path).path
+        # Only the page render re-reads its docs from R2 (it hands the page the
+        # versions it will save against); the polling GETs read staging.
+        doc_sync.begin(identity=getattr(self, "_identity", None), sync=path == "/")
         if path == "/":
             # Splash is for the *first* visit (launcher → browser). Subsequent
             # reloads (after editing a region, picking a picture, etc.) skip
@@ -8486,6 +8645,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._resolve_context()
         self._resolve_publish()
+        # A page that knows about saving safely says which version of each doc it
+        # is showing; a request without the header (a tab opened before this
+        # shipped, a script) is still compare-and-swapped, just never asked.
+        raw_bases = self.headers.get("X-IW-Doc-Bases")
+        doc_sync.begin(identity=getattr(self, "_identity", None), sync=True,
+                       bases=docsave.parse_bases(raw_bases) if raw_bases else None)
         length = int(self.headers.get("Content-Length", 0))
         # The tool's own page POSTs to BARE paths and carries its (client, project)
         # in cookies. The launcher proxy has no cookies, so it MUST append
@@ -8505,6 +8670,9 @@ class Handler(BaseHTTPRequestHandler):
         if post_path == "/taxonomy/get":
             self._send(200, "application/json",
                        json.dumps(self._taxonomy_get()).encode())
+        elif post_path == "/presence":
+            self._send(200, "application/json",
+                       json.dumps(self._presence(json.loads(raw or "{}"))).encode())
         elif post_path == "/taxonomy/save":
             self._send(200, "application/json",
                        json.dumps(self._taxonomy_save(json.loads(raw or "{}"))).encode())
@@ -9754,7 +9922,9 @@ class Handler(BaseHTTPRequestHandler):
         if page_only and not m.get("deploy_page_only"):
             try:
                 m["deploy_page_only"] = True
-                save_manifest(m)
+                # The tool's own decision, not an author's edit: a machine write
+                # (no stamp), so it never trips another open page.
+                _write_manifest_at(manifest_path(), m)
             except Exception:  # noqa: BLE001 — persistence is a convenience
                 pass
         # Page-only deploys ship JUST the page image(s); never a `.atlas` (the
@@ -10234,9 +10404,21 @@ class Handler(BaseHTTPRequestHandler):
         }
         try:
             MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
-            dest.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
-                            encoding="utf-8")
-            _mirror(dest)
+            # A create-only claim: the dialog's "already exists" check reads
+            # this page's list, which is as old as the page. Even a confirmed
+            # `overwrite` replaces only a version the author was SHOWN: the
+            # refusal goes back as a 409 naming who saved it, and the page's
+            # "Replace it" re-sends with that version as its base.
+            _store_doc(dest, manifest, user=True, create=True)
+        except docsave.DocConflict:
+            if payload.get("overwrite", False):
+                raise
+            _sync_doc(dest, force=True)
+            cfg = load_config()
+            cfg["manifest_path"] = fname
+            save_config(cfg)
+            return (f"⚠ An atlas '{shown}' was just created by someone else — "
+                    f"switched to it rather than overwriting. ✓ reload.")
         except OSError as e:
             return f"✖ Couldn't create the atlas: {e}"
         cfg = load_config()
@@ -10343,9 +10525,11 @@ class Handler(BaseHTTPRequestHandler):
         (new.get("atlas") or {}).pop("texturepacker_json", None)
         try:
             MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
-            dest.write_text(json.dumps(new, indent=2, ensure_ascii=False),
-                            encoding="utf-8")
-            _mirror(dest)
+            _store_doc(dest, new, user=True, create=True)
+        except docsave.DocConflict as e:
+            who = (e.saved_by or {}).get("name") or "someone"
+            return (f"✖ An atlas '{shown}' already exists (saved by {who}) — "
+                    f"pick another name.")
         except OSError as e:
             return f"✖ Couldn't create the atlas: {e}"
         cfg = load_config()
@@ -11097,7 +11281,17 @@ class Handler(BaseHTTPRequestHandler):
             (load_manifest().get("settings") or {}).get("bpParams") or {})
         if not isinstance(bp_param_values, dict):
             bp_param_values = {}
+        # The versions this page will save against: the active manifest and the
+        # config, as this request just re-read them from R2 (doc_sync.sync).
+        # Only those two — the page shows no other doc, and a version for one it
+        # does not show would let an edit pass as "seen" for it.
+        active_doc = _doc_ref(manifest_path())[1]
+        page_docs = {k: doc_sync.seen(k) for k in (active_doc, "atlas_config.json")
+                     if doc_sync.seen(k)}
+        ident = self._identity
+        me = {"uid": ident.uid, "sub": ident.sub, "name": ident.name}
         return PAGE.format(
+            doc_guard_js=doc_guard_js(page_docs, me, active_doc),
             color_field_js=COLOR_FIELD_JS,
             iw_toolbar=IW_TOOLBAR,
             iw_toolbar_css=IW_TOOLBAR_CSS,
@@ -11144,6 +11338,44 @@ class Handler(BaseHTTPRequestHandler):
             "summary": (rep.summary() if rep else ""),
             "ok": bool(rep.ok) if rep else True,
         }
+
+    def _presence(self, payload: dict) -> dict:
+        """The person-level soft lease (multi-user-concurrency.md Phase 3): one
+        heartbeat per open tab every 10 s, answering who ELSE holds the atlas it
+        shows, for the "X is editing this atlas" banner.
+
+        Advisory only. It blocks nothing — the compare-and-swap on every save is
+        what keeps work from being lost; this just makes the collision visible
+        before it happens. Fails open like every lease: an unreachable store
+        reports nobody. The holder is (user, tab), so the same person in two tabs
+        sees their own other tab named, not a stranger."""
+        doc = str(payload.get("doc") or "")
+        tab = str(payload.get("tab") or "")[:64]
+        stem = doc[len("manifests/"):] if doc.startswith("manifests/") else ""
+        prefix = str(R2_PREFIX)
+        if not stem or "/" in stem or not tab or "/" not in prefix:
+            return {"holder": None}
+        client, project = prefix.split("/", 1)
+        key = lease.LeaseKey("atlasMaker", client, project, Path(stem).stem)
+        ident = self._identity
+        holder = lease.LeaseHolder(str(ident.uid or ident.sub or "anonymous"), tab,
+                                   str(ident.name or ident.sub or ""))
+        if payload.get("release"):
+            lease.release(key, holder)
+            return {"holder": None}
+        if lease.acquire(key, holder):
+            return {"holder": None}
+        try:
+            row = lease.held_by(key)
+        except Exception:  # noqa: BLE001 — unreadable holds nobody
+            return {"holder": None}
+        if not row:
+            return {"holder": None}
+        return {"holder": {
+            "name": row.get("holderName") or "Someone",
+            "same_user": str(row.get("holderUserId") or "") == holder.user_id,
+            "since": int(row.get("acquiredAt") or 0),
+        }}
 
     def _taxonomy_save(self, payload: dict) -> dict:
         """Validate and store the shared taxonomy.
@@ -11255,12 +11487,13 @@ class Handler(BaseHTTPRequestHandler):
             img = Image.open(io.BytesIO(raw))
         except Exception as e:  # noqa: BLE001
             return _diag("SOURCE_IMAGE_INVALID", err=f"{type(e).__name__}: {e}")
+        m = load_manifest()
+        _precheck_doc(manifest_path())  # before the committed tile is replaced
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.convert("RGBA").save(INPUT_DIR / rel)
         _mirror(INPUT_DIR / rel)  # persist the user image to R2
         _drop_fx_snapshot(name)
-        m = load_manifest()
         r = self._ensure_region(m, name)
         if r is None:
             return _diag("REGION_NOT_FOUND", name=name)
@@ -11381,6 +11614,7 @@ class Handler(BaseHTTPRequestHandler):
         if not name:
             return _diag("REGION_NOT_FOUND", name=name)
         m = load_manifest()
+        _precheck_doc(manifest_path())  # before the committed tile is replaced
         region = next((r for r in all_regions(m) if r["name"] == name), None)
         if region is None:
             return _diag("REGION_NOT_FOUND", name=name)
@@ -11399,6 +11633,7 @@ class Handler(BaseHTTPRequestHandler):
         tile from its reference image. Never overwrites a region that already
         has a generated/committed image. One save_manifest for the whole op."""
         m = load_manifest()
+        _precheck_doc(manifest_path())  # before any committed tile is replaced
         names = payload.get("names") or None
         res = self._seed_refs_into_outputs(m, names=names, only_empty=True)
         if res["seeded"]:
@@ -11662,6 +11897,7 @@ class Handler(BaseHTTPRequestHandler):
         _layout_switch = ""
         _layout_lost = 0
         _layout_was_authored = False
+        global_dirty = False
         _num = cfg_num
 
         for k, v in edits.items():
@@ -11751,6 +11987,7 @@ class Handler(BaseHTTPRequestHandler):
                     manifest_dirty = True
             else:
                 apply_global_edit(cfg, k, v)
+                global_dirty = global_dirty or k != "manifest_path"
 
         if settings:
             m["settings"] = settings
@@ -11758,7 +11995,9 @@ class Handler(BaseHTTPRequestHandler):
             m.pop("settings", None)
         if manifest_dirty:
             save_manifest(m)
-        save_config(cfg)
+        # Only the Settings panel's own fields are an author's edit of the
+        # config; a bare dropdown switch is a selection (see save_config).
+        save_config(cfg, user=global_dirty)
         # Auto-seed on ACTIVATION (not on every render): when the Session
         # dropdown switches to a sheet-derived manifest (Sheet Maker stamps a
         # truthy `export_prefix`), fill its EMPTY atlas tiles from each

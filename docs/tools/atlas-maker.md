@@ -935,6 +935,28 @@ the launcher's signed launch token — same value as on the launcher),
 2026-10-13 cut-over), `IW_LEGACY_TOOL_KEY_UNTIL` (optional), `COMFY_CATALOG_URL` (optional; an always-on
 ComfyUI to read the Settings model lists from — see [INFRA](../INFRA.md)).
 
+## Working on the same atlas as someone else
+
+Nothing is locked — two people can have one atlas open — but nobody's save is silently lost:
+
+- **"👤 X is editing this atlas"** appears at the top when someone else has it open. It is a
+  heads-up, not a lock.
+- **Every save states which version it was made on.** If somebody else saved in between, the save is
+  refused and a dialog says who and when — *"Alice saved the atlas “coins” at 14:02, after this page
+  loaded"* (or *"… in the Sheet Maker"* when the sheet was re-exported). Choose:
+  - **Reload theirs** — the page reloads with their version; the change you just made is dropped.
+  - **Overwrite with mine** — your change is applied on top of their version (only if nobody has saved
+    again in the meantime — otherwise you are asked again).
+  - **Cancel** — nothing is saved; the page stays as it is.
+- **Renders don't count.** A render finishing, an FX rebuild or Create Atlas writing its layout does
+  not trigger the dialog — your next edit is simply applied on top of it.
+- **Switching atlases doesn't either** — only a real ⚙ Settings change can conflict with another
+  person's Settings change.
+- **"This page is showing a different atlas"** means the active atlas was switched in another tab
+  or by someone else since this page loaded; the only safe choice is Reload, so that is all it offers.
+- **＋ New atlas / ⧉ Duplicate** never replace an atlas somebody else just created under the same
+  name — New atlas switches to theirs, Duplicate asks for another name.
+
 ## Known gotchas / limitations
 
 - **A sheet you just exported from the Sheet Maker isn't in the manifest list.** The tool keeps

@@ -47,9 +47,11 @@ from PIL import Image, ImageSequence
 
 import atlas_writers
 import cloud_paths as project_paths
+import doc_sync
 import pack as packer
 import storage
 import video_runner
+from iw_common import docsave
 
 # Max page edge. 2048 is the same cap the from-scratch auto-pack atlas uses and
 # is safe on every target device.
@@ -325,6 +327,13 @@ def _write_page(
     staging = Path(pp["staging_root"])
 
     name = sheet if page_index == 0 else f"{sheet}_p{page_index}"
+    manifest_key = f"{r2}/manifests/atlas_manifest_{name}.json"
+    # The version this re-export replaces, read BEFORE anything is written: the
+    # manifest write below is If-Match on it (If-None-Match when there is none),
+    # so an author's save landing while the page is built is refused, not
+    # overwritten. RESIDUAL: by then this export's page + JSON are in R2 — they
+    # are the clip's own derived output, and exporting again re-pairs them.
+    cur = storage.get_with_etag(manifest_key)
     canvas = Image.new("RGBA", (packed["width"], packed["height"]), (0, 0, 0, 0))
     regions = []
     for r in packed["regions"]:
@@ -350,9 +359,9 @@ def _write_page(
     export_prefix = f"{r2}/sheets/{name}"
     page_key = f"{export_prefix}/{name}.png"
     tp_key = f"{export_prefix}/{name}.json"
-    manifest_key = f"{r2}/manifests/atlas_manifest_{name}.json"
 
     manifest = _build_manifest(name, packed, regions, page_key, tp_key, export_prefix)
+    docsave.stamp(manifest, doc_sync.ctx().identity, "flipbook")
     man_dir = Path(pp["manifest_dir"])
     man_dir.mkdir(parents=True, exist_ok=True)
     man_name = f"atlas_manifest_{name}.json"
@@ -360,14 +369,20 @@ def _write_page(
     ck = project_paths.r2_slug(project_paths.client_name())
     pk = project_paths.r2_slug(project_paths.project_name())
     project_paths.note_authored(ck, pk, man_name)
-    (man_dir / man_name).write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    blob = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
 
     storage.put(page_key, page_bytes, "image/png")
     storage.put(tp_key, tp_path.read_bytes(), "application/json")
-    storage.put(manifest_key,
-                json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8"),
-                "application/json")
+    try:
+        storage.put(manifest_key, blob, "application/json",
+                    if_match=cur[1] if cur else None,
+                    if_none_match=None if cur else "*")
+    except storage.Conflict:
+        project_paths.clear_authored(ck, pk, man_name)
+        raise ValueError(f"'{name}' was saved by someone else while this export "
+                         "ran — export again.") from None
+    # Staging only once R2 took it, so a refusal leaves staging as R2 has it.
+    (man_dir / man_name).write_bytes(blob)
     project_paths.clear_authored(ck, pk, man_name)
 
     return {

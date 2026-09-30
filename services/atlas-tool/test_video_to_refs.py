@@ -147,7 +147,19 @@ def stub_world(webp: bytes):
     (tmp / "atlas_config.json").write_text(
         json.dumps({"gen_width": GEN_W, "gen_height": GEN_H}), encoding="utf-8")
 
-    storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
+    def _etag(k):
+        return f'"{len(objects[k])}-{hash(objects[k]) & 0xffff}"'
+
+    def _put(k, b, c=None, *, if_match=None, if_none_match=None):
+        # The export's manifest write is a create-only claim now.
+        if if_none_match == "*" and k in objects:
+            raise storage.Conflict(k)
+        if if_match and (k not in objects or _etag(k) != if_match):
+            raise storage.Conflict(k)
+        objects[k] = b
+        return _etag(k)
+
+    storage.put = _put
     storage.get = lambda k: objects.get(k)
     video_to_refs.project_paths.resolve = lambda: {
         "r2_project_prefix": R2,

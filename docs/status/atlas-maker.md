@@ -11,6 +11,21 @@ launch token and stamps every render with model-licence provenance.
 ## Current state
 Works today on `main` / live:
 
+- **Saving alongside other people** _(2026-09-30)_ — every save of an atlas manifest,
+  `atlas_config.json` and every region edit is compare-and-swapped in R2 on the version the page loaded
+  ([design Phase 3b](../design/multi-user-concurrency.md), `doc_sync.py` + `doc-guard.js`,
+  `iw_common/docsave.py`). A write-intent load re-reads R2 into staging first, so an edit always lands on
+  R2's current version, never this container's stale copy. A save somebody beat is answered **409**
+  and the page asks: *"Alice saved the atlas “x” at 14:02, after this page loaded"* → **Reload
+  theirs** / **Overwrite with mine** (the same request re-sent `If-Match` on the version shown) /
+  Cancel. Render-pipeline writes never trip it (they move the ETag, not `saved_by.rev`, and the
+  author's next edit merges onto them); a render write that loses a race is rebased onto the winner,
+  not dropped. Switching atlases is a selection, not a settings edit. Creates are `If-None-Match`
+  claims; replacing a taken name asks, naming who holds it. A doc no author has saved since this
+  shipped asks once after a render ("changed since this page loaded"). A second person on the same
+  atlas sees **"👤 X is editing this atlas"** (`/presence`, advisory). `test_doc_conflicts.py` (114,
+  incl. a two-thread race, the review's walk-arounds as mutants, and the page wrapper under node).
+  ⏳ Not yet run live with two browsers.
 - **Three layouts, chosen per atlas** _(2026-09-17)_. `pack` (the packer owns the page: it
   measures the art, places it with MaxRects and OVERWRITES `atlas.width/height`), `grid` (the author
   owns the page: `grid_layout` READS `atlas.width/height/cell_width/cell_height` and never writes
@@ -78,7 +93,7 @@ Works today on `main` / live:
 2. **The re-pack/deploy frame guards are owed ONE live run (owner).** #684 + #686 are on `main` and everything about them is proved offline — real packer, real compose subprocess, real frame writer, 67 assertions, both guards proved against the behaviour they replace — but against a fake bucket and no GPU. **The run:** on a from-scratch atlas, generate two regions → Create Atlas → deploy; then delete one region's variant → Create Atlas → deploy again. **Pass =** the second deployed `.json` carries a frame for the surviving region ONLY, its `meta.size` equals the new page's real pixel size, and the deploy note names the dropped region. Distinct from item 3, which is the `.atlas`-BOUND compose/slice path — this one is a from-scratch `pack` atlas, and the guards only fire on that layout. 
 3. **`.atlas` compose/slice (B10 / Part A) — live browser smoke-test owed** against live R2 (Part B = repoint the stale Windows-path `atlas.atlas_file`/`source_image` fields, owner + R2 creds).
 5. **Per-user session isolation — planned, unbuilt** (design `atlas-per-user-session.md`): the active-manifest resolver is process-global, so two users on one project clobber each other's open selection + see each other's render progress. Phases 1–3 (thread `user` id → per-user overlay → per-user render state).
-6. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** (or earlier with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools) delete the legacy branch (`LaunchGate._legacy_gate`/`_legacy_scope`, `buildToolHandoff`'s unsigned path, the `bp` secret handling in `_resolve_publish`) and remove `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` from Railway. The person-level lease ([multi-user-concurrency](../design/multi-user-concurrency.md) Phase 3) can now key on the token's `uid`.
+6. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** (or earlier with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools) delete the legacy branch (`LaunchGate._legacy_gate`/`_legacy_scope`, `buildToolHandoff`'s unsigned path, the `bp` secret handling in `_resolve_publish`) and remove `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` from Railway. The person-level lease now keys on the token's `uid` (shipped 2026-09-30 — see item 14).
 7. **Blueprints: model auto-download** — picking, running and publishing are in live use; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7). **Advanced 2026-09-15, not closed:** `enrich_from_catalog` removes the blocker that made this unreachable for an uploaded blueprint (a derived declaration had no `url`/`base`, so nothing was ever installable) — but it is proved only against injected fixtures. **The live half is still owed: a real Manager, a real whitelist, a real download.**
 10. **The real *My computer* render over the tunnel is owed (owner).** The `http` transport has been off the production path since 2026-08-18; the new setting puts it back on demand. Start ComfyUI + the desktop launcher's tunnel, pick *My computer* in ⚙ Global settings, render one region. **Attempted 2026-09-07 and it got further than expected:** the request crossed the tunnel and ComfyUI answered — refusing the graph for a missing node pack, not a transport fault. So what is still owed is a render against a local ComfyUI whose node set actually matches (`services/atlas-comfy-pod/tools/sync-local-nodes.py`, then a ComfyUI restart, then the PuLID weights), or the same blueprint on RunPod. **Half of that is now done:** `sync-local-nodes.py` put `PuLID_ComfyUI` on the local box at the pinned SHA and, after a restart, the five `Pulid*` classes register and the preflight passes on the graph that failed (1152 classes, no pack lost). What is left is purely WEIGHTS - the PuLID SDXL ip-adapter and InsightFace `antelopev2` - so the render is still owed. See "Recent changes".
 
@@ -90,10 +105,28 @@ Works today on `main` / live:
     default switches (e.g. `rmbg_model` → BEN2, an optional SDXL LoRA slot) and a publish warning on
     `blocked`/`unknown` provenance, like Sound's licence summary.
 
+14. **Concurrent saving — the two-browser live run is owed.** Everything is proved offline
+    (`test_doc_conflicts.py`: a real two-thread race, a pipeline write, a stale container, the 409
+    through the dispatcher, the page wrapper under node) but never with two people. **The run:** two
+    profiles on one atlas → both see the "is editing" banner on the non-holder; A edits a prompt and
+    saves; B (not reloaded) edits the same prompt → B gets *"A saved the atlas … after this page
+    loaded"*; **Overwrite with mine** lands B's; A's next save is then asked about B. Then a render
+    by A while B edits: B's save must NOT be asked.
+
 ## Blocked (owner / external)
 _Nothing._
 
 ## Recent changes
+- 2026-09-30 — **Every save is compare-and-swapped; a conflict names who saved and asks.** Two people
+  on one atlas used to overwrite each other silently — and so did one container whose staging was
+  older than R2 (a rolling deploy, the Sheet Maker re-exporting the manifest). Now `doc_sync.py` is
+  the one write path for manifests + `atlas_config.json`: re-read R2 at load, `If-Match` on that
+  version at save, the page's own loaded version checked for author edits (`saved_by` stamped from
+  the signed identity), machine writes CAS-only. `doc-guard.js` wraps the page's `fetch` so all ~40
+  inline POSTs carry the page's versions and a 409 becomes the reload / overwrite prompt. Also: the
+  Flipbook's ref export claims its atlas name `If-None-Match`; a clip re-export is `If-Match`; the
+  "X is editing this atlas" banner (`/presence`, `iw_common/lease.py` + `holderName`). Design:
+  [multi-user-concurrency Phase 3b](../design/multi-user-concurrency.md). Live run owed (item 14).
 - 2026-09-30 — **The still path cancels a job before abandoning it** (`batch_atlas.py`
   `_runpod_run_and_wait`). A 404 on a job already read is re-read at +10/+30/+70/+150 s instead of
   given up on after 15 s (the 2026-09-07 `NOT_FOUND_GRACE_SECONDS` is gone), then the job is

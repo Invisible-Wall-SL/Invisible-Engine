@@ -92,13 +92,32 @@ def make_webp(frames: list[Image.Image], duration: int = 100) -> bytes:
     return buf.getvalue()
 
 
+def conditional_bucket(objects: dict, store) -> None:
+    """`store.put` / `store.get_with_etag` over `objects`, honouring the
+    preconditions the exports now send (a create-only claim on a new atlas, an
+    If-Match on the clip manifest a re-export replaces)."""
+    def etag(k):
+        return f'"{len(objects[k])}-{hash(objects[k]) & 0xffff}"'
+
+    def put(k, b, c=None, *, if_match=None, if_none_match=None):
+        if if_none_match == "*" and k in objects:
+            raise store.Conflict(k)
+        if if_match and (k not in objects or etag(k) != if_match):
+            raise store.Conflict(k)
+        objects[k] = b
+        return etag(k)
+
+    store.put = put
+    store.get_with_etag = lambda k: (objects[k], etag(k)) if k in objects else None
+
+
 def stub_world(webp: bytes, frame_count: int):
     """In-memory R2 + a temp staging root + a fake finished session."""
     tmp = Path(tempfile.mkdtemp(prefix="iw-v2c-"))
     objects: dict[str, bytes] = {}
     (tmp / "manifests").mkdir(parents=True, exist_ok=True)
 
-    video_to_clip.storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
+    conditional_bucket(objects, video_to_clip.storage)
     video_to_clip.project_paths.resolve = lambda: {
         "r2_project_prefix": "clientx/projecty",
         "staging_root": tmp,

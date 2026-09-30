@@ -76,8 +76,10 @@ from PIL import Image, ImageSequence
 
 import batch_atlas
 import cloud_paths as project_paths
+import doc_sync
 import storage
 import video_to_clip
+from iw_common import docsave
 
 # Hard ceiling on exported frames. Every frame here costs far more than a packed
 # tile: a full-resolution PNG written twice (staging + R2) AND a region someone
@@ -403,6 +405,7 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
         slug, regions, session_id=session_id, variation=int(variation),
         source=fname_src, picked=picked, stride=max(1, int(stride)), fps=fps,
         size=(width, height), page=page, settings=_gen_settings())
+    docsave.stamp(manifest, doc_sync.ctx().identity, "flipbook")
     blob = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
     man_dir.mkdir(parents=True, exist_ok=True)
     # Claimed from BEFORE the local write until the put is CONFIRMED: this
@@ -413,7 +416,17 @@ def build_ref_set(session_id: str, variation: int, *, name: str = "",
     pk = project_paths.r2_slug(project_paths.project_name())
     project_paths.note_authored(ck, pk, man_name)
     (man_dir / man_name).write_bytes(blob)
-    storage.put(f"{r2}/manifests/{man_name}", blob, "application/json")
+    try:
+        # Create-only in R2 too: the clash check above reads this container's
+        # staging, which does not see an atlas another container just made.
+        storage.put(f"{r2}/manifests/{man_name}", blob, "application/json",
+                    if_none_match="*")
+    except storage.Conflict:
+        (man_dir / man_name).unlink(missing_ok=True)
+        project_paths.clear_authored(ck, pk, man_name)
+        raise ValueError(
+            f"An atlas '{slug}' was just created by someone else — give this "
+            "export a different name.") from None
     project_paths.clear_authored(ck, pk, man_name)
 
     # `regions` and `frames` are the same number by construction — one region per
