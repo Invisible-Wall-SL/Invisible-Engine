@@ -32,17 +32,30 @@
       attachment loads, so the check lets those through. What the key reads must then be there:
       a deform key reads `vertices`, which only the `VertexAttachment`s have (mesh, linked mesh,
       bounding box, path, point, clipping — a region throws), and a sequence key reads
-      `attachment.sequence.id`, so it needs a region or mesh that declares a `sequence`.
+      `attachment.sequence.id`, so it needs a region or mesh that declares a `sequence`. Only an
+      ABSENT `type` means region: `getValue` defaults nothing else, so `type: null` is a type the
+      loader does not know, and it skips the attachment.
   - **The library save** calls `rigDocLoadProblem` before the name prompt (the refusal goes in the
     error banner, as for 💾 Save), and a server refusal shows its `message` in the status line
     instead of the raw JSON body.
   - **Out of the library** (found in review — a rig saved before these checks can already be in
     it). `resolveRigSkeletonBody` (＋ New rig → Apply saved rig, for `/api/rigger/new` and
     `/api/rigger/upload`) runs `irigDocProblem` on the library skeleton and answers 422 before
-    anything is written. `importRig` merges copies first and runs the tab's full parse on the
-    result; on a problem it shows **Import refused** with the reason and leaves the open rig
-    untouched and clean.
-  - **Verified.** `irig-save.mjs` 82/82: 16 named breaks on a synthetic rig, each pinned to the
+    anything is written. It runs the WHOLE check, so an older library rig that loads but breaks
+    one of its stricter rules (two bones of one name, a parent listed after its child) can no longer
+    be applied either — 💾 Save would refuse the rig made from it anyway. `importRig` merges copies
+    first and runs the tab's full parse on the result; on a problem it shows **Import refused**
+    with the reason — naming the open rig when that is what does not load on its own — and leaves
+    the open rig untouched and clean.
+  - **The import dropped the imported rig's events** (found in review, once the guard made it
+    visible). `prefixRigNames` renamed every other name and `mergeRigInto` copied everything else,
+    but neither touched `events`, so an imported animation's event keys named definitions the open
+    rig lacks ("Event not found") or silently took the open rig's same-named one. A rig's FX /
+    flipbook bindings ARE event keys, so every rig with bindings broke the rig it was imported into
+    — and, with the guard, was refused. The definitions now take the prefix like every other name,
+    every key is renamed, `mergeRigInto` copies them, and the prefix is chosen clear of the open
+    rig's events too.
+  - **Verified.** `irig-save.mjs` 83/83: 17 named breaks on a synthetic rig, each pinned to the
     loader's message (for a TypeError, the property it could not read) and to what the check
     names; 8 near misses the loader accepts, which the check must accept too; every checked-in rig
     loads (one stand-in region answers every atlas lookup) and passes — 153 rigs, 906 linked
@@ -50,20 +63,24 @@
     checked-in rig that has them, a missing parent, a missing skin and a renamed default skin (6
     rigs), a renamed animation skin / slot / attachment key (27 rigs) and a sequence key's
     attachment losing its `sequence` (21 rigs) make the loader throw and the check name the break;
-    and Apply refuses a broken library rig with a 422. The pre-change code fails 24 of these. 18
+    and Apply refuses a broken library rig with a 422. The pre-change code fails 25 of these. 19
     mutants are each caught: first / last skin swapped, an empty skin taken as a name, no mesh
     check on the parent, keys with no first key counted as reading, the implicit skin read as the
     linked mesh's own, a `""` skin allowed, the parent searched on every slot, no animation skin or
-    slot check, `type: "mesh"` not counted as linked, deform allowed on any type or only on
-    meshes, sequence keys allowed without a declared sequence, on any type, only on regions or
-    only on meshes, and the apply guard removed. The review's differential fuzzer ran 145,184
-    generated docs through the check and the loader: none the loader rejects is accepted, and the
-    only loadable docs refused are sequence linked meshes over a non-mesh parent, which crash on
-    their first frame. The real `view.html` in a browser against a mock API backed by the real
-    `irigDocProblem`, on `S`: the valid rig reaches the library; a broken parent and a missing-skin
-    deform key are refused before the name prompt with no request sent; a duplicate bone name (the
-    loader accepts it, the server refuses it) shows the server's message as text; a broken library
-    rig is refused on import with the open rig unchanged and not dirty, and a valid one still
+    slot check, `type: "mesh"` not counted as linked, `type: null` read as a region, deform
+    allowed on any type or only on meshes, sequence keys allowed without a declared sequence, on
+    any type, only on regions or only on meshes, and the apply guard removed. The review's two
+    differential fuzzers agree with the loader: 1,078 generated attachment-kind docs, every one;
+    and of 145,184 generated reference docs, none the loader rejects is accepted, and the only
+    loadable ones refused are sequence linked meshes over a non-mesh parent, which crash on their
+    first frame. `rigmerge.mjs` (the shipped merge, loaded by spine-core) now imports a rig whose
+    keys name an event the open rig lacks and one it defines differently: both load, each key
+    names the imported definition; the old merge fails it ("Event not found: fx_hit"). The real
+    `view.html` in a browser against a mock API backed by the real `irigDocProblem`, on `S`: the
+    valid rig reaches the library; a broken parent and a missing-skin deform key are refused
+    before the name prompt with no request sent; a duplicate bone name (the loader accepts it, the
+    server refuses it) shows the server's message as text; a broken library rig is refused on
+    import with the open rig unchanged and not dirty, and a valid one still
     imports. `pnpm check:all` 300/300.
   - **Still skipped by the server check** (open item 6), each probed to make the loader throw and
     each caught by the tab's full parse on both saves: a skin's `bones` / constraint lists, an

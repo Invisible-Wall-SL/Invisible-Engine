@@ -10,7 +10,10 @@
 //   - no bone/slot/skin/anim name collisions;
 //   - every imported animation is present;
 //   - weighted-mesh bone indices are in range;
-//   - the ORIGINAL rig's bones + anims are unchanged.
+//   - the ORIGINAL rig's bones + anims are unchanged;
+//   - EVENTS travel with the import: an imported key names the imported definition, under the
+//     prefix, even where the open rig defines an event of the same name (a rig's FX / flipbook
+//     bindings are event keys, so without this a rig with bindings could not be imported).
 //   node tools/rigger-spike/rigmerge.mjs [dstSkel.json dstAtlas] [srcSkel.json srcAtlas]
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
@@ -180,6 +183,28 @@ if (data) {
 	const importedBoneCount = (src.bones.length - 1); // minus dropped root
 	const gained = dst.bones.length - dstOrigBones.length;
 	log(gained === importedBoneCount, `bone count grew by exactly the imported bones (${dstOrigBones.length} → ${dst.bones.length}, +${gained}, want +${importedBoneCount})`);
+}
+
+// (7) events: the source keys one the open rig lacks and one it defines differently
+{
+	const host = JSON.parse(JSON.stringify(dstPair.raw));
+	host.events = { ...(host.events || {}), shared: { int: 1 } };
+	const lib = JSON.parse(JSON.stringify(srcPair.raw));
+	lib.events = { ...(lib.events || {}), shared: { int: 2 }, fx_hit: { string: 'boom' } };
+	lib.animations = lib.animations || {};
+	const anim = Object.keys(lib.animations)[0] ?? 'keyed';
+	lib.animations[anim] = { ...(lib.animations[anim] || {}), events: [{ time: 0, name: 'fx_hit' }, { time: 0.1, name: 'shared' }] };
+	prefixRigNames(lib, 'ev_');
+	mergeRigInto(host, lib, host.bones[0].name);
+	let merged = null;
+	try { merged = load(JSON.parse(JSON.stringify(host)), combinedAtlas); }
+	catch (e) { log(false, 'loader REJECTED a merge whose source keys events — ' + e.message); }
+	if (merged) {
+		const keyed = merged.findAnimation('ev_' + anim).timelines.find((t) => t.events)?.events ?? [];
+		const names = keyed.map((e) => e.data.name).join(', ');
+		log(names === 'ev_fx_hit, ev_shared', `imported event keys name the imported definitions (${names || 'none'})`);
+		log(merged.findEvent('ev_shared')?.intValue === 2 && merged.findEvent('shared')?.intValue === 1, "a same-named event keeps both definitions: the open rig's and the imported one");
+	}
 }
 
 console.log(pass ? '\n✅ PASS — namespaced rig-merge loads, stays valid, is lossless + collision-free.' : '\n✗ FAIL');

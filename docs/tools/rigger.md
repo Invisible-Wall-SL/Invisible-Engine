@@ -629,7 +629,8 @@ skeleton — for **both** art sources (project atlas and uploaded images). This 
 
 **Import into the open rig (namespaced merge).** _Import into open rig_ merges a saved
 rig into the live rig **without touching anything that's already there**. Every imported
-name (bones, slots, skins, constraints, **and** animations) is given a unique prefix —
+name (bones, slots, skins, constraints, events — so its FX / flipbook bindings come along —
+**and** animations) is given a unique prefix —
 `<rigname>_…`, bumped with a counter if needed — so nothing can collide; the imported
 root bone is dropped and its top-level children re-parent onto your selected bone (or
 the current root); imported bones are appended and the bone list is re-topo-sorted so

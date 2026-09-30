@@ -81,10 +81,12 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   its slot, and the attachment whenever a deform or sequence key reads it, which must then have
   vertices (deform) or a declared sequence (sequence). A library rig saved before these checks is
   refused when applied to a new rig (422, before anything is written) and when imported (the merge
-  is tried on a copy; the open rig is left untouched). `tools/rigger-spike/irig-save.mjs` pins each
-  rule against spine-core on a synthetic rig and on every checked-in rig (all 153 load and pass,
-  `S`'s 180 linked meshes included). The references it still skips are open item 6; a failed rig
-  switch found in review is open item 11.
+  is tried on a copy; the open rig is left untouched). The import also dropped the imported rig's
+  event definitions, so a rig with FX / flipbook bindings (event keys) broke the rig it was merged
+  into; its events now come along under the prefix (`rigmerge.mjs`).
+  `tools/rigger-spike/irig-save.mjs` pins each rule against spine-core on a synthetic rig and on
+  every checked-in rig (all 153 load and pass, `S`'s 180 linked meshes included). The references
+  it still skips are open item 6; a failed rig switch found in review is open item 11.
 
 - 2026-09-30 — **The Skin picker lists the rig's skins as they are, and every edit lands in the
   skin on stage.** The picker's options were built once, when the rig opened, and a `<select>`

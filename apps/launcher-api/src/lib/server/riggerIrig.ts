@@ -235,9 +235,9 @@ export function irigDocProblem(doc: unknown): string | null {
 				if (!parent) {
 					return `${where} names parent "${parentName}", which skin "${parentSkin.name}" does not have on that slot`;
 				}
-				const type = parent.type ?? 'region';
+				const type = attachmentType(parent);
 				if (!isMeshType(type)) {
-					return `${where} names parent "${parentName}", which is a ${String(type)}, not a mesh`;
+					return `${where} names parent "${parentName}", which is a ${type}, not a mesh`;
 				}
 			}
 		}
@@ -275,7 +275,7 @@ export function irigDocProblem(doc: unknown): string | null {
 							const where = `animation "${name}" keys attachment "${attachment}" on slot "${slotName}"`;
 							const target = skinAttachment(skin, slotName, attachment);
 							if (!target) return `${where}, which skin "${skinName}" does not have`;
-							const type = String(target.type ?? 'region');
+							const type = attachmentType(target);
 							if (reads.includes('deform') && !VERTEX_TYPES.has(type)) {
 								return `${where} with deform keys, but it is a ${type}, which has no vertices`;
 							}
@@ -310,6 +310,14 @@ function skinAttachment(
 	if (!isRecord(entries) || !Object.hasOwn(entries, name)) return undefined;
 	const a = entries[name];
 	return isRecord(a) ? a : undefined;
+}
+
+/**
+ * An attachment's type as SkeletonJson reads it: only an ABSENT `type` defaults to region, and an
+ * entry of any type it does not know (`null` included) is skipped, so nothing finds it.
+ */
+function attachmentType(a: Record<string, unknown>): string {
+	return a.type === undefined ? 'region' : String(a.type);
 }
 
 /** A mesh, linked or not — SkeletonJson reads a `parent` on either type as a linked mesh. */

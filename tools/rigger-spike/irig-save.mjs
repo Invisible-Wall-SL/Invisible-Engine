@@ -218,6 +218,7 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'an animation keys a sequence on an attachment its skin lacks': [(d) => { d.animations.idle.attachments.default.cape.ghost = { sequence: [{}] }; }, /reading 'sequence'/, /attachment "ghost" on slot "cape", which skin "default" does not have/],
 		'an animation deforms a region, which has no vertices': [(d) => { d.animations.idle.attachments.default.head = { head: { deform: [{}] } }; }, /reading 'length'/, /attachment "head" on slot "head" with deform keys, but it is a region/],
 		'an animation keys a sequence on a mesh that declares none': [(d) => { d.animations.idle.attachments.default.cape.cape = { sequence: [{}] }; }, /reading 'id'/, /attachment "cape" on slot "cape" with sequence keys, but it has no sequence/],
+		'an attachment typed null is one the loader skips, so its sequence keys find nothing': [(d) => { d.skins[0].attachments.cape.nul = { type: null, path: 'seq', sequence: { count: 1 }, width: 32, height: 32 }; d.animations.idle.attachments.default.cape.nul = { sequence: [{}] }; }, /reading 'sequence'/, /attachment "nul" on slot "cape" with sequence keys, but it has no sequence/],
 		'an animation keys a sequence on a bounding box (only a region or mesh reads one)': [(d) => { d.skins[0].attachments.cape.box = { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 32, 0, 32, 32], sequence: { count: 1 } }; d.animations.idle.attachments.default.cape.box = { sequence: [{}] }; }, /reading 'id'/, /attachment "box" on slot "cape" with sequence keys, but it has no sequence/],
 	};
 	for (const [label, [mutate, loaderSays, checkSays]] of Object.entries(named)) {
@@ -421,7 +422,7 @@ console.log('\n7. breaking a linked mesh or an animation attachment key in a che
 	}
 }
 
-console.log('\n8. ＋ New rig → Apply saved rig refuses a library rig that would not load, before anything is written');
+console.log('\n8. ＋ New rig → Apply saved rig: resolveRigSkeletonBody refuses a library rig that would not load');
 {
 	const store = (id, skeleton) => r2.objects.set(M.sharedRigKey(id), { text: JSON.stringify({ schemaVersion: 1, id, name: id, skeleton }), etag: '"lib"' });
 	store('fine', good());
