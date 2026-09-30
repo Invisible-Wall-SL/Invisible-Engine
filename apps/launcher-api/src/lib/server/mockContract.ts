@@ -352,7 +352,8 @@ function projectGrid(
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
 			return symbolPaytable ? { reels, rows, paylines, symbolPaytable } : undefined;
 		}
-		if (protocol === 'lines' && !paylines.length) return undefined;
+		// `holdAndWin` pays its base game by lines (and is dealt by the lines mock until its own lands).
+		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;
 		const wild = projectWild(doc);
 		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
 		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals

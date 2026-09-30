@@ -115,13 +115,14 @@ assert(
 	'ways engine-owned nodes retained',
 );
 
-// --- §19.8 engine-skeleton kinds: cluster / scatter ---
+// --- §19.8 engine-skeleton kinds: cluster / scatter / holdAndWin ---
 // Each must (a) return a full scene set, and (b) survive the scaffold projection
 // keeping its reelGrid + HUD scenes, dropping nothing it shouldn't (every scene
 // still emitted, since the skeletons carry only engine-owned nodes).
 const SKELETON_BOARDS = {
 	cluster: { reels: 7, rows: 7, cellSize: 80 },
 	scatter: { reels: 6, rows: 5, cellSize: 100 },
+	holdAndWin: { reels: 5, rows: 3, cellSize: 120 },
 };
 
 for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {

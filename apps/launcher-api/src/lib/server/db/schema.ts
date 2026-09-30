@@ -38,8 +38,8 @@ export const projects = pgTable('projects', {
 	/** Owning client; null = unassigned (the default `cloud` and legacy projects). */
 	clientKey: text('client_key').references(() => clients.key, { onDelete: 'set null' }),
 	/**
-	 * Game kind this project targets (lines/ways/cluster/scatter/bookOf — see
-	 * `GAME_KINDS` in `$lib/roles`). Picks the editor template + scaffold
+	 * Game kind this project targets (a built-in kind — see
+	 * `GAME_KINDS` in `constants-shared/gameKinds`). Picks the editor template + scaffold
 	 * projection. Nullable + no default: legacy rows and the seeded `cloud`
 	 * project stay null and fall back to `'lines'` via `projectGameType`.
 	 */

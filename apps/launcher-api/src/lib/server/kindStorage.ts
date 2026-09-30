@@ -1,5 +1,5 @@
 import type { LayoutDoc } from 'engine-layout';
-import { GAME_KINDS } from '$lib/roles';
+import { GAME_KINDS } from 'constants-shared/gameKinds';
 import { normalizeDoc } from './editorStorage';
 import { editorKindKey, sharedKindsPrefix } from './projectPaths';
 import { getObjectText, listAllObjects, putObjectText } from './r2';
@@ -88,7 +88,7 @@ export async function loadKind(id: string): Promise<CustomKind | undefined> {
  * contract first and throws a descriptive Error on a bad payload (the endpoint
  * maps it to 400), so a malformed kind can never be stored:
  * - `id` matches the slug rule;
- * - `id` does NOT collide with a built-in kind (`lines|ways|cluster|scatter|bookOf`);
+ * - `id` does NOT collide with a built-in kind (`GAME_KINDS`);
  * - `name` is non-empty;
  * - `doc` normalizes to a valid `LayoutDoc` with at least one scene.
  *

@@ -2,7 +2,7 @@
 /**
  * Invisible Flow — emitter-vocabulary codegen (design doc §3, Phase-7 held follow-up).
  *
- *   node scripts/gen-flow-vocabulary.mjs [--check]
+ *   node --experimental-strip-types scripts/gen-flow-vocabulary.mjs [--check]   (pnpm gen:flow-vocab)
  *
  * Turns a game's COMPILE-TIME emitter vocabulary into a serializable `EmitterVocabulary`
  * fixture so the `/flow` choreography palette can offer the game's ACTUAL Broadcast events +
@@ -26,6 +26,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import prettier from 'prettier';
+import { GAME_KINDS } from '../packages/constants-shared/gameKinds.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -64,10 +65,10 @@ const GAMES = [
 		label: 'lines',
 		// LayoutDoc `gameType` values this vocabulary serves (the editor selects by it). The
 		// lines union IS the SHARED RUNTIME's vocabulary — every game type built on `_runtime/lines`
-		// broadcasts exactly these cues — so it covers Book of Borut and a `ways` project too. A ways
-		// game adds no emitter event and no book event (its `BookEvent` union is a strict SUBSET of
-		// lines'), so listing it here is the whole of its palette wiring.
-		gameTypes: ['lines', 'bookOf', 'ways'],
+		// broadcasts exactly these cues — so it covers Book of Borut, a `ways` project and a
+		// `holdAndWin` one too. Derived from the one kind list, so a new kind gets it by default;
+		// `cluster`/`scatter` are left on `DEFAULT_EMITTER_VOCABULARY`, as they always have been.
+		gameTypes: GAME_KINDS.filter((kind) => kind !== 'cluster' && kind !== 'scatter'),
 		// Type-name → palette group + effect group label.
 		groups: {
 			EmitterEventBoard: 'Board',
@@ -367,7 +368,7 @@ const renderModule = (game, vocab) => {
  * Invisible Flow — apps/${game.key} EMITTER VOCABULARY (GENERATED — do not edit by hand).
  *
  * Source: \`${game.source}\` (the emitter union) + \`${game.flowEffects}\` (the effect catalog).
- * Regenerate: \`node scripts/gen-flow-vocabulary.mjs\`. Verified by \`flow-spike run vocab\`.
+ * Regenerate: \`pnpm gen:flow-vocab\`. Verified by \`flow-spike run vocab\`.
  *
  * This is the game's REAL Broadcast/effect vocabulary as DATA, fed to the \`/flow\` choreography
  * palette in place of the bundled \`DEFAULT_EMITTER_VOCABULARY\` (design doc §3, Phase 7). It is
@@ -404,7 +405,7 @@ const renderRegistry = (entries) => {
  * Invisible Flow — exported emitter vocabularies keyed by game (GENERATED — do not edit).
  *
  * Sources: each game's \`typesEmitterEvent.ts\` union + \`flowEffects.ts\` catalog.
- * Regenerate: \`node scripts/gen-flow-vocabulary.mjs\`. Verified by \`flow-spike run vocab\`.
+ * Regenerate: \`pnpm gen:flow-vocab\`. Verified by \`flow-spike run vocab\`.
  *
  * The \`/flow\` choreography palette offers the game's REAL Broadcast events + effect names
  * instead of the bundled \`DEFAULT_EMITTER_VOCABULARY\` (design doc §3, Phase 7). The launcher
@@ -445,7 +446,7 @@ const emit = async (outRel, raw, note) => {
 	if (check) {
 		if (current.replace(/\r\n/g, '\n') !== next) {
 			stale++;
-			console.error(`✗ ${outRel} is STALE — run: node scripts/gen-flow-vocabulary.mjs`);
+			console.error(`✗ ${outRel} is STALE — run: pnpm gen:flow-vocab`);
 		} else {
 			console.log(`✓ ${outRel} is up to date${note ? ` (${note})` : ''}`);
 		}

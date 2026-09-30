@@ -57,7 +57,7 @@ if (!GAME_KEY_RE.test(gameKey)) {
 // Matches MOCK_PROTOCOLS in services/test-server/server.mjs. It is only the FALLBACK once the game
 // is pinned to a project: the test server then reads the protocol, grid, symbol pool, cascade and
 // paytable from the project's LIVE config, which is the one place they cannot go stale.
-const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter'];
+const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin'];
 const protocol = flag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
 if (!MOCK_PROTOCOLS.includes(protocol)) {
 	console.error(`Unknown --protocol '${protocol}' — one of ${MOCK_PROTOCOLS.join(', ')}.`);

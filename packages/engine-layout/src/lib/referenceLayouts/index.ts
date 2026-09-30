@@ -1,6 +1,7 @@
 import type { LayoutDoc } from '../types';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
+import { holdAndWinReferenceLayout } from './holdAndWin';
 import { defaultLayout } from './lines';
 import { scatterReferenceLayout } from './scatter';
 import { waysReferenceLayout } from './ways';
@@ -10,6 +11,7 @@ export { bookofReferenceLayout } from './bookof';
 export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
+export { holdAndWinReferenceLayout } from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
 // editor's "Add HUD layer" action + a game's fallback doc.
 export {
@@ -53,6 +55,8 @@ const FULL_SCENE_SOURCES: Record<string, { name: string; build: () => LayoutDoc;
 		ways: { name: 'Ways', build: () => waysReferenceLayout(), filled: true },
 		cluster: { name: 'Cluster', build: () => clusterReferenceLayout() },
 		scatter: { name: 'Scatter', build: () => scatterReferenceLayout() },
+		// A 5×3 engine-skeleton placeholder until Hold and Win Phase 6 ships the real template.
+		holdAndWin: { name: 'Hold and Win', build: () => holdAndWinReferenceLayout() },
 	};
 
 export function getFullSceneSet(gameType: string): LayoutDoc | undefined {

@@ -253,7 +253,16 @@ const sellableGrid = (grid, runtime) => {
 	return board;
 };
 
-const makeMock = (protocol, label, grid, gameKey, cascade, runtime) => {
+/**
+ * Protocols the manifest may name that have no mock of their own yet, and the mock that deals them
+ * meanwhile. `holdAndWin` is dealt by the lines mock until Hold and Win Phase 3 builds its mock
+ * (docs/design/hold-and-win.md): its base game pays lines, so the project boots and plays as a lines
+ * game, with no respin feature.
+ */
+const MOCK_FALLBACKS = { holdAndWin: 'lines' };
+
+const makeMock = (declared, label, grid, gameKey, cascade, runtime) => {
+	const protocol = Object.hasOwn(MOCK_FALLBACKS, declared) ? MOCK_FALLBACKS[declared] : declared;
 	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
 	// authored line table, so it pays (and declares) what `/config` set rather than its captured one.
 	if (protocol === 'book') return createBookMock({ label, symbolPaytable: grid?.symbolPaytable });
@@ -480,7 +489,7 @@ const AUTHORING = 'authoring';
 const contractSourceFor = (meta, channel) =>
 	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
 
-const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter']);
+const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin']);
 
 /** Normalize a contract from EITHER source (manifest snapshot or live endpoint) into what
  *  `makeMock` consumes. Both go through `validGrid`, so the live answer gets the same defensive
@@ -823,9 +832,7 @@ async function hydrateOnce() {
 		return lastGood;
 	};
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = ['book', 'ways', 'cluster', 'scatter'].includes(meta.protocol)
-			? meta.protocol
-			: 'lines';
+		const protocol = MOCK_PROTOCOLS.has(meta.protocol) ? meta.protocol : 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		// A PINNED game (canary) names its own release; every other runtime game follows the pointer.
 		const pinned =
