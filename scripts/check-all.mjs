@@ -456,6 +456,11 @@ async function worker() {
 		results.push(result);
 		const secs = (result.ms / 1000).toFixed(1);
 		console.log(`${result.ok ? '✓' : '✗'} ${result.check.id} (${secs}s)`);
+		// How long Chrome took to start, and any launch it retried — even when the spike passed, so a
+		// retry is never a flake nobody sees.
+		if (check.browser)
+			for (const line of result.out.split('\n'))
+				if (line.startsWith('[chrome]')) console.log(`    ${line}`);
 	}
 }
 const started = Date.now();
