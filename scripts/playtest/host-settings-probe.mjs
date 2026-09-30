@@ -165,7 +165,14 @@ fromChrome.on('data', (chunk) => {
 				url: p.request.url.replace(/([?&](sid|sessionID|k)=)[^&]+/g, '$1…'),
 			});
 		} else if (msg.method === 'Network.loadingFinished' && requests.has(p.requestId)) {
-			requests.get(p.requestId).answeredAt = Date.now();
+			const request = requests.get(p.requestId);
+			request.answeredAt = Date.now();
+			// The round's outcome, so a slow gap can be told apart: a win's presentation is longer.
+			send('Network.getResponseBody', { requestId: p.requestId }, attached?.sessionId).then((r) => {
+				const body = r.result?.body ?? '';
+				request.won = /"event":"(spinWin|bonusWin|enterBonus)"/.test(body);
+				request.feature = /"event":"enterBonus"/.test(body);
+			});
 		}
 	}
 });
@@ -177,10 +184,11 @@ const send = (method, params = {}, sessionId) =>
 	});
 
 const { result: created } = await send('Target.createTarget', { url: 'about:blank' });
-const { result: attached } = await send('Target.attachToTarget', {
+let attached;
+({ result: attached } = await send('Target.attachToTarget', {
 	targetId: created.targetId,
 	flatten: true,
-});
+}));
 const page = (method, params) => send(method, params, attached.sessionId);
 await page('Runtime.enable');
 await page('Page.enable');
@@ -284,8 +292,14 @@ try {
 	summary.spins = bets.map((r, i) => ({
 		answeredInMs: r.answeredAt ? r.answeredAt - r.sentAt : null,
 		gapToNextBetMs: bets[i + 1] ? bets[i + 1].sentAt - r.sentAt : null,
+		won: r.won ?? null,
+		feature: r.feature ?? null,
 	}));
 	const gaps = summary.spins.map((s) => s.gapToNextBetMs).filter((g) => g !== null);
+	const losing = summary.spins.filter((s) => s.won === false && s.gapToNextBetMs !== null);
+	summary.losingGapStats = losing.length
+		? { n: losing.length, min: Math.min(...losing.map((s) => s.gapToNextBetMs)), max: Math.max(...losing.map((s) => s.gapToNextBetMs)) } // prettier-ignore
+		: null;
 	summary.gapStats = gaps.length
 		? { n: gaps.length, min: Math.min(...gaps), max: Math.max(...gaps), median: gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] } // prettier-ignore
 		: null;
@@ -296,6 +310,7 @@ try {
 	summary.consoleErrors = consoleErrors;
 	writeFileSync(join(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
 	log('gaps', summary.gapStats);
+	log('losing-round gaps', summary.losingGapStats);
 	log('console errors', consoleErrors.length);
 	log('out', OUT);
 	finish(0);
