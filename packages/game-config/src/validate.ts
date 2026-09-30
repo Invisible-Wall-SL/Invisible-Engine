@@ -15,6 +15,7 @@
  * design doc calls for; the same function serves it.
  */
 
+import { validateHoldAndWin } from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
@@ -296,6 +297,8 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			});
 		}
 	}
+
+	issues.push(...validateHoldAndWin(doc));
 
 	return issues;
 };

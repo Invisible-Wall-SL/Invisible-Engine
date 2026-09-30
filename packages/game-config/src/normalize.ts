@@ -38,6 +38,7 @@ import {
 	type WinTierSound,
 	type WinTierType,
 } from './types';
+import { normalizeHoldAndWin } from './holdAndWin';
 import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeSounds } from './sounds';
 
@@ -431,6 +432,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// all and stays byte-identical to a math export.
 	const reelBehaviour = normalizeReelBehaviour(raw.reelBehaviour);
 	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
+
+	const holdAndWin = normalizeHoldAndWin(raw.holdAndWin);
+	if (holdAndWin) doc.holdAndWin = holdAndWin;
 
 	// Grid ALIGNMENT is kept only when it departs from the `center` default AND the grid is actually
 	// stepped. Both halves matter: the first keeps a paste-in math export byte-identical, the second

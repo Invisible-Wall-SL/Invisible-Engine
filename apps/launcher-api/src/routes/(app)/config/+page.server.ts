@@ -4,7 +4,11 @@ import { pickSheetsFrom } from '$lib/pickSheets';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
-import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import {
+	gameConfigDefaultFor,
+	gameConfigPresetsFor,
+	resolveGameConfig,
+} from '$lib/server/gameConfigDefaults';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { fetchServerPaylines, projectServerGameKeys } from '$lib/server/rgsConfig';
@@ -100,6 +104,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault,
+		// A kind with several starting configs (`holdAndWin`: Pots / Classic / Collector) offers each
+		// as a "Reset to preset"; empty for every other kind.
+		presets: gameConfigPresetsFor(gameType),
 		// The RGS's real payline set (server-authoritative at runtime), or `null` when the project has
 		// no mock / the RGS was unreachable — the page renders the saved doc's lines in that case.
 		serverPaylines,

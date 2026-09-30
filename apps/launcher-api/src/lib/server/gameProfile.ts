@@ -289,6 +289,82 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.gameTypeId === 'bookOf' ? 'Expanding book symbol' : null),
 	},
 	{
+		id: 'respin',
+		title: 'The Hold and Win respin feature: coins stick, the rest of the board respins, and a new coin resets the counter.',
+		text: (ctx) => {
+			const hw = ctx.config?.holdAndWin;
+			if (!hw) return null;
+			const sticks = hw.stickiness === 'collectorsOnly' ? 'collectors stick' : 'coins stick';
+			return `Hold and Win respins (${hw.respins.start}, ${sticks})`;
+		},
+	},
+	{
+		id: 'jackpots',
+		title: 'Fixed jackpot tiers a coin, the letters or a full board can award (× total bet).',
+		text: (ctx) => {
+			const tiers = ctx.config?.holdAndWin?.jackpots ?? [];
+			return tiers.length ? `Jackpots (${tiers.map((j) => j.name).join(' · ')})` : null;
+		},
+	},
+	{
+		id: 'collector',
+		title: 'A collector special gathers every visible coin into itself.',
+		text: (ctx) => {
+			const c = ctx.config?.holdAndWin?.specials.collector;
+			if (!c) return null;
+			return c.maxLevel > 1 ? `Collector (up to ×${c.maxLevel} collect)` : 'Collector';
+		},
+	},
+	{
+		id: 'boost',
+		title: 'A multiplier special (boost) multiplies every visible coin.',
+		text: (ctx) => {
+			const m = ctx.config?.holdAndWin?.specials.multiplier;
+			if (!m) return null;
+			const factors = m.values.map((v) => `x${v.value}`).join('/');
+			return `Coin multiplier${factors ? ` (${factors})` : ''}`;
+		},
+	},
+	{
+		id: 'payer',
+		title: 'A payer special adds a value to every visible coin.',
+		text: (ctx) => (ctx.config?.holdAndWin?.specials.payer ? 'Coin payer' : null),
+	},
+	{
+		id: 'mystery',
+		title: 'A mystery special reveals a coin, a jackpot or another special.',
+		text: (ctx) => (ctx.config?.holdAndWin?.specials.mystery ? 'Mystery reveal' : null),
+	},
+	{
+		id: 'pots',
+		title: 'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',
+		text: (ctx) => {
+			const meters = ctx.config?.holdAndWin?.meters ?? [];
+			return meters.length ? `Persistent pots (${meters.length})` : null;
+		},
+	},
+	{
+		id: 'luckySpin',
+		title: 'A server-announced base spin that guarantees the feature.',
+		text: (ctx) => (ctx.config?.holdAndWin?.trigger.luckySpin ? 'Lucky Spin' : null),
+	},
+	{
+		id: 'columnLetters',
+		title: 'A full column lights its letter; every letter lit awards a jackpot.',
+		text: (ctx) => {
+			const end = ctx.config?.holdAndWin?.boardEnd;
+			return end?.type === 'columnLetters' ? `Column letters (${end.letters})` : null;
+		},
+	},
+	{
+		id: 'wheel',
+		title: 'A wheel spun once at the start of the feature.',
+		text: (ctx) => {
+			const prizes = ctx.config?.holdAndWin?.wheel?.prizes ?? [];
+			return prizes.length ? `Feature wheel (${plural(prizes.length, 'prize')})` : null;
+		},
+	},
+	{
 		id: 'buyFeature',
 		title: 'Bet modes that buy the feature outright, from the Game Config bet-mode menu.',
 		text: (ctx) => {
