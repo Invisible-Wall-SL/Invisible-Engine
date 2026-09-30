@@ -22,11 +22,10 @@
 // It does NOT verify the /rigger PANEL (the modal, the slot/attachment writing) — that is
 // `view.html`, which needs an authed launcher with real R2. That remains an owner live check.
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { readFileSync, existsSync, readdirSync, mkdtempSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { launchChrome } from './chrome.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const BUNDLE = fileURLToPath(
@@ -36,45 +35,6 @@ const FONT_DIR = fileURLToPath(new URL('apps/lines/static/assets/fonts/goldFont/
 
 if (!existsSync(BUNDLE)) {
 	console.error(`Missing ${BUNDLE} — run: pnpm --filter launcher-api build:rigger-text`);
-	process.exit(1);
-}
-
-// ------------------------------------------------------------------ chromium ----
-
-// `CHROME_PATH` wins (a CI image's system Chrome needs no download); otherwise any Playwright
-// Chromium, in Playwright's own cache locations per platform.
-function findChromium() {
-	if (process.env.CHROME_PATH)
-		return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
-	const bases = [
-		process.env.PLAYWRIGHT_BROWSERS_PATH,
-		process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
-		join(homedir(), '.cache', 'ms-playwright'),
-		join(homedir(), 'Library', 'Caches', 'ms-playwright'),
-	].filter((b) => b && existsSync(b));
-	const rels = [
-		join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-		join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
-		join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
-		join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
-		join('chrome-win', 'chrome.exe'),
-		join('chrome-linux64', 'chrome'),
-		join('chrome-linux', 'chrome'),
-	];
-	for (const base of bases)
-		for (const dir of readdirSync(base))
-			for (const rel of rels) {
-				const p = join(base, dir, rel);
-				if (existsSync(p)) return p;
-			}
-	return null;
-}
-
-const CHROME = findChromium();
-if (!CHROME) {
-	console.error(
-		'No Chromium found (set CHROME_PATH, or: npx playwright install chromium-headless-shell) — this gate needs a real browser.',
-	);
 	process.exit(1);
 }
 
@@ -202,98 +162,13 @@ const PORT = server.address().port;
 
 // ------------------------------------------------------------------ CDP ----
 
-const profile = mkdtempSync(join(tmpdir(), 'rigtext-cdp-'));
-const chrome = spawn(
-	CHROME,
-	[
-		'--headless',
-		'--remote-debugging-port=0',
-		`--user-data-dir=${profile}`,
-		'--no-sandbox',
-		'--disable-dev-shm-usage',
-		// PIXI needs a GL context; the headless shell has no GPU, so force the software rasteriser.
-		'--use-gl=angle',
-		'--use-angle=swiftshader',
-		'--enable-unsafe-swiftshader',
-		'--hide-scrollbars',
-		`http://127.0.0.1:${PORT}/`,
-	],
-	{ stdio: ['ignore', 'pipe', 'pipe'] },
-);
-
-const wsUrl = await new Promise((resolve, reject) => {
-	const t = setTimeout(
-		() => reject(new Error('chromium did not report a devtools endpoint')),
-		20000,
-	);
-	let buf = '';
-	chrome.stderr.on('data', (c) => {
-		buf += c;
-		const m = /ws:\/\/[^\s]+/.exec(buf);
-		if (m) {
-			clearTimeout(t);
-			resolve(m[0]);
-		}
-	});
+const browser = await launchChrome({
+	name: 'rigtext-browser',
+	url: `http://127.0.0.1:${PORT}/`,
+	args: ['--hide-scrollbars'],
+	logAll: true,
 });
-
-const ws = new WebSocket(wsUrl);
-await new Promise((r) => (ws.onopen = r));
-let msgId = 0;
-const pending = new Map();
-// Forward the page's console + uncaught errors. A silent browser failure (a GL context that
-// never initialises, a font that 404s) is exactly the class of bug this gate exists to catch,
-// and without this it surfaces only as "the result was null".
-const pageLog = [];
-ws.onmessage = (ev) => {
-	const msg = JSON.parse(ev.data);
-	if (msg.id && pending.has(msg.id)) {
-		pending.get(msg.id)(msg);
-		pending.delete(msg.id);
-		return;
-	}
-	if (msg.method === 'Runtime.consoleAPICalled') {
-		pageLog.push(
-			`[${msg.params.type}] ` +
-				msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '),
-		);
-	}
-	if (msg.method === 'Runtime.exceptionThrown') {
-		pageLog.push(`[uncaught] ${msg.params.exceptionDetails.exception?.description ?? ''}`);
-	}
-};
-const cdp = (method, params = {}, sessionId) =>
-	new Promise((resolve) => {
-		const id = ++msgId;
-		pending.set(id, resolve);
-		ws.send(JSON.stringify({ id, method, params, sessionId }));
-	});
-
-const { result: targets } = await cdp('Target.getTargets');
-const page = targets.targetInfos.find((t) => t.type === 'page');
-const { result: attached } = await cdp('Target.attachToTarget', {
-	targetId: page.targetId,
-	flatten: true,
-});
-const session = attached.sessionId;
-await cdp('Runtime.enable', {}, session);
-
-/** Evaluate an async expression in the page and return its value (or throw its error). */
-async function evaluate(expression) {
-	const res = await cdp(
-		'Runtime.evaluate',
-		{ expression, awaitPromise: true, returnByValue: true },
-		session,
-	);
-	if (res.error) throw new Error(JSON.stringify(res.error));
-	const r = res.result;
-	if (r.exceptionDetails) {
-		throw new Error(
-			r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails),
-		);
-	}
-	return r.result.value;
-}
+const { evaluate, pageLog } = browser;
 
 // Wait for the harness to have loaded the bundle.
 for (let i = 0; i < 100; i++) {
@@ -551,9 +426,8 @@ try {
 	console.log(`  ✗ the harness threw — ${e.message}`);
 } finally {
 	if (pageLog.length) console.log('\npage console:\n  ' + pageLog.join('\n  '));
-	ws.close();
-	chrome.kill();
 	server.close();
+	await browser.close();
 }
 
 console.log(`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — ${pass}/${pass + fail}`);

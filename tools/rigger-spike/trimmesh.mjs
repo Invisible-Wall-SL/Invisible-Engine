@@ -40,12 +40,11 @@
 // Run it against another page with RIGGER_VIEW_HTML=<path> (the pre-fix view.html fails it).
 //   node tools/rigger-spike/trimmesh.mjs
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
+import { launchChrome } from './chrome.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -260,21 +259,6 @@ const draw = (slot) => {
 };
 
 // ---- a real Chromium, drawing through the vendored WebGL runtime -------------------------------
-function findChromium() {
-	if (process.env.CHROME_PATH) return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
-	const bases = [process.env.PLAYWRIGHT_BROWSERS_PATH, process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
-		join(homedir(), '.cache', 'ms-playwright'), join(homedir(), 'Library', 'Caches', 'ms-playwright')].filter((b) => b && existsSync(b));
-	const rels = [join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'), join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
-		join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'), join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
-		join('chrome-win', 'chrome.exe'), join('chrome-linux64', 'chrome'), join('chrome-linux', 'chrome')];
-	for (const base of bases) for (const dir of readdirSync(base)) for (const rel of rels) { const p = join(base, dir, rel); if (existsSync(p)) return p; }
-	return null;
-}
-const CHROME = findChromium();
-if (!CHROME) {
-	console.error('No Chromium found (set CHROME_PATH, or: npx playwright install chromium-headless-shell) — this gate needs a real browser.');
-	process.exit(1);
-}
 const server = createServer((req, res) => {
 	const p = new URL(req.url, 'http://x').pathname;
 	if (p === '/spine/vendor/spine-webgl-4.2.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(vendored); }
@@ -282,33 +266,8 @@ const server = createServer((req, res) => {
 	res.end('<!doctype html><meta charset="utf-8"><script src="/spine/vendor/spine-webgl-4.2.js"></script>');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const profile = mkdtempSync(join(tmpdir(), 'trimmesh-cdp-'));
-const chrome = spawn(CHROME, ['--headless', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-sandbox', '--disable-dev-shm-usage',
-	'--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', `http://127.0.0.1:${server.address().port}/`], { stdio: ['ignore', 'pipe', 'pipe'] });
-const wsUrl = await new Promise((resolve, reject) => {
-	const t = setTimeout(() => reject(new Error('no devtools endpoint')), 20000);
-	let buf = '';
-	chrome.stderr.on('data', (c) => { buf += c; const m = /ws:\/\/[^\s]+/.exec(buf); if (m) { clearTimeout(t); resolve(m[0]); } });
-});
-const ws = new WebSocket(wsUrl);
-await new Promise((r) => (ws.onopen = r));
-let msgId = 0;
-const pending = new Map();
-ws.onmessage = (ev) => { const msg = JSON.parse(ev.data); if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); } };
-const cdp = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
-	const id = ++msgId;
-	const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} got no answer in 60 s`)); }, 60000);
-	pending.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
-	ws.send(JSON.stringify({ id, method, params, sessionId }));
-});
-const { result: targets } = await cdp('Target.getTargets');
-const { result: attached } = await cdp('Target.attachToTarget', { targetId: targets.targetInfos.find((t) => t.type === 'page').targetId, flatten: true });
-const session = attached.sessionId;
-async function evaluate(expression) {
-	const { result: r } = await cdp('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, session);
-	if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails));
-	return r.result.value;
-}
+const browser = await launchChrome({ name: 'trimmesh', url: `http://127.0.0.1:${server.address().port}/`, cdpTimeoutMs: 60000 });
+const { evaluate } = browser;
 for (let t0 = Date.now(); !(await evaluate('!!window.spine').catch(() => false)); ) {
 	if (Date.now() - t0 > 20000) throw new Error('the vendored runtime never loaded');
 	await new Promise((r) => setTimeout(r, 100));
@@ -668,14 +627,7 @@ console.log(`  UV panel: ${STILLS.length} images drawn by the shipped helpers an
 
 // ---- done -------------------------------------------------------------------------------------
 server.close();
-{
-	const exited = new Promise((r) => chrome.once('exit', r));
-	ws.send(JSON.stringify({ id: ++msgId, method: 'Browser.close' }));
-	await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
-	chrome.kill();
-	ws.close();
-	try { rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); } catch { /* a profile Chrome still holds */ }
-}
+await browser.close();
 if (absent.length) console.log(`  (not in this view.html: ${absent.join(', ')})`);
 console.log(pass ? `\n✅ PASS — ${checks} checks` : `\n✗ FAIL (${checks} checks)`);
 process.exit(pass ? 0 : 1);

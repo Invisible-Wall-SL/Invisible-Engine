@@ -57,10 +57,18 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # A fresh runner's disk reads Chrome's 435 MB install slowly the first time (3–8 s measured, far
+      # more beside the shard's other checks), and a spike's first launch paid that read. Read it
+      # now, in the background, while pnpm installs.
+      - name: warm Chrome's install
+        if: steps.changes.outputs.code == 'true'
+        run: (find "$(dirname "$(readlink -f "$(command -v google-chrome)")")" -type f -exec cat {} + > /dev/null 2>&1 &)
+
       - if: steps.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
-      # The Rigger's text spikes drive a real headless browser; the runner image ships Chrome.
+      # The Rigger's browser spikes drive a real headless Chrome (tools/rigger-spike/chrome.mjs); the
+      # runner image ships it.
       - name: offline checks
         if: steps.changes.outputs.code == 'true'
         run: CHROME_PATH="$(command -v google-chrome)" pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4

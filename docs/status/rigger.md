@@ -66,6 +66,10 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-09-30 — **The browser spikes share one Chrome launcher,
+  `tools/rigger-spike/chrome.mjs`.** A new browser spike imports `launchChrome` and never spawns
+  Chrome itself. `check:all` runs these spikes one at a time. The launcher fixes the "no devtools
+  endpoint" CI flake; the cause and the proof are in [infra](infra.md) (2026-09-30).
 - 2026-09-30 — **A create that died after its claim no longer holds the name.** `＋ New rig` /
   upload claim `<name>/<name>.irig` before writing the page, atlas and index, so a request that died
   in between left a folder the index never lists — nobody could open or delete it, and it kept the

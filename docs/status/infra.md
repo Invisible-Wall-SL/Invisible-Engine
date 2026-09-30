@@ -116,6 +116,42 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **The "no devtools endpoint" flake in the required `check-all (n/3)` jobs is fixed**
+  (PR #921).
+  - The five Chrome spikes (`skins-panel`, `rig-switch`, `rigtext-panel`, `rigtext-browser`,
+    `trimmesh`) failed intermittently with "no devtools endpoint", and re-runs passed. On
+    2026-09-30 alone: 14 spike failures in 9 Checks runs, including on `main`.
+  - **Root cause, measured on the runner:** Chrome's install is 435 MB, and a fresh runner's disk
+    reads it slowly the first time. A cold read took 3.3–7.9 s; a second read took 43–58 ms. The
+    first launch waited on that read: 4–14 s on an idle runner, then ~0.2 s after it. Beside the
+    shard's other checks it took 30.9 s and 39.6 s. Two spikes launching together shared the wait
+    and finished in the same second, which is why they failed in pairs. The copied launchers read
+    the DevTools URL off stderr with a 20 s limit. Ruled out by probes: CPU load, cold page cache
+    (`drop_caches`), fontconfig.
+  - **Fix:** `tools/rigger-spike/chrome.mjs` is the one launcher; all five spikes import it, and the
+    copies are gone. The copies had drifted: two never closed Chrome, two never timed out a CDP call.
+    - CDP runs over `--remote-debugging-pipe`, with a fresh profile per launch.
+    - Chrome counts as started when it answers `Browser.getVersion` and a page is attached.
+    - Only the launch is retried: 45 s per attempt, 3 attempts, on `about:blank`, so a thrown-away
+      launch never reaches the spike's server. Nothing after the launch is retried; every CDP call
+      has its own timeout.
+    - Teardown is `Browser.close`, then a process-group kill, then removal of the profile. It also
+      runs on process exit, and Chrome exits by itself when the pipe closes.
+  - **Also:** `check:all` runs one browser spike at a time (`BROWSER_SLOTS`), and prints each one's
+    `[chrome] ready in … (attempt n of 3)` line even when it passes, so a retry is visible.
+    `checks.yml` pre-reads Chrome's install in the background while pnpm installs. Serialising
+    costs 2–8 s per shard, within run-to-run noise.
+  - **Proof:**
+    - 150 local runs (30 rounds × 5 spikes, 5 at once) and 420 CI runs (14 runners × 30): no
+      failures and no retries.
+    - Worst CI time-to-ready was 39.6 s, in the synthetic case of 5 cold first launches at once,
+      still inside one attempt.
+    - In real check-all with the full fix, Chrome was ready in 0.3–2.2 s; the same shard-2 spike
+      took 34.6 s before the pre-read.
+    - Mutants on the runner: a flipped assertion still fails, with one launch and no retry. A page
+      stuck in `for(;;)` fails on the CDP timeout, with no relaunch. A Chrome that never answers
+      fails after 3 × 45 s (151 s), under the runner's 300 s per-check kill. A crashing Chrome
+      fails in under 1 s, with its stderr. SIGKILLing a spike leaves 0 Chrome processes.
 - 2026-09-30 — **svelte-check ratchet + Dependabot.** Closed the old open item 5 ("svelte-check is
   not a dependency anywhere").
   - `svelte-check@4.7.6` is now a devDependency of all 17 packages with a `.svelte` file. A new
