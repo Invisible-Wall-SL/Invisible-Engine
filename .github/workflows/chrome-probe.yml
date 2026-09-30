@@ -1,0 +1,38 @@
+# TEMPORARY (removed before merge): measure the old Chrome launch and loop the new one on the runner.
+name: Chrome probe
+
+on:
+  pull_request:
+
+jobs:
+  old-launch:
+    name: old launch (${{ matrix.load }} ${{ matrix.i }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        i: [1, 2, 3]
+        load: [idle, load]
+    steps:
+      - uses: actions/checkout@v7
+      - run: google-chrome --version
+      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/old-launch.mjs 20 ${{ matrix.load == 'load' && '--load' || '' }}
+
+  new-helper:
+    name: new helper (${{ matrix.i }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        i: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/spike-loop.mjs 6 5
