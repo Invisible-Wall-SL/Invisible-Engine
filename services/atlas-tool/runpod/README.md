@@ -118,9 +118,14 @@ bash provision.sh
 1. Clones ComfyUI + **ComfyUI-Manager** (security level forced to `middle` — required
    for the blueprint model auto-install; `high`/`strong` returns 403).
 2. Clones the custom nodes the SDXL/FLUX blueprints need
-   (`ComfyUI_IPAdapter_plus`, `ComfyUI-RMBG`, `comfyui_controlnet_aux`).
+   (`ComfyUI_IPAdapter_plus`, `ComfyUI-RMBG` pinned to the `nodes.json` commit,
+   `comfyui_controlnet_aux`).
 3. Installs Python deps.
 4. Runs `pull-models.py` to mirror the R2 model set onto the volume.
+5. Runs `fetch-models.py --set rmbg --set birefnet` — the checksummed background-removal
+   weights. The serverless worker verifies these at boot and loads them offline; without
+   them every cold worker downloads its cutout model privately, so run this on a fresh volume
+   before production traffic.
 
 Set your R2 creds in the pod's env before running (Pod → Edit → Environment):
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
@@ -164,6 +169,11 @@ FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33
 | `wan22-i2v` | 35.6 GB | **apache-2.0** | Yes — shares encoder + VAE with `wan22-t2v` |
 | `wan22-turbo` | 4.9 GB | **apache-2.0** | Add-on: 4-step LoRAs for both Wan sets |
 | `wan22-ti2v-5b` | 18.2 GB | **apache-2.0** | Yes — the light one; needs its OWN `wan2.2_vae` |
+| `rmbg` | 0.9 GB | **non-commercial** (BRIA RMBG-2.0, CC BY-NC) | **Required by production** — the default cutout; sha256-pinned |
+| `birefnet` | 6.7 GB | per variant (see `model_licences.json`) | **Required by production** — all 12 BiRefNet variants; sha256-pinned |
+
+`rmbg` and `birefnet` are checksummed: verify what is on the volume, offline, with
+`python /fetch-models.py --verify --set rmbg --set birefnet`.
 
 **Start with `flux2-klein`.** It is the only FLUX.2 variant that is both Apache-2.0 (so it
 could ever ship in a game, unlike FLUX.1-dev/PuLID which are R&D-only) and small enough to

@@ -94,6 +94,14 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-09-30 — **The still path cancels a job before abandoning it** (`batch_atlas.py`
+  `_runpod_run_and_wait`). A 404 on a job already read is re-read at +10/+30/+70/+150 s instead of
+  given up on after 15 s (the 2026-09-07 `NOT_FOUND_GRACE_SECONDS` is gone), then the job is
+  cancelled with its id and endpoint logged; the 30-minute cap now cancels too, since nothing
+  collects that result. A `/cancel` that also 404s means RunPod has no record — logged as such,
+  not reported to the author as a job that may still bill. A non-dict status body counts as an
+  unreadable read. Same change on the video path and the RMBG weights: see
+  [flipbook status](flipbook.md). Fixtures in `test_render_slot.py`.
 - 2026-09-29 — **Guide refreshed to match the UI** ([tools/atlas-maker](../tools/atlas-maker.md)): signed launch, RunPod as the default backend, render ownership.
 - 2026-09-29 — **The Atlas Maker's scope comes from a launcher-signed token; a render can only be stopped by whoever started it (or an admin); `/healthz` is gate-exempt.**
   - **What:** the launcher now mints a 120 s HMAC-signed token after its own access check (`toolLaunch.ts`), and `iw_common/launch.py` verifies it, turns it into a signed 12 h session cookie, drops the token from the URL (303) and scopes every request from the session alone. Details, env and the 2026-10-13 cut-over: [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).

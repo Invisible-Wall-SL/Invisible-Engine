@@ -42,6 +42,19 @@
    **The taxonomy was only editable where there is a filesystem (owner asked 2026-09-16).** `taxonomy_path` on `SemanticLayerAnalyze` / `SemanticLayerRouter` takes a PATH, and the loader deliberately REFUSES pasted file contents (falling back to the built-in fallback, which has far fewer keywords — a silent downgrade). That works on a desktop and on a pod under `/workspace`, and not at all on the serverless worker, whose container is ephemeral — so the Atlas Maker's production path cannot use a custom taxonomy today. The taxonomy is the whole quality knob on the CLIP analyzer (its keywords ARE the candidate labels), so "you can edit it, just not where you render" is the wrong end of the trade. Shape: an inline-YAML input alongside `taxonomy_path`, exposed as a multiline blueprint param, so a project's taxonomy travels in the graph and needs no filesystem anywhere.
 
 ## Recent changes
+- 2026-09-30 — **The worker no longer shares `models/RMBG/` with the volume, and
+  `fetch-models.py` checksums.** `atlas-serverless/start.sh` now links `/ComfyUI/models/*` one
+  entry at a time, skipping `RMBG`, and stages a copy of the new `rmbg` + `birefnet` sets
+  (commit-pinned, sha256 per file) into the container, file by file, via `fetch-models.py
+  --verify --stage`; a file that fails is left out and the node downloads it into that container
+  only — never into the shared folder that tore on 2026-09-04 (detail in
+  [flipbook-history](flipbook-history.md)). `fetch-models.py` is now baked into the WORKER image
+  too, verifies any `sha256`-pinned file before renaming it into place, and gains `--verify` /
+  `--stage`. **The volume fetch and the one-render check are owner steps** — see the Blocked list in
+  [flipbook status](flipbook.md). Two side effects to watch on the first render: a node that
+  creates a NEW top-level folder under `models/` at run time now writes to the container, not the
+  volume; and every existing top-level folder (e.g. `insightface`) is still the volume's, via its
+  own link.
 - 2026-09-29 — **Guide refreshed to match the UI** ([tools/comfyui](../tools/comfyui.md)): RunPod as the Atlas Maker's default backend, Custom nodes → Add & commit.
 - 2026-09-29 — **Licence inventory of every model the fleet can load:** [model-licences](../reference/model-licences.md)
   (+ machine-readable `services/atlas-tool/model_licences.json`, which now stamps each render's

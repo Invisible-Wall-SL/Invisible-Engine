@@ -178,7 +178,13 @@ fully working — no re-install runbook.
   ```bash
   python /fetch-models.py --list
   python /fetch-models.py --set flux2-klein
+  python /fetch-models.py --verify --set rmbg --set birefnet
   ```
+
+  A set that pins `sha256` (today `rmbg` and `birefnet`) is hashed before any file is
+  renamed into place, and `--verify` re-checks it offline. `start.sh` stages those two
+  sets into the container's own `models/RMBG/` at boot, file by file; a file that fails is
+  left out and the node downloads it into the container. The serverless worker does the same.
 
   Sets, sizes and licences are in `services/atlas-tool/runpod/README.md` §3b. Models are
   NOT baked — they live on the volume, so a new model never needs an image rebuild.

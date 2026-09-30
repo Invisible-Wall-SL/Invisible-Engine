@@ -492,6 +492,16 @@ code default, so the dashboard need not set it):
 > The scratch objects live at `<client>/<project>/video/_out/` and are deleted as soon as the real
 > render is written (`meta.json` is what makes a session, so they can never look like one).
 
+> ### ⚠️ The worker's cutout weights come from `fetch-models.py`, not the node
+>
+> Since 2026-09-30 the worker does not link the volume's `models/RMBG/` (a shared, node-rewritten
+> folder tore once and failed every cutout for 14 hours). It verifies `fetch-models.py`'s `rmbg` +
+> `birefnet` sets at boot, file by file, and stages what passes into the container. A file that
+> is missing or does not match is left out, and the node downloads it into that container on
+> first use — it still renders, just slower on every cold worker. A fresh or new volume
+> therefore wants, from an R&D pod, `python /fetch-models.py --set rmbg --set birefnet`. The boot
+> log says `== verified 20 file(s) of rmbg+birefnet` when it is right.
+
 > ### ⚠️ The endpoint's image is `atlas-comfy-worker` — NEVER `atlas-comfy-pod`
 >
 > Two images in one registry and only one of them answers a job. `services/atlas-serverless`

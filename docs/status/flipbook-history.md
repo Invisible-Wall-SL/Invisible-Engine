@@ -249,6 +249,58 @@ the status file holds the current answer).
 
 ## Dated entries
 
+- 2026-09-30 — **Cutout weights pre-fetched and checksummed; every abandoned RunPod job is
+  cancelled.** Closes status open items 2 and 3 (the 2026-09-04 torn-file outage and the
+  404-without-cancel billing leak).
+  - **The shared folder was being written on every load, not just on first download.**
+    `py/AILab_BiRefNet.py` at the pinned `9edb2bec3900` reads `birefnet.py`, rewrites its
+    `from .BiRefNet_config` to an absolute import and writes it back with `open(…, 'w')` each time
+    a model loads — so every worker truncated and rewrote the ONE `.py` in the volume's
+    `models/RMBG/BiRefNet/`. A worker that read a torn copy wrote it back, which is why the tear
+    survived 14 h. Pre-fetching alone could not fix that, so the worker no longer links the
+    volume's `models/RMBG/` at all: `start.sh` links every other `models/` entry and stages RMBG
+    into the container's own disk (small files copied then hashed, weights symlinked). RMBG-2.0
+    (`AILab_RMBG.py`) execs its code in memory and never writes.
+  - **Pinned sets** in `fetch-models.py`: `rmbg` (`1038lab/RMBG-2.0` @ `1cd47876…`, 0.88 GB) and
+    `birefnet` (`1038lab/BiRefNet` @ `4d000788…`, all 12 variants + the 4 shared files, 6.65 GB),
+    commit-pinned URLs with sha256 per file, from the HF API (LFS oids) and by hashing the
+    non-LFS files at that commit. All 12 because the Flipbook blueprint's select offers all 12,
+    and any variant missing from the set would be downloaded mid-render. The `.py` files also
+    accept the node's own rewritten form.
+  - **Checksums in `fetch-models.py` generally:** a file with a `sha256` is hashed as `.part` and
+    only then renamed; a mismatch deletes the `.part` (restarting once after a resume) and fails
+    loudly; a file already present is skipped only if it hashes right. Verified files go in
+    `<dest>/.fetch-models/verified.json` (sha256 + size). `--verify` is offline — files ≤16 MiB
+    hashed in full, weights checked against that record (size, not mtime: the volume is written
+    from a pod and read from every worker, and a clock difference must never un-verify a good file);
+    `--stage DIR` mirrors a verified set container-locally and unstages on failure.
+  - **Degrade per file, never share.** Staging is per file: what verifies is staged (small files
+    copied to a temp name, hashed, renamed; weights symlinked), what fails is left out and the
+    node downloads it into THAT container on first use — slower, but private, so it cannot tear
+    anything. An unfetched volume (no record yet) or no volume at all therefore still renders;
+    the boot banner names the files and the fix. A first cut refused every RMBG job instead; the
+    review dropped it because a `:latest` endpoint rolling onto the new image before the volume
+    was fetched would have stopped every image cutout. The R&D pod stages the same way. `provision.sh` fetches both sets
+    (step 5/5) and now pins ComfyUI-RMBG to the `nodes.json` commit. `HF_HUB_OFFLINE` is NOT set:
+    controlnet_aux annotators and PuLID's EVA-CLIP still download on first use.
+  - **A `/cancel` that 404s is "no record", not "may still bill"** — logged at info, and not
+    appended to the author's error; the cancel POST has a 15 s timeout (it runs on page loads
+    via `_adopt`). `_adopt` checks `_held_elsewhere` before cancelling a blueprint-gone job, so
+    one container never cancels another's live render.
+  - **404s:** a 404 on a job already read (or re-attached) is re-read at +10/+30/+70/+150 s
+    (`NOT_FOUND_RECHECK_SECONDS`), then `giving up on job <id> (endpoint <eid>)` is logged, a
+    cancel sent (best effort — a failed cancel still settles the tile) and `_Unresolved` raised,
+    so the slot collect is unchanged. An expired record now settles in ~150 s instead of 15 s; the
+    render is still collected from its hand-off slot. A status body that is not a dict counts as an
+    unreadable read (it used to raise past the cancel). Also cancelled now: `_adopt` when the
+    blueprint is gone, `delete_session` of a session not live here, a re-attach whose thread fails
+    to start, and in `batch_atlas.py` (the image path's poller) the same 404 re-check and its
+    30-min cap. Known-terminal statuses are never cancelled.
+  - **Tests:** `services/atlas-comfy-pod/test_fetch_models.py` (new — checksum/torn-`.part`/
+    verify/stage, and the pinned lists checked against the node's own lists and every blueprint
+    option); `test_handler.py`, `test_video_runner.py`, `test_render_slot.py` extended. A planted
+    inverse of each of nine fixes turned a test red.
+
 - 2026-09-16 — **The owner's report ("re-packed + redeployed atlas, tool still draws the old art")
   was a SERVER-side page-resolution fault — fixed in `editorRegions.ts`. A separate client-cache
   gap found while chasing it gave `/flipbook` a ↻ Refresh from R2.** Two distinct problems; only

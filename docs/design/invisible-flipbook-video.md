@@ -115,8 +115,8 @@ image.
 - **Alpha is OFF by default.** Node 203 (`RemoveBCKG?`) is `false`, so switch 201 takes `on_false`
   = the plain resize. The BiRefNet branch (202, `BiRefNet_toonout`, `background: "Alpha"`) is fully
   wired but bypassed. For symbol art it wants to be ON — expose it as a param. Its weights
-  auto-download into `models/RMBG/` on first use and are **not** in `fetch-models.py`, so whether
-  they are on the serverless network volume is unverified.
+  are the `birefnet` set in `fetch-models.py`, checksummed and staged per worker (never
+  downloaded mid-render — see [flipbook status](../status/flipbook.md)).
 - **The two fps disagree.** Generation is 16 fps (node 192, and it drives the frame count); the
   save node writes the WEBP at 12. The clip's default fps should come from **node 192**, the
   intended motion rate — not from the save node.

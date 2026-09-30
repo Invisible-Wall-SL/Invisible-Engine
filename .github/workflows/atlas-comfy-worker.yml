@@ -1,7 +1,9 @@
 name: Build Atlas ComfyUI worker
 
 # Builds the RunPod Serverless worker image and pushes it to GHCR.
-# The serverless endpoint pulls ghcr.io/invisible-wall-sl/atlas-comfy-worker:latest.
+# CI pushes ghcr.io/invisible-wall-sl/atlas-comfy-worker:latest AND :<full commit sha>.
+# Pin the serverless endpoint to the sha tag: an endpoint on `:latest` caches by digest,
+# so a push need not roll its workers, and nothing says which build is running.
 on:
   push:
     # main only. Rebuilding this image on every push to a dev branch cost real minutes for
@@ -14,6 +16,8 @@ on:
       - services/atlas-comfy-pod/nodes.json
       # Vendored and shared the same way — a fix to it must reach prod, not just the pod.
       - services/atlas-comfy-pod/custom_nodes/ComfyUI-SemanticLayers/**
+      # Its pinned checksums are what start.sh verifies the RMBG weights against at boot.
+      - services/atlas-comfy-pod/tools/fetch-models.py
       - .github/workflows/atlas-comfy-worker.yml
   workflow_dispatch: {}
 
@@ -52,10 +56,12 @@ jobs:
       # ComfyUI-SemanticLayers rides along from the same source of truth, for the same
       # reason: it is vendored (no `url`), so `prod` in nodes.json cannot carry it and a
       # COPY is the only route. `rm -rf` first so a renamed or deleted file inside the
-      # pack cannot survive in the context as a ghost.
+      # pack cannot survive in the context as a ghost. fetch-models.py comes along too:
+      # its pinned checksums are what the worker verifies the RMBG weights against.
       - name: Take the shared node sources into this build context
         run: |
           cp services/atlas-comfy-pod/nodes.json services/atlas-serverless/nodes.json
+          cp services/atlas-comfy-pod/tools/fetch-models.py services/atlas-serverless/fetch-models.py
           rm -rf services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers
           cp -r services/atlas-comfy-pod/custom_nodes/ComfyUI-SemanticLayers \
                 services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers

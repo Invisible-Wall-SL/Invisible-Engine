@@ -19,6 +19,17 @@
 mkdir -p /workspace/ComfyUI/custom_nodes /workspace/pysite
 export PYTHONPATH="/workspace/pysite${PYTHONPATH:+:$PYTHONPATH}"
 
+# Background-removal weights. ComfyUI-RMBG reads models/RMBG/ under ComfyUI's OWN models
+# dir, which on this image is the container's disk, not the volume — so it re-downloaded
+# them after every recreate. Stage the volume's checksummed copy there instead (weights
+# symlinked, the .py/config copied, because the node rewrites its .py on every load).
+# Per file and non-fatal: whatever does not verify is left out, and the node downloads
+# it into this container's own folder as before — nothing here is shared. Fix: python
+# /fetch-models.py --set rmbg --set birefnet.
+python -u /fetch-models.py --verify --set rmbg --set birefnet \
+    --dest /workspace/ComfyUI/models --stage /ComfyUI/models \
+    || echo "pod: some RMBG/BiRefNet weights not staged from the volume (see above)"
+
 cd /ComfyUI
 nohup python main.py --listen 0.0.0.0 --port 8188 > /workspace/comfyui.log 2>&1 &
 

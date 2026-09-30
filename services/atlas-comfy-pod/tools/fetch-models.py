@@ -13,6 +13,22 @@ Idempotent + resumable: a file already on disk at the remote's size is skipped, 
 half-finished `.part` continues with an HTTP Range request (these are 4-35 GB files and
 a pod web terminal WILL drop before one finishes).
 
+CHECKSUMMED where a set pins them: a file with a `sha256` is hashed before it is ever
+renamed into place, a mismatch deletes the `.part` and fails loudly, and a file already
+present is skipped only if it hashes right — otherwise it is re-downloaded. A download
+never writes the real filename until it is whole and verified, because a torn file
+under a SHARED folder is what failed every video cutout for 14 hours (2026-09-04). Each
+verified file is recorded in `<dest>/.fetch-models/verified.json` (sha256, size),
+which is what `--verify` trusts for the big files instead of re-hashing gigabytes on
+every worker boot.
+
+`--verify` checks sets offline (small files hashed in full, big ones against that
+record) and exits 1 naming every problem; `--stage DIR` mirrors every file that
+verified into a worker-LOCAL models dir — small files copied, weights symlinked — and
+leaves out the rest, so a node that rewrites or downloads beside its weights only ever
+touches its own container's copy.
+The serverless worker and the R&D pod both run it at boot (see their start.sh).
+
 BAKED into the R&D pod image at `/fetch-models.py`, so there is nothing to download
 first — the runbook's old `curl … raw.githubusercontent.com` silently 404s (private
 repo; GitHub answers 404, not 401). `--dest` already defaults to the volume.
@@ -21,6 +37,8 @@ Usage (on the pod):
     python /fetch-models.py --list
     python /fetch-models.py --set flux2-klein
     python /fetch-models.py --set flux2-dev --dry-run
+    python /fetch-models.py --set rmbg --set birefnet
+    python /fetch-models.py --verify --set rmbg --set birefnet --stage /ComfyUI/models
 
 Env:
     HF_TOKEN  optional; only needed if a set's repo is gated (none are today).
@@ -28,6 +46,8 @@ Env:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import sys
@@ -36,10 +56,21 @@ import urllib.request
 from pathlib import Path
 
 HF = "https://huggingface.co"
+# The Hugging Face commits the ComfyUI-RMBG sets are pinned to — `resolve/<commit>`, never
+# `resolve/main`, so a re-upload upstream cannot change what a fetch writes. Read off the
+# HF API on 2026-09-30; every file's git blob id there matches the bytes hashed below.
+RMBG2_REV = "1cd4787601caeb4c8e826dba7ea8e2163b5208df"  # pragma: allowlist secret
+BIREFNET_REV = "4d000788a9698c7f8d67c8c6ce2b40c768f5b909"  # pragma: allowlist secret
+# Files at or under this size are hashed in full by --verify on every call; bigger ones
+# are checked against the record a verified fetch left. The .py/.json files — the ones
+# that tore on 2026-09-04 — are a few KB, so the boot check stays well under a second.
+FULL_HASH_MAX = 16 << 20
+VERIFIED_RECORD = Path(".fetch-models") / "verified.json"
 
-# `size` is informational only — used for --list and the free-space preflight. The
-# skip/resume decision always re-reads the real Content-Length at download time, so a
-# stale number here can never cause a corrupt file to be treated as complete.
+# `size` is informational for sets WITHOUT checksums — used for --list and the free-space
+# preflight, while the skip/resume decision re-reads the real Content-Length at download
+# time, so a stale number can never cause a corrupt file to be treated as complete. For a
+# file with a `sha256` it is exact: the hash decides, and the size is its companion.
 MODEL_SETS: dict[str, dict] = {
 	"flux2-klein": {
 		"title": "FLUX.2 [klein] 4B (fp8)",
@@ -344,6 +375,154 @@ MODEL_SETS: dict[str, dict] = {
 			},
 		],
 	},
+	"rmbg": {
+		"title": "RMBG-2.0 background removal (ComfyUI-RMBG `RMBG` node)",
+		"license": "NON-COMMERCIAL (BRIA RMBG-2.0 is CC BY-NC 4.0) — see model_licences.json",
+		"note": (
+			"The Atlas Maker's default cutout (`rmbg_model: RMBG-2.0` on every SDXL/FLUX/GPT "
+			"graph). Exactly the four files ComfyUI-RMBG @ 9edb2bec3900 downloads into "
+			"models/RMBG/RMBG-2.0/ on first use, from the node's own 1038lab re-host, pinned to "
+			"a commit. Fetched here and checksummed so no worker downloads them into the shared "
+			"volume: the serverless worker verifies them at boot and stages each one that "
+			"passes into its own disk; one that does not is downloaded there, privately."
+		),
+		"files": [
+			{
+				"dir": "RMBG/RMBG-2.0",
+				"name": name,
+				"url": f"{HF}/1038lab/RMBG-2.0/resolve/{RMBG2_REV}/{name}",
+				"size": size,
+				"sha256": sha,
+			}
+			for name, size, sha in (
+				(
+					"config.json", 405,
+					"c97ea21569daf66b205491a4635147dd3bc42c7c168b89d7d75b53f67ef548ae",  # pragma: allowlist secret
+				),
+				(
+					"BiRefNet_config.py", 298,
+					"e7b8c2a74f6cea6a59553d517f71d47f2c1d90e670a13416af17c25fe2f3dc52",  # pragma: allowlist secret
+				),
+				(
+					"birefnet.py", 91_320,
+					"8f498727f4bdb7dfaa4d66190f0ebf55392bda62c1b4f224be39f9b750a8915d",  # pragma: allowlist secret
+				),
+				(
+					"model.safetensors", 884_878_856,
+					"566ed80c3d95f87ada6864d4cbe2290a1c5eb1c7bb0b123e984f60f76b02c3a7",  # pragma: allowlist secret
+				),
+			)
+		],
+	},
+	"birefnet": {
+		"title": "BiRefNet, all 12 variants (ComfyUI-RMBG `BiRefNetRMBG` node)",
+		"license": (
+			"per variant — the ZhengPeng7 BiRefNet family is MIT; toonout and Lucida are "
+			"recorded separately in model_licences.json"
+		),
+		"note": (
+			"The Flipbook video blueprint's cutout (default BiRefNet_toonout), whose model "
+			"select offers every variant — so all twelve are here, not just the default: a "
+			"variant missing from the volume is one the node would download at run time. "
+			"They SHARE models/RMBG/BiRefNet/ with the .py/config files, which is how one torn "
+			"birefnet.py failed every cutout for 14 hours (2026-09-04). Exactly the files "
+			"ComfyUI-RMBG @ 9edb2bec3900 names, pinned to a commit of 1038lab/BiRefNet. The "
+			"node REWRITES its .py in place on every load (relative import made absolute, line "
+			"endings normalised), so each .py also accepts that rewritten form."
+		),
+		"files": [
+			{
+				"dir": "RMBG/BiRefNet",
+				"name": name,
+				"url": f"{HF}/1038lab/BiRefNet/resolve/{BIREFNET_REV}/{name}",
+				"size": size,
+				"sha256": sha,
+				**({"accept_sha256": [rewritten]} if rewritten else {}),
+			}
+			for name, size, sha, rewritten in (
+				(
+					"config.json", 402,
+					"966a1f0165b072d2d1309756e71907750e535ba5c3790d8cd0e69713ff3a56cd",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_config.py", 298,
+					"e7b8c2a74f6cea6a59553d517f71d47f2c1d90e670a13416af17c25fe2f3dc52",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"birefnet.py", 92_068,
+					"a9566611aa07a6fbb68ddb6ac8e19e62c879a428fbfc2f44efa53d233f2e302f",  # pragma: allowlist secret
+					"bd2986cee78b6d649ba7464066a0ba393cc45910ba1cb413ed91ca8fbb226f86",  # pragma: allowlist secret
+				),
+				(
+					"birefnet_lite.py", 94_257,
+					"1ec7679913fe0e042a108fc31a29a5ff12e84e7d91c9fff2747d45f3166ab5eb",  # pragma: allowlist secret
+					"8cfa74c242870386ffb01ee8a91238525ee6c8fce7e6c9559ac7056a2e7440ce",  # pragma: allowlist secret
+				),
+				(
+					"BiRefNet-general.safetensors", 884_878_856,
+					"77277264c0e8c74149d3ff2fade4fd8176965b7108f3c5fc3b8c9c811edb4519",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_512x512.safetensors", 444_473_596,
+					"d94ae0eefb2d2020192001e984ecd6b367478118257a3132e6a484bbf18b0f41",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet-HR.safetensors", 444_473_596,
+					"9d678bafec0b0019fbb073b7fd02f05ede25dc4b15254f23b2fb0be333200c0d",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet-portrait.safetensors", 884_878_856,
+					"4a4eb3a5469b75f0cccaec6772c22fc30e6c12ed429c2c0ba71b43e3d8d97182",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet-matting.safetensors", 884_878_856,
+					"a9875de5b1e6c8eb5fdaa8c727a82927ce442cdc87ba3abee6a77e6fa46c25bb",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet-HR-matting.safetensors", 444_473_596,
+					"a5a4de698739ea5e0e8bbab28e1b293dde95092b87a442d566cbc585c53cef55",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_lite.safetensors", 177_634_392,
+					"4417d89795250e698c3cb0ae8df15743810065f646f48a694fdfa7ca052d0815",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_lite-2K.safetensors", 177_634_392,
+					"aa2e4a5af5eb3904694feb40f2b39ec5dd7cd9110906590cfeb982f09a46021d",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_dynamic.safetensors", 444_473_596,
+					"e3d2e4884e51ff30f0cd630edc6b1e41b06b7f23a0a2a5169f7b7cb33a711c2d",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_lite-matting.safetensors", 88_965_896,
+					"ce8bcfc045e336322c0424a5863dcfb7e9ce8fed0a5fd4d1b2b20adf12d97243",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"BiRefNet_toonout.safetensors", 884_878_824,
+					"5ff451d2e1d15dd22a66efea05640f79e470467f89f8bdc239a81a6757f66093",  # pragma: allowlist secret
+					"",
+				),
+				(
+					"Lucida.safetensors", 884_878_856,
+					"2f1aa6913426537d4b93dd5f7138ae5c6664e99abda98c95f3d5b9101283e7d5",  # pragma: allowlist secret
+					"",
+				),
+			)
+		],
+	},
 }
 
 
@@ -374,9 +553,23 @@ def _remote_size(url: str) -> int | None:
 		raise
 
 
-def _download(url: str, out: Path, expect: int | None) -> None:
-	"""Stream to `out`, resuming a partial `.part` when the server allows it."""
-	part = out.with_suffix(out.suffix + ".part")
+def _sha256(path: Path) -> str:
+	h = hashlib.sha256()
+	with open(path, "rb") as fh:
+		for chunk in iter(lambda: fh.read(1 << 22), b""):
+			h.update(chunk)
+	return h.hexdigest()
+
+
+def _accepted(f: dict) -> set[str]:
+	"""Every sha256 that counts as this file being current. The extras are forms a node
+	legitimately writes over the download (see the `birefnet` set)."""
+	return {f["sha256"], *f.get("accept_sha256", [])}
+
+
+def _stream(url: str, part: Path, expect: int | None) -> bool:
+	"""Stream `url` into `part`, resuming an existing one when the server allows it.
+	True when it resumed — the bytes already there were kept."""
 	have = part.stat().st_size if part.is_file() else 0
 	headers = {"Accept-Encoding": "identity"}
 	if have and expect and have < expect:
@@ -401,13 +594,139 @@ def _download(url: str, out: Path, expect: int | None) -> None:
 					pct = 100.0 * done / total
 					print(f"\r    {_gb(done)} / {_gb(total)}  ({pct:5.1f}%)", end="", flush=True)
 		print()
+	return resuming
 
-	if expect and part.stat().st_size != expect:
-		raise SystemExit(
-			f"size mismatch for {out.name}: got {part.stat().st_size}, expected {expect}. "
-			"Left the .part in place — re-run to resume."
-		)
+
+def _download(url: str, out: Path, expect: int | None, sha256: str | None = None) -> None:
+	"""Download to `out`'s `.part` and rename it into place only once it is whole — and,
+	when `sha256` is given, only once it hashes right. The real filename therefore never
+	holds a torn file. A bad hash deletes the `.part`: after a RESUME the kept bytes are
+	the suspect, so it starts over once; a clean download that still mismatches fails."""
+	part = out.with_suffix(out.suffix + ".part")
+	while True:
+		resumed = _stream(url, part, expect)
+		if expect and part.stat().st_size != expect:
+			raise SystemExit(
+				f"size mismatch for {out.name}: got {part.stat().st_size}, expected {expect}. "
+				"Left the .part in place — re-run to resume."
+			)
+		if sha256 is None:
+			break
+		got = _sha256(part)
+		if got == sha256:
+			break
+		part.unlink()
+		if not resumed:
+			raise SystemExit(
+				f"CHECKSUM MISMATCH for {out.name}: got {got}, pinned {sha256}. The download "
+				"was deleted, and nothing was written under the real name. Upstream no longer "
+				"serves the pinned bytes — do not bypass this; re-pin the set deliberately."
+			)
+		print(f"    checksum mismatch after resuming {part.name} — the kept bytes were bad; "
+		      "starting over")
 	part.replace(out)
+
+
+def _load_record(dest_root: Path) -> dict:
+	try:
+		return json.loads((dest_root / VERIFIED_RECORD).read_text(encoding="utf-8"))
+	except (OSError, ValueError):
+		return {}
+
+
+def _record_verified(dest_root: Path, rel: str, sha256: str) -> None:
+	"""Note that `rel` hashed to `sha256` just now, at the size it has now — what
+	`--verify` trusts for a file too big to re-hash on every boot. Written through a temp
+	file and a rename, like the models themselves."""
+	path = dest_root / VERIFIED_RECORD
+	st = (dest_root / rel).stat()
+	record = _load_record(dest_root)
+	record[rel] = {"sha256": sha256, "size": st.st_size}
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp = path.with_name(path.name + ".part")
+	tmp.write_text(json.dumps(record, indent=1, sort_keys=True), encoding="utf-8")
+	tmp.replace(path)
+
+
+def _check_one(dest_root: Path, f: dict, record: dict, stage_root: Path | None) -> str:
+	"""What is wrong with one file, or "" when it verifies — and, when staging, it is in
+	`stage_root` exactly when it verifies. Nothing half-written is ever left there: a
+	small file is copied to a temporary name, hashed, and only then renamed into place."""
+	rel = f"{f['dir']}/{f['name']}"
+	src = dest_root / rel
+	dst = stage_root / rel if stage_root else None
+	tmp = dst.with_name(dst.name + ".staging") if dst is not None else None
+	try:
+		if dst is not None:
+			dst.parent.mkdir(parents=True, exist_ok=True)
+			if dst.is_symlink() or dst.exists():
+				dst.unlink()
+		if not src.is_file():
+			return f"{rel}: missing"
+		size = src.stat().st_size
+		if size <= FULL_HASH_MAX:
+			if tmp is not None:
+				shutil.copyfile(src, tmp)
+			if _sha256(tmp or src) not in _accepted(f):
+				return f"{rel}: checksum mismatch"
+			if tmp is not None:
+				tmp.replace(dst)
+			return ""
+		seen = record.get(rel) or {}
+		if seen.get("sha256") != f["sha256"]:
+			return f"{rel}: never verified by fetch-models"
+		if seen.get("size") != size:
+			return f"{rel}: changed since it was verified"
+		if dst is not None:
+			dst.symlink_to(src)
+		return ""
+	except OSError as e:
+		if dst is not None and (dst.is_symlink() or dst.exists()):
+			dst.unlink()
+		return f"{rel}: could not be checked or staged ({e})"
+	finally:
+		if tmp is not None and tmp.exists():
+			tmp.unlink()
+
+
+def _check(dest_root: Path, files: list[dict], stage_root: Path | None) -> list[str]:
+	"""Everything wrong with `files` under `dest_root`, offline. Empty means verified.
+
+	A small file is hashed in full. When staging, it is hashed AFTER the copy, so what is
+	verified is the exact bytes this container will load — not a shared file some other
+	process may rewrite between the check and the copy. A big file must match the record
+	a verified fetch left: same sha256 and size. Not mtime — the volume is written from a
+	pod and read from every worker, and a boot that distrusted weights over a clock would
+	throw away a good copy; only fetch-models writes these names, and only whole
+	(`.part` + rename). Staged big files are symlinks to the volume.
+
+	PER FILE: each one that verifies is staged, each one that does not is left out, so
+	one bad variant costs only itself — the node downloads what is absent into the
+	container's own disk, which no other worker can see."""
+	record = _load_record(dest_root)
+	return [p for p in (_check_one(dest_root, f, record, stage_root) for f in files) if p]
+
+
+def _verify(dest_root: Path, sets: list[str], files: list[dict], stage_root: Path | None) -> int:
+	"""`--verify`: 0 when every file checks out, else 1 — and then the LAST line printed
+	is a one-line summary naming the fix. With `--stage` the files that did verify are
+	staged either way; see `_check`."""
+	unpinned = sorted({s for s in sets for f in MODEL_SETS[s]["files"] if "sha256" not in f})
+	if unpinned:
+		raise SystemExit(f"Set(s) with no checksums to verify: {', '.join(unpinned)}.")
+	problems = _check(dest_root, files, stage_root)
+	where = f", staged into {stage_root}" if stage_root else ""
+	if not problems:
+		print(f"== verified {len(files)} file(s) of {'+'.join(sets)} under {dest_root}{where}")
+		return 0
+	print(f"== verified {len(files) - len(problems)} of {len(files)} file(s) of "
+	      f"{'+'.join(sets)} under {dest_root}{where}")
+	for p in problems:
+		print(f"   !! {p}")
+	fix = " ".join(f"--set {s}" for s in sets)
+	print(f"UNVERIFIED {'+'.join(sets)} under {dest_root}: {len(problems)} problem(s), first "
+	      f"'{problems[0]}' — fix on a pod: python /fetch-models.py {fix}")
+	return 1
 
 
 def main() -> None:
@@ -419,6 +738,10 @@ def main() -> None:
 	ap.add_argument("--list", action="store_true", help="show the available sets and exit")
 	ap.add_argument("--dry-run", action="store_true", help="report what would be fetched, download nothing")
 	ap.add_argument("--force", action="store_true", help="re-download even if the size already matches")
+	ap.add_argument("--verify", action="store_true",
+	                help="check checksummed sets offline, download nothing; exit 1 on any problem")
+	ap.add_argument("--stage", metavar="DIR",
+	                help="with --verify: mirror the verified sets into DIR, a container-local models dir")
 	args = ap.parse_args()
 
 	if args.list or not args.sets:
@@ -435,6 +758,8 @@ def main() -> None:
 	unknown = [s for s in args.sets if s not in MODEL_SETS]
 	if unknown:
 		raise SystemExit(f"Unknown set(s): {', '.join(unknown)}. Run --list.")
+	if args.stage and not args.verify:
+		raise SystemExit("--stage only stages what --verify has just checked; pass both.")
 
 	dest_root = Path(args.dest)
 	if not args.dry_run and not dest_root.is_dir():
@@ -450,6 +775,9 @@ def main() -> None:
 				seen.add(key)
 				files.append(f)
 
+	if args.verify:
+		sys.exit(_verify(dest_root, args.sets, files, Path(args.stage) if args.stage else None))
+
 	for s in args.sets:
 		print(f"== {s}: {MODEL_SETS[s]['title']}")
 		print(f"   licence: {MODEL_SETS[s]['license']}")
@@ -463,12 +791,30 @@ def main() -> None:
 			raise SystemExit("Not enough free space on the volume — resize it or drop a set.")
 
 	for i, f in enumerate(files, 1):
-		out = dest_root / f["dir"] / f["name"]
-		label = f"[{i}/{len(files)}] {f['dir']}/{f['name']}"
+		rel = f"{f['dir']}/{f['name']}"
+		out = dest_root / rel
+		label = f"[{i}/{len(files)}] {rel}"
+		sha256 = f.get("sha256")
 
 		if args.dry_run:
 			state = "present" if out.is_file() else "MISSING"
 			print(f"{label} — {_gb(f['size'])} — {state}")
+			continue
+
+		if sha256:
+			# A checksummed file is current only if it HASHES right — a torn file can
+			# have exactly the right size. The download itself is checked the same way.
+			if not args.force and out.is_file():
+				got = _sha256(out)
+				if got in _accepted(f):
+					_record_verified(dest_root, rel, got)
+					print(f"{label} — verified, skipped")
+					continue
+				print(f"{label} — CHECKSUM MISMATCH on disk, re-downloading")
+			print(f"{label} — {_gb(f['size'])}")
+			out.parent.mkdir(parents=True, exist_ok=True)
+			_download(f["url"], out, f["size"], sha256)
+			_record_verified(dest_root, rel, sha256)
 			continue
 
 		size = _remote_size(f["url"]) or f["size"]
