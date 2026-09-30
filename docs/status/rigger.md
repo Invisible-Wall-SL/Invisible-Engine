@@ -14,7 +14,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete; **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
 - **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a Spine `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because Spine's loader throws on it and the rig would no longer open.
-- **Mesh** — region→mesh, draw-a-mesh, vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
+- **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
 - **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor, slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
@@ -45,28 +45,42 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    in would keep them in place.
 9. ~~Skins in the editor: ＋ add image… in a non-default skin, deleting the default skin~~ — fixed
    2026-09-30 (Recent changes); kept so the numbers after it stay put.
-10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
-    `sequence`, so the linked mesh shows placeholder art. **▸ Convert to mesh on a sequence image**
-    drops its `sequence` the same way: the mesh names the sequence's base, which the atlas does not
-    have, so the image turns into placeholder art (probed).
+10. ~~＋ Linked mesh / ▸ Convert to mesh drop a sequence~~ — fixed 2026-09-30 (Recent changes); kept
+    so the numbers after it stay put.
 11. ~~Stage errors half hidden under the mode bar~~ — fixed 2026-09-30 (Recent changes); kept so
     the numbers after it stay put.
-12. **A mesh made from a trimmed image is mapped wrong.** A region's quad covers only its trimmed
-    ink, but a mesh's UVs span the untrimmed canvas, and ▸ Convert to mesh and ✎ Draw mesh both lay
-    UVs across the ink's quad as if it were the canvas: the whole canvas is squeezed into the ink's
-    box, drawing whatever the atlas packs beside the ink with it (probed: the ink of a 40×40 image
-    trimmed to 20×10 is drawn at half its width and a quarter of its height). 14 of
-    `anticipation`'s 24 regions are trimmed, 163 of `symbols2`'s 204. `linkedmesh.mjs` compares
-    texels on untrimmed images only.
+12. ~~A mesh made from a trimmed image is mapped wrong~~ — fixed 2026-09-30 (Recent changes), with a
+    🩹 Repair for meshes saved before; kept so the numbers stay put.
+13. **An image packed at 180° or 270° draws wrong as a region** — upside down, or transposed with
+    atlas pixels beside it — in spine-core 4.2 itself (so in the game too): its
+    `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
+    `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than Spine's).
+    Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
 
 ## Blocked (owner / external)
 
-- **Whole-tool live-verify** is owner-driven — the vendored minified runtime has surfaced browser-only bugs the headless spikes (un-mangled spine-core) missed. Specifically owed: a real save / conflict / restore against R2; baked rig text on screen in a game; the UV panel's rotated-region blit; rig FX slot depth in a published game.
+- **Whole-tool live-verify** is owner-driven — the vendored minified runtime has surfaced browser-only bugs the headless spikes (un-mangled spine-core) missed. Specifically owed: a real save / conflict / restore against R2; baked rig text on screen in a game; rig FX slot depth in a published game.
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON).
 
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **A mesh made from an image draws the image's pixels, and 🩹 Repair fixes the ones
+  saved wrong** (were open items 10 and 12). A mesh's UVs are a fraction of the UNTRIMMED image,
+  but ▸ Convert to mesh and ✎ Draw mesh laid 0..1 across the trimmed ink's quad, squeezing the
+  whole image (and whatever the atlas packs beside the ink) into it; both now map through the
+  ink's place on the image (`regionInkUVs`). Convert, Draw and ＋ Linked mesh dropped a sequence's
+  `sequence` (placeholder art); they keep it, and the linked-mesh source picker gives and takes
+  the frames. On a sequence whose frames are trimmed differently, Convert covers every frame's ink
+  and both ask first. The UV panel draws the whole untrimmed image with the ink in its place (all
+  four packs). On open, a banner lists meshes the old tools mapped wrong that can be told apart
+  safely — a flat mesh whose UVs run past the ink and fit its box, not the image's — and linked
+  meshes missing their source's frames, each with **🩹 Repair** (it is a judgement from shape)
+  or **keep as is**. UV drags stop at the ink. New gate `tools/rigger-spike/trimmesh.mjs` (515
+  checks): the shipped actions on the vendored runtime, drawn by its WebGL renderer in Chromium
+  and compared per pixel against the region and an untrimmed twin; the pre-fix page fails both
+  items; 20 mutants caught. Found, not fixed: open item 13.
 
 - 2026-09-30 — **Save residuals closed** (open items 2 and 6). The animation-library save is
   create-only / `If-Match` like the rig library's (one shared `putLibraryEntry`); `＋ New rig` and

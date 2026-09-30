@@ -5,6 +5,88 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **A mesh made from an image draws the image's pixels — trimmed, rotated or a
+  sequence — and meshes the earlier tools saved wrong can be repaired in one click** (were open
+  items 10 and 12).
+  - **Root cause, trimmed images (12).** A `RegionAttachment`'s quad covers only the trimmed ink
+    (`updateRegion` offsets it by `region.offsetX/Y`), but a `MeshAttachment`'s `uvs` are a fraction
+    of the UNTRIMMED image, v down: its `updateRegion` subtracts the offsets and scales by
+    `originalWidth/Height` against the page size, and undoes a 90/180/270° pack. Read off the
+    vendored `spine-webgl-4.2.js` and spine-core 4.2.74 (the same code). ▸ Convert to mesh wrote
+    UVs `[0,1, 0,0, 1,0, 1,1]` over the ink's quad and ✎ Draw mesh wrote `affineUV` (0..1 across
+    that quad), so the whole image — and whatever the atlas packs beside the ink — was squeezed
+    into the ink's box. Now both map through `regionInkUVs(region)` (the ink's place on the image:
+    `u0 = offsetX/ow`, `v0 = (oh − offsetY − height)/oh`, …): Convert's corners take the ink's
+    corners, a drawn point `(s, t)` on the ink's quad takes `inkToImageUV`. The vertices are
+    unchanged (the ink's quad), so the mesh draws exactly the region's pixels. That is also Spine
+    Editor's own UV space — its `ground_snow` in `symbols` (ink 70×134 of 192×134) has UVs
+    0.319–0.681, the ink's span — while its default region→mesh is a whole-image quad
+    (`[1,1, 0,1, 0,0, 1,0]`, 115 of 118 checked-in 4-vertex meshes): it packs from untrimmed
+    source images, whereas an atlas has no pixels outside the ink to give such a quad.
+  - **Root cause, sequences (10).** Convert, Draw and ＋ Linked mesh built the new attachment from
+    `path` alone; a sequence's `path` is its frames' shared stem (`fx_`), which no region carries,
+    so the mesh drew placeholder art and the strict loader throws "Region not found in atlas". All
+    three now copy `sequence` (setup frame included); the linked-mesh source picker gives a
+    linked mesh its new source's frames and, when the new source has none, takes its frames away
+    along with its own sequence keys in its skin (`dropSequenceKeysFor(slot, att, onlySkin)`) —
+    those keys would otherwise throw at load. Convert calls `Sequence.apply` first (an image the
+    stage has not drawn has no region yet). 41 of the 44 checked-in sequences trim each frame
+    differently, and a mesh has one set of UVs for every frame: Convert covers the union of the
+    frames' ink (`sequenceInk`, placed through `regionPointAt`, the region's own placement
+    formula), and Convert and Draw both ask first when the frames differ, since a frame with less
+    ink then shows what the atlas packs beside it in the rest.
+  - **UV panel.** `drawRegionUpright` stretched the ink over the whole box. The box is now the
+    untrimmed image (`uvArtAspect` from `originalWidth/Height`), the ink sits where the UVs find it,
+    and the 180 / 270° packs are undone too (only 90° was). A UV drag, in the panel or ⛶ isolate,
+    is clamped to the ink (`meshInkBox`, every frame's for a sequence) instead of 0..1, which now
+    reaches the atlas beside it. From review: answering No to Draw's sequence question keeps the
+    traced outline; a missing frame's 1×1 placeholder (`placeholder: true`) no longer counts as a
+    frame trimmed differently; Convert calls `updateRegion()` after `Sequence.apply` as before.
+  - **Repair.** `meshRepairs()` runs on every rebuild; the banner lists what it finds, each with
+    **🩹 Repair** (`repairMeshes([repairKey])`, then 💾 Save; **🩹 Repair all** for several) and
+    **keep as is** (`repairsKept`, for the page's life — review: a heuristic must not be
+    all-or-nothing, nor nag after every rebuild once declined). A linked mesh onto a sequence mesh that
+    lacks its frames (and names the same stem) gets the parent's `sequence`. A mesh from a trimmed
+    image is offered only when `inkMappedAsImage` sees all three signs of the old mapping: UVs
+    reaching past the ink's box by more than half a pixel (a mesh mapped right over the ink stays
+    inside it); a flat mesh (its rest positions, unweighted or bound 100 % to its slot's bone, are
+    one least-squares affine map of its UVs within 0.1 % of its size); and that map a uniformly
+    scaled copy of the ink's box but not of the image's — or, where the two share an aspect, the
+    ink's at scale 1. The repair maps every UV from the ink onto the image; the vertices stay, so
+    it draws what the region drew, and linked meshes follow. The "reaches past the ink" sign was
+    added after the gate caught a false positive without it: the FIXED Convert of `tall` (ink 9×31
+    of 22×38) under scaleY 2 fits the ink's box uniformly by coincidence (2.444 vs 2.452).
+  - **Verified.** `tools/rigger-spike/trimmesh.mjs` (new, 515 checks): the shipped actions run on
+    the vendored runtime in a Node sandbox, and the rigs they leave are drawn by that runtime's own
+    WebGL `SkeletonRenderer` in headless Chromium (NEAREST sampling; every page texel encodes which
+    image pixel it holds, the rest of the page reads as "atlas") and compared pixel by pixel. 8
+    images (trimmed, 0 / 90 / 180 / 270° packs, one untrimmed) × 4 placings (plain, shifted, turned
+    90° ×2, under a turned flipped bone): Convert and Draw each give a mesh identical to the region
+    (0 / 90°) and to an untrimmed twin (all four), and spine-core 4.2.74 agrees on the UVs at every
+    vertex. Sequences: Convert on frames trimmed alike (identical per frame), frame by frame (asks
+    once; every ink pixel of every frame kept; the union exceeds any single frame) and keyed (the
+    key still drives it); Draw on a sequence; ＋ Linked mesh onto two sequence meshes (frames and a
+    keyed frame match the source); a linked mesh's source switched to a sequence mesh and back. The
+    repair: 12 stale meshes (old Convert unweighted and bone-bound, old Draw, a linked mesh) offered
+    and drawing the region's pixels after 🩹, one repaired alone touching only its own; No to
+    Draw's question writing nothing and keeping the outline; not offered — a Spine-style whole-image quad on an
+    ink of the image's aspect and of another, an old mesh reshaped so only flatness refuses it, an
+    untrimmed one, the unevenly scaled ones it cannot tell, the fixed tools' 64 meshes, and all
+    1,615 meshes of the 153 checked-in rigs. The UV panel's art is drawn by the shipped helpers in
+    a real canvas and read back per image pixel. The pre-fix `view.html`
+    (`RIGGER_VIEW_HTML=<file>`) fails 155 of the 308 checks it reaches; 20 planted mutants are each
+    caught. In the real page (rig-switch's fake launcher, a one-off probe): an old-Convert mesh
+    planted on `anticipation`'s `glow3` is listed in the banner; **keep as is** hides it through a
+    rebuild; 🩹 Repair re-maps it to the ink and leaves the rig unsaved; nothing thrown. Not reached by the repair, by design: an image
+    trimmed evenly all round and scaled (`radial1`, ink 170×171 of 198×199 at 0.2) — there a
+    whole-image quad and a squeezed ink quad differ only by the unknown scale; the guide gives the
+    redo. `linkedmesh.mjs` now checks the texel at every vertex on trimmed images too (it
+    skipped them) and offers sequence sources to ＋ Linked mesh; `uvpanel.mjs` pulls the shipped
+    `uvArtAspect` / `computeUvFit` instead of a hand copy.
+  - **Found, not fixed** (open item 13): a region on a 180° pack draws upside down and on a 270°
+    pack transposed, in spine-core 4.2 itself — its `RegionAttachment.updateRegion` undoes a 90°
+    pack only. Only `apps/price/…/symbolsSpecial` has such packs (18 regions).
+
 - 2026-09-30 — **Save residuals closed** (former open items 2 and 6).
   - **Animation library (6a).** `/api/rigger/animations/save` did a plain PUT, so a same-id save
     from any project silently replaced the studio-wide entry. It now goes through

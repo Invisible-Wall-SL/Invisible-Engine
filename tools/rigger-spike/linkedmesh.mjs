@@ -204,7 +204,7 @@ function sameBindings(what, before, mapKey) {
 	log(got.size === before.size, `${what}: ${got.size} linked meshes load, expected ${before.size}`);
 }
 // The (non-linked) meshes a linked mesh on `slot` can borrow from, as the tool offers them.
-const offeredOn = () => sandbox.sourceMeshCandidates().filter((c) => !c.def.sequence);
+const offeredOn = () => sandbox.sourceMeshCandidates();
 
 // ＋ Linked mesh onto source `c` with `skin` active on `slot`, set up by `session` (open / resume):
 // the rig loads, exactly one attachment is added and none replaced, and it is bound to that source.
@@ -356,15 +356,15 @@ const worst = (a, b) => (a.length === b.length ? Math.max(0, ...Array.from(a, (v
 // `holder`'s — the skin on stage's if it has one of that name, else default's — and that entry alone
 // (with `linked`, a text element's other locales in the same skin) must be rewritten, into a mesh of
 // the same art that the stage then shows with the same skin on it: the vertices where the image was
-// (or was clicked), and at each of them the texel the image drew there. Returns whether that texture
-// mapping was checked, which is only on an untrimmed image.
+// (or was clicked), and at each of them the texel the image drew there — on a trimmed image too, whose
+// ink the image's quad covers alone (tools/rigger-spike/trimmesh.mjs draws them).
 function checkToMesh(what, action, holder, linked = []) {
 	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot;
 	const si = sandbox.skeletonData.slots.findIndex((s) => s.name === slot);
 	const name = sandbox.skeletonData.slots[si].attachmentName;
 	const shown = sandbox.skeleton.getAttachment(si, name);
 	const label = action === 'convert' ? '▸ Convert to mesh' : '✎ Draw mesh';
-	if (!log(shown instanceof SPINE.RegionAttachment, `${what}: the stage shows ${shown && shown.constructor.name} on ${slot}, not an image`)) return false;
+	if (!log(shown instanceof SPINE.RegionAttachment, `${what}: the stage shows ${shown && shown.constructor.name} on ${slot}, not an image`)) return;
 	const quad = new Array(8).fill(0);
 	shown.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
 	const clicked = [...quad, (quad[0] + quad[4]) / 2, (quad[1] + quad[5]) / 2];
@@ -375,22 +375,18 @@ function checkToMesh(what, action, holder, linked = []) {
 		s.drawPoints = Array.from({ length: clicked.length / 2 }, (_, i) => ({ x: clicked[i * 2], y: clicked[i * 2 + 1] }));
 		s.finishDrawMesh();
 	});
-	if (!log(!err, `${what}: ${label} on ${slot} — the rig no longer loads: ${err}`)) return false;
+	if (!log(!err, `${what}: ${label} on ${slot} — the rig no longer loads: ${err}`)) return;
 	const changed = changedBetween(before, snapshot(sandbox.rawDoc)), expected = [name, ...linked].map((n) => key(holder, slot, n)).sort();
 	log(JSON.stringify(changed) === JSON.stringify(expected), `${what}: ${label} on ${slot} rewrote [${changed.map(showChange).join(', ')}], expected [${expected.map(show).join(', ')}]`);
 	onStage(`${what}: ${label} on ${slot}`, skin);
 	const now = sandbox.skeleton.getAttachment(si, name);
-	if (!log(now instanceof SPINE.MeshAttachment, `${what}: after ${label} the stage shows ${now && now.constructor.name} on ${slot}, expected the new mesh`)) return false;
+	if (!log(now instanceof SPINE.MeshAttachment, `${what}: after ${label} the stage shows ${now && now.constructor.name} on ${slot}, expected the new mesh`)) return;
 	log(now.path === shown.path, `${what}: after ${label} the stage's mesh on ${slot} shows ${now.path}, expected ${shown.path}`);
 	// a drawn mesh has never taken the image's tint; a converted one does
 	if (action === 'convert') log(worst([now.color.r, now.color.g, now.color.b, now.color.a], [shown.color.r, shown.color.g, shown.color.b, shown.color.a]) < 1e-6, `${what}: after ${label} the stage's mesh on ${slot} lost the image's tint`);
 	const at = new Array(now.worldVerticesLength).fill(0);
 	now.computeWorldVertices(sandbox.skeleton.slots[si], 0, now.worldVerticesLength, at, 0, 2);
-	const r = shown.region, trimmed = r.offsetX !== 0 || r.offsetY !== 0 || r.width !== r.originalWidth || r.height !== r.originalHeight;
 	if (action === 'draw') log(worst(at, clicked) < 1e-3, `${what}: after ${label} the stage's mesh on ${slot} is ${worst(at, clicked).toFixed(4)} off where it was clicked`);
-	// A trimmed image's mesh spans the whole untrimmed image over the ink's quad (an open item), so its
-	// texels are not the image's, and a fix may move its vertices.
-	if (trimmed) return false;
 	if (action === 'convert') log(worst(at, quad) < 1e-3, `${what}: after ${label} the stage's mesh on ${slot} is ${worst(at, quad).toFixed(4)} off the image's corners`);
 	const uv = shown.uvs, texels = [];
 	for (let i = 0; i < at.length; i += 2) {
@@ -398,7 +394,6 @@ function checkToMesh(what, action, holder, linked = []) {
 		texels.push(uv[2] + s * (uv[4] - uv[2]) + t * (uv[0] - uv[2]), uv[3] + s * (uv[5] - uv[3]) + t * (uv[1] - uv[3]));
 	}
 	log(worst(now.uvs, texels) < 1e-5, `${what}: after ${label} the stage's mesh on ${slot} samples texels up to ${worst(now.uvs, texels)} off the image's`);
-	return true;
 }
 
 // The image the stage shows on `slot`: its runtime attachment, its world corners BL, UL, UR, BR, and
@@ -821,16 +816,15 @@ if (jsonPath && atlasPath) {
 			slots.push(slot.name);
 		}
 		const sessions = [[bare, 'default', 'holding nothing'], [own, fresh, 'holding its own']];
-		let mapped = 0;
 		for (const [doc, holder, what] of sessions) for (const action of ['convert', 'draw']) {
 			// one session per skin and action, over every slot in turn
 			open(doc, atlasText, fresh);
 			for (const slot of slots) {
 				sandbox.selSlot = slot;
-				if (checkToMesh(`"${fresh}" on stage, ${what}`, action, holder)) mapped++;
+				checkToMesh(`"${fresh}" on stage, ${what}`, action, holder);
 			}
 		}
-		console.log(`  ▸ Convert / ✎ Draw mesh from new skin "${fresh}": ${slots.length} slot(s) showing an image, in both skins; texels checked on ${mapped} of ${slots.length * 4} (the rest are trimmed)`);
+		console.log(`  ▸ Convert / ✎ Draw mesh from new skin "${fresh}": ${slots.length} slot(s) showing an image, in both skins, the texel at every vertex checked`);
 		// then the placement fields, the ✥ pivot and replace image on those images, each skin's with a
 		// pivot of its own — one session per skin, over every slot in turn
 		for (const [doc, holder, what] of sessions) {

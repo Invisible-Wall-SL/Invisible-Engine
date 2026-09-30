@@ -66,6 +66,26 @@ you create are scoped to the project you have selected.
 > earlier save is how a rig saved in a broken state is repaired — as do
 > **⟳ Re-sync atlas** and **source…** for an atlas problem. Open another rig to carry on.
 
+> **Meshes an earlier Rigger mapped wrong.** Before 2026-09-30, ▸ Convert to mesh and ✎ Draw
+> mesh squeezed a **trimmed** image's whole canvas into its ink (the mesh showed the art too
+> small, with bits of neighbouring atlas images), and ＋ Linked mesh onto a **sequence** mesh
+> left the linked mesh without the frames (placeholder art). When a rig opens, the amber banner
+> lists the ones it can recognise, each with **🩹 Repair** (and **🩹 Repair all** when there are
+> several): a click re-maps that mesh to draw exactly what its image drew, then **💾 Save**.
+> Recognising one is a judgement from its shape, so check the result — and if a listed mesh is
+> right as it is, **keep as is** stops offering it while the rig is open. It lists a mesh the
+> old ▸ Convert to mesh made, or an old ✎ Draw mesh whose points reach past the ink, not
+> reshaped since (unweighted, or bound only to its slot's bone); and a linked mesh that shows
+> its sequence source's image without its frames. It leaves alone what it cannot tell from a
+> mesh traced that way on purpose: an image scaled unevenly, and one trimmed evenly all round
+> (its ink keeps the image's proportions, as a glow's often does) unless it is unscaled.
+> **Anything else, redo by hand:** note the slot's image, delete the mesh, **＋ add image…** that
+> image again (for a sequence, then **▩ Make this a sequence**), and **▸ Convert to mesh** or
+> **✎ Draw mesh** again — then re-bind weights and re-key deforms, which belonged to the old
+> vertices. A mesh made before the fix from a **sequence** image lost its frames too:
+> **▩ Make this a sequence** on its slot restores the declaration (the setup frame starts at 1),
+> but its mapping still wants the redo above.
+
 > **↻ Refresh from R2** (sidebar) re-reads the rig list — and reloads the rig
 > currently on stage — fresh from cloud storage, bypassing the browser cache.
 > Use it after creating/saving a rig (here or in another tool) if the list or the
@@ -301,7 +321,15 @@ a rival answer to the same question. Move the box, or bind a different bone.
   into an editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to
   trace a mesh outline by clicking boundary points (Finish to commit, Esc to
   cancel, Backspace removes the last point). Either one replaces the image you
-  see (**Skins** above says which skin's that is).
+  see (**Skins** above says which skin's that is) and draws exactly the pixels it
+  drew — also when the atlas trimmed the image's empty edges or packed it rotated:
+  the mesh's UVs are in Spine's own space (a fraction of the whole, untrimmed
+  image), laid where the image's ink sits in it. On an **image sequence** the mesh
+  keeps the frames (its ▩ declaration, setup frame and sequence keys). If the
+  atlas trimmed the frames differently, you are asked first: a mesh has one set of
+  UVs for every frame, so it covers the ink of all of them and a frame with less
+  ink shows whatever the atlas packs beside it — pack the frames without whitespace
+  stripping for a clean mesh.
 - **Outline / hull (⬡ Hull):** in the mesh tools row, **⬡ Hull** turns on
   outline editing — it changes which vertices sit on the mesh **outline (hull)**
   rather than floating inside it. Click an **interior** vertex to **promote** it
@@ -325,10 +353,12 @@ a rival answer to the same question. Move the box, or bind a different bone.
   first-picked (armed) vertex is highlighted amber. **Hull boundary edges** are
   always kept and can't be toggled — the tool tells you so if you try.
 - **UV map panel:** with a mesh slot selected, a square **UV map** panel appears in
-  the inspector below the mesh tools. It draws the mesh's **region art upright** with
+  the inspector below the mesh tools. It draws the mesh's **whole image upright** (the
+  atlas's trimmed ink in its place on the untrimmed image, which is what UVs span) with
   the **mesh wireframe** (triangles + vertex dots) overlaid on it, so you can see
   exactly which part of the texture each vertex samples. **Drag a vertex over the
-  art** to re-map its UV — this is the visual complement to the numeric **u / v**
+  art** to re-map its UV (it stops at the image's ink: past it is the atlas's next image) —
+  this is the visual complement to the numeric **u / v**
   fields and to the isolate-mode (⛶) world-space reshaping. Selection is shared: a
   vertex picked in the panel highlights on the main canvas and fills the numeric
   u / v fields, and vice-versa. Any **✎ Edge** constraint edges show **amber** here
@@ -349,7 +379,9 @@ a rival answer to the same question. Move the box, or bind a different bone.
   weights and image — and follows it when you edit that mesh. Pick another in its
   **source** dropdown, which lists every mesh on the same slot, in any skin (a linked mesh
   can only borrow from its own slot); **inherit deform (timelines)** makes it follow the
-  source's deform keys too.
+  source's deform keys too. A linked mesh of an **image sequence** mesh shows the same frames
+  and follows the source's sequence keys; switching its source to a mesh that is not a
+  sequence takes the frames, and any sequence keys of its own, away.
 - **Weights:** on an unweighted mesh, **Bind to slot bone** makes it weighted
   (every vertex 100% to the slot bone). Selecting a weighted-mesh vertex lists its
   bone influences with auto-normalising weight inputs, an ✕ to remove an

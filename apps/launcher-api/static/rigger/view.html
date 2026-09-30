@@ -886,6 +886,11 @@ let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 // runtime throwing "Region not found"). Surfaced as a dismissible banner; re-point each
 // slot's image to clear it. [{ slot, name, path }]
 let missingArt = [];
+// Meshes offered for 🩹 Repair (`meshRepairs`) that the author chose to keep as they are. The tell is
+// a heuristic, so each is offered on its own; kept ones stay kept while the page is open, and the
+// key names the rig so another rig's are not.
+const repairsKept = new Set();
+const repairKey = (r) => JSON.stringify([selected ? selected.skeleton_file : "", r.skin, r.slot, r.name]);
 
 // Attachment type tests that survive the vendored runtime mangling class names
 // (the minified spine-webgl names them `_RegionAttachment`/`_MeshAttachment`, so a
@@ -1936,6 +1941,7 @@ function placeholderRegion(atlas, path){
   r.x = 0; r.y = 0; r.width = 1; r.height = 1;
   r.originalWidth = 1; r.originalHeight = 1;
   r.offsetX = 0; r.offsetY = 0; r.degrees = 0; r.index = -1;
+  r.placeholder = true;
   r.u = 0; r.v = 0; r.u2 = 1 / (page.width || 1); r.v2 = 1 / (page.height || 1);
   return r;
 }
@@ -2000,21 +2006,48 @@ function makeAttachmentLoader(atlas){
 // Show / hide the "missing images" banner from the current `missingArt`.
 function refreshArtWarn(){
   const el = $("#artWarn"); if (!el) return;
-  if (!missingArt.length){ el.style.display = "none"; el.innerHTML = ""; return; }
-  const names = missingArt.map((m) => m.path || m.name);
-  const shown = names.slice(0, 8).join(", ") + (names.length > 8 ? ", …" : "");
-  // A missing SEQUENCE frame cannot be fixed with the image dropdown — it is named by the
-  // declaration's numbers, not by the attachment — so the banner has to point somewhere else.
-  const seqMiss = missingArt.filter((m) => m.type === "sequence frame").length;
-  el.innerHTML =
-    '<span class="x" title="dismiss">✕</span>' +
-    "<b>" + names.length + " image" + (names.length === 1 ? "" : "s") + " not in this atlas.</b> " +
-    (seqMiss === names.length
-      ? "All of them are frames of an image SEQUENCE — fix its numbers in <b>▩ image sequence</b> on the slot, or use <b>source…</b> to attach a different atlas. "
-      : "The rig loaded without them — pick a slot and use its <b>image</b> dropdown to re-point it, "
-        + "or use <b>source…</b> to attach a different atlas. "
-        + (seqMiss ? "(" + seqMiss + " of them are sequence frames — those are fixed in <b>▩ image sequence</b> instead.) " : ""))
-    + "Missing: " + shown;
+  const repairs = meshRepairs().filter((r) => !repairsKept.has(repairKey(r)));
+  if (!missingArt.length && !repairs.length){ el.style.display = "none"; el.innerHTML = ""; return; }
+  el.innerHTML = '<span class="x" title="dismiss">✕</span>';
+  if (missingArt.length){
+    const names = missingArt.map((m) => m.path || m.name);
+    const shown = names.slice(0, 8).join(", ") + (names.length > 8 ? ", …" : "");
+    // A missing SEQUENCE frame cannot be fixed with the image dropdown — it is named by the
+    // declaration's numbers, not by the attachment — so the banner has to point somewhere else.
+    const seqMiss = missingArt.filter((m) => m.type === "sequence frame").length;
+    el.innerHTML +=
+      "<b>" + names.length + " image" + (names.length === 1 ? "" : "s") + " not in this atlas.</b> " +
+      (seqMiss === names.length
+        ? "All of them are frames of an image SEQUENCE — fix its numbers in <b>▩ image sequence</b> on the slot, or use <b>source…</b> to attach a different atlas. "
+        : "The rig loaded without them — pick a slot and use its <b>image</b> dropdown to re-point it, "
+          + "or use <b>source…</b> to attach a different atlas. "
+          + (seqMiss ? "(" + seqMiss + " of them are sequence frames — those are fixed in <b>▩ image sequence</b> instead.) " : ""))
+      + "Missing: " + shown;
+  }
+  if (repairs.length){
+    const p = document.createElement("div");
+    if (missingArt.length) p.style.marginTop = "6px";
+    const b = document.createElement("b");
+    b.textContent = repairs.length + " mesh" + (repairs.length === 1 ? "" : "es") + " an earlier Rigger mapped wrong";
+    p.appendChild(b);
+    const button = (text, title, onclick) => {
+      const btn = document.createElement("button");
+      btn.textContent = text; btn.title = title; btn.onclick = onclick;
+      btn.style.cssText = "margin-left:6px;padding:1px 7px;font-size:11px;";
+      return btn;
+    };
+    const fixTitle = "Re-map it to draw exactly what its image drew (the rig is then unsaved — 💾 Save to keep it)";
+    if (repairs.length > 1) p.appendChild(button("🩹 Repair all", fixTitle, () => repairMeshes()));
+    for (const r of repairs.slice(0, 6)){
+      const row = document.createElement("div");
+      row.textContent = r.slot + " › " + r.name + " (" + r.what + ")";
+      row.appendChild(button("🩹 Repair", fixTitle, () => repairMeshes([repairKey(r)])));
+      row.appendChild(button("keep as is", "It is right as it is — stop offering it while this rig is open", () => { repairsKept.add(repairKey(r)); refreshArtWarn(); }));
+      p.appendChild(row);
+    }
+    if (repairs.length > 6) p.appendChild(document.createTextNode("…and " + (repairs.length - 6) + " more"));
+    el.appendChild(p);
+  }
   el.querySelector(".x").onclick = () => { el.style.display = "none"; };
   el.style.display = "block";
 }
@@ -5970,8 +6003,9 @@ function renderSlotDetail(){
       cv.onpointermove = (e) => {
         if (uvDragVert == null || !uvPanelFit) return;
         const p = uvPanelEventPx(e, cv);
-        const u = Math.max(0, Math.min(1, (p.x - uvPanelFit.ox) / uvPanelFit.aw));
-        const v = Math.max(0, Math.min(1, (p.y - uvPanelFit.oy) / uvPanelFit.ah));
+        const box = meshInkBox(meshCtx.attachment); // off the ink is the atlas's next image
+        const u = Math.max(box.u0, Math.min(box.u1, (p.x - uvPanelFit.ox) / uvPanelFit.aw));
+        const v = Math.max(box.v0, Math.min(box.v1, (p.y - uvPanelFit.oy) / uvPanelFit.ah));
         applyVertexUV("u", u); applyVertexUV("v", v); // applyVertexUV redraws the panel
       };
       cv.onpointerup = cv.onpointercancel = (e) => {
@@ -6776,9 +6810,52 @@ function affineUV(c, Px, Py){
   return { u: (rx * evy - evx * ry) / det, v: (eux * ry - rx * euy) / det };
 }
 
+// A mesh's `uvs` are a fraction of the UNTRIMMED image, v down: MeshAttachment.updateRegion() adds
+// the trim back (offsetX/Y against originalWidth/Height) and undoes a 90/180/270° pack. A region's
+// quad covers the trimmed INK alone. So a mesh laid over that quad takes the ink's place on the
+// image as its UVs — 0..1 there squeezes the whole image, and whatever the atlas packs beside the
+// ink, into the ink's box. (u0, v0) is the ink's top-left, (u1, v1) its bottom-right.
+function regionInkUVs(r){
+  if (!r || !r.originalWidth || !r.originalHeight) return { u0: 0, v0: 0, u1: 1, v1: 1 };
+  const ow = r.originalWidth, oh = r.originalHeight, ox = r.offsetX || 0, oy = r.offsetY || 0;
+  return { u0: ox / ow, v0: (oh - oy - r.height) / oh, u1: (ox + r.width) / ow, v1: (oh - oy) / oh };
+}
+// A point of the ink's quad (s across, t down — what affineUV returns) → mesh UV.
+const inkToImageUV = (ink, s, t) => ({ u: ink.u0 + s * (ink.u1 - ink.u0), v: ink.v0 + t * (ink.v1 - ink.v0) });
+const sameInk = (a, b) => ["u0", "v0", "u1", "v1"].every((k) => Math.abs(a[k] - b[k]) < 1e-9);
+// A sequence trims each frame on its own, and a mesh has ONE set of UVs for every frame, so it has
+// to cover the ink of all of them. `differs`: the frames are trimmed differently, so one with less
+// ink shows, in the rest of that area, whatever the atlas packs beside it.
+function sequenceInk(att){
+  const inks = ((att.sequence && att.sequence.regions) || []).filter((r) => r && !r.placeholder).map(regionInkUVs);
+  if (!inks.length) return { ink: regionInkUVs(att.region), differs: false };
+  const ink = {
+    u0: Math.min(...inks.map((i) => i.u0)), v0: Math.min(...inks.map((i) => i.v0)),
+    u1: Math.max(...inks.map((i) => i.u1)), v1: Math.max(...inks.map((i) => i.v1)),
+  };
+  return { ink, differs: inks.some((i) => !sameInk(i, inks[0])) };
+}
+// Where a mesh's UVs can reach without sampling the atlas beside its image: the ink (of every frame).
+const meshInkBox = (att) => (att && att.sequence ? sequenceInk(att).ink : regionInkUVs(att && att.region));
+function confirmSequenceMesh(att, action){
+  const { differs } = sequenceInk(att);
+  return !differs || confirm("The " + att.sequence.regions.length + " frames of this sequence are trimmed differently in the atlas.\n\n"
+    + "A mesh has one set of UVs for every frame, so " + action + " covers the ink of all of them, and a frame with less ink "
+    + "shows whatever the atlas packs beside it in the rest. Re-pack the frames without whitespace stripping for a clean mesh.\n\n"
+    + action + " anyway?");
+}
+// The bone-space point of a region attachment at (u, v) of its untrimmed image — the placement
+// RegionAttachment.updateRegion() gives its ink's corners, anywhere on the image.
+function regionPointAt(att, u, v){
+  const lx = (u - 0.5) * att.width * att.scaleX, ly = (0.5 - v) * att.height * att.scaleY;
+  const rad = att.rotation * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+  return [lx * c - ly * s + att.x, lx * s + ly * c + att.y];
+}
+
 // Finish "draw mesh from scratch": turn the clicked boundary points into a MESH on
 // the selected slot's region — vertices in bone-local space, UVs via affineUV over
-// the region quad, triangles by ear-clipping the polygon. Replaces the region.
+// the region quad (onto the image, `regionInkUVs`), triangles by ear-clipping the polygon.
+// Replaces the region, keeping a sequence's frames.
 function finishDrawMesh(){
   const done = () => { drawMeshMode = false; drawPoints = []; };
   if (!rawDoc || selSlot == null || drawPoints.length < 3){ done(); renderSlotDetail(); return; }
@@ -6789,13 +6866,16 @@ function finishDrawMesh(){
   if (!isRegionAtt(att)){ done(); renderSlotDetail(); return; }
   const slot = skeleton.slots[slotIndex];
   const corners = new Array(8).fill(0);
-  att.computeWorldVertices(slot, corners, 0, 2); // region world quad (BL,UL,UR,BR)
+  att.computeWorldVertices(slot, corners, 0, 2); // region world quad (BL,UL,UR,BR); sets a sequence's frame
+  if (att.sequence && !confirmSequenceMesh(att, "Draw mesh")) return; // still drawing, the outline kept
+  const ink = regionInkUVs(att.region);
   const bone = slot.bone;
   const verts = [], uvs = [], worldFlat = [];
   for (const p of drawPoints){
     const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y));
     verts.push(loc.x, loc.y);
-    const uv = affineUV(corners, p.x, p.y);
+    const st = affineUV(corners, p.x, p.y);
+    const uv = inkToImageUV(ink, st.u, st.v);
     uvs.push(uv.u, uv.v);
     worldFlat.push(p.x, p.y);
   }
@@ -6807,6 +6887,8 @@ function finishDrawMesh(){
   const region = skinEntry.attachments[selSlot][attName];
   const mesh = { type: "mesh", uvs, triangles: flatTris, vertices: verts, hull: drawPoints.length, width: att.width, height: att.height };
   if (region.path) mesh.path = region.path;
+  // a sequence's `path` is its frames' shared stem, which no region carries: the frames go too
+  if (region.sequence) mesh.sequence = JSON.parse(JSON.stringify(region.sequence));
   skinEntry.attachments[selSlot][attName] = mesh;
   done();
   selDrawPoint = null;
@@ -7432,12 +7514,15 @@ function sourceMeshCandidates(){
 }
 
 // Create a linkedmesh on the selected slot referencing a source mesh. A linkedmesh STILL resolves
-// its own `path` against the atlas (validated in the spike), so copy the parent's path/region.
+// its own `path` against the atlas (validated in the spike), so copy the parent's path/region —
+// and a sequence parent's `sequence`, without which that path is the frames' shared stem, which no
+// region carries.
 function addLinkedMesh(parentName, parentSkin, parentDef){
   if (!rawDoc || selSlot == null || !parentName) return;
   const def = { type: "linkedmesh", parent: parentName };
   const path = (parentDef && parentDef.path) || parentName; // a linkedmesh needs a resolvable region
   if (path) def.path = path;
+  if (parentDef && parentDef.sequence) def.sequence = JSON.parse(JSON.stringify(parentDef.sequence));
   setLinkedMeshParentSkin(def, parentSkin);
   if (parentDef && parentDef.width != null) def.width = parentDef.width;
   if (parentDef && parentDef.height != null) def.height = parentDef.height;
@@ -7446,13 +7531,19 @@ function addLinkedMesh(parentName, parentSkin, parentDef){
   markDirty();
 }
 
-// Edit a linkedmesh: change which parent it references.
+// Edit a linkedmesh: change which parent it references (and so the image, frames included, it shows).
 function setLinkedMeshParent(parentName, parentSkin, parentDef){
   const rd = rawDocAttEntry(meshCtx && meshCtx.attName); if (!rd || !meshCtx) return;
   const attName = meshCtx.attName;
   rd.parent = parentName;
   setLinkedMeshParentSkin(rd, parentSkin);
   if (parentDef && parentDef.path) rd.path = parentDef.path; else if (parentName) rd.path = parentName;
+  if (parentDef && parentDef.sequence) rd.sequence = JSON.parse(JSON.stringify(parentDef.sequence));
+  else if (rd.sequence){
+    // its own sequence keys would name frames it no longer has, and the loader throws on them
+    delete rd.sequence;
+    dropSequenceKeysFor(selSlot, attName, rawDocAttSkin(attName).name);
+  }
   reselectAttachment(attName);
   markDirty();
 }
@@ -7650,13 +7741,14 @@ function buildMeshUVFrame(){
 }
 
 // Re-pin vertex k's UV through the fixed frame so the texture stays undistorted while the
-// vertex moves (isolate mode). UV is clamped to the region [0,1] so dragging a hull vertex
-// past the art's edge can't sample neighbouring atlas regions (bleed).
+// vertex moves (isolate mode). UV is clamped to the image's ink (`meshInkBox`) so dragging a
+// hull vertex past the art's edge can't sample neighbouring atlas regions (bleed).
 function applyIsolatedVertexUV(k, wx, wy){
   const F = meshUVFrame; if (!F || !meshCtx) return;
   const rd = rawDocMeshEntry(); if (!rd || !Array.isArray(rd.uvs)) return;
-  const u = Math.max(0, Math.min(1, F.a * wx + F.b * wy + F.c));
-  const v = Math.max(0, Math.min(1, F.d * wx + F.e * wy + F.f));
+  const box = meshInkBox(meshCtx.attachment);
+  const u = Math.max(box.u0, Math.min(box.u1, F.a * wx + F.b * wy + F.c));
+  const v = Math.max(box.v0, Math.min(box.v1, F.d * wx + F.e * wy + F.f));
   rd.uvs[k * 2] = u; rd.uvs[k * 2 + 1] = v;
   const att = meshCtx.attachment;
   if (att.regionUVs){ att.regionUVs[k * 2] = u; att.regionUVs[k * 2 + 1] = v; if (att.updateRegion) att.updateRegion(); }
@@ -7737,9 +7829,11 @@ function uvPanelRegion(){
   return r;
 }
 
-// Upright-art aspect (width / height). For a 90°-rotated pack the packed rect's page-span
-// axes are transposed relative to the art, so the aspect swaps.
+// Upright-art aspect (width / height) of the whole UNTRIMMED image, which is what a mesh's UVs
+// span. Without an original size, the packed rect's: for a 90°-rotated pack its page-span axes
+// are transposed relative to the art, so the aspect swaps.
 function uvArtAspect(r){
+  if (r.originalWidth > 0 && r.originalHeight > 0) return r.originalWidth / r.originalHeight;
   const pw = r.page.width || 1, ph = r.page.height || 1;
   const spanU = Math.abs(r.u2 - r.u) * pw, spanV = Math.abs(r.v2 - r.v) * ph;
   if (spanU < 1e-6 || spanV < 1e-6) return 1;
@@ -7754,26 +7848,22 @@ function computeUvFit(aspect, pw, ph){
   return { ox: (pw - aw) / 2, oy: (ph - ah) / 2, aw, ah };
 }
 
-// Draw the region art UPRIGHT into the box, honouring the 90° rotated-pack case (the known
-// [[gotcha_rigger_rotated_upside_down]] trap — verify this branch live). The un-rotated case
-// is a plain sub-rect blit. Trim/offset (offsetX/Y) is not compensated in v1: a heavily
-// trimmed rotated region can sit a few px off — acceptable for UV editing, flagged for verify.
+// Draw the region art UPRIGHT into the box, which is the whole untrimmed image: the trimmed ink
+// sits where the mesh's UVs find it (`regionInkUVs`), undoing a 90/180/270° pack the way
+// MeshAttachment.updateRegion() does (u → right, v → down). Rendered and compared per pixel against
+// that mapping in tools/rigger-spike/trimmesh.mjs.
 function drawRegionUpright(ctx, r, box){
   const img = r.page.texture._image;
-  const pw = r.page.width || img.width, ph = r.page.height || img.height;
-  const sx = Math.min(r.u, r.u2) * pw, sy = Math.min(r.v, r.v2) * ph;
-  const sw = Math.abs(r.u2 - r.u) * pw, sh = Math.abs(r.v2 - r.v) * ph;
-  const { ox, oy, aw, ah } = box;
+  const deg = r.degrees || 0, turned = deg === 90 || deg === 270;
+  const sx = r.x, sy = r.y, sw = turned ? r.height : r.width, sh = turned ? r.width : r.height;
+  const ink = regionInkUVs(r);
+  const ox = box.ox + ink.u0 * box.aw, oy = box.oy + ink.v0 * box.ah;
+  const aw = (ink.u1 - ink.u0) * box.aw, ah = (ink.v1 - ink.v0) * box.ah;
   ctx.save();
-  if ((r.degrees || 0) === 90){
-    // Packed rect holds the art rotated; place it so region-local u→right, v→down. Derived to
-    // match spine-core MeshAttachment.updateRegion()'s degrees-90 mapping.
-    ctx.translate(ox + aw, oy);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ah, aw);
-  } else {
-    ctx.drawImage(img, sx, sy, sw, sh, ox, oy, aw, ah);
-  }
+  if (deg === 90){ ctx.translate(ox + aw, oy); ctx.rotate(Math.PI / 2); ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ah, aw); }
+  else if (deg === 180){ ctx.translate(ox + aw, oy + ah); ctx.rotate(Math.PI); ctx.drawImage(img, sx, sy, sw, sh, 0, 0, aw, ah); }
+  else if (deg === 270){ ctx.translate(ox, oy + ah); ctx.rotate(-Math.PI / 2); ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ah, aw); }
+  else ctx.drawImage(img, sx, sy, sw, sh, ox, oy, aw, ah);
   ctx.restore();
 }
 
@@ -8635,9 +8725,11 @@ function addMeshVertex(Px, Py){
 }
 
 // Convert the selected slot's region attachment into an editable quad MESH that
-// covers the same image: 4 corner vertices (the region's bone-local corners, from
-// its computed offset), unit-square UVs in the same corner order, 2 triangles, hull
-// 4. Geometry is identical to the region; afterwards the mesh-edit tools apply.
+// draws the same pixels: 4 corner vertices (the region's bone-local corners, from
+// its computed offset — the trimmed ink's quad), the ink's place on the image as
+// UVs in the same corner order (`regionInkUVs`), the region's own 2 triangles, hull
+// 4. A sequence keeps its frames, over the ink of all of them. Afterwards the
+// mesh-edit tools apply.
 function convertRegionToMesh(){
   if (selSlot == null || !rawDoc) return;
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
@@ -8646,23 +8738,28 @@ function convertRegionToMesh(){
   if (!attName) return;
   const att = skeleton.getAttachment(slotIndex, attName);
   if (!isRegionAtt(att)) return;
+  if (att.sequence) att.sequence.apply(skeleton.slots[slotIndex], att); // the frame on stage
   if (att.updateRegion) att.updateRegion();
   if (!att.offset) return;
+  if (att.sequence && !confirmSequenceMesh(att, "Convert to mesh")) return;
   const skinEntry = rawDocAttSkin(attName);
   if (!skinEntry) return;
   const region = skinEntry.attachments[selSlot][attName];
+  const { ink } = sequenceInk(att);
+  // corner order BL, UL, UR, BR (RegionAttachment.offset order) → matching UVs
+  const corners = [[ink.u0, ink.v1], [ink.u0, ink.v0], [ink.u1, ink.v0], [ink.u1, ink.v1]];
   const mesh = {
     type: "mesh",
-    // corner order BL, UL, UR, BR (RegionAttachment.offset order) → matching UVs
-    uvs: [0, 1, 0, 0, 1, 0, 1, 1],
+    uvs: corners.flat(),
     triangles: [0, 1, 2, 2, 3, 0],
-    vertices: Array.from(att.offset),
+    vertices: sameInk(ink, regionInkUVs(att.region)) ? Array.from(att.offset) : corners.flatMap(([u, v]) => regionPointAt(att, u, v)),
     hull: 4,
     width: att.width,
     height: att.height,
   };
   if (region.path) mesh.path = region.path;
   if (region.color) mesh.color = region.color;
+  if (region.sequence) mesh.sequence = JSON.parse(JSON.stringify(region.sequence));
   skinEntry.attachments[selSlot][attName] = mesh;
   // If this is a rig-TEXT element's SOURCE locale, its sibling locales must FOLLOW the new
   // geometry instead of staying flat quads — otherwise switching locale in-game would swap a
@@ -8672,6 +8769,106 @@ function convertRegionToMesh(){
   if (textEl) syncTextLocaleMeshes(textEl.id);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
+}
+
+// ---- repairs for meshes an earlier Rigger mapped wrong -------------------------------------------
+// Found each time the rig is built, and offered as one click in the banner (`refreshArtWarn`):
+//  · A mesh ▸ Convert to mesh or ✎ Draw mesh made from a TRIMMED image before 2026-09-30, its UVs
+//    spanning the ink as if it were the whole image (`inkMappedAsImage`). The repair maps its UVs
+//    from the ink onto the image, so it draws what the image drew; its linked meshes share them.
+//  · A linked mesh ＋ Linked mesh made onto a SEQUENCE mesh without the parent's `sequence`, so it
+//    names the frames' stem, which no region carries. The repair copies the parent's frames.
+function meshRepairs(){
+  const out = [];
+  if (!rawDoc || !skeletonData) return out;
+  const defOf = (skin, slot, name) => {
+    const sk = (rawDoc.skins || []).find((s) => s.name === skin);
+    return (sk && sk.attachments && sk.attachments[slot] && sk.attachments[slot][name]) || null;
+  };
+  const missing = new Set(missingArt.map((m) => m.path || m.name));
+  for (const skin of skeletonData.skins) for (const e of skin.getAttachments()){
+    const slot = skeletonData.slots[e.slotIndex], att = e.attachment;
+    const def = defOf(skin.name, slot.name, e.name);
+    if (!def || !isMeshAtt(att)) continue;
+    const at = { skin: skin.name, slot: slot.name, name: e.name };
+    if (isRawLinkedMeshDef(def)){
+      const parent = defOf(linkedMeshParentSkin(def), slot.name, def.parent);
+      if (!def.sequence && parent && parent.sequence && (def.path || e.name) === (parent.path || def.parent))
+        out.push({ ...at, what: "linked mesh without its source's frames", apply: () => { def.sequence = JSON.parse(JSON.stringify(parent.sequence)); } });
+      continue;
+    }
+    if (def.sequence || !Array.isArray(def.uvs) || missing.has(att.path || e.name)) continue;
+    const ink = regionInkUVs(att.region);
+    if (sameInk(ink, { u0: 0, v0: 0, u1: 1, v1: 1 }) || !inkMappedAsImage(att, slot)) continue;
+    out.push({ ...at, what: "trimmed image squeezed into its ink", apply: () => {
+      for (let i = 0; i + 1 < def.uvs.length; i += 2){
+        const uv = inkToImageUV(ink, def.uvs[i], def.uvs[i + 1]);
+        def.uvs[i] = uv.u; def.uvs[i + 1] = uv.v;
+      }
+    } });
+  }
+  return out;
+}
+// Does this mesh map its UVs across its region's trimmed INK as if that were the whole image? It
+// must show three things at once. Its UVs reach past the ink's box on the image (they span 0..1
+// across the ink; a mesh mapped right over the ink keeps inside it). It is flat — its rest
+// positions, in its slot bone's space, are one affine map of its UVs. And that map is a uniformly
+// scaled copy of the ink's box but not of the image's — or, where the two boxes share an aspect,
+// the ink's at scale 1 (an image scaled by exactly its own trim is not something anyone authors).
+// A mesh reshaped since, weighted beyond its slot's bone, or made from an image scaled unevenly
+// cannot be told from one traced that way on purpose, so it is left alone.
+function inkMappedAsImage(att, slot){
+  const W = att.width, H = att.height, r = att.region, uvs = att.regionUVs;
+  if (!(W > 0 && H > 0) || !r || !r.width || !r.height || !uvs || uvs.length < 6) return false;
+  const ink = regionInkUVs(r), pu = 0.5 / r.originalWidth, pv = 0.5 / r.originalHeight;
+  let beyond = false;
+  for (let i = 0; i + 1 < uvs.length; i += 2)
+    if (uvs[i] < ink.u0 - pu || uvs[i] > ink.u1 + pu || uvs[i + 1] < ink.v0 - pv || uvs[i + 1] > ink.v1 + pv) beyond = true;
+  if (!beyond) return false;
+  const n = uvs.length / 2, pos = [];
+  if (!att.bones || !att.bones.length) for (let i = 0; i < n * 2; i++) pos.push(att.vertices[i]);
+  else {
+    const bi = slot.boneData.index;
+    for (let b = 0, v = 0; b < att.bones.length; b += 2, v += 3){
+      if (att.bones[b] !== 1 || att.bones[b + 1] !== bi || Math.abs(att.vertices[v + 2] - 1) > 1e-6) return false;
+      pos.push(att.vertices[v], att.vertices[v + 1]);
+    }
+  }
+  if (pos.length !== n * 2) return false;
+  // least squares: [x y] = [u v 1] · A
+  const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bx = [0, 0, 0], by = [0, 0, 0];
+  for (let i = 0; i < n; i++){
+    const row = [uvs[i * 2], uvs[i * 2 + 1], 1];
+    for (let a = 0; a < 3; a++){
+      for (let c = 0; c < 3; c++) M[a][c] += row[a] * row[c];
+      bx[a] += row[a] * pos[i * 2]; by[a] += row[a] * pos[i * 2 + 1];
+    }
+  }
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det(M);
+  if (Math.abs(D) < 1e-12) return false;
+  const solve = (b) => [0, 1, 2].map((col) => det(M.map((row, i) => row.map((x, j) => (j === col ? b[i] : x)))) / D);
+  const ax = solve(bx), ay = solve(by);
+  const tol = 1e-3 * Math.max(W, H);
+  for (let i = 0; i < n; i++){
+    const u = uvs[i * 2], v = uvs[i * 2 + 1];
+    if (Math.hypot(ax[0] * u + ax[1] * v + ax[2] - pos[i * 2], ay[0] * u + ay[1] * v + ay[2] - pos[i * 2 + 1]) > tol) return false;
+  }
+  const lu = Math.hypot(ax[0], ay[0]), lv = Math.hypot(ax[1], ay[1]);
+  const near = (a, b, t) => Math.abs(a / b - 1) < t;
+  const inkX = lu / (r.width * W / r.originalWidth), inkY = lv / (r.height * H / r.originalHeight);
+  const imgX = lu / W, imgY = lv / H;
+  return near(inkX, inkY, 0.005) && (!near(imgX, imgY, 0.02) || (near(inkX, 1, 0.005) && !near(imgX, 1, 0.02)));
+}
+// Repair the meshes `keys` names, or every one offered and not kept.
+function repairMeshes(keys){
+  const list = meshRepairs().filter((r) => (keys ? keys.includes(repairKey(r)) : !repairsKept.has(repairKey(r))));
+  if (!list.length) return;
+  for (const r of list) r.apply();
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  if (selSlot) selectSlot(selSlot);
+  markDirty();
+  showNotice("Repaired " + list.length + " mesh" + (list.length === 1 ? "" : "es") + " — 💾 Save to keep it.", 6000);
 }
 
 // ---- weight editing (Phase 4.1) -------------------------------------------
@@ -9832,10 +10029,12 @@ function animsWithSequenceKeys(slotName, attName){
 }
 // Removing the declaration has to take the timeline with it: the loader builds a SequenceTimeline
 // from `attachment.sequence.id`, so keys left behind on an attachment that is no longer a sequence
-// throw at load — the same class of unopenable rig as a bad frame count.
-function dropSequenceKeysFor(slotName, attName){
+// throw at load — the same class of unopenable rig as a bad frame count. `onlySkin` keeps the keys
+// of the same-named attachments of every other skin.
+function dropSequenceKeysFor(slotName, attName, onlySkin){
   for (const a of Object.values((rawDoc && rawDoc.animations) || {})){
     for (const [skName, slots] of Object.entries(a.attachments || {})){
+      if (onlySkin != null && skName !== onlySkin) continue;
       const am = slots[slotName] && slots[slotName][attName];
       if (!am || !Array.isArray(am.sequence)) continue;
       delete am.sequence;
