@@ -14,7 +14,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete; **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
 - **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a Spine `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because Spine's loader throws on it and the rig would no longer open.
-- **Mesh** — region→mesh, draw-a-mesh, vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
+- **Mesh** — region→mesh, draw-a-mesh, vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
 - **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor, slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
@@ -33,7 +33,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 3. **Better auto-weights** — the proximity skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative character-mesh gate (Spike 2) is open.
 4. **Localized text** — no rename for a text element (the id is the attachment name); a text element converted to a **mesh** cannot be width-fitted (its locales are linked meshes sharing the source hull); **persistent FX slots** (an always-on, keyable emitter living on the rig, the other half of §12.4a) are unbuilt.
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
-6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim.
+6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim; the rig-library save skips the tab's full parse, and the server's `irigDocProblem` checks neither a linked mesh's parent nor an animation's skin keys, so a rig that will not load can still reach the library.
 7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
    task): `transform` shows a 0.00° constraint effect on ~12 lines rigs and "Transform constraint
    not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
@@ -43,6 +43,14 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    move to the parent keeping their LOCAL values, so they jump by the deleted bone's own
    transform (the confirm says they move; it does not say they jump). Composing that transform
    in would keep them in place.
+9. **Skins in the editor.** The top-bar skin picker's options are built when the rig opens, so a
+   skin added, renamed or imported since has none and the `<select>` reads `""`: region import
+   (`attachRegion`) and rig-text attach then write into the FIRST skin, the slot's attachment list
+   shows default's, and every rebuild snaps the stage back to default. Deleting the default skin
+   is still allowed while another exists, though a rig without one draws nothing in a game that
+   sets no skin (renaming it is refused for that reason).
+10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
+    `sequence`, so the linked mesh shows placeholder art.
 
 ## Blocked (owner / external)
 
@@ -52,6 +60,19 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **Linked meshes added or re-pointed in a non-default skin now load.** Spine reads
+  a linked mesh's absent `skin` as the DEFAULT skin; ＋ Linked mesh and the source picker omitted
+  it whenever the parent was in the ACTIVE skin, so with any other skin active the rig stopped
+  loading ("Parent mesh not found", save refused) or silently bound default's same-named mesh.
+  `skin` is now omitted only for `default`, and the same model is fixed in rig import (every
+  Spine-exported linked mesh relies on the implicit default, which import renames — `S` has 180)
+  and in the source the picker shows. The source list is the selected slot's meshes: Spine never
+  finds a parent on another slot. A skin rename now carries the animations' deform keys, and the
+  default skin can no longer be renamed (without one, a game that sets no skin draws nothing). A
+  new attachment can no longer take the name of one in its own skin that the stale top-bar picker
+  hid (it replaced an imported rig's source mesh). `tools/rigger-spike/linkedmesh.mjs` (CI: a
+  synthetic rig, `anticipation`, `S`); `rigmerge.mjs` now runs the shipped import.
 
 - 2026-09-30 — **Deletes no longer leave a rig that will not open.** Deleting a path
   constraint's target slot broke the load ("Couldn't find target slot") in 72 of the 153

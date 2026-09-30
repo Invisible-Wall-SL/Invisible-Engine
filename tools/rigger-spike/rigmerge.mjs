@@ -1,5 +1,5 @@
 // Phase 5.8 spike — prove the namespaced WHOLE-RIG merge (importRig in view.html) is
-// byte-valid Spine 4.2 and lossless. We replicate the browser transform here:
+// byte-valid Spine 4.2 and lossless. It runs the SHIPPED transform, pulled out of view.html:
 //   prefixRigNames(src, p)  — namespace every internal name + rewrite every ref
 //   mergeRigInto(dst, src)  — drop imported root, re-parent its children onto dst's
 //                             root, append + topo-sort bones, append slots/skins/
@@ -14,6 +14,7 @@
 //   node tools/rigger-spike/rigmerge.mjs [dstSkel.json dstAtlas] [srcSkel.json srcAtlas]
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
+import vm from 'node:vm';
 
 const SPINE_CORE = new URL(
 	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
@@ -28,84 +29,36 @@ function load(obj, atlasText) {
 	return new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(obj);
 }
 
-// ---- the merge transform (mirror of view.html importRig core) --------------
-function prefixRigNames(src, p) {
-	const bones = Array.isArray(src.bones) ? src.bones : [];
-	for (const b of bones) {
-		if (typeof b.name === 'string') b.name = p + b.name;
-		if (typeof b.parent === 'string') b.parent = p + b.parent;
-	}
-	for (const s of src.slots || []) {
-		if (typeof s.name === 'string') s.name = p + s.name;
-		if (typeof s.bone === 'string') s.bone = p + s.bone;
-	}
-	for (const sk of src.skins || []) {
-		if (typeof sk.name === 'string') sk.name = p + sk.name;
-		const att = sk.attachments || {};
-		const rekeyed = {};
-		for (const slotName of Object.keys(att)) {
-			const slot = att[slotName];
-			for (const a of Object.values(slot || {}))
-				if (a && a.type === 'linkedmesh' && typeof a.skin === 'string') a.skin = p + a.skin;
-			rekeyed[p + slotName] = slot;
-		}
-		sk.attachments = rekeyed;
-	}
-	for (const grp of ['ik', 'transform', 'path']) for (const c of src[grp] || []) {
-		if (typeof c.name === 'string') c.name = p + c.name;
-		if (typeof c.bone === 'string') c.bone = p + c.bone;
-		if (typeof c.target === 'string') c.target = p + c.target;
-		if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (typeof n === 'string' ? p + n : n));
-	}
-	const rekey = (obj) => { if (!obj || typeof obj !== 'object') return obj; const out = {}; for (const k of Object.keys(obj)) out[p + k] = obj[k]; return out; };
-	// Prefix the animation NAMES too, so imported clips never collide with the open rig's.
-	if (src.animations) src.animations = rekey(src.animations);
-	for (const an of Object.values(src.animations || {})) {
-		if (an.bones) an.bones = rekey(an.bones);
-		if (an.slots) an.slots = rekey(an.slots);
-		if (an.ik) an.ik = rekey(an.ik);
-		if (an.transform) an.transform = rekey(an.transform);
-		if (an.path) an.path = rekey(an.path);
-		if (an.deform) { const skinMap = {}; for (const sn of Object.keys(an.deform)) skinMap[p + sn] = rekey(an.deform[sn] || {}); an.deform = skinMap; }
-		// Spine 4.2 `attachments` channel: skin → slot → attachment → {deform|sequence}.
-		// Prefix the skin + slot keys (attachment-name keys are within-slot ids, left as-is).
-		if (an.attachments) { const skinMap = {}; for (const sn of Object.keys(an.attachments)) skinMap[p + sn] = rekey(an.attachments[sn] || {}); an.attachments = skinMap; }
-		if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) for (const o of fr.offsets) if (typeof o.slot === 'string') o.slot = p + o.slot;
+// ---- the merge transform: view.html's own, with everything it calls -----------------------
+const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
+const TOP = new Map();
+for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
+function pull(name) {
+	const { kind, at } = TOP.get(name);
+	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
+	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
+	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
+	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
+	return html.slice(at, end + (kind === 'const' ? 3 : 2));
+}
+const pulled = [], seen = new Set();
+for (const q = ['prefixRigNames', 'mergeRigInto']; q.length; ) {
+	const name = q.shift();
+	if (seen.has(name)) continue;
+	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
+	seen.add(name);
+	const src = pull(name);
+	pulled.push(src);
+	// a function is followed only where it is CALLED — a local named like one is not it
+	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
+		const t = TOP.get(m[1]);
+		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1])) q.push(m[1]);
 	}
 }
-function topoSortBones(doc) {
-	const byName = new Map(doc.bones.map((b) => [b.name, b]));
-	const out = [], seen = new Set();
-	const visit = (b) => { if (!b || seen.has(b.name)) return; seen.add(b.name); const par = b.parent && byName.get(b.parent); if (par) visit(par); out.push(b); };
-	doc.bones.forEach(visit);
-	doc.bones = out;
-}
-function mergeRigInto(dst, src, attachBone) {
-	const srcBones = Array.isArray(src.bones) ? src.bones : [];
-	const srcRoot = srcBones[0] ? srcBones[0].name : null;
-	// The imported root is DROPPED — re-point every reference to it onto attachBone so no
-	// slot/constraint/anim-key dangles (the loader rejects a slot on a missing bone).
-	if (srcRoot && srcRoot !== attachBone) {
-		for (const b of srcBones) if (b.parent === srcRoot) b.parent = attachBone;
-		for (const s of src.slots || []) if (s.bone === srcRoot) s.bone = attachBone;
-		for (const grp of ['ik', 'transform', 'path']) for (const c of src[grp] || []) {
-			if (c.bone === srcRoot) c.bone = attachBone;
-			if (c.target === srcRoot) c.target = attachBone;
-			if (Array.isArray(c.bones)) c.bones = c.bones.map((n) => (n === srcRoot ? attachBone : n));
-		}
-		for (const an of Object.values(src.animations || {})) if (an.bones && an.bones[srcRoot]) {
-			// merge keys: a root bone-timeline folds onto attachBone's (rare; keep src's).
-			an.bones[attachBone] = an.bones[attachBone] || an.bones[srcRoot];
-			delete an.bones[srcRoot];
-		}
-	}
-	for (const b of srcBones) { if (b.name === srcRoot) continue; if (!b.parent) b.parent = attachBone; dst.bones.push(b); }
-	topoSortBones(dst);
-	dst.slots = dst.slots || []; for (const s of src.slots || []) dst.slots.push(s);
-	dst.skins = dst.skins || []; for (const sk of src.skins || []) dst.skins.push(sk);
-	for (const grp of ['ik', 'transform', 'path']) if (Array.isArray(src[grp])) { dst[grp] = dst[grp] || []; for (const c of src[grp]) dst[grp].push(c); }
-	dst.animations = dst.animations || {}; for (const k of Object.keys(src.animations || {})) dst.animations[k] = src.animations[k];
-}
+const shipped = { rawDoc: null };
+vm.createContext(shipped);
+vm.runInContext(pulled.join('\n'), shipped, { filename: 'view.html#rigmerge' });
+const { prefixRigNames, mergeRigInto } = shipped;
 
 // ---- corpus discovery (mirror batch.mjs) -----------------------------------
 function walk(dir, acc) {

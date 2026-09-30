@@ -5,6 +5,55 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **A linked mesh names its parent's skin unless that skin is `default`.** Reported:
+  ＋ Linked mesh with a non-default skin active, onto a mesh in that same skin, left a rig that
+  would not load. SkeletonJson resolves a linked mesh's parent as `skin ? findSkin(skin) :
+  defaultSkin`, by name, in the linked mesh's OWN slot — an absent `skin` is the default skin, not
+  the skin the linked mesh sits in. `addLinkedMesh` and `setLinkedMeshParent` omitted `skin`
+  whenever the parent's skin was the ACTIVE one, so with any other skin active the rebuild threw
+  "Parent mesh not found" (the stage stopped updating and the save was refused) — or, when default
+  held a same-named mesh on that slot, the linked mesh silently bound to default's. The vendored
+  `spine-webgl-4.2.js` has the same rule (read at its SkeletonJson, and the skin-only and
+  same-named cases behave identically when run through it headlessly).
+  - **One rule, in the LINKED MESH section:** `linkedMeshParentSkin(def)` reads it
+    (`skin || "default"`), `setLinkedMeshParentSkin(def, skin)` writes it (omitted only for
+    `default`), and `isRawLinkedMeshDef` is any mesh with a `parent` (Spine also accepts
+    `type: "mesh"`). The delete cascade's copies of the rule (`detachLinkedMeshes`,
+    `deleteBoneCore`) now call them.
+  - **The same wrong model elsewhere.** `prefixRigNames` (rig import) renames the imported
+    `default` skin but prefixed only explicit refs, so importing any Spine-exported rig with linked
+    meshes broke the open rig (`S`: 180, all implicit). The linked-mesh editor showed
+    `skin || active skin` as the current source: the wrong mesh, or nothing.
+  - **Skin rename.** It never moved the animations' `attachments` (deform / sequence) keys, which
+    SkeletonJson resolves by skin name, so renaming a skin with deform keys broke the load ("Skin
+    not found"). Renaming `default` also broke every implicit linked mesh ("Skin not found: null"),
+    and even where it loaded it was wrong: Spine draws the skin named `default` when no skin is set
+    — how the game mounts a rig unless a `skin` prop names one — and falls back to it for every
+    slot another skin leaves empty. So the default skin keeps its name: no ✎, and `renameSkin`
+    refuses it.
+  - **Same slot only.** `sourceMeshCandidates` offered every mesh in the rig and ＋ Linked mesh
+    took the first, but the parent is looked up on the linked mesh's own slot: a mesh from another
+    slot never loaded, and one named like the new linked mesh bound it to ITSELF, which the loader
+    accepts without a word. It now lists the selected slot's meshes, across skins.
+  - **A new attachment could replace one in its own skin** (found in review). The name was made
+    unique against `slotAttachmentList`, which follows the top-bar skin picker, but written into
+    the skeleton's real skin. The picker's options are built when the rig opens, so for a skin
+    added, renamed or imported since it reads `""` and only default's names were checked. Import
+    `S`, activate its skin, ＋ Linked mesh on a facet slot: the source mesh was silently replaced by
+    a linked mesh pointing at itself, blanking it and the 12 linked meshes that borrow from it, and
+    the save accepted that. The name is now also unique in the skin it is written into; the stale
+    picker itself is open item 9.
+  - `tools/rigger-spike/linkedmesh.mjs` pulls the shipped functions out of `view.html`
+    (transitively), stubs the rebuild with spine-core 4.2, models the picker as a browser `<select>`
+    (options fixed at load; an unknown value reads `""`), and asserts every result loads with each
+    linked mesh bound to the mesh the author picked: ＋ Linked mesh and the picker from every skin
+    onto every source offered, the source the picker shows, ＋ Linked mesh in an imported skin, a
+    rename of every skin, and an import — on a synthetic three-skin rig, then on `anticipation` and
+    `S` in CI. Reverting any one change turns it red. `rigmerge.mjs` now runs the shipped import
+    too (its copy had drifted: no physics, no `order` re-pack, the old skin rule). Still open: the
+    rig-library save never runs the tab's full parse, and the server's `irigDocProblem` checks
+    neither of these references (open item 6).
+
 - 2026-09-30 — **The delete cascade.** #877's CI spikes reported `delete` red on `symbols/l3`
   ("Path constraint not found: circle_path"). That red was the harness: `delete.mjs` hand-copied
   `deleteBone` and had drifted (the shipped one already cleared a dropped constraint's keys). Run

@@ -260,7 +260,9 @@ a rival answer to the same question. Move the box, or bind a different bone.
   Atlas Maker FX pipeline (same `_shine`/`_glow`/… naming convention).
 - **Skins:** the **Skins** section lists skins; click one to make it the **active**
   skin (what determines which images/meshes/weights you see and paint). Rename
-  (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**.
+  (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**. The skin
+  named `default` can't be renamed: a game draws it whenever no skin is chosen, and
+  falls back to it for any slot another skin leaves empty.
 - **What a delete takes with it:** deleting a bone, slot, attachment or skin also
   removes every IK / transform / path / physics constraint that can no longer work
   without it (an IK or transform constraint whose target bone went, one left with
@@ -322,6 +324,12 @@ a rival answer to the same question. Move the box, or bind a different bone.
   **🖼 Texture** button cycles the mesh image **full → dim → off** (off = wireframe
   only). The image stays bound the whole time — toggle **⛶** off to drop back into the
   full rig with your edits live. All the mesh tools above work the same inside it.
+- **Linked meshes:** **＋ Linked mesh** (offered on a slot that already has a mesh) adds,
+  to the active skin, a mesh that borrows the slot's first mesh — its vertices, UVs,
+  weights and image — and follows it when you edit that mesh. Pick another in its
+  **source** dropdown, which lists every mesh on the same slot, in any skin (a linked mesh
+  can only borrow from its own slot); **inherit deform (timelines)** makes it follow the
+  source's deform keys too.
 - **Weights:** on an unweighted mesh, **Bind to slot bone** makes it weighted
   (every vertex 100% to the slot bone). Selecting a weighted-mesh vertex lists its
   bone influences with auto-normalising weight inputs, an ✕ to remove an
