@@ -52,6 +52,31 @@
 
 ## Recent changes
 
+- 2026-09-30 — **Every BET readout now has the `onBetMenu` pin, not only a freshly seeded one.**
+  Reported as "the clickable BET readout still can't be authored in the flow editor, so I can't
+  replace the hard-coded submenu". Measured first: `bookofborutremake`'s live `scenes.json` has its
+  bet readout (`n_q4dgv1xx` on *HUD - Belance infos*) as a `hudReadout` with `source: 'bet'` and
+  **no `action`**. The 2026-09-23 work gave the action only to seeded readouts (`readoutNode`) and
+  converted legacy `UiLabelBet` binds (`labelBindToInstance`). A readout placed before that, or
+  dragged in from the palette, projected no pin, and `HudValue` took its hard-coded modal branch.
+  The project already had the rest of the chain: a *HUD - Bet* screen with a `betOptions` repeater
+  and a `menuClose` backdrop. **Fix:** `normalizeHudScenes` (engine-layout) now also gives any
+  `hudReadout` with `source: 'bet'` and no `action` (blank counts as none, via `actionBindingOf`)
+  the `betMenu` action, on every screen. Top-level nodes only, because `projectContainerEvents`
+  (`flowV2Projection.ts`) reads only a screen's top-level nodes: a readout inside a container
+  still gets no pin. It runs where the legacy-HUD conversion already ran, in the launcher's
+  `normalizeDoc` (every `loadDoc`: `/flow-v2`, the Scene Editor, publish validation, the runtime
+  bundle) and the game's `loadEditorScenes`. So the pin, the validator and the press agree, and an
+  already-published snapshot heals in the game too. The editor's Action dropdown already labels
+  blank as "(inherit default)", and this is that default. An explicit action is kept, balance and
+  win readouts are untouched, and a doc with nothing to heal comes back as the same object.
+  Un-wired, the press still opens the same HTML menu (the registered `betMenu` fallback is
+  `openBetMenu()`, with the same sound). **Verified:** `check:hud-menu-pins` now calls the real
+  `projectContainerEvents` instead of its own copy. Its copy recursed into containers, which the
+  real one does not, so it could pass for a pin the editor never shows. It also gains 7 assertions
+  for this shape (32 total, all pass). Run through `projectContainerEvents`, the real
+  `bookofborutremake` doc gains exactly one pin (`hud_uhkm9omg ▸ n_q4dgv1xx.onBetMenu`) and loses
+  none.
 - 2026-09-30 — **The six "known red" flow spikes are gone, and the suite is a CI gate.** Every
   `tools/flow-spike` script now runs in the `Checks` workflow (`pnpm check:all`), so "same 6 known
   reds" is no longer a baseline anyone has to carry. All 55 pass.

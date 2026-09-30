@@ -21,25 +21,24 @@
  * that no type relates to the next.
  */
 import {
-	actionBindingOf,
 	defaultAutoSpinScene,
 	defaultBetMenuScene,
 	hudScenes,
+	normalizeHudScenes,
+	type LayoutDoc,
 	type LayoutNode,
 	type Scene,
 } from 'engine-layout';
 import {
-	deriveContainerEvents,
 	derivePins,
 	flowOwnsContainerEvent,
-	repeaterSelectConfiguredEvent,
 	standardVocabulary,
 	validateFlowDoc,
-	type ConfiguredComponentEvent,
 	type FlowDoc,
 	type Node as FlowNode,
 	type PinContext,
 } from 'engine-flow-v2';
+import { projectContainerEvents } from '../src/lib/flowV2Projection';
 
 const fails: string[] = [];
 const ok = (label: string, cond: boolean, detail?: unknown): void => {
@@ -48,25 +47,12 @@ const ok = (label: string, cond: boolean, detail?: unknown): void => {
 	console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}`);
 };
 
-/** The Scene → `ConfiguredComponentEvent` projection, as the `/flow-v2` page server does it. */
-const configuredEventsOf = (scene: Scene): ConfiguredComponentEvent[] => {
-	const events: ConfiguredComponentEvent[] = [];
-	const walk = (nodes: readonly LayoutNode[]): void => {
-		for (const node of nodes) {
-			if (node.kind === 'repeater') events.push(repeaterSelectConfiguredEvent(node.id));
-			const params = (node as { params?: Record<string, unknown> }).params ?? {};
-			const action = actionBindingOf(params);
-			if (action) events.push({ componentId: node.id, event: action });
-			if (node.kind === 'container') walk(node.children);
-		}
-	};
-	walk(scene.nodes);
-	return events;
-};
-
-/** Every pin a `showContainer` node for `scene` exposes. */
+/** Every pin a `showContainer` node for `scene` exposes, through the projection `/flow-v2` and the
+ * publish gate both use. */
 const pinIds = (scene: Scene, containerId: string): string[] => {
-	const decls = deriveContainerEvents(configuredEventsOf(scene));
+	const decls =
+		projectContainerEvents([{ id: containerId, sceneId: scene.id, z: 0 }], [scene])[containerId] ??
+		[];
 	const node = {
 		id: 'show',
 		kind: 'showContainer',
@@ -88,6 +74,54 @@ ok(
 	'the balance/win readouts project no press pin',
 	!hudPins.some((pin) => pin.startsWith('hud-balance.') || pin.startsWith('hud-win.')),
 	hudPins.filter((pin) => pin.startsWith('hud-balance.') || pin.startsWith('hud-win.')),
+);
+
+// --- a readout placed before the seed carried the action -------------------
+// The shape a real project had: a `hudReadout` bet readout with NO `action`, on an authored `hud_*`
+// screen. Unhealed it projects no pin, so the bet menu was not authorable at all.
+const readout = (id: string, source: string, action?: string): LayoutNode =>
+	({
+		id,
+		kind: 'componentInstance',
+		componentId: 'hudReadout',
+		x: 0,
+		y: 0,
+		params: { source, label: source, ...(action ? { action } : {}) },
+	}) as LayoutNode;
+const legacyHud: Scene = {
+	id: 'hud_infos',
+	name: 'HUD - infos',
+	nodes: [
+		readout('n_balance', 'balance'),
+		readout('n_bet', 'bet'),
+		readout('n_bet2', 'bet', 'menu'),
+		{ ...readout('n_bet3', 'bet'), params: { source: 'bet', action: ' ' } } as LayoutNode,
+	],
+} as Scene;
+const legacyDoc = { scenes: [legacyHud] } as unknown as LayoutDoc;
+ok(
+	'an action-less bet readout projects no pin as stored',
+	!pinIds(legacyHud, 'hud_infos').includes('n_bet.onBetMenu'),
+);
+const healed = normalizeHudScenes(legacyDoc).scenes[0];
+const healedPins = pinIds(healed, 'hud_infos');
+ok('once loaded it projects n_bet.onBetMenu', healedPins.includes('n_bet.onBetMenu'), healedPins);
+ok('a blank action counts as none', healedPins.includes('n_bet3.onBetMenu'), healedPins);
+ok(
+	'a bet readout naming another action keeps it',
+	healedPins.includes('n_bet2.onMenu'),
+	healedPins,
+);
+ok(
+	'the balance readout still projects nothing',
+	!healedPins.some((pin) => pin.startsWith('n_balance.')),
+	healedPins,
+);
+ok('the stored doc is not mutated', !pinIds(legacyHud, 'hud_infos').includes('n_bet.onBetMenu'));
+const seededDoc = { scenes: hudScenes({ readouts: true, buttons: true }) } as unknown as LayoutDoc;
+ok(
+	'a doc with nothing to heal is returned as the same object',
+	normalizeHudScenes(seededDoc) === seededDoc,
 );
 
 // --- the bet-menu screen ---------------------------------------------------

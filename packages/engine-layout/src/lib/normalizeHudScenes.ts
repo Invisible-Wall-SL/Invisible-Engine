@@ -4,6 +4,7 @@ import {
 	isHudLabelBind,
 	labelBindToInstance,
 } from './buttonConvert';
+import { actionBindingOf } from './engineBindings';
 import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
 
 /**
@@ -29,8 +30,15 @@ import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
  * on) has no convertible node, so the SAME `doc` object is returned unchanged. Scope is the
  * `hudBar` scene's own nodes; a fully-authored `hud_*` replacement HUD is untouched (it renders its
  * own chrome), and the `hudCorners` logo/game-name binds have no parametric target yet (follow-up).
+ *
+ * Then, in every scene, a BET readout that names no action gains `betMenu`
+ * ({@link withBetReadoutAction}).
  */
 export function normalizeHudScenes(doc: LayoutDoc): LayoutDoc {
+	return withBetReadoutAction(convertLegacyHudBar(doc));
+}
+
+function convertLegacyHudBar(doc: LayoutDoc): LayoutDoc {
 	const index = doc.scenes.findIndex((scene) => scene.id === 'hudBar');
 	if (index === -1) return doc;
 	const scene = doc.scenes[index];
@@ -60,4 +68,37 @@ export function normalizeHudScenes(doc: LayoutDoc): LayoutDoc {
 	const scenes = doc.scenes.slice();
 	scenes[index] = nextScene;
 	return { ...doc, scenes };
+}
+
+/**
+ * The BET readout's press is the `betMenu` action. Seeded and converted readouts carry it
+ * (`readoutNode` / {@link labelBindToInstance}), but a `hudReadout` placed before that landed — or
+ * dragged in from the palette — has no `action`, so `HudValue` fell back to its hard-coded modal
+ * and the Scene→decl projection had no `onBetMenu` pin to offer the flow: the bet menu could not
+ * be authored at all. The editor's Action dropdown reads blank as "(inherit default)", and this is
+ * that default. An instance naming any action keeps it; balance/win readouts are untouched.
+ * Top-level nodes only, and "no action" judged by {@link actionBindingOf}, because that is exactly
+ * what the launcher's `projectContainerEvents` turns into pins.
+ */
+function withBetReadoutAction(doc: LayoutDoc): LayoutDoc {
+	let changed = false;
+	const scenes = doc.scenes.map((scene) => {
+		let local = false;
+		const nodes = scene.nodes.map((node) => {
+			if (
+				node.kind !== 'componentInstance' ||
+				node.componentId !== 'hudReadout' ||
+				node.params?.source !== 'bet' ||
+				actionBindingOf(node.params) !== ''
+			) {
+				return node;
+			}
+			local = true;
+			return { ...node, params: { ...node.params, action: 'betMenu' } };
+		});
+		if (!local) return scene;
+		changed = true;
+		return { ...scene, nodes };
+	});
+	return changed ? { ...doc, scenes } : doc;
 }
