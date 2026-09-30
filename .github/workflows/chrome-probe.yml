@@ -6,18 +6,32 @@ on:
 
 jobs:
   old-launch:
-    name: old launch (${{ matrix.load }} ${{ matrix.i }})
+    name: old launch (${{ matrix.mode }} ${{ matrix.i }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        i: [1, 2, 3]
-        load: [idle, load]
+        i: [1, 2]
+        mode: ['--cold', '--cold --io', '--io --load']
     steps:
       - uses: actions/checkout@v7
       - run: google-chrome --version
-      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/old-launch.mjs 20 ${{ matrix.load == 'load' && '--load' || '' }}
+      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/old-launch.mjs 10 ${{ matrix.mode }}
+
+  mutants:
+    name: mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: bash .github/chrome-probe/mutants.sh
 
   new-helper:
     name: new helper (${{ matrix.i }})
@@ -26,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        i: [1, 2, 3, 4, 5, 6]
+        i: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
