@@ -60,7 +60,9 @@ export type WeightedValue = { value: number; weight: number };
 export type HoldAndWinJackpot = { name: string; multiplier: number; fixed: boolean };
 
 /** One row of the coin value table: a cash coin (× total bet, decimals allowed) or a jackpot label.
- *  `reels` are 0-based reel indices the entry may land on; absent ⇒ every reel. */
+ *  `reels` are 0-based reel indices the entry may land on; absent ⇒ every reel. A cash entry is
+ *  drawn as a `coin` symbol and a jackpot entry as a `jackpot` symbol — or as the `coin` symbol
+ *  when the game has no separate jackpot art. */
 export type CoinValueEntry =
 	| { kind: 'cash'; value: number; weight: number; reels?: number[] }
 	| { kind: 'jackpot'; jackpot: string; weight: number; reels?: number[] };
@@ -712,7 +714,12 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		}
 		for (const g of tier.guaranteed) {
-			if (!tagged(g.role).length) {
+			if (g.role === 'blank' || g.role === 'meterSpecial') {
+				error(
+					`trigger.buy.${i}.guaranteed`,
+					`A buy can guarantee coins, jackpots and specials, not a "${g.role}".`,
+				);
+			} else if (!tagged(g.role).length) {
 				error(
 					`trigger.buy.${i}.guaranteed`,
 					`Guarantees a "${g.role}" but no symbol carries that role.`,
