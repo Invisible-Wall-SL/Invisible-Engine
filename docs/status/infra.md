@@ -45,10 +45,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   `check-all (1/3…3/3)` runs `pnpm check:all --exclude-lint` — every fixture, `check-*`/`verify-*`/
   `smoke-*` script, launcher `check:*`, package test, headless spike and codegen `--check`,
   DISCOVERED by file pattern, minus what `Lint` already runs (read from `lint.yml`, so a gate is
-  never run twice nor dropped). `python tests` runs `scripts/check-python.py`: every
-  `services/*/test_*.py`, the ComfyUI-SemanticLayers suite on CPU torch, and the backup CLI. Every
-  deliberate skip carries its reason (`pnpm check:all --list`); a Python test declares a need with
-  `# check: requires <module|network> — why`.
+  never run twice nor dropped). A check that talks to the mock RGS gets a private one, seeded with
+  the check's id, so it deals the same rounds on every run. `python tests` runs
+  `scripts/check-python.py`: every `services/*/test_*.py`, the ComfyUI-SemanticLayers suite on CPU
+  torch, and the backup CLI. Every deliberate skip carries its reason (`pnpm check:all --list`); a
+  Python test declares a need with `# check: requires <module|network> — why`.
 - **Every would-be required check reports on every PR** — `check-all (1/3…3/3)`, `python tests`,
   `eslint`, `check-secrets`. Checks and Lint dropped `paths-ignore`; their first step
   (`.github/actions/code-changed`) skips the rest on a docs-only change (`docs/**`, `.claude/**`,
