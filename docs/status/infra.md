@@ -103,13 +103,14 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
-- 2026-09-30 — **Every CI check the owner wants required now reports on every PR** (#PRNUM). Checks
+- 2026-09-30 — **Every CI check the owner wants required now reports on every PR** (#881). Checks
   and Lint dropped `paths-ignore`, which would have left a docs-only PR pending forever on a required
   check. A composite action, `.github/actions/code-changed`, diffs the PR merge commit against its
   base parent (or a push's `before..HEAD`) and, when only `docs/**`, `.claude/**` or `*.md` changed,
   every later step is skipped — the job passes without installing anything. It is a step, not a
   gating job, because a job skipped by `if:` reports the matrix name unexpanded. Job and matrix names
-  unchanged. Proof: PROOF. Closed open item 6; the ruleset change itself is the owner's (Blocked).
+  unchanged. Proof: docs-only test PR #882 (closed) reported all six names in 8–11 s with every install
+  and check step skipped; #881 itself ran them for real (3 × 87 checks, 44 Python tests, every Lint gate). Closed open item 6; the ruleset change itself is the owner's (Blocked).
 - 2026-09-29 — **Test server: the refresh secret reaches it, and `/healthz` stops lying** (#868).
   - The launcher now sends `TEST_SERVER_SECRET` (a new launcher env var, as the
     `x-test-server-secret` header) on Game Maker Publish's and `register-game`'s `/refresh`
