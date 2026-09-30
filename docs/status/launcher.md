@@ -64,7 +64,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   Save and a dirty state now asks.
 - **A backup restore no longer asks twice.** `/symbols` and `/config` restore a version then
   `location.reload()`; with unsaved edits, the guard's `beforeunload` would raise the browser's
-  "Leave site?" over a restore the server had already applied (Stay left a pre-restore doc on a
+  "Leave site?" over a restore the server had already applied (cancelling it left a pre-restore doc on a
   stale ETag). The history dialog already warns that restoring discards unsaved edits, so both
   now mark the doc settled before reloading.
 

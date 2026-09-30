@@ -85,7 +85,7 @@ error) and a live **layer count**.
 
 **+ New** and **Open effect…** ask before they throw away unsaved changes. So does leaving the
 page with unsaved changes: switching tools from the tool bar or pressing Back asks in the app's own
-dialog (**Stay** / **Leave anyway**), and a reload or closing the tab gets the browser's "leave
+dialog (**Cancel** / **Leave anyway**), and a reload or closing the tab gets the browser's "leave
 page?" prompt.
 
 ### Build the layers

@@ -169,7 +169,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
    **Overwrite theirs** saves your version over theirs (theirs is kept in **History…**);
    cancelling keeps your edits on screen, unsaved, and the next Save asks again.
    Leaving the page with unsaved edits asks first: a tool-bar switch or Back raises the app's
-   own dialog (**Stay** / **Leave anyway**), a reload or closing the tab the browser's prompt.
+   own dialog (**Cancel** / **Leave anyway**), a reload or closing the tab the browser's prompt.
 7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
    and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
    re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the

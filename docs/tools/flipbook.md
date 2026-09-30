@@ -215,7 +215,7 @@ Type a name in the left column and press **Save**.
   an overwrite — which permanently replaces their clip with no way to recover it.
 - Saving without a source sheet is refused: a clip needs one to resolve its frames.
 - Leaving the page with unsaved changes asks first: a tool-bar switch or Back raises the app's
-  own dialog (**Stay** / **Leave anyway**), a reload or closing the tab the browser's prompt.
+  own dialog (**Cancel** / **Leave anyway**), a reload or closing the tab the browser's prompt.
 
 ### Broken frames
 
