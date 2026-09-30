@@ -29,7 +29,7 @@ titled **"Hold and win game pipeline"**.
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
 | 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
-| 1 | Kind plumbing + `kindCapabilities()` | in review | Hold and Win Phase 1: register the kind everywhere | — |
+| 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | not started | — | — |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
@@ -106,7 +106,7 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 
 ## Recent changes
 
-- 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** (session "Hold and Win Phase 1: register the kind everywhere").
+- 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** — merged as #917, a runtime release (session "Hold and Win Phase 1: register the kind everywhere").
   - **One kind list.** `GAME_KINDS` lives in `packages/constants-shared/gameKinds.ts`. These now derive from it: roles.ts (its copy removed), `kindStorage`, `projects.ts`, the editor template picker, game-spec `GameTypeSchema`, the publish gate, `verify-launcher-profile` and `gen-flow-vocabulary.mjs`, which gives lines' emitter vocab to every kind except cluster/scatter.
   - **`kindCapabilities(gameType, config?)`** is in `engine-layout`.
   - **game-spec symbol roles:** `coin`, `jackpotCoin`, `collector`, `payer`, `mystery`, `meterSpecial` and `blank` (`multiplier` already existed).
