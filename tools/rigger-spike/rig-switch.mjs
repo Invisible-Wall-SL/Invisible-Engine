@@ -467,6 +467,17 @@ try {
 			s.insName === 'S-broken' && /not open/.test(s.insSub) && s.bones === 0,
 			`${s.insName} · ${s.insSub} · ${s.bones} bones`,
 		);
+		// The error sat at the floating mode bar's own `top`, which covered the middle of it.
+		const boxes = await evaluate(`(() => {
+			const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+			return { err: r("err"), modeBar: r("modeBar") };
+		})()`);
+		const [e, m] = [boxes.err, boxes.modeBar];
+		ok(
+			'the error is not under the mode bar',
+			e[3] <= m[1] || e[1] >= m[3] || e[2] <= m[0] || e[0] >= m[2],
+			q(boxes),
+		);
 		ok('closing the tab does not warn — nothing is unsaved', !(await closeWarns()));
 		ok('the next visit reopens S, the last rig that opened', (await remembered()) === 'S.json');
 	});

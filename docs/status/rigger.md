@@ -53,9 +53,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
     `sequence`, so the linked mesh shows placeholder art. **▸ Convert to mesh on a sequence image**
     drops its `sequence` the same way: the mesh names the sequence's base, which the atlas does not
     have, so the image turns into placeholder art (probed).
-11. **Stage errors are half hidden.** The error bar (`#err`) sits under the floating mode bar
-    (both at `top: 47px`, the bar on `z-index` 5), so the middle of every stage error is covered
-    at usual widths — a failed open's missing mesh name, a refused save's reason.
+11. ~~Stage errors half hidden under the mode bar~~ — fixed 2026-09-30 (Recent changes); kept so
+    the numbers after it stay put.
 12. **A mesh made from a trimmed image is mapped wrong.** A region's quad covers only its trimmed
     ink, but a mesh's UVs span the untrimmed canvas, and ▸ Convert to mesh and ✎ Draw mesh both lay
     UVs across the ink's quad as if it were the canvas: the whole canvas is squeezed into the ink's
@@ -72,6 +71,12 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **Stage errors read in full** (was open item 11). The error bar and the amber
+  missing-images banner sat at the floating mode bar's own `top`, so the middle of every stage
+  error was covered (and the two covered each other). They now stack in `#stageMsgs` below the mode
+  bar, lower still while the cinematic tweak bar shows. `rig-switch.mjs` checks the error box
+  clears the mode bar (fails on the previous page).
 
 - 2026-09-30 — **The placement fields, the pivot and replace image edit the image the stage
   shows** (the lookups open item 9 listed). x / y / rotation / scale and the ✥ pivot moved the

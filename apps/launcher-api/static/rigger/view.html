@@ -207,13 +207,19 @@
     display:none; box-shadow:0 0 0 1px #000; }
   #hint { position:absolute; z-index:4; left:12px; top:10px; color:var(--dim); font-size:11px;
     pointer-events:none; text-shadow:0 1px 2px #000; }
-  #err { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a2326;
+  /* The stage's messages, stacked under the floating mode bar (and the tweak bar when it shows):
+     at the mode bar's own `top` it covered the middle of every error. */
+  #stageMsgs { position:absolute; z-index:4; left:12px; right:12px; top:66px; display:flex;
+    flex-direction:column; gap:6px; pointer-events:none; }
+  #stageMsgs > * { pointer-events:auto; }
+  #stage.tweaking #stageMsgs { top:96px; }
+  #err { background:#3a2326;
     border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; white-space:pre-wrap; }
   /* Same bar, informational skin — an automatic action that CHANGED and SAVED the rig has to
      say so, but it is not an error and must not read as one. */
   #err.notice { background:#22301f; border-color:var(--ok, #5a8f4f); color:#dbf0d4; }
-  #artWarn { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a3322;
+  #artWarn { background:#3a3322;
     border:1px solid #b89233; color:#ffe8b0; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; line-height:1.45; }
   #artWarn .x { float:right; cursor:pointer; opacity:.7; margin-left:8px; font-weight:700; }
@@ -518,8 +524,10 @@
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
       <!-- tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) -->
       <div id="tweakBar" style="display:none;"></div>
-      <div id="err"></div>
-      <div id="artWarn"></div>
+      <div id="stageMsgs">
+        <div id="err"></div>
+        <div id="artWarn"></div>
+      </div>
     </div>
     <div class="resizer-h" id="resTimeline" title="drag to resize the timeline · double-click to reset" style="display:none;"></div>
     <div id="timeline"></div>
@@ -1307,6 +1315,7 @@ function endTweak(){
  */
 function applyTweakChrome(on){
   const bar = $("#tweakBar"); if (bar) bar.style.display = on ? "flex" : "none";
+  $("#stage").classList.toggle("tweaking", on);
   $("#outline").style.display = on ? "" : "none";
   $("#cinePanel").style.display = on ? "none" : "block";
   ["#boneDetail", "#slotDetail", "#eventDetail", "#seqDetail"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
