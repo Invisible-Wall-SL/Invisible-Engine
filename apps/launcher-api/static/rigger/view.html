@@ -2700,6 +2700,11 @@ function currentRigStem(){
 // D1 — save the whole open rig to the shared library.
 async function saveRigToLibrary(){
   if (!rawDoc){ alert("Load a rig first."); return; }
+  // Importing a rig that will not load breaks the rig it is imported into, so the library gets the
+  // .irig save's full parse: the server can check only the references it resolves by name.
+  clearErr();
+  const problem = rigDocLoadProblem(rawDoc);
+  if (problem){ showErr("Not saved to the library — this rig would not load: " + problem + ". Fix it and save again."); return; }
   const def = currentRigStem();
   const name = prompt("Save this rig to the shared library as:", def);
   if (name === null) return;
@@ -2721,7 +2726,7 @@ async function saveRigToLibrary(){
       if (!j || !confirm((j.message || "That name is taken.") + "\n\nReplace it with this rig?")){ setRigStatus("not saved — pick another name"); return; }
       r = await post(j.etag ?? null);
     }
-    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    if (!r.ok){ const j = await r.json().catch(() => null); throw new Error((j && j.message) || ("HTTP " + r.status)); }
     await r.json();
     setRigStatus('saved "' + nm + '" to the rig library ✓');
   } catch (e){ setRigStatus("rig save failed: " + (e && e.message ? e.message : e)); }
@@ -3584,8 +3589,9 @@ async function removeTextElement(id){
 // Prefix EVERY internal name of `src` (a cloned skeleton doc), rewriting the same
 // references the in-tool rename functions do — bones (name+parent), slots
 // (name+bone), skins (name + attachment keys + linkedmesh skin refs), constraints
-// (name + bone/target/bones), and every animation reference (bones/slots/ik/
-// transform/path keys, deform skin/slot keys, drawOrder slot offsets). Weighted-mesh
+// (name + bone/target/bones), events (the definitions + every key naming one), and
+// every animation reference (bones/slots/ik/transform/path keys, deform skin/slot keys,
+// drawOrder slot offsets). Weighted-mesh
 // bone references are stored as INDICES (not names) so they need no rewrite — they
 // stay valid because the imported bones keep their relative order on append + topo.
 function prefixRigNames(src, p){
@@ -3626,6 +3632,7 @@ function prefixRigNames(src, p){
   };
   // Prefix the animation NAMES too, so imported clips never collide with the open rig's.
   if (src.animations) src.animations = rekey(src.animations);
+  if (src.events) src.events = rekey(src.events);
   for (const an of Object.values(src.animations || {})){
     if (an.bones) an.bones = rekey(an.bones);
     if (an.slots) an.slots = rekey(an.slots);
@@ -3653,6 +3660,8 @@ function prefixRigNames(src, p){
     if (Array.isArray(an.drawOrder))
       for (const fr of an.drawOrder) if (Array.isArray(fr.offsets))
         for (const o of fr.offsets) if (typeof o.slot === "string") o.slot = p + o.slot;
+    if (Array.isArray(an.events))
+      for (const e of an.events) if (e && typeof e.name === "string") e.name = p + e.name;
   }
 }
 
@@ -3694,6 +3703,10 @@ function mergeRigInto(dst, src, attachBone){
   }
   dst.animations = dst.animations || {};
   for (const k of Object.keys(src.animations || {})) dst.animations[k] = src.animations[k];
+  if (src.events){
+    dst.events = dst.events || {};
+    for (const k of Object.keys(src.events)) dst.events[k] = src.events[k];
+  }
   // imported constraints append their own `order`s after the host's — re-pack so every kind's
   // order is contiguous (physics is order-sensitive: a collision/gap leaves it unsortable).
   repackConstraintOrders(dst);
@@ -3721,12 +3734,14 @@ async function importRig(id){
   for (const sk of rawDoc.skins || []) existing.add("k:" + sk.name);
   for (const grp of ["ik", "transform", "path", "physics"]) for (const c of rawDoc[grp] || []) existing.add("c:" + c.name);
   for (const k of Object.keys(rawDoc.animations || {})) existing.add("a:" + k);
+  for (const k of Object.keys(rawDoc.events || {})) existing.add("e:" + k);
   const collides = (p) => {
     for (const b of src.bones || []) if (existing.has("b:" + p + b.name)) return true;
     for (const s of src.slots || []) if (existing.has("s:" + p + s.name)) return true;
     for (const sk of src.skins || []) if (existing.has("k:" + p + sk.name)) return true;
     for (const grp of ["ik", "transform", "path", "physics"]) for (const c of src[grp] || []) if (existing.has("c:" + p + c.name)) return true;
     for (const k of Object.keys(src.animations || {})) if (existing.has("a:" + p + k)) return true;
+    for (const k of Object.keys(src.events || {})) if (existing.has("e:" + p + k)) return true;
     return false;
   };
   let prefix = slug + "_", n = 2;
@@ -3736,6 +3751,19 @@ async function importRig(id){
   const attachBone = (selBone != null && skeletonData && skeletonData.bones[selBone])
     ? skeletonData.bones[selBone].name
     : (rawDoc.bones[0] && rawDoc.bones[0].name);
+  // A library rig can predate the checks on the library save: merge copies first, and leave the
+  // open rig untouched when the result would not load.
+  const trial = JSON.parse(JSON.stringify(rawDoc));
+  mergeRigInto(trial, JSON.parse(JSON.stringify(src)), attachBone);
+  const problem = rigDocLoadProblem(trial);
+  if (problem){
+    const own = rigDocLoadProblem(rawDoc);
+    setRigStatus("not imported");
+    showAlert(own
+      ? "The open rig does not load as it is, so nothing was imported:\n\n" + own
+      : 'The open rig would not load with "' + (entry.name || id) + '" merged in:\n\n' + problem + "\n\nNothing was imported; the open rig is unchanged.", "Import refused");
+    return;
+  }
   mergeRigInto(rawDoc, src, attachBone);
 
   markDirty();

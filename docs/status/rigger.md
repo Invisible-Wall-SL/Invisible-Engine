@@ -20,7 +20,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredSpineBox`) by `/symbols`, the Scene Editor and the game (`<SpineProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim).
-- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits. The rig library save creates only.
+- **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits. The rig library save creates only, and refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too.
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
@@ -33,7 +33,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 3. **Better auto-weights** — the proximity skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative character-mesh gate (Spike 2) is open.
 4. **Localized text** — no rename for a text element (the id is the attachment name); a text element converted to a **mesh** cannot be width-fitted (its locales are linked meshes sharing the source hull); **persistent FX slots** (an always-on, keyable emitter living on the rig, the other half of §12.4a) are unbuilt.
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
-6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim; the rig-library save skips the tab's full parse, and the server's `irigDocProblem` checks neither a linked mesh's parent nor an animation's skin keys, so a rig that will not load can still reach the library.
+6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim. The server's `irigDocProblem` still skips by-name references spine-core throws on: a skin's `bones` / `ik` / `transform` / `path` / `physics` lists, and an animation's IK / transform / path / physics keys, draw-order slots and event names. Both saves run the tab's full parse first, so only a 🕘 restore, a tab still running an older `view.html`, or a direct POST depends on the server check alone.
 7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
    task): `transform` shows a 0.00° constraint effect on ~12 lines rigs and "Transform constraint
    not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
@@ -54,6 +54,12 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    that reason).
 10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
     `sequence`, so the linked mesh shows placeholder art.
+11. **A failed rig switch leaves the previous rig saveable under the new rig's name.**
+    `selectSkeleton` sets `selected` and fetches the new `.irig`'s ETag before the rig loads, and
+    the "Load failed" path never resets `rawDoc`. So 💾 Save writes the PREVIOUS rig's document over
+    the rig that failed to open, on that rig's own ETag (the precondition passes; only 🕘 History
+    keeps the overwritten version), and 📦 offers it under that name. Reproduced 2026-09-30 in a
+    browser against a mock API.
 
 ## Blocked (owner / external)
 
@@ -63,6 +69,24 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **A rig that will not load can no longer reach the rig library, or leave it.**
+  📦 Save rig to library skipped the full parse 💾 Save runs, and the server's `irigDocProblem`
+  (behind both saves and the 🕘 restore) never resolved a linked mesh's parent or an animation's
+  deform / sequence keys, so a broken rig could be saved to the library and break every rig it was
+  imported into. The library save now runs the tab's full parse before asking for a name, and
+  shows a server refusal as text rather than raw JSON. `irigDocProblem` resolves both references as
+  SkeletonJson does — a linked mesh's parent on its own slot, in the skin its `skin` names (none =
+  the LAST skin named `default`, a name = the FIRST skin with it), and a mesh; an animation's skin,
+  its slot, and the attachment whenever a deform or sequence key reads it, which must then have
+  vertices (deform) or a declared sequence (sequence). A library rig saved before these checks is
+  refused when applied to a new rig (422, before anything is written) and when imported (the merge
+  is tried on a copy; the open rig is left untouched). The import also dropped the imported rig's
+  event definitions, so a rig with FX / flipbook bindings (event keys) broke the rig it was merged
+  into; its events now come along under the prefix (`rigmerge.mjs`).
+  `tools/rigger-spike/irig-save.mjs` pins each rule against spine-core on a synthetic rig and on
+  every checked-in rig (all 153 load and pass, `S`'s 180 linked meshes included). The references
+  it still skips are open item 6; a failed rig switch found in review is open item 11.
 
 - 2026-09-30 — **The Skin picker lists the rig's skins as they are, and every edit lands in the
   skin on stage.** The picker's options were built once, when the rig opened, and a `<select>`

@@ -123,11 +123,13 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
  * Why `doc` would not load as a Spine 4.2 skeleton, or null when it would.
  *
  * Mirrors the references `SkeletonJson.readSkeletonData` resolves by NAME and throws on when one
- * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot, an
- * animation's bone/slot — because a doc that fails those opens as "Load failed" in the Rigger
- * and blanks the rig in every game that binds it. It deliberately does NOT validate field
- * values: the client re-parses through the real loader before posting, and a stricter schema
- * here would refuse documents a newer Rigger wrote.
+ * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot, a linked
+ * mesh's skin and parent, an animation's bone/slot and the skin/slot/attachment its deform and
+ * sequence keys name — and, for those last two, that the attachment found is one the loader can
+ * read (a mesh parent, vertices to deform, a declared sequence). A doc that fails any of them opens
+ * as "Load failed" in the Rigger and blanks the rig in every game that binds it. It deliberately
+ * does NOT validate field values: the client re-parses through the real loader before posting, and
+ * a stricter schema here would refuse documents a newer Rigger wrote.
  */
 export function irigDocProblem(doc: unknown): string | null {
 	if (!isRecord(doc)) return 'the skeleton is not a JSON object';
@@ -187,15 +189,55 @@ export function irigDocProblem(doc: unknown): string | null {
 		}
 	}
 
+	// SkeletonJson looks a skin up by name as the FIRST one with it, but its default skin is the
+	// LAST one named "default" (each reassigns it).
+	const skins: Skin[] = [];
+	const findSkin = (name: string) => skins.find((s) => s.name === name);
+	let defaultSkin: Skin | undefined;
 	if (doc.skins !== undefined) {
 		if (!Array.isArray(doc.skins)) return '"skins" is not a list (Spine 4.x writes an array)';
 		for (const [i, sk] of doc.skins.entries()) {
-			if (!isRecord(sk) || typeof sk.name !== 'string') return `skin #${i} has no name`;
-			if (sk.attachments === undefined) continue;
-			if (!isRecord(sk.attachments)) return `skin "${sk.name}" has malformed attachments`;
-			for (const slotName of Object.keys(sk.attachments)) {
+			if (!isRecord(sk) || typeof sk.name !== 'string' || !sk.name) return `skin #${i} has no name`;
+			const attachments = sk.attachments === undefined ? {} : sk.attachments;
+			if (!isRecord(attachments)) return `skin "${sk.name}" has malformed attachments`;
+			for (const slotName of Object.keys(attachments)) {
 				if (!slots.has(slotName)) {
 					return `skin "${sk.name}" has attachments for slot "${slotName}", which does not exist`;
+				}
+			}
+			const skin = { name: sk.name, attachments };
+			skins.push(skin);
+			if (skin.name === 'default') defaultSkin = skin;
+		}
+	}
+
+	// A linked mesh's parent is found by name on the linked mesh's OWN slot, in the skin its `skin`
+	// names — an absent (or empty) one means the default skin, not the skin the linked mesh sits in.
+	for (const sk of skins) {
+		for (const [slotName, entries] of Object.entries(sk.attachments)) {
+			if (!isRecord(entries)) continue;
+			for (const [name, a] of Object.entries(entries)) {
+				if (!isRecord(a) || !isMeshType(a.type) || !a.parent) continue;
+				const where = `linked mesh "${name}" (skin "${sk.name}", slot "${slotName}")`;
+				const parentName = a.parent;
+				const skinName = a.skin || null;
+				if (typeof parentName !== 'string') return `${where} has a malformed parent`;
+				if (skinName !== null && typeof skinName !== 'string') {
+					return `${where} has a malformed skin`;
+				}
+				const parentSkin = skinName === null ? defaultSkin : findSkin(skinName);
+				if (!parentSkin) {
+					return skinName === null
+						? `${where} names no skin, so its parent is looked up in skin "default", which does not exist`
+						: `${where} names skin "${skinName}" for its parent, which does not exist`;
+				}
+				const parent = skinAttachment(parentSkin, slotName, parentName);
+				if (!parent) {
+					return `${where} names parent "${parentName}", which skin "${parentSkin.name}" does not have on that slot`;
+				}
+				const type = attachmentType(parent);
+				if (!isMeshType(type)) {
+					return `${where} names parent "${parentName}", which is a ${type}, not a mesh`;
 				}
 			}
 		}
@@ -215,9 +257,87 @@ export function irigDocProblem(doc: unknown): string | null {
 					if (!slots.has(s)) return `animation "${name}" keys slot "${s}", which does not exist`;
 				}
 			}
+			if (isRecord(anim.attachments)) {
+				for (const [skinName, bySlot] of Object.entries(anim.attachments)) {
+					const skin = findSkin(skinName);
+					if (!skin) {
+						return `animation "${name}" keys attachments in skin "${skinName}", which does not exist`;
+					}
+					if (!isRecord(bySlot)) continue;
+					for (const [slotName, byName] of Object.entries(bySlot)) {
+						if (!slots.has(slotName)) {
+							return `animation "${name}" keys attachments on slot "${slotName}", which does not exist`;
+						}
+						if (!isRecord(byName)) continue;
+						for (const [attachment, timelines] of Object.entries(byName)) {
+							const reads = timelinesReading(timelines);
+							if (reads.length === 0) continue;
+							const where = `animation "${name}" keys attachment "${attachment}" on slot "${slotName}"`;
+							const target = skinAttachment(skin, slotName, attachment);
+							if (!target) return `${where}, which skin "${skinName}" does not have`;
+							const type = attachmentType(target);
+							if (reads.includes('deform') && !VERTEX_TYPES.has(type)) {
+								return `${where} with deform keys, but it is a ${type}, which has no vertices`;
+							}
+							if (
+								reads.includes('sequence') &&
+								(target.sequence == null || !(type === 'region' || isMeshType(type)))
+							) {
+								return `${where} with sequence keys, but it has no sequence`;
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	return null;
+}
+
+interface Skin {
+	name: string;
+	/** Slot name → attachment name → attachment. */
+	attachments: Record<string, unknown>;
+}
+
+/** What `Skin.getAttachment` finds under `name` on `slot`. */
+function skinAttachment(
+	skin: Skin,
+	slot: string,
+	name: string,
+): Record<string, unknown> | undefined {
+	const entries = Object.hasOwn(skin.attachments, slot) ? skin.attachments[slot] : undefined;
+	if (!isRecord(entries) || !Object.hasOwn(entries, name)) return undefined;
+	const a = entries[name];
+	return isRecord(a) ? a : undefined;
+}
+
+/**
+ * An attachment's type as SkeletonJson reads it: only an ABSENT `type` defaults to region, and an
+ * entry of any type it does not know (`null` included) is skipped, so nothing finds it.
+ */
+function attachmentType(a: Record<string, unknown>): string {
+	return a.type === undefined ? 'region' : String(a.type);
+}
+
+/** A mesh, linked or not — SkeletonJson reads a `parent` on either type as a linked mesh. */
+function isMeshType(type: unknown): boolean {
+	return type === 'mesh' || type === 'linkedmesh';
+}
+
+/** The attachment types a deform key can offset: Spine's `VertexAttachment`s. */
+const VERTEX_TYPES = new Set(['mesh', 'linkedmesh', 'boundingbox', 'path', 'point', 'clipping']);
+
+/**
+ * The timelines in an animation's keys for one attachment that make SkeletonJson read the
+ * attachment: a deform or sequence timeline, and only one whose first key is present.
+ */
+function timelinesReading(timelines: unknown): ('deform' | 'sequence')[] {
+	if (!isRecord(timelines)) return [];
+	return (['deform', 'sequence'] as const).filter((t) => {
+		const keys = timelines[t];
+		return Array.isArray(keys) && Boolean(keys[0]);
+	});
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
