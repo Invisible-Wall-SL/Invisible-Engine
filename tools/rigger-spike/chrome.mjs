@@ -183,12 +183,21 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
 
 	try {
 		const began = Date.now();
-		await cdp('Browser.getVersion', {}, undefined, LAUNCH_TIMEOUT_MS);
-		const { result: targets } = await cdp('Target.getTargets');
+		// One deadline for the whole attempt, so three attempts stay inside check-all's per-check kill.
+		const left = () => Math.max(1, began + LAUNCH_TIMEOUT_MS - Date.now());
+		await cdp('Browser.getVersion', {}, undefined, left());
+		const { result: targets } = await cdp('Target.getTargets', {}, undefined, left());
 		let targetId = targets.targetInfos.find((t) => t.type === 'page')?.targetId;
 		if (!targetId)
-			({ targetId } = (await cdp('Target.createTarget', { url: 'about:blank' })).result);
-		const { result: attached } = await cdp('Target.attachToTarget', { targetId, flatten: true });
+			({ targetId } = (
+				await cdp('Target.createTarget', { url: 'about:blank' }, undefined, left())
+			).result);
+		const { result: attached } = await cdp(
+			'Target.attachToTarget',
+			{ targetId, flatten: true },
+			undefined,
+			left(),
+		);
 		return { cdp, listeners, session: attached.sessionId, shutdown, readyMs: Date.now() - began };
 	} catch (e) {
 		const detail = gone ? '' : `\n  stderr so far:\n${stderr}`;
