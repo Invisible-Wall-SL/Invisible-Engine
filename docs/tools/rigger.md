@@ -259,10 +259,16 @@ a rival answer to the same question. Move the box, or bind a different bone.
   to click again after adding sprites. This is the Rigger end of the Sheet Maker →
   Atlas Maker FX pipeline (same `_shine`/`_glow`/… naming convention).
 - **Skins:** the **Skins** section lists skins; click one to make it the **active**
-  skin (what determines which images/meshes/weights you see and paint). Rename
-  (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**. The skin
-  named `default` can't be renamed: a game draws it whenever no skin is chosen, and
-  falls back to it for any slot another skin leaves empty.
+  skin (what determines which images/meshes/weights you see and paint) — or pick it
+  in the bottom bar's **Skin** picker, which always lists the rig's current skins. A
+  new image, point, path, box, clip or linked mesh goes into the active skin, which
+  stays on stage as you edit (a rename included) until the rig is reloaded. Note that
+  **＋ add image…** also makes the new image the one the slot shows in *every* skin, so
+  adding it while another skin is active leaves that slot empty in `default`. Rename (✎),
+  delete (🗑, the last skin can't be removed), and **＋ Add skin** (a new skin starts
+  empty; click it to work in it). The skin named `default` can't be renamed: a game
+  draws it whenever no skin is chosen, and falls back to it for any slot another
+  skin leaves empty.
 - **What a delete takes with it:** deleting a bone, slot, attachment or skin also
   removes every IK / transform / path / physics constraint that can no longer work
   without it (an IK or transform constraint whose target bone went, one left with

@@ -43,12 +43,15 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    move to the parent keeping their LOCAL values, so they jump by the deleted bone's own
    transform (the confirm says they move; it does not say they jump). Composing that transform
    in would keep them in place.
-9. **Skins in the editor.** The top-bar skin picker's options are built when the rig opens, so a
-   skin added, renamed or imported since has none and the `<select>` reads `""`: region import
-   (`attachRegion`) and rig-text attach then write into the FIRST skin, the slot's attachment list
-   shows default's, and every rebuild snaps the stage back to default. Deleting the default skin
-   is still allowed while another exists, though a rig without one draws nothing in a game that
-   sets no skin (renaming it is refused for that reason).
+9. **Skins in the editor.** ＋ add image… makes the new image the slot's setup attachment, one name
+   for every skin: added in a skin other than default, it leaves that slot empty in default (and
+   still empty once the skin is deleted). Spine's own idiom is a same-named override in the skin —
+   a behaviour decision, not a bug fix. ⬡ Convert to mesh and ✎ Draw mesh rewrite the slot's image
+   in the FIRST skin holding its name (usually default), not the one on stage: with a skin on stage
+   that overrides a same-named image, default's becomes a mesh measured off the other skin's art and
+   the stage does not change. Deleting the default skin is still allowed while another exists,
+   though a rig without one draws nothing in a game that sets no skin (renaming it is refused for
+   that reason).
 10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
     `sequence`, so the linked mesh shows placeholder art.
 
@@ -60,6 +63,20 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **The Skin picker lists the rig's skins as they are, and every edit lands in the
+  skin on stage.** The picker's options were built once, when the rig opened, and a `<select>`
+  reads back `""` for a value no option carries: in a skin added, renamed or imported since,
+  ＋ add image… wrote into the first skin, the slot's attachment list showed default's, and the
+  rebuild after the edit put the default skin back on stage. The picker is now re-rendered with
+  the inspector from the skins the rig has, edits read the skin on stage (`activeSkinName`), and
+  the rebuild keeps that skin on stage, a renamed one included. ＋ add image… takes its placement
+  from the image the slot shows (default's, in a new skin — it used to find none). ＋ path drawn in
+  such a skin could replace a path of the same name (the linked-mesh hazard again); it sees the
+  right skin now too. `linkedmesh.mjs` runs the shipped rebuild and picker; the new
+  `skins-panel.mjs` drives the real page in Chromium (36 checks; the old page fails 22);
+  `sequence.mjs`, which had gone vacuous, puts its skin on stage again. Found, not fixed: open
+  item 9.
 
 - 2026-09-30 — **Linked meshes added or re-pointed in a non-default skin now load.** Spine reads
   a linked mesh's absent `skin` as the DEFAULT skin; ＋ Linked mesh and the source picker omitted

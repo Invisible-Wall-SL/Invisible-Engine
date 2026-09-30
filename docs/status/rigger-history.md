@@ -5,6 +5,75 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **The Skin picker follows the rig's skins, and every edit lands in the skin on
+  stage.** The picker (`#skin`, in the bottom bar — older comments called it the top bar) had its
+  options built once, in `buildSkeleton`. A `<select>` reads back `""` for a value no option
+  carries, so for a skin added (`addSkin`), renamed (`renameSkin`) or imported (`importRig`) since,
+  `setActiveSkin` put the skin on stage but left the picker reading `""`, and every reader of
+  `$("#skin").value` fell back:
+  - `attachRegion` (＋ add image…) wrote into the FIRST skin, and `rebuildFromRawDoc` — which ran
+    right after it — read `""` as well and put the default skin back on stage. The image went into
+    the wrong skin, the author was moved off the skin they were working in, and the next edit went
+    to default too.
+  - `slotAttachmentList` (the slot's attachment list) showed default's, and
+    `replaceAttachmentImage` looked in default first. A deleted skin kept its option, and picking
+    it threw.
+  - **＋ path could replace a path.** `finishDrawPath` made its name unique against
+    `slotAttachmentList` — default's names, under the stale picker — but wrote into the active
+    skin: the hazard `addAttachmentToActiveSkin` was hardened against in the linked-mesh fix below.
+  Reproduced on the page itself: `skins-panel.mjs` run against the previous `view.html` fails 22
+  of its 36 checks — after ＋ Add skin the picker still offers `[default]`; clicking an imported
+  skin's row shows it on stage while the picker reads `""`; ＋ add image… then writes into
+  `default` and the stage falls back to `default`.
+  - **One source.** `activeSkinName()` — the skeleton's skin, else `default` — is what every edit
+    reads, and the picker is a view of it: `renderSkinPicker()` rebuilds its options from
+    `skeletonData.skins` and selects the skin on stage, and `buildInspector` calls it beside the
+    SKINS list it mirrors, so the load, every rebuild and every `setActiveSkin` refresh both.
+    Options and value set from code fire no `change`, so nothing re-enters `setActiveSkin`.
+  - **The rebuild keeps the skin on stage.** `rebuildFromRawDoc(selName, skinName)` reads
+    `activeSkinName()` before it replaces the skeleton; `renameSkin` passes the new name when the
+    renamed skin is the one on stage. A deleted one falls back to default, else the first skin.
+  - **＋ add image… takes its placement from what the slot shows.** `attachRegion` looked for the
+    slot's current image only in the target skin, so in a new skin it found none: no placement
+    carried over (`frame_radial1` lost its 0.2 scale) and no mesh warning. It resolves it as the
+    stage does now — the active skin's, else default's (`rawDocAttEntry`).
+  - `addAttachmentToActiveSkin` is back to its pre-#884 name check: `slotAttachmentList` reads the
+    skin it writes into again, which made the union with that skin's names dead code.
+  - **Rig text** (`placeTextAttachments`) reads the same function. Its bake reloads the rig first,
+    which puts the default skin on stage, so a text element still lands in the default (else the
+    first) skin.
+  - **Gates.** `linkedmesh.mjs` now runs the shipped `rebuildFromRawDoc`, `setActiveSkin` and
+    `renderSkinPicker` — only the loader (the strict one) and the UI renderers are stubbed, and the
+    inspector stub renders just the picker — and models the picker as a browser `<select>` that
+    only the page writes. It adds a skin session on the synthetic rig (＋ Add skin, pick, ＋ add
+    image, rig text, ⎘ Make skin-specific + replace image, rename, delete, import) and ＋ add image
+    on every slot of the CLI rig in a skin added that session (68 slots on `anticipation`, 51 on
+    `S`), each checked against the placement spine-core resolves for the image the slot showed.
+    Eleven mutants — the picker not rebuilt or its value not set, the rebuild or the rename
+    dropping the skin on stage, ＋ add image / rig text / the slot list / replace image reading the
+    first or default skin, placement taken from the target skin only, a new name checked against
+    default only, `change` fired from code — are each caught. The new `skins-panel.mjs` drives the
+    real page in Chromium through ＋ Add skin, a pick, ＋ add image…, ✎, 🗑, ⤵ import and a
+    skins-list click, reading the picker's options and value, the minified runtime's skin, drawn
+    attachment and placement, and the `change` count; it closes Chrome through CDP, because a
+    killed one leaves child processes holding its temp profile on Windows.
+  - **A gate that had gone vacuous.** `sequence.mjs` put a skin on stage through a stubbed picker,
+    so once `activeSkinName` read the skeleton its "gold" pass ran with default on stage, and a
+    planted `sequenceKeySkin` break (a key written under a skin that does not declare the sequence,
+    which bricks the rig) passed. It now puts the skin on its stand-in skeleton and asserts it is
+    on stage; the planted break fails it again. `rigtext-autosync.mjs` gives
+    `placeTextAttachments` the shipped `activeSkinName` in place of a picker stub.
+  - **Found, not fixed** (open item 9). ＋ add image… makes the new image the slot's setup
+    attachment, which is one name for every skin, so added in a skin other than default it leaves
+    that slot empty in default — and still empty after that skin is deleted, since the delete
+    cannot know what the slot showed before. (This already happened for any skin the rig opened
+    with; now it is also the path in a skin added this session.) Spine's idiom is an override of
+    the same attachment name in the skin, which is a behaviour decision. Separately, ⬡ Convert to
+    mesh and ✎ Draw mesh rewrite the image in the first skin holding its name, not the one on
+    stage: a two-skin probe of the shipped `convertRegionToMesh`, with `gold` on stage over
+    default's same-named `body`, turned default's into a mesh measured off gold's 30×30 art while
+    the stage kept showing gold's region.
+
 - 2026-09-30 — **A linked mesh names its parent's skin unless that skin is `default`.** Reported:
   ＋ Linked mesh with a non-default skin active, onto a mesh in that same skin, left a rig that
   would not load. SkeletonJson resolves a linked mesh's parent as `skin ? findSkin(skin) :

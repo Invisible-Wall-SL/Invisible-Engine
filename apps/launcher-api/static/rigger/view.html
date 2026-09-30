@@ -1961,14 +1961,9 @@ function buildSkeleton(entry){
     o.value = a.name; o.textContent = a.name + "  (" + a.duration.toFixed(2) + "s)";
     aSel.appendChild(o);
   });
-  const sSel = $("#skin"); sSel.innerHTML = "";
-  skeletonData.skins.forEach(sk => {
-    const o = document.createElement("option"); o.value = sk.name; o.textContent = sk.name;
-    sSel.appendChild(o);
-  });
   if (skeletonData.skins.length){
     const def = skeletonData.skins.find(s => s.name === "default") || skeletonData.skins[0];
-    skeleton.setSkinByName(def.name); sSel.value = def.name;
+    skeleton.setSkinByName(def.name);
   }
   skeleton.setToSetupPose();
   updateWorld();
@@ -2189,8 +2184,9 @@ function buildInspector(entry){
   renderSlotDetail();
 
   // ---- skins + attachment counts (flag weighted meshes) ----
+  renderSkinPicker();
   const skinList = $("#skinList"); clearChildren(skinList);
-  const activeSkinName = (skeleton && skeleton.skin && skeleton.skin.name) || "default";
+  const active = activeSkinName();
   {
     const bar = document.createElement("div");
     bar.style.cssText = "margin:4px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;";
@@ -2225,11 +2221,11 @@ function buildInspector(entry){
       }
     }
     const row = document.createElement("div");
-    row.className = "trow" + (sk.name === activeSkinName ? " sel" : "");
+    row.className = "trow" + (sk.name === active ? " sel" : "");
     row.dataset.skin = sk.name;
     row.onclick = () => setActiveSkin(sk.name);
     const nm = document.createElement("span"); nm.textContent = sk.name; row.appendChild(nm);
-    if (sk.name === activeSkinName){ const a = document.createElement("span"); a.className = "tag"; a.textContent = "active"; a.style.color = "var(--accent)"; row.appendChild(a); }
+    if (sk.name === active){ const a = document.createElement("span"); a.className = "tag"; a.textContent = "active"; a.style.color = "var(--accent)"; row.appendChild(a); }
     const t = document.createElement("span"); t.className = "tag";
     t.textContent = atts.length + " attachments";
     row.appendChild(t);
@@ -2258,7 +2254,7 @@ function buildInspector(entry){
     skinList.appendChild(row);
     // For the ACTIVE skin, list what it influences: each slot it provides an attachment
     // for, the attachment + type, and (for weighted meshes) which bones pull it.
-    if (sk.name === activeSkinName){
+    if (sk.name === active){
       const det = document.createElement("div");
       det.style.cssText = "margin:2px 14px 7px;padding:5px 8px;border-left:2px solid var(--line);font-size:11px;color:var(--dim);line-height:1.5;";
       if (!atts.length){
@@ -3442,7 +3438,7 @@ async function bakeAndPlaceText(){
  */
 function placeTextAttachments(element, attachments){
   if (!rawDoc || !attachments.length) return;
-  const skinName = $("#skin").value || (rawDoc.skins && rawDoc.skins[0] && rawDoc.skins[0].name) || "default";
+  const skinName = activeSkinName();
   rawDoc.skins = rawDoc.skins || [];
   let sk = rawDoc.skins.find((s) => s.name === skinName);
   if (!sk){ sk = { name: skinName, attachments: {} }; rawDoc.skins.push(sk); }
@@ -4624,7 +4620,8 @@ function renameSkin(oldName, newName){
     const bySkin = an[channel];
     if (bySkin && bySkin[oldName]){ bySkin[newName] = bySkin[oldName]; delete bySkin[oldName]; }
   }
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  const onStage = activeSkinName() === oldName ? newName : null; // stays on stage, renamed
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null, onStage);
   markDirty();
 }
 
@@ -5057,7 +5054,7 @@ function deleteAttachment(slotName, attName){
 function slotAttachmentList(slotName){
   if (!rawDoc) return [];
   const out = [], seen = new Set();
-  const activeSkin = ($("#skin") && $("#skin").value) || "default";
+  const activeSkin = activeSkinName();
   const pushFrom = (skName) => {
     const sk = rawDoc.skins && rawDoc.skins.find((s) => s.name === skName);
     if (!sk || !sk.attachments || !sk.attachments[slotName]) return;
@@ -5095,17 +5092,29 @@ function deleteSkin(name){
 }
 
 // Set the on-stage skin — this is how you VIEW a skin's images/meshes/weights. Syncs
-// the top-bar selector + the SKINS-list highlight, and refreshes the open slot detail
+// the bottom-bar Skin picker + the SKINS-list highlight, and refreshes the open slot detail
 // so its mesh/weight tools track the newly-active skin's attachment.
 function setActiveSkin(name){
   if (!skeleton) return;
   skeleton.setSkinByName(name);
   skeleton.setSlotsToSetupPose();
   updateWorld();
-  const top = $("#skin"); if (top) top.value = name;
-  buildInspector(selected); // re-render skin rows (active badge/highlight) under this skin
+  buildInspector(selected); // re-render skin rows (active badge/highlight) + picker under this skin
   if (selBone != null) selectBone(selBone);
   if (selSlot) selectSlot(selSlot); // refresh the slot's mesh/weight UI for this skin
+}
+
+// The bottom-bar Skin picker: one option per skin the rig has, showing the one on stage. Rebuilt
+// with the inspector, because a <select> reads back "" for a value no option carries — its options
+// must never lag the skins. Setting options or value from code fires no `change`.
+function renderSkinPicker(){
+  const sel = $("#skin"); if (!sel) return;
+  clearChildren(sel);
+  for (const sk of skeletonData.skins){
+    const o = document.createElement("option"); o.value = sk.name; o.textContent = sk.name;
+    sel.appendChild(o);
+  }
+  sel.value = activeSkinName();
 }
 
 // Is this RAW-doc attachment def a mesh? Mirrors the test in listMeshDefs — a mesh is
@@ -5133,14 +5142,15 @@ function attachRegion(regionName){
   const region = findRegion(regionName);
   const w = region ? region.originalWidth || region.width || 0 : 0;
   const h = region ? region.originalHeight || region.height || 0 : 0;
-  const skinName = $("#skin").value || (skeletonData.skins[0] && skeletonData.skins[0].name) || "default";
+  const skinName = activeSkinName();
   rawDoc.skins = rawDoc.skins || [];
   let sk = rawDoc.skins.find((s) => s.name === skinName);
   if (!sk){ sk = { name: skinName, attachments: {} }; rawDoc.skins.push(sk); }
   sk.attachments = sk.attachments || {};
   sk.attachments[selSlot] = sk.attachments[selSlot] || {};
   const slot = rawDoc.slots.find((s) => s.name === selSlot);
-  const src = slot && slot.attachment ? sk.attachments[selSlot][slot.attachment] : null;
+  // what the slot shows, resolved as the stage does: the active skin's, else default's
+  const src = slot && slot.attachment ? rawDocAttEntry(slot.attachment) : null;
   const def = { width: w, height: h };
   if (isRawMeshDef(src)){
     // A mesh's placement lives in its (bone-space, possibly weighted) vertices, not in
@@ -5177,7 +5187,7 @@ function attachRegion(regionName){
 function replaceAttachmentImage(attName, regionName){
   if (!rawDoc || selSlot == null || !attName || !regionName) return;
   // find the skin that actually holds this attachment — active skin first, else default
-  const activeSkin = ($("#skin") && $("#skin").value) || "default";
+  const activeSkin = activeSkinName();
   const holder = (rawDoc.skins || []).find((s) => s.name === activeSkin && s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName])
     || (rawDoc.skins || []).find((s) => s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName]);
   if (!holder){ alert("Couldn't find that attachment to replace its image."); return; }
@@ -6954,17 +6964,14 @@ function rawDocAttEntry(attName){
 }
 
 // Write a new attachment def into the skin that should define this slot (active skin; create the
-// slot map if absent). Returns the chosen attachment name, unique on the slot AND in that skin:
-// `slotAttachmentList` follows the top-bar skin picker, which has no option for a skin added,
-// renamed or imported since the rig opened, so on its own it can miss a name the skin holds and
-// the new def would silently replace that attachment. If makeActive and the slot has no setup
-// attachment, make this the active one so it renders/edits.
+// slot map if absent). Returns the chosen attachment name (unique on the slot). If makeActive and
+// the slot has no setup attachment, make this the active one so it renders/edits.
 function addAttachmentToActiveSkin(baseName, def, makeActive){
+  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name));
+  let attName = baseName; let i = 2; while (existing.has(attName)) attName = baseName + (i++);
   const skName = activeSkinName();
   let sk = rawDoc.skins.find((s) => s.name === skName); if (!sk){ sk = { name: skName, attachments: {} }; rawDoc.skins.push(sk); }
   sk.attachments = sk.attachments || {}; sk.attachments[selSlot] = sk.attachments[selSlot] || {};
-  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name).concat(Object.keys(sk.attachments[selSlot])));
-  let attName = baseName; let i = 2; while (existing.has(attName)) attName = baseName + (i++);
   sk.attachments[selSlot][attName] = def;
   const sdRaw = rawDoc.slots.find((s) => s.name === selSlot);
   if (makeActive && sdRaw && !sdRaw.attachment) sdRaw.attachment = attName;
@@ -7351,12 +7358,13 @@ function meshWorldVerts(){
 // skin you're actually viewing (not whichever skin happens to be first in the array).
 function rawDocMeshEntry(){
   if (!rawDoc || !meshCtx) return null;
-  const active = (skeleton && skeleton.skin && skeleton.skin.name) || ($("#skin") && $("#skin").value) || "default";
   const inSkin = (skName) => { const sk = rawDoc.skins.find((s) => s.name === skName); return (sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][meshCtx.attName]) || null; };
-  return inSkin(active) || inSkin("default") || null;
+  return inSkin(activeSkinName()) || inSkin("default") || null;
 }
 
-const activeSkinName = () => (skeleton && skeleton.skin && skeleton.skin.name) || ($("#skin") && $("#skin").value) || "default";
+// The skin on stage. Every edit that writes "into the active skin" reads it here, never from the
+// Skin picker: that is a view of this, re-rendered with the inspector (`renderSkinPicker`).
+const activeSkinName = () => (skeleton && skeleton.skin && skeleton.skin.name) || "default";
 // Does the slot's mesh attachment have its OWN entry in the active skin (vs inherited
 // from default)? If not, edits/weights on a non-default skin fall through to default.
 function meshInActiveSkin(){
@@ -11996,8 +12004,10 @@ function topoSortBones(doc){
 // Re-read skeletonData from the edited rawDoc using the already-loaded atlas, then
 // rebuild the runtime skeleton + anim state (needed after a STRUCTURAL edit like
 // reparent). Pass a CLONE so the loader never mutates our editable source. Restores
-// the active skin + the selected bone by name.
-function rebuildFromRawDoc(selName){
+// the selected bone by name, and the skin on stage — or `skinName`, which a rename passes
+// because the old name is gone — falling back to default when it no longer exists.
+function rebuildFromRawDoc(selName, skinName){
+  const want = skinName || activeSkinName(); // before the skeleton that shows it is replaced
   const atlas = assetMgr.require(selected.atlas_file);
   missingArt = [];
   const sj = new SPINE.SkeletonJson(makeAttachmentLoader(atlas));
@@ -12005,7 +12015,6 @@ function rebuildFromRawDoc(selName){
   skeleton = new SPINE.Skeleton(skeletonData);
   animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
   if (skeletonData.skins.length){
-    const want = $("#skin").value;
     const def = skeletonData.skins.find((s) => s.name === want)
       || skeletonData.skins.find((s) => s.name === "default") || skeletonData.skins[0];
     skeleton.setSkinByName(def.name);

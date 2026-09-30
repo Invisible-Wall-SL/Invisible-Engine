@@ -431,11 +431,13 @@ const FOUR = [
 // was not decisive: a copy that restored the original `continue` under a different spelling
 // still went green, which is the same class of failure the gate exists to catch.
 //
-// Everything it closes over is stubbed to the shape the tool gives it: a skeleton document, an
-// atlas that answers `findRegion`, and no-op UI callbacks.
+// Everything it closes over is stubbed to the shape the tool gives it: a skeleton document, a
+// skeleton showing the default skin, an atlas that answers `findRegion`, and no-op UI callbacks.
 function runPlace({ bag, region }) {
 	const placeSrc = extractFn(viewSrc, 'placeTextAttachments');
 	const isMesh = extractFn(viewSrc, 'isRawMeshDef');
+	const activeSkinSrc = /\nconst activeSkinName = [^\n]*/.exec(viewSrc)?.[0];
+	if (!activeSkinSrc) throw new Error('could not find const activeSkinName — did it get renamed?');
 	const rawDoc = {
 		bones: [{ name: 'root' }],
 		slots: [{ name: 'text_buyfeature', bone: 'text_buyfeature' }],
@@ -443,19 +445,19 @@ function runPlace({ bag, region }) {
 	};
 	new Function(
 		'rawDoc',
-		'$',
+		'skeleton',
 		'selBone',
 		'skeletonData',
 		'assetMgr',
 		'selected',
 		'element',
 		'attachments',
-		`${isMesh}\n${placeSrc}\n` +
+		`${isMesh}\n${activeSkinSrc}\n${placeSrc}\n` +
 			`function rebuildFromRawDoc(){}\nfunction selectSlot(){}\nfunction markDirty(){}\n` +
 			`placeTextAttachments(element, attachments);`,
 	)(
 		rawDoc,
-		() => ({ value: 'default' }),
+		{ skin: { name: 'default' } },
 		null,
 		{ bones: [] },
 		{ require: () => ({ findRegion: (n) => (n === 'text/buyfeature/fr' ? region : null) }) },

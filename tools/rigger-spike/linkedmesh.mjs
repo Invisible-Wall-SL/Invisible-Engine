@@ -1,7 +1,7 @@
-// Verify linked-mesh authoring headlessly, on the SHIPPED code: every function the linked-mesh
-// actions reach is pulled out of view.html (transitively), the rebuild is stubbed with the official
-// spine-core 4.2 loader, and each action must leave a rig that LOADS with every linked mesh bound
-// to the parent the author meant — without replacing anything already there.
+// Verify linked-mesh and skin authoring headlessly, on the SHIPPED code: every function the actions
+// reach is pulled out of view.html (transitively), the rebuild runs as shipped but through the
+// strict spine-core 4.2 loader, and each action must leave a rig that LOADS with every linked mesh
+// bound to the parent the author meant, in the skin on stage — without replacing anything there.
 //
 // The crux, read off SkeletonJson ("Linked meshes"): the parent is looked up by NAME in the linked
 // mesh's OWN slot, in the skin its `skin` names — and an ABSENT `skin` means the DEFAULT skin, not
@@ -9,17 +9,22 @@
 // named: without it the load throws "Parent mesh not found", or — when default holds a same-named
 // mesh on that slot — silently binds the linked mesh to THAT one.
 //
-// The top-bar skin picker is modelled as the browser <select> it is: its options are the skins the
-// rig opened with, and a value none of them carries reads back "". A skin added or imported since
-// is invisible to everything that reads the picker, which is how a new attachment once replaced
-// the source mesh it was meant to link to.
+// An edit writes into the skin on stage (`activeSkinName`); the Skin picker in the bottom bar is a
+// view of it. The picker is modelled as the browser <select> it is — a value no option carries
+// reads back "", and nothing set from code fires `change` — with whatever options the page's
+// `renderSkinPicker` writes when the inspector renders. They used to be written only when the rig
+// opened, and edits read the picker: in a skin added, renamed or imported since, a new attachment
+// replaced the source mesh it was meant to link to, ＋ add image went into the first skin, and every
+// rebuild put the default skin back on stage.
 //
 // A synthetic three-skin rig always runs: ＋ Linked mesh and the source picker from every skin onto
 // every source they offer, the source the picker shows, ＋ Linked mesh in an imported skin, skin
-// rename (the default skin refused; animation keys follow), and importing a rig that relies on the
-// implicit default. The rig on the command line then gets the import, ＋ Linked mesh in its
-// imported skin, a rename of every skin, and ＋ Linked mesh from a fresh skin on every slot with a
-// mesh.
+// rename (the default skin refused; animation keys follow), importing a rig that relies on the
+// implicit default, and a session of skin edits — ＋ Add skin, pick it, ＋ add image, rig text,
+// ⎘ Make skin-specific and replace image in it, rename it, delete it, import — with the picker read
+// after each. The rig on the command line then gets the import, ＋ Linked mesh in its imported
+// skins, a rename of every skin, ＋ Linked mesh from a fresh skin on every slot with a mesh, and ＋ add
+// image in a fresh skin on every slot, each placed like the image the slot showed.
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -35,17 +40,24 @@ const SPINE_CORE = (() => {
 	console.error(`✗ spine-core 4.2.74 not found — run pnpm install (looked for ${SUB})`);
 	process.exit(2);
 })();
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton } = await import(SPINE_CORE);
+const SPINE = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = SPINE;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
-function loadData(obj, atlasText) {
-	const atlas = new TextureAtlas(atlasText);
-	const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
-	for (const p of atlas.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
-	return new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(clone(obj));
+// One parsed atlas per atlas text, with stand-in textures: every region resolves, nothing is drawn.
+const atlases = new Map();
+function atlasOf(atlasText) {
+	if (!atlases.has(atlasText)) {
+		const atlas = new TextureAtlas(atlasText);
+		const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
+		for (const p of atlas.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
+		atlases.set(atlasText, atlas);
+	}
+	return atlases.get(atlasText);
 }
+const loadData = (obj, atlasText) => new SkeletonJson(new AtlasAttachmentLoader(atlasOf(atlasText))).readSkeletonData(clone(obj));
 
-// ---- pull the SHIPPED linked-mesh actions (and everything they call) out of view.html -------
+// ---- pull the SHIPPED actions (and everything they call) out of view.html ---------------------
 const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
 const TOP = new Map();
 for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
@@ -57,9 +69,10 @@ function pull(name) {
 	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
 	return html.slice(at, end + (kind === 'const' ? 3 : 2));
 }
-// The UI around an action: the rebuild is where the real tool would throw, so it LOADS the doc.
-const STUBS = new Set(['rebuildFromRawDoc', 'markDirty', 'selectSlot', 'renderSlotDetail']);
-const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'renameSkin', 'addSkin', 'prefixRigNames', 'mergeRigInto'];
+// The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
+// of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
+const STUBS = new Set(['makeAttachmentLoader', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
+const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
 	const name = q.shift();
@@ -74,28 +87,42 @@ for (const q = [...ENTRY]; q.length; ) {
 		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
 	}
 }
-// The top-bar #skin <select>: view.html builds its options when a rig opens, and only then.
+// The bottom-bar #skin <select>, as a browser has it: the page writes its options, a lone <select>
+// selects its first option whenever none is, a value no option carries reads back "", and nothing
+// set from code fires `change` — only a pick does, through the handler `wire()` gives it.
+let picking = false, changesFromCode = 0;
 const picker = {
-	options: [], current: '',
-	get value() { return this.current; },
-	set value(v) { this.current = this.options.includes(v) ? v : ''; },
+	tag: 'select', children: [], index: -1,
+	get firstChild() { return this.children[0] ?? null; },
+	appendChild(o) { this.children.push(o); if (this.index < 0) this.index = 0; return o; },
+	removeChild(o) {
+		const i = this.children.indexOf(o);
+		this.children.splice(i, 1);
+		if (i < this.index) this.index--;
+		else if (i === this.index) this.index = -1;
+		if (this.index < 0 && this.children.length) this.index = 0;
+		return o;
+	},
+	get options() { return this.children.map((o) => o.value); },
+	get value() { return this.index < 0 ? '' : this.children[this.index].value; },
+	set value(v) { this.index = this.children.findIndex((o) => o.value === v); },
+	onchange(e) { if (!picking) changesFromCode++; sandbox.setActiveSkin(e.target.value); },
+	dispatchEvent(e) { if (e.type === 'change') this.onchange({ target: this }); return true; },
 };
 const element = (tag) => ({ tag, style: {}, children: [], appendChild(c) { this.children.push(c); return c; } });
 const sandbox = {
-	rawDoc: null, skeletonData: null, skeleton: null, selSlot: null, selBone: null, meshCtx: null,
+	SPINE, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
+	selected: { name: 'rig', atlas_file: 'rig.atlas' }, selSlot: null, selBone: null, meshCtx: null,
+	selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
+	assetMgr: { require: () => sandbox.__atlas },
 	$: (sel) => (sel === '#skin' ? picker : null),
 	document: { createElement: element, createTextNode: (text) => ({ text }) },
-	markDirty() {}, selectSlot() {}, renderSlotDetail() {},
-	// Re-read the doc exactly as the tool does — a throw here is the author's error dialog — and
-	// show the skin the picker names, else default, else the first.
-	rebuildFromRawDoc() {
-		const sd = loadData(sandbox.rawDoc, sandbox.__atlas), sk = new Skeleton(sd);
-		const skin = sd.skins.find((s) => s.name === picker.value) || sd.skins.find((s) => s.name === 'default') || sd.skins[0];
-		if (skin) sk.setSkin(skin);
-		sk.setToSetupPose();
-		Object.assign(sandbox, { skeletonData: sd, skeleton: sk });
-	},
-	__atlas: '',
+	confirm: () => true, // the author says yes to whatever an action asks
+	alert: (msg) => { throw new Error(msg); }, // an action that refuses says why
+	makeAttachmentLoader: (atlas) => new AtlasAttachmentLoader(atlas),
+	buildInspector() { sandbox.renderSkinPicker(); },
+	selectBone() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
+	__atlas: null,
 };
 vm.createContext(sandbox);
 vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#linkedmesh' });
@@ -104,25 +131,26 @@ vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#linkedmesh' }
 let pass = true, checks = 0;
 const log = (ok, msg) => { checks++; if (!ok) { console.log('  ✗ ' + msg); pass = false; } return ok; };
 
-// A click on a skin in the skins list (setActiveSkin): the skeleton shows it, the picker is set to it.
-function activate(skin) {
-	sandbox.skeleton.setSkinByName(skin);
-	sandbox.skeleton.setSlotsToSetupPose();
-	picker.value = skin;
+// A click on a skin in the skins list.
+const activate = (skin) => sandbox.setActiveSkin(skin);
+// A pick in the Skin picker, which can only pick a skin it offers. Returns why not, or null.
+function pick(skin) {
+	if (!picker.options.includes(skin)) return `the picker does not offer "${skin}" — it offers [${picker.options}]`;
+	picking = true;
+	try { picker.value = skin; picker.onchange({ target: picker }); } finally { picking = false; }
+	return null;
 }
-// Open a rig — the picker is rebuilt from ITS skins and shows default, else the first — and click
-// `skin`, if given.
+// Open a rig the way buildSkeleton does — a fresh skeleton shows default, else the first skin — and
+// click `skin`, if given.
 function open(doc, atlasText, skin = null, slot = null) {
-	picker.options = doc.skins.map((s) => s.name);
-	picker.value = (doc.skins.find((s) => s.name === 'default') || doc.skins[0]).name;
-	Object.assign(sandbox, { rawDoc: clone(doc), __atlas: atlasText, selSlot: slot, selBone: null, meshCtx: null });
-	sandbox.rebuildFromRawDoc();
+	Object.assign(sandbox, { rawDoc: clone(doc), skeleton: null, __atlas: atlasOf(atlasText), selSlot: slot, selBone: null, meshCtx: null });
+	sandbox.rebuildFromRawDoc(null);
 	if (skin) activate(skin);
 }
-// Carry on in the same session from `doc` (a skin added or imported since stays out of the picker).
+// Carry on in the same session from `doc` (an edit made since the rig opened), and click `skin`.
 function resume(doc, atlasText, skin, slot = null) {
-	Object.assign(sandbox, { rawDoc: clone(doc), __atlas: atlasText, selSlot: slot, selBone: null, meshCtx: null });
-	sandbox.rebuildFromRawDoc();
+	Object.assign(sandbox, { rawDoc: clone(doc), __atlas: atlasOf(atlasText), selSlot: slot, selBone: null, meshCtx: null });
+	sandbox.rebuildFromRawDoc(null);
 	activate(skin);
 }
 // One action the way a click runs it; the error is what the author would have hit.
@@ -213,8 +241,8 @@ function checkImport(what, src, atlasText) {
 	if (!log(!err, `${what} — the rig no longer loads: ${err}`)) return;
 	sameBindings(what, before, (k) => { const [skin, slot, name] = JSON.parse(k); return key('imp_' + skin, 'imp_' + slot, name); });
 }
-// Then ＋ Linked mesh in every imported skin on every imported slot with a mesh — skins the picker
-// never heard of. Returns how many were added.
+// Then ＋ Linked mesh in every imported skin on every imported slot with a mesh — skins the rig did
+// not open with. Returns how many were added.
 function checkAddAfterImport(what, src, atlasText) {
 	open(HOST(), atlasText, 'default');
 	const err = act(importInto(src));
@@ -226,6 +254,38 @@ function checkAddAfterImport(what, src, atlasText) {
 		for (const c of offeredOn()) { checkAdd(resume, merged, atlasText, skin.name, slot, c); added++; }
 	}
 	return added;
+}
+
+// The skin session: what the picker offers and shows, and what is on stage.
+const offers = (what, want) =>
+	log(JSON.stringify(picker.options) === JSON.stringify(want), `${what}: the picker offers [${picker.options}], expected [${want}]`);
+function onStage(what, want) {
+	const got = sandbox.skeleton.skin && sandbox.skeleton.skin.name;
+	log(got === want && picker.value === want, `${what}: "${got}" is on stage and the picker shows "${picker.value}", expected "${want}"`);
+}
+const namesIn = (skin, slot) => Object.keys(sandbox.rawDoc.skins.find((s) => s.name === skin)?.attachments?.[slot] ?? {});
+const otherSkins = (skin) => canon(sandbox.rawDoc.skins.filter((s) => s.name !== skin));
+const PLACEMENT = [['x', 0], ['y', 0], ['rotation', 0], ['scaleX', 1], ['scaleY', 1]];
+// ＋ add image of `region` on the selected slot: it lands in the skin on stage, as one new
+// attachment, placed like the image the slot showed — as spine-core resolves it, that skin's else
+// default's — and that skin stays on stage.
+function checkAddImage(what, skin, region) {
+	const slot = sandbox.selSlot, had = namesIn(skin, slot), others = otherSkins(skin);
+	const si = sandbox.skeletonData.slots.findIndex((s) => s.name === slot);
+	const setup = sandbox.skeletonData.slots[si].attachmentName;
+	const shown = setup ? sandbox.skeleton.getAttachment(si, setup) : null;
+	const err = act((s) => s.attachRegion(region));
+	if (!log(!err, `${what}: ＋ add image — the rig no longer loads: ${err}`)) return false;
+	const now = namesIn(skin, slot);
+	log(now.length === had.length + 1 && now.includes(region), `${what}: ＋ add image left [${now}] on ${slot} in "${skin}", expected [${had}] + ${region}`);
+	log(otherSkins(skin) === others, `${what}: ＋ add image changed a skin other than "${skin}"`);
+	if (shown instanceof SPINE.RegionAttachment) {
+		const def = sandbox.rawDoc.skins.find((s) => s.name === skin).attachments[slot][region];
+		const lost = PLACEMENT.filter(([k, d]) => (def[k] ?? d) !== shown[k]).map(([k, d]) => `${k} ${def[k] ?? d} ≠ ${shown[k]}`);
+		log(!lost.length, `${what}: ＋ add image on ${slot} did not keep the placement of the ${setup} it showed (${lost.join(', ')})`);
+	}
+	onStage(`${what}: ＋ add image`, skin);
+	return true;
 }
 
 // ---- (1) the synthetic rig ---------------------------------------------------------------------
@@ -322,6 +382,75 @@ for (const [from, to] of [['gold', 'golden'], ['blue', 'navy']]) checkRename(SYN
 // Importing a rig whose linked mesh relies on the implicit default skin
 checkImport('import the synthetic rig', SYNTH, SYNTH_ATLAS);
 
+// A session of skin edits: the picker offers every skin the rig has after each one and shows the
+// skin on stage, and every edit lands in that skin — which the rebuild after it keeps on stage.
+console.log('\n=== skins — synthetic rig: ＋ Add skin · pick · ＋ add image · rig text · replace image · rename · delete · import ===');
+{
+	open(SYNTH, SYNTH_ATLAS, null, 'body');
+	offers('open', SKINS);
+	onStage('open', 'default');
+	let err = act((s) => s.addSkin());
+	const fresh = sandbox.rawDoc.skins.at(-1).name;
+	if (log(!err, `＋ Add skin — the rig no longer loads: ${err}`)) {
+		offers('＋ Add skin', [...SKINS, fresh]);
+		onStage('＋ Add skin', 'default');
+	}
+	err = pick(fresh);
+	log(!err, `pick "${fresh}" — ${err}`);
+	onStage(`pick "${fresh}"`, fresh);
+	if (checkAddImage(`"${fresh}" on stage`, fresh, 'plate')) {
+		const listed = sandbox.slotAttachmentList('body').map((d) => d.skin + '›' + d.name);
+		log(listed[0] === fresh + '›plate', `"${fresh}" on stage: the slot lists [${listed}], "${fresh}"'s image first`);
+	}
+	// The rig-text placement follows the same rule. (The tool places text right after a bake reloads
+	// the rig, so with default on stage — this checks the rule, not that flow.) Two synthetic regions
+	// stand in for two locales' art.
+	let others = otherSkins(fresh);
+	err = act((s) => s.placeTextAttachments({ id: 'title', sourceLocale: 'en', slot: 'text_title' }, [{ locale: 'en', region: 'trim' }, { locale: 'de', region: 'arm' }]));
+	if (log(!err, `"${fresh}" on stage: rig text — the rig no longer loads: ${err}`)) {
+		log(namesIn(fresh, 'text_title').join() === 'title@en,title@de', `"${fresh}" on stage: rig text left [${namesIn(fresh, 'text_title')}] in "${fresh}", expected [title@en,title@de]`);
+		log(otherSkins(fresh) === others, `"${fresh}" on stage: rig text changed a skin other than "${fresh}"`);
+		onStage(`"${fresh}" on stage: rig text`, fresh);
+	}
+	// ⎘ Make skin-specific copies default's mesh into the skin on stage, and replace image (keep mesh)
+	// then re-points that copy — not default's
+	sandbox.meshCtx = { attName: 'body' };
+	err = act((s) => s.copyMeshToActiveSkin());
+	if (log(!err && namesIn(fresh, 'body').includes('body'), `"${fresh}" on stage: ⎘ Make skin-specific left [${namesIn(fresh, 'body')}] on body${err ? ' — ' + err : ''}`)) {
+		others = otherSkins(fresh);
+		err = act((s) => s.replaceAttachmentImage('body', 'gold_body'));
+		if (log(!err, `"${fresh}" on stage: replace image — the rig no longer loads: ${err}`)) {
+			const path = sandbox.rawDoc.skins.find((s) => s.name === fresh).attachments.body.body.path;
+			log(path === 'gold_body', `"${fresh}" on stage: replace image re-pointed "${fresh}"'s body at ${path}, expected gold_body`);
+			log(otherSkins(fresh) === others, `"${fresh}" on stage: replace image changed a skin other than "${fresh}"`);
+			onStage(`"${fresh}" on stage: replace image`, fresh);
+		}
+	}
+	sandbox.meshCtx = null;
+	const held = namesIn(fresh, 'body');
+	err = act((s) => s.renameSkin(fresh, 'jade'));
+	if (log(!err, `rename "${fresh}" → "jade" — the rig no longer loads: ${err}`)) {
+		offers(`rename "${fresh}" → "jade"`, [...SKINS, 'jade']);
+		onStage(`rename "${fresh}" → "jade"`, 'jade');
+		log(namesIn('jade', 'body').join() === held.join(), `rename "${fresh}" → "jade": body holds [${namesIn('jade', 'body')}] in "jade", expected [${held}]`);
+	}
+	err = act((s) => s.deleteSkin('jade'));
+	if (log(!err, `delete "jade" — the rig no longer loads: ${err}`)) {
+		offers('delete "jade"', SKINS);
+		onStage('delete "jade"', 'default');
+		log(pick('jade') !== null, 'delete "jade": the picker still offers it');
+	}
+	err = act(importInto(SYNTH));
+	if (log(!err, `import — the rig no longer loads: ${err}`)) {
+		offers('import', [...SKINS, ...SKINS.map((k) => 'imp_' + k)]);
+		onStage('import', 'default');
+		err = pick('imp_gold');
+		log(!err, `pick "imp_gold" — ${err}`);
+		sandbox.selSlot = 'imp_arm';
+		checkAddImage('"imp_gold" on stage', 'imp_gold', 'plate');
+	}
+}
+
 // ---- (2) the rig on the command line ---------------------------------------------------------
 const [, , jsonPath, atlasPath] = process.argv;
 if (jsonPath && atlasPath) {
@@ -364,7 +493,22 @@ if (jsonPath && atlasPath) {
 		}
 		console.log(`  ＋ Linked mesh from new skin "${fresh}": ${added} linked meshes over ${meshSlots.length} slot(s) with a mesh`);
 	}
+
+	// ＋ add image in a skin added this session and picked in the picker, on every slot in turn
+	open(raw, atlasText, 'default');
+	const addErr = act((s) => s.addSkin()) || pick(sandbox.rawDoc.skins.at(-1).name);
+	if (log(!addErr, `＋ Add skin, then pick it — ${addErr}`)) {
+		const fresh = sandbox.rawDoc.skins.at(-1).name, region = atlasOf(atlasText).regions[0].name;
+		let added = 0;
+		for (const slot of raw.slots.map((s) => s.name)) {
+			sandbox.selSlot = slot;
+			if (!checkAddImage(`"${fresh}" on stage, slot ${slot}`, fresh, region)) break;
+			added++;
+		}
+		console.log(`  ＋ add image in new skin "${fresh}": ${added} of ${raw.slots.length} slot(s)`);
+	}
 }
 
-console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads, bound to the mesh the author picked, and nothing is replaced.` : `\n✗ FAIL (${checks} checks)`);
+log(changesFromCode === 0, `the page fired the skin picker's change ${changesFromCode} time(s) from code`);
+console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads bound to the mesh the author picked, every edit lands in the skin on stage, and nothing is replaced.` : `\n✗ FAIL (${checks} checks)`);
 process.exit(pass ? 0 : 1);
