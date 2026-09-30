@@ -64,6 +64,7 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 
 ## Decisions & findings
 
+- 2026-09-30 — **Flights (things that travel from a cell to a target, e.g. coins/specials into pots): one `flyTo` primitive, planned in design §4.4.** It computes a Bézier route at runtime that bends around the cells showing a win. The trail is an `/fx` emitter following the moving head (the moving-owner mechanism already exists for Rigger bones). A cue fires on arrival. Authoring is a `flights` block in the Symbols doc. Phase 4 builds the primitive, Phase 7 the authoring, Phase 5 the flow action.
 - 2026-09-30 — **Phase 2: the config shape Phase 3 generates from** is `doc.holdAndWin`
   (`packages/game-config/src/holdAndWin.ts`; detail in [game-config.md](game-config.md)). Roles are
   `special_properties` values: `coin`, `jackpot`, `collector`, **`coinMultiplier`** (not
