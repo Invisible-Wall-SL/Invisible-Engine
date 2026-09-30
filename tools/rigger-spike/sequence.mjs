@@ -117,8 +117,7 @@ const sandboxAtlas = (() => {
 })();
 const sandbox = {
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
-	// `activeSkinName` reads the skin picker through `$`; `activeSkin` is what it reports.
-	$: (sel) => (sel === '#skin' ? { value: activeSkin } : null),
+	$: () => null,
 	markDirty() {}, refreshAnimCounts() {}, renderSeqDetail() {},
 	selSeqKey: null,
 	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false, animMode: true, animTime: 0,
@@ -135,7 +134,6 @@ vm.createContext(sandbox);
 vm.runInContext([shipped, PUBLISH].join('\n'), sandbox, { filename: 'view.html#sequence' });
 
 let pass = true, checks = 0;
-let activeSkin = 'default'; // what the sandbox's skin picker reports to `activeSkinName`
 const log = (ok, msg) => { checks++; console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 
 // ---- sample what the RUNTIME actually shows ---------------------------------------------
@@ -448,7 +446,9 @@ if (withSeq.length) {
 	};
 
 	for (const skin of ['gold', 'default']) {
-		activeSkin = skin;
+		// `activeSkinName` reads the skin on stage — the only part of the skeleton these helpers use
+		sandbox.skeleton = { skin: { name: skin } };
+		log(sandbox.activeSkinName() === skin, `the sandbox has "${skin}" on stage (${sandbox.activeSkinName()})`);
 		sandbox.rawDoc = mkDoc();
 		sandbox.curAnim = 'a';
 		sandbox.animTime = 0.5;
@@ -468,7 +468,7 @@ if (withSeq.length) {
 	log(why !== true, `control: a key under a skin that does not declare the sequence DOES brick the rig (${String(why).slice(0, 46)})`);
 	log(loadsWith(broken, (at) => sandbox.makeAttachmentLoader(at)) !== true,
 		'control: and the tolerant loader cannot rescue that one — the throw is in readAnimation');
-	activeSkin = 'default';
+	sandbox.skeleton = null;
 }
 
 console.log(pass ? `\nPASS (${checks} checks)\n` : `\nFAIL (${checks} checks)\n`);
