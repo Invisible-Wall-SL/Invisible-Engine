@@ -24,11 +24,15 @@
   - **Deleting an IK or transform constraint left a hole in `order`.** Spine never runs a
     constraint whose order is ≥ the constraint count, so a later one went silently inactive
     (`h1`: delete `rays1` and the `shake` path constraint stops).
-  - **Load breaks no checked-in rig hits yet:** a removed constraint still named in a skin's
-    constraint list, a deleted bone in a skin's `bones` list, a skin delete leaving its
-    `attachments.<skin>` keys ("Skin not found"), a deleted parent of a linked mesh ("Parent mesh
-    not found" — the rig-text locales are linked meshes), and a slot delete leaving draw-order
-    offsets that spanned it out of range (the runtime draws a hole and crashes on it).
+  - **A slot delete scrambled animated draw order.** A draw-order key's offsets are relative to
+    the whole slot list; filtering out the deleted slot's own offset left the others spanning it
+    out of range, so the order held a HOLE the renderer crashes on every frame (`mm_bg`,
+    `mm_bg_feature`, `W`: dozens of slot deletes each).
+  - **Deleting a linked mesh's parent broke the load** ("Parent mesh not found"): `S` has 180
+    linked meshes on 15 parents, `symbolsSpecial` 6, and the rig-text locales are linked meshes.
+  - **Latent (no checked-in rig has a second skin or a skin constraint list):** a removed
+    constraint still named in a skin's constraint list, a deleted bone in a skin's `bones` list,
+    a skin delete leaving its `attachments.<skin>` keys ("Skin not found").
   One `dropConstraints(doc, isBroken)` now owns "remove a constraint": its keys, its skin-list
   entries, the `order` re-pack; every delete (bone, slot, attachment, skin, the four constraint
   kinds, and the text-element bone) goes through it and reports what went with `showNotice`.

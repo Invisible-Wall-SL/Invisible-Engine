@@ -13,8 +13,8 @@
 //    was, at setup AND under a deform key.
 // A synthetic rig carries one constraint of each kind (plus a skin constraint list, a weighted
 // path, clipping and bounding box, linked meshes, a draw-order key, and a bone named like the
-// path's target slot) and always runs; the rig on the command line then gets every bone, slot and
-// path attachment deleted in turn.
+// path's target slot) and always runs; the rig on the command line then gets every bone, slot,
+// path attachment and linked-mesh parent deleted in turn.
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -102,7 +102,7 @@ function readVerts(att, vc) {
 	for (let v = 0; v < vc; v++) { const n = att.vertices[ri++], infl = []; for (let j = 0; j < n; j++) infl.push({ bone: att.vertices[ri++], x: att.vertices[ri++], y: att.vertices[ri++], w: att.vertices[ri++] }); out.push(infl); }
 	return out;
 }
-// World vertices of every weighted attachment, keyed skin/slot/name; `anim`@`time` applies deform.
+// World vertices of every vertex attachment, keyed skin/slot/name; `anim`@`time` applies deform.
 function worldOf(doc, atlasText, anim, time) {
 	const sd = loadData(doc, atlasText), sk = new Skeleton(sd), out = new Map();
 	for (const skin of sd.skins) {
@@ -111,7 +111,7 @@ function worldOf(doc, atlasText, anim, time) {
 		sk.updateWorldTransform(Physics.none);
 		for (const e of skin.getAttachments()) {
 			const att = e.attachment;
-			if (!(att instanceof VertexAttachment) || !att.bones) continue;
+			if (!(att instanceof VertexAttachment)) continue;
 			const slot = sk.slots[e.slotIndex];
 			slot.setAttachment(att);
 			if (anim) sd.findAnimation(anim).apply(sk, 0, time, false, null, 1, 0, 0);
@@ -299,13 +299,20 @@ if (jsonPath && atlasPath) {
 	const parents = new Set(raw.bones.map((b) => b.parent));
 	const paths = [];
 	for (const sk of raw.skins || []) for (const [slot, m] of Object.entries(sk.attachments || {})) for (const [name, att] of Object.entries(m)) if (att && att.type === 'path') paths.push([slot, name]);
-	console.log(`\n=== delete cascade — ${jsonPath}: ${raw.bones.length - 1} bones, ${(raw.slots || []).length} slots, ${paths.length} path attachments ===`);
+	console.log(`\n=== delete cascade — ${jsonPath}: ${raw.bones.length - 1} bones, ${(raw.slots || []).length} slots, ${paths.length} path attachments, ${linkedAtts(raw).length} linked meshes ===`);
 	// A deleted bone's slots re-home to its parent uncompensated, so one carrying a path
 	// constraint's target slot moves that path, and everything the constraint drives follows.
 	const pathHome = new Set((raw.path || []).map((c) => (raw.slots || []).find((sl) => sl.name === c.target)?.bone));
 	for (const b of raw.bones.slice(1)) checkDelete(`bone ${b.name}`, raw, atlasText, del('deleteBone', b.name), { leaf: parents.has(b.name) || pathHome.has(b.name) ? null : b.name });
 	for (const s of raw.slots || []) checkDelete(`slot ${s.name}`, raw, atlasText, del('deleteSlot', s.name));
 	for (const [slot, name] of paths) checkDelete(`path attachment ${slot}/${name}`, raw, atlasText, del('deleteAttachment', slot, name));
+	const parentsOf = new Map(); // "slot/parent" → the children that must keep their art
+	for (const [skin, slot, name, , parentKey] of linkedAtts(raw)) {
+		const k = parentKey.split('/').slice(1).join('/');
+		if (!parentsOf.has(k)) parentsOf.set(k, []);
+		parentsOf.get(k).push([skin + '/' + slot + '/' + name, null, 0]);
+	}
+	for (const [k, keep] of parentsOf) { const [slot, name] = k.split('/'); checkDelete(`linked-mesh parent ${k}`, raw, atlasText, del('deleteAttachment', slot, name), { keep }); }
 }
 
 console.log(pass ? `\n✅ PASS — ${checks} checks; every delete leaves a loadable rig and says what it removed.` : `\n✗ FAIL (${checks} checks)`);

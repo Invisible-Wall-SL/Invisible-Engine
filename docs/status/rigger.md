@@ -60,7 +60,8 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   removes every IK / transform / path / physics constraint that can no longer work, its keys and
   its skin-list entries, re-packs `order`, and names what went in a notice. It also remaps weighted
   path / clipping / bounding-box indices, keeps weighted deform keys aligned, turns an orphaned
-  linked mesh into a plain mesh and rebuilds draw-order keys. `tools/rigger-spike/delete.mjs` now
+  linked mesh into a plain mesh (a deleted parent broke `S`) and rebuilds draw-order keys (a slot
+  delete left a hole in `mm_bg` / `W`'s animated order). `tools/rigger-spike/delete.mjs` now
   runs the shipped functions (the old copy had drifted, hence the `l3` red) on a synthetic rig
   with every constraint kind, plus every bone / slot / path attachment of the given rig.
 
