@@ -79,6 +79,7 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	remake: { token: 'TOK', gameType: 'lines' },
 	scat: { token: 'SCT', gameType: 'scatter' },
 	legacy: { token: 'LEG', gameType: 'lines' },
+	hnw: { token: 'HNW', gameType: 'holdAndWin' },
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -106,6 +107,7 @@ const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	remake: resized(template('lines'), 8, 4),
 	scat: template('scatter'),
 	legacy: resized(template('lines'), 6, 4),
+	hnw: template('holdAndWin.classic'),
 };
 type LiveSymbols = {
 	symbols: Record<string, { static?: unknown }>;
@@ -115,6 +117,7 @@ const LIVE_SYMBOLS: Record<string, LiveSymbols> = {
 	remake: { symbols: {}, stackedPictures: { enabled: true, symbols: [{ name: 'H1' }] } },
 	scat: { symbols: {} },
 	legacy: { symbols: {} },
+	hnw: { symbols: {} },
 };
 mock.module(src('lib/server/gameConfigStorage.ts'), {
 	namedExports: {
@@ -167,6 +170,9 @@ type Answer = {
 		rows: number;
 		stacked?: boolean;
 		multiplier?: boolean;
+		symbols?: unknown;
+		betModes?: { mode: string }[];
+		holdAndWin?: { block: { stickiness: string }; lineSymbols: string[] };
 	};
 };
 /** GET the endpoint; resolves to the JSON answer, or `{ status }` for an HTTP error. */
@@ -219,6 +225,8 @@ const v1 = await publish('remake', REMAKE_V1);
 await tick();
 const v2 = await publish('remake', REMAKE_V2);
 await publish('scat', SCAT_SHIPPED);
+// `hnw` shipped the Pots preset and has since been switched live to Classic (Grand).
+await publish('hnw', { config: template('holdAndWin.pots'), symbols: { map: {}, index: {} } });
 
 console.info('which config the mock deals');
 
@@ -264,6 +272,23 @@ await check('multiplier art: published = the snapshot, live = the doc', async ()
 	const live = await answer('project=scat&k=SCT&source=live');
 	eq(published.grid?.multiplier, true, 'published deals the multiplier it can draw');
 	eq(live.grid?.multiplier, undefined, 'live has no art, so none are dealt');
+});
+
+console.info('a Hold and Win game');
+
+await check('players get the published holdAndWin block, authoring the live one', async () => {
+	const published = await answer('project=hnw&k=HNW&source=published');
+	const live = await answer('project=hnw&k=HNW&source=live');
+	eq(published.protocol, 'holdAndWin', 'protocol');
+	eq(published.grid?.holdAndWin?.block.stickiness, 'allCoins', 'published = Pots');
+	eq(published.grid?.betModes, undefined, 'Pots sells nothing');
+	eq(live.grid?.betModes?.map((m) => m.mode), ['base', 'buy', 'superBuy'], 'live = Grand buys');
+	eq(
+		live.grid?.holdAndWin?.lineSymbols,
+		['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'W'],
+		'line symbols in config names',
+	);
+	eq(live.grid?.symbols, undefined, 'no lines-mock server pool');
 });
 
 console.info('the publish-time copy');

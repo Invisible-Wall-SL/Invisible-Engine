@@ -26,6 +26,7 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
+	holdAndWinMockInputs,
 	isScatterSymbol,
 	normalizeGameConfigDoc,
 	resolveBetModes,
@@ -352,8 +353,23 @@ function projectGrid(
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
 			return symbolPaytable ? { reels, rows, paylines, symbolPaytable } : undefined;
 		}
-		// `holdAndWin` pays its base game by lines (and is dealt by the lines mock until its own lands).
 		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;
+		// `holdAndWin` runs its own mock, which deals from the block and the project's OWN symbol names
+		// — none of the lines mock's server-vocabulary fields below apply. Its base game pays lines, so
+		// it takes the board, the lines and the bet table like a lines game. No block ⇒ no inputs, and
+		// the test server deals the base game as lines (and says so).
+		if (protocol === 'holdAndWin') {
+			const holdAndWin = holdAndWinMockInputs(doc);
+			const betModes = projectBetModes(doc, projectKey);
+			return {
+				reels,
+				rows,
+				...(rowsPerReel ? { rowsPerReel } : {}),
+				paylines,
+				...(betModes ? { betModes } : {}),
+				...(holdAndWin ? { holdAndWin } : {}),
+			};
+		}
 		const wild = projectWild(doc);
 		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
 		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals

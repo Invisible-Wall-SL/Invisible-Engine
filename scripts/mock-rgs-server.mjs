@@ -704,8 +704,8 @@ const pathEndsWith = (pathname, route) => {
 };
 
 /**
- * A session as the test server carries it across a contract swap (`swapMock`): the BALANCE survives,
- * an open round does not (it was dealt on the previous board).
+ * A session as the test server carries it across a contract swap (`swapMock`): the BALANCE (and a
+ * Hold and Win player's meters) survive, an open round does not (it was dealt on the previous board).
  *
  * `keepBetShape` (a game served from the shared runtime) also keeps the session's config as SENT and
  * its bet table PINNED (`tableFor`). That client keeps the config it booted with, so it must go on
@@ -718,6 +718,8 @@ export const carrySession = (session, { keepBetShape }) => ({
 	round: null,
 	configSent: keepBetShape ? Boolean(session.configSent) : false,
 	...(keepBetShape && 'betTable' in session ? { betTable: session.betTable } : {}),
+	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too.
+	...(session.meters ? { meters: session.meters } : {}),
 });
 
 // ---------- factory: one stateful mock instance ----------

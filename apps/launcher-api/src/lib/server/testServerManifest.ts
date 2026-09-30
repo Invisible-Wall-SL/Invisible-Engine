@@ -23,6 +23,8 @@
  * so a concurrent merge re-reads the winner's entry before writing its own. The
  * standalone script mirrors the same conditional-retry loop.
  */
+import type { HoldAndWinMockInputs } from 'game-config';
+
 import {
 	ConflictError,
 	getObjectText,
@@ -350,6 +352,11 @@ export interface TestServerGameEntry {
 		 *  a line-config game (`[lines, betPerLine]`, no table), exactly as before. Not sent for `book`,
 		 *  whose mock owns its table. See `projectBetModes`. */
 		betModes?: { mode: string; cost: number; kind: 'base' | 'ante' | 'buy' }[];
+		/** A `holdAndWin` game's block, line symbols and symbol roles/pays in the project's OWN names
+		 *  (`holdAndWinMockInputs`), which the Hold and Win mock deals from. Present only for that
+		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and
+		 *  `betModes`. */
+		holdAndWin?: HoldAndWinMockInputs;
 	};
 }
 
