@@ -12,7 +12,8 @@
  *
  * Assertions:
  *   1. AUTHOR — `repeaterSelectConfiguredEvent` → `deriveContainerEvents` yields exactly one
- *      `<id>.onSelect` decl carrying a `betModeKey: string` payload.
+ *      `<id>.onSelect` decl carrying `betModeKey: string` (+ the list-agnostic `selectedKey: string` /
+ *      `selectedValue: float` twins #790 added so one repeater serves the bet/autoplay lists too).
  *   2. AUTHOR — a `showContainer` node over that surface FUSES `[exec-in, exec-out, onSelect,
  *      onSelect.betModeKey(string), durationMs]` — one exec-out + one typed data-out for the list.
  *   3. AUTHOR — a FlowDoc wiring the fused exec-out → `selectBetMode` and the `betModeKey` data-out →
@@ -30,7 +31,12 @@
  * Prints PASS/FAIL per assertion + a final `V2 REPEATER-SELECT HARNESS: PASSED`.
  */
 
-import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
+import {
+	REPEATER_SELECT_EVENT,
+	REPEATER_SELECTED_ID,
+	REPEATER_SELECTED_KEY,
+	REPEATER_SELECTED_VALUE,
+} from 'constants-shared/repeater';
 import {
 	deriveContainerEvents,
 	derivePins,
@@ -58,6 +64,10 @@ const assert = (label: string, ok: boolean, detail?: string) => {
 		console.error(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
 	}
 };
+
+const payloadShape = (payload: ContainerEventDecl['payload']): string =>
+	(payload ?? []).map((p) => `${p.name}:${p.type.t}`).join(',');
+const SELECT_PAYLOAD_SHAPE = `${REPEATER_SELECTED_KEY}:string,${REPEATER_SELECTED_ID}:string,${REPEATER_SELECTED_VALUE}:float`;
 
 // A minimal vocabulary with the ONE action the buy-flow needs: `selectBetMode(betModeKey: string)` —
 // the Phase-3a effect that arms the picked mode. Nothing else is referenced.
@@ -159,12 +169,9 @@ const main = async () => {
 		sel?.id === SELECT_PIN && sel?.label === 'onSelect' && sel?.event === REPEATER_SELECT_EVENT,
 		JSON.stringify(sel),
 	);
-	const payloadField = sel?.payload?.[0];
 	assert(
-		'decl carries a `betModeKey: string` payload field',
-		sel?.payload?.length === 1 &&
-			payloadField?.name === REPEATER_SELECTED_KEY &&
-			payloadField?.type.t === 'string',
+		'decl carries [betModeKey: string, selectedKey: string, selectedValue: float] payload fields',
+		payloadShape(sel?.payload) === SELECT_PAYLOAD_SHAPE,
 		JSON.stringify(sel?.payload),
 	);
 
@@ -368,9 +375,7 @@ const main = async () => {
 		);
 		assert(
 			'the surviving decl is the CANONICAL one (carries the betModeKey payload)',
-			deduped[0]?.id === SELECT_PIN &&
-				deduped[0]?.payload?.length === 1 &&
-				deduped[0]?.payload?.[0]?.name === REPEATER_SELECTED_KEY,
+			deduped[0]?.id === SELECT_PIN && payloadShape(deduped[0]?.payload) === SELECT_PAYLOAD_SHAPE,
 			JSON.stringify(deduped[0]),
 		);
 		// Non-repeater signals (distinct ids) are untouched — parity.

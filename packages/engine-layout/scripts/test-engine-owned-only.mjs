@@ -84,7 +84,11 @@ assert(!findNode(out, 'editor-watermark'), 'plain text watermark dropped');
 assert(sceneById(out, 'basegame').nodes.length === 0, 'basegame scene unfurnished (0 nodes)');
 
 // (c) bind anchors, componentInstance readouts, and HUD nodes are RETAINED.
-assert(!!findNode(out, 'loading-screen'), 'loading bind anchor retained');
+// The coded loading path was retired for a generic flow-mounted `loading-bar` component (e3ea9698).
+assert(
+	findNode(out, 'loading-bar')?.kind === 'componentInstance',
+	'loading-bar componentInstance retained',
+);
 assert(!!findNode(out, 'bound-win'), 'Win bind anchor retained');
 assert(!!findNode(out, 'bound-transition'), 'Transition bind anchor retained');
 assert(!!findNode(out, 'fs-intro'), 'free-spin intro bind anchor retained');
@@ -98,12 +102,24 @@ assert(!!findNode(out, 'hud-btn-menu'), 'HUD menu button node retained');
 assert(!!findNode(out, 'hud-gamename'), 'HUD game-name corner retained');
 assert(!!findNode(out, 'hud-logo'), 'HUD logo corner retained');
 
-// --- §19.8 engine-skeleton kinds: ways / cluster / scatter ---
+// ways ships a FILLED reference layout since #367, so it projects exactly like lines.
+const ways = mod.engineOwnedOnly(mod.getFullSceneSet('ways'));
+assert(ways.gameType === 'ways', "ways doc gameType is 'ways'");
+assert(
+	!findNode(ways, 'frame-bg') && !findNode(ways, 'frame-edge'),
+	'ways board-frame sprites dropped',
+);
+assert(sceneById(ways, 'basegame').nodes.length === 0, 'ways basegame scene unfurnished (0 nodes)');
+assert(
+	!!findNode(ways, 'loading-bar') && !!findNode(ways, 'fs-counter'),
+	'ways engine-owned nodes retained',
+);
+
+// --- §19.8 engine-skeleton kinds: cluster / scatter ---
 // Each must (a) return a full scene set, and (b) survive the scaffold projection
 // keeping its reelGrid + HUD scenes, dropping nothing it shouldn't (every scene
 // still emitted, since the skeletons carry only engine-owned nodes).
 const SKELETON_BOARDS = {
-	ways: { reels: 5, rows: 3, cellSize: 120 },
 	cluster: { reels: 7, rows: 7, cellSize: 80 },
 	scatter: { reels: 6, rows: 5, cellSize: 100 },
 };
@@ -141,7 +157,7 @@ for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 
 	// (d) overlay + free-spin bind anchors retained.
 	for (const id of [
-		'loading-screen',
+		'loading-bar',
 		'bg',
 		'bound-win',
 		'bound-transition',
@@ -152,11 +168,14 @@ for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 		assert(!!findNode(scaffold, id), `${kind} bind anchor '${id}' retained`);
 	}
 
-	// (e) nothing dropped — the skeleton has no plain artist art, so node count holds.
-	const countNodes = (doc) => doc.scenes.reduce((n, s) => n + allNodes(s.nodes).length, 0);
+	// (e) the only plain art in a skeleton is the buy screens' backdrop dims, which
+	// `defaultBuyFeatureScene()` seeds into every layout — so those two, and nothing else, go.
+	const nodeIds = (doc) => doc.scenes.flatMap((s) => allNodes(s.nodes).map((n) => n.id));
+	const kept = new Set(nodeIds(scaffold));
+	const dropped = nodeIds(full).filter((id) => !kept.has(id));
 	assert(
-		countNodes(scaffold) === countNodes(full),
-		`${kind} scaffold drops nothing (${countNodes(scaffold)} nodes retained)`,
+		dropped.join() === 'buy-feature-dim,confirm-dim',
+		`${kind} scaffold drops only the buy-screen dims (dropped: ${dropped.join(', ')})`,
 	);
 }
 

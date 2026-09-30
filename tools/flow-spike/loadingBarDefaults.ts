@@ -3,21 +3,19 @@
  *
  *   pnpm --filter flow-spike run loadingbar
  *
- * Proves, HEADLESSLY over the REAL `engine-layout` modules, that the driven-flow loading handoff is
- * no longer disabled by the `defaultInstanceParams`-not-applied-at-runtime bug.
+ * Proves, HEADLESSLY over the REAL `engine-layout` modules, that `resolveComponentParams` applies
+ * `LOADING_BAR_DEF.defaultInstanceParams` at runtime, and pins WHAT that seed is.
  *
- * Root cause it pins: a HAND-AUTHORED / scaffold `loadingBar` node (no `params`) never received
- * `LOADING_BAR_DEF.defaultInstanceParams` — `resolveComponentParams` applied only declared
- * `def.params` defaults + project defaults + instance params, NOT `defaultInstanceParams`. So
- * `completeOnLoaded` (a shared overlay param) stayed unset ⇒ `completeOnLoadedEnabled` false ⇒ the
- * gate's `$effect` returned early and never fired ⇒ a driven flow stranded on loading.
+ * History: a hand-authored / scaffold `loadingBar` node (no `params`) used to get no
+ * `defaultInstanceParams` at all (c98e4447 fixed that). The seed then carried `completeOnLoaded`
+ * too, which silently released a splash the author was holding with `showContainer{awaitComplete}`
+ * — a second, invisible owner of visibility. #560 dropped it: the seed is `{ tapToContinue: true }`
+ * only, and an author who wants a self-dismissing splash ticks "On loaded" explicitly.
  *
  * Assertions:
- *   1. `resolveComponentParams(LOADING_BAR_DEF, {}, undefined)` now carries BOTH `completeOnLoaded`
- *      and `tapToContinue` = true (the scaffold gets the gate + the tap fallback out of the box).
- *   2. `isCompleteOnLoadedEnabled` + `isTapToContinueEnabled` both read `true` off the resolved params.
- *   3. An explicit instance override still WINS (clearing a toggle writes explicit `false`).
- *   4. A def with NO `defaultInstanceParams` is unaffected (regression control) — no keys invented.
+ *   1. The scaffold loadingBar resolves `tapToContinue` = true and does NOT auto-advance.
+ *   2. An explicit instance/project value still WINS over the seed, in both directions.
+ *   3. A def with NO `defaultInstanceParams` is unaffected (regression control) — no keys invented.
  *
  * Prints PASS/FAIL per assertion + a final `LOADING-BAR DEFAULTS HARNESS: PASSED`.
  */
@@ -36,31 +34,39 @@ const check = (label: string, cond: boolean): void => {
 	if (!cond) failures += 1;
 };
 
-// 1 + 2 — the scaffold (param-less) loadingBar resolves the gate + tap fallback ON.
+// 1 — the scaffold (param-less) loadingBar waits for the tap and nothing else.
 const scaffold = resolveComponentParams(LOADING_BAR_DEF, {}, undefined);
-check('scaffold loadingBar: completeOnLoaded === true', scaffold.completeOnLoaded === true);
 check('scaffold loadingBar: tapToContinue === true', scaffold.tapToContinue === true);
-check(
-	'scaffold loadingBar: isCompleteOnLoadedEnabled',
-	isCompleteOnLoadedEnabled(scaffold) === true,
-);
 check('scaffold loadingBar: isTapToContinueEnabled', isTapToContinueEnabled(scaffold) === true);
-
-// 3 — an explicit instance override wins (an author can clear the toggle).
-const cleared = resolveComponentParams(LOADING_BAR_DEF, { completeOnLoaded: false }, undefined);
 check(
-	'explicit completeOnLoaded:false overrides the seed',
-	isCompleteOnLoadedEnabled(cleared) === false,
+	'scaffold loadingBar: completeOnLoaded is NOT seeded',
+	scaffold.completeOnLoaded === undefined,
 );
 check(
-	'the OTHER seed (tapToContinue) survives a partial clear',
-	isTapToContinueEnabled(cleared) === true,
+	'scaffold loadingBar: isCompleteOnLoadedEnabled is false',
+	isCompleteOnLoadedEnabled(scaffold) === false,
+);
+
+// 2 — explicit values win over the seed.
+const autoAdvance = resolveComponentParams(LOADING_BAR_DEF, { completeOnLoaded: true }, undefined);
+check(
+	'explicit completeOnLoaded:true enables auto-advance',
+	isCompleteOnLoadedEnabled(autoAdvance),
+);
+check(
+	'the tapToContinue seed survives an unrelated explicit param',
+	isTapToContinueEnabled(autoAdvance) === true,
+);
+const tapCleared = resolveComponentParams(LOADING_BAR_DEF, { tapToContinue: false }, undefined);
+check(
+	'explicit tapToContinue:false overrides the seed',
+	isTapToContinueEnabled(tapCleared) === false,
 );
 // project defaults sit below instance params but above the seed.
 const projClear = resolveComponentParams(LOADING_BAR_DEF, undefined, { tapToContinue: false });
 check('project default can clear a seed too', isTapToContinueEnabled(projClear) === false);
 
-// 4 — a def with no defaultInstanceParams invents nothing (regression control).
+// 3 — a def with no defaultInstanceParams invents nothing (regression control).
 const plainDef: ComponentDef = {
 	id: '__test_plain__',
 	name: 'plain',

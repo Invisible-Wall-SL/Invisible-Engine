@@ -25,8 +25,10 @@
  *  - choreography: sequence→exec chain, parallel→parallel, broadcast→fireCue{await}, effect→action,
  *      delay→delay(ms literal), forEach→forEach(body/done), branch→branch(then/else);
  *      FlowAccessor(literal/trigger/item/context/engine) → the matching v2 `DataSource`.
- *  - a declared param the v1 payload OMITTED defaults to `$trigger.<param>` (v1 passed `{}` there; this
- *    fills the v2 pin AND is more correct — the same-named event field flows through).
+ *  - a declared REQUIRED param the v1 payload OMITTED defaults to `$trigger.<param>` (v1 passed `{}`
+ *    there; this fills the v2 pin AND is more correct — the same-named event field flows through). An
+ *    omitted OPTIONAL param stays unwired: that is legal in v2 and means "the runtime default", exactly
+ *    what v1's `{}` gave — a `$trigger` read of a field the event lacks would fail validation.
  */
 
 import type {
@@ -113,7 +115,7 @@ const toInputs = (
 	for (const [pin, acc] of Object.entries(payload ?? {}))
 		inputs[pin] = toDataSource(acc, paramType(vocab, ref, pin));
 	for (const p of declaredParams(vocab, ref)) {
-		if (!(p.name in inputs))
+		if (!p.optional && !(p.name in inputs))
 			inputs[p.name] = { kind: 'accessor', path: { on: 'trigger', member: p.name } };
 	}
 	return inputs;

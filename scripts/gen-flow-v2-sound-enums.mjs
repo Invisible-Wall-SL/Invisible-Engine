@@ -103,8 +103,9 @@ try {
 }
 
 const note = `${music.length} music, ${effects.length} effects`;
+// A Windows checkout (`core.autocrlf=true`) holds the committed file with CRLF; compare as LF.
 if (check) {
-	if (current !== next) {
+	if (current.replace(/\r\n/g, '\n') !== next) {
 		console.error(`✗ ${OUT} is STALE — run: node scripts/gen-flow-v2-sound-enums.mjs`);
 		process.exit(1);
 	}

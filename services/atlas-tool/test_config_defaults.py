@@ -1042,9 +1042,16 @@ def test_the_render_is_never_blocked_by_this_diagnostic() -> None:
           _CATALOG["BLUEPRINT_MODEL_UNVERIFIED"]["severity"], "warn")
     check_in("and the text says so out loud", "render is CONTINUING",
              _CATALOG["BLUEPRINT_MODEL_UNVERIFIED"]["explain"])
-    check("pulid_file genuinely has no loader to ask",
-          ba._model_installed("pulid_file", "pulid_flux_v0.9.1.safetensors"),
-          None)
+    # `_model_installed` pings ComfyUI before it looks the field up; answer that
+    # ping so the no-loader verdict is reached offline, as this file promises.
+    alive = ba._comfy_alive
+    ba._comfy_alive = lambda: True
+    try:
+        check("pulid_file genuinely has no loader to ask",
+              ba._model_installed("pulid_file", "pulid_flux_v0.9.1.safetensors"),
+              None)
+    finally:
+        ba._comfy_alive = alive
 
 
 if __name__ == "__main__":

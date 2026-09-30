@@ -24,12 +24,14 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const ROOT = new URL('../../', import.meta.url);
-const BUNDLE = fileURLToPath(new URL('apps/launcher-api/static/rigger/vendor/rigger-text.js', ROOT));
+const BUNDLE = fileURLToPath(
+	new URL('apps/launcher-api/static/rigger/vendor/rigger-text.js', ROOT),
+);
 const FONT_DIR = fileURLToPath(new URL('apps/lines/static/assets/fonts/goldFont/', ROOT));
 
 if (!existsSync(BUNDLE)) {
@@ -39,25 +41,40 @@ if (!existsSync(BUNDLE)) {
 
 // ------------------------------------------------------------------ chromium ----
 
+// `CHROME_PATH` wins (a CI image's system Chrome needs no download); otherwise any Playwright
+// Chromium, in Playwright's own cache locations per platform.
 function findChromium() {
-	const base = join(process.env.LOCALAPPDATA ?? process.env.HOME ?? '', 'ms-playwright');
-	if (!existsSync(base)) return null;
-	for (const dir of readdirSync(base)) {
-		for (const rel of [
-			join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-			join('chrome-win', 'chrome.exe'),
-			join('chrome-linux', 'chrome'),
-		]) {
-			const p = join(base, dir, rel);
-			if (existsSync(p)) return p;
-		}
-	}
+	if (process.env.CHROME_PATH)
+		return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
+	const bases = [
+		process.env.PLAYWRIGHT_BROWSERS_PATH,
+		process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
+		join(homedir(), '.cache', 'ms-playwright'),
+		join(homedir(), 'Library', 'Caches', 'ms-playwright'),
+	].filter((b) => b && existsSync(b));
+	const rels = [
+		join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
+		join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
+		join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
+		join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
+		join('chrome-win', 'chrome.exe'),
+		join('chrome-linux64', 'chrome'),
+		join('chrome-linux', 'chrome'),
+	];
+	for (const base of bases)
+		for (const dir of readdirSync(base))
+			for (const rel of rels) {
+				const p = join(base, dir, rel);
+				if (existsSync(p)) return p;
+			}
 	return null;
 }
 
 const CHROME = findChromium();
 if (!CHROME) {
-	console.error('No Chromium found under ms-playwright — this gate needs a real browser.');
+	console.error(
+		'No Chromium found (set CHROME_PATH, or: npx playwright install chromium-headless-shell) — this gate needs a real browser.',
+	);
 	process.exit(1);
 }
 
@@ -132,8 +149,8 @@ const server = createServer((req, res) => {
 					{
 						key: 'FREE_SPINS',
 						source: '10',
-						reviewed: { de: '1000000', es: '100' },
-						pending: 1,
+						translations: { de: '1000000', es: '100' },
+						unreviewed: 1,
 					},
 				],
 			}),
@@ -150,7 +167,11 @@ const server = createServer((req, res) => {
 	}
 	if (url.pathname.startsWith('/upload/') && req.method === 'PUT') {
 		return readBodyBytes(req).then((bytes) => {
-			uploadedPage = { name: url.pathname.slice('/upload/'.length), bytes, type: req.headers['content-type'] };
+			uploadedPage = {
+				name: url.pathname.slice('/upload/'.length),
+				bytes,
+				type: req.headers['content-type'],
+			};
 			send(200, 'text/plain', 'ok');
 		});
 	}
@@ -201,7 +222,10 @@ const chrome = spawn(
 );
 
 const wsUrl = await new Promise((resolve, reject) => {
-	const t = setTimeout(() => reject(new Error('chromium did not report a devtools endpoint')), 20000);
+	const t = setTimeout(
+		() => reject(new Error('chromium did not report a devtools endpoint')),
+		20000,
+	);
 	let buf = '';
 	chrome.stderr.on('data', (c) => {
 		buf += c;
@@ -247,7 +271,10 @@ const cdp = (method, params = {}, sessionId) =>
 
 const { result: targets } = await cdp('Target.getTargets');
 const page = targets.targetInfos.find((t) => t.type === 'page');
-const { result: attached } = await cdp('Target.attachToTarget', { targetId: page.targetId, flatten: true });
+const { result: attached } = await cdp('Target.attachToTarget', {
+	targetId: page.targetId,
+	flatten: true,
+});
 const session = attached.sessionId;
 await cdp('Runtime.enable', {}, session);
 
@@ -261,7 +288,9 @@ async function evaluate(expression) {
 	if (res.error) throw new Error(JSON.stringify(res.error));
 	const r = res.result;
 	if (r.exceptionDetails) {
-		throw new Error(r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails));
+		throw new Error(
+			r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails),
+		);
 	}
 	return r.result.value;
 }
@@ -294,7 +323,11 @@ try {
 			return { fonts: fonts.length, font0: fonts[0]?.name, keys: strings.entries.length, src: strings.sourceLang };
 		})()`);
 		ok('window.RiggerText exists in a real browser', !!info);
-		ok('it reads the font catalog', info.fonts === 2 && info.font0 === 'mm_gold', JSON.stringify(info));
+		ok(
+			'it reads the font catalog',
+			info.fonts === 2 && info.font0 === 'mm_gold',
+			JSON.stringify(info),
+		);
 		ok('it reads the localization keys', info.keys === 1 && info.src === 'en');
 	}
 
@@ -317,14 +350,34 @@ try {
 			};
 			return { one: await measure('1'), long: await measure('1000000'), other: await measure('7') };
 		})()`);
-		ok('a string rasterises to a canvas', !!m.one && m.one.w > 0 && m.one.h > 0, JSON.stringify(m.one));
-		ok('it has INK (not a blank page)', m.one.lit > 0 && m.one.inkW > 0 && m.one.inkH > 0, JSON.stringify(m.one));
+		ok(
+			'a string rasterises to a canvas',
+			!!m.one && m.one.w > 0 && m.one.h > 0,
+			JSON.stringify(m.one),
+		);
+		ok(
+			'it has INK (not a blank page)',
+			m.one.lit > 0 && m.one.inkW > 0 && m.one.inkH > 0,
+			JSON.stringify(m.one),
+		);
 		// The decisive one: a 7-character string must be materially wider than a 1-character one.
-		ok('a longer string is measurably WIDER', m.long.inkW > m.one.inkW * 4, `${m.one.inkW} → ${m.long.inkW}`);
-		ok('…and the SAME height (one line, same size)', Math.abs(m.long.h - m.one.h) <= 2, `${m.one.h} vs ${m.long.h}`);
+		ok(
+			'a longer string is measurably WIDER',
+			m.long.inkW > m.one.inkW * 4,
+			`${m.one.inkW} → ${m.long.inkW}`,
+		);
+		ok(
+			'…and the SAME height (one line, same size)',
+			Math.abs(m.long.h - m.one.h) <= 2,
+			`${m.one.h} vs ${m.long.h}`,
+		);
 		// …and two different single characters must not produce identical pixels, which is what
 		// "the renderer drew the same fallback glyph for everything" would look like.
-		ok('two different strings differ in pixels', m.one.hash !== m.other.hash, `${m.one.hash} / ${m.other.hash}`);
+		ok(
+			'two different strings differ in pixels',
+			m.one.hash !== m.other.hash,
+			`${m.one.hash} / ${m.other.hash}`,
+		);
 	}
 
 	console.log('\n3. a descriptor that under-declares its box does not CUT the glyphs');
@@ -346,12 +399,28 @@ try {
 		})()`);
 		// The honest font's line box IS its glyph box, so its tile must come back as exactly that:
 		// the room the rasteriser draws into is measured off again, never baked in.
-		ok('an honest descriptor yields exactly its metric box', m.honest.h === 105, JSON.stringify(m.honest));
+		ok(
+			'an honest descriptor yields exactly its metric box',
+			m.honest.h === 105,
+			JSON.stringify(m.honest),
+		);
 		// The decisive pair: same art, same size, a box claiming to be 45px shorter and 40% narrower.
 		// Every pixel must survive — this is the assertion a cut fails.
-		ok('the lying descriptor keeps the FULL glyph height', m.liar.inkH === m.honest.inkH, `${m.honest.inkH} → ${m.liar.inkH}`);
-		ok('…and the full glyph width', m.liar.inkW === m.honest.inkW, `${m.honest.inkW} → ${m.liar.inkW}`);
-		ok('…and the same ink, pixel for pixel', Math.abs(m.liar.lit - m.honest.lit) <= 2, `${m.honest.lit} vs ${m.liar.lit}`);
+		ok(
+			'the lying descriptor keeps the FULL glyph height',
+			m.liar.inkH === m.honest.inkH,
+			`${m.honest.inkH} → ${m.liar.inkH}`,
+		);
+		ok(
+			'…and the full glyph width',
+			m.liar.inkW === m.honest.inkW,
+			`${m.honest.inkW} → ${m.liar.inkW}`,
+		);
+		ok(
+			'…and the same ink, pixel for pixel',
+			Math.abs(m.liar.lit - m.honest.lit) <= 2,
+			`${m.honest.lit} vs ${m.liar.lit}`,
+		);
 		// …in a tile that GREW to hold the overhang, rather than one that clipped it.
 		ok('the tile grew past the declared line box', m.liar.h > 60, JSON.stringify(m.liar));
 	}
@@ -370,37 +439,90 @@ try {
 			return r;
 		})()`);
 		ok('the save reports success', res.ok === true, JSON.stringify(res).slice(0, 300));
-		ok('it returns one attachment per baked locale', res.attachments?.length === 3, JSON.stringify(res.attachments));
-		const locales = (res.attachments ?? []).map((a) => a.locale).sort().join(',');
-		ok('the locales are the source + the REVIEWED translations only', locales === 'de,en,es', locales);
-		ok('the region names are namespaced', res.attachments?.every((a) => a.region === 'text/title/' + a.locale));
+		ok(
+			'it returns one attachment per baked locale',
+			res.attachments?.length === 3,
+			JSON.stringify(res.attachments),
+		);
+		const locales = (res.attachments ?? [])
+			.map((a) => a.locale)
+			.sort()
+			.join(',');
+		ok(
+			'the locales are the source + every translation, reviewed or not',
+			locales === 'de,en,es',
+			locales,
+		);
+		ok(
+			'the region names are namespaced',
+			res.attachments?.every((a) => a.region === 'text/title/' + a.locale),
+		);
 
 		ok('a page was PUT to the presigned URL', !!uploadedPage, 'no upload seen');
 		ok('…as image/png', uploadedPage?.type === 'image/png', uploadedPage?.type);
-		ok('…and it is a real PNG', uploadedPage && uploadedPage.bytes.slice(1, 4).toString() === 'PNG');
-		ok('the page filename is content-addressed', /^rigtext-[0-9a-f]{16}\.png$/.test(uploadedPage?.name ?? ''), uploadedPage?.name);
+		ok(
+			'…and it is a real PNG',
+			uploadedPage && uploadedPage.bytes.slice(1, 4).toString() === 'PNG',
+		);
+		ok(
+			'the page filename is content-addressed',
+			/^rigtext-[0-9a-f]{16}\.png$/.test(uploadedPage?.name ?? ''),
+			uploadedPage?.name,
+		);
 
 		ok('the document was posted', !!savedDoc);
-		ok('…naming the page that was uploaded', savedDoc?.doc?.page?.file === uploadedPage?.name, `${savedDoc?.doc?.page?.file} vs ${uploadedPage?.name}`);
-		ok('…with the write precondition', 'baseEtag' in (savedDoc ?? {}) && savedDoc.baseEtag === null);
+		ok(
+			'…naming the page that was uploaded',
+			savedDoc?.doc?.page?.file === uploadedPage?.name,
+			`${savedDoc?.doc?.page?.file} vs ${uploadedPage?.name}`,
+		);
+		ok(
+			'…with the write precondition',
+			'baseEtag' in (savedDoc ?? {}) && savedDoc.baseEtag === null,
+		);
 		ok('…and the project scope guard', savedDoc?.projectKey === 'p');
 
 		const variants = savedDoc?.doc?.elements?.[0]?.variants ?? [];
-		ok('the document carries one variant per locale', variants.length === 3, JSON.stringify(variants.map((v) => v.locale)));
-		ok('each variant remembers the STRING it baked', variants.every((v) => typeof v.text === 'string' && v.text.length > 0));
-		// The `de` string is 7 chars and `es` is 3 — the packed rects must reflect that, which is
-		// the end-to-end proof that per-locale art really is per-locale.
+		ok(
+			'the document carries one variant per locale',
+			variants.length === 3,
+			JSON.stringify(variants.map((v) => v.locale)),
+		);
+		ok(
+			'each variant remembers the STRING it baked',
+			variants.every((v) => typeof v.text === 'string' && v.text.length > 0),
+		);
+		// Every locale shares ONE placement, so a translation wider than the source is re-rasterised
+		// at a smaller font size until it fits the source's width (`fitTilesToSource`). `de` is 7
+		// chars, `es` 3, the source 2: both must shrink, and `de` further — the end-to-end proof
+		// that per-locale art really is per-locale, and that the fit really ran.
+		const en = variants.find((v) => v.locale === 'en');
 		const de = variants.find((v) => v.locale === 'de');
 		const es = variants.find((v) => v.locale === 'es');
-		ok('a longer translation packs a WIDER rect', de.w > es.w * 1.5, `de ${de.w} vs es ${es.w}`);
+		const sizes = `en ${en?.w}px@${en?.fontSize} de ${de?.w}px@${de?.fontSize} es ${es?.w}px@${es?.fontSize}`;
+		ok('the source locale bakes at the element size', en?.fontSize === 48, sizes);
+		ok('every translation fits the source width', de?.w <= en?.w && es?.w <= en?.w, sizes);
+		ok(
+			'a longer translation is shrunk FURTHER',
+			de?.fontSize < es?.fontSize && es?.fontSize < 48,
+			sizes,
+		);
 
 		const page = savedDoc.doc.page;
-		ok('every rect fits inside the declared page', variants.every((v) => v.x >= 0 && v.y >= 0 && v.x + v.w <= page.width && v.y + v.h <= page.height), JSON.stringify({ page, variants }));
+		ok(
+			'every rect fits inside the declared page',
+			variants.every(
+				(v) => v.x >= 0 && v.y >= 0 && v.x + v.w <= page.width && v.y + v.h <= page.height,
+			),
+			JSON.stringify({ page, variants }),
+		);
 		let overlap = false;
 		for (let i = 0; i < variants.length; i++)
 			for (let j = i + 1; j < variants.length; j++) {
-				const a = variants[i], b = variants[j];
-				if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlap = true;
+				const a = variants[i],
+					b = variants[j];
+				if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h)
+					overlap = true;
 			}
 		ok('no two variants overlap on the page', !overlap);
 	}
@@ -413,8 +535,16 @@ try {
 				sourceLocale: 'en', slot: 'text_bad', style: { color: '#ffffff' } }],
 			baseEtag: null,
 		}))()`);
-		ok('an unknown font fails the bake instead of substituting one', res.ok === false && res.error === 'bake-failed', JSON.stringify(res).slice(0, 200));
-		ok('…and names every locale it could not render', res.failed?.length === 3, JSON.stringify(res.failed));
+		ok(
+			'an unknown font fails the bake instead of substituting one',
+			res.ok === false && res.error === 'bake-failed',
+			JSON.stringify(res).slice(0, 200),
+		);
+		ok(
+			'…and names every locale it could not render',
+			res.failed?.length === 3,
+			JSON.stringify(res.failed),
+		);
 	}
 } catch (e) {
 	fail++;

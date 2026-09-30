@@ -52,6 +52,25 @@
 
 ## Recent changes
 
+- 2026-09-30 — **The six "known red" flow spikes are gone, and the suite is a CI gate.** Every
+  `tools/flow-spike` script now runs in the `Checks` workflow (`pnpm check:all`), so "same 6 known
+  reds" is no longer a baseline anyone has to carry. All 55 pass.
+  - **One real bug, in the offline translator** (`engine-flow-migrate/src/translate.ts`, used only by
+    `apps/launcher-api/scripts/translate-flow.ts`, never by a game). Since optional vocabulary params
+    landed (3fd4df82) it wired every OMITTED param to `$trigger.<param>`, optional ones included
+    (`holdToSpeedUp`, `tapToSkip`, `waitForPress`, `volume`). The events do not carry those fields,
+    so the result failed validation and `--seed` refused it. An omitted optional param now stays
+    unwired, which is exactly v1's `{}` ("the runtime default"). Caught by `v2translate`.
+  - **Stale assertions updated to the contract that moved:** `v2repeaterselect` (#790 gave `onSelect`
+    three payload fields), `loadingbar` (#560 dropped `completeOnLoaded` from the seed on purpose),
+    `v2choreo` (a69833fc swapped the raw board cue for the `animateWinSymbols` action).
+  - **`slamcounter`** crashed before its first assertion: `unskippablePresentation.ts` now imports
+    `state-shared` (runes, `$app/state`) and `./gameConfig` (pixi-svelte `.svelte`), which tsx cannot
+    load. `appStubs.register.mjs` swaps those two for plain-data stand-ins; the module under test
+    runs unmodified.
+  - **`v2translateremake` deleted:** a one-off July report that read a v1 doc from a long-gone temp
+    scratchpad (ENOENT everywhere). `v2translate` covers the translator; the remake runs v2-native.
+
 - 2026-09-29 — **Guide refreshed to match the UI** ([docs/tools/flow.md](../tools/flow.md)): the starter flow for a project with no flow, "New — unsaved", comment boxes and inline groups, the conflict pill, the read-only banner and the "Library changed elsewhere" pill.
 - 2026-09-29 — **Undo/redo and version history in `/flow-v2`.**
   - **Undo/redo.** `$lib/undoHistory.ts` (`UndoHistory`) keeps a bounded (100) stack of JSON

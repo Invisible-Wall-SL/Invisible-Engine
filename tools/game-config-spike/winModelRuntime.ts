@@ -84,24 +84,21 @@ check(
 	` (${cluster.payoutDivisor()})`,
 );
 
-console.log('\ncapturing the boot warning for a ways config:');
-const seen: string[] = [];
-const realWarn = console.warn;
-console.warn = (...a: unknown[]) => {
-	seen.push(String(a[0]));
-};
-ways.warnOnGameConfigIssues({});
-console.warn = realWarn;
-const hit = seen.find((l) => l.includes("declares a 'ways' win model"));
-check(!!hit, 'ways config warns at boot that no runtime implements it');
-if (hit) console.log(`     → ${hit.slice(0, 120)}…`);
-
-const seen2: string[] = [];
-console.warn = (...a: unknown[]) => {
-	seen2.push(String(a[0]));
-};
-lines.warnOnGameConfigIssues({});
-console.warn = realWarn;
-check(!seen2.some((l) => l.includes('win model')), 'a lines config emits NO such warning (parity)');
+// #355 warned at boot that a declared ways model had no runtime; #392 gave every model one and
+// retired the warning, so no config may still claim its win model is unimplemented.
+for (const [name, config] of [
+	['ways', ways],
+	['cluster', cluster],
+	['lines', lines],
+] as const) {
+	const seen: string[] = [];
+	const realWarn = console.warn;
+	console.warn = (...a: unknown[]) => {
+		seen.push(String(a[0]));
+	};
+	config.warnOnGameConfigIssues({});
+	console.warn = realWarn;
+	check(!seen.some((l) => l.includes('win model')), `a ${name} config emits NO win-model warning`);
+}
 
 process.exit(bad ? 1 : 0);

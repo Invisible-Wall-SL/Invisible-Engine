@@ -45,25 +45,33 @@ const main = async () => {
 	console.log(`smoke test against ${BASE}, sid=${SID}\n`);
 
 	// Sanity: server up
-	const health = await fetch(`${BASE}/healthz`).then((r) => r.json()).catch((e) => fail('mock not reachable', e));
+	const health = await fetch(`${BASE}/healthz`)
+		.then((r) => r.json())
+		.catch((e) => fail('mock not reachable', e));
 	if (!health.ok) fail('healthz did not return ok', health);
 	ok('mock reachable');
 
 	// 1. heartbeat
 	const r1 = await post('heartbeat', `sid=${SID}&seq=0`, []);
 	if (r1.status !== 200) fail('heartbeat status', r1.status);
-	if (r1.json.events.length !== 0) fail('heartbeat should return no events', r1.json.events);
-	if (typeof r1.json.platform.balance !== 'number') fail('heartbeat missing balance', r1.json.platform);
+	// A session's FIRST call carries the config (the mock's "plus config if first call"); nothing else.
+	if (r1.json.events.some((e) => e.event !== 'config'))
+		fail('heartbeat should return no events beyond the first-call config', r1.json.events);
+	if (typeof r1.json.platform.balance !== 'number')
+		fail('heartbeat missing balance', r1.json.platform);
 	const startingBalance = r1.json.platform.balance;
 	ok(`heartbeat returned balance=${startingBalance}`);
 
 	// 2. Spin until we get a real win — then we can test the manual collect flow.
 	//    (The server auto-closes zero-win rounds even with play.context=null,
 	//    so we can't test manual collect against a guaranteed-zero-win round.)
-	let r2, gid, win;
+	//    A spin that triggers free spins opens a FEATURE round with no `gameEnd` yet — a different
+	//    flow, so it is skipped, and every attempt gets its own session so that open round cannot
+	//    block the next bet.
+	let r2, gid, win, SID2;
 	let attempts = 0;
-	const SID2 = `${SID}-win`;
 	while (attempts++ < 200) {
+		SID2 = `${SID}-win-${attempts}`;
 		r2 = await post(`bet+play (manual) attempt ${attempts}`, `sid=${SID2}&seq=0`, [
 			{ action: 'bet', context: [5, 2] },
 			{ action: 'play', context: null },
@@ -73,6 +81,7 @@ const main = async () => {
 		if (!ev(r2, 'gameStart')) fail('missing gameStart event');
 		if (!ev(r2, 'spinStart')) fail('missing spinStart event');
 		if (!ev(r2, 'playedSpin')) fail('missing playedSpin event');
+		if (ev(r2, 'enterBonus')) continue;
 		if (!ev(r2, 'gameEnd')) fail('missing gameEnd event');
 
 		win = ev(r2, 'gameEnd').context.win;
@@ -123,17 +132,24 @@ const main = async () => {
 	//    Use the original SID — its starting balance is the same as the
 	//    SID2's (both default to START_BALANCE since neither has bet yet
 	//    on the original SID). We re-fetch the heartbeat to be sure.
-	const r5pre = await post('heartbeat (auto session)', `sid=${SID}&seq=0`, []);
-	const autoBalanceBefore = r5pre.json.platform.balance;
-	const r5 = await post('bet+play (auto-collect)', `sid=${SID}&seq=0`, [
-		{ action: 'bet', context: [5, 2] },
-		{ action: 'play', context: '' },
-	]);
+	let r5, autoBalanceBefore;
+	for (let k = 0; k < 50; k++) {
+		const sid = k === 0 ? SID : `${SID}-auto-${k}`;
+		const r5pre = await post('heartbeat (auto session)', `sid=${sid}&seq=0`, []);
+		autoBalanceBefore = r5pre.json.platform.balance;
+		r5 = await post('bet+play (auto-collect)', `sid=${sid}&seq=0`, [
+			{ action: 'bet', context: [5, 2] },
+			{ action: 'play', context: '' },
+		]);
+		if (!ev(r5, 'enterBonus')) break;
+	}
 	if (!ev(r5, 'gameRoundOver')) fail('auto-collect should embed gameRoundOver');
 	const autoWin = ev(r5, 'gameEnd').context.win;
 	const expectedAfterAuto = autoBalanceBefore - 10 + autoWin;
 	if (r5.json.platform.balance !== expectedAfterAuto) {
-		fail(`auto-collect balance: ${autoBalanceBefore} - 10 + ${autoWin} != ${r5.json.platform.balance}`);
+		fail(
+			`auto-collect balance: ${autoBalanceBefore} - 10 + ${autoWin} != ${r5.json.platform.balance}`,
+		);
 	}
 	ok(`auto-collect: win=${autoWin}, balance=${r5.json.platform.balance}`);
 

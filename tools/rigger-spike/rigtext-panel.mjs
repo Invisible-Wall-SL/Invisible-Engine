@@ -19,7 +19,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, readdirSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join, extname } from 'node:path';
 
@@ -28,10 +28,8 @@ const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
 const RIG_DIR = fileURLToPath(new URL('apps/lines/static/assets/spines/anticipation/', ROOT));
 const FONT_DIR = fileURLToPath(new URL('apps/lines/static/assets/fonts/goldFont/', ROOT));
 const LIB = fileURLToPath(new URL('apps/launcher-api/src/lib/', ROOT));
-const ESBUILD = new URL(
-	'node_modules/.pnpm/esbuild@0.25.5/node_modules/esbuild/lib/main.js',
-	ROOT,
-).href;
+const ESBUILD = new URL('node_modules/.pnpm/esbuild@0.25.5/node_modules/esbuild/lib/main.js', ROOT)
+	.href;
 
 // The REAL atlas composer — the fake API must recompose exactly like the server does, or this
 // gate would be testing a re-implementation instead of the shipping one.
@@ -47,24 +45,39 @@ await esbuild.build({
 });
 const { normalizeRigTextDoc, textAtlasBlock } = await import(pathToFileURL(outfile).href);
 
+// `CHROME_PATH` wins (a CI image's system Chrome needs no download); otherwise any Playwright
+// Chromium, in Playwright's own cache locations per platform.
 function findChromium() {
-	const base = join(process.env.LOCALAPPDATA ?? process.env.HOME ?? '', 'ms-playwright');
-	if (!existsSync(base)) return null;
-	for (const dir of readdirSync(base)) {
-		for (const rel of [
-			join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-			join('chrome-win', 'chrome.exe'),
-			join('chrome-linux', 'chrome'),
-		]) {
-			const p = join(base, dir, rel);
-			if (existsSync(p)) return p;
-		}
-	}
+	if (process.env.CHROME_PATH)
+		return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
+	const bases = [
+		process.env.PLAYWRIGHT_BROWSERS_PATH,
+		process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
+		join(homedir(), '.cache', 'ms-playwright'),
+		join(homedir(), 'Library', 'Caches', 'ms-playwright'),
+	].filter((b) => b && existsSync(b));
+	const rels = [
+		join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
+		join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
+		join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
+		join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
+		join('chrome-win', 'chrome.exe'),
+		join('chrome-linux64', 'chrome'),
+		join('chrome-linux', 'chrome'),
+	];
+	for (const base of bases)
+		for (const dir of readdirSync(base))
+			for (const rel of rels) {
+				const p = join(base, dir, rel);
+				if (existsSync(p)) return p;
+			}
 	return null;
 }
 const CHROME = findChromium();
 if (!CHROME) {
-	console.error('No Chromium found under ms-playwright — this gate needs a real browser.');
+	console.error(
+		'No Chromium found (set CHROME_PATH, or: npx playwright install chromium-headless-shell) — this gate needs a real browser.',
+	);
 	process.exit(1);
 }
 
@@ -86,6 +99,7 @@ let textDoc = normalizeRigTextDoc(null);
 let textEtag = null;
 const uploads = new Map(); // filename -> bytes
 let savedSkeletons = 0;
+let rigEtag = null;
 
 /** Compose the bundle atlas the way `ensureBundleAtlasFresh` does: sheet block + text block. */
 const composedAtlas = () => baseAtlas.replace(/\s*$/, '\n') + textAtlasBlock(textDoc);
@@ -166,10 +180,18 @@ const server = createServer(async (req, res) => {
 			if (!('baseEtag' in body) && body.force !== true)
 				return send(400, 'application/json', JSON.stringify({ ok: false, message: 'no baseEtag' }));
 			if (body.baseEtag !== textEtag && body.force !== true)
-				return send(409, 'application/json', JSON.stringify({ ok: false, error: 'conflict', message: 'stale' }));
+				return send(
+					409,
+					'application/json',
+					JSON.stringify({ ok: false, error: 'conflict', message: 'stale' }),
+				);
 			const next = normalizeRigTextDoc(body.doc);
 			if (next.page && !uploads.has(next.page.file))
-				return send(400, 'application/json', JSON.stringify({ ok: false, message: 'page not uploaded' }));
+				return send(
+					400,
+					'application/json',
+					JSON.stringify({ ok: false, message: 'page not uploaded' }),
+				);
 			textDoc = next;
 			textEtag = 'etag-' + Date.now();
 			return jsonOut({ ok: true, etag: textEtag, regions: [], atlasSynced: true, swept: 0 });
@@ -184,11 +206,22 @@ const server = createServer(async (req, res) => {
 			return send(200, 'text/plain', 'ok');
 		}
 
+		// The conditional .irig write: the tool reads the stored tag on open (GET — `null` = no
+		// .irig yet) and refuses to save without one, so the mock must answer both halves.
+		if (p === '/api/rigger/save' && req.method === 'GET')
+			return jsonOut({ ok: true, projectKey: 'p', etag: rigEtag });
 		if (p === '/api/rigger/save') {
 			const body = JSON.parse(await readBody(req));
+			if (body.baseEtag !== rigEtag && body.force !== true)
+				return send(
+					409,
+					'application/json',
+					JSON.stringify({ ok: false, error: 'conflict', etag: rigEtag, message: 'stale' }),
+				);
 			skeletonJson = JSON.stringify(body.skeleton);
 			savedSkeletons++;
-			return jsonOut({ ok: true, key: 'x', count: 1 });
+			rigEtag = 'rig-' + savedSkeletons;
+			return jsonOut({ ok: true, key: 'x', etag: rigEtag, count: 1 });
 		}
 
 		if (p === '/api/fonts/catalog')
@@ -212,11 +245,17 @@ const server = createServer(async (req, res) => {
 				sourceLang: 'en',
 				targetLangs: ['de', 'es'],
 				entries: [
-					{ key: 'FREE_SPINS', source: 'FREE SPINS', reviewed: { de: 'FREISPIELE', es: 'GIROS' }, pending: 0 },
+					{
+						key: 'FREE_SPINS',
+						source: 'FREE SPINS',
+						translations: { de: 'FREISPIELE', es: 'GIROS' },
+						unreviewed: 0,
+					},
 				],
 			});
 
-		if (p.startsWith('/api/')) return jsonOut({ effects: [], atlases: [], rigs: [], animations: [] });
+		if (p.startsWith('/api/'))
+			return jsonOut({ effects: [], atlases: [], rigs: [], animations: [] });
 
 		// Everything else: the launcher's static tree (view.html's scripts + vendored runtimes).
 		const file = join(STATIC, p.replace(/^\//, ''));
@@ -274,9 +313,14 @@ ws.onmessage = (ev) => {
 		return;
 	}
 	if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type !== 'log')
-		pageLog.push(`[${msg.params.type}] ` + msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '));
+		pageLog.push(
+			`[${msg.params.type}] ` +
+				msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '),
+		);
 	if (msg.method === 'Runtime.exceptionThrown')
-		pageLog.push(`[uncaught] ${msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text}`);
+		pageLog.push(
+			`[uncaught] ${msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text}`,
+		);
 };
 const cdp = (method, params = {}, sessionId) =>
 	new Promise((resolve) => {
@@ -287,15 +331,24 @@ const cdp = (method, params = {}, sessionId) =>
 
 const { result: targets } = await cdp('Target.getTargets');
 const target = targets.targetInfos.find((t) => t.type === 'page');
-const { result: attached } = await cdp('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+const { result: attached } = await cdp('Target.attachToTarget', {
+	targetId: target.targetId,
+	flatten: true,
+});
 const session = attached.sessionId;
 await cdp('Runtime.enable', {}, session);
 
 async function evaluate(expression) {
-	const res = await cdp('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, session);
+	const res = await cdp(
+		'Runtime.evaluate',
+		{ expression, awaitPromise: true, returnByValue: true },
+		session,
+	);
 	const r = res.result;
 	if (r.exceptionDetails)
-		throw new Error(r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails));
+		throw new Error(
+			r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails),
+		);
 	return r.result.value;
 }
 const waitFor = async (expr, ms = 20000) => {
@@ -325,16 +378,26 @@ try {
 	{
 		await waitFor('typeof skeletons !== "undefined" && skeletons.length > 0');
 		ok('/rigger boots with the rig list', true);
-		ok('the Text section is in the outline', await evaluate('!!document.getElementById("secText")'));
-		ok('the text functions are defined (view.html is never type-checked)', await evaluate(
-			'["renderTextList","openTextModal","bakeAndPlaceText","removeTextElement","placeTextAttachments","loadRigText"].every((f) => typeof window[f] === "function")',
-		));
-		ok('the modal buttons are wired', await evaluate(
-			'typeof document.getElementById("textModalCreate").onclick === "function" && typeof document.getElementById("textModalClose").onclick === "function"',
-		));
-		ok('with no rig open it says so instead of offering a broken action', await evaluate(
-			'document.getElementById("textList").textContent.includes("open a rig")',
-		));
+		ok(
+			'the Text section is in the outline',
+			await evaluate('!!document.getElementById("secText")'),
+		);
+		ok(
+			'the text functions are defined (view.html is never type-checked)',
+			await evaluate(
+				'["renderTextList","openTextModal","bakeAndPlaceText","removeTextElement","placeTextAttachments","loadRigText"].every((f) => typeof window[f] === "function")',
+			),
+		);
+		ok(
+			'the modal buttons are wired',
+			await evaluate(
+				'typeof document.getElementById("textModalCreate").onclick === "function" && typeof document.getElementById("textModalClose").onclick === "function"',
+			),
+		);
+		ok(
+			'with no rig open it says so instead of offering a broken action',
+			await evaluate('document.getElementById("textList").textContent.includes("open a rig")'),
+		);
 	}
 
 	console.log('\n2. open the rig, then the text modal');
@@ -353,33 +416,61 @@ try {
 					),
 			);
 		});
-		const before = await evaluate('({ slots: rawDoc.slots.length, bones: rawDoc.bones.length, missing: missingArt.length })');
+		const before = await evaluate(
+			'({ slots: rawDoc.slots.length, bones: rawDoc.bones.length, missing: missingArt.length })',
+		);
 		ok('the real rig loads', before.bones > 50 && before.slots > 0, JSON.stringify(before));
 		ok('…with no missing art to start with', before.missing === 0, before.missing);
 
 		await evaluate('setMode("setup")');
-		ok('setup mode offers ＋ Add text…', await evaluate('document.getElementById("textList").textContent.includes("Add text")'));
+		ok(
+			'setup mode offers ＋ Add text…',
+			await evaluate('document.getElementById("textList").textContent.includes("Add text")'),
+		);
 
 		await evaluate('openTextModal(null)');
-		await waitFor('document.getElementById("textKey").options.length > 0 && document.getElementById("textFont").options.length > 0');
-		ok('the modal lists the project’s localization keys', await evaluate('document.getElementById("textKey").options[0].value === "FREE_SPINS"'));
-		ok('…and its fonts', await evaluate('document.getElementById("textFont").options[0].value === "gold"'));
-		ok('…and says which locales will bake', await evaluate('document.getElementById("textLocaleNote").textContent.includes("en, de, es")'),
-			await evaluate('document.getElementById("textLocaleNote").textContent'));
-		ok('…and the id defaults from the key', await evaluate('document.getElementById("textId").value === "free_spins"'),
-			await evaluate('document.getElementById("textId").value'));
+		await waitFor(
+			'document.getElementById("textKey").options.length > 0 && document.getElementById("textFont").options.length > 0',
+		);
+		ok(
+			'the modal lists the project’s localization keys',
+			await evaluate('document.getElementById("textKey").options[0].value === "FREE_SPINS"'),
+		);
+		ok(
+			'…and its fonts',
+			await evaluate('document.getElementById("textFont").options[0].value === "gold"'),
+		);
+		ok(
+			'…and says which locales will bake',
+			await evaluate(
+				'document.getElementById("textLocaleNote").textContent.includes("en, de, es")',
+			),
+			await evaluate('document.getElementById("textLocaleNote").textContent'),
+		);
+		ok(
+			'…and the id defaults from the key',
+			await evaluate('document.getElementById("textId").value === "free_spins"'),
+			await evaluate('document.getElementById("textId").value'),
+		);
 		// The preview is the author's only sight of the art before it becomes permanent.
 		await waitFor('document.querySelector("#textPreview canvas")');
-		const pv = await evaluate('(() => { const c = document.querySelector("#textPreview canvas"); return { w: c.width, h: c.height }; })()');
+		const pv = await evaluate(
+			'(() => { const c = document.querySelector("#textPreview canvas"); return { w: c.width, h: c.height }; })()',
+		);
 		ok('a live preview renders with real ink', pv.w > 20 && pv.h > 4, JSON.stringify(pv));
 	}
 
 	console.log('\n3. bake + place — the whole round trip through the REAL panel');
 	{
-		await evaluate('document.getElementById("textId").value = "title"; document.getElementById("textSize").value = 48; refreshTextModal()');
+		await evaluate(
+			'document.getElementById("textId").value = "title"; document.getElementById("textSize").value = 48; refreshTextModal()',
+		);
 		// This is the button an author presses.
 		await evaluate('document.getElementById("textModalCreate").click()');
-		await waitFor('!document.getElementById("textModal").classList.contains("open") || document.getElementById("textModalErr").textContent', 40000);
+		await waitFor(
+			'!document.getElementById("textModal").classList.contains("open") || document.getElementById("textModalErr").textContent',
+			40000,
+		);
 		const err = await evaluate('document.getElementById("textModalErr").textContent');
 		ok('the bake reported no error', !err, err);
 
@@ -405,27 +496,74 @@ try {
 		})()`);
 
 		ok('a slot was created', state.slot);
-		ok('…on its OWN bone (so the text is animatable independently)', state.boneExists && state.bone === 'text_title', state.bone);
+		ok(
+			'…on its OWN bone (so the text is animatable independently)',
+			state.boneExists && state.bone === 'text_title',
+			state.bone,
+		);
 		ok('…drawn last (on top)', state.slotIsLast);
-		ok('one attachment per locale', state.atts.length === 3, JSON.stringify(state.atts.map((a) => a.name)));
-		ok('…named <id>@<locale>', state.atts.every((a) => /^title@(en|de|es)$/.test(a.name)), JSON.stringify(state.atts.map((a) => a.name)));
-		ok('…pointing at the namespaced regions', state.atts.every((a) => a.path === 'text/title/' + a.name.split('@')[1]));
+		ok(
+			'one attachment per locale',
+			state.atts.length === 3,
+			JSON.stringify(state.atts.map((a) => a.name)),
+		);
+		ok(
+			'…named <id>@<locale>',
+			state.atts.every((a) => /^title@(en|de|es)$/.test(a.name)),
+			JSON.stringify(state.atts.map((a) => a.name)),
+		);
+		ok(
+			'…pointing at the namespaced regions',
+			state.atts.every((a) => a.path === 'text/title/' + a.name.split('@')[1]),
+		);
 		ok('the setup attachment is the SOURCE locale', state.setup === 'title@en', state.setup);
 
 		// THE decisive assertion: the MINIFIED vendored runtime parsed the recomposed multi-page
 		// atlas and resolved every text region. A stale atlas, a mis-shaped page block or a bad
 		// region name would show up here as a placeholder (missingArt) instead.
-		ok('the minified spine runtime resolved EVERY text region', state.missing.length === 0, JSON.stringify(state.missing));
-		ok('…each with a real, non-placeholder size', state.atts.every((a) => a.w > 1 && a.h > 1), JSON.stringify(state.atts));
+		ok(
+			'the minified spine runtime resolved EVERY text region',
+			state.missing.length === 0,
+			JSON.stringify(state.missing),
+		);
+		ok(
+			'…each with a real, non-placeholder size',
+			state.atts.every((a) => a.w > 1 && a.h > 1),
+			JSON.stringify(state.atts),
+		);
 		// German "FREISPIELE" is longer than Spanish "GIROS" — per-locale art really is per-locale.
 		const de = state.atts.find((a) => a.name === 'title@de');
 		const es = state.atts.find((a) => a.name === 'title@es');
 		ok('a longer translation really is a wider region', de.w > es.w, `de ${de.w} vs es ${es.w}`);
-		ok('the rig is marked unsaved (the author still owns the save)', state.dirty === true);
+		// A bake that only marked the rig dirty shipped an `.irig` naming the source locale alone,
+		// so the runtime swap had no sibling to swap to — the bake must PERSIST the attachments.
+		const stored = JSON.parse(skeletonJson);
+		const storedBag =
+			(stored.skins ?? []).find((s) => s.attachments?.text_title)?.attachments.text_title ?? {};
+		ok(
+			'the bake saved the rig itself',
+			state.dirty === false && savedSkeletons === 1,
+			`dirty ${state.dirty}, saves ${savedSkeletons}`,
+		);
+		ok(
+			'…and the saved rig carries every locale attachment',
+			['title@en', 'title@de', 'title@es'].every((n) => n in storedBag),
+			JSON.stringify(Object.keys(storedBag)),
+		);
 
-		ok('the server stored a text document', textDoc.elements.length === 1 && textDoc.elements[0].id === 'title');
-		ok('…and the packed page', uploads.size === 1 && /^rigtext-[0-9a-f]{16}\.png$/.test([...uploads.keys()][0]), [...uploads.keys()].join());
-		ok('the composed atlas really carries the text page', composedAtlas().includes([...uploads.keys()][0]));
+		ok(
+			'the server stored a text document',
+			textDoc.elements.length === 1 && textDoc.elements[0].id === 'title',
+		);
+		ok(
+			'…and the packed page',
+			uploads.size === 1 && /^rigtext-[0-9a-f]{16}\.png$/.test([...uploads.keys()][0]),
+			[...uploads.keys()].join(),
+		);
+		ok(
+			'the composed atlas really carries the text page',
+			composedAtlas().includes([...uploads.keys()][0]),
+		);
 	}
 
 	console.log('\n4. the panel reflects what was baked');
@@ -465,14 +603,30 @@ try {
 		if (res.skipped) {
 			ok('mesh conversion is reachable', false, res.skipped);
 		} else {
-			ok('the text region converts to a mesh', res.type === 'mesh' && res.uvs >= 8, JSON.stringify(res));
+			ok(
+				'the text region converts to a mesh',
+				res.type === 'mesh' && res.uvs >= 8,
+				JSON.stringify(res),
+			);
 			ok('…and the runtime builds it', res.builtMesh);
 			ok('…without losing its region', res.missing === 0, res.missing);
 			// The claim §12.4a rests on: mesh + weights + deform are authored ONCE and every
 			// locale follows. Without the link, a German player would get an unrigged quad.
-			ok('the other locales become LINKED meshes', res.deTypeRaw === 'linkedmesh' && res.deParent === 'title@en', JSON.stringify(res));
-			ok('…sharing the source geometry', res.deTris === res.tris && res.deTris > 0, `${res.deTris} vs ${res.tris}`);
-			ok('…but keeping their OWN art', res.deRegionW !== res.enRegionW && res.deRegionW > 1, `${res.deRegionW} vs ${res.enRegionW}`);
+			ok(
+				'the other locales become LINKED meshes',
+				res.deTypeRaw === 'linkedmesh' && res.deParent === 'title@en',
+				JSON.stringify(res),
+			);
+			ok(
+				'…sharing the source geometry',
+				res.deTris === res.tris && res.deTris > 0,
+				`${res.deTris} vs ${res.tris}`,
+			);
+			ok(
+				'…but keeping their OWN art',
+				res.deRegionW !== res.enRegionW && res.deRegionW > 1,
+				`${res.deRegionW} vs ${res.enRegionW}`,
+			);
 			ok('…and following its deform', res.deFollowsDeform);
 		}
 	}
@@ -484,12 +638,26 @@ try {
 		const savesBefore = savedSkeletons;
 		await evaluate('openTextModal("title")');
 		await waitFor('document.getElementById("textKey").options.length > 0');
-		ok('editing locks the id (it IS the attachment name)', await evaluate('document.getElementById("textId").disabled === true'));
+		ok(
+			'editing locks the id (it IS the attachment name)',
+			await evaluate('document.getElementById("textId").disabled === true'),
+		);
 		await evaluate('document.getElementById("textSize").value = 32; refreshTextModal()');
 		await evaluate('document.getElementById("textModalCreate").click()');
-		await waitFor('!document.getElementById("textModal").classList.contains("open") || document.getElementById("textModalErr").textContent', 40000);
-		ok('the re-bake reported no error', !(await evaluate('document.getElementById("textModalErr").textContent')));
-		ok('the rig was saved before the reload', savedSkeletons > savesBefore, `${savesBefore} → ${savedSkeletons}`);
+		await waitFor(
+			'!document.getElementById("textModal").classList.contains("open") || document.getElementById("textModalErr").textContent',
+			40000,
+		);
+		ok(
+			'the re-bake reported no error',
+			!(await evaluate('document.getElementById("textModalErr").textContent')),
+		);
+		// Twice: once BEFORE the reload (the mesh edit), once after placing the re-baked attachments.
+		ok(
+			'the rig was saved before the reload, and again after',
+			savedSkeletons === savesBefore + 2,
+			`${savesBefore} → ${savedSkeletons}`,
+		);
 		const kept = await evaluate(`(() => {
 			const skin = rawDoc.skins.find((s) => s.attachments && s.attachments["text_title"]);
 			const bag = skin ? skin.attachments["text_title"] : {};
@@ -509,7 +677,12 @@ try {
 		ok('the document is empty again', textDoc.elements.length === 0);
 		ok('the composed atlas is back to one page', !/rigtext-/.test(composedAtlas()));
 		ok('nothing is left pointing at a missing region', await evaluate('missingArt.length === 0'));
-		ok('the outline shows the empty-state help again', await evaluate('document.getElementById("textList").textContent.includes("A text element is ART")'));
+		ok(
+			'the outline shows the empty-state help again',
+			await evaluate(
+				'document.getElementById("textList").textContent.includes("A text element is ART")',
+			),
+		);
 	}
 } catch (e) {
 	fail++;
