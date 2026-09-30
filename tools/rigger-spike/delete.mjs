@@ -12,9 +12,9 @@
 //    influence, and leaves every vertex the deleted leaf bone did not influence exactly where it
 //    was, at setup AND under a deform key.
 // A synthetic rig carries one constraint of each kind (plus a skin constraint list, a weighted
-// path, clipping and bounding box, linked meshes, a draw-order key, and a bone named like the path's
-// target slot) and always runs;
-// the rig on the command line then gets every bone, slot and path attachment deleted in turn.
+// path, clipping and bounding box, linked meshes, a draw-order key, and a bone named like the
+// path's target slot) and always runs; the rig on the command line then gets every bone, slot and
+// path attachment deleted in turn.
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
