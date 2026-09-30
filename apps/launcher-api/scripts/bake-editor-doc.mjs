@@ -106,8 +106,7 @@ const destArg = getFlag('dest');
  *
  * Writing a generated file into the vendored engine is already how this works: the submodule is
  * read-only source in a game repo, its dirty state is build output (`engine-layout`'s generated
- * scenes do the same), the launcher's publish resets + cleans it before every build, and
- * `bump-game-engine.mjs` force-checkouts past it.
+ * scenes do the same), and the launcher's publish resets + cleans it before every build.
  */
 const requestedDest = destArg
 	? isAbsolute(destArg)
@@ -925,9 +924,8 @@ async function main() {
 	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
 	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
 	// ships no new assets — its frames are regions of an atlas the editor-art export already
-	// ships. Unlike effects, clips are NOT reachability-pruned — a filter is buildable now that
-	// consumers exist, but it would have to walk all four referrers incl. the rig manifest below
-	// (see flipbookExport.ts's header).
+	// ships. The export ships only the clips something plays (`clipReachability.ts`, the same set
+	// the art export gates the clips' atlas pages on).
 	let flipbooks;
 	// Rig-timeline direct CLIP bindings (a rig's own animation events → flipbook clips, read from the
 	// rig `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same

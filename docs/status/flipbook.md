@@ -81,8 +81,6 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    per-sheet recovery of `src` must be verified before the tool promises "did you mean…".
 5. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
    int matters" has no clean signal. Deliberate.
-6. **Stale code comments** — `flipbookExport.ts`'s header and a comment in
-   `scripts/bake-editor-doc.mjs` still say clips are not reachability-pruned; they are (#645).
 
 ## Blocked (owner / external)
 
@@ -94,6 +92,8 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-09-30 — Stale "clips are not reachability-pruned" comments in `flipbookExport.ts` and
+  `bake-editor-doc.mjs` corrected (open item 6 closed).
 - 2026-09-29 — **Docs caught up**: unplayed clips have not shipped since #645 and 🖼 To Atlas Maker is merged (both were still described as open). Status detail split into [flipbook-history.md](flipbook-history.md).
 - 2026-09-17 — **🖼 To Atlas Maker** (#704) and its `grid` layout (#712): the export writes loose
   reference PNGs and a seed page size; only Create Atlas refuses over capacity.

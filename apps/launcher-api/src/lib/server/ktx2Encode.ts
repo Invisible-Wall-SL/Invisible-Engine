@@ -10,7 +10,7 @@
  * `pixi-svelte/InitialiseApplication.svelte`.
  *
  * Encoder: `ktx2-encoder` (bundles the Binomial `basis_encoder.wasm`; runs in Node with
- * no browser globals). UASTC q1 + Zstd supercompression + mipmaps is the validated sweet
+ * no browser globals). UASTC q1 + Zstd supercompression, no mipmaps, is the validated sweet
  * spot: ~9 s and ~3.5 MB for a 2048×4096 page, ~345 MB peak RSS. ETC1S is smaller on disk
  * but visibly lossy AND peaks ~940 MB (a launcher OOM risk — `gotcha_bake_export_502_launcher_oom`),
  * so UASTC only.
