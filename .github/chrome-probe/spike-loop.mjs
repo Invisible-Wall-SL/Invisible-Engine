@@ -29,7 +29,8 @@ async function worker() {
 			stats.failed++;
 			failures.push(`${spike}:\n${out.log.split('\n').slice(-25).join('\n')}`);
 		}
-		console.log(`${out.code === 0 ? '✓' : '✗'} ${spike}`);
+		const ready = /\[chrome\] ready in (\d+) ms/.exec(out.log)?.[1];
+		console.log(`${out.code === 0 ? '✓' : '✗'} ${spike} (ready ${ready} ms)`);
 	}
 }
 await Promise.all(Array.from({ length: JOBS }, worker));
