@@ -251,8 +251,9 @@ export const TOOLS: Record<string, ToolDef> = {
 			download: '/api/launcher/download',
 			steps: [
 				'Download and run the Invisible Launcher (Windows .exe — no install needed).',
-				'In the launcher, click “Install / Update ComfyUI” to fetch the correct portable ComfyUI build automatically.',
-				'Click “Start tunnel” so the cloud Atlas Maker can reach your GPU.',
+				'Sign in with your portal account and click “↻ Sync” to pull your projects.',
+				'On a project card, “☁ Publish” builds it on the latest engine and publishes it; “📦 Deliver” packages it for a partner to host.',
+				'Optional — only to generate on your own GPU: “Install / Update ComfyUI”, then “Start tunnel”.',
 			],
 		},
 	},

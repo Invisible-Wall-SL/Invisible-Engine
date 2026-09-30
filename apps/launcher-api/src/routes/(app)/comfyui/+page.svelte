@@ -1247,8 +1247,8 @@
 											Node packs live in the pod's <strong>container image</strong>, not on the
 											volume. Anything installed later with ComfyUI-Manager is written to the
 											container and <strong>disappears when the pod is recreated on resume</strong>
-											— to keep a pack, add it to
-											<code>services/atlas-comfy-pod/Dockerfile</code> and rebuild the image.
+											— to keep a pack, an admin adds it under <strong>Custom nodes</strong>
+											above — the commit rebuilds the image — then updates the pod to that build.
 										</p>
 									{/if}
 								{/if}
