@@ -6,11 +6,12 @@
  * is the source for lines/ways/scatter. Edit here and regenerate; never edit the JSON.
  *
  * Numbers from 3 Oaks' own server config and rules where the design records them. Where it does
- * not (line-symbol pays, draw weights, the payer's and leave-behind coin's exact steps) the values
+ * not (line-symbol pays, draw weights, the payer's and leave-behind coin's exact steps, the mystery
+ * table, and Pots activating the specials that were on the triggering board) the values
  * are PLACEHOLDERS for the mock to generate from — the math team replaces them.
  */
 
-import type { HoldAndWin } from './holdAndWin';
+import type { HoldAndWin, HoldAndWinSymbolRole } from './holdAndWin';
 import type { GameConfigSymbol, Paylines, RawGameConfig, ReelStrip, WinLevelTier } from './types';
 
 export const HOLD_AND_WIN_PRESET_IDS = ['pots', 'classic', 'collector'] as const;
@@ -38,7 +39,9 @@ const pays = (three: number, four: number, five: number): GameConfigSymbol => ({
 /** A 3-reel game only has a 3-of-a-kind. */
 const pays3 = (three: number): GameConfigSymbol => ({ paytable: [{ '3': three }] });
 
-const tag = (...roles: string[]): GameConfigSymbol => ({ special_properties: roles });
+const tag = (...roles: Array<HoldAndWinSymbolRole | 'wild'>): GameConfigSymbol => ({
+	special_properties: roles,
+});
 
 /** The small/medium floor every preset shares (the lines template's) and four big tiers at the
  *  thresholds each reference game names. */

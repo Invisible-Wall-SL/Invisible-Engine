@@ -1,6 +1,6 @@
 /**
  * Offline fixture for the Hold and Win block and its three presets (`docs/design/hold-and-win.md`).
- *   pnpm --filter launcher-api exec tsx ../../packages/game-config/holdAndWin.fixture.ts
+ *   pnpm check:all --only holdAndWin.fixture
  *
  * Pins three things: every preset normalizes to a fixed point with NO blocking issue (a preset that
  * saves and comes back changed, or that the bake refuses, would seed every new project broken); a
@@ -253,6 +253,47 @@ check(
 	'a special restricted to a reel off the grid',
 	issuePaths(withBlock(collector, (d) => (d.holdAndWin!.specials.collector!.reels = [1, 5]))),
 	['holdAndWin.specials.collector.reels'],
+);
+
+check(
+	'collectorsOnly with a collector that does not stick',
+	issuePaths(withBlock(collector, (d) => (d.holdAndWin!.specials.collector!.sticky = false))),
+	['holdAndWin.stickiness'],
+);
+check(
+	'a blank counting toward the trigger',
+	issuePaths(withBlock(pots, (d) => d.holdAndWin!.trigger.count!.roles.push('blank'))),
+	['holdAndWin.trigger.count.roles'],
+);
+check(
+	'a blank filling the full board',
+	issuePaths(
+		withBlock(
+			pots,
+			(d) =>
+				d.holdAndWin!.boardEnd.type === 'fullBoardJackpot' &&
+				d.holdAndWin!.boardEnd.roles.push('blank'),
+		),
+	),
+	['holdAndWin.boardEnd.roles'],
+);
+check(
+	'a collector starting above its max level is kept and named',
+	issuePaths(
+		withBlock(collector, (d) => {
+			d.holdAndWin!.specials.collector!.level = 3;
+			d.holdAndWin!.specials.collector!.maxLevel = 2;
+			delete d.holdAndWin!.wheel;
+		}),
+	),
+	['holdAndWin.specials.collector.level'],
+);
+check(
+	'collectorsOnly collecting only at the end warns',
+	validateGameConfigDoc(
+		withBlock(collector, (d) => (d.holdAndWin!.specials.collector!.collects = 'atEnd')),
+	).map((i) => i.path),
+	['holdAndWin.specials.collector.collects'],
 );
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);

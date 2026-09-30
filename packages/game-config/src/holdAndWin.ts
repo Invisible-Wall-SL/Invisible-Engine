@@ -18,6 +18,7 @@
  */
 
 import type { GameConfigDoc } from './types';
+import type { GameConfigIssue } from './validate';
 
 /** The Hold and Win roles a symbol can carry in `special_properties`.
  *
@@ -386,7 +387,7 @@ const collector = (raw: unknown): CollectorSpecial | undefined => {
 	return withReels<CollectorSpecial>(
 		{
 			level,
-			maxLevel: Math.max(level, int(raw.maxLevel, 1) ?? level),
+			maxLevel: int(raw.maxLevel, 1) ?? level,
 			sticky: raw.sticky !== false,
 			collects: raw.collects === 'atEnd' ? 'atEnd' : 'perRespin',
 			landsInBaseGame: raw.landsInBaseGame === true,
@@ -534,11 +535,6 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 
 // ─── read helpers ─────────────────────────────────────────────────────────────────────────────
 
-/** The project's Hold and Win block, or `undefined` for every other kind of game. */
-export const resolveHoldAndWin = (
-	doc: Pick<GameConfigDoc, 'holdAndWin'> | undefined,
-): HoldAndWin | undefined => doc?.holdAndWin;
-
 /** The Hold and Win roles a symbol carries. */
 export const symbolHoldAndWinRoles = (
 	symbol: { special_properties?: string[] } | undefined,
@@ -557,8 +553,8 @@ export const symbolsWithRole = (
 		.map(([name]) => name)
 		.sort();
 
-/** The Hold and Win role that makes a symbol pay nothing on a line — true for every role. The
- *  paytable shows these as the coin value table, not as pays. */
+/** Does the symbol carry any Hold and Win role? Such a symbol pays by its value, never on a line,
+ *  so the paytable shows it as the coin value table rather than as pays. */
 export const isHoldAndWinSymbol = (
 	symbol: { special_properties?: string[] } | undefined,
 ): boolean => symbolHoldAndWinRoles(symbol).length > 0;
@@ -573,17 +569,15 @@ export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
 
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────
 
-export type HoldAndWinIssue = { severity: 'error' | 'warning'; path: string; message: string };
-
 /**
  * Internal consistency of a normalized doc's `holdAndWin` block. Every `error` is a config the mock
  * could not generate a round from or the board could not show; every `warning` is one that renders
  * but has a knob that does nothing.
  */
-export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
+export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 	const block = doc.holdAndWin;
 	if (!block) return [];
-	const issues: HoldAndWinIssue[] = [];
+	const issues: GameConfigIssue[] = [];
 	const error = (path: string, message: string) =>
 		issues.push({ severity: 'error', path: `holdAndWin.${path}`, message });
 	const warning = (path: string, message: string) =>
@@ -664,9 +658,13 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	);
 	if (!hasTrigger) error('trigger', 'Nothing can start the feature — add a trigger.');
 	const cells = doc.numRows.reduce((sum, rows) => sum + rows, 0);
+	const noBlank = (path: string, counted: HoldAndWinSymbolRole[]) => {
+		if (counted.includes('blank')) error(path, 'A blank is an empty cell — it cannot count here.');
+	};
 	if (t.count) {
 		if (!t.count.roles.length)
 			error('trigger.count.roles', 'The count trigger counts no symbol roles.');
+		noBlank('trigger.count.roles', t.count.roles);
 		if (t.count.min > cells) {
 			error(
 				'trigger.count.min',
@@ -685,6 +683,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	t.pattern?.forEach((req, i) => {
 		checkReel(`trigger.pattern.${i}.reel`, req.reel, 'The pattern needs a symbol on');
 		if (!req.roles.length) error(`trigger.pattern.${i}.roles`, 'This requirement names no role.');
+		noBlank(`trigger.pattern.${i}.roles`, req.roles);
 		const rows = doc.numRows[req.reel] ?? 0;
 		if (req.reel < doc.numReels && req.min > rows) {
 			error(
@@ -751,10 +750,16 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		);
 	}
 	const { collector: col, multiplier: mul, payer: pay, mystery: mys } = block.specials;
-	if (block.stickiness === 'collectorsOnly' && !col) {
+	if (block.stickiness === 'collectorsOnly' && (!col || !col.sticky)) {
 		error(
 			'stickiness',
-			'Only collectors stick, but there is no collector — nothing would ever stay on the board.',
+			'Only collectors stick, but there is no sticky collector — nothing would ever stay on the board.',
+		);
+	}
+	if (block.stickiness === 'collectorsOnly' && col?.collects === 'atEnd') {
+		warning(
+			'specials.collector.collects',
+			'Coins are cleared every respin but the collector only gathers at the end, so every coin before the last respin is lost.',
 		);
 	}
 	if (col && col.level > col.maxLevel) {
@@ -805,6 +810,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		const canActivate =
 			block.activeModifiers.atEntry.length > 0 ||
 			block.activeModifiers.fromTriggeringSpecials ||
+			Boolean(block.trigger.buy?.some((tier) => tier.guaranteed.length)) ||
 			Boolean(block.meters?.length) ||
 			Boolean(block.wheel) ||
 			Boolean(mys?.unlocksInactive);
@@ -821,6 +827,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	if (end.type === 'fullBoardJackpot') {
 		checkJackpot('boardEnd.jackpot', end.jackpot);
 		if (!end.roles.length) error('boardEnd.roles', 'The full board counts no symbol roles.');
+		noBlank('boardEnd.roles', end.roles);
 		if (block.stickiness === 'collectorsOnly' && end.roles.every((r) => r !== 'collector')) {
 			warning(
 				'boardEnd',
