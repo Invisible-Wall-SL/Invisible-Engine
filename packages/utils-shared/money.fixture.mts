@@ -71,7 +71,7 @@ const is = (actual: string, expected: string, what: string) => {
 };
 
 // Intl separates some currencies from digits with U+00A0 / U+202F; compare the glyphs readably.
-const plain = (s: string) => s.replace(/[  ]/g, ' ');
+const plain = (s: string) => s.replace(/[\u00a0\u202f]/g, ' ');
 
 console.log('\n1. Nothing declared ⇒ the formatter as it was');
 const AMOUNTS = [0, 0.1, 0.5, 1, 1234.5, 1234567.891, -42.25, 1e9];
