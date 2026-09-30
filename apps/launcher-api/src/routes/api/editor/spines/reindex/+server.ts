@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
-import { putObjectText } from '$lib/server/r2';
-import { buildSkeletonsIndex } from '$lib/server/spineIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -11,6 +10,10 @@ import type { RequestHandler } from './$types';
  * has PUT the spine files: the server scans the uploaded objects (reading `.atlas`
  * / skeleton heads back from R2) and writes a byte-compatible index — never the
  * client. Safe to call standalone to re-derive the index for an existing project.
+ *
+ * A skeleton folder with no `.atlas` is not dropped: its atlas is re-derived from `source.json`
+ * when it has one (`rederived`), else its prior entry is kept (`preserved`). `atlasMissing` names
+ * the folders still without an atlas — an upload that forgot its `.atlas` shows up there.
  */
 export const POST: RequestHandler = async ({ locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -21,9 +24,15 @@ export const POST: RequestHandler = async ({ locals, cookies }) => {
 	const spinesPrefix = SUB.spines(clientKey, projectKey);
 	// `prefix` written into the index === the slug-normalized spines root the
 	// viewer compares against (the script's PREFIX is the same string).
-	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
+	const outcome = await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix);
+	await writeSkeletonsIndex(spinesPrefix, outcome.index);
 
-	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');
-
-	return json({ ok: true, prefix: index.prefix, count: index.skeletons.length });
+	return json({
+		ok: true,
+		prefix: outcome.index.prefix,
+		count: outcome.index.skeletons.length,
+		rederived: outcome.rederivedFolders.length,
+		preserved: outcome.preservedFolders.length,
+		atlasMissing: outcome.atlasMissingFolders,
+	});
 };

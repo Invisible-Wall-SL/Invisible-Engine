@@ -3,7 +3,8 @@ import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, type SynthRegion } from '$lib/server/spine';
-import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
+import { releaseClaimOnCaseClash, spineBundleNameTaken } from '$lib/server/spineIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -69,14 +70,20 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	// The `.irig` goes FIRST and only if absent: `spineBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
-	// loser gets a 409 before it has written a page or an atlas over the winner's.
-	if (!(await claimNewIrig(`${bundle}/${name}.irig`, JSON.stringify(skeleton))))
+	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
+	// name differing only by case lands on a different key, so it is re-checked by listing.
+	const irigKey = `${bundle}/${name}.irig`;
+	if (!(await claimNewIrig(irigKey, JSON.stringify(skeleton))))
 		throw error(409, `a rig named "${name}" was just created by someone else`);
+	if (await releaseClaimOnCaseClash(spinesPrefix, name, irigKey))
+		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBytes, 'image/png');
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 
-	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
-	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');
+	await writeSkeletonsIndex(
+		spinesPrefix,
+		(await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix)).index,
+	);
 
 	return json({
 		ok: true,

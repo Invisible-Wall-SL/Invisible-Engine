@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
-import { deleteObject, deleteObjects, listAllKeys, putObjectText } from '$lib/server/r2';
-import { buildSkeletonsIndex } from '$lib/server/spineIndex';
+import { deleteObject, deleteObjects, listAllKeys } from '$lib/server/r2';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -13,7 +13,8 @@ const SKELETON_EXT = ['.irig', '.skel', '.json'];
 const isSkeleton = (key: string) => SKELETON_EXT.some((e) => key.toLowerCase().endsWith(e));
 
 /**
- * Delete a Rigger skeleton from R2 and rebuild the project's `skeletons.json`.
+ * Delete a Rigger skeleton from R2 and rebuild the project's `skeletons.json` (preserving, so an
+ * unrelated atlas-less rig stays listed; the deleted file is never carried forward).
  * Deletes ONLY the named skeleton file (never a sibling source `.json`/`.skel` that
  * belongs to another rig). If that leaves a dedicated bundle dir with no skeleton at
  * all (a from-scratch rig = `spines/<name>/<name>.irig` + its `.atlas`/page), the now-
@@ -61,8 +62,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		}
 	}
 
-	const index = await buildSkeletonsIndex(spinesPrefix, spinesPrefix);
-	await putObjectText(`${spinesPrefix}/skeletons.json`, JSON.stringify(index), 'application/json');
+	const { index } = await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix);
+	await writeSkeletonsIndex(spinesPrefix, index);
 
 	return json({ ok: true, purged, count: index.skeletons.length });
 };

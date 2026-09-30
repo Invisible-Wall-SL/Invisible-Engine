@@ -2663,25 +2663,26 @@ function pasteAnimation(){
   importAnimation(animClipboard.animation, animClipboard.name);
 }
 
-// Save one animation to the cross-project R2 library (📤). Overwrites by id on the
-// server; the client confirms first so a re-save can't silently clobber.
+// Save one animation to the cross-project R2 library (📤). The library is studio-wide, so the
+// first attempt only CREATES (`baseEtag: null`); a taken name answers 409 with the entry's etag,
+// and replacing it is an explicit choice whose retry is conditional on exactly that entry.
 async function saveAnimToLibrary(name){
   if (!rawDoc || !rawDoc.animations || !rawDoc.animations[name]) return;
-  if (!confirm('Save animation "' + name + '" to the shared library?\n\nIf a library animation already uses this name it will be overwritten.')) return;
   setAnimStatus('saving "' + name + '" to library…');
+  const sourceRig = selected ? (selected.skeleton_file || "").replace(/\.[^.]+$/, "") : null;
+  const anim = rawDoc.animations[name];
+  const post = (baseEtag) => fetch("/api/rigger/animations/save", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, animation: anim, refs: animRefs(anim), duration: animDuration(name), sourceRig, baseEtag }),
+  });
   try {
-    const sourceRig = selected ? (selected.skeleton_file || "").replace(/\.[^.]+$/, "") : null;
-    const r = await fetch("/api/rigger/animations/save", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name,
-        animation: rawDoc.animations[name],
-        refs: animRefs(rawDoc.animations[name]),
-        duration: animDuration(name),
-        sourceRig,
-      }),
-    });
-    if (!r.ok) throw new Error((await r.text()) || ("HTTP " + r.status));
+    let r = await post(null);
+    for (let tries = 0; r.status === 409 && tries < 3; tries++){
+      const j = await r.json().catch(() => null);
+      if (!j || !confirm((j.message || "That name is taken.") + "\n\nReplace it with this animation?")){ setAnimStatus("not saved — the library keeps its version"); return; }
+      r = await post(j.etag ?? null);
+    }
+    if (!r.ok){ const j = await r.json().catch(() => null); throw new Error((j && j.message) || ("HTTP " + r.status)); }
     await r.json();
     setAnimStatus('saved "' + name + '" to library ✓');
   } catch (e){ setAnimStatus("library save failed: " + (e && e.message ? e.message : e)); }

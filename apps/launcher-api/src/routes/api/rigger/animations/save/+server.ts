@@ -1,8 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import { r2Slug, sharedAnimationKey } from '$lib/server/projectPaths';
-import { putObjectText } from '$lib/server/r2';
 import { saveAnimation } from '$lib/server/riggerLibrary';
+import { putLibraryEntry } from '$lib/server/riggerLibraryWrite';
 import { gate } from '$lib/server/toolScope';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { SharedAnimationRefs } from '$lib/server/db/schema';
 import type { RequestHandler } from './$types';
 
@@ -10,10 +11,13 @@ import type { RequestHandler } from './$types';
  * Save one Rigger animation clip to the cross-project library (`_shared/animations/`).
  * The full entry (with the heavy `animation` subtree) is written to
  * `_shared/animations/<id>.json`; a lightweight catalog row is upserted into Postgres.
- * Re-saving the same id OVERWRITES (the client warns first). Gated by `rigger`; the id
- * is path-guarded via `r2Slug`.
+ * Gated by `rigger`; the id is path-guarded via `r2Slug`.
  *
- * Body: `{ id?, name, animation, refs?, duration?, sourceRig? }`.
+ * The library is STUDIO-WIDE, so the write is conditional exactly like the rig library's
+ * (`putLibraryEntry`): `baseEtag: null` creates only, a taken id answers 409 `exists` with the
+ * entry's etag + who saved it, and the confirmed overwrite retries with `If-Match` on that etag.
+ *
+ * Body: `{ id?, name, animation, refs?, duration?, sourceRig?, baseEtag: string | null }`.
  */
 const asStrings = (v: unknown): string[] =>
 	Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -34,6 +38,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!animation || typeof animation !== 'object' || Array.isArray(animation)) {
 		throw error(400, 'body.animation is not an object');
 	}
+	const baseEtag = writeBaseEtagJson(body);
 
 	const id = r2Slug(typeof body.id === 'string' && body.id ? body.id : name);
 	if (!id || id.includes('..') || id.includes('/')) throw error(400, 'bad id');
@@ -51,8 +56,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const entry = { schemaVersion: 1, id, name, savedAt, source, refs, duration, animation };
 	// Blob BEFORE row — see the ordering note in `riggerLibrary.ts`.
-	await putObjectText(sharedAnimationKey(id), JSON.stringify(entry), 'application/json');
+	const put = await putLibraryEntry(
+		sharedAnimationKey(id),
+		id,
+		'animation',
+		JSON.stringify(entry),
+		baseEtag,
+	);
+	if (!put.ok) return put.response;
 	await saveAnimation({ id, name, savedAt, source, refs, duration });
 
-	return json({ ok: true, id });
+	return json({ ok: true, id, etag: put.etag });
 };
