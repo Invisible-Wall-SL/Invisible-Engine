@@ -5,6 +5,64 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **A rig that fails to open leaves no rig open, so a save can no longer write one
+  rig's content under another rig's name.** Open item 11, found in the review of the entry below
+  and reproduced against a mock launcher: open S, then open S-broken, whose linked mesh names a
+  missing parent, so `SkeletonJson` throws ("Parent mesh not found: …"). `selectSkeleton` set
+  `selected` at its top and `loadRigPrecondition` then set `rigEtag` to S-broken's `.irig` ETag;
+  the throw left `rawDoc`, `skeletonData` and the stage on S. The error bar said "Load failed",
+  but ⤓ .irig, 💾 and 📦 stayed enabled and read that mixed state: 💾 posted S's skeleton as
+  `stem: "S-broken"` with S-broken's own ETag — the precondition passed, `irigDocProblem` passed
+  (S is a valid rig), and S-broken.irig was overwritten with S, kept in 🕘 but with no word to the
+  author; 📦 offered S to the library under S-broken's name; ⤓ downloaded S as `S-broken.irig`; a
+  cinematic tweak (`openRigForTweak` tested `rawDoc`) reported success and keyed into S.
+  `saveToR2.confirmedFor` carried over too, skipping the "an .irig already exists" prompt.
+  - **The document, the selection and the save precondition change together.** `selectSkeleton`
+    closes the open rig (`closeRig`: `rawDoc`, `skeletonData`, the skeleton, `dirty`, the
+    selections, the rig text, the per-open confirm) BEFORE it fetches anything, then sets
+    `selected` and asks for the precondition; a failure — or a build that got part-way — closes
+    again, with the reason in the outline. No state has one rig's document under another rig's
+    name, not even mid-load. `selectSkeleton` resolves true/false and every caller acts on it:
+    boot restore, the cinematic tweak, ＋ New rig / upload (Setup only once it opened), the text
+    bake (`bakeAndPlaceText` / `rebakeAllTextElements` stop instead of placing into nothing and
+    saving); ⟳ Re-sync, ↻ Refresh and 🕘 restore reload into the same closed state on failure.
+  - **What a failed open leaves.** No document, nothing on stage, Setup / Animate disabled, the
+    outline naming the rig as not open; ⤓ .irig, 💾 and 📦 disabled (`refreshRigFileButtons`,
+    keyed on the document). 🕘 History and ⟳ Re-sync / source… stay enabled for the rig that
+    failed — they act on its files — and the precondition fetched at the failed open is kept, so
+    a rig saved in a broken state is repaired by restoring an earlier save. (🕘 used to need an
+    open document, so a rig that failed at boot could not be restored from the tool.) A rig that
+    failed is no longer what the next visit reopens: `saveRiggerState` needs a built skeleton.
+  - **Switching asks.** Opening a rig from the list, and ＋ New rig / upload images (which open the
+    new rig), over unsaved edits now ask first; since a failed open leaves nothing open, that is
+    the one point the edits can still be kept. The list click had no guard at all — every switch
+    discarded unsaved edits silently, failed or not. (↻ Refresh, ⟳ Re-sync, 🕘 restore and the
+    cinematic tweak already asked.)
+  - **Late answers are dropped** (`rigGen`, bumped by every open). A save still in flight when
+    another rig opens no longer hands that rig its new ETag (its next save prompted a spurious
+    conflict), clears its dirty flag, or re-points `selected` at the saved rig's `.irig` entry —
+    with two rigs in one folder, a cross-rig save of its own. A restore's reload no longer reopens
+    the old rig over the one opened meanwhile. A rig's text document that answers after a switch is
+    no longer applied to the next rig (its elements then auto-synced into that rig and saved).
+    The text auto-sync re-checks the rig and `dirty` after its catalog fetches (an edit made
+    meanwhile was reloaded away), and hides only the loading overlay it put up — it used to hide
+    any, including another load's.
+  - **Gate.** `tools/rigger-spike/rig-switch.mjs` drives the real page in Chromium against a fake
+    launcher serving three copies of `anticipation`, one broken as above, and records every POST —
+    37 checks: Cancel and OK at the prompt; the failed state (no document, ⤓ / 💾 / 📦 disabled and
+    sending nothing even when called directly, 🕘 enabled, the outline, no close-tab warning, not
+    remembered); the tweak; a failed boot restore; 🕘 Restore opening the rig again; a mid-load
+    sample; ＋ New rig cancelled; a save and a text document in flight across a switch. The
+    previous page fails 20 of them, 💾 posting `{ stem: "S-broken", baseEtag: <S-broken's>,
+    skeleton: S }` exactly as reported. Nine planted mutants — no close before the fetch or on
+    failure, the save's answer landing, either prompt removed, 🕘 needing a document, a failed rig
+    remembered, the stale text document applied, 💾 enabled by the selection — are each caught.
+    All 63 rigger spikes are green. Also walked by hand in the browser pane (rAF shimmed): a bone
+    edit, Cancel, OK, the failed state, clicked saves reaching nothing, 🕘 → Restore.
+  - **Found, not fixed** (now open item 11): the stage error bar sits under the floating mode bar
+    (both at `top: 47px`, the bar on `z-index` 5), so the middle of every stage error — here the
+    missing mesh's name — is hidden at usual widths.
+
 - 2026-09-30 — **A rig that will not load can no longer enter the rig library, or leave it.** Open
   item 6: 📦 Save rig to library posted `rawDoc` without the tab's `rigDocLoadProblem` (only
   💾 Save ran it), and `irigDocProblem` — behind both saves and the 🕘 restore — stopped at a skin's

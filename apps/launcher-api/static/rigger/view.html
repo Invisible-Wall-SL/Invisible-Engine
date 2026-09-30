@@ -1224,8 +1224,7 @@ async function openRigForTweak(entry){
       + loadedLine + " loaded — open it from the rig list first, then tweak";
   if (dirty && !window.confirm("The open rig has unsaved changes.\n\nTweaking “" + (entry.name || "") + "” opens a different rig and discards them. Continue?"))
     return "cancelled — the open rig still has unsaved changes";
-  await selectSkeleton(entry);
-  return rawDoc ? null : "could not open that rig";
+  return (await selectSkeleton(entry)) && rawDoc ? null : "could not open that rig";
 }
 
 /** Enter tweak mode on an already-open rig. `info` = { actorId, clip, label, stripId }. */
@@ -1773,54 +1772,125 @@ function updateWorld(){
 }
 
 // ---- load a skeleton ------------------------------------------------------
+// Bumped each time the open rig is replaced. Work that belongs to one rig and answers later — its
+// load, its text document, a save or a restore — notes it first and drops its result once it has
+// moved, so nothing lands on a rig opened after that work started.
+let rigGen = 0;
+
+const rigLabel = (entry) => (entry.name || "").replace(/^\//, "") || entry.skeleton_file;
+
+// Opening a rig drops the open one's unsaved edits whether or not the new one opens (a failed open
+// leaves no rig open), so every way an author opens one asks first. `action` completes "… discards
+// them".
+function confirmLeaveRig(action){
+  if (!rawDoc || !dirty) return true;
+  return confirm("“" + rigLabel(selected) + "” has unsaved changes.\n\n" + action + " discards them. Continue?");
+}
+
+// ⤓ .irig, 💾 and 📦 write the open DOCUMENT, so they need one. 🕘 History and the atlas tools act on
+// the selected rig's files, so they also serve a rig that failed to open: restoring an earlier save,
+// or re-syncing its atlas, is how that rig gets repaired.
+function refreshRigFileButtons(){
+  $("#exportBtn").disabled = !rawDoc;
+  $("#saveBtn").disabled = !rawDoc;
+  $("#saveRigLibBtn").disabled = !rawDoc;
+  $("#histBtn").disabled = !selected || selected.format === "skel";
+  $("#resyncAtlasBtn").disabled = !selected;
+  $("#repickAtlasBtn").disabled = !selected;
+}
+
+// Drop the open rig's document — everything an edit, 💾 Save, 📦 or ⤓ .irig reads — and show the
+// selected rig as not open, `note` saying why. The selection and its save precondition are the
+// caller's: they describe the rig being opened, not the document being dropped.
+function closeRig(note){
+  rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
+  skeletonData = null; skeleton = null; animState = null; curEntry = null;
+  rigText = { elements: [], etag: null, loaded: false };
+  saveToR2.confirmedFor = false;
+  missingArt = [];
+  curAnim = null; animTime = 0;
+  selBone = null; selSlot = null; selEvent = null; selSeqKey = null;
+  selIk = null; selTc = null; selPath = null; selPc = null;
+  collapsedBones.clear();
+  // Cinematic mode stages other rigs and keeps the stage; a tweak whose rig did not open says so in
+  // the cinematic's own status line.
+  if (!cineMode) setMode("preview");
+  refreshRigFileButtons();
+  $("#insName").textContent = selected ? rigLabel(selected) : "No rig loaded";
+  $("#insSub").textContent = note;
+  ["#boneTree", "#slotList", "#skinList", "#animList", "#consList", "#consDetail", "#anim", "#skin"]
+    .forEach((s) => clearChildren($(s)));
+  ["#cBones", "#cSlots", "#cSkins", "#cAnims", "#cCons"].forEach((s) => { $(s).textContent = ""; });
+  renderBoneDetail(); renderSlotDetail(); renderEventDetail(); renderSeqDetail(); // nothing selected: each hides
+  renderTextList();
+  refreshArtWarn();
+  $("#bonemark").style.display = "none";
+  $("#time").textContent = "0.00s"; $("#scrub").value = 0;
+}
+
+// Open `entry` in place of the open rig. Resolves true once it is on stage and false when it did not
+// open (the error is on screen); never rejects — callers `await` it during boot restore, where an
+// unhandled rejection blanks the whole tool.
+//
+// The open rig is closed FIRST, before anything is fetched, so the document, the selection and the
+// save precondition always change together, and a rig that fails to open leaves no document at all.
+// It used to leave the previous rig's, under the new selection and the new rig's own ETag: 💾 then
+// wrote one rig's skeleton over another's `.irig` with a precondition that passed, and 📦 offered it
+// to the library under the wrong name (tools/rigger-spike/rig-switch.mjs).
 async function selectSkeleton(entry){
+  if (loadedLine && loadedLine !== entry.runtime){
+    location.hash = "id=" + entry.id + "&rt=" + entry.runtime;
+    location.reload();
+    return false;
+  }
+  const gen = ++rigGen;
   selected = entry;
-  { const b = $("#resyncAtlasBtn"); if (b) b.disabled = !selected; }
-  { const b = $("#repickAtlasBtn"); if (b) b.disabled = !selected; }
+  rigEtag = undefined; rigProjectKey = curProjectKey;
+  closeRig("loading…");
   renderList();
   closeSpineModal();
   clearErr();
   showLoading("Loading " + (entry.name || "skeleton") + "…");
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · spine " + entry.version : "");
-
-  if (loadedLine && loadedLine !== entry.runtime){
-    location.hash = "id=" + entry.id + "&rt=" + entry.runtime;
-    location.reload();
-    return;
-  }
-  try { await loadRuntime(entry.runtime); }
-  catch(e){ showErr(String(e.message || e)); hideLoading(); return; }
-
-  if (!gl) initGL();
-
-  await loadRigPrecondition(entry);
-  const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
-    + "&v=" + Date.now() + "&name=";
-  assetMgr = new SPINE.AssetManager(gl, base);
-  assetMgr.loadTextureAtlas(entry.atlas_file);
-  if (entry.format === "skel") assetMgr.loadBinary(entry.skeleton_file);
-  else assetMgr.loadJson(entry.skeleton_file);
-
-  // Keep BOTH the asset wait and the build inside the try: an asset/atlas error must
-  // not reject out of selectSkeleton (its callers `await` it during boot restore, where
-  // an unhandled rejection blanks the whole tool). On failure we show the real error and
-  // leave skeletonData unset so callers can detect it.
   try {
-    await waitAssets();
+    await loadRuntime(entry.runtime);
+    if (gen !== rigGen) return false;
+    if (!gl) initGL();
+    const pre = await fetchRigPrecondition(entry);
+    if (gen !== rigGen) return false;
+    // Kept when the load then fails: 🕘 restores THIS rig, conditional on this tag. The project stays
+    // the TAB's (the one whose list the rig was picked from): if the session moved to another project
+    // in a different tab, the save answers scope-mismatch instead of writing into that one.
+    if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; }
+    const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
+      + "&v=" + Date.now() + "&name=";
+    const am = assetMgr = new SPINE.AssetManager(gl, base);
+    am.loadTextureAtlas(entry.atlas_file);
+    if (entry.format === "skel") am.loadBinary(entry.skeleton_file);
+    else am.loadJson(entry.skeleton_file);
+    await waitAssets(am);
+    if (gen !== rigGen) return false;
     buildSkeleton(entry); saveRiggerState();
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
     // absent — which is every rig today) document never delays the rig appearing.
     loadRigText();
+    return true;
+  } catch (e){
+    if (gen !== rigGen) return false;
+    // A build that got part-way must not leave its pieces open either.
+    closeRig("not open — it failed to load" + (entry.format === "skel" ? "" : "; 🕘 can restore an earlier save"));
+    showErr("Load failed: " + (e.message || e));
+    return false;
+  } finally {
+    if (gen === rigGen) hideLoading();
   }
-  catch(e){ showErr("Load failed: " + (e.message || e)); }
-  finally { hideLoading(); }
 }
 
-function waitAssets(){
+function waitAssets(am){
   return new Promise((resolve, reject) => {
     const tick = () => {
-      if (assetMgr.isLoadingComplete()){
-        const errs = assetMgr.getErrors && assetMgr.getErrors();
+      if (am.isLoadingComplete()){
+        const errs = am.getErrors && am.getErrors();
         if (errs && Object.keys(errs).length)
           reject(new Error("Asset load error:\n" + JSON.stringify(errs, null, 2)));
         else resolve();
@@ -2016,7 +2086,7 @@ function clearChildren(el){ while (el.firstChild) el.removeChild(el.firstChild);
 
 function buildInspector(entry){
   if (!skeletonData) return; // nothing built yet (e.g. a failed load) — don't deref it
-  $("#insName").textContent = entry.name.replace(/^\//, "") || entry.skeleton_file;
+  $("#insName").textContent = rigLabel(entry);
   $("#insSub").textContent = "spine " + (entry.version || entry.runtime) + " · "
     + skeletonData.bones.length + " bones";
 
@@ -2930,12 +3000,15 @@ function ensureRigText(){
 async function loadRigText(){
   rigText = { elements: [], etag: null, loaded: false };
   if (!selected) return;
+  const gen = rigGen;
   try {
     const r = await fetch("/api/rigger/text?dir=" + encodeURIComponent(selected.dir_b64 || ""));
     if (!r.ok) return;
     const j = await r.json();
+    if (gen !== rigGen) return; // another rig was opened meanwhile — this is not its text
     rigText = { elements: (j.doc && j.doc.elements) || [], etag: j.etag ?? null, loaded: true };
   } catch (e){ console.warn("[RigText] could not load the rig text document", e); }
+  if (gen !== rigGen) return;
   renderTextList();
   autoSyncRigText();
 }
@@ -3062,9 +3135,13 @@ async function autoSyncRigText(){
   // committing work the author has not chosen to commit is not ours to do. It reruns on the
   // next open, by which point the rig is clean.
   if (dirty) return;
+  const gen = rigGen;
   if (!(await ensureRigText())) return;
 
   autoSyncingText = true;
+  // The loading overlay is this sync's to hide only once it has put it up — an early return while
+  // another rig loads must leave that load's overlay alone.
+  let showing = false;
   try {
     // BOTH catalogs, always. The strings decide WHAT to bake; the font catalog is what
     // `setFontCatalog` fills, and `bakeRigTextPage` resolves every request's font through it —
@@ -3078,6 +3155,9 @@ async function autoSyncRigText(){
       console.warn("[RigText] auto-sync skipped — fonts / localization unreachable", e);
       return;
     }
+    // Asked again now the fetches are back: another rig may be open (this is not its text), or the
+    // author may have started editing — and every path below reloads the rig and saves it.
+    if (gen !== rigGen || dirty) return;
 
     const stale = rigText.elements
       .map((el) => ({ el, why: textElementDrift(el) }))
@@ -3090,6 +3170,7 @@ async function autoSyncRigText(){
     // Does anything need new PIXELS, or is the atlas already right and only the rig behind?
     const needsBake = textDriftNeedsBake(stale.flatMap((s) => s.why));
     showLoading(needsBake ? "Updating text for " + stale.length + " element(s)…" : "Restoring localized text…");
+    showing = true;
     const ok = needsBake ? await rebakeAllTextElements() : await placeAllTextAttachments();
     if (ok) showNotice((needsBake
       ? "Localized text updated from /localization and saved — "
@@ -3097,7 +3178,7 @@ async function autoSyncRigText(){
   } catch (e){
     console.warn("[RigText] auto-sync failed", e);
     showErr("Could not update this rig's localized text automatically: " + ((e && e.message) || e));
-  } finally { autoSyncingText = false; hideLoading(); }
+  } finally { autoSyncingText = false; if (showing) hideLoading(); }
 }
 
 /** Write every already-rasterised variant into the skeleton and save. No bake — the atlas
@@ -3144,7 +3225,7 @@ async function rebakeAllTextElements(){
       + res.warnings.map((w) => w.elementId + "@" + w.locale + " — " + w.reason).join("\n"),
       "Text may overflow");
   }
-  await selectSkeleton(selected);            // re-fetch the recomposed .atlas + new page
+  if (!(await selectSkeleton(selected))) return false; // re-fetch the recomposed .atlas + new page (a failure is on screen)
   for (const el of elements){
     placeTextAttachments(el, res.attachments.filter((a) => a.elementId === el.id));
   }
@@ -3401,8 +3482,9 @@ async function bakeAndPlaceText(){
     }
     rigText.etag = res.etag ?? null;
 
-    // (3) reload the rig so the runtime holds the recomposed atlas + the new page
-    await selectSkeleton(selected);
+    // (3) reload the rig so the runtime holds the recomposed atlas + the new page. If it does not
+    // open there is no rig left to place the text in; the error bar says why.
+    if (!(await selectSkeleton(selected))){ closeTextModal(); return; }
 
     // (4) write the skeleton side — and (5) PERSIST it. The attachments used to be left as an
     // unsaved edit, so a bake that reported success shipped a rig the game could not localize:
@@ -5305,6 +5387,7 @@ async function createNewRig(){
   const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
   const note = $("#newRigNote");
   if (!name){ note.textContent = "enter a name"; return; }
+  if (!confirmLeaveRig("Creating “" + name + "” opens it, which")) return;
   note.textContent = "creating…";
   showLoading("Creating rig…");
   try {
@@ -5319,7 +5402,7 @@ async function createNewRig(){
     $("#newRig").style.display = "none"; $("#newRigName").value = "";
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
-    if (target){ await selectSkeleton(target); setEditMode(true); }
+    if (target && await selectSkeleton(target)) setEditMode(true);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
@@ -5357,6 +5440,7 @@ async function createRigFromImages(files){
   const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
   if (!name){ note.textContent = "enter a rig name first"; return; }
   if (!files || !files.length) return;
+  if (!confirmLeaveRig("Creating “" + name + "” opens it, which")){ $("#newRigFiles").value = ""; return; }
   note.textContent = "packing " + files.length + " image(s)…";
   showLoading("Packing " + files.length + " image(s)…");
   try {
@@ -5393,7 +5477,7 @@ async function createRigFromImages(files){
     $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#newRigFiles").value = "";
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
-    if (target){ await selectSkeleton(target); setEditMode(true); }
+    if (target && await selectSkeleton(target)) setEditMode(true);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
@@ -8937,10 +9021,7 @@ function setMode(m){
   $("#animTools").style.display = animMode ? "flex" : "none";
   $("#timeNum").style.display = animMode ? "inline-block" : "none";
   $("#resTimeline").style.display = (animMode || cineMode) ? "block" : "none";
-  $("#exportBtn").disabled = !rawDoc;
-  $("#saveBtn").disabled = !rawDoc;
-  $("#histBtn").disabled = !rawDoc;
-  { const b = $("#saveRigLibBtn"); if (b) b.disabled = !rawDoc; }
+  refreshRigFileButtons();
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
     : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
@@ -11845,19 +11926,17 @@ const irigStem = (entry) => ((entry && entry.skeleton_file) || "skeleton").repla
 // Ask for the `.irig`'s current ETag BEFORE its bytes load. The AssetManager hides response
 // headers, so the tag cannot ride along with the load — and fetching it FIRST is the order that
 // fails safe: a save landing in between leaves us holding an older tag than our bytes, which is a
-// spurious conflict prompt, never a silent overwrite.
-async function loadRigPrecondition(entry){
-  rigEtag = undefined; rigProjectKey = curProjectKey;
-  if (entry.format === "skel") return;
+// spurious conflict prompt, never a silent overwrite. Resolves `{ etag, projectKey }`, or undefined
+// when there is no answer (or a `.skel`, which never saves) — and saving is then refused.
+async function fetchRigPrecondition(entry){
+  if (entry.format === "skel") return undefined;
   try {
     const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
       + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
     const j = await r.json();
-    // `rigProjectKey` stays the TAB's project (the one whose list this rig was picked from). If the
-    // session moved to another project in a different tab, the save then answers scope-mismatch
-    // instead of writing a rig the author believes belongs to this one.
-    if (r.ok && j.ok){ rigEtag = j.etag; rigProjectKey = curProjectKey || j.projectKey; }
+    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey };
   } catch {}
+  return undefined;
 }
 
 // Re-parse the doc through the SAME tolerant loader the Rigger opens with, so a save can never
@@ -11901,6 +11980,7 @@ async function saveToR2Once(confirmed){
   const btn = $("#saveBtn"); const label = "💾 Save";
   btn.disabled = true; btn.textContent = "saving…";
   saveToR2.busy = true;
+  const gen = rigGen, saved = selected;
   let retry = false;
   try {
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
@@ -11911,6 +11991,13 @@ async function saveToR2Once(confirmed){
     });
     const text = await r.text();
     let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+    // Another rig was opened while this one saved. The answer is about the rig that WAS open, so none
+    // of it — its new tag, a conflict prompt, the clean flag, its `.irig` entry — lands on this one.
+    if (gen !== rigGen){
+      btn.textContent = label; btn.disabled = !rawDoc;
+      if (!(j && j.ok)) showErr("“" + stem + "” was not saved: " + ((j && j.message) || text || ("HTTP " + r.status)));
+      return false;
+    }
     if (j && j.saved && j.etag !== undefined) rigEtag = j.etag; // the write landed even if the reindex did not
     if (r.status === 409 && j){
       btn.textContent = label; btn.disabled = !rawDoc;
@@ -11930,10 +12017,9 @@ async function saveToR2Once(confirmed){
     // Refresh the list so a new <stem>.irig appears — and from now on the open rig IS that .irig.
     // Left pointing at the source .json, any later reload (a text re-bake, ⟳ Refresh) would reopen
     // the artist's source and silently drop the edits this save just stored.
-    const saved = selected;
     await loadSkeletons(true);
     const irig = skeletons.find((s) => (s.dir_b64 || "") === (saved.dir_b64 || "") && s.skeleton_file === stem + ".irig");
-    if (irig && selected === saved){ selected = irig; renderList(); saveRiggerState(); }
+    if (irig && gen === rigGen){ selected = irig; renderList(); saveRiggerState(); }
   } catch (e){
     showErr("Save failed: " + (e.message || e));
     btn.textContent = label; btn.disabled = !rawDoc;
@@ -11985,10 +12071,13 @@ async function restoreRigBackup(b, when, confirmed){
     + (dirty ? "Your UNSAVED edits in this tab are discarded. " : "")
     + "The current stored version is kept in History, so this can be undone.")) return;
   const payload = { dir: selected.dir_b64 || "", stem, id: b.id, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
+  const gen = rigGen, rig = selected;
   try {
     const r = await fetch("/api/rigger/backups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     const text = await r.text();
     let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+    // Another rig was opened meanwhile: reopening this one now would discard that rig's work.
+    if (gen !== rigGen){ if (!(j && j.ok)) showErr("“" + stem + ".irig” was not restored: " + ((j && j.message) || text || ("HTTP " + r.status))); return; }
     if (r.status === 409 && j){
       if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nRestore over their version anyway? (Theirs is kept in History.)")){ rigEtag = j.etag; return restoreRigBackup(b, when, true); }
       if (j.error !== "conflict") showErr(j.message);
@@ -11998,8 +12087,9 @@ async function restoreRigBackup(b, when, confirmed){
     closeRigHistory();
     dirty = false;
     await loadSkeletons(true);
-    const t = skeletons.find((s) => (s.dir_b64 || "") === (selected.dir_b64 || "") && s.skeleton_file === stem + ".irig");
-    await selectSkeleton(t || selected);
+    if (gen !== rigGen) return;
+    const t = skeletons.find((s) => (s.dir_b64 || "") === (rig.dir_b64 || "") && s.skeleton_file === stem + ".irig");
+    await selectSkeleton(t || rig);
   } catch (e){ showErr("Restore failed: " + (e.message || e)); }
 }
 
@@ -12633,7 +12723,7 @@ function renderList(){
     d.innerHTML = '<div class="nm">' + e.name + '</div>' +
       '<div class="meta">' + fmt + (e.version ? ' · ' + e.version : '') +
       '<span class="badge">rt ' + e.runtime + '</span></div>';
-    d.onclick = () => selectSkeleton(e);
+    d.onclick = () => { if (confirmLeaveRig("Opening “" + rigLabel(e) + "”")) selectSkeleton(e); };
     const del = document.createElement("button");
     del.textContent = "🗑"; del.title = "delete this rig";
     del.style.cssText = "position:absolute;top:6px;right:6px;padding:0 6px;font-size:12px;opacity:.55;";
@@ -12665,7 +12755,8 @@ function setActiveProject(client, project){
 // the Rigger restores where you left off — matching the other tools.
 function riggerStateKey(){ return "rigger.lastSel:" + (curProjectLabel || "default"); }
 function saveRiggerState(){
-  if (restoringState || !selected) return;
+  // Only a rig that opened is worth reopening on the next visit.
+  if (restoringState || !selected || !skeletonData) return;
   try {
     localStorage.setItem(riggerStateKey(), JSON.stringify({
       dir: selected.dir_b64 || "", file: selected.skeleton_file || "",
@@ -12681,11 +12772,9 @@ async function restoreRiggerState(){
   if (!target) return false;
   restoringState = true;
   try {
-    await selectSkeleton(target);
-    // If the build failed (e.g. an asset/atlas error left no skeletonData), bail
-    // instead of restoring mode/bone/slot — those deref skeletonData and would crash
-    // boot, blanking the whole tool. selectSkeleton already surfaced the real error.
-    if (!skeletonData) return false;
+    // A rig that did not open leaves nothing to restore mode/bone/slot into (they deref
+    // skeletonData, and a throw here blanks the whole tool); its error is already on screen.
+    if (!(await selectSkeleton(target))) return false;
     if (saved.mode && saved.mode !== "preview") setMode(saved.mode);
     if (animMode && saved.anim && animHasName(saved.anim)){ setCurAnim(saved.anim); animTime = Math.max(0, Math.min(workLen(saved.anim), saved.time || 0)); syncPlayhead(); renderTimeline(); }
     if (saved.bone){ const i = skeletonData.bones.findIndex((b) => b.name === saved.bone); if (i >= 0) selectBone(i); }
