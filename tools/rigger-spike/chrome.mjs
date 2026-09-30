@@ -78,19 +78,36 @@ const describe = (details) =>
 /** One Chrome process and its CDP pipe. Resolves once Chrome answers and a page is attached. */
 async function start(binary, name, extraArgs, cdpTimeoutMs) {
 	const profile = mkdtempSync(join(tmpdir(), `${name}-cdp-`));
-	const chrome = spawn(
-		binary,
-		[...BASE_ARGS, ...extraArgs, `--user-data-dir=${profile}`, 'about:blank'],
-		{
-			stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
-			// Its own process group, so a kill takes the renderer and GPU processes with it.
-			detached: POSIX,
-			windowsHide: true,
-		},
-	);
+	const removeProfile = () => {
+		try {
+			rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+		} catch {
+			// a temp profile a dying Chrome still holds is not worth failing the gate over
+		}
+	};
+	let chrome;
+	try {
+		chrome = spawn(
+			binary,
+			[...BASE_ARGS, ...extraArgs, `--user-data-dir=${profile}`, 'about:blank'],
+			{
+				stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
+				// Its own process group, so a kill takes the renderer and GPU processes with it.
+				detached: POSIX,
+				windowsHide: true,
+			},
+		);
+	} catch (e) {
+		removeProfile();
+		throw e;
+	}
 	let stderr = '';
 	chrome.stderr.on('data', (c) => (stderr = (stderr + c).slice(-4000)));
-	const exited = new Promise((r) => chrome.once('exit', (code, signal) => r({ code, signal })));
+	const exited = new Promise((r) => {
+		chrome.once('exit', (code, signal) => r({ code, signal }));
+		// A binary that cannot be spawned at all (EACCES, ENOENT) fails the launch, not the process.
+		chrome.once('error', (err) => r({ code: err.code, signal: null }));
+	});
 	let gone = null;
 	exited.then((e) => (gone = e));
 
@@ -103,13 +120,6 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
 			// already gone
 		}
 	};
-	const removeProfile = () => {
-		try {
-			rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-		} catch {
-			// a temp profile a dying Chrome still holds is not worth failing the gate over
-		}
-	};
 	// A spike that throws past its `finally` (or never had one) still takes Chrome down with it.
 	const onExit = () => {
 		kill();
@@ -119,6 +129,7 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
 
 	const [toChrome, fromChrome] = [chrome.stdio[3], chrome.stdio[4]];
 	toChrome.on('error', () => {});
+	fromChrome.on('error', () => {});
 	let msgId = 0;
 	const pending = new Map();
 	const listeners = [];
@@ -180,8 +191,9 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
 		const { result: attached } = await cdp('Target.attachToTarget', { targetId, flatten: true });
 		return { cdp, listeners, session: attached.sessionId, shutdown, readyMs: Date.now() - began };
 	} catch (e) {
+		const detail = gone ? '' : `\n  stderr so far:\n${stderr}`;
 		await shutdown();
-		throw new Error(`${e.message}${gone ? '' : `\n  stderr so far:\n${stderr}`}`);
+		throw new Error(`${e.message}${detail}`);
 	}
 }
 
@@ -243,7 +255,10 @@ export async function launchChrome({
 			pageLog.push(`[uncaught] ${describe(msg.params.exceptionDetails)}`);
 	});
 	await cdp('Runtime.enable', {}, session);
-	if (url) await cdp('Page.navigate', { url }, session);
+	if (url) {
+		const { result } = await cdp('Page.navigate', { url }, session);
+		if (result?.errorText) throw new Error(`could not open ${url}: ${result.errorText}`);
+	}
 
 	/** Evaluate an (async) expression in the page and return its value, or throw its error. */
 	async function evaluate(expression) {
