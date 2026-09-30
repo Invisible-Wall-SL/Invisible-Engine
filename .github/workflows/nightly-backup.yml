@@ -88,13 +88,13 @@ jobs:
           fi
           echo "run=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.run == 'true'
         with:
           sparse-checkout: scripts/backup
           persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: steps.gate.outputs.run == 'true'
         with:
           python-version: '3.12'

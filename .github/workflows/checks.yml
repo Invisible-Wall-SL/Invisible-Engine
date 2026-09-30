@@ -41,7 +41,7 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
@@ -49,10 +49,10 @@ jobs:
         uses: ./.github/actions/code-changed
 
       - if: steps.changes.outputs.code == 'true'
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
 
       - if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
@@ -78,7 +78,7 @@ jobs:
         uses: ./.github/actions/code-changed
 
       - if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
