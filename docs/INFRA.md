@@ -761,9 +761,9 @@ step, `.github/actions/code-changed`, diffs the PR (merge commit vs its base par
 later step, so each job reports success in ~10 s without installing anything. An undecidable diff
 (force-push, new branch) runs everything.
 
-**State (2026-09-30):** the ruleset already has deletions, force pushes, PR-required (0 approvals)
-and `check-secrets` required. The owner's remaining step is to add the other five checks. From a
-terminal with an admin token, the whole ruleset in one call:
+**State (2026-09-30):** applied — the live ruleset requires all six checks, plus deletions, force
+pushes and PR-required (0 approvals). To recreate or repair it from a terminal with an admin token,
+the whole ruleset in one call:
 
 ```bash
 gh api -X PUT repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --input - <<'EOF'

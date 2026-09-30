@@ -158,9 +158,6 @@ the game ([status/localization](status/localization.md)); concurrency Phases 0�
   ([status/infra](status/infra.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
-- **Require the CI checks on `main`** — add the five Checks/Lint names to the `main` ruleset
-  ([INFRA § Branch ruleset](INFRA.md#branch-ruleset-on-main-github)); every name already reports on
-  every PR. ([status/infra](status/infra.md))
 - **Legacy tool-key cut-over, 2026-10-13** — remove the old tool handoff and its secrets once the
   window closes. ([status/atlas-maker](status/atlas-maker.md) item 6,
   [status/sheet-maker](status/sheet-maker.md))
