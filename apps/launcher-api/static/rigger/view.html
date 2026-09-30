@@ -5296,10 +5296,7 @@ function attachRegion(regionName){
 // back to the attachment name), so setting `path` is all that changes on the wire.
 function replaceAttachmentImage(attName, regionName){
   if (!rawDoc || selSlot == null || !attName || !regionName) return;
-  // find the skin that actually holds this attachment — active skin first, else default
-  const activeSkin = activeSkinName();
-  const holder = (rawDoc.skins || []).find((s) => s.name === activeSkin && s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName])
-    || (rawDoc.skins || []).find((s) => s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName]);
+  const holder = rawDocAttSkin(attName);
   if (!holder){ alert("Couldn't find that attachment to replace its image."); return; }
   const def = holder.attachments[selSlot][attName];
   if (def.type === "linkedmesh"){ alert("This is a linked mesh — change the image on its parent mesh instead."); return; }
@@ -6259,14 +6256,11 @@ function applyAttachmentEdit(key, value){
     att.y = roundN((att.y || 0) + held.y - moved.y, 2);
   }
   if (att.updateRegion) att.updateRegion();
-  // mirror into the skin entry that actually defines this slot/attachment
-  for (const sk of rawDoc.skins){
-    const a = sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName];
-    if (a){
-      a[key] = v;
-      if (held){ a.x = att.x; a.y = att.y; }
-      break;
-    }
+  // mirror into the raw entry of the image the stage shows — the one the pivot was read from
+  const a = rawDocAttEntry(attName);
+  if (a){
+    a[key] = v;
+    if (held){ a.x = att.x; a.y = att.y; }
   }
   markDirty();
   if (held) renderSlotDetail(); // x/y moved under the author — show it
@@ -6304,14 +6298,10 @@ function pivotEditable(){
   return { slotName: selSlot, slotIndex, attName, att, bone };
 }
 
-// The raw skin entry for the selected attachment (where the pivot is stored).
+// The raw entry of the image the stage shows, where its pivot is stored (`ctx.slotName` is the
+// selected slot, which `rawDocAttEntry` resolves on).
 function pivotRawDef(ctx){
-  if (!ctx) return null;
-  for (const sk of rawDoc.skins || []){
-    const a = sk.attachments && sk.attachments[ctx.slotName] && sk.attachments[ctx.slotName][ctx.attName];
-    if (a) return a;
-  }
-  return null;
+  return ctx ? rawDocAttEntry(ctx.attName) : null;
 }
 
 // [u, v] across/down in 0..1 of the image; centred when unset.
@@ -7067,8 +7057,9 @@ function renderPathAttachmentEditor(det, att){
 // =============================================================================
 
 // The raw-doc skin whose attachment of this name the stage shows on the selected slot: the skin on
-// stage if it defines one, else default — skeleton.getAttachment's order. An edit that REPLACES the
-// entry must replace this one, not the first skin holding the name (usually default).
+// stage if it defines one, else default — skeleton.getAttachment's order. An edit to the image on
+// stage — replacing it, placing it, its pivot — must land in this one, not the first skin holding
+// the name (usually default).
 function rawDocAttSkin(attName){
   if (!rawDoc || selSlot == null || !attName) return null;
   const holds = (skName) => rawDoc.skins.find((s) => s.name === skName && s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName]);

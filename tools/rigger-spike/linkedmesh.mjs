@@ -34,6 +34,15 @@
 // element's source locale, whose other locales must follow it in the same skin. The rig on the
 // command line gets both on every slot showing an image, from a fresh skin that holds nothing and
 // from one that holds its own same-named copy.
+//
+// The placement fields (x, y, rotation, scaleX, scaleY), the ✥ pivot and replace image edit that
+// same image, by the same rule. They used to write the first skin holding the name (replace image
+// fell back to it when the skin on stage held none): the image on stage moved, then snapped back at
+// the next rebuild. Each runs with each skin on stage, on the same rigs and on copies with a pivot
+// on each skin's image: the edit must be written into that image's entry alone, a turn or a scale
+// must hold that image's pivot, the pivot panel must read it, and a rebuild must leave the image
+// where the edit put it. The rig on the command line gets all three on every slot showing an image,
+// from the same two fresh skins.
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -81,7 +90,7 @@ function pull(name) {
 // The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
 // of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
 const STUBS = new Set(['makeAttachmentLoader', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
-const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto', 'convertRegionToMesh', 'finishDrawMesh'];
+const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto', 'convertRegionToMesh', 'finishDrawMesh', 'applyAttachmentEdit', 'setPivotUV', 'pivotUV', 'pivotEditable'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
 	const name = q.shift();
@@ -368,6 +377,110 @@ function checkToMesh(what, action, holder, linked = []) {
 	return true;
 }
 
+// The image the stage shows on `slot`: its runtime attachment, its world corners BL, UL, UR, BR, and
+// its bone.
+function stageImage(slot) {
+	const si = sandbox.skeletonData.slots.findIndex((s) => s.name === slot);
+	const name = sandbox.skeletonData.slots[si].attachmentName;
+	const att = name ? sandbox.skeleton.getAttachment(si, name) : null;
+	const quad = new Array(8).fill(0);
+	if (att instanceof SPINE.RegionAttachment) att.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
+	return { name, att, quad, bone: sandbox.skeleton.slots[si].bone };
+}
+// Where a point of the image (u across, v down, 0..1 of the UNTRIMMED image, which is what a pivot
+// names) sits in the world, read off the quad spine-core draws — which covers the trimmed ink only.
+function imagePoint({ att, quad }, [u, v]) {
+	const r = att.region, s = (u * r.originalWidth - r.offsetX) / r.width, t = ((1 - v) * r.originalHeight - r.offsetY) / r.height;
+	return [quad[0] + s * (quad[6] - quad[0]) + t * (quad[2] - quad[0]), quad[1] + s * (quad[7] - quad[1]) + t * (quad[3] - quad[1])];
+}
+// A held pivot is kept by rounding x and y to 0.01 in the bone's space: at most this far in the world.
+const rounding = (bone) => 0.006 * (Math.hypot(bone.a, bone.c) + Math.hypot(bone.b, bone.d)) + 1e-9;
+const entryOf = (skin, slot, name) => sandbox.rawDoc.skins.find((s) => s.name === skin)?.attachments?.[slot]?.[name];
+const pivotOf = (def) => (Array.isArray(def?.pivot) ? def.pivot : [0.5, 0.5]);
+// A copy of `doc` with a pivot on the image each slot shows, in each skin of `pivots` ([skin, [u, v]]).
+function withPivots(doc, pivots) {
+	const out = clone(doc);
+	for (const slot of out.slots) for (const [skin, uv] of pivots) {
+		const def = slot.attachment && out.skins.find((s) => s.name === skin)?.attachments?.[slot.name]?.[slot.attachment];
+		if (def && (def.type ?? 'region') === 'region') def.pivot = uv;
+	}
+	return out;
+}
+// The placement fields on the image the stage shows on the selected slot, in turn. `holder` is the
+// skin that image belongs to: each edit is written into its entry alone and shows on stage at once, a
+// turn or a scale holds the pivot that entry names where it was, and after a rebuild the same skin is
+// on stage showing the image where the edits left it.
+const PLACE = [['x', (v) => v + 7], ['y', (v) => v - 5], ['rotation', (v) => v + 25], ['scaleX', (v) => v + 0.5], ['scaleY', (v) => v + 0.25]];
+function checkPlace(what, holder) {
+	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot;
+	let img = stageImage(slot);
+	if (!log(img.att instanceof SPINE.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
+	const want = [key(holder, slot, img.name)];
+	let before = snapshot(sandbox.rawDoc);
+	for (const [field, next] of PLACE) {
+		// a move carries the pivot along; a turn or a scale holds it
+		const v = next(img.att[field]), holds = field !== 'x' && field !== 'y';
+		const uv = pivotOf(entryOf(holder, slot, img.name)), pivot = holds && imagePoint(img, uv);
+		const label = `${what}: ${field} ${v} on ${slot}`;
+		const err = act((s) => s.applyAttachmentEdit(field, String(v)));
+		if (!log(!err, `${label} threw: ${err}`)) return;
+		const after = snapshot(sandbox.rawDoc), changed = changedBetween(before, after);
+		before = after;
+		log(JSON.stringify(changed) === JSON.stringify(want), `${label} wrote [${changed.map(showChange).join(', ')}], expected [${want.map(show)}]`);
+		img = stageImage(slot);
+		log(img.att[field] === v, `${label}: the stage's image has ${field} ${img.att[field]}`);
+		if (holds) {
+			const off = worst(imagePoint(img, uv), pivot);
+			log(off <= rounding(img.bone), `${label} moved the image's pivot [${uv}] by ${off}`);
+		}
+	}
+	sandbox.rebuildFromRawDoc(null);
+	onStage(`${what}: the placement fields on ${slot}, then a rebuild`, skin);
+	const drift = worst(stageImage(slot).quad, img.quad);
+	log(drift < 1e-9, `${what}: after a rebuild the image on ${slot} is ${drift} off where the placement fields left it`);
+}
+// ✥ A pivot chosen on the image the stage shows, which belongs to `holder`: the panel shows the pivot
+// that entry names, the choice is written into it alone, the point chosen takes the old pivot's
+// place, the panel then shows the choice, and after a rebuild the same skin is on stage showing the
+// image where the choice moved it.
+const PIVOT_TO = [0, 1];
+function checkPivot(what, holder) {
+	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot, img = stageImage(slot);
+	if (!log(img.att instanceof SPINE.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
+	const want = [key(holder, slot, img.name)], label = `${what}: pivot [${PIVOT_TO}] on ${slot}`;
+	const panel = () => JSON.stringify(sandbox.pivotUV(sandbox.pivotEditable()));
+	const was = pivotOf(entryOf(holder, slot, img.name)), pivot = imagePoint(img, was), before = snapshot(sandbox.rawDoc);
+	log(panel() === JSON.stringify(was), `${what}: the pivot panel shows ${panel()} on ${slot}, expected ${holder}'s [${was}]`);
+	const err = act((s) => s.setPivotUV(...PIVOT_TO));
+	if (!log(!err, `${label} threw: ${err}`)) return;
+	const changed = changedBetween(before, snapshot(sandbox.rawDoc));
+	log(JSON.stringify(changed) === JSON.stringify(want), `${label} wrote [${changed.map(showChange).join(', ')}], expected [${want.map(show)}]`);
+	const moved = stageImage(slot), off = worst(imagePoint(moved, PIVOT_TO), pivot);
+	log(off <= rounding(moved.bone), `${label}: the point chosen is ${off} off the pivot it replaced`);
+	log(panel() === JSON.stringify(PIVOT_TO), `${label}: the pivot panel then shows ${panel()}`);
+	sandbox.rebuildFromRawDoc(null);
+	onStage(`${label}, then a rebuild`, skin);
+	const drift = worst(stageImage(slot).quad, moved.quad);
+	log(drift < 1e-9 && panel() === JSON.stringify(PIVOT_TO), `${label}: after a rebuild the image is ${drift} off where the choice moved it, and the pivot panel shows ${panel()}`);
+}
+// replace image (keep mesh) on the image the stage shows, which belongs to `holder`: that entry alone
+// is re-pointed, at a region none of the slot's same-named images draws, and the same skin stays on
+// stage showing it.
+function checkReplace(what, holder) {
+	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot, { name } = stageImage(slot);
+	const drawn = new Set(sandbox.rawDoc.skins.map((s) => s.attachments?.[slot]?.[name]).filter(Boolean).map((d) => d.path ?? name));
+	const region = sandbox.__atlas.regions.find((r) => !drawn.has(r.name))?.name;
+	if (!log(name && region, `${what}: nothing on ${slot} to replace, or no region to replace it with`)) return;
+	const want = [key(holder, slot, name)], label = `${what}: replace image on ${slot} with ${region}`, before = snapshot(sandbox.rawDoc);
+	const err = act((s) => s.replaceAttachmentImage(name, region));
+	if (!log(!err, `${label} — the rig no longer loads: ${err}`)) return;
+	const changed = changedBetween(before, snapshot(sandbox.rawDoc));
+	log(JSON.stringify(changed) === JSON.stringify(want), `${label} re-pointed [${changed.map(showChange).join(', ')}], expected [${want.map(show)}]`);
+	onStage(label, skin);
+	const now = stageImage(slot).att;
+	log(now && now.path === region, `${label}: the stage then shows ${now && now.path} there`);
+}
+
 // ---- (1) the synthetic rig ---------------------------------------------------------------------
 const SYNTH_ATLAS = 'synth.png\nsize:64,64\nfilter:Linear,Linear\nbody\nbounds:0,0,16,16\ngold_body\nbounds:16,0,16,16\ntrim\nbounds:32,0,16,16\nplate\nbounds:48,0,16,16\narm\nbounds:0,16,16,16\n';
 const quad = (path, w) => ({ type: 'mesh', path, width: w, height: w, hull: 4, uvs: [0, 0, 1, 0, 1, 1, 0, 1], triangles: [0, 1, 2, 2, 3, 0], vertices: [0, 0, w, 0, w, w, 0, w] });
@@ -557,17 +670,18 @@ const IMAGES = {
 };
 // the rule goes by name: listed after gold, default still holds what the stage shows
 const IMAGES_DEFAULT_SECOND = { ...IMAGES, skins: [IMAGES.skins[1], IMAGES.skins[0], IMAGES.skins[2]] };
-// [rig, the skin on stage, the skin whose image the stage shows]
-const ON_STAGE = [[IMAGES, 'default', 'default'], [IMAGES, 'gold', 'gold'], [IMAGES, 'blue', 'default'], [IMAGES_DEFAULT_SECOND, 'default', 'default']];
+// [rig, the skin on stage, the skin whose image the stage shows]: each skin on stage, in both orders
+const ON_STAGE = [IMAGES, IMAGES_DEFAULT_SECOND].flatMap((doc) => ['default', 'gold', 'blue'].map((skin) => [doc, skin, skin === 'gold' ? 'gold' : 'default']));
+const onStageIn = (doc, skin) => `"${skin}" on stage${doc === IMAGES ? '' : ', default listed second'}`;
 for (const action of ['convert', 'draw']) for (const [doc, skin, holder] of ON_STAGE) {
 	open(doc, IMAGE_ATLAS, skin, 'body');
-	checkToMesh(`"${skin}" on stage${doc === IMAGES ? '' : ', listed second'}`, action, holder);
+	checkToMesh(onStageIn(doc, skin), action, holder);
 }
 // a text element's source locale takes its other locales along, as linked meshes in the same skin
 sandbox.rigText.elements = [{ id: 'title', sourceLocale: 'en', slot: 'caption' }];
 for (const [doc, skin, holder] of ON_STAGE) {
 	open(doc, IMAGE_ATLAS, skin, 'caption');
-	const what = `"${skin}" on stage${doc === IMAGES ? '' : ', listed second'}, text "title"`;
+	const what = `${onStageIn(doc, skin)}, text "title"`;
 	checkToMesh(what, 'convert', holder, ['title@de']);
 	const got = bindings(sandbox.skeletonData).get(key(holder, 'caption', 'title@de'));
 	log(got === key(holder, 'caption', 'title@en'), `${what}: ${holder}'s title@de follows ${show(got)}, expected ${holder}'s title@en`);
@@ -578,6 +692,17 @@ open(IMAGES, IMAGE_ATLAS, 'gold', 'body');
 checkAddImage('"gold" on stage, overriding body', 'gold', 'gold_body');
 open(IMAGES_DEFAULT_SECOND, IMAGE_ATLAS, 'blue', 'body');
 checkAddImage('"blue" on stage, default listed second', 'blue', 'gold_body');
+
+// The placement fields, the ✥ pivot and replace image edit the image the stage shows, in its skin
+console.log('\n=== the image on stage — synthetic rig: placement fields · ✥ pivot · replace image ===');
+// each rig again with a different pivot on each skin's image, so a pivot read from the wrong one shows
+const PIVOTS = [['default', [1, 0]], ['gold', [1, 1]]];
+for (const [doc, skin, holder] of ON_STAGE) for (const rig of [doc, withPivots(doc, PIVOTS)]) {
+	for (const check of [checkPlace, checkPivot, checkReplace]) {
+		open(rig, IMAGE_ATLAS, skin, 'body');
+		check(onStageIn(doc, skin) + (rig === doc ? '' : ', pivoted'), holder);
+	}
+}
 
 // ---- (2) the rig on the command line ---------------------------------------------------------
 const [, , jsonPath, atlasPath] = process.argv;
@@ -651,8 +776,9 @@ if (jsonPath && atlasPath) {
 			bagOf(own, fresh, slot.name)[slot.attachment] = { ...clone(def), x: (def.x ?? 0) + 7, rotation: (def.rotation ?? 0) + 30 };
 			slots.push(slot.name);
 		}
+		const sessions = [[bare, 'default', 'holding nothing'], [own, fresh, 'holding its own']];
 		let mapped = 0;
-		for (const [doc, holder, what] of [[bare, 'default', 'holding nothing'], [own, fresh, 'holding its own']]) for (const action of ['convert', 'draw']) {
+		for (const [doc, holder, what] of sessions) for (const action of ['convert', 'draw']) {
 			// one session per skin and action, over every slot in turn
 			open(doc, atlasText, fresh);
 			for (const slot of slots) {
@@ -661,9 +787,19 @@ if (jsonPath && atlasPath) {
 			}
 		}
 		console.log(`  ▸ Convert / ✎ Draw mesh from new skin "${fresh}": ${slots.length} slot(s) showing an image, in both skins; texels checked on ${mapped} of ${slots.length * 4} (the rest are trimmed)`);
+		// then the placement fields, the ✥ pivot and replace image on those images, each skin's with a
+		// pivot of its own — one session per skin, over every slot in turn
+		for (const [doc, holder, what] of sessions) {
+			open(withPivots(doc, [['default', [1, 0]], [fresh, [1, 1]]]), atlasText, fresh);
+			for (const slot of slots) {
+				sandbox.selSlot = slot;
+				for (const check of [checkPlace, checkPivot, checkReplace]) check(`"${fresh}" on stage, ${what}`, holder);
+			}
+		}
+		console.log(`  placement fields · ✥ pivot · replace image from new skin "${fresh}": ${slots.length} slot(s) showing an image, in both skins`);
 	}
 }
 
 log(changesFromCode === 0, `the page fired the skin picker's change ${changesFromCode} time(s) from code`);
-console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads bound to the mesh the author picked, every new attachment lands in the skin on stage, every image rewritten is the one the stage shows, and nothing else changes.` : `\n✗ FAIL (${checks} checks)`);
+console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads bound to the mesh the author picked, every new attachment lands in the skin on stage, every image edited or rewritten is the one the stage shows, and nothing else changes.` : `\n✗ FAIL (${checks} checks)`);
 process.exit(pass ? 0 : 1);

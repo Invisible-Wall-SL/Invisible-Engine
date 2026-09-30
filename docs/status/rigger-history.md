@@ -5,6 +5,51 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **The placement fields, the pivot and replace image edit the image the stage
+  shows.** The last three lookups with the first-skin rule (open item 9), each probed with the
+  shipped functions on the synthetic two-skin rig (`default`: slot `body` → region `body`, 10×10;
+  `gold`: a same-named `body` drawing `gold_body` at 30×30, x 4, rotation 15):
+  - **The placement fields** (`applyAttachmentEdit`: x, y, rotation, scaleX, scaleY) set the stage's
+    attachment, then mirrored the value into the raw doc with a loop that took the FIRST skin
+    holding the name. With `gold` on stage, x = 7 moved gold's image live but was written into
+    default's `body`; the next rebuild put gold's back at x 4.
+  - **The pivot** (`pivotRawDef`, which `setPivotUV`, `pivotUV` and the placement fields' pivot hold
+    read) had the same loop: pivot `[0, 1]` with `gold` on stage wrote `pivot: [0, 1]`, x 10.61 and
+    y 18.37 — offsets measured off gold's rotated 30×30 quad — into default's `body`, and the
+    rebuild put gold's back at (4, 0).
+  - **Replace image** tried the skin on stage first, then fell back to the first skin holding the
+    name rather than to default: with skins `[gold, default, blue]` and `blue` on stage, it
+    re-pointed gold's `body`, and the stage kept default's art.
+  - **One rule.** All three now resolve through `rawDocAttSkin` (entry below): the skin on stage's
+    image if it has one, else default's. `pivotRawDef` is now `rawDocAttEntry`, so the placement
+    fields read a held pivot from, and write the compensating x / y back into, the same entry. An
+    image a skin only inherits is edited in default, which every skin without its own shows — the
+    rule ▸ Convert / ✎ Draw mesh and the mesh edits already follow. The probes again: x = 7 stays
+    on gold's `body` through a rebuild; pivot `[0, 1]` lands in gold's (x 14.61, y 18.37); replace
+    image re-points default's.
+  - **Gate.** `linkedmesh.mjs` now also pulls the shipped `applyAttachmentEdit`, `setPivotUV`,
+    `pivotUV` and `pivotEditable`. On the synthetic image rig — each skin on stage, `default` listed
+    first and second, plain and with a different pivot on default's and gold's `body` — it edits
+    every placement field in turn, chooses a pivot, and replaces the image with a region no skin's
+    `body` draws. Each edit must be written into the stage image's entry alone (a snapshot diff of
+    the whole rig) and show at once; a turn or scale must hold that image's pivot, measured off the
+    quad spine-core draws rather than the tool's pivot math; the pivot panel must show that image's
+    pivot before and the choice after, the point chosen taking the old pivot's place; and a rebuild
+    must leave the image exactly where the edit put it, with the same skin on stage. The CLI rig gets
+    all three on every slot showing a default-skin image (63 on `anticipation`, 34 on `S`), with a
+    pivot on default's image and on a fresh skin's same-named copy, from that skin holding nothing and
+    holding its copy. ▸ Convert / ✎ Draw mesh now run the same six skin-on-stage cases (they ran
+    four). 797 checks synthetic, 7288 on `anticipation`, 4921 on `S`; the previous `view.html` fails
+    67, 823 and 475 of them. Nine mutants are each caught: either loop reverted
+    (`applyAttachmentEdit`, `pivotRawDef`); replace image's fallback reverted; default preferred to
+    the skin on stage (placement, replace); the pivot read in the skin on stage with no fallback;
+    the held x / y not written back; `setPivotUV` writing the first skin while reading the right one;
+    the placement fields reading the pivot off the first skin while writing the right one. The CI
+    rigs alone cannot catch the replace-image fallback — their fresh skin is listed after default, so
+    the first skin holding the name IS default — the synthetic `[gold, default, blue]` order does.
+    `pivot.mjs`, which runs the pivot block and `applyAttachmentEdit` in a sandbox of its own, now
+    pulls `rawDocAttEntry`, `rawDocAttSkin` and `activeSkinName` too.
+
 - 2026-09-30 — **▸ Convert to mesh and ✎ Draw mesh rewrite the image the stage shows.** Both read
   the slot's image off the stage (`skeleton.getAttachment`: the active skin, then default) but
   picked the raw entry to rewrite with a loop that took the FIRST skin holding the name, usually
@@ -16,13 +61,13 @@
   - **One rule.** `rawDocAttSkin(attName)` names the raw skin whose image the stage shows — the
     skin on stage if it defines the name, else default, `skeleton.getAttachment`'s order — and both
     actions rewrite that one. `rawDocAttEntry`, which ＋ add image and the point, box / clip and
-    linked-mesh editors read, is now read off it too; the mesh, path, placement, pivot and
-    replace-image lookups still resolve on their own. In a skin that only inherits the image, the
-    one rewritten is default's, which every skin without its own then shows as a mesh — the rule
-    mesh edits already follow (`meshInActiveSkin`, ⎘ Make skin-specific). Unchanged: converting a
-    text element's source locale still links its other locales in the same skin
-    (`syncTextLocaleMeshes`), and path and tint carry over as before (✎ Draw mesh has never taken
-    the tint).
+    linked-mesh editors read, is now read off it too; the mesh and path lookups still resolve on
+    their own (the placement, pivot and replace-image ones joined it in the entry above). In a skin
+    that only inherits the image, the one rewritten is default's, which every skin without its own
+    then shows as a mesh — the rule mesh edits already follow (`meshInActiveSkin`, ⎘ Make
+    skin-specific). Unchanged: converting a text element's source locale still links its other
+    locales in the same skin (`syncTextLocaleMeshes`), and path and tint carry over as before (✎
+    Draw mesh has never taken the tint).
   - **Gate.** `linkedmesh.mjs` now also pulls the shipped `convertRegionToMesh` and
     `finishDrawMesh`. On a synthetic rig — `default`; `gold`, overriding `body` with other art,
     placement and tint and a text element's two locales with other placement; `blue`, holding
@@ -42,15 +87,9 @@
     stage with no fallback, or even when it lacks the image; no text linking; path or tint dropped
     (Convert) or path dropped (Draw); u and v swapped in a drawn mesh; the rebuild putting default
     back on stage; `rawDocAttEntry` preferring default, or taking the first skin holding the name.
-  - **Found, not fixed.** Three other lookups have the same first-skin rule (open item 9), each
-    probed: the placement fields (`applyAttachmentEdit`: with `gold` on stage, x = 7 moves gold's
-    image live but is written into default's `body`, and the next rebuild puts gold's back at 0);
-    the pivot (`pivotRawDef`, read by `setPivotUV`, `pivotUV` and the placement fields: with `gold`
-    on stage, pivot `[0, 1]` wrote the pivot and the offsets computed from gold's 30×30 quad into
-    default's `body`, and gold snapped back); and replace image, whose fallback is the first skin
-    holding the name, not default (skins `[gold, default, blue]` with `blue` on stage re-pointed
-    gold's `body`, and the stage kept default's art). Both actions map a TRIMMED image wrong (open
-    item 12): a `RegionAttachment`'s quad is the trimmed ink (`updateRegion` offsets it by
+  - **Found, not fixed.** Three other lookups had the same first-skin rule — the placement fields,
+    the pivot and replace image — fixed in the entry above. Both actions map a TRIMMED image wrong
+    (open item 12): a `RegionAttachment`'s quad is the trimmed ink (`updateRegion` offsets it by
     `region.offsetX/Y`), but a `MeshAttachment`'s `regionUVs` span the original canvas (its
     `updateRegion` subtracts those offsets and scales by `originalWidth/Height`), so UVs laid 0–1
     across the ink's quad draw the whole canvas into it — a 40×40 image trimmed to 20×10 samples
