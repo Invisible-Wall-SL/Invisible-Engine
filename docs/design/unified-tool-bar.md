@@ -96,8 +96,8 @@ The **HTML twins carry the tint too** (2026-07-27): `toolBarParams` bakes an
 
 > Each twin keeps its OWN mirror of `TOOL_ICONS`; a tool missing from a twin's `ICON` map
 > renders label-only there (no icon, so no tint). All four twins cover every online tool (19 on
-> 2026-09-29), and `node scripts/check-toolbar-icons.mjs` fails when a new tool is missing from
-> one — run it when adding a tool (it is not in CI). Serving one shared icon set would remove the
+> 2026-09-29), and `pnpm check:toolbar-icons` fails when a new tool is missing from one — the
+> Lint workflow runs it with the launcher gates. Serving one shared icon set would remove the
 > copies altogether.
 
 ## Data flow for the Python tools

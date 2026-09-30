@@ -35,7 +35,7 @@ manifest. User guide: `docs/tools/launcher.md`.
   `.shell`/`.page` and pass any right-aligned header content via `{#snippet meta()}…{/snippet}`.
   Never wrap it in your own `<header>` or re-style the bar (see `docs/design/unified-tool-bar.md`,
   `docs/ui-inventory.md` §7). The HTML twins (atlas/sheet tools, rigger/spine `view.html`) mirror
-  it — keep them in sync (`node scripts/check-toolbar-icons.mjs`).
+  it — keep them in sync (`pnpm check:toolbar-icons`, run by CI's Lint workflow).
 - Non-secret config → **code default in `ENV`** (Railway env vars stage easily-missed; don't depend
   on the dashboard).
 - Svelte 5 runes, SvelteKit conventions, TypeScript (no `any`), Prettier (tabs, single quotes, 100
