@@ -213,28 +213,54 @@ means in practice. It also retires the five hand-copied kind lists in favour of 
 
 ## 6. Build plan (phases — each a PR, each updates the status file)
 
+
+**Owner decisions (2026-09-30):** **one template makes all three reference games** — Grand, Super
+Hotfire Diamonds and 3 Pots of Egypt are *presets* of the same `holdAndWin` kind, not separate
+templates, so every option in §1.3 that any of the three uses is core scope, not a later round. The
+**first real game is 3 Pots of Egypt**. We build **against our own mock** now; the partner will
+deliver their wire later, so the mock and the facade are built around one **wire-translation seam**
+(the mock's wire family documented in `docs/reference/hold-and-win-wire.md`) that is expected to be
+rewritten when the partner's format arrives — nothing above the facade may depend on the mock's wire.
+
 0. **Hub + plan** (this doc, the status file). ✔ when merged.
 1. **Kind plumbing + capability source** — one `GAME_KINDS`, `kindCapabilities()`, `holdAndWin` in
-   every list, game-spec symbol kinds, `protocolFor` → `holdAndWin`. No behaviour change for
-   existing kinds (parity gate).
-2. **Game Config block** — schema, normalizer, validator, `/config` UI section, defaults JSON for both
-   presets, `gameProfile` detectors. Agent: `invisible-game-config`.
-3. **Mock RGS protocol** — wire family, generator, forced outcomes, `pnpm check:*` fixture gate.
-4. **Engine runtime** — `RawSymbol.prize/jackpot`, the coin value label, `RespinBoard` + held layer,
-   §4.3 handlers + effects + cues, resume snapshot, facade mapping. Engine change ⇒ a runtime
-   release on merge: svelte-check + boot a lines game unchanged first. Agent: `engine-pixi-svelte`.
+   every list (status file "Touch list"), game-spec symbol kinds, `protocolFor` → `holdAndWin`, and
+   the silent-bookOf fallback fixed. No behaviour change for existing kinds (parity gate).
+   Agent: `launcher-studio` + `invisible-flow` for the registry.
+2. **Game Config `holdAndWin` block — the full option space of §1.3** (triggers incl. pattern, buy,
+   random metre, persistent meters, Lucky Spin; stickiness; respins/reset; board end incl. column
+   letters; coin value table with decimals and per-reel weights; specials collector / multiplier /
+   payer / mystery with value tables, leave-behind and apply order; active modifiers; wheel;
+   jackpots), normalizer, validator, `/config` UI section, and **three preset defaults** (`pots`,
+   `classic`, `collector`). Agent: `invisible-game-config`. *Runs in parallel with 1.*
+3. **Mock RGS `holdAndWin` protocol + wire contract** — the wire family (documented as the swap
+   seam), a generator driven by the Phase 2 config for all three presets, persistent meters per demo
+   session, forced outcomes for every beat (trigger by count/pattern/meter/Lucky Spin/buy, each
+   special, mystery unlock, column letter, full board, each jackpot, wheel prize), a `pnpm check:*`
+   fixture gate. Needs 2.
+4. **Engine runtime** — `RawSymbol` coin value/jackpot, the coin value label, `RespinBoard` + held
+   layer, §4.3 handlers + effects + cues, persistent-meter state at boot, resume snapshot, facade
+   mapping of the mock wire. Engine change ⇒ a runtime release on merge: svelte-check + boot a lines
+   game unchanged first. Agent: `engine-pixi-svelte`. Needs 3 (can start from the §4.3 contract).
+   Build order follows 3 Pots first: sticky coins → payer/collect/multiplier → mystery → pots +
+   active modifiers → Lucky Spin → full board; then column letters (Grand), collectors-only streak
+   + wheel (Hotfire).
 5. **Flow vocabulary + driven seed** — `holdAndWin.ts`, registry, seed + choreography, publish gate,
    `gen-flow-vocabulary`. Agent: `invisible-flow`.
-6. **Scene Editor template + components** — reference layout, template, roles, builtin components.
+6. **Scene Editor template + components** — reference layout, template, roles, builtin components
+   (respin board, counter, jackpot bar, total bar, pots, letters, wheel, Lucky Spin intro).
    Agent: `invisible-components`.
 7. **Symbols SM** — roles, states, value-label section + ship chain, kind-gated sections.
    Agent: `invisible-symbols`.
 8. **Win Text** — new families + harvest + gating.
-9. **Game Maker** — presets in the picker, seed config/symbols/win-text, docs (`docs/tools/*`),
-   playtest playbook; then build one sample game per preset and play it end to end.
-10. **Variants round 2** — wheel, random metre, persistent pots + active modifiers + Lucky Spin (3 Pots),
-   Super Buy, board expansion, platform jackpot (§3.3). The Phase 2 schema and the Phase 4 event
-   contract must already *declare* these, so round 2 is rendering and mock work, not a re-plan.
+9. **Game Maker** — the three presets in the picker, seed config/symbols/win-text, docs
+   (`docs/tools/*`), playtest playbooks; build a 3 Pots sample first, then Grand and Hotfire samples,
+   each played end to end on the mock.
+10. **Partner wire** — when the partner delivers: rewrite the facade mapping (and bring the mock's
+    wire in line so the mock keeps matching production), resume, replay; the checks owed on the live
+    node.
+11. **Beyond the three references** — board expansion, add-respins / upgrade specials, the operator
+    platform jackpot (§3.3).
 
-Phases 2 and 3 can run in parallel once 1 lands; 5–8 in parallel once 4's event contract is merged
-(the contract can land ahead of the rendering).
+Phases 1 and 2 start now in parallel; 5–8 run in parallel once 4's event contract is merged (the
+contract can land ahead of the rendering).

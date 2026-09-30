@@ -28,25 +28,29 @@ titled **"Hold and win game pipeline"**.
 
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
-| 0 | Hub + plan | in review | Hold and win game pipeline | — |
+| 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
 | 1 | Kind plumbing + `kindCapabilities()` | not started | — | — |
-| 2 | Game Config `holdAndWin` block | not started | — | — |
-| 3 | Mock RGS `holdAndWin` protocol | not started | — | — |
+| 2 | Game Config `holdAndWin` block (full option space, 3 presets) | not started | — | — |
+| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
 | 8 | Win Text (jackpot + respin copy, gating) | not started | — | — |
-| 9 | Game Maker presets + docs + playtest, sample games | not started | — | — |
-| 10 | Variants round 2 (wheel, metre, super buy, expansion, platform jackpot) | not started | — | — |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
+| 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
+| 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
 ## Current state
 
-- **The research is recorded in the design doc.** §1 covers the mechanics and the two reference games, §2 what we carry, and §3 the partner protocol.
+- **The research is recorded in the design doc.** §1 covers the mechanics and the three reference games, §2 what we carry, and §3 the partner protocol.
 - **The upstream `apps/price` `superspin` sample is the only existing respin code.** It has sticky prize coins, a reset counter and a collect event. It is the reference for Phase 4, to be rebuilt on engine-game primitives rather than forked.
 
 ## Decisions & findings
 
+- 2026-09-30 — **Owner: one template makes all three reference games.** Grand, Super Hotfire Diamonds and 3 Pots of Egypt are presets of the same kind. Every option any of them uses is core scope (design §6).
+- 2026-09-30 — **Owner: 3 Pots of Egypt is the first real game.** It sets the Phase 4 build order.
+- 2026-09-30 — **Owner: build against our own mock now.** The partner delivers their wire later. The mock's wire is a documented **swap seam**, to be rewritten when their format arrives (Phase 10). Nothing above the facade may depend on it.
 - 2026-09-30 — **Third reference, 3 Pots of Egypt** (user-supplied). It adds these to the design's option space: persistent per-player pot meters (server state), a feature entered with specific modifiers active, specials counting toward the trigger, a payer, a multiplier that becomes a coin, a mystery that unlocks modifiers, per-special value tables, apply order, a server-announced Lucky Spin, and decimal coin values. Game Maker gets a third preset, **Pots**.
 - 2026-09-30 — **`holdAndWin` is a kind + a mechanic. It is not a new `winModel`.** The base game pays by `lines`.
 - 2026-09-30 — **The feature runs on a dedicated per-cell `RespinBoard`.** The shared column-strip reel board is left untouched: rewriting it would put every live game at risk.
@@ -74,15 +78,16 @@ titled **"Hold and win game pipeline"**.
 
 ## Open items / next
 
-1. **Phase 1:** kind plumbing and `kindCapabilities()`, with no behaviour change for existing kinds.
-2. **Owner decision:** which preset is the first real game (Classic sticky / Grand-like, Collector streak / Hotfire-like, or Pots / 3 Pots of Egypt-like)? It sets the Phase 4 order.
-3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
+1. **Phases 1 and 2 start now, in parallel sessions.** Phase 3 (mock) follows Phase 2.
+2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-09-30 — **Owner decisions recorded** (one template / three presets, 3 Pots first, mock-first with a swap seam). Build plan re-cut: Phase 10 is now the partner wire and Phase 11 covers what goes beyond the three references.
 
 - 2026-09-30 — **Plan and hub created** (session "Hold and win game pipeline").
   - Researched 3 Oaks *Grand*, *Super Hotfire Diamonds* and *3 Pots of Egypt* from their server config and rules strings.
