@@ -38,35 +38,47 @@ for Game Config and Win Text. None of that exists today, and the RGS contract fo
    reaches one).
 6. **Full board** classically awards the **GRAND** jackpot.
 
-### 1.2 The two reference games (researched 2026-09-30 from 3 Oaks' own server config and rules)
+### 1.2 The three reference games (researched 2026-09-30 from 3 Oaks' own server config and rules)
 
-| | **Grand** (3 Oaks) | **Super Hotfire Diamonds: Hold and Win** (3 Oaks) |
-|---|---|---|
-| Grid / lines | 5×3, 5 fixed lines | **3×3**, 5 fixed lines (3 rows + 2 diagonals) |
-| Coin (BONUS) values | 1,2,3,4,5,6,7,10 × TB, all reels | 1,2,3,5,7,10,15 × TB, **reels 1 & 3 only** |
-| Jackpot coins | MINI 15× · MINOR 30× · MAJOR 100× (Grand is not a coin) | MINI 25× · MINOR 50× · MAJOR 150× · **GRAND 1000× as a coin** |
-| Special symbol | **BOOST star** (x2/x3/x5): multiplies every visible coin incl. jackpots. In the base game it also **collects** them as an instant win | **COLLECT** diamond, **reel 2 only**: gathers every visible coin. In the base game a COLLECT + any coin is an instant win |
-| Trigger | 6+ coin/jackpot/boost symbols · **Diamond Metre** (random trigger dressed as a metre) · **Buy 70×** · **Super Buy 300×** (2 guaranteed boosts, more boosts all round) | ≥1 coin on reel 1 + ≥1 coin on reel 3 + ≥1 COLLECT on reel 2 · **Extra Bonus Game** metre (random; adds the symbols needed) · no buy |
-| Pre-feature | — | **SUPER WHEEL** once per feature: diamond boost (raise coin values) · +1 / +2 extra collect (single→double→triple collector) · a jackpot |
-| Stickiness | **All coins stick** | **Only COLLECTs stick**; coins are collected each respin and cleared (a "streak") |
-| Board end | **G-R-A-N-D letters**: a column full of coins lights its letter, its coins **fly into the Total Win bar and the column clears**. All 5 letters = GRAND 1000× | Ends only when the respins run out; the collectors' values are summed |
-| Reset | 3 respins, reset on every new symbol | 3 respins, reset on every new coin/jackpot/collect |
-| Big-win tiers | 15 / 30 / 50 / 80 × TB | 20 / 30 / 50 / 100 × TB |
+| | **Grand** (3 Oaks) | **Super Hotfire Diamonds: Hold and Win** (3 Oaks) | **3 Pots of Egypt** (3 Oaks) |
+|---|---|---|---|
+| Grid / lines | 5×3, 5 fixed lines | **3×3**, 5 fixed lines (3 rows + 2 diagonals) | 5×3, **25** fixed lines |
+| Coin (BONUS) values | 1,2,3,4,5,6,7,10 × TB, all reels | 1,2,3,5,7,10,15 × TB, **reels 1 & 3 only** | 1, 1.5, 2, 2.5, 3, 5, 8, 10 × TB (**decimals**), all reels |
+| Jackpot coins | MINI 15× · MINOR 30× · MAJOR 100× (Grand is not a coin) | MINI 25× · MINOR 50× · MAJOR 150× · **GRAND 1000× as a coin** | MINI 15× · MINOR 30× · MAJOR 100× as coins · **GRAND 2000× = full board (15 symbols of any type)** |
+| Special symbol | **BOOST star** (x2/x3/x5): multiplies every visible coin incl. jackpots. In the base game it also **collects** them as an instant win | **COLLECT** diamond, **reel 2 only**: gathers every visible coin. In the base game a COLLECT + any coin is an instant win | Three coloured specials land in the base game and do nothing there except fill their pot: **BOOST** (red, adds 2–10 × TB to every coin, a *payer*), **COLLECT** (blue, collects every coin into itself), **MULTI** (green, x2/x3/x5 on every coin, *then becomes a 2–10 × TB coin*). **MYSTERY** (feature only) reveals BOOST/COLLECT/MULTI/MINI/MINOR/MAJOR |
+| Trigger | 6+ coin/jackpot/boost symbols · **Diamond Metre** (random trigger dressed as a metre) · **Buy 70×** · **Super Buy 300×** (2 guaranteed boosts, more boosts all round) | ≥1 coin on reel 1 + ≥1 coin on reel 3 + ≥1 COLLECT on reel 2 · **Extra Bonus Game** metre (random; adds the symbols needed) · no buy | 6+ coins/specials (specials count) · **a full POT** (12 levels, persistent per player) starts the feature with that booster active · **Lucky Spin** (server-announced base spin that guarantees the trigger; own intro, anticipation on all reels, no skip) · no buy |
+| Pre-feature | — | **SUPER WHEEL** once per feature: diamond boost (raise coin values) · +1 / +2 extra collect (single→double→triple collector) · a jackpot | Pots decide which boosters are **active**; only active boosters land. Mystery can unlock the others |
+| Stickiness | **All coins stick** | **Only COLLECTs stick**; coins are collected each respin and cleared (a "streak") | All coins stick |
+| Board end | **G-R-A-N-D letters**: a column full of coins lights its letter, its coins **fly into the Total Win bar and the column clears**. All 5 letters = GRAND 1000× | Ends only when the respins run out; the collectors' values are summed | Full board (any symbol type) = GRAND |
+| Reset | 3 respins, reset on every new symbol | 3 respins, reset on every new coin/jackpot/collect | 3 respins, reset on every new coin |
+| Big-win tiers | 15 / 30 / 50 / 80 × TB | 20 / 30 / 50 / 100 × TB | 15 / 25 / 50 / 80 × TB |
 
 ### 1.3 The option space the kind must expose
 
 These are the knobs that turn one template into either reference game (or a Lightning-Link classic):
 
-- **Trigger:** `count` (N+ coins) · `pattern` (per-reel requirements) · `buy` tiers (price, guaranteed
-  specials) · `randomMetre` (presentation only — the server decides).
+- **Trigger:** `count` (N+ coins; say which symbol kinds count, since specials do in 3 Pots) ·
+  `pattern` (per-reel requirements) · `buy` tiers (price, guaranteed specials) · `randomMetre`
+  (presentation only, the server decides) · `persistentMeters` (below) · `luckySpin` (a
+  server-announced base spin that guarantees the trigger: its own intro, all-reel anticipation,
+  skip disabled).
+- **Persistent meters (pots):** N independent meters, each filled by its own symbol, with a max level
+  and visual size stages. Progress **persists per player between rounds** (server-owned state that
+  must reach the client at boot and on every spin). A full meter is a deterministic trigger that
+  **enters the feature with specific modifiers active**.
+- **Active modifiers:** which specials may land in the respins is decided at entry (pot, wheel, buy);
+  a mystery reveal can activate another for the rest of the round.
 - **Stickiness:** `allCoins` (classic) · `collectorsOnly` (streak).
 - **Respins:** start count, reset rule (`anyCoin` / `anySpecial`), cap.
-- **Board end:** `fullBoardJackpot` (tier) · `columnLetters` (letters word, jackpot, clear-on-complete)
-  · `none`.
-- **Coin value table:** cash values (× TB) and jackpot labels, and which reels each can land on.
-- **Special symbols (each optional):** collector (single/double/triple, sticky, collects per respin
-  or at the end) · boost/multiplier (values, scope, whether it multiplies jackpots) · add-respins ·
-  upgrade · mystery reveal · payer.
+- **Board end:** `fullBoardJackpot` (tier; which symbol kinds count as filling) · `columnLetters`
+  (letters word, jackpot, clear-on-complete) · `none`.
+- **Coin value table:** cash values (× TB, **decimals allowed**) and jackpot labels, and which reels
+  each can land on.
+- **Special symbols (each optional, each with its own value/multiplier table):** collector
+  (single/double/triple, sticky, collects per respin or at the end) · multiplier (values, scope,
+  whether it multiplies jackpots, **what it leaves behind**, e.g. becomes a coin) · payer (adds a
+  value to every coin) · add-respins · upgrade · mystery (a reveal table that can include jackpots
+  and inactive modifiers) · the **order** in which specials landing on the same respin apply.
 - **Base-game instant collect** (collector or boost + coins pays without the feature).
 - **Pre-feature modifier:** wheel with prize list.
 - **Jackpots:** list of tiers (name, × TB, fixed). Progressive/platform jackpots are a separate topic
@@ -114,9 +126,13 @@ for them** (precedent: `tumbleStep` / `multiplierCollect`, also invented), and t
 When the partner gives us a Hold and Win sample (owed — ask for a real H&W game's responses or its
 handler subclass), only the facade mapping changes.
 
+**Persistent meters are server state.** 3 Pots-style pots survive between rounds per player, so the
+RGS must own them and send them at boot (`config`/resume) and after every spin. The client never
+computes a pot level. The mock keeps them per demo session.
+
 **Owed to the partner (blocks production only, not authoring):** a sample round from a Hold and Win
-game — how coin values, jackpot labels, held cells, the respin counter/reset, collectors and the
-feature total travel; whether fixed coin jackpots ever use `platform.gameRound.jackpot`.
+game — how coin values, jackpot labels, held cells, the respin counter/reset, collectors, persistent
+meters, the Lucky Spin flag and the feature total travel; whether fixed coin jackpots ever use `platform.gameRound.jackpot`.
 
 ### 3.3 Out of scope for the first build
 
@@ -154,12 +170,17 @@ game. Instead:
 |---|---|---|
 | `reveal` (existing) | board with coin cells carrying `{value}` or `{jackpot}` | base-game board, coins labelled |
 | `coinInstantCollect` | `collector:{reel,row}`, `from:[{reel,row,amount}]`, `total` | base-game collect/boost instant win |
-| `holdAndWinTrigger` | `coins:[cell]`, `respins`, `variant` | feature starts; the triggering coins stick |
+| `meterUpdate` | `meter`, `level`, `max`, `from:[cell]` | a special flew into a persistent pot (also sent at boot) |
+| `luckySpin` | — | this base spin is a guaranteed trigger (intro, all-reel anticipation, no skip) |
+| `holdAndWinTrigger` | `coins:[cell]`, `respins`, `variant`, `activeModifiers:[…]`, `cause` (`count`/`pattern`/`meter:<id>`/`luckySpin`/`buy`) | feature starts; the triggering coins stick |
 | `holdAndWinWheel` | `prize` (`boost`/`extraCollect:n`/`jackpot:<tier>`) | optional pre-feature wheel |
 | `respinUpdate` | `left`, `total`, `reset:boolean` | counter changed (reset or decrement) |
 | `respinReveal` | `cells:[{reel,row,symbol,value?,jackpot?}]` | the unheld cells' outcome for this respin |
 | `coinsLand` | `cells:[cell]` | new coins stick (per-reel land cue) |
 | `coinBoost` | `booster:{reel,row}`, `multiplier`, `cells:[{reel,row,from,to}]` | boost multiplies visible coins |
+| `coinPay` | `payer:{reel,row}`, `amount`, `cells:[{reel,row,from,to}]` | payer adds a value to every coin |
+| `mysteryReveal` | `cells:[{reel,row,becomes,value?,jackpot?}]`, `activates?` | mystery transforms; may activate a modifier |
+| `specialBecomesCoin` | `cell`, `value` | e.g. MULTI turns into a coin after applying |
 | `coinCollect` | `collector:{reel,row}`, `from:[{reel,row,amount}]`, `collectorTotal` | collector gathers (streak) |
 | `columnComplete` | `reel`, `letter`, `amount`, `cleared:boolean` | Grand-style letter lit, column swept |
 | `jackpotWin` | `tier`, `amount` | a jackpot is awarded (coin, letters or full board) |
@@ -180,11 +201,11 @@ means in practice. It also retires the five hand-copied kind lists in favour of 
 
 | Tool | Hold and Win gets | Hides for this kind |
 |---|---|---|
-| **Game Maker** | `holdAndWin` in the picker with two presets — **Classic sticky** (Grand-like 5×3) and **Collector streak** (Hotfire-like 3×3); scaffold seeds scenes, flow, **Game Config**, **Symbols** and **Win Text** defaults (today the last three aren't seeded for any kind); hub profile feature chips (`respin`, `jackpots`, `collector`, `boost`, `columnLetters`, `wheel`) | — |
-| **Scene Editor** | `referenceLayouts/holdAndWin.ts` + template: `basegame`, `respinBoard` scene (new role `respinFeature`), `respinCounter`, `totalWinBar`, `jackpotBar` (MINI/MINOR/MAJOR/GRAND values, live × bet), `letters` (G-R-A-N-D), `wheel`, `featureIntro` / `featureOutro` (total count-up), `jackpotWin` celebration, `buyFeature`/`buyConfirm`; new builtin components for counter / jackpot bar / letters / total bar | `specialBook`, free-spin intro/counter/outro (optional add) |
-| **Flow editor** | `engine-flow-v2/src/reference/holdAndWin.ts` vocab: events §4.3; actions `showRespinBoard`/`hideRespinBoard`, `stickCoins`, `spinRespin`, `setRespinCounter`, `collectCoins`, `boostCoins`, `lightLetter`, `clearColumn`, `awardJackpot`, `showJackpotWin`, `countUpTotal`, `spinWheel`; cues `respinBoard*`, `coinLand`, `coinCollect*`, `coinBoost*`, `letter*`, `jackpot*`, `wheel*`, `totalWinBar*`; values `respinsLeft`, `respinTotal`, `jackpot.mini…grand`, `featureTotal`; a registered **driven seed** + choreography so a new project plays end-to-end with zero authoring | the Book-of expanding-symbol events/actions, tumble/multiplier-board entries |
-| **Symbols SM** | symbol roles: `coin`, `jackpotCoin`, `collector`, `boost`, `blank`; states `coinIdle`, `coinLand`, `coinStick`, `coinCollect`, `coinBoost`, `jackpotReveal`; a **coin value label** section (font, format per cash/jackpot, placement, per-tier styling) through the full ship chain; respin-cell spin blur / land FX | Book symbol VFX, bookIntro/bookIdle, stacked pictures, explosion / tumble pattern, clearReel, transition (unless used); win-line section stays (base game pays lines) |
-| **Game Config** | `holdAndWin` block: trigger, respins, reset rule, stickiness, board end, coin value table (value, weight, reels), jackpot tiers (× TB), specials (collector/boost/…), wheel prizes, buy tiers; symbol `special_properties` `coin`/`jackpot`/`collector`/`boost`/`blank`; validator + in-play gate; `data/gameConfig/holdAndWin.json` default (both presets); paytable UI shows coin rows as "value table", not pays | win-model picker locked to lines; scatter paytable hints |
+| **Game Maker** | `holdAndWin` in the picker with two presets — **Classic sticky** (Grand-like 5×3) and **Collector streak** (Hotfire-like 3×3); scaffold seeds scenes, flow, **Game Config**, **Symbols** and **Win Text** defaults (today the last three aren't seeded for any kind); hub profile feature chips (`respin`, `jackpots`, `collector`, `boost`, `payer`, `mystery`, `pots`, `luckySpin`, `columnLetters`, `wheel`); a third preset **Pots** (3 Pots-like) | — |
+| **Scene Editor** | `referenceLayouts/holdAndWin.ts` + template: `basegame`, `respinBoard` scene (new role `respinFeature`), `respinCounter`, `totalWinBar`, `jackpotBar` (MINI/MINOR/MAJOR/GRAND values, live × bet), `letters` (G-R-A-N-D), `wheel`, `pots` (N meters with level stages, bound to the meter values), `luckySpin` intro, `featureIntro` / `featureOutro` (total count-up), `jackpotWin` celebration, `buyFeature`/`buyConfirm`; new builtin components for counter / jackpot bar / letters / total bar | `specialBook`, free-spin intro/counter/outro (optional add) |
+| **Flow editor** | `engine-flow-v2/src/reference/holdAndWin.ts` vocab: events §4.3; actions `showRespinBoard`/`hideRespinBoard`, `stickCoins`, `spinRespin`, `setRespinCounter`, `collectCoins`, `boostCoins`, `lightLetter`, `clearColumn`, `awardJackpot`, `showJackpotWin`, `countUpTotal`, `spinWheel`, `fillMeter`, `activateMeter`, `payCoins`, `revealMystery`, `playLuckySpinIntro`; cues `respinBoard*`, `coinLand`, `coinCollect*`, `coinBoost*`, `letter*`, `jackpot*`, `wheel*`, `totalWinBar*`; values `respinsLeft`, `respinTotal`, `jackpot.mini…grand`, `featureTotal`, `meter.<id>.level`, `activeModifiers`; a registered **driven seed** + choreography so a new project plays end-to-end with zero authoring | the Book-of expanding-symbol events/actions, tumble/multiplier-board entries |
+| **Symbols SM** | symbol roles: `coin`, `jackpotCoin`, `collector`, `multiplier`, `payer`, `mystery`, `meterSpecial` (flies to a pot), `blank`; states `coinIdle`, `coinLand`, `coinStick`, `coinCollect`, `coinBoost`, `jackpotReveal`, `mysteryReveal`, `flyToMeter`; a **coin value label** section (font, format per cash/jackpot, placement, per-tier styling) through the full ship chain; respin-cell spin blur / land FX | Book symbol VFX, bookIntro/bookIdle, stacked pictures, explosion / tumble pattern, clearReel, transition (unless used); win-line section stays (base game pays lines) |
+| **Game Config** | `holdAndWin` block: trigger, respins, reset rule, stickiness, board end, coin value table (value, weight, reels), jackpot tiers (× TB), specials (collector/multiplier/payer/mystery, each with its value table and apply order), meters (count, max level, size stages, filling symbol, modifier it activates), Lucky Spin on/off, wheel prizes, buy tiers; symbol `special_properties` `coin`/`jackpot`/`collector`/`boost`/`blank`; validator + in-play gate; `data/gameConfig/holdAndWin.json` default (both presets); paytable UI shows coin rows as "value table", not pays | win-model picker locked to lines; scatter paytable hints |
 | **Win Text** | `jackpots` captions (`MINI`…`GRAND`, award text "{jackpot} JACKPOT {amount}"), respin copy ("{count} RESPINS", "RESPINS RESET"), feature total ("BONUS WIN {amount}"), instant-collect toast; all harvested for Localization | `toast.expanded` ("on N reels", Book-of) |
 | **Mock RGS** | `holdAndWin` protocol + generator for both presets, deterministic forced outcomes (trigger, full board/letters, each jackpot, boost, wheel prizes) for playtests | — |
 | **Facade** | map the invented wire → §4.3 events; `parseCell` coin values/jackpot labels; `gameType: 'respin'`; resume of the held board | — |
@@ -211,7 +232,9 @@ means in practice. It also retires the five hand-copied kind lists in favour of 
 8. **Win Text** — new families + harvest + gating.
 9. **Game Maker** — presets in the picker, seed config/symbols/win-text, docs (`docs/tools/*`),
    playtest playbook; then build one sample game per preset and play it end to end.
-10. **Variants round 2** — wheel, random metre, Super Buy, board expansion, platform jackpot (§3.3).
+10. **Variants round 2** — wheel, random metre, persistent pots + active modifiers + Lucky Spin (3 Pots),
+   Super Buy, board expansion, platform jackpot (§3.3). The Phase 2 schema and the Phase 4 event
+   contract must already *declare* these, so round 2 is rendering and mock work, not a re-plan.
 
 Phases 2 and 3 can run in parallel once 1 lands; 5–8 in parallel once 4's event contract is merged
 (the contract can land ahead of the rendering).

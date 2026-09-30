@@ -47,6 +47,7 @@ titled **"Hold and win game pipeline"**.
 
 ## Decisions & findings
 
+- 2026-09-30 — **Third reference, 3 Pots of Egypt** (user-supplied). It adds these to the design's option space: persistent per-player pot meters (server state), a feature entered with specific modifiers active, specials counting toward the trigger, a payer, a multiplier that becomes a coin, a mystery that unlocks modifiers, per-special value tables, apply order, a server-announced Lucky Spin, and decimal coin values. Game Maker gets a third preset, **Pots**.
 - 2026-09-30 — **`holdAndWin` is a kind + a mechanic. It is not a new `winModel`.** The base game pays by `lines`.
 - 2026-09-30 — **The feature runs on a dedicated per-cell `RespinBoard`.** The shared column-strip reel board is left untouched: rewriting it would put every live game at risk.
 - 2026-09-30 — **Mock-first contract.** We define the engine book events (design §4.3) and the mock speaks an invented wire for them. The facade maps them. Only the facade changes when the partner confirms their format.
@@ -74,7 +75,7 @@ titled **"Hold and win game pipeline"**.
 ## Open items / next
 
 1. **Phase 1:** kind plumbing and `kindCapabilities()`, with no behaviour change for existing kinds.
-2. **Owner decision:** which preset is the first real game (Classic sticky / Grand-like, or Collector streak / Hotfire-like)? It sets the Phase 4 order.
+2. **Owner decision:** which preset is the first real game (Classic sticky / Grand-like, Collector streak / Hotfire-like, or Pots / 3 Pots of Egypt-like)? It sets the Phase 4 order.
 3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 
 ## Blocked (owner / external)
@@ -84,7 +85,7 @@ titled **"Hold and win game pipeline"**.
 ## Recent changes
 
 - 2026-09-30 — **Plan and hub created** (session "Hold and win game pipeline").
-  - Researched 3 Oaks *Grand* and *Super Hotfire Diamonds* from their server config and rules strings.
+  - Researched 3 Oaks *Grand*, *Super Hotfire Diamonds* and *3 Pots of Egypt* from their server config and rules strings.
   - Read the partner core's respin and jackpot handling.
   - Inventoried the engine: found the `apps/price` superspin loop.
   - Inventoried every tool's kind plumbing.
