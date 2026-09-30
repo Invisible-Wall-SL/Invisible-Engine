@@ -55,7 +55,15 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   container re-attaches to paid in-flight jobs at boot (collect only, never start), any process can
   collect any slot, and `sweep_stranded_slots` re-homes or clears what is left. Cancel stops the
   GPU (the worker polls its own status and kills ComfyUI). Status polls tolerate 180 s of
-  failure; a 404 on a job already read gives up in 15 s.
+  failure; a 404 on a job already read is re-read at +10/+30/+70/+150 s, then **cancelled** (job
+  id + endpoint logged) before the tile settles from its slot. Every path that abandons a job
+  still possibly running cancels it; a known-terminal one is never cancelled.
+- **Cutout weights** — RMBG-2.0 and all 12 BiRefNet variants are fetched onto the volume by
+  `fetch-models.py --set rmbg --set birefnet` (commit-pinned, sha256-checked). The worker never
+  links the volume's `models/RMBG/`: at boot it verifies that set file by file and stages what
+  passes into its own disk, so the node loads it offline. A file that fails is left out and the
+  node downloads it into that container only (slower, never shared); the boot log names the
+  file and the fix.
 - **Per tile** — full-resolution view in its own window, ↻ re-roll (hold seed or prompt), ⧉
   duplicate with new settings (seed held), 🗑 (verified against R2), ⤓ download (the WEBP, or a
   full-res PNG zip + `info.json`), **🎞 Make flipbook** (extract → alpha-trim → pack ≤2048 pages →
@@ -70,19 +78,27 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    on; whether a full-length render clears the hand-off path on a real endpoint; and whether a
    session goes **pick → pack → clip in the editor**, **⤓ zip** on a full 81-frame render, and
    **🖼 To Atlas Maker → regenerate** on real R2.
-2. **Pre-fetch the BiRefNet weights into the Network Volume.** Nothing does
-   (`runpod/provision.sh`, `fetch-models.py`); every variant shares `models/RMBG/BiRefNet/`, and a
-   concurrent first download once tore a `.py` and failed every cutout for 14 hours. Until then,
-   run the first use of a new BiRefNet model with **1 variation**.
-3. **A 404 for a reason other than an expired record** (rotated `RUNPOD_ENDPOINT_ID`, a RunPod
-   incident) is given up on in 15 s without a cancel, so a live job keeps billing. Mitigation:
-   re-check the slot once after a delay before settling the tile.
-4. **Rename-repair hint is unconfirmed** — `sheet_session.json` is one open sheet's state, so
+2. **A cancel after an endpoint rotation goes to the NEW endpoint.** Status and cancel use the
+   current `RUNPOD_ENDPOINT_ID`, so a job submitted before a rotation 404s, is cancelled on the
+   wrong endpoint, and keeps billing; the give-up log names both and points at the old
+   endpoint's Requests tab. The proper fix is polling each job on the endpoint it was submitted
+   to (store it on the variation).
+3. **Rename-repair hint is unconfirmed** — `sheet_session.json` is one open sheet's state, so
    per-sheet recovery of `src` must be verified before the tool promises "did you mean…".
-5. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
+4. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
    int matters" has no clean signal. Deliberate.
 
 ## Blocked (owner / external)
+
+- **Roll out the checksummed cutout weights** (2026-09-30). The new worker is safe in any order
+  (an unfetched volume only means each cold worker downloads its cutout model privately), but it
+  is only offline once the volume is fetched:
+  1. On an R&D pod from the rebuilt `atlas-comfy-pod` image:
+     `python /fetch-models.py --set rmbg --set birefnet` (≈7.5 GB; weights already on the volume
+     that match are hashed and kept), then `python /fetch-models.py --verify --set rmbg --set birefnet`.
+  2. Point the serverless endpoint at `atlas-comfy-worker:<full merge sha>`.
+  3. One cheap render: a single-variation image generation with the default cutout; the worker
+     boot log must read `== verified 20 file(s) of rmbg+birefnet` with no download banner.
 
 - **Re-publish the imported video blueprint with a pod running** — the one imported before the
   contract reader carries no bounds or lists; ＋ Blueprint on the same API export bakes them in.
@@ -91,6 +107,11 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-09-30 — **Cutout weights pre-fetched and checksummed; abandoned RunPod jobs are
+  cancelled.** The pinned BiRefNet loader rewrites `birefnet.py` in place on every load, so the
+  shared `models/RMBG/` was being written by every worker — which is why the 2026-09-04 tear
+  persisted, not only how it started. Open items 2 and 3 closed; detail in the history file.
 
 - 2026-09-30 — **Leaving with unsaved edits asks in-app too**: the page's own `beforeunload` (reload / tab close only) is replaced by the shared `guardUnsavedWork`, so a tool-bar switch or Back with an unsaved clip raises the app's confirm (Cancel / Leave anyway) instead of discarding it. Pagehide lease release unchanged. (Small enough to need no history entry — see the launcher status of the same date.)
 - 2026-09-30 — Stale "clips are not reachability-pruned" comments in `flipbookExport.ts` and

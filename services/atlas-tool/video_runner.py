@@ -134,13 +134,17 @@ PARALLEL_JOBS = max(1, int(os.environ.get("VIDEO_PARALLEL_JOBS") or 1))
 # Budgeted in TIME rather than tries: an API wobble lasts minutes, and at a 3s
 # cadence a retry COUNT would give up in seconds.
 STATUS_GRACE_SECONDS = 180.0
-# The same budget for a run of 404s, which is a much shorter one because a 404 is
-# an ANSWER, not a failure to answer: RunPod has no record of the job. Only one
-# reading of that is innocent — a job it has not indexed in the seconds after
-# submit — and it resolves in seconds. The other reading is a record already
-# dropped (RunPod keeps a finished job about half an hour), where waiting the full
-# three minutes only delays the collect from R2 that actually recovers the render.
-NOT_FOUND_GRACE_SECONDS = 15.0
+# When a job already read (or re-attached) starts answering 404, the delays between
+# the re-checks made before that 404 is believed. A 404 is an ANSWER — RunPod has no
+# record of the job — and usually a true one: it drops a finished job about half an
+# hour after it ends. But a rotated `RUNPOD_ENDPOINT_ID` or a RunPod incident gives
+# the same answer for a job that is still rendering and billing, and the old 15 s
+# give-up left exactly that job running with nobody watching. Doubling from 10 s
+# re-reads at +10/+30/+70/+150 s: four requests, early ones cheap enough to catch a
+# blip, the last one 2.5 min out — still inside the 180 s budget above, because an
+# answer should not be waited on longer than a failure to answer. Waiting costs the
+# expired-record case only a later collect from R2; the render is there either way.
+NOT_FOUND_RECHECK_SECONDS = (10.0, 20.0, 40.0, 80.0)
 # Seeds are echoed into meta.json, which a browser parses — beyond 2^53 a JSON
 # number silently loses integer precision, so a "locked" seed would round to a
 # different one and stop reproducing its own render.
@@ -337,10 +341,16 @@ def _submit(wf: dict, prefix: str = "") -> tuple[str, dict, list[str]]:
     return str(jid), wf, keys
 
 
-def _cancel_job(job_id: str) -> bool:
-    """Remote cancel; True when RunPod accepted it. A cancelled session should stop
+def _cancel_job(job_id: str, why: str) -> bool:
+    """Remote cancel; True when RunPod accepted it — or answered 404, which means it
+    has no record of the job on this endpoint, so nothing there is billing (the record
+    expired, or the job was submitted to another endpoint). A cancelled session should stop
     BURNING, not just stop reporting — but a failure here must never mask the local
     stop, so it is still caught.
+
+    Every cancel is LOGGED with its job id, its endpoint and `why`, sent or not: a job
+    given up on is one nobody is watching any more, and the log line is the only
+    handle left to find it in the RunPod console if it turns out to still be running.
 
     It is REPORTED now rather than swallowed in silence. A cancel that never landed
     leaves a job running at full cost while every surface says it stopped, and that
@@ -352,13 +362,23 @@ def _cancel_job(job_id: str) -> bool:
     `services/atlas-serverless/handler.py` has to poll for it. A True here means
     "RunPod took the request", never "the GPU has stopped".
     """
+    endpoint = batch_atlas.runpod_endpoint_id() or "?"
     try:
         batch_atlas._runpod_post(f"/cancel/{job_id}", {})
-        return True
     except Exception as e:  # noqa: BLE001 — local cancellation still stands
-        print(f"[video] could not cancel job {job_id} on RunPod ({e}) — it may still "
-              "be running and billing.", flush=True)
+        if getattr(e, "code", None) == 404:
+            print(f"[video] RunPod has no record of job {job_id} on endpoint {endpoint} "
+                  f"(expired, or submitted to another endpoint) — nothing to cancel "
+                  f"there ({why})", flush=True)
+            return True
+        print(f"[video] could not cancel job {job_id} on endpoint {endpoint} ({why}): "
+              f"{e} — it may still be running and billing. If RUNPOD_ENDPOINT_ID has "
+              "changed since it was submitted, stop it from the old endpoint's "
+              "Requests tab.", flush=True)
         return False
+    print(f"[video] cancel sent for job {job_id} on endpoint {endpoint} — {why}",
+          flush=True)
+    return True
 
 
 def _cancel_warning(failed: list) -> str:
@@ -394,9 +414,12 @@ def _await_job(job_id: str, var: dict, should_stop, resumed: bool = False) -> di
     unreadable_since = 0.0
     last_read_error = ""
     ever_read = False
+    only_not_found = True
+    rechecks = 0
+    recheck_at = 0.0
     while _now() < deadline:
         if should_stop():
-            _cancel_job(job_id)
+            _cancel_job(job_id, "the session was stopped")
             raise _Cancelled()
         time.sleep(POLL_SECONDS)
         # Re-check BEFORE reading the status. A cancel that lands during the sleep
@@ -405,34 +428,52 @@ def _await_job(job_id: str, var: dict, should_stop, resumed: bool = False) -> di
         # raw status dict in it — which is exactly what a stopped session looked
         # like.
         if should_stop():
-            _cancel_job(job_id)
+            _cancel_job(job_id, "the session was stopped")
             raise _Cancelled()
+        # Between 404 re-checks the loop keeps its short tick, so a stop is still
+        # noticed within one poll; it just does not ask RunPod again yet.
+        if _now() < recheck_at:
+            continue
         try:
             st = batch_atlas._runpod_get(f"/status/{job_id}")
+            # Inside the try: a body that is not a status object is an unreadable
+            # read like any other, not an exception that escapes with the job live.
+            status = str(st.get("status") or "").upper()
         except Exception as e:  # noqa: BLE001 — a bad READ is not a bad job
             last_read_error = str(e)
             if not unreadable_since:
                 unreadable_since = _now()
                 only_not_found = True
             only_not_found = only_not_found and getattr(e, "code", None) == 404
-            # The short grace is for a record that is GONE, and the only way to know
-            # one ever existed is to have read it — or to have re-attached to a job
-            # an earlier process submitted, which is the case that actually meets
-            # these 404s. A job never read may simply not be INDEXED yet, and giving
-            # up on that in fifteen seconds abandons a live render, uncancelled, to
-            # bill out the endpoint's own timeout with nobody collecting it.
+            # "Gone" needs the job to have been known to exist — read by us, or
+            # re-attached to after an earlier process submitted it, which is the case
+            # that actually meets these 404s. A job never read may simply not be
+            # INDEXED yet, so it keeps the long grace.
             gone = only_not_found and (ever_read or resumed)
-            grace = NOT_FOUND_GRACE_SECONDS if gone else STATUS_GRACE_SECONDS
-            if _now() - unreadable_since < grace:
-                # Say so rather than freezing on the last status, so the author
-                # can see the tool is retrying and not that the job has stalled.
-                with _LOCK:
-                    var["remote_status"] = "RECONNECTING"
+            # Say so rather than freezing on the last status, so the author can see
+            # the tool is retrying and not that the job has stalled.
+            with _LOCK:
+                var["remote_status"] = "RECONNECTING"
+            if gone and rechecks < len(NOT_FOUND_RECHECK_SECONDS):
+                recheck_at = _now() + NOT_FOUND_RECHECK_SECONDS[rechecks]
+                rechecks += 1
                 continue
+            recheck_at = 0.0
+            if not gone and _now() - unreadable_since < STATUS_GRACE_SECONDS:
+                continue
+            waited = int(_now() - unreadable_since)
+            print(f"[video] giving up on job {job_id} (endpoint "
+                  f"{batch_atlas.runpod_endpoint_id() or '?'}) after {waited}s: "
+                  f"{last_read_error[:300]}", flush=True)
             if gone:
-                # Not a broken connection — an answer. Cancelling a job RunPod has
-                # no record of would just be a second 404, so don't pretend to; the
-                # caller looks in the hand-off slot, which is where the render is.
+                # Believed only now, after the re-checks — and STILL cancelled: the
+                # answer is usually an expired record, where the cancel is a harmless
+                # second 404, but it can be a live job on a rotated endpoint or in a
+                # RunPod incident, and nothing here would ever collect that one.
+                # The caller then looks in the hand-off slot, which is where a
+                # finished render is.
+                _cancel_job(job_id, f"RunPod answered 404 for {waited}s across "
+                                    f"{rechecks} re-checks")
                 raise _Unresolved(
                     f"RunPod no longer has a record of job {job_id}. It drops a "
                     "finished job about half an hour after it completes, so this "
@@ -441,14 +482,14 @@ def _await_job(job_id: str, var: dict, should_stop, resumed: bool = False) -> di
             # Genuinely out of contact. The job may well still be running, so
             # stop it rather than leave it burning to the endpoint's own timeout
             # with nobody left to collect what it produces.
-            _cancel_job(job_id)
+            _cancel_job(job_id, f"lost contact with RunPod for {waited}s")
             raise _Unresolved(
-                f"lost contact with RunPod for "
-                f"{int(_now() - unreadable_since)}s while job {job_id} was "
+                f"lost contact with RunPod for {waited}s while job {job_id} was "
                 f"running, so it was stopped — {last_read_error[:300]}")
         unreadable_since = 0.0
         ever_read = True
-        status = str(st.get("status") or "").upper()
+        rechecks = 0
+        recheck_at = 0.0
         with _LOCK:
             var["remote_status"] = status
         if status == "COMPLETED":
@@ -462,7 +503,7 @@ def _await_job(job_id: str, var: dict, should_stop, resumed: bool = False) -> di
         if status in ("FAILED", "TIMED_OUT"):
             detail = st.get("error") or st.get("output") or st
             raise RuntimeError(f"job {status}: {str(detail)[:400]}")
-    _cancel_job(job_id)
+    _cancel_job(job_id, f"it passed the {JOB_TIMEOUT_SECONDS // 60} min cap")
     raise _Unresolved(
         f"job {job_id} timed out after {JOB_TIMEOUT_SECONDS // 60} min")
 
@@ -1135,6 +1176,11 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
                                finished=_now())
                 print(f"[video] {session_id} v{var['index']:03d} could not "
                       f"start: {e}", flush=True)
+                # A re-attach that never got its thread leaves a paid job with
+                # nobody polling it — the tile is settled, so stop the job too.
+                if resume and var.get("job_id"):
+                    _cancel_job(str(var["job_id"]),
+                                "its re-attach thread could not start")
     # A stop settles these, and an unclaimed `running` one is a resumed tile whose
     # worker may already have PUT its render — so look before discarding it. Done
     # outside `_CV` because it reads R2.
@@ -1803,6 +1849,9 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
     if not valid_session_id(sid):
         return None
     bp = blueprints.get_blueprint(str(stored.get("blueprint") or ""))
+    # Asked BEFORE anything below can cancel a job: a session another container's
+    # lease holds is that container's to stop, not this reader's.
+    other = _held_elsewhere(sid)
     if not bp:
         # Blueprint gone: say so instead of leaving it "running" forever. WRITTEN
         # back, not just returned — an unpersisted verdict means the stored doc
@@ -1819,6 +1868,12 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
                     "its blueprint is gone, but the render was not",
                     newer_than=float(v.get("started") or 0)):
                 continue
+            # Settling it is the last anyone will look at this job, so a running
+            # one is stopped rather than left rendering for a tile marked failed —
+            # unless a live owner elsewhere is still polling it.
+            if other is None and v.get("status") == "running" and v.get("job_id"):
+                _cancel_job(str(v["job_id"]),
+                            "its session's blueprint is gone, so it is never collected")
             v["status"] = "failed"
             v["error"] = ("The blueprint this session used is no longer in "
                           "the library, so it cannot be resumed.")
@@ -1846,7 +1901,6 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
             v["error"] = ("Interrupted by a service restart before its job id was "
                           "recorded, and nothing was uploaded — re-roll this "
                           "variation.")
-    other = _held_elsewhere(sid)
     if other is not None:
         # A live owner in another container. Hand back what storage says and touch
         # nothing: adopting would install a second dispatcher over the same session.
@@ -2223,7 +2277,8 @@ def cancel_session(session_id: str) -> dict:
         with _LOCK:
             s.update(status="cancelled", finished=_now())
     if s:
-        failed = [jid for jid in in_flight if not _cancel_job(jid)]
+        failed = [jid for jid in in_flight
+                  if not _cancel_job(jid, "the session was stopped")]
         # ALWAYS persist. `cancel` used to be written only on the settling path, so
         # on the other one the flag lived in memory and nowhere else: the stored doc
         # went on saying `cancel: false`, and a restart forgot the stop had ever been
@@ -2265,7 +2320,8 @@ def cancel_session(session_id: str) -> dict:
     stored["cancel"] = True
     stored["status"] = "cancelled"
     stored["finished"] = _now()
-    failed = [jid for jid in stopped if not _cancel_job(jid)]
+    failed = [jid for jid in stopped
+              if not _cancel_job(jid, "the session was stopped")]
     _write_meta(session_id, stored)
     out = {"ok": True, "id": session_id, "cancelling": len(stopped),
            "adopted": True}
@@ -2393,6 +2449,19 @@ def delete_session(session_id: str) -> dict:
         _SESSIONS.pop(session_id, None)
         if session_id in _QUEUE:
             _QUEUE.remove(session_id)
+    if s is None:
+        # Not live HERE, but its doc may still say a job is rendering — left
+        # `running` by a restart. The doc is the only record anything would
+        # re-attach by, so once it is gone that job renders and bills for nobody.
+        try:
+            stored = _stored_session(session_id)
+        except Exception as e:  # noqa: BLE001 — a delete is not blocked by this read
+            stored = None
+            print(f"[video] could not read {session_id} before deleting it ({e}); "
+                  "any job it still had running is not cancelled", flush=True)
+        for v in (stored or {}).get("variations", []):
+            if v.get("status") == "running" and v.get("job_id"):
+                _cancel_job(str(v["job_id"]), f"its session {session_id} was deleted")
     removed = 0
     # The session's own objects AND its hand-off slots. The slots live under
     # `video/_out/`, not under the session, so deleting only the session prefix

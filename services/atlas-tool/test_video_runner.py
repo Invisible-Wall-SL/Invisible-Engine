@@ -1043,7 +1043,7 @@ def test_cancel_a_session_we_do_not_own() -> None:
     video_runner._ACTIVE = None
 
     cancelled = []
-    video_runner._cancel_job = lambda jid: cancelled.append(jid)
+    video_runner._cancel_job = lambda jid, why: cancelled.append(jid)
 
     res = video_runner.cancel_session(sid)
     check("cancelling an unowned session succeeds", res["ok"], True)
@@ -1459,9 +1459,11 @@ def test_a_purged_job_collects_the_render_it_left_in_r2() -> None:
     R2, and had to be moved back into their sessions by hand.
 
     A 404 is an ANSWER, not a failure to answer, so a RE-ATTACHED job — one this
-    process never submitted and RunPod no longer admits to — must not burn the
-    three-minute grace budgeted for an unreadable API, and the collect must go
-    where the render actually is."""
+    process never submitted and RunPod no longer admits to — is re-checked on its
+    own short schedule rather than the three-minute grace budgeted for an
+    unreadable API, and the collect must go where the render actually is. It is
+    still sent a cancel on the way out: the same 404 comes back for a LIVE job on a
+    rotated endpoint, and the cancel is a harmless second 404 when it is not."""
     import batch_atlas
 
     tmp, objects = _stub_world()
@@ -1477,26 +1479,27 @@ def test_a_purged_job_collects_the_render_it_left_in_r2() -> None:
     cancelled: list[str] = []
     batch_atlas._runpod_get = _job_not_found
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
-    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
-                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    long_grace, rechecks = (video_runner.STATUS_GRACE_SECONDS,
+                            video_runner.NOT_FOUND_RECHECK_SECONDS)
     # The long grace stays LONG: if a 404 on a re-attach fell through to it, the
     # session would still be running when this test gives up waiting, and that is
     # the assertion.
     video_runner.STATUS_GRACE_SECONDS = 30.0
-    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02, 0.02)
     try:
         video_runner.get_session(sid)  # someone opens it: re-attach
         final = _await_session(sid, timeout=8.0)
     finally:
         video_runner.STATUS_GRACE_SECONDS = long_grace
-        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
 
     v = (final.get("variations") or [{}])[0]
     check("a job RunPod has forgotten is not a lost render", v.get("status"), "done")
     check("the bytes are the ones the worker uploaded",
           v.get("bytes"), len(b"THE-RENDER-THAT-RAN"))
     check("and the tile carries no error", v.get("error"), "")
-    check("nothing is 'cancelled' that RunPod has no record of", cancelled, [])
+    check("and the job is still sent a cancel, in case the 404 hid a live one",
+          cancelled, ["job1"])
 
 
 def test_a_purged_job_with_nothing_to_collect_says_what_happened() -> None:
@@ -1516,19 +1519,19 @@ def test_a_purged_job_with_nothing_to_collect_says_what_happened() -> None:
     cancelled: list[str] = []
     batch_atlas._runpod_get = _job_not_found
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
-    short_grace = video_runner.NOT_FOUND_GRACE_SECONDS
-    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    rechecks = video_runner.NOT_FOUND_RECHECK_SECONDS
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02, 0.02)
     try:
         video_runner.get_session(sid)
         final = _await_session(sid, timeout=8.0)
     finally:
-        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
 
     v = (final.get("variations") or [{}])[0]
     check("with an empty slot the variation does fail", v.get("status"), "failed")
     check("and it says the record is gone, not that contact was lost",
           "no longer has a record" in v.get("error", ""), True)
-    check("still nothing to cancel", cancelled, [])
+    check("and the job is cancelled on the way out", cancelled, ["job1"])
 
 
 def test_an_unreadable_job_still_collects_a_render_that_landed() -> None:
@@ -1847,10 +1850,9 @@ def test_two_adopters_cannot_take_the_same_session_twice() -> None:
 
 
 def test_a_404_before_the_job_is_ever_read_keeps_the_long_grace() -> None:
-    """The short grace is for a record that is GONE, and a 404 only means that if
-    the job was ever known to exist. RunPod also 404s a job it has not INDEXED yet,
-    seconds after submit — giving up on that one in fifteen seconds would abandon a
-    live render, uncancelled, to bill out the endpoint's own timeout.
+    """The short re-check schedule is for a record that is GONE, and a 404 only
+    means that if the job was ever known to exist. RunPod also 404s a job it has not
+    INDEXED yet, seconds after submit — so a job never read keeps the long grace.
 
     So a first-poll 404 on a job this process submitted waits the full window and
     then stops the job, exactly as an unreadable API does."""
@@ -1860,17 +1862,17 @@ def test_a_404_before_the_job_is_ever_read_keeps_the_long_grace() -> None:
     cancelled: list[str] = []
     batch_atlas._runpod_get = _job_not_found
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
-    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
-                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    long_grace, rechecks = (video_runner.STATUS_GRACE_SECONDS,
+                            video_runner.NOT_FOUND_RECHECK_SECONDS)
     video_runner.STATUS_GRACE_SECONDS = 0.05
-    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02,)
     try:
         started = video_runner.start_session(_req("never indexed"),
                                              ("clientx", "projecty"))
         final = _await_session(started["id"], timeout=8.0)
     finally:
         video_runner.STATUS_GRACE_SECONDS = long_grace
-        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
 
     v = (final.get("variations") or [{}])[0]
     check("a job we never once read is treated as unreachable, not as gone",
@@ -1897,23 +1899,348 @@ def test_a_mixed_run_of_bad_reads_takes_the_long_grace() -> None:
     cancelled: list[str] = []
     batch_atlas._runpod_get = flaky
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
-    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
-                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    long_grace, rechecks = (video_runner.STATUS_GRACE_SECONDS,
+                            video_runner.NOT_FOUND_RECHECK_SECONDS)
     video_runner.STATUS_GRACE_SECONDS = 1.5
-    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02,)
     try:
         started = video_runner.start_session(_req("mixed failures"),
                                              ("clientx", "projecty"))
         final = _await_session(started["id"], timeout=8.0)
     finally:
         video_runner.STATUS_GRACE_SECONDS = long_grace
-        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
 
     v = (final.get("variations") or [{}])[0]
     check("a run that stops being 404-only latches back to the long grace",
           "lost contact" in v.get("error", ""), True)
-    check("and takes more than the zero-length 404 window to get there",
+    check("and takes more than the short 404 re-checks to get there",
           reads["n"] > 2, True)
+
+
+def _capture_log() -> list[str]:
+    """Every line `video_runner` prints from here on, still echoed. A module-level
+    `print` shadows the builtin for that module only; `_release_log` removes it."""
+    logged: list[str] = []
+
+    def tee(*a, **k):
+        logged.append(" ".join(str(x) for x in a))
+        print(*a, **k)
+    video_runner.print = tee
+    return logged
+
+
+def _release_log() -> None:
+    video_runner.__dict__.pop("print", None)
+
+
+def _with_endpoint(value: str | None) -> str | None:
+    """Set RUNPOD_ENDPOINT_ID (the runner names it in every give-up) and return the
+    previous value for the caller to put back."""
+    prev = os.environ.get("RUNPOD_ENDPOINT_ID")
+    if value is None:
+        os.environ.pop("RUNPOD_ENDPOINT_ID", None)
+    else:
+        os.environ["RUNPOD_ENDPOINT_ID"] = value
+    return prev
+
+
+def test_a_404_is_rechecked_on_a_backoff_then_cancelled_and_logged() -> None:
+    """flipbook.md open item 3. A 404 on a job already read used to be given up on
+    in 15 s with NO cancel — and a 404 is not only an expired record: a rotated
+    RUNPOD_ENDPOINT_ID or a RunPod incident answers the same for a job that is still
+    rendering, which then billed on with nobody left to collect it.
+
+    Now the 404 is re-read on a backoff — one read per re-check, not one per poll
+    tick — then the job is cancelled, and the give-up and the cancel both name the
+    job AND the endpoint, the only handles left to find it in the console."""
+    import time
+    import batch_atlas
+
+    _stub_world()
+    reads: list[float] = []
+
+    def read_then_gone(path):
+        reads.append(time.monotonic())
+        if len(reads) == 1:
+            return {"status": "IN_PROGRESS"}
+        _job_not_found(path)
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = read_then_gone
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    schedule = (0.05, 0.1, 0.2)
+    long_grace, rechecks = (video_runner.STATUS_GRACE_SECONDS,
+                            video_runner.NOT_FOUND_RECHECK_SECONDS)
+    video_runner.STATUS_GRACE_SECONDS = 30.0
+    video_runner.NOT_FOUND_RECHECK_SECONDS = schedule
+    prev = _with_endpoint("ep-video")
+    logged = _capture_log()
+    try:
+        started = video_runner.start_session(_req("gone mid-render"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        _release_log()
+        _with_endpoint(prev)
+        video_runner.STATUS_GRACE_SECONDS = long_grace
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
+
+    v = (final.get("variations") or [{}])[0]
+    check("with nothing in the slot the variation fails", v.get("status"), "failed")
+    check("naming the expired record", "no longer has a record" in v.get("error", ""),
+          True)
+    check("one read, the first 404, then one read per re-check — not per tick",
+          len(reads), 2 + len(schedule))
+    gaps = [b - a for a, b in zip(reads[1:], reads[2:])]
+    check("the re-checks wait out the schedule, each gap longer than the last",
+          all(g >= want * 0.9 for g, want in zip(gaps, schedule)), True)
+    check("then the job is cancelled", cancelled, ["job1"])
+    give_up = [line for line in logged if "giving up on job job1" in line]
+    check("the give-up is logged with the job id and its endpoint",
+          bool(give_up) and "ep-video" in give_up[0], True)
+    check("and so is the cancel it sent",
+          any("cancel sent for job job1 on endpoint ep-video" in line
+              for line in logged), True)
+
+
+def test_a_404_that_clears_on_a_recheck_is_just_a_render() -> None:
+    """The point of re-checking: a 404 that turns back into a status was a blip, and
+    the render carries on to an ordinary collect with nothing cancelled."""
+    import base64
+    import batch_atlas
+
+    _stub_world()
+    reads = {"n": 0}
+
+    def blip(path):
+        reads["n"] += 1
+        if reads["n"] == 1:
+            return {"status": "IN_PROGRESS"}
+        if reads["n"] in (2, 3):
+            _job_not_found(path)
+        return {"status": "COMPLETED", "output": {"images": [
+            {"filename": "out.webp", "image": base64.b64encode(b"BLIP").decode()}]}}
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = blip
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    rechecks = video_runner.NOT_FOUND_RECHECK_SECONDS
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02, 0.02, 0.02, 0.02)
+    try:
+        started = video_runner.start_session(_req("a blip"), ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
+
+    v = (final.get("variations") or [{}])[0]
+    check("a 404 that clears is no failure", v.get("status"), "done")
+    check("the render is the one RunPod returned", v.get("bytes"), len(b"BLIP"))
+    check("and nothing is cancelled", cancelled, [])
+
+
+def test_a_cancel_that_fails_does_not_stop_the_tile_settling() -> None:
+    """The cancel on a give-up is best effort. RunPod refusing it — a 404 because the
+    record really is gone, a 500 — must still leave the tile settled and the runner
+    free, and must be logged as a job that may still be billing."""
+    import batch_atlas
+
+    _stub_world()
+    reads = {"n": 0}
+
+    def read_then_gone(path):
+        reads["n"] += 1
+        if reads["n"] == 1:
+            return {"status": "IN_PROGRESS"}
+        _job_not_found(path)
+
+    passthrough = batch_atlas._runpod_post
+    attempts: list[str] = []
+
+    def refuse_cancels(path, payload):
+        if path.startswith("/cancel/"):
+            attempts.append(path)
+            raise batch_atlas.RunPodHTTPError(500, f"RunPod {path} failed: HTTP 500")
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_get = read_then_gone
+    batch_atlas._runpod_post = refuse_cancels
+    rechecks = video_runner.NOT_FOUND_RECHECK_SECONDS
+    video_runner.NOT_FOUND_RECHECK_SECONDS = (0.02,)
+    prev = _with_endpoint("ep-video")
+    logged = _capture_log()
+    try:
+        started = video_runner.start_session(_req("cancel refused"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        _release_log()
+        _with_endpoint(prev)
+        video_runner.NOT_FOUND_RECHECK_SECONDS = rechecks
+
+    check("the session still ends", final.get("status"), "finished")
+    v = (final.get("variations") or [{}])[0]
+    check("and the tile is settled", v.get("status"), "failed")
+    check("the cancel was attempted", attempts, ["/cancel/job1"])
+    check("and its refusal is logged against the job and endpoint",
+          any("could not cancel job job1 on endpoint ep-video" in line
+              for line in logged), True)
+    check("the runner is free again", video_runner._ACTIVE, None)
+
+
+def test_a_body_that_is_not_a_status_is_an_unreadable_read() -> None:
+    """`st.get` on a body that is not an object raised AttributeError out of the
+    poll loop — past every give-up path, so the tile went red with the job still
+    running and never cancelled. It is an unreadable read like any other now."""
+    import batch_atlas
+
+    _stub_world()
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = lambda path: ["not", "a", "status"]
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    grace = video_runner.STATUS_GRACE_SECONDS
+    video_runner.STATUS_GRACE_SECONDS = 0.05
+    try:
+        started = video_runner.start_session(_req("garbled"), ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner.STATUS_GRACE_SECONDS = grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("a garbled status reads as lost contact", "lost contact" in v.get("error", ""),
+          True)
+    check("and the job is stopped", cancelled, ["job1"])
+
+
+def test_a_job_past_the_cap_is_cancelled_and_a_terminal_one_is_not() -> None:
+    """The cap is a give-up like the others, so it stops the job. A job RunPod has
+    already called FAILED is over — cancelling it would only be noise."""
+    import batch_atlas
+
+    _stub_world()
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    cap = video_runner.JOB_TIMEOUT_SECONDS
+    video_runner.JOB_TIMEOUT_SECONDS = 0.3
+    try:
+        started = video_runner.start_session(_req("never ends"), ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner.JOB_TIMEOUT_SECONDS = cap
+    v = (final.get("variations") or [{}])[0]
+    check("a job past the cap is reported as timed out", "timed out" in v.get("error", ""),
+          True)
+    check("and cancelled", cancelled, ["job1"])
+
+    _stub_world()
+    cancelled.clear()
+    batch_atlas._runpod_get = lambda path: {"status": "FAILED", "error": "boom"}
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    started = video_runner.start_session(_req("fails"), ("clientx", "projecty"))
+    final = _await_session(started["id"], timeout=8.0)
+    v = (final.get("variations") or [{}])[0]
+    check("a FAILED job fails its tile", v.get("status"), "failed")
+    check("and is not cancelled — it is already over", cancelled, [])
+
+
+def test_deleting_an_orphaned_session_stops_its_running_job() -> None:
+    """A session no process here owns, whose doc a restart left `running`, can be
+    deleted — and the doc is the only record anything would re-attach by. Its job
+    used to render on for nobody; it is cancelled now. A settled session has no job
+    to stop."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("orphan to delete"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    _interrupted(objects, sid)
+
+    cancelled: list[str] = []
+    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    check("the orphan is deleted", video_runner.delete_session(sid).get("ok"), True)
+    check("and its running job is cancelled first", cancelled, ["job1"])
+
+    _stub_world()
+    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    cancelled.clear()
+    done = video_runner.start_session(_req("settled"), ("clientx", "projecty"))
+    _await_session(done["id"])
+    video_runner.delete_session(done["id"])
+    check("a settled session's delete cancels nothing", cancelled, [])
+
+
+def test_a_blueprint_gone_session_stops_its_running_job() -> None:
+    """Adopting a session whose blueprint has left the library settles its running
+    tiles as failed — the last anyone looks at those jobs — so a job still running
+    is stopped rather than left rendering for a tile already marked failed."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("blueprint vanishes"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    _interrupted(objects, sid)
+
+    cancelled: list[str] = []
+    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner.blueprints.get_blueprint = lambda i: None
+    got = video_runner.get_session(sid) or {}
+    v = (got.get("variations") or [{}])[0]
+    check("the tile is failed for the missing blueprint", v.get("status"), "failed")
+    check("and its job is cancelled", cancelled, ["job1"])
+
+
+def test_a_blueprint_gone_session_another_container_holds_is_not_cancelled() -> None:
+    """The lease is asked BEFORE anything is cancelled: a session a live container
+    holds is that container's to stop, and its poller is still collecting the job."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("held elsewhere"), ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    _interrupted(objects, sid)
+    _other_container(sid)
+
+    cancelled: list[str] = []
+    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner.blueprints.get_blueprint = lambda i: None
+    video_runner.get_session(sid)
+    check("a job another container's lease holds is not cancelled", cancelled, [])
+
+
+def test_a_cancel_runpod_has_no_record_of_is_not_a_billing_alarm() -> None:
+    """A 404 from `/cancel` — routinely right after a status 404 — means RunPod has no
+    record of the job on this endpoint: nothing there is billing. It is logged as that,
+    not as "may still be running and billing", and a Stop carries no warning for it."""
+    import batch_atlas
+
+    _stub_world()
+    passthrough = batch_atlas._runpod_post
+
+    def no_record(path, payload):
+        if path.startswith("/cancel/"):
+            raise batch_atlas.RunPodHTTPError(
+                404, f"RunPod {path} failed: HTTP 404 Not Found: job not found")
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_post = no_record
+    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    prev = _with_endpoint("ep-video")
+    logged = _capture_log()
+    try:
+        started = video_runner.start_session(_req("already gone"), ("clientx", "projecty"))
+        sid = started["id"]
+        _await_in_flight(sid)
+        res = video_runner.cancel_session(sid)
+        _await_session(sid)
+    finally:
+        _release_log()
+        _with_endpoint(prev)
+    check("a Stop whose cancel 404s carries no billing warning", "warning" in res, False)
+    check("the 404 is logged as no record on that endpoint",
+          any("RunPod has no record of job job1 on endpoint ep-video" in line
+              for line in logged), True)
+    check("and never as a job that may still be billing",
+          any("may still be running and billing" in line for line in logged), False)
 
 
 def test_a_reroll_cannot_rescue_the_attempt_before_it() -> None:
@@ -3536,6 +3863,15 @@ if __name__ == "__main__":
     test_an_unreadable_job_still_collects_a_render_that_landed()
     test_a_404_before_the_job_is_ever_read_keeps_the_long_grace()
     test_a_mixed_run_of_bad_reads_takes_the_long_grace()
+    test_a_404_is_rechecked_on_a_backoff_then_cancelled_and_logged()
+    test_a_404_that_clears_on_a_recheck_is_just_a_render()
+    test_a_cancel_that_fails_does_not_stop_the_tile_settling()
+    test_a_body_that_is_not_a_status_is_an_unreadable_read()
+    test_a_job_past_the_cap_is_cancelled_and_a_terminal_one_is_not()
+    test_deleting_an_orphaned_session_stops_its_running_job()
+    test_a_blueprint_gone_session_stops_its_running_job()
+    test_a_blueprint_gone_session_another_container_holds_is_not_cancelled()
+    test_a_cancel_runpod_has_no_record_of_is_not_a_billing_alarm()
     test_a_reroll_cannot_rescue_the_attempt_before_it()
     test_the_rescue_prefers_the_clip_over_a_preview()
     test_an_unreadable_slot_is_not_an_empty_one()

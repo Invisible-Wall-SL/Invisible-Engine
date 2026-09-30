@@ -342,6 +342,23 @@ def test_job_timeout_is_not_the_binding_cap() -> None:
           handler.JOB_TIMEOUT >= 9000, True)
 
 
+def test_a_cutout_job_is_never_refused_by_the_worker() -> None:
+    """Weights that did not verify at boot DEGRADE, they do not refuse: start.sh stages
+    each verified file into the container's own models/RMBG and the node downloads the
+    rest there, privately. So a BiRefNet job always reaches ComfyUI — refusing it would
+    have made a worker rolled onto an unfetched volume useless for every cutout."""
+    wf = {"202": {"class_type": "BiRefNetRMBG", "inputs": {"model": "BiRefNet_toonout"}},
+          "5": {"class_type": "RMBG", "inputs": {"model": "RMBG-2.0"}}}
+
+    def body(fake):
+        handler.handler({"id": "j1", "input": {"workflow": wf}})
+        return list(fake.calls)
+
+    calls, _ = with_world(body, env=LIVE)
+    check("the cutout graph is queued on ComfyUI",
+          any(c.startswith("POST ") and c.endswith("/prompt") for c in calls), True)
+
+
 if __name__ == "__main__":
     test_a_cancelled_job_stops_rendering()
     test_stopping_kills_the_gpu_work_not_just_the_wait()
@@ -356,6 +373,7 @@ if __name__ == "__main__":
     test_without_urls_nothing_changes()
     test_slots_line_up_with_output_order()
     test_job_timeout_is_not_the_binding_cap()
+    test_a_cutout_job_is_never_refused_by_the_worker()
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")

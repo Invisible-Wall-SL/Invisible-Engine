@@ -136,6 +136,12 @@ ARG GIT_SHA=unknown
 ENV WORKER_BUILD=$GIT_SHA
 
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml
+# The pod's model fetcher, for its --verify/--stage half: start.sh checks the RMBG and
+# BiRefNet weights on the volume against its pinned checksums at every boot and stages
+# them into this container's own models/RMBG. Copied into this context by CI from
+# services/atlas-comfy-pod/tools/ (gitignored here), like nodes.json — one copy of the
+# checksums, not two. A local `docker build` needs that copy done by hand.
+COPY fetch-models.py /fetch-models.py
 COPY handler.py /handler.py
 COPY start.sh   /start.sh
 RUN chmod +x /start.sh

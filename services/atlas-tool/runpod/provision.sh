@@ -11,7 +11,7 @@ NODES="$COMFY/custom_nodes"
 # provisioned off master would run a different core than the images do.
 COMFYUI_REF="${COMFYUI_REF:-v0.33.1}"
 
-echo "== 1/4  ComfyUI ($COMFYUI_REF) + ComfyUI-Manager =="
+echo "== 1/5  ComfyUI ($COMFYUI_REF) + ComfyUI-Manager =="
 if [ ! -d "$COMFY" ]; then
 	git clone --branch "$COMFYUI_REF" --depth 1 https://github.com/comfyanonymous/ComfyUI "$COMFY"
 fi
@@ -35,16 +35,25 @@ else
 	fi
 fi
 
-echo "== 2/4  Custom nodes required by the SDXL/FLUX blueprints =="
+echo "== 2/5  Custom nodes required by the SDXL/FLUX blueprints =="
 clone_node() {
-	local url="$1" dir="$NODES/$2"
-	[ -d "$dir" ] || git clone --depth 1 "$url" "$dir"
+	local url="$1" dir="$NODES/$2" ref="${3:-}"
+	if [ -z "$ref" ]; then
+		[ -d "$dir" ] || git clone --depth 1 "$url" "$dir"
+		return
+	fi
+	[ -d "$dir" ] || git clone "$url" "$dir"
+	# An earlier run's `--depth 1` clone cannot see the pinned commit; deepen it first.
+	# Checking out the commit it already sits at is a no-op, so a re-run is safe.
+	[ ! -f "$dir/.git/shallow" ] || git -C "$dir" fetch --quiet --unshallow
+	git -C "$dir" checkout --quiet "$ref"
 }
 clone_node https://github.com/cubiq/ComfyUI_IPAdapter_plus ComfyUI_IPAdapter_plus
-clone_node https://github.com/1038lab/ComfyUI-RMBG          ComfyUI-RMBG
+# Pinned with nodes.json: step 5's checksummed file list is the one this commit loads.
+clone_node https://github.com/1038lab/ComfyUI-RMBG          ComfyUI-RMBG 9edb2bec3900
 clone_node https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux
 
-echo "== 3/4  Python deps =="
+echo "== 3/5  Python deps =="
 python -m pip install --upgrade pip
 python -m pip install -r "$COMFY/requirements.txt"
 python -m pip install boto3
@@ -53,9 +62,25 @@ for req in "$NODES"/*/requirements.txt; do
 	[ -f "$req" ] && python -m pip install -r "$req" || true
 done
 
-echo "== 4/4  Pull models from R2 =="
+echo "== 4/5  Pull models from R2 =="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python "$SCRIPT_DIR/pull-models.py" --dest "$COMFY/models"
+
+# ComfyUI-RMBG downloads these into models/RMBG/ on first use — on this volume, the
+# folder every serverless worker shares, which is how one torn birefnet.py failed every
+# cutout for 14 hours (2026-09-04). Fetched here instead, checksummed, before anything
+# runs; the worker verifies the same checksums at boot and stages what passes.
+# This legacy lane runs ComfyUI FROM the volume, so its node still writes the shared
+# models/RMBG/ — never provision the serverless volume from a running legacy-lane ComfyUI.
+echo "== 5/5  Background-removal weights (RMBG-2.0 + BiRefNet, checksummed) =="
+FETCH=/fetch-models.py
+[ -f "$FETCH" ] || FETCH="$SCRIPT_DIR/fetch-models.py"
+if [ ! -f "$FETCH" ]; then
+	echo "!! fetch-models.py not found at /fetch-models.py or beside this script." >&2
+	echo "!! It lives in services/atlas-comfy-pod/tools/ — copy it next to provision.sh and re-run." >&2
+	exit 1
+fi
+python "$FETCH" --set rmbg --set birefnet --dest "$COMFY/models"
 
 # Drop the start script next to the volume root for convenience.
 cat > "$ROOT/start-comfyui.sh" <<'EOF'

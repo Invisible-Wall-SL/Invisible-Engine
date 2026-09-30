@@ -22,8 +22,9 @@ blueprint nodes (e.g. comfyui_controlnet_aux's DepthAnything) load models throug
 HuggingFace `transformers` pipeline that lives OUTSIDE ComfyUI's memory manager, so
 ComfyUI's own /free can't release them and VRAM accumulates across jobs on a warm
 worker until it OOMs on a 24 GB card. A fresh process per job guarantees a clean GPU.
-ComfyUI reads models from the attached Network Volume via the /ComfyUI/models symlink
-set up in start.sh.
+ComfyUI reads models from the attached Network Volume via the /ComfyUI/models symlinks
+set up in start.sh — all but models/RMBG, which is container-local: start.sh stages
+each checksummed file into it, and the node downloads any other one there privately.
 
 CANCELLATION needs two env vars on the endpoint — `RUNPOD_ENDPOINT_ID` and
 `RUNPOD_API_KEY`. RunPod's `/cancel` marks a job cancelled but never interrupts a
