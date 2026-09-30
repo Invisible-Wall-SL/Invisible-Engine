@@ -18,13 +18,16 @@
 		cascadeDefaultFor,
 		DEFAULT_SCATTER_PAYTABLE,
 		describePaytableDrift,
+		coinEntryLabel,
 		formatPayRow,
+		isHoldAndWinSymbol,
 		isScatterSymbol,
 		partnerPaytableDrift,
 		planPaytableImport,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 		SWAP_STYLES,
 		swapStyleUsesColumnStagger,
+		symbolHoldAndWinRoles,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -35,11 +38,18 @@
 		type PaytableImportPlan,
 	} from 'game-config';
 	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
-	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
+	import {
+		BUILTIN_SPINE_NAMES,
+		builtinSpineMeta,
+		kindCapabilities,
+		type ComponentParam,
+	} from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
+	import HoldAndWinSection from './HoldAndWinSection.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -76,6 +86,27 @@
 		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
+
+	const isHoldAndWin = $derived(
+		kindCapabilities(data.gameType).holdAndWin || doc.holdAndWin !== undefined,
+	);
+
+	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
+	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */
+	function holdAndWinValueLabels(name: string): string[] {
+		const roles = symbolHoldAndWinRoles(doc.symbols[name]);
+		const coins = doc.holdAndWin?.coins ?? [];
+		return coins
+			.filter(
+				(c) =>
+					(c.kind === 'cash' && roles.includes('coin')) ||
+					(c.kind === 'jackpot' && roles.includes('jackpot')),
+			)
+			.map(coinEntryLabel);
+	}
+	function clearPaytable(name: string) {
+		delete doc.symbols[name].paytable;
+	}
 	const gameTypes = $derived(Object.keys(doc.paddingReels));
 	const maxRows = $derived(Math.max(...doc.numRows, 1));
 	/** Do the reels differ in height? Drives the alignment control below, which has nothing to place
@@ -939,6 +970,23 @@
 		doc = structuredClone(data.templateDefault as GameConfigDoc);
 	}
 
+	/** A kind with several starting configs (Hold and Win: Pots / Classic / Collector) offers each as
+	 *  a whole-doc reset. Nothing saves until Save, but it discards every field, so it asks first. */
+	let pickedPreset = $state('');
+	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
+	async function resetToPreset() {
+		const preset = data.presets.find((p) => p.id === presetId);
+		if (!preset) return;
+		const ok = await askConfirm({
+			title: `Reset to ${preset.label}?`,
+			message:
+				'This replaces the WHOLE config on this page — grid, symbols, bet modes and the Hold and Win block — with the preset. Nothing is saved until you press Save.',
+			confirmLabel: 'Reset to preset',
+			danger: true,
+		});
+		if (ok) doc = structuredClone(preset.doc);
+	}
+
 	/**
 	 * Persist the config, conditional on the loaded ETag. `force` drops the precondition — the
 	 * explicit "overwrite with mine" after a conflict; it NEVER reloads or discards local edits.
@@ -1130,6 +1178,22 @@
 			{/if}
 			{#if data.templateDefault}
 				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
+			{/if}
+			{#if data.presets.length}
+				<span class="preset-pick">
+					<select
+						value={presetId}
+						onchange={(e) => (pickedPreset = e.currentTarget.value)}
+						disabled={lease.readOnly}
+					>
+						{#each data.presets as p (p.id)}
+							<option value={p.id}>{p.label}</option>
+						{/each}
+					</select>
+					<button class="linkish" onclick={resetToPreset} disabled={lease.readOnly}
+						>Reset to preset</button
+					>
+				</span>
 			{/if}
 		</div>
 
@@ -1610,6 +1674,10 @@
 			{/each}
 		</section>
 
+		{#if isHoldAndWin}
+			<HoldAndWinSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+		{/if}
+
 		<!-- Symbols ---------------------------------------------------------------->
 		<section>
 			<h2>Symbols</h2>
@@ -1693,15 +1761,32 @@
 										oninput={(e) => setProperties(name, e.currentTarget.value)}
 									/></td
 								>
-								<td
-									><input
-										value={paytableText(name)}
-										placeholder={isScatterSymbol(doc.symbols[name])
-											? `default ${formatPayRow(DEFAULT_SCATTER_PAYTABLE)} × total bet`
-											: '5:20, 4:10, 3:5'}
-										oninput={(e) => setPaytable(name, e.currentTarget.value)}
-									/></td
-								>
+								<td>
+									{#if isHoldAndWinSymbol(doc.symbols[name])}
+										{@const values = holdAndWinValueLabels(name)}
+										<div class="hw-pays">
+											<span class="hw-roles"
+												>Hold and Win: {symbolHoldAndWinRoles(doc.symbols[name]).join(', ')}</span
+											>
+											{#each values as label, i (i)}<span class="hw-value">{label}</span>{/each}
+											{#if doc.symbols[name].paytable?.length}
+												<button
+													class="linkish"
+													title="A Hold and Win symbol pays by its value, never on a line"
+													onclick={() => clearPaytable(name)}>Drop line pays</button
+												>
+											{/if}
+										</div>
+									{:else}
+										<input
+											value={paytableText(name)}
+											placeholder={isScatterSymbol(doc.symbols[name])
+												? `default ${formatPayRow(DEFAULT_SCATTER_PAYTABLE)} × total bet`
+												: '5:20, 4:10, 3:5'}
+											oninput={(e) => setPaytable(name, e.currentTarget.value)}
+										/>
+									{/if}
+								</td>
 								<td class="center"
 									><button class="del" title="Remove" onclick={() => removeSymbol(name)}>×</button
 									></td
@@ -1731,9 +1816,9 @@
 			<div class="fields">
 				<label
 					><span>Win model</span><select
-						value={winModelType}
+						value={isHoldAndWin ? 'lines' : winModelType}
 						onchange={(e) => setWinModelType(e.currentTarget.value)}
-						disabled={lease.readOnly}
+						disabled={lease.readOnly || isHoldAndWin}
 					>
 						<option value="lines">Lines — paylines pay left to right</option>
 						<option value="ways">Ways — any adjacent reels pay</option>
@@ -1818,7 +1903,18 @@
 				Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave — a project
 				that hasn't authored one will see them simply vanish.
 			</p>
-			{#if winModelType !== 'lines'}
+			{#if isHoldAndWin}
+				<p class="hint">
+					A Hold and Win base game pays by lines.
+					{#if winModelType !== 'lines'}
+						<button
+							class="linkish"
+							onclick={() => setWinModelType('lines')}
+							disabled={lease.readOnly}>Switch it back to lines</button
+						>
+					{/if}
+				</p>
+			{:else if winModelType !== 'lines'}
 				<p class="hint muted-note">
 					Every win model is honoured end to end — the test server scores the board by this model,
 					and the client's payline-specific surfaces stand down for it. Republish after changing it:
@@ -3058,6 +3154,38 @@
 		font: inherit;
 		padding: 0;
 		text-decoration: underline;
+	}
+	.preset-pick {
+		display: inline-flex;
+		gap: 8px;
+		align-items: center;
+	}
+	.preset-pick select {
+		background: #101017;
+		border: 1px solid #26262f;
+		border-radius: 6px;
+		color: #e8e8ee;
+		padding: 3px 6px;
+		font-size: 12px;
+	}
+	.hw-pays {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 6px;
+		align-items: center;
+		font-size: 11px;
+	}
+	.hw-roles {
+		color: #e0b878;
+		margin-right: 4px;
+	}
+	.hw-value {
+		font-family: ui-monospace, monospace;
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: #14141b;
+		border: 1px solid #26262f;
+		color: #b9b9c4;
 	}
 	.pill {
 		font-size: 11px;

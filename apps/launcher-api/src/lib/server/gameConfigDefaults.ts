@@ -1,5 +1,16 @@
-import { normalizeGameConfigDoc, resolveWinLevels, type GameConfigDoc } from 'game-config';
+import {
+	DEFAULT_HOLD_AND_WIN_PRESET,
+	HOLD_AND_WIN_PRESET_IDS,
+	HOLD_AND_WIN_PRESET_LABELS,
+	holdAndWinPresetKey,
+	normalizeGameConfigDoc,
+	resolveWinLevels,
+	type GameConfigDoc,
+} from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
+import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
+import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
+import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
 import scatterConfig from '$lib/data/gameConfig/scatter.json';
 import waysConfig from '$lib/data/gameConfig/ways.json';
@@ -31,11 +42,37 @@ const FALLBACK_GAME_TYPE = 'lines';
  * and makes that impossible.
  */
 const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
-	Object.entries({ lines: linesConfig, ways: waysConfig, scatter: scatterConfig }).flatMap(([gameType, raw]) => {
+	Object.entries({
+		lines: linesConfig,
+		ways: waysConfig,
+		scatter: scatterConfig,
+		[holdAndWinPresetKey('pots')]: holdAndWinPots,
+		[holdAndWinPresetKey('classic')]: holdAndWinClassic,
+		[holdAndWinPresetKey('collector')]: holdAndWinCollector,
+	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
 	}),
 );
+
+/** A kind whose defaults are PRESETS resolves to its default preset's key. */
+const KIND_DEFAULT_KEY: Record<string, string> = {
+	holdAndWin: holdAndWinPresetKey(DEFAULT_HOLD_AND_WIN_PRESET),
+};
+
+export type GameConfigPreset = { id: string; label: string; doc: GameConfigDoc };
+
+/**
+ * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with one default.
+ * `holdAndWin`: Pots / Classic sticky / Collector streak (`docs/design/hold-and-win.md` §6).
+ */
+export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPreset[] {
+	if (gameType !== 'holdAndWin') return [];
+	return HOLD_AND_WIN_PRESET_IDS.flatMap((id) => {
+		const doc = DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(id)];
+		return doc ? [{ id, label: HOLD_AND_WIN_PRESET_LABELS[id], doc }] : [];
+	});
+}
 
 /**
  * The committed default for a game type, falling back to `lines` — the same fallback
@@ -45,16 +82,8 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
  * broken. Callers must treat `null` as "use the compiled config", never as "no symbols".
  */
 export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDoc | null {
-	return (
-		DEFAULTS_BY_GAME_TYPE[gameType ?? FALLBACK_GAME_TYPE] ??
-		DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ??
-		null
-	);
-}
-
-/** Game types that ship a committed default — the "Reset to template default" menu. */
-export function listGameConfigTemplates(): string[] {
-	return Object.keys(DEFAULTS_BY_GAME_TYPE);
+	const key = gameType ? (KIND_DEFAULT_KEY[gameType] ?? gameType) : FALLBACK_GAME_TYPE;
+	return DEFAULTS_BY_GAME_TYPE[key] ?? DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ?? null;
 }
 
 export type GameConfigSource = 'authored' | 'template';

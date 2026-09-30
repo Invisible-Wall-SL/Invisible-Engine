@@ -17,6 +17,7 @@
  */
 
 import type { PartnerPaytable } from './serverPaytable';
+import type { HoldAndWin } from './holdAndWin';
 import type { GameSounds } from './sounds';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
@@ -449,6 +450,12 @@ export type GameConfigDoc = {
 	 * Read it through `resolveReelBehaviour` rather than directly, so the defaults live in one place.
 	 */
 	reelBehaviour?: ReelBehaviour;
+	/**
+	 * OPTIONAL Hold and Win mechanic (see `./holdAndWin`, `docs/design/hold-and-win.md`). Present on a
+	 * `holdAndWin` project only; its presence is what makes the base-game lines win feed a respin
+	 * feature. Absent ⇒ no feature, byte-identical to every config authored before it existed.
+	 */
+	holdAndWin?: HoldAndWin;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	/**

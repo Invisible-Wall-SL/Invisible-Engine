@@ -57,6 +57,9 @@ before — an un-authored project still runs the compiled template.
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
   **presentation** (kind, menu order, and the copy the card shows). See _Bet
   modes: math + presentation_ below.
+- **Hold and Win** — only on a Hold and Win project: the respin feature's trigger,
+  respins, board end, coin values, jackpots, specials, pots and wheel. See _Hold and
+  Win_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below). A **scatter** symbol's paytable is its
@@ -84,6 +87,59 @@ before — an un-authored project still runs the compiled template.
   (see _Server-defined paylines_ below).
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
+
+## Hold and Win
+
+A Hold and Win project gets a **Hold and Win** section between Bet modes and Symbols.
+One kind makes three different games; each is a **preset** you can start from. Pick one
+in the banner's preset menu and press **Reset to preset** (it asks first — the whole
+config is replaced):
+
+- **Pots (3 Pots of Egypt)** — 5×3, 25 lines, decimal coin values, four specials, three
+  pots, Lucky Spin, a full board pays GRAND. A new Hold and Win project starts here.
+- **Classic sticky (Grand)** — 5×3, 5 lines, a BOOST multiplier, G-R-A-N-D column
+  letters, Buy and Super Buy.
+- **Collector streak (Super Hotfire Diamonds)** — 3×3, coins on reels 1 and 3 only, a
+  COLLECT on reel 2, only collectors stick, a pre-feature wheel.
+
+**Symbols get their role in the Symbols panel**, through their special properties:
+`coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `meterSpecial`,
+`blank`. The Hold and Win section holds the tables for each role, and each special's
+card lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold
+and Win role shows its value table in the paytable instead of line pays — it never pays
+on a line.
+
+The panels:
+
+- **Trigger** — _N or more_ symbols of the roles you tick; a **pattern** (per reel: at
+  least N of these roles on that reel, all rows must hold); **buy tiers** (pick a
+  buy-bonus bet mode — its price is that mode's cost, so change the price in Bet
+  modes — plus the specials the buy guarantees); a **random metre** (presentation only,
+  the server decides); **Lucky Spin**.
+- **Respins** — what sticks (every coin, or only collectors), the starting count, what
+  resets it (a new coin, or any new coin or special), an optional cap.
+- **Board end** — none, a **full board** jackpot (and which roles count as filling), or
+  **column letters** (one letter per reel; a full column lights its letter and, if you
+  tick it, clears; every letter lit pays the jackpot).
+- **Coin values** — cash coins (× total bet; 1.5 is fine) and jackpot coins, each with a
+  weight (its share is shown) and the reels it may land on (none ticked = every reel).
+- **Jackpot tiers** — name and × total bet. Renaming a tier renames every reference.
+- **Specials** — collector, multiplier, payer, mystery; each switched on separately
+  with its own table. Then the **apply order** for specials landing on the same respin
+  and which are **active at entry**.
+- **Meters (pots)** — per meter: the symbol that fills it, max level, the levels where
+  it grows, the special a full meter activates. Pot levels are the server's; the game
+  only shows them.
+- **Wheel** — prizes spun once as the feature starts: coin boost, extra collect, or a
+  jackpot.
+
+The win model is locked to **lines** — a Hold and Win base game pays by lines. The
+checker names impossible setups (a pattern on a reel that doesn't exist, only
+collectors sticking with no sticky collector, a letters word that doesn't match the
+reel count, a jackpot name no tier has…).
+
+The game doesn't play the feature yet: the mock server and the engine follow in later
+phases ([plan](../design/hold-and-win.md)).
 
 ## Reel behaviour
 

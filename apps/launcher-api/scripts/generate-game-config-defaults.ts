@@ -27,6 +27,9 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_PRESET_IDS,
+	holdAndWinPresetKey,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
 	symbolsInPlay,
@@ -47,6 +50,16 @@ const BUILT_IN: Record<string, string> = {
 	ways: resolve(HERE, '../../ways/src/game/config.ts'),
 	scatter: resolve(HERE, '../../scatter/src/game/config.ts'),
 };
+
+/**
+ * PRESETS — a kind whose defaults are several configs rather than one app's (`holdAndWin`: one
+ * template, three reference games). Their source is a raw config in `packages/game-config`, not a
+ * game app, because no app exists per preset and faking one would compile a game nobody runs.
+ * Written as `<kind>.<preset>.json`; `gameConfigDefaults.ts` maps the kind to its default preset.
+ */
+const PRESETS: Record<string, () => unknown> = Object.fromEntries(
+	HOLD_AND_WIN_PRESET_IDS.map((id) => [holdAndWinPresetKey(id), () => HOLD_AND_WIN_PRESETS[id]]),
+);
 
 // `cluster` is still NOT registered: its upstream sample config ships
 // `paddingReels: { basegame: '', … }` — empty-string placeholders where the others carry strips.
@@ -110,30 +123,59 @@ if (oneConfig && !oneType) {
 	process.exit(1);
 }
 
-const targets: Array<[string, string]> = oneType
+/** `configDir` is where a module source's sibling `winLevelMap.ts` would sit; a preset has none
+ *  and authors its own `winLevels`. */
+type Target = {
+	gameType: string;
+	source: string;
+	configDir?: string;
+	load: () => Promise<unknown>;
+};
+
+const fromModule = (gameType: string, configPath: string | undefined): Target | string =>
+	configPath
+		? {
+				gameType,
+				source: configPath,
+				configDir: dirname(configPath),
+				load: async () =>
+					((await import(pathToFileURL(configPath).href)) as { default: unknown }).default,
+			}
+		: gameType;
+
+const fromPreset = (gameType: string): Target => ({
+	gameType,
+	source: `game-config preset ${gameType}`,
+	load: async () => structuredClone(PRESETS[gameType]()),
+});
+
+/** A string is a game type with no registered source (reported below). */
+const targets: Array<Target | string> = oneType
 	? [
-			[
-				oneType,
-				oneConfig ? (isAbsolute(oneConfig) ? oneConfig : resolve(oneConfig)) : BUILT_IN[oneType],
-			],
+			oneConfig
+				? fromModule(oneType, isAbsolute(oneConfig) ? oneConfig : resolve(oneConfig))
+				: PRESETS[oneType]
+					? fromPreset(oneType)
+					: fromModule(oneType, BUILT_IN[oneType]),
 		]
-	: Object.entries(BUILT_IN);
+	: [
+			...Object.entries(BUILT_IN).map(([gameType, path]) => fromModule(gameType, path)),
+			...Object.keys(PRESETS).map(fromPreset),
+		];
 
 let failures = 0;
 
-for (const [gameType, configPath] of targets) {
-	if (!configPath) {
-		console.error(`✗ ${gameType}: no config module registered — pass --config <path>.`);
+for (const target of targets) {
+	if (typeof target === 'string') {
+		console.error(`✗ ${target}: no config module registered — pass --config <path>.`);
 		failures++;
 		continue;
 	}
+	const { gameType, source, configDir } = target;
 
-	const module = (await import(pathToFileURL(configPath).href)) as { default: unknown };
-	const doc = normalizeGameConfigDoc(module.default);
+	const doc = normalizeGameConfigDoc(await target.load());
 	if (!doc) {
-		console.error(
-			`✗ ${gameType}: ${configPath} does not describe a game (no symbols or no strips).`,
-		);
+		console.error(`✗ ${gameType}: ${source} does not describe a game (no symbols or no strips).`);
 		failures++;
 		continue;
 	}
@@ -147,11 +189,14 @@ for (const [gameType, configPath] of targets) {
 	// game-type-templates, and the sibling-only lookup silently dropped all ten tiers from the
 	// committed default — the catch below cannot tell "this game has no tiers" (legitimate) from
 	// "the file moved" (a regression), which is exactly how that went unnoticed.
-	const winLevelMapCandidates = [
-		resolve(dirname(configPath), 'winLevelMap.ts'),
-		resolve(HERE, '../../../packages/engine-game/src/game/winLevelMap.ts'),
-	];
-	let tiersFrom: string | undefined;
+	// A source that authors its own tiers (every preset) keeps them.
+	const winLevelMapCandidates = doc.winLevels
+		? []
+		: [
+				...(configDir ? [resolve(configDir, 'winLevelMap.ts')] : []),
+				resolve(HERE, '../../../packages/engine-game/src/game/winLevelMap.ts'),
+			];
+	let tiersFrom: string | undefined = doc.winLevels ? source : undefined;
 	for (const candidate of winLevelMapCandidates) {
 		try {
 			const wl = (await import(pathToFileURL(candidate).href)) as {

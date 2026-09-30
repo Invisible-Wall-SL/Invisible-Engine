@@ -4,7 +4,8 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** planned (2026-09-30). Mechanics researched, engine + tooling inventoried, plan
+**One-line state:** Phase 2 merged (2026-09-30) — the Game Config `holdAndWin` block and the
+three presets exist; nothing plays the feature yet. Mechanics researched, engine + tooling inventoried, plan
 written. Nothing built yet. Production is blocked on the partner's Hold and Win wire format;
 authoring is not (mock-first).
 
@@ -30,7 +31,7 @@ titled **"Hold and win game pipeline"**.
 |---|---|---|---|---|
 | 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
-| 2 | Game Config `holdAndWin` block (full option space, 3 presets) | not started | — | — |
+| 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
@@ -62,6 +63,21 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed, and Phase 3 only has to drop the `MOCK_FALLBACKS` entry.
 
 ## Decisions & findings
+
+- 2026-09-30 — **Phase 2: the config shape Phase 3 generates from** is `doc.holdAndWin`
+  (`packages/game-config/src/holdAndWin.ts`; detail in [game-config.md](game-config.md)). Roles are
+  `special_properties` values: `coin`, `jackpot`, `collector`, **`coinMultiplier`** (not
+  `multiplier` — the lines mock contract already deals multiplier cells for that tag), `payer`,
+  `mystery`, `meterSpecial`, `blank`. Specials never name their symbol; meters do. A cash coin
+  draws as the `coin` symbol, a jackpot coin as the `jackpot` symbol (or the coin symbol if there is
+  none). A buy tier's price is its bet mode's `cost`. Reel indices are 0-based. Every preset has a
+  `respin` padding strip set (coins/specials/blank) beside `basegame`.
+- 2026-09-30 — **Preset numbers the design doesn't give are placeholders**: line pays, every draw
+  weight, the payer's and leave-behind coin's steps (2–10 as 2,3,…,10), the mystery table, Pots'
+  `fromTriggeringSpecials: true`, and Hotfire's wheel coin boost (×2).
+- 2026-09-30 — **Normalization drops half-typed entries on save** (a jackpot with no name, a meter
+  with no symbol, letters with no word, a buy with no mode), consistent with the rest of the config.
+  A reference to a dropped jackpot then shows as a validator error. Revisit if authors trip on it.
 
 - 2026-09-30 — **Owner: one template makes all three reference games.** Grand, Super Hotfire Diamonds and 3 Pots of Egypt are presets of the same kind. Every option any of them uses is core scope (design §6).
 - 2026-09-30 — **Owner: 3 Pots of Egypt is the first real game.** It sets the Phase 4 build order.
@@ -106,6 +122,17 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 
 ## Recent changes
 
+- 2026-09-30 — **Phase 2 merged (#919)** (session "Hold and Win Phase 2 — Game Config block").
+  - `packages/game-config`: the `holdAndWin` block, its normalizer and validator, and the three presets
+    `pots` / `classic` / `collector` (numbers per design §1.2).
+  - Committed defaults: `data/gameConfig/holdAndWin.<preset>.json`. `holdAndWin` defaults to `pots`.
+  - `/config`: a Hold and Win section and "Reset to preset", gated on `kindCapabilities().holdAndWin`.
+  - Game Maker: ten profile detectors.
+  - Left for later phases: nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
+    from it (Phase 3), and the roles aren't offered in `/symbols` (Phase 7).
+  - **Role-name mismatch with Phase 1:** game-spec's `SymbolKindSchema` (#917) says `jackpotCoin` and
+    reuses `multiplier`, while the config's `special_properties` roles are `jackpot` and
+    `coinMultiplier`. Phase 7 (Symbols) should align game-spec to the config names.
 - 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** — merged as #917, a runtime release (session "Hold and Win Phase 1: register the kind everywhere").
   - **One kind list.** `GAME_KINDS` lives in `packages/constants-shared/gameKinds.ts`. These now derive from it: roles.ts (its copy removed), `kindStorage`, `projects.ts`, the editor template picker, game-spec `GameTypeSchema`, the publish gate, `verify-launcher-profile` and `gen-flow-vocabulary.mjs`, which gives lines' emitter vocab to every kind except cluster/scatter.
   - **`kindCapabilities(gameType, config?)`** is in `engine-layout`.

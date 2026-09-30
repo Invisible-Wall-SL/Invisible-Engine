@@ -45,8 +45,8 @@ are build/fixture-verified with the browser click-through listed under open item
 - `$lib/data/gameConfig/lines.json` — generated, the only committed default today (`bookOf` has no
   config module in this repo; a shipped game generates its own with `--game-type` + `--config`).
   Unknown game types fall back to `lines`, the same fallback `symbolDefaultsFor` uses.
-- `gameConfigDefaults.ts` — `gameConfigDefaultFor()`, `listGameConfigTemplates()` (the "Reset to
-  template default" menu), and `resolveGameConfig()`, the ONE entry point that owns the precedence
+- `gameConfigDefaults.ts` — `gameConfigDefaultFor()`, `gameConfigPresetsFor()` (a kind with several
+  starting configs — `holdAndWin` — see the Hold and Win section), and `resolveGameConfig()`, the ONE entry point that owns the precedence
   `authored R2 doc → committed template default → compiled config`. It returns provenance
   (`source: 'authored' | 'template'`) plus the ETag, so the tool can say "inherited from the lines
   template" and still send the right compare-and-swap precondition on first save.
@@ -600,6 +600,57 @@ catalogue, resolver, departure-only normalizer, `sounds.fixture.ts`), but it is 
 [Invisible Sound](sound.md); `/config`'s **Sounds** section is only a pointer. The slot model and
 its inverted default are in [sound.md](sound.md) and [engine.md](engine.md) (2026-08-25).
 
+## Hold and Win block + three presets (2026-09-30, Hold and Win Phase 2)
+
+Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win.md](hold-and-win.md).
+
+- **`packages/game-config/src/holdAndWin.ts`** — `doc.holdAndWin?: HoldAndWin`, the whole §1.3
+  option space: `trigger` (`count` {min, roles} · `pattern` [{reel, roles, min}] · `buy` [{mode,
+  guaranteed, boostedSpecials}] · `randomMetre` {name} · `luckySpin`), `stickiness` (`allCoins` |
+  `collectorsOnly`), `respins` {start, reset `anyCoin`|`anySpecial`, cap?}, `boardEnd` (`none` |
+  `fullBoardJackpot` {jackpot, roles} | `columnLetters` {letters, jackpot, clearOnComplete}), `coins`
+  (cash × TB with decimals, or a jackpot label; weight; reels?), `jackpots` [{name, multiplier × TB,
+  fixed}], `specials` {collector, multiplier, payer, mystery — each optional, each with its own
+  table, reels?, base-game flags; multiplier `leaveBehind` none | becomesCoin + table; mystery
+  reveals coin | jackpot | special + `unlocksInactive`}, `applyOrder`, `activeModifiers` {atEntry,
+  fromTriggeringSpecials}, `meters?` [{id, symbol, maxLevel, sizeStages, activates}], `wheel?`
+  {prizes: coinBoost | extraCollect | jackpot}. `normalizeHoldAndWin` (structural; the block's
+  presence IS the kind, so any object normalizes to a full block with defaults) and
+  `validateHoldAndWin` (folded into `validateGameConfigDoc`, paths `holdAndWin.…`).
+- **Roles live in the dictionary, tables in the block.** A symbol's Hold and Win role is a
+  `special_properties` value: `coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`,
+  `meterSpecial`, `blank`. Specials never name their symbol; a meter does (three meters, three
+  symbols). **`coinMultiplier`, not `multiplier`:** the lines family already reads `multiplier`
+  (the mock contract deals multiplier cells for it — `mockContract.ts` `projectMultiplierSymbol`).
+- **A buy tier's price is its bet mode's `cost`** — the block stores the mode key, never a price.
+- **Validator catches** a pattern on a reel that doesn't exist or where none of its roles can land,
+  more required symbols than rows/cells, `collectorsOnly` with no collector, unknown jackpot names
+  (coins, mystery, wheel, board end), letters ≠ reel count, a buy on a missing / non-buy mode, a
+  configured special with no tagged symbol (and the reverse, as a warning), apply order missing a
+  special, a meter activating an unconfigured special or a size stage past its max, a wheel
+  extra-collect past the collector's max, a Hold and Win game whose win model isn't `lines`, and a
+  Hold and Win symbol carrying a line paytable (warning).
+- **Presets** — `src/holdAndWinPresets.ts` (`pots` = 3 Pots of Egypt, `classic` = Grand,
+  `collector` = Super Hotfire Diamonds), raw configs the generator normalizes into
+  `data/gameConfig/holdAndWin.<preset>.json`. The generator gained a PRESET source path beside the
+  `apps/<type>/config.ts` one (no fake apps); a preset authors its own `winLevels` (the §1.2 big-win
+  thresholds), so the `winLevelMap` lookup is skipped for it. `gameConfigDefaultFor('holdAndWin')`
+  → `pots`; `gameConfigPresetsFor('holdAndWin')` → all three for `/config`'s "Reset to preset".
+  Line pays, draw weights, the payer's and leave-behind coin's steps are placeholders (the design
+  records only the ranges).
+- **`/config`** — a Hold and Win section (gated on the project kind until Phase 1's
+  `kindCapabilities()` lands), preset picker, paytable shows coin rows as a value table, win-model
+  picker locked to lines. Guide: [game-config.md](../tools/game-config.md#hold-and-win).
+- **Game Maker profile** — `gameProfile.ts` `FEATURE_DETECTORS` +10 (`respin`, `jackpots`,
+  `collector`, `boost`, `payer`, `mystery`, `pots`, `luckySpin`, `columnLetters`, `wheel`), all read
+  `config.holdAndWin`.
+- **Tests:** `packages/game-config/holdAndWin.fixture.ts` (discovered by `check:all`): each preset is
+  a normalize fixed point with zero issues, the block round-trips byte-for-byte, a config without it
+  gets no key, shorthand/garbage handling, and 19 impossible configs each named by path.
+  `check:game-config-defaults` covers the three new JSONs.
+- **Not in this phase:** nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
+  from it (Phase 3), and the symbol roles aren't offered in `/symbols` (Phase 7).
+
 ## Open items / next
 
 1. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
@@ -636,6 +687,12 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-09-30 — **Hold and Win block + three presets** (Hold and Win Phase 2). New `doc.holdAndWin`
+  (the full option space of the three reference games), `pots` / `classic` / `collector` committed
+  defaults generated from `packages/game-config/src/holdAndWinPresets.ts`, `/config` Hold and Win
+  section + "Reset to preset", ten Game Maker profile detectors. Dead `listGameConfigTemplates()`
+  removed (no caller). Detail: _Hold and Win block + three presets_ above.
 
 - 2026-09-30 (follow-up) — **A History… restore no longer raises "Leave site?".** The restore reloads the page, and with unsaved edits the leave guard added on 2026-09-29 (#869) fired the browser prompt over a restore the server had already applied (cancelling it left a pre-restore doc on a stale ETag). The history dialog already warns that restoring discards unsaved edits, so the restore now marks the doc settled before reloading.
 - 2026-09-29 — **Leaving with unsaved config edits now asks first.** The page tracked a dirty state but
