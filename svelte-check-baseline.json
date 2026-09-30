@@ -970,36 +970,17 @@
 		}
 	},
 	"packages/components-shared": {
-		"errors": 32,
+		"errors": 25,
 		"byFile": {
 			"packages/components-shared/src/components/Authenticate.svelte": {
 				"ts:2339": 1
 			},
-			"packages/components-shared/src/components/Button.svelte": {
-				"svelte(style)": 1
-			},
-			"packages/components-shared/src/components/DropdownToggle.svelte": {
-				"svelte(style)": 1
-			},
 			"packages/components-shared/src/components/EnableHotkey.svelte": {
 				"ts:2339": 1
 			},
-			"packages/components-shared/src/components/LoaderBase.svelte": {
-				"svelte(style)": 1
-			},
-			"packages/components-shared/src/components/LoaderImage.svelte": {
-				"svelte(style)": 1
-			},
 			"packages/components-shared/src/components/LoaderSpine.svelte": {
-				"svelte(style)": 1,
 				"ts:2339": 4,
 				"ts:2694": 1
-			},
-			"packages/components-shared/src/components/OptionsGrid.svelte": {
-				"svelte(style)": 1
-			},
-			"packages/components-shared/src/components/Popup.svelte": {
-				"svelte(style)": 1
 			},
 			"packages/pixi-svelte/src/lib/assetLoad.ts": {
 				"ts:2339": 3,

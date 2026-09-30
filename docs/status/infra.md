@@ -120,11 +120,15 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   not a dependency anywhere").
   - `svelte-check@4.7.6` is now a devDependency of all 17 packages with a `.svelte` file. A new
     Svelte package is discovered automatically, and the run refuses it until it declares the dependency.
-  - The baseline was taken on a fresh worktree after `pnpm install` (what CI sees): **1,172
-    errors**. Per package: `apps/lines` 166 · `apps/launcher-api` 53 · cluster 111 · price 119 · scatter 110 · ways 101 ·
+  - The baseline was taken on a fresh worktree after `pnpm install` and confirmed on CI's Linux:
+    **1,165 errors**. Per package: `apps/lines` 166 · `apps/launcher-api` 53 · cluster 111 · price 119 · scatter 110 · ways 101 ·
     number-picker 26 · engine-layout 296 (276 in its Node `scripts/`, no `@types/node`) · engine-game
-    38 · pixi-svelte-storybook 43 · components-shared 32 · -ui-html 24 · -ui-pixi 23 · pixi-svelte
+    38 · pixi-svelte-storybook 43 · components-shared 25 · -ui-html 24 · -ui-pixi 23 · pixi-svelte
     14 · components-storybook 8 · components-pixi 7 · components-layout 1.
+  - The Windows-taken baseline matched CI in 16 of 17 packages. In `components-shared`, Windows
+    alone reports 7 `svelte(style)` "No Lingui config found" errors. The runner drops exactly that
+    error on win32 (`withoutPlatformNoise`), so the baseline is Linux's and a Windows run agrees.
+  - CI time: `svelte-check (1/2)` 2m11s, `(2/2)` 1m52s, in parallel with the other checks.
   - Why lines is below the ad-hoc ~189 and the launcher below ~59: the runner `svelte-kit sync`s
     first, so `$app/*` / `./$types` resolve.
   - `packages/pixi-svelte/tsconfig.json` now excludes `src/lib/transcoders`. The vendored Emscripten

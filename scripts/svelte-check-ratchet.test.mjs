@@ -7,7 +7,13 @@
  */
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { compare, parseMachineVerbose, shardOf, summarize } from './svelte-check-ratchet.mjs';
+import {
+	compare,
+	parseMachineVerbose,
+	shardOf,
+	summarize,
+	withoutPlatformNoise,
+} from './svelte-check-ratchet.mjs';
 
 const ROOT = resolve('/repo');
 const WS = resolve('/repo/apps/lines');
@@ -143,5 +149,16 @@ const shards = [shardOf(pkgs, 1, 2), shardOf(pkgs, 2, 2)];
 assert.deepEqual(shards.flat().sort(), [...pkgs].sort());
 assert.ok(!shards.some((s) => s.includes('apps/lines') && s.includes('apps/launcher-api')));
 assert.deepEqual(shardOf(pkgs, 1, 1), pkgs);
+
+// Windows-only noise is dropped on Windows alone, and only that exact error.
+const lingui = {
+	file: 'x.svelte',
+	rule: 'svelte(style)',
+	line: 19,
+	message: 'No Lingui config found',
+};
+const otherStyle = { ...lingui, message: 'Expected a semicolon' };
+assert.deepEqual(withoutPlatformNoise([lingui, otherStyle], 'win32'), [otherStyle]);
+assert.deepEqual(withoutPlatformNoise([lingui, otherStyle], 'linux'), [lingui, otherStyle]);
 
 console.log('svelte-check-ratchet: all fixtures pass');
