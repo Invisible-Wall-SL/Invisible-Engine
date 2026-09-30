@@ -19,6 +19,7 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import BoundsBox from '$lib/BoundsBox.svelte';
 	import { boxFit } from '$lib/boundsFit';
 	import { centrePane, paneSize, zoomAbout } from '$lib/panZoom';
@@ -201,22 +202,25 @@
 		// Acquire the lease for the initially-open clip (if any); inert for a fresh /flipbook.
 		void lease.switchDoc(leasedId);
 		const onUnload = () => lease.release();
-		// Opening a clip is now an in-page swap, so `confirmDiscard` guards it directly. A real
-		// unload — closing the tab, the top bar's project switch, a link out of the tool — is the
-		// one exit this page cannot intercept, and the browser's own prompt is what covers it.
-		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-			if (!isDirty()) return;
-			e.preventDefault();
-			e.returnValue = '';
-		};
 		window.addEventListener('pagehide', onUnload);
-		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
-			window.removeEventListener('beforeunload', onBeforeUnload);
 			lease.release();
 		};
 	});
+
+	// Opening a clip is an in-page swap that `confirmDiscard` guards directly; this covers
+	// leaving the page — a tool-bar switch or Back in-app, and a reload or tab close.
+	guardUnsavedWork(() =>
+		isDirty()
+			? {
+					title: 'This clip has unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
 
 	/**
 	 * Persist the clip. `force` is the author confirming after a conflict, and it is genuinely

@@ -108,6 +108,7 @@ schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-09-30 — **Leaving with unsaved edits asks first**: the page tracked `dirty` but registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded edits silently. It now calls the shared `guardUnsavedWork` (app confirm in-app, browser prompt on unload). A History… restore marks the doc settled before its reload, so the author is not asked a second time over a restore already applied. (No history entry — see the launcher status of the same date.)
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).
 - 2026-09-29 — **Version history** — each save backs up the `symbols.json` it replaces
   (`symbols/backups/`, newest 20); **History…** restores through the normal save path (#847).

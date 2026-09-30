@@ -56,6 +56,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+### 2026-09-30 — FX, Flipbook and Symbols ask before discarding unsaved work
+- **The last three manual-Save tools now call `guardUnsavedWork`.** `/fx` and `/flipbook` dropped
+  their own `beforeunload` listener (which covered only a real unload) for the shared guard, so a
+  tool-bar switch or Back now asks too; `/symbols` had no guard at all and now has both. The
+  launcher guide's "tool-bar switch loses unsaved work" Trap is gone — every tool with a manual
+  Save and a dirty state now asks.
+- **A backup restore no longer asks twice.** `/symbols` and `/config` restore a version then
+  `location.reload()`; with unsaved edits, the guard's `beforeunload` would raise the browser's
+  "Leave site?" over a restore the server had already applied (cancelling it left a pre-restore doc on a
+  stale ETag). The history dialog already warns that restoring discards unsaved edits, so both
+  now mark the doc settled before reloading.
+
 ### 2026-09-30 — Leftovers from the docs drift sweep (#872)
 - **Invisible Launcher onboarding steps** now describe its real job — sign in, ↻ Sync,
   ☁ Publish / 📦 Deliver — with ComfyUI + tunnel marked optional (`roles.ts` `install.steps`).

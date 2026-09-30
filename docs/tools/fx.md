@@ -83,8 +83,10 @@ following controls:
 The right of the sub-bar shows a transient save status (a green confirmation or a red
 error) and a live **layer count**.
 
-**+ New** and **Open effect…** ask before they throw away unsaved changes, and closing the
-tab with unsaved changes gets the browser's own "leave page?" prompt.
+**+ New** and **Open effect…** ask before they throw away unsaved changes. So does leaving the
+page with unsaved changes: switching tools from the tool bar or pressing Back asks in the app's own
+dialog (**Cancel** / **Leave anyway**), and a reload or closing the tab gets the browser's "leave
+page?" prompt.
 
 ### Build the layers
 
