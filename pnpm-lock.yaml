@@ -145,6 +145,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   apps/launcher-api:
     dependencies:
@@ -260,6 +263,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.2)(svelte@5.35.1)(typescript@5.8.3)
       tsx:
         specifier: 4.19.2
         version: 4.19.2
@@ -399,6 +405,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   apps/number-picker:
     dependencies:
@@ -505,6 +514,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   apps/price:
     dependencies:
@@ -614,6 +626,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   apps/scatter:
     dependencies:
@@ -723,6 +738,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   apps/ways:
     dependencies:
@@ -832,6 +850,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../../packages/eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-layout:
     dependencies:
@@ -881,6 +902,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-pixi:
     dependencies:
@@ -942,6 +966,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-shared:
     dependencies:
@@ -1012,6 +1039,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-storybook:
     dependencies:
@@ -1088,6 +1118,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-ui-html:
     dependencies:
@@ -1161,6 +1194,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/components-ui-pixi:
     dependencies:
@@ -1240,6 +1276,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/config-lingui:
     dependencies:
@@ -1547,6 +1586,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/engine-layout:
     dependencies:
@@ -1605,6 +1647,9 @@ importers:
       prettier-plugin-svelte:
         specifier: 3.3.3
         version: 3.3.3(prettier@3.5.2)(svelte@5.35.1)
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/envs:
     dependencies:
@@ -1792,6 +1837,9 @@ importers:
       prettier-plugin-svelte:
         specifier: 3.3.3
         version: 3.3.3(prettier@3.5.2)(svelte@5.35.1)
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/pixi-svelte-storybook:
     dependencies:
@@ -1859,6 +1907,9 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
+      svelte-check:
+        specifier: 4.7.6
+        version: 4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3)
 
   packages/rgs-fetcher:
     devDependencies:
@@ -4087,6 +4138,10 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       vite: ^5.0.3 || ^6.0.0 || ^7.0.0-beta.0
 
+  '@sveltejs/load-config@0.2.3':
+    resolution: {integrity: sha512-VT3qmUb8pRV2QrZjd8iAmtg8lf4W0TIjZbvXtz5MKei/q96teWZgGJyyidJzOjzZzvdq616eSRVeMYIQChUTAQ==}
+    engines: {node: '>= 18.0.0'}
+
   '@sveltejs/package@2.3.10':
     resolution: {integrity: sha512-A4fQacgjJ7C/7oSmxR61/TdB14u6ecyMZ8V9JCR5Lol0bLj/PdJPU4uFodFBsKzO3iFiJMpNTgZZ+zYsYZNpUg==}
     engines: {node: ^16.14 || >=18}
@@ -5958,6 +6013,14 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       svelte: ^5.0.0
+
+  svelte-check@4.7.6:
+    resolution: {integrity: sha512-t2scM//ZuVbSY/T2w6FSBw1v9s2NEmh/g+sy1lqtosW5ylBV5AF4wFb1Ts9Kf3MbfPDUDJDZ9L436YT0SPTdvw==}
+    engines: {node: '>= 18.0.0'}
+    hasBin: true
+    peerDependencies:
+      svelte: ^4.0.0 || ^5.0.0-next.0
+      typescript: ^5.0.0 || ^6.0.0
 
   svelte-eslint-parser@1.7.0:
     resolution: {integrity: sha512-TU3DQx7IjUrrxKbET/U639xofp044xLXGGvFaLH9PKQOY5g5iRtmYy2rZB7gOeGRRTP7255AE8fUtIwsp/yOjQ==}
@@ -8045,6 +8108,8 @@ snapshots:
       vite: 6.2.0(@types/node@26.2.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2)
       vitefu: 1.0.7(vite@6.2.0(@types/node@26.2.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.85.1)(tsx@4.19.2))
 
+  '@sveltejs/load-config@0.2.3': {}
+
   '@sveltejs/package@2.3.10(svelte@5.35.1)(typescript@5.8.3)':
     dependencies:
       chokidar: 4.0.3
@@ -9071,6 +9136,10 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.2
 
+  fdir@6.5.0(picomatch@4.0.2):
+    optionalDependencies:
+      picomatch: 4.0.2
+
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
       picomatch: 4.0.4
@@ -10006,6 +10075,32 @@ snapshots:
       esrap: 1.2.2
       svelte: 5.35.1
       zimmerframe: 1.1.2
+
+  svelte-check@4.7.6(picomatch@4.0.2)(svelte@5.35.1)(typescript@5.8.3):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.29
+      '@sveltejs/load-config': 0.2.3
+      chokidar: 4.0.3
+      fdir: 6.5.0(picomatch@4.0.2)
+      picocolors: 1.1.1
+      sade: 1.8.1
+      svelte: 5.35.1
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - picomatch
+
+  svelte-check@4.7.6(picomatch@4.0.4)(svelte@5.35.1)(typescript@5.8.3):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.29
+      '@sveltejs/load-config': 0.2.3
+      chokidar: 4.0.3
+      fdir: 6.5.0(picomatch@4.0.4)
+      picocolors: 1.1.1
+      sade: 1.8.1
+      svelte: 5.35.1
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - picomatch
 
   svelte-eslint-parser@1.7.0(svelte@5.35.1):
     dependencies:

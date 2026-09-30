@@ -1,5 +1,7 @@
 {
 	"extends": "../../tsconfig.base.json",
 	"include": ["."],
-	"exclude": ["dist", "build", "node_modules"]
+	// The vendored Emscripten KTX2 transcoder: loaded by URL, never imported, and `checkJs` (from
+	// the base config) would otherwise report ~3,100 errors in it.
+	"exclude": ["dist", "build", "node_modules", "src/lib/transcoders"]
 }

@@ -29,7 +29,8 @@
 		"eslint-config-custom": "workspace:*",
 		"prettier": "3.5.2",
 		"prettier-plugin-svelte": "3.3.3",
-		"eventemitter3": "5.0.1"
+		"eventemitter3": "5.0.1",
+		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",

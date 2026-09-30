@@ -14,7 +14,8 @@
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
-		"config-svelte": "workspace:*"
+		"config-svelte": "workspace:*",
+		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
 		"pixi.js": "8.8.1",

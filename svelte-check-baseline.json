@@ -1,0 +1,1377 @@
+{
+	"apps/cluster": {
+		"errors": 111,
+		"byFile": {
+			"apps/cluster/src/components/Game.svelte": {
+				"ts:2304": 1
+			},
+			"apps/cluster/src/components/SymbolSpineMain.svelte": {
+				"ts:2339": 1
+			},
+			"apps/cluster/src/game/debugTools.ts": {
+				"ts:2304": 1
+			},
+			"apps/cluster/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/cluster/src/stories/ComponentsSymbol.stories.svelte": {
+				"ts:2322": 2
+			},
+			"apps/cluster/src/stories/ModeBaseBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/cluster/src/stories/ModeBaseBookEvent.stories.svelte": {
+				"ts:2345": 13
+			},
+			"apps/cluster/src/stories/ModeBonusBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/cluster/src/stories/ModeBonusBookEvent.stories.svelte": {
+				"ts:2345": 13
+			},
+			"apps/cluster/static/assets/fonts/goldBlur/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/cluster/static/assets/fonts/goldFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/cluster/static/assets/fonts/purpleFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/cluster/static/assets/fonts/silverFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/cluster/static/assets/spines/anticipation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/bigwin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/bonusButton/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/clusterWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/foregroundAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/foregroundFeatureAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/fsIntro/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 3
+			},
+			"apps/cluster/static/assets/spines/globalMultiplier/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/loader/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/reelhouse/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/symbols/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 9
+			},
+			"apps/cluster/static/assets/spines/symbols2/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/cluster/static/assets/spines/symbols3/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/cluster/static/assets/spines/transition/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/spines/tumbleWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/cluster/static/assets/spines/winMeterExplosion/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/freeSpins/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/payFrame/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/cluster/static/assets/sprites/pressToContinueText/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/progressBar/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/reelsFrame/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/symbolsStatic/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/static/assets/sprites/uiSlotsAssetsBespoke/index.ts": {
+				"ts:2307": 1
+			},
+			"apps/cluster/static/assets/sprites/winSmall/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/cluster/vite.config.js": {
+				"ts:2580": 4,
+				"ts:7016": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"apps/launcher-api": {
+		"errors": 53,
+		"byFile": {
+			"apps/launcher-api/src/lib/server/atlasManifestCheck.ts": {
+				"ts:2352": 1
+			},
+			"apps/launcher-api/src/lib/server/editorStorage.ts": {
+				"ts:2322": 1
+			},
+			"apps/launcher-api/src/lib/server/nodeList.ts": {
+				"ts:2352": 2
+			},
+			"apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
+				"ts:2322": 1
+			},
+			"apps/launcher-api/src/routes/(app)/components/+page.svelte": {
+				"ts:7053": 1
+			},
+			"apps/launcher-api/src/routes/(app)/editor/ArtBoundsEditor.svelte": {
+				"ts:2322": 1
+			},
+			"apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte": {
+				"ts:2322": 2,
+				"ts:7053": 1
+			},
+			"apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte": {
+				"ts:2352": 5
+			},
+			"apps/launcher-api/src/routes/(app)/editor/EditorSpineLayer.svelte": {
+				"ts:2339": 1
+			},
+			"apps/launcher-api/src/routes/(app)/editor/EditorTextLayer.svelte": {
+				"ts:2339": 3,
+				"ts:2345": 4
+			},
+			"apps/launcher-api/src/routes/(app)/flow-v2/+page.svelte": {
+				"ts:2339": 1
+			},
+			"apps/launcher-api/src/routes/(app)/flow-v2/CommentNode.svelte": {
+				"ts:2448": 1,
+				"ts:2454": 1
+			},
+			"apps/launcher-api/src/routes/(app)/flow-v2/FlowCanvasV2.svelte": {
+				"ts:2322": 1
+			},
+			"apps/launcher-api/src/routes/(app)/flow-v2/NodeInspector.svelte": {
+				"ts:2339": 1
+			},
+			"apps/launcher-api/src/routes/(app)/flow-v2/graphOps.ts": {
+				"ts:2366": 1,
+				"ts:2790": 1
+			},
+			"apps/launcher-api/src/routes/(app)/symbols/+page.svelte": {
+				"ts:2448": 6,
+				"ts:2454": 6
+			},
+			"apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte": {
+				"ts:2339": 4
+			},
+			"apps/launcher-api/src/routes/api/launcher/comfyui-nodes/+server.ts": {
+				"ts:2345": 1
+			},
+			"apps/launcher-api/src/routes/api/launcher/models-manifest/+server.ts": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/AnimatedSprite.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/BitmapText.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/RiggedEffect.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/RiggedFlipbook.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			}
+		}
+	},
+	"apps/lines": {
+		"errors": 166,
+		"byFile": {
+			"apps/lines/src/components/FlowV2Cinematics.svelte": {
+				"ts:2339": 2,
+				"ts:2353": 1
+			},
+			"apps/lines/src/components/Game.svelte": {
+				"ts:18048": 1,
+				"ts:2322": 4,
+				"ts:2352": 2,
+				"ts:2448": 4,
+				"ts:2454": 4
+			},
+			"apps/lines/src/components/StackedPicture.svelte": {
+				"ts:2322": 3,
+				"ts:2339": 4
+			},
+			"apps/lines/src/components/SymbolFlipbook.svelte": {
+				"ts:2322": 1,
+				"ts:2339": 8
+			},
+			"apps/lines/src/components/SymbolSpineMain.svelte": {
+				"ts:2322": 1,
+				"ts:2339": 1
+			},
+			"apps/lines/src/components/SymbolSprite.svelte": {
+				"ts:2322": 1
+			},
+			"apps/lines/src/components/debug/SymbolDebugTool.svelte": {
+				"ts:2538": 1
+			},
+			"apps/lines/src/editor-scenes.ts": {
+				"ts:2339": 3,
+				"ts:2732": 1
+			},
+			"apps/lines/src/game/bookEventHandlerMap.ts": {
+				"ts:2353": 3
+			},
+			"apps/lines/src/game/bookOwnership.ts": {
+				"ts:2352": 1
+			},
+			"apps/lines/src/game/cascadeSoundStep.fixture.ts": {
+				"ts:2580": 1
+			},
+			"apps/lines/src/game/flowDoc.ts": {
+				"ts:18048": 1,
+				"ts:2345": 1
+			},
+			"apps/lines/src/game/flowEffects.ts": {
+				"ts:2322": 2
+			},
+			"apps/lines/src/game/flowRuntime.svelte.ts": {
+				"ts:2322": 2
+			},
+			"apps/lines/src/game/flowV2Runtime.svelte.ts": {
+				"ts:2353": 2,
+				"ts:7006": 3
+			},
+			"apps/lines/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/lines/src/stories/AuthoredComponents.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/lines/src/stories/EAGamingProbe.stories.svelte": {
+				"ts:2339": 1,
+				"ts:2345": 1,
+				"ts:2353": 1,
+				"ts:2554": 1
+			},
+			"apps/lines/src/stories/HudComponentInstance.stories.svelte": {
+				"ts:2322": 2
+			},
+			"apps/lines/src/stories/InlineImageMessage.stories.svelte": {
+				"ts:2418": 1
+			},
+			"apps/lines/src/stories/ModeBaseBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/lines/src/stories/ModeBaseBookEvent.stories.svelte": {
+				"ts:2345": 8
+			},
+			"apps/lines/src/stories/ModeBonusBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/lines/src/stories/ModeBonusBookEvent.stories.svelte": {
+				"ts:2345": 8
+			},
+			"apps/lines/static/assets/fonts/goldBlur/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/lines/static/assets/fonts/goldFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/lines/static/assets/fonts/purpleFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/lines/static/assets/fonts/silverFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/lines/static/assets/spines/anticipation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/bigwin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/bonusButton/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/clusterWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/foregroundAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/foregroundFeatureAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/fsIntro/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 3
+			},
+			"apps/lines/static/assets/spines/globalMultiplier/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/loader/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/reelhouse/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/symbols/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 9
+			},
+			"apps/lines/static/assets/spines/symbols2/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/lines/static/assets/spines/symbols3/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/lines/static/assets/spines/transition/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/spines/tumbleWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/lines/static/assets/spines/winMeterExplosion/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/freeSpins/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/payFrame/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/lines/static/assets/sprites/pressToContinueText/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/progressBar/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/reelsFrame/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/symbolsStatic/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/static/assets/sprites/uiSlotsAssetsBespoke/index.ts": {
+				"ts:2307": 1
+			},
+			"apps/lines/static/assets/sprites/winSmall/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/lines/vite.config.js": {
+				"ts:2307": 2,
+				"ts:2339": 1,
+				"ts:2580": 2,
+				"ts:7016": 1
+			},
+			"packages/engine-game/src/game/gameConfig.ts": {
+				"ts:2339": 1,
+				"ts:2345": 1
+			},
+			"packages/engine-game/src/game/gameState.svelte.ts": {
+				"ts:2345": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"apps/number-picker": {
+		"errors": 26,
+		"byFile": {
+			"apps/number-picker/src/components/Game.svelte": {
+				"ts:18047": 2,
+				"ts:2304": 1
+			},
+			"apps/number-picker/src/game/typesEmitterEvent.ts": {
+				"ts:2307": 8
+			},
+			"apps/number-picker/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/number-picker/vite.config.js": {
+				"ts:2580": 4,
+				"ts:7016": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"apps/price": {
+		"errors": 119,
+		"byFile": {
+			"apps/price/src/components/Game.svelte": {
+				"ts:2304": 1
+			},
+			"apps/price/src/components/SymbolSpineMain.svelte": {
+				"ts:2339": 1
+			},
+			"apps/price/src/game/debugTools.ts": {
+				"ts:2304": 1
+			},
+			"apps/price/src/game/stateGame.svelte.ts": {
+				"ts:2739": 1
+			},
+			"apps/price/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/price/src/stories/ComponentsExpandingWild.stories.svelte": {
+				"ts:2353": 1
+			},
+			"apps/price/src/stories/ModeBaseBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/price/src/stories/ModeBaseBookEvent.stories.svelte": {
+				"ts:2345": 13
+			},
+			"apps/price/src/stories/ModeBonusBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/price/src/stories/ModeBonusBookEvent.stories.svelte": {
+				"ts:2345": 13
+			},
+			"apps/price/src/stories/ModeSuperspinBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/price/src/stories/ModeSuperspinBookEvent.stories.svelte": {
+				"ts:2345": 7
+			},
+			"apps/price/static/assets/fonts/goldBlur/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/price/static/assets/fonts/goldFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/price/static/assets/fonts/purpleFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/price/static/assets/fonts/silverFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/price/static/assets/spines/anticipation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/bigwin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/bonusButton/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/clusterWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/foregroundAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/foregroundFeatureAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/fsIntro/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 3
+			},
+			"apps/price/static/assets/spines/globalMultiplier/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/loader/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/reelhouse/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/symbols/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 9
+			},
+			"apps/price/static/assets/spines/symbols2/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/price/static/assets/spines/symbols3/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/price/static/assets/spines/transition/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/spines/tumbleWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/price/static/assets/spines/winMeterExplosion/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/freeSpins/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/payFrame/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/price/static/assets/sprites/pressToContinueText/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/progressBar/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/reelsFrame/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/symbolsStatic/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/static/assets/sprites/uiSlotsAssetsBespoke/index.ts": {
+				"ts:2307": 1
+			},
+			"apps/price/static/assets/sprites/winSmall/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/price/vite.config.js": {
+				"ts:2580": 4,
+				"ts:7016": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"apps/scatter": {
+		"errors": 110,
+		"byFile": {
+			"apps/scatter/src/components/Board.svelte": {
+				"ts:2322": 1
+			},
+			"apps/scatter/src/components/Game.svelte": {
+				"ts:2304": 1
+			},
+			"apps/scatter/src/components/SymbolSpineMain.svelte": {
+				"ts:2339": 1
+			},
+			"apps/scatter/src/game/debugTools.ts": {
+				"ts:2304": 1
+			},
+			"apps/scatter/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/scatter/src/stories/ComponentsSymbol.stories.svelte": {
+				"ts:2322": 2
+			},
+			"apps/scatter/src/stories/ModeBaseBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/scatter/src/stories/ModeBaseBookEvent.stories.svelte": {
+				"ts:2345": 12
+			},
+			"apps/scatter/src/stories/ModeBonusBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/scatter/src/stories/ModeBonusBookEvent.stories.svelte": {
+				"ts:2345": 12
+			},
+			"apps/scatter/static/assets/fonts/goldBlur/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/scatter/static/assets/fonts/goldFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/scatter/static/assets/fonts/purpleFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/scatter/static/assets/fonts/silverFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/scatter/static/assets/spines/anticipation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/bigwin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/bonusButton/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/clusterWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/foregroundAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/foregroundFeatureAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/fsIntro/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 3
+			},
+			"apps/scatter/static/assets/spines/globalMultiplier/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/loader/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/reelhouse/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/symbols/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 9
+			},
+			"apps/scatter/static/assets/spines/symbols2/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/scatter/static/assets/spines/symbols3/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/scatter/static/assets/spines/transition/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/spines/tumbleWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/scatter/static/assets/spines/winMeterExplosion/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/freeSpins/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/payFrame/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/scatter/static/assets/sprites/pressToContinueText/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/progressBar/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/reelsFrame/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/symbolsStatic/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/static/assets/sprites/uiSlotsAssetsBespoke/index.ts": {
+				"ts:2307": 1
+			},
+			"apps/scatter/static/assets/sprites/winSmall/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/scatter/vite.config.js": {
+				"ts:2580": 4,
+				"ts:7016": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"apps/ways": {
+		"errors": 101,
+		"byFile": {
+			"apps/ways/src/components/Game.svelte": {
+				"ts:2304": 1
+			},
+			"apps/ways/src/components/SymbolSpineMain.svelte": {
+				"ts:2339": 1
+			},
+			"apps/ways/src/game/debugTools.ts": {
+				"ts:2304": 1
+			},
+			"apps/ways/src/i18n/messagesMap/index.ts": {
+				"ts:2740": 3
+			},
+			"apps/ways/src/stories/ComponentsGame.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/ways/src/stories/ComponentsSymbol.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/ways/src/stories/ModeBaseBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/ways/src/stories/ModeBaseBookEvent.stories.svelte": {
+				"ts:2345": 8
+			},
+			"apps/ways/src/stories/ModeBonusBook.stories.svelte": {
+				"ts:2322": 1
+			},
+			"apps/ways/src/stories/ModeBonusBookEvent.stories.svelte": {
+				"ts:2345": 8
+			},
+			"apps/ways/static/assets/fonts/goldBlur/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/ways/static/assets/fonts/goldFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/ways/static/assets/fonts/purpleFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/ways/static/assets/fonts/silverFont/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/ways/static/assets/spines/anticipation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/bigwin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/bonusButton/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/clusterWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/foregroundAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/foregroundFeatureAnimation/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/fsIntro/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 3
+			},
+			"apps/ways/static/assets/spines/globalMultiplier/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/loader/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/reelhouse/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/symbols/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 9
+			},
+			"apps/ways/static/assets/spines/symbols2/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/ways/static/assets/spines/symbols3/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/ways/static/assets/spines/transition/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/spines/tumbleWin/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 2
+			},
+			"apps/ways/static/assets/spines/winMeterExplosion/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/freeSpins/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/payFrame/index.ts": {
+				"ts:2305": 1
+			},
+			"apps/ways/static/assets/sprites/pressToContinueText/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/progressBar/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/reelsFrame/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/symbolsStatic/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/static/assets/sprites/uiSlotsAssetsBespoke/index.ts": {
+				"ts:2307": 1
+			},
+			"apps/ways/static/assets/sprites/winSmall/index.ts": {
+				"ts:2305": 1,
+				"ts:2732": 1
+			},
+			"apps/ways/vite.config.js": {
+				"ts:2580": 4,
+				"ts:7016": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			}
+		}
+	},
+	"packages/components-layout": {
+		"errors": 1,
+		"byFile": {
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			}
+		}
+	},
+	"packages/components-pixi": {
+		"errors": 7,
+		"byFile": {
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/components-shared": {
+		"errors": 25,
+		"byFile": {
+			"packages/components-shared/src/components/Authenticate.svelte": {
+				"ts:2339": 1
+			},
+			"packages/components-shared/src/components/EnableHotkey.svelte": {
+				"ts:2339": 1
+			},
+			"packages/components-shared/src/components/LoaderSpine.svelte": {
+				"ts:2339": 4,
+				"ts:2694": 1
+			},
+			"packages/pixi-svelte/src/lib/assetLoad.ts": {
+				"ts:2339": 3,
+				"ts:2694": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/pixi-svelte/src/lib/spineBacking.ts": {
+				"ts:2694": 2
+			},
+			"packages/pixi-svelte/src/lib/spineBounds.ts": {
+				"ts:2694": 2
+			},
+			"packages/pixi-svelte/src/lib/spineLocale.ts": {
+				"ts:2694": 1
+			},
+			"packages/pixi-svelte/src/lib/types.ts": {
+				"ts:2694": 2
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/components-storybook": {
+		"errors": 8,
+		"byFile": {
+			"packages/components-storybook/src/components/StoryGameTemplate.svelte": {
+				"svelte(style)": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/components-ui-html": {
+		"errors": 24,
+		"byFile": {
+			"packages/components-ui-html/operatorChrome.fixture.mts": {
+				"ts:1378": 3,
+				"ts:2307": 2,
+				"ts:2580": 1
+			},
+			"packages/pixi-svelte/src/lib/assetLoad.ts": {
+				"ts:2339": 3,
+				"ts:2694": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/pixi-svelte/src/lib/spineBacking.ts": {
+				"ts:2694": 2
+			},
+			"packages/pixi-svelte/src/lib/spineBounds.ts": {
+				"ts:2694": 2
+			},
+			"packages/pixi-svelte/src/lib/spineLocale.ts": {
+				"ts:2694": 1
+			},
+			"packages/pixi-svelte/src/lib/types.ts": {
+				"ts:2694": 2
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/components-ui-pixi": {
+		"errors": 23,
+		"byFile": {
+			"packages/components-ui-pixi/src/components/ButtonBet.svelte": {
+				"ts:2353": 1
+			},
+			"packages/components-ui-pixi/src/components/ButtonBuyBonus.svelte": {
+				"ts:2353": 1
+			},
+			"packages/components-ui-pixi/src/components/ButtonDrawer.svelte": {
+				"ts:2353": 1
+			},
+			"packages/components-ui-pixi/src/components/HudLogo.svelte": {
+				"ts:2322": 1
+			},
+			"packages/components-ui-pixi/src/components/HudTicker.svelte": {
+				"ts:2322": 2
+			},
+			"packages/components-ui-pixi/src/components/InfoOverlay.svelte": {
+				"ts:2322": 1
+			},
+			"packages/components-ui-pixi/src/components/UIDefault.svelte": {
+				"ts:7053": 1
+			},
+			"packages/components-ui-pixi/src/components/UiGameName.svelte": {
+				"ts:2322": 2
+			},
+			"packages/components-ui-pixi/src/components/UiLabel.svelte": {
+				"ts:2322": 4,
+				"ts:2353": 2
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/engine-game": {
+		"errors": 38,
+		"byFile": {
+			"packages/engine-game/fixtures/pressAfterArm.fixture.ts": {
+				"ts:2307": 3
+			},
+			"packages/engine-game/fixtures/winEscalationOutro.fixture.ts": {
+				"ts:2307": 1,
+				"ts:2339": 1
+			},
+			"packages/engine-game/fixtures/winTapLand.fixture.ts": {
+				"ts:2307": 3
+			},
+			"packages/engine-game/src/components/Background.svelte": {
+				"ts:2339": 4
+			},
+			"packages/engine-game/src/components/BoardContainer.svelte": {
+				"ts:2339": 4
+			},
+			"packages/engine-game/src/components/PressToContinue.svelte": {
+				"ts:2339": 2
+			},
+			"packages/engine-game/src/components/ResumeBet.svelte": {
+				"ts:2339": 1
+			},
+			"packages/engine-game/src/components/Transition.svelte": {
+				"ts:2339": 1
+			},
+			"packages/engine-game/src/components/TransitionAnimation.svelte": {
+				"ts:2339": 3
+			},
+			"packages/engine-game/src/components/WinCoins.svelte": {
+				"ts:2307": 1
+			},
+			"packages/engine-game/src/game/gameConfig.ts": {
+				"ts:2339": 1,
+				"ts:2345": 1
+			},
+			"packages/engine-game/src/game/gameState.svelte.ts": {
+				"ts:2345": 1
+			},
+			"packages/engine-game/src/game/playBook.ts": {
+				"ts:2339": 1
+			},
+			"packages/engine-game/src/game/symbolCell.fixture.ts": {
+				"ts:2580": 1
+			},
+			"packages/engine-game/src/game/symbolInfo.fixture.ts": {
+				"ts:2580": 1
+			},
+			"packages/envs/src/envs.svelte.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	},
+	"packages/engine-layout": {
+		"errors": 296,
+		"byFile": {
+			"packages/engine-layout/scopedFrameRef.fixture.ts": {
+				"ts:2580": 1
+			},
+			"packages/engine-layout/scripts/gen-builtin-spines.mjs": {
+				"ts:1378": 3,
+				"ts:2307": 4,
+				"ts:2339": 2,
+				"ts:2580": 2,
+				"ts:7006": 8,
+				"ts:7053": 5
+			},
+			"packages/engine-layout/scripts/gen-scene-sets.mjs": {
+				"ts:1378": 7,
+				"ts:2307": 5,
+				"ts:2580": 3
+			},
+			"packages/engine-layout/scripts/test-cover-axis-anchor.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2339": 2,
+				"ts:2580": 2,
+				"ts:2698": 2,
+				"ts:7006": 4
+			},
+			"packages/engine-layout/scripts/test-cover-fit.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 13
+			},
+			"packages/engine-layout/scripts/test-cue-duration.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 11,
+				"ts:7019": 1,
+				"ts:7053": 3
+			},
+			"packages/engine-layout/scripts/test-cue-signal-bus.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:2722": 1,
+				"ts:7005": 1,
+				"ts:7006": 3,
+				"ts:7034": 1
+			},
+			"packages/engine-layout/scripts/test-engine-owned-only.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 23
+			},
+			"packages/engine-layout/scripts/test-inline-image-box.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2345": 1,
+				"ts:2580": 2,
+				"ts:7006": 14,
+				"ts:7031": 6
+			},
+			"packages/engine-layout/scripts/test-layout-profile-parity.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 3,
+				"ts:7006": 4
+			},
+			"packages/engine-layout/scripts/test-signal-gates.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 2
+			},
+			"packages/engine-layout/scripts/test-signal-subscribe-untrack.mjs": {
+				"ts:1378": 1,
+				"ts:2307": 3,
+				"ts:2580": 1,
+				"ts:7006": 2
+			},
+			"packages/engine-layout/scripts/test-tap-to-continue.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 7
+			},
+			"packages/engine-layout/scripts/test-tap-transform-independence.mjs": {
+				"ts:2339": 1,
+				"ts:2580": 1,
+				"ts:7006": 15
+			},
+			"packages/engine-layout/scripts/test-win-text-symbol-names.mjs": {
+				"ts:1378": 4,
+				"ts:2307": 4,
+				"ts:2580": 2,
+				"ts:7006": 11,
+				"ts:7053": 2
+			},
+			"packages/engine-layout/src/lib/Cinematic.svelte": {
+				"ts:2339": 5,
+				"ts:2352": 3
+			},
+			"packages/engine-layout/src/lib/ComponentInstance.svelte": {
+				"ts:2459": 1,
+				"ts:7006": 2
+			},
+			"packages/engine-layout/src/lib/InlineImageText.svelte": {
+				"ts:2322": 1
+			},
+			"packages/engine-layout/src/lib/LayoutNodeView.svelte": {
+				"ts:2322": 2
+			},
+			"packages/engine-layout/src/lib/LayoutScene.svelte": {
+				"ts:2459": 1,
+				"ts:7006": 1
+			},
+			"packages/engine-layout/src/lib/ParamReadoutText.svelte": {
+				"ts:2322": 1
+			},
+			"packages/engine-layout/src/lib/TextBox.svelte": {
+				"ts:2322": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			}
+		}
+	},
+	"packages/pixi-svelte": {
+		"errors": 14,
+		"byFile": {
+			"packages/pixi-svelte/fixtures/animatedSpriteFrames.fixture.ts": {
+				"ts:2307": 1,
+				"ts:2580": 1
+			},
+			"packages/pixi-svelte/fixtures/introRevealRetrigger.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/riggedBeat.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/spineBox.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/spineSlotHost.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/spineTrackReplay.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/src/lib/components/AnimatedSprite.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/BitmapText.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/InitialiseApplication.svelte": {
+				"ts:2307": 2
+			},
+			"packages/pixi-svelte/src/lib/components/RiggedEffect.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/components/RiggedFlipbook.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			}
+		}
+	},
+	"packages/pixi-svelte-storybook": {
+		"errors": 43,
+		"byFile": {
+			"packages/pixi-svelte-storybook/src/components/ParticleDemoWithSvelte.svelte": {
+				"ts:2339": 12
+			},
+			"packages/pixi-svelte-storybook/src/components/ParticleDemoWithoutSvelte.svelte": {
+				"ts:2339": 4,
+				"ts:7005": 1,
+				"ts:7034": 1
+			},
+			"packages/pixi-svelte-storybook/src/stories/Container.stories.svelte": {
+				"ts:2783": 1
+			},
+			"packages/pixi-svelte-storybook/src/stories/Graphics.stories.svelte": {
+				"ts:2345": 1
+			},
+			"packages/pixi-svelte-storybook/src/stories/Particle.stories.svelte": {
+				"ts:2339": 12,
+				"ts:2783": 2
+			},
+			"packages/pixi-svelte-storybook/src/stories/ParticleEmitter.stories.svelte": {
+				"ts:2353": 1,
+				"ts:2783": 1
+			},
+			"packages/pixi-svelte/src/lib/index.ts": {
+				"ts:2308": 1
+			},
+			"packages/rgs-fetcher/src/rgsFetcher.ts": {
+				"ts:2536": 5
+			},
+			"packages/state-shared/src/stateUrl.svelte.ts": {
+				"ts:2307": 1
+			}
+		}
+	}
+}

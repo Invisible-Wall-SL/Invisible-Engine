@@ -851,6 +851,34 @@ satisfy the check. Verify afterwards with
 — six names. With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
+**Candidate, not yet required: `svelte-check (1/2)` · `svelte-check (2/2)`** —
+`.github/workflows/svelte-check.yml`, the type-check ratchet against `svelte-check-baseline.json`
+(`pnpm check:svelte`). It already follows the pattern above (no `paths-ignore`, `code-changed`
+skip), so making it required is a settings change only: once it has run green on `main` for a
+while, add both names (integration `15368`) to the `required_status_checks` list in the call above.
+
+## Dependabot (GitHub)
+
+`.github/dependabot.yml` asks for weekly (Monday 06:00 Madrid) grouped updates for three
+ecosystems: **npm** (the pnpm workspace root lockfile), **pip** (`services/atlas-tool`,
+`services/sheet-tool` and the hash-pinned `scripts/backup`) and **github-actions**. Minor + patch
+bumps come as one PR per ecosystem per week. A major bump gets its own PR. Open version-update PRs
+are capped at 5 / 3 / 3. Security updates are grouped per ecosystem too, but they arrive when an
+advisory lands, not on the schedule.
+
+A Dependabot PR is gated like any other: it runs Checks, Lint and Secrets and cannot merge until
+the six required checks pass. None of those jobs needs a secret, so Dependabot's secret-less runs
+behave the same as a person's PR. Subjects are `deps: …` / `ci: …`, both accepted commit scopes.
+
+**Owner step (one-time, GitHub → Settings → Advanced Security):** switch on **Dependabot alerts**
+and **Dependabot security updates**. The config file alone schedules the version updates. Security
+PRs are only raised with that switch on, and grouping them (the `applies-to: security-updates`
+groups) also needs **Grouped security updates** on. Agents never change repository settings. To
+check it from a terminal:
+`gh api repos/Invisible-Wall-SL/Invisible-Engine --jq .security_and_analysis.dependabot_security_updates.status`
+→ `enabled`, and `gh api -i repos/Invisible-Wall-SL/Invisible-Engine/vulnerability-alerts` → `204`
+(alerts on; `404` = off). **State (2026-09-30):** both off, so this step is owed.
+
 ## Security / secret rotation
 
 A rotation runbook: where each secret lives, who reads it, and what to redeploy. Never paste a

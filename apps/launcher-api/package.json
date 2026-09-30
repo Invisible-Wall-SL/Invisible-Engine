@@ -88,7 +88,8 @@
 		"drizzle-kit": "0.30.5",
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"tsx": "4.19.2"
+		"tsx": "4.19.2",
+		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.100.1",

@@ -55,6 +55,15 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   (`.github/actions/code-changed`) skips the rest on a docs-only change (`docs/**`, `.claude/**`,
   `*.md`), so those jobs pass in ~10 s with no install. All six are required checks in the `main`
   ruleset (INFRA "Branch ruleset on `main`"), so every change lands through a PR that passed them.
+- **svelte-check ratchet runs on every PR + push, NOT required yet** (`.github/workflows/svelte-check.yml`,
+  jobs `svelte-check (1/2)` / `svelte-check (2/2)`). `pnpm check:svelte`
+  (`scripts/svelte-check-ratchet.mjs`) type-checks each of the 17 workspace packages that have a
+  `.svelte` file (`svelte-kit sync` first, 8 GB heap for `apps/lines`). It compares each package's errors, as
+  a count per (file, `<source>:<code>`), to `svelte-check-baseline.json`. Any count going up fails;
+  going down passes with a notice to lower it. A crashed run (no `COMPLETED` line) fails.
+- **Dependabot** (`.github/dependabot.yml`): weekly grouped npm / pip / github-actions updates, capped
+  open PRs, gated by the same required checks. Its security updates wait on the owner switch
+  (Blocked).
 
 ## Open items / next
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
@@ -70,10 +79,19 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 4. **Tool signing secrets have no dual-key window** — each tool verifies against one
    `*_TOOL_SIGNING_SECRET`, so rotating one signs everyone out of that tool for a short 403
    window. Accepting a previous secret during a rotation would close it.
-5. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
-   ad hoc; `apps/lines` sits at ~189–193 errors per the engine status). Needs it added as a
-   devDependency, then a baseline-count gate.
+5. **Make `svelte-check (1/2)` / `svelte-check (2/2)` required** once they have run green on `main`
+   for a while — an owner ruleset change only (INFRA "Branch ruleset on `main`"). Until then a red
+   run does not block a merge, so read it.
+6. **Burn down the svelte-check baseline** (`svelte-check-baseline.json`). Every Svelte package
+   carries errors; the largest share in `apps/lines` is the tracked `static/assets/**/index.ts`
+   asset indexes. Lower an entry with `pnpm check:svelte --only <pkg> --update` in the PR that fixes
+   it — the job prints a notice when a package is below its baseline.
+
 ## Blocked (owner / external)
+- **Dependabot security updates (owner, ~2 min, GitHub → Settings → Advanced Security):** switch on
+  Dependabot alerts, Dependabot security updates and Grouped security updates. Both are off today
+  (read via `gh api`); the weekly version updates run without them, security PRs do not. Details
+  and the read-back commands: INFRA "Dependabot".
 - **Nightly backups setup (owner, ~25 min; the workflow is a green no-op until done):** the full numbered list is "One-time owner setup" in [guides/backups](../guides/backups.md). In short:
   - Cloudflare: create R2 bucket `invisible-backups`. Add lifecycle rules `postgres/` 35 d, `r2-docs/` 90 d, `r2-assets/` 14 d, `_restore-drill/` 7 d, and abort multipart after 1 d. Add 7-day bucket-lock rules on the first three prefixes.
   - Cloudflare: create R2 tokens `backup-writer` (Object R&W, that bucket only) and `backup-source-reader` (Object Read, `invisibleassets` only).
@@ -98,6 +116,28 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **svelte-check ratchet + Dependabot.** Closed the old open item 5 ("svelte-check is
+  not a dependency anywhere").
+  - `svelte-check@4.7.6` is now a devDependency of all 17 packages with a `.svelte` file. A new
+    Svelte package is discovered automatically, and the run refuses it until it declares the dependency.
+  - The baseline was taken on a fresh worktree after `pnpm install` and confirmed on CI's Linux:
+    **1,165 errors**. Per package: `apps/lines` 166 · `apps/launcher-api` 53 · cluster 111 · price 119 · scatter 110 · ways 101 ·
+    number-picker 26 · engine-layout 296 (276 in its Node `scripts/`, no `@types/node`) · engine-game
+    38 · pixi-svelte-storybook 43 · components-shared 25 · -ui-html 24 · -ui-pixi 23 · pixi-svelte
+    14 · components-storybook 8 · components-pixi 7 · components-layout 1.
+  - The Windows-taken baseline matched CI in 16 of 17 packages. In `components-shared`, Windows
+    alone reports 7 `svelte(style)` "No Lingui config found" errors. The runner drops exactly that
+    error on win32 (`withoutPlatformNoise`), so the baseline is Linux's and a Windows run agrees.
+  - CI time: `svelte-check (1/2)` 2m11s, `(2/2)` 1m52s, in parallel with the other checks.
+  - Why lines is below the ad-hoc ~189 and the launcher below ~59: the runner `svelte-kit sync`s
+    first, so `$app/*` / `./$types` resolve.
+  - `packages/pixi-svelte/tsconfig.json` now excludes `src/lib/transcoders`. The vendored Emscripten
+    `libktx.js` is only loaded by URL, and `checkJs` reported 3,114 errors in it.
+  - Proof: a planted `const x: number = "x"` failed the run with an `::error` annotation, exit 1.
+    A re-run on an unchanged tree matched the baseline exactly. Local wall time is ~5.5 min for all 17
+    packages in sequence.
+  - `.github/dependabot.yml` was added (INFRA "Dependabot"). Security updates need the owner switch
+    (Blocked).
 - 2026-09-30 — **Source maps go to Sentry and never ship.** The runtime release now builds the game
   with hidden maps, and `scripts/sentry-sourcemaps.mjs` re-bases the bundle's map onto
   `index.html` (the game is one inlined file, so frames are numbered by the page), tags page + map

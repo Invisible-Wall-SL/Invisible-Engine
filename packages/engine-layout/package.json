@@ -40,7 +40,8 @@
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
 		"prettier": "3.5.2",
-		"prettier-plugin-svelte": "3.3.3"
+		"prettier-plugin-svelte": "3.3.3",
+		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
 		"@esotericsoftware/spine-pixi-v8": "4.2.74",
