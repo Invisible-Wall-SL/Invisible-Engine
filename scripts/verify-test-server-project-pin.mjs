@@ -641,5 +641,85 @@ await check('a refresh that arrives mid-hydrate is QUEUED, not dropped', () => {
 	}
 });
 
+// ---------- 5. operator host settings survive a republish ----------
+//
+// `hostSettings` is the operator config the test server injects into a game's page. It is set by
+// hand on the manifest, so NO publisher writes it — and the online publisher REPLACES the entry, so
+// it has to carry the field over the way it carries a runtime pin.
+
+console.info('operator host settings');
+
+const upsertSource = stripSliceTypes(
+	'testServerManifest.ts#upsertTestServerGame',
+	sliceBetween(
+		manifestModule,
+		'upsertTestServerGame',
+		'export async function upsertTestServerGame(',
+		'\n}\n',
+	).replace('export async function', 'async function'),
+);
+
+const upsertHarness = async (games, entry, gameKey = 'bookofborutremake') => {
+	let store = JSON.stringify({ games });
+	class ConflictError extends Error {}
+	const scope = {
+		TEST_SERVER_MANIFEST_KEY: 'test_server/games.json',
+		MANIFEST_MAX_ATTEMPTS: 6,
+		ConflictError,
+		parseManifest: (raw) => ({ games: JSON.parse(raw ?? '{}').games ?? {} }),
+		getObjectTextWithEtag: async () => ({ text: store, etag: 'e' }),
+		precondition: (e) => ({ ifMatch: e }),
+		putObjectText: async (_key, text) => {
+			store = text;
+		},
+	};
+	const keys = Object.keys(scope);
+	const run = compileSlice({
+		what: 'verify-test-server-project-pin / testServerManifest.ts#upsertTestServerGame',
+		names: [...keys, 'gameKey', 'entry'],
+		body: `return (async () => { ${upsertSource} return upsertTestServerGame(gameKey, entry); })();`,
+	});
+	await run(...keys.map((k) => scope[k]), gameKey, entry);
+	return JSON.parse(store).games[gameKey];
+};
+
+const HOST = { minSpinDuration: 3000, clock: true };
+const REPUBLISH = { protocol: 'book', name: 'Book of Borut', runtime: 'lines' };
+
+await check('a republish keeps the operator settings set on the manifest', async () => {
+	const after = await upsertHarness(
+		{ bookofborutremake: { ...REPUBLISH, hostSettings: HOST } },
+		REPUBLISH,
+	);
+	eq(after.hostSettings, HOST, 'hostSettings');
+});
+
+await check('an entry that states its own settings replaces them', async () => {
+	const after = await upsertHarness(
+		{ bookofborutremake: { ...REPUBLISH, hostSettings: HOST } },
+		{ ...REPUBLISH, hostSettings: { clock: false } },
+	);
+	eq(after.hostSettings, { clock: false }, 'hostSettings');
+});
+
+await check('no settings before ⇒ none invented', async () => {
+	const after = await upsertHarness({ bookofborutremake: REPUBLISH }, REPUBLISH);
+	eq('hostSettings' in after, false, 'no hostSettings key');
+});
+
+await check('the runtime pin still survives beside them', async () => {
+	const after = await upsertHarness(
+		{ bookofborutremake: { ...REPUBLISH, runtimeVersion: '42', hostSettings: HOST } },
+		REPUBLISH,
+	);
+	eq([after.runtimeVersion, after.hostSettings], ['42', HOST], 'pin + settings');
+});
+
+await check('the test server reads the same field name', () => {
+	if (!server.includes('validHostSettings(meta.hostSettings')) {
+		throw new Error('services/test-server/server.mjs no longer reads `hostSettings`');
+	}
+});
+
 console.info(failures === 0 ? `\nAll ${ran} checks passed.` : `\n${failures} check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);
