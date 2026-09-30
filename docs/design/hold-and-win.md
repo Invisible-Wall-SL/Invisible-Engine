@@ -190,6 +190,46 @@ game. Instead:
 A resume snapshot (`createBonusSnapshot`) must carry the held board, the counter and the running
 total, so a reload mid-feature rebuilds the respin board.
 
+### 4.4 Flights — things that travel from a cell to a target
+
+Hold and Win is full of **flights**. Each one is a head that travels from a board cell to a target and leaves a particle trail behind:
+- specials flying into their pot (3 Pots);
+- coins flying into a collector (Hotfire, 3 Pots COLLECT);
+- coins flying into the Total Win bar at the feature end, or on a Grand column sweep;
+- a boost star's value flying to each coin.
+
+The start point is known only at runtime (whichever cell the symbol landed in), and several flights can run at once. In the references the paths **bend around the cells that are showing a win** instead of crossing them. 3 Oaks' own particle names (`flyRed…Top` / `…Bottom`) suggest they pick between an over-route and an under-route per flight.
+
+**What we already have:**
+- **Trail.** An `/fx` emitter that follows a moving owner. The Rigger bone binding already drives `updateOwnerPos` every frame, and particles spawn in the container's space, so a moving owner leaves a trail.
+- **Arrival.** Event-triggered effects (cue → effect).
+- **Heads.** Spine/flipbook/sprite rendering.
+- **Precedent.** A coded "fly to a point" in scatter's `MultiplierBoard`.
+
+**What we don't have:** a flight primitive that computes the path.
+
+**Plan — one engine primitive, authored once, reused by every flight:**
+- **`flyTo(from, to, flight, { avoid })`** in engine-game resolves to a Promise when the head arrives. That lets a handler or flow step await it, or fire N flights with a stagger.
+  - **Path.** A quadratic/cubic Bézier from the source cell centre to the target's anchor point. A target is a named layout node (pot, collector cell, total bar), looked up through the scene's node registry, so it follows the authored layout and the aspect ratio.
+- **Avoidance.** The obstacle set is the rects of the cells currently showing a win (or any rect set the caller passes), padded.
+  - The primitive tries a few candidate curves: bend left/right at a few strengths, then an over-route that leaves through the column's top edge. It samples each and keeps the first whose samples miss every padded rect; the cost is the curve length.
+  - If none is clean, it picks the one with the fewest hits.
+  - This is deterministic for a given board, so a replay or resume draws the same route. It costs a few dozen point-in-rect tests per flight.
+- **Timing.** Duration comes from distance (speed plus min/max clamp) with an ease. A stagger per flight index spreads simultaneous flights, and a slam compresses the time without skipping the arrival: the pot still fills, just faster (the slam rules in docs/status/engine.md).
+- **Arrival.** A cue per arrival (`flightArrive` with the target id), so the pot bump, the level up and the number increment happen on impact, not when the flight is fired.
+- **Z-order.** Flights draw in their own layer above the board and below celebration overlays. The layer uses a fixed zIndex seat, never mount order (pixi-svelte freezes child order at mount).
+- **Authoring — a `flights` block in the Symbols doc, keyed by flight kind** (`toMeter:<id>`, `toCollector`, `toTotal`, `boostBeam`):
+  - head art (sprite / flipbook / spine clip);
+  - trail effect (an `/fx` EffectDoc played as a moving emitter);
+  - arrival effect;
+  - path style (bend strength, over-route allowed, avoidance on/off with padding);
+  - speed, ease and stagger;
+  - which win rects to avoid.
+  - It travels the normal ship chain (export → bake → pull → register), like `anticipation`. The `/fx` preview gets a "flight" mode: drag a start and an end and watch the route and trail.
+- **Beams** (Grand's boost star to each coin) are a sibling primitive: a stretched sprite/spine from A to B with the same avoidance and arrival cue.
+
+Phase 4 builds `flyTo` and a coded default (a plain glow trail) so unauthored games still read correctly. Phase 7 adds the `flights` authoring block and its `/fx` preview. Phase 5's vocabulary exposes `flyTo` as an action (source cell, target node, flight kind, await or not) plus the `flightArrive` event.
+
 ## 5. Tool by tool — what each authoring surface gets
 
 **Cross-cutting first: one kind-capability source.** Today each tool gates on its own ad-hoc test
