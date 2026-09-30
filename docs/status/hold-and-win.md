@@ -32,7 +32,7 @@ titled **"Hold and win game pipeline"**.
 | 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
-| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
+| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | in progress | Hold and Win Phase 3 — mock RGS + wire | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
