@@ -230,6 +230,54 @@ The start point is known only at runtime (whichever cell the symbol landed in), 
 
 Phase 4 builds `flyTo` and a coded default (a plain glow trail) so unauthored games still read correctly. Phase 7 adds the `flights` authoring block and its `/fx` preview. Phase 5's vocabulary exposes `flyTo` as an action (source cell, target node, flight kind, await or not) plus the `flightArrive` event.
 
+### 4.5 Game modes — a bonus is a different game, and modes queue
+
+A Hold and Win feature is not a decoration on the base game. It is a **different game mode** with its own board (the respin board), screens, HUD, counter, music and rules. Other kinds have the same shape: free spins, a wheel, a pick game.
+
+A spin can trigger **more than one** mode, and they must play one after another before the game returns to base. Some combinations:
+- free spins that end in a Hold and Win;
+- a wheel that leads into Hold and Win (Hotfire);
+- two causes of the same feature on one spin (a pot fills while 6 coins land).
+
+**Today (measured 2026-09-30) there are no modes.**
+- The "mode" is one string, `stateGame.gameType`, with only two values: `basegame | freegame`. They are keyed off `paddingReels`.
+- Three things write that string: each spin's `reveal`, the coded free-spin handlers, and the `setFreeGameType` / `enterFreeSpinOutro` flow actions.
+- The FlowDoc is one flat graph. Functions are reusable subgraphs you call; groups are visual folding only. There is no mode scope, no enter/exit hook and no current-mode value.
+- Book events play strictly in order (`playBook.ts` `sequence`). **Nothing queues features or knows one is pending.** Two features play in order only because the book lists them in order, and `freeSpinEnd` drops to base even when another feature follows.
+- The XState machine has no feature states: a whole bonus runs inside the one `playGame`.
+- Resume snapshots only free-spin events.
+
+**Plan — a mode layer in the shared runtime, authored in the flow:**
+
+- **Mode registry.** It lives in the Game Config and is declared per kind. A mode has:
+  - an `id` (`basegame`, `freeSpins`, `holdAndWin`, `wheel`, `pick`…);
+  - its **board** (`reels` with a `paddingReels` key / `respinBoard` / `wheel` / `none`);
+  - its **scenes**: Scene Editor scenes tagged with a new role `mode` + `modeId`, mounted on enter and unmounted on exit;
+  - its HUD variant, music, counter source and the values it exposes.
+  
+  `gameType` widens from the two-value union to the mode id. Existing games map `freegame` → `freeSpins`, so their behaviour doesn't change.
+- **A mode stack plus a pending queue**, both engine state:
+  - `enterMode(id, payload, { policy })` either **nests** now (push and play; when it exits, the mode below resumes) or **queues** (append to pending; it starts when the current mode exits).
+  - When a mode exits and the stack is back at base, the engine pops the next queued mode before returning to idle. `returnToBase` fires only when both the stack and the queue are empty.
+  - Two triggers for the same mode on one spin merge into one entry (3 Pots: the server already merges pot + coins into one feature with the modifier active).
+  - The server's book stays the source of truth. The queue orders the **presentation**; it never invents a feature.
+- **Generic book events.** `modeEnter { mode, cause, payload }` / `modeExit { mode, total }` are emitted by the facade and mock next to (or derived from) today's feature events.
+  - `freeSpinTrigger` / `freeSpinEnd` stay as aliases that map to `modeEnter freeSpins` / `modeExit freeSpins`, so Book-of games are untouched.
+  - Hold and Win's `holdAndWinTrigger` / `holdAndWinEnd` (§4.3) carry the same mode fields.
+- **Flow authoring — per-mode sections of the graph.**
+  - Each mode gets its own event sections: **On Enter**, **On Exit**, and that mode's book events. They live in a named mode scope of the FlowDoc (the schema gains `modes: { [id]: { graph } }` beside the global graph).
+  - A signal goes first to the **active mode's** graph and then to the global graph. So "reveal" can mean something different in the respin board than in the base game without `branch` nodes on `gameType`.
+  - New nodes:
+    - **Enter mode** (id, policy nest/queue, payload pins);
+    - **Exit mode**;
+    - a **Mode trigger** event (fires on `modeEnter` for a chosen id);
+    - an **On all modes finished** event (back to base: collect, big-win, idle).
+  - The `/flow-v2` editor shows modes as tabs (Base game · Free spins · Hold and Win · Wheel …). Adding a mode tab offers that mode's vocabulary, the §4.3 events for Hold and Win.
+- **Resume.** The snapshot carries the mode stack and queue plus each active mode's own state (for Hold and Win: held board, counter, running total, active modifiers, meter levels). A reload re-enters every mode on the stack in order without replaying intros.
+- **XState stays as it is.** Modes live inside `playGame`, because a Hold and Win feature is still one round (several `play`s, one `collect`). `getBetType` keeps deciding end-of-round and balance.
+
+This is a **shared-runtime change for every game**, so it is its own phase (**Phase 4M**, below). Parity is the gate: every existing Book-of / lines / ways game must play byte-for-byte the same with `freeSpins` as a registered mode.
+
 ## 5. Tool by tool — what each authoring surface gets
 
 **Cross-cutting first: one kind-capability source.** Today each tool gates on its own ad-hoc test
@@ -285,6 +333,13 @@ rewritten when the partner's format arrives — nothing above the facade may dep
    Build order follows 3 Pots first: sticky coins → payer/collect/multiplier → mystery → pots +
    active modifiers → Lucky Spin → full board; then column letters (Grand), collectors-only streak
    + wheel (Hotfire).
+4M. **Game modes** (§4.5) — the mode registry in Game Config, `gameType` widened to a mode id, the mode
+   stack + pending queue, `modeEnter`/`modeExit` with the free-spin events as aliases, the FlowDoc
+   `modes` scopes + Enter/Exit/Mode-trigger/All-modes-finished nodes + mode tabs in `/flow-v2`, the
+   scene role `mode`, and a mode-aware resume snapshot. Parity gate: every existing game unchanged
+   with `freeSpins` as a registered mode. Agents: `invisible-flow` + `engine-pixi-svelte`. Needs 4a
+   (the event contract); Phase 5 builds the Hold and Win mode's graph on top of it, and Phase 6's
+   template tags its respin scenes with the `holdAndWin` mode.
 5. **Flow vocabulary + driven seed** — `holdAndWin.ts`, registry, seed + choreography, publish gate,
    `gen-flow-vocabulary`. Agent: `invisible-flow`.
 6. **Scene Editor template + components** — reference layout, template, roles, builtin components
