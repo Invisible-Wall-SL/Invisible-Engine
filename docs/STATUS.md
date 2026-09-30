@@ -104,10 +104,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    encoding, the host-setting meanings only the partner can confirm (`minNormalBet` units,
    `errorPanel`, `historyClient` — the reference's owed list), and the cascade vocabulary (waits on
    a real capture).
-4. **Concurrency Phase 3 — the person-level lease for the Python tools**, now unblocked because
-   the signed launch token carries a real user id (#863)
-   ([design](design/multi-user-concurrency.md)).
-5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
+4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
 **Recently closed** (2026-09-28 → 09-29, #811–#870):
@@ -146,7 +143,8 @@ cascade + multiplier-collect mechanics in the shared runtime (2026-08-20,
 [status/engine](status/engine.md)); **Invisible Cinematic** Phases 0–3 + Tweak Mode (2026-08-18 —
 ⏳ its engine half has not yet run in a real game, [status/cinematic](status/cinematic.md));
 ComfyUI generation on RunPod (2026-08-18, [status/comfyui](status/comfyui.md)); localization reaching
-the game ([status/localization](status/localization.md)); concurrency Phases 0–2 + 3a
+the game ([status/localization](status/localization.md)); concurrency Phases 0–3 — the Atlas + Sheet Makers' saves compare-and-swapped with a who-saved
+conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser live run owed
 ([design](design/multi-user-concurrency.md)).
 
 ## Blocked on owner / external (not code)

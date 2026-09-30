@@ -62,9 +62,14 @@ class LeaseKey:
 class LeaseHolder:
     """Who is asking. `session_id` is what actually distinguishes two claimants
     here — one container id per process — mirroring `holderSessionId`, which the
-    schema describes as the holder's server-side session id rather than a person."""
+    schema describes as the holder's server-side session id rather than a person.
+
+    `name` is display only — what an "X is editing this" banner shows. `doc_leases`
+    gets it by joining `users`; there is no table to join here, so a PERSON lease
+    carries it in the row. Never compared."""
     user_id: str
     session_id: str
+    name: str = ""
 
 
 def _now_ms() -> int:
@@ -115,7 +120,7 @@ def is_takeable(row: dict | None, holder: LeaseHolder, now_ms: int) -> bool:
 
 def _row(key: LeaseKey, holder: LeaseHolder, acquired_ms: int, now_ms: int,
          ttl_ms: int) -> dict:
-    return {
+    row = {
         "toolId": key.tool_id,
         "clientKey": key.client_key,
         "projectKey": key.project_key,
@@ -126,6 +131,9 @@ def _row(key: LeaseKey, holder: LeaseHolder, acquired_ms: int, now_ms: int,
         "heartbeatAt": now_ms,
         "expiresAt": now_ms + ttl_ms,
     }
+    if holder.name:
+        row["holderName"] = holder.name
+    return row
 
 
 def read(key: LeaseKey) -> tuple[dict | None, str | None]:

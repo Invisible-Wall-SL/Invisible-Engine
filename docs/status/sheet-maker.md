@@ -9,6 +9,19 @@ Works today on `main` / live:
 - Pack loose sprite PNGs into one packed sheet, name each region, edit per-region **AI fields**, and export **libGDX/Spine `.atlas`**, **TexturePacker JSON**, and the **Invisible AI manifest** — the manifest is handed to the Atlas Maker over R2 (it appears there after **↻ Refresh from R2**, or on switching to / deep-linking into it — no restart). Pure Pillow/CPU; no ComfyUI.
 - **Project-file workflow (B19)** — Sheets rail with Load / Refresh / Reset, plus **Save / Save As** and blank/duplicate-name guards.
 - **New sheet names itself first** — `New sheet…` opens a name dialog before clearing anything; a name already in the rail is flagged live and confirmed on Create, and **Save As** asks before replacing an existing sheet of the same name (the server writes whatever name it is given).
+- **Saving alongside other people** _(2026-09-30)_ — a sheet's version is its manifest's R2 ETag
+  ([design Phase 3b](../design/multi-user-concurrency.md)). Load returns it; **Save** sends it and
+  lands only on that version (checked BEFORE compose writes a byte, the manifest written `If-Match`);
+  **Save As** / a new sheet / a `.plist` import may only CREATE the name (`If-None-Match`), so a name
+  somebody else holds — even one this page's rail never listed — asks *"A sheet named X already
+  exists (last saved by …). Replace it?"*. A save somebody beat gets a **409** and a dialog naming who
+  saved it and where (Sheet Maker / Atlas Maker, which writes the same manifest): **Reload theirs** /
+  **Overwrite with mine** (If-Match on the version shown) / Cancel. The page/`.atlas`/`.json` reach R2
+  only after the manifest lands, so a refused save leaves R2's page untouched. Rename re-pulls a stale
+  staged tree, claims the new name first and keeps the old one if it was saved mid-rename; unlock is a
+  retried server-side CAS that never hands the page a version it did not see. A per-sheet lock
+  serialises one container's saves. `test_doc_conflicts.py` (101). ⏳ Not yet run live with two
+  browsers.
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
   clears and verifies **every tree the sheet owns alone** — `sheets/`, `sheet_src/`, and the Atlas
@@ -50,10 +63,26 @@ Works today on `main` / live:
 
 3. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
 
+4. **Concurrent saving — two-browser live run owed.** Two profiles open the same sheet; A saves;
+   B (not reloaded) saves → B is asked, naming A; **Overwrite with mine** lands. Then Save As onto
+   a name only the other profile has → the "already exists" prompt. Also: the first in-place Save of
+   a session restored from before this change asks "already exists … Replace it?" once (it has no
+   loaded version yet) — expected, not a bug.
+5. **Person-level "X is editing" banner — next.** The Atlas Maker has it (`/presence`); the Sheet
+   Maker would reuse the same lease key shape (`sheetMaker/<sheet>`), heartbeat from `ui.html`.
+
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-09-30 — **Save / Save As / rename / import / unlock are compare-and-swapped; a conflict names
+  who saved and asks.** Before, `/api/export` overwrote `sheets/<name>` and its manifest blindly and
+  the Save As guard only knew the page-load rail. Now the manifest ETag is the sheet's version
+  (`_check_base` → `_write_manifest_cas`, strict — the export rebuilds the manifest wholesale, so no
+  rev-merge), stamped `saved_by` from the signed identity, 409 on a conflict, a reload / overwrite
+  dialog in `ui.html`; `jpost` no longer hangs "Saving…" on a non-JSON error. Behaviour change: a
+  `.plist` import onto an existing name now asks first. Design:
+  [multi-user-concurrency Phase 3b](../design/multi-user-concurrency.md). Live run owed (item 4).
 - 2026-09-29 — **The Sheet Maker's scope comes from a launcher-signed token; `/healthz` is gate-exempt.** Same gate as the Atlas Maker (`iw_common/launch.py`, audience `sheet`): the launcher redirect carries only `?iw_launch=<token>`, the tool swaps it for a signed `iw_sheet_session` cookie and scopes every request from it; `?client=`/`?project=` in a URL are ignored, and the project picker shows "(set by Launcher)" once signing is on (it never switched R2 scope — `list_projects()` only ever returned the current project). Old `?k=` handoff accepted until 2026-10-13. `test_launch_gate.py` covers the handler wiring. Env + cut-over: [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).
 - 2026-09-29 — **Error reporting (Sentry), dormant until `SENTRY_DSN` is set on the Railway service.** `services/_shared/iw_common/errors.py`: request exceptions (the 500 handler + a `ReportingServerMixin` catching what stdlib `http.server` only prints) are captured with `method`/`path` tags; cookies/headers dropped, `?k=`/secret values scrubbed, frame locals off. Tests: `services/atlas-tool/test_error_tracking.py`. See docs/INFRA.md "Monitoring & error tracking".
 - 2026-09-22 — **A deleted sheet stayed openable in the Atlas Maker — and came BACK.** Reported as
