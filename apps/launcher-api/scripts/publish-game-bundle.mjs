@@ -7,7 +7,7 @@
 //
 //   R2_ENDPOINT=... R2_BUCKET=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 //     node apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <buildDir> \
-//       [--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] \
+//       [--protocol lines|book|ways|cluster|scatter|holdAndWin] [--name "Display Name"] \
 //       [--project <projectKey> --launcher <origin> --read-token <token>]
 //
 // ⚠️ PASS --project (with --launcher + --read-token) FOR ANY GAME AUTHORED IN THE STUDIO.
@@ -58,7 +58,7 @@ const buildDir = positional[1];
 if (!gameKey || !buildDir) {
 	console.error(
 		'Usage: node publish-game-bundle.mjs <gameKey> <buildDir> ' +
-			'[--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] ' +
+			'[--protocol lines|book|ways|cluster|scatter|holdAndWin] [--name "Display Name"] ' +
 			'[--project <projectKey> --launcher <origin> --read-token <token>]',
 	);
 	process.exit(1);
@@ -73,7 +73,7 @@ if (!GAME_KEY_RE.test(gameKey)) {
 // Default the mock protocol from the key when not given (book-of games → 'book'). The list matches
 // `MOCK_PROTOCOLS` in services/test-server/server.mjs — a name this side accepts but that side does
 // not would silently downgrade the game to `lines`, which is the failure this whole flag guards.
-const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter'];
+const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin'];
 const protocol = getFlag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
 if (!MOCK_PROTOCOLS.includes(protocol)) {
 	console.error(`--protocol must be one of ${MOCK_PROTOCOLS.join('|')} (got '${protocol}').`);

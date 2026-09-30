@@ -38,7 +38,12 @@
 		type PaytableImportPlan,
 	} from 'game-config';
 	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
-	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
+	import {
+		BUILTIN_SPINE_NAMES,
+		builtinSpineMeta,
+		kindCapabilities,
+		type ComponentParam,
+	} from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
@@ -82,8 +87,9 @@
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
 
-	// TODO(hold-and-win Phase 1): switch to `kindCapabilities(data.gameType).holdAndWin`.
-	const isHoldAndWin = $derived(data.gameType === 'holdAndWin' || doc.holdAndWin !== undefined);
+	const isHoldAndWin = $derived(
+		kindCapabilities(data.gameType).holdAndWin || doc.holdAndWin !== undefined,
+	);
 
 	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
 	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */

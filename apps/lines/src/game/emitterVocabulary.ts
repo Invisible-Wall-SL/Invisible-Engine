@@ -2,7 +2,7 @@
  * Invisible Flow — apps/lines EMITTER VOCABULARY (GENERATED — do not edit by hand).
  *
  * Source: `apps/lines/src/game/typesEmitterEvent.ts` (the emitter union) + `apps/lines/src/game/flowEffects.ts` (the effect catalog).
- * Regenerate: `node scripts/gen-flow-vocabulary.mjs`. Verified by `flow-spike run vocab`.
+ * Regenerate: `pnpm gen:flow-vocab`. Verified by `flow-spike run vocab`.
  *
  * This is the game's REAL Broadcast/effect vocabulary as DATA, fed to the `/flow` choreography
  * palette in place of the bundled `DEFAULT_EMITTER_VOCABULARY` (design doc §3, Phase 7). It is

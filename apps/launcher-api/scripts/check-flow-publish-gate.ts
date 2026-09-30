@@ -12,8 +12,14 @@
  *    one exec-out is an error.
  * 3. **The editor replaces, never adds, a second exec wire** (`addExecEdgeIn`), while a different
  *    out-pin on the same node keeps its own wire.
+ * 4. **Every kind resolves to the starter flow + vocabulary it is recorded to** — the parity pin on the
+ *    named fallbacks (`DRIVEN_SEED_FALLBACKS` / `VOCABULARY_FALLBACKS`). Every kind that predates
+ *    `holdAndWin` resolves exactly as it did when the fallback was a silent `?? bookOf`; `holdAndWin`
+ *    follows `lines` until Hold and Win Phase 5 registers its own. A new kind must be added here, so
+ *    what it resolves to is a decision rather than a floor it fell through to.
  */
-import { freshDrivenSeedDoc, type FlowDoc } from 'engine-flow-v2';
+import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { freshDrivenSeedDoc, templateVocabulary, type FlowDoc } from 'engine-flow-v2';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';
@@ -29,9 +35,7 @@ const check = (name: string, ok: boolean, detail = ''): void => {
 };
 
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
-const GAME_TYPES = ['lines', 'bookOf', 'ways', 'cluster', 'scatter'];
-
-for (const gameType of GAME_TYPES) {
+for (const gameType of GAME_KINDS) {
 	const reference = getFullSceneSet(gameType);
 	if (!reference) {
 		check(`1. ${gameType}: has a full scene set`, false);
@@ -86,6 +90,32 @@ check(
 check(
 	'3. …and leaves the node’s other exec-out alone',
 	rewired.exec.some((e) => e.from.pin === 'else' && e.to.node === 'b'),
+);
+
+/** Kind → [starter flow's templateId, vocabulary templateId]. `my-custom-kind` = an author-created
+ *  kind (not a built-in id). */
+const RESOLVES_TO: Record<string, [string, string]> = {
+	lines: ['bookOf', 'bookOf'],
+	ways: ['ways', 'ways'],
+	cluster: ['bookOf', 'cluster'],
+	scatter: ['bookOf', 'scatter'],
+	bookOf: ['bookOf', 'bookOf'],
+	holdAndWin: ['bookOf', 'bookOf'],
+	'my-custom-kind': ['bookOf', 'bookOf'],
+};
+for (const kind of GAME_KINDS) {
+	check(`4. ${kind}: has a recorded resolution`, kind in RESOLVES_TO);
+}
+for (const [kind, [seedId, vocabId]] of Object.entries(RESOLVES_TO)) {
+	const seeded = freshDrivenSeedDoc(kind).templateId;
+	check(`4. ${kind}: starter flow is the ${seedId} seed`, seeded === seedId, seeded);
+	const vocab = templateVocabulary(kind).templateId;
+	check(`4. ${kind}: vocabulary is ${vocabId}`, vocab === vocabId, vocab);
+}
+check('4. an absent kind gets the bookOf seed', freshDrivenSeedDoc().templateId === 'bookOf');
+check(
+	'4. an absent templateId gets the bookOf vocabulary',
+	templateVocabulary(undefined).templateId === 'bookOf',
 );
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');

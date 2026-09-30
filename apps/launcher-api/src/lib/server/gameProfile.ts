@@ -40,7 +40,7 @@ import {
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
-import { TUMBLE_PATTERN_LABELS } from 'engine-layout';
+import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import { protocolFor } from './mockProtocol';
@@ -48,7 +48,7 @@ import { SHARED_RUNTIME_ID, type MockProtocol } from './testServerManifest';
 
 /** Everything the profile is derived from — assembled once per project by the page loader. */
 export interface GameProfileSignals {
-	/** The project's game KIND id (`lines` / `bookOf` / `ways` / `cluster` / `scatter` / a custom id).
+	/** The project's game KIND id (a `GAME_KINDS` id from `constants-shared/gameKinds`, or a custom id).
 	 *  Shares an id space with the Flow v2 `templateId`, which is why it can name the mechanic set. */
 	gameTypeId: string;
 	/** The kind's display name from the selectable-kinds union (falls back to the raw id). */
@@ -272,21 +272,19 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'cascade',
 		title:
 			'Cluster/scatter kinds run the cascade (tumble) board: winning symbols explode, survivors slide down, new symbols fall in.',
-		text: (ctx) =>
-			ctx.gameTypeId === 'cluster' || ctx.gameTypeId === 'scatter'
-				? 'Cascading reels (tumble)'
-				: null,
+		text: (ctx) => (kindCapabilities(ctx.gameTypeId).cascade ? 'Cascading reels (tumble)' : null),
 	},
 	{
 		id: 'multiplierCollect',
 		title:
 			'The scatter kind adds the collect beat: multipliers landed during a tumble fly to the board centre and combine.',
-		text: (ctx) => (ctx.gameTypeId === 'scatter' ? 'Multiplier collect' : null),
+		text: (ctx) =>
+			kindCapabilities(ctx.gameTypeId).multiplierCollect ? 'Multiplier collect' : null,
 	},
 	{
 		id: 'expandingBook',
 		title: 'The Book-of kind: one special symbol is scatter and expanding wild in the free spins.',
-		text: (ctx) => (ctx.gameTypeId === 'bookOf' ? 'Expanding book symbol' : null),
+		text: (ctx) => (kindCapabilities(ctx.gameTypeId).bookReveal ? 'Expanding book symbol' : null),
 	},
 	{
 		id: 'respin',

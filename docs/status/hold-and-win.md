@@ -30,7 +30,7 @@ titled **"Hold and win game pipeline"**.
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
 | 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
-| 1 | Kind plumbing + `kindCapabilities()` | not started | — | — |
+| 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
@@ -46,6 +46,21 @@ titled **"Hold and win game pipeline"**.
 
 - **The research is recorded in the design doc.** §1 covers the mechanics and the three reference games, §2 what we carry, and §3 the partner protocol.
 - **The upstream `apps/price` `superspin` sample is the only existing respin code.** It has sticky prize coins, a reset counter and a collect event. It is the reference for Phase 4, to be rebuilt on engine-game primitives rather than forked.
+
+## What each kind resolves to (Phase 1, pinned by `check:flow-publish-gate` §4)
+
+| Kind | Starter flow (`freshDrivenSeedDoc`) | Flow vocabulary (`templateVocabulary`) | Mock protocol → mock that deals it | `/flow` emitter vocab |
+|---|---|---|---|---|
+| `lines` | bookOf seed (`DRIVEN_SEED_FALLBACKS`) | bookOf (`VOCABULARY_FALLBACKS`) | `lines` → lines | lines |
+| `ways` | ways seed | ways | `ways` → lines mock, ways evaluator | lines |
+| `cluster` | bookOf seed (fallback) | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster` | default |
+| `scatter` | bookOf seed (fallback) | same as cluster: bookOf in practice | `scatter` | default |
+| `bookOf` | bookOf seed | bookOf | `book` | lines |
+| `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **lines mock** (`MOCK_FALLBACKS` in `services/test-server/server.mjs`) | lines |
+| custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |
+
+Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` by alias, so Phase 5
+only has to register its own vocab + seed, and Phase 3 only has to drop the `MOCK_FALLBACKS` entry.
 
 ## Decisions & findings
 
@@ -74,6 +89,10 @@ titled **"Hold and win game pipeline"**.
 - 2026-09-30 — **The partner core has a generic respin but no Hold and Win data.** It has one `play` per respin and the `playedBonusSpin` counters. It has no coin values, sticky cells or collector. Its Mini/Minor/Major/Grand jackpot is the operator **platform** jackpot (`platform.jackpots[]`), not our fixed coin jackpots. That is out of scope for the first build.
 - 2026-09-30 — **"Hide options per kind" needs one capability source (`kindCapabilities`).** Today only `/symbols` state columns, scene sets, the flow vocab and config-by-winModel gate at all.
 - 2026-09-30 — **Trap to fix in Phase 1:** flow vocab and driven seed fall back to **bookOf** silently. Lines, cluster, scatter and custom kinds are all scaffolded with `templateId: 'bookOf'`.
+- 2026-09-30 — **Phase 1: the kind list lives in `constants-shared/gameKinds.ts`**, not engine-layout or game-spec. That package is dependency-free and already imported by the launcher, engine-layout and engine-flow-v2, so nothing gains a package→app import. game-spec gained the dependency. `gen-flow-vocabulary.mjs` now imports it and runs under `node --experimental-strip-types`, which CI's Lint job now passes.
+- 2026-09-30 — **Phase 1: cluster/scatter projects never reach their own flow vocabularies.** Their starter flow is the bookOf seed, whose `templateId` is `bookOf`, so `CLUSTER_VOCAB`/`SCATTER_VOCAB` are registered but unused by any scaffolded project. Parity kept on purpose; it is a separate fix, outside this initiative.
+- 2026-09-30 — **Phase 1: `kindCapabilities()` is wired only where it is a drop-in.** That means `/symbols` `visibleStatesFor` (book + cascade columns) and the `gameProfile` detectors (cascade, multiplier collect, expanding book, and the new "Hold and Win respins" chip). For every existing kind `freeSpins` and `stackedPictures` are `true`, the flags nothing gated before. `holdAndWin` has them `false`, but no tool reads them yet: Phases 6–8 do.
+- 2026-09-30 — **Desktop builds are unverified for `holdAndWin`.** A desktop build of a `holdAndWin` project is stamped `protocol: 'holdAndWin'`. `resolveActiveMapping()` maps an unknown `PUBLIC_RGS_GAME` to the lines mapping, so that is safe. The desktop launcher's own (Python) handling of an unknown protocol was not checked.
 
 ## Touch list (every place a new kind must be registered — from the 2026-09-30 inventory)
 
@@ -107,12 +126,21 @@ titled **"Hold and win game pipeline"**.
   - `packages/game-config`: the `holdAndWin` block, its normalizer and validator, and the three presets
     `pots` / `classic` / `collector` (numbers per design §1.2).
   - Committed defaults: `data/gameConfig/holdAndWin.<preset>.json`. `holdAndWin` defaults to `pots`.
-  - `/config`: a Hold and Win section and "Reset to preset". The section is gated on the project kind
-    and switches to `kindCapabilities()` when Phase 1 lands.
+  - `/config`: a Hold and Win section and "Reset to preset", gated on `kindCapabilities().holdAndWin`.
   - Game Maker: ten profile detectors.
   - Left for later phases: nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
     from it (Phase 3), and the roles aren't offered in `/symbols` (Phase 7).
-  - Phase 1 must add `holdAndWin` to `GAME_KINDS` before a project can actually be that kind.
+  - **Role-name mismatch with Phase 1:** game-spec's `SymbolKindSchema` (#917) says `jackpotCoin` and
+    reuses `multiplier`, while the config's `special_properties` roles are `jackpot` and
+    `coinMultiplier`. Phase 7 (Symbols) should align game-spec to the config names.
+- 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** — merged as #917, a runtime release (session "Hold and Win Phase 1: register the kind everywhere").
+  - **One kind list.** `GAME_KINDS` lives in `packages/constants-shared/gameKinds.ts`. These now derive from it: roles.ts (its copy removed), `kindStorage`, `projects.ts`, the editor template picker, game-spec `GameTypeSchema`, the publish gate, `verify-launcher-profile` and `gen-flow-vocabulary.mjs`, which gives lines' emitter vocab to every kind except cluster/scatter.
+  - **`kindCapabilities(gameType, config?)`** is in `engine-layout`.
+  - **game-spec symbol roles:** `coin`, `jackpotCoin`, `collector`, `payer`, `mystery`, `meterSpecial` and `blank` (`multiplier` already existed).
+  - **Mock protocol:** `protocolFor('holdAndWin') = 'holdAndWin'`. It is in `MOCK_PROTOCOLS` (launcher, test server, the two publish scripts). The test server deals it with the lines mock through the named `MOCK_FALLBACKS`, and `mockContract` requires paylines for it as for lines.
+  - **Flow fallbacks** are explicit and named (table above).
+  - **Scene set:** a 5×3 engine-skeleton `holdAndWin` set ("Hold and Win") is in `FULL_SCENE_SOURCES`, so the Game Maker/admin picker offers it and the kind chip reads "Hold and Win".
+  - **Left for later phases:** `TEMPLATES`, `SCENE_ROLE_LABELS`, `DRIVEN_SEEDS`/`TEMPLATE_VOCABULARIES` entries, config/symbol defaults and the runtime/facade.
 
 - 2026-09-30 — **Owner decisions recorded** (one template / three presets, 3 Pots first, mock-first with a swap seam). Build plan re-cut: Phase 10 is now the partner wire and Phase 11 covers what goes beyond the three references.
 

@@ -212,7 +212,20 @@ own internal back-references (the page/`.atlas`/JSON keys and every region's
 `shape_ref`) — so the rename moves **all** of them on R2 and rewrites the manifest
 refs, then deletes the old keys. This keeps original-sprite recovery working (it
 relies on those `shape_ref`s) and keeps the Atlas Maker pointing at the renamed
-manifest. Renaming refuses to overwrite an existing sheet of the target name.
+manifest. Renaming refuses to overwrite an existing sheet of the target name — including one
+somebody else created that your rail hasn't listed yet.
+
+### When someone else saved the sheet first
+
+Every **Save** says which version of the sheet it was made on. If somebody saved it in between — in
+the Sheet Maker, or in the Atlas Maker, which writes the same manifest — nothing is written and a
+dialog names who and when, with **Reload theirs** (discard your unsaved changes and load theirs),
+**Overwrite with mine** (replace their version with yours — only if nobody has saved again since) or
+**Cancel**.
+
+**Save As**, a new sheet and a `.plist` import only ever *create* a name: if it is already taken — even
+by a sheet your rail hasn't listed yet — you are asked *"A sheet named X already exists (last saved
+by …). Replace it?"* first.
 
 ## Config / env (names only)
 

@@ -23,6 +23,7 @@ import {
 	TUMBLE_STEP_MS_DEFAULT,
 	TUMBLE_STEP_MS_MAX,
 	isTumblePattern,
+	kindCapabilities,
 	tumbleExplosionDelays,
 	type BlendMode,
 	type SymbolNameEntry,
@@ -99,26 +100,26 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a book game (`gameType === 'bookOf'`), the cascade state for a project that tumbles OR
- *  clears its board on a swap, and the swap state (`intro`) ONLY for a project that emerges. Every
- *  gate is RESOLVED server-side (`resolveCascade` / `resolveReelBehaviour`), so an authored
- *  `/config` answer beats the win model's default and a lines game that turned the tumble ON gets
- *  the column. The `stacked` state is never a column (see {@link NON_GRID_STATE_SET}). Mirrors the
- *  launcher's `GameKind` ids (`$lib/roles`); kept inline because this module is browser-side and the
- *  roles list is not worth importing for one literal. */
+ *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the cascade
+ *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
+ *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /
+ *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
+ *  game that turned the tumble ON gets the column. The `stacked` state is never a column (see
+ *  {@link NON_GRID_STATE_SET}). */
 export function visibleStatesFor(
 	gameType: string | undefined,
 	gates: { cascade?: boolean; emerge?: boolean; clears?: boolean } = {},
 ): readonly SymbolState[] {
+	const caps = kindCapabilities(gameType, { cascade: Boolean(gates.cascade) });
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
-		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
+		if (BOOK_STATE_SET.has(s)) return caps.bookReveal;
 		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
 		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
 		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the
 		// second — a swapping lines game — which then had to bind it through `Explosion`'s silent
 		// inheritance. Either reason earns the column.
-		if (CASCADE_STATE_SET.has(s)) return Boolean(gates.cascade || gates.clears);
+		if (CASCADE_STATE_SET.has(s)) return caps.cascade || Boolean(gates.clears);
 		if (SWAP_STATE_SET.has(s)) return Boolean(gates.emerge);
 		return true;
 	});

@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -40,6 +41,7 @@ from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images)
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
+from iw_common import docsave  # noqa: E402  (saved_by stamp + compare-and-swap check)
 
 SELF = Path(__file__).resolve().parent
 
@@ -708,26 +710,334 @@ def _locked_error(sheet: str, action: str) -> str:
             "new copy to leave the import untouched.")
 
 
+# ---------------------------------------------------------------------------
+# Manifest versions — compare-and-swap saves
+# ---------------------------------------------------------------------------
+#
+# A sheet's version IS its manifest's R2 ETag: `manifests/atlas_manifest_<S>.json`
+# is the one object every save rewrites, and the Atlas Maker writes the same key.
+# A load hands the page that ETag; a save states which version it replaces
+# (`base_etag`, "" = "I believe the name is free") and lands only on that version
+# — `If-Match` on it, or `If-None-Match: *` for a create. The Sheet Maker's export
+# REBUILDS the manifest from the canvas, so it is always strict (no rev merge):
+# see iw_common/docsave.py for why a wholesale writer must not merge.
+
+_REQUEST = threading.local()
+
+
+def set_request_identity(identity) -> None:
+    """Who the CURRENT request thread is saving as (a `launch.Identity`, or None).
+    Thread-local for the same reason the project context is: one thread per request."""
+    _REQUEST.identity = identity
+
+
+def _identity():
+    return getattr(_REQUEST, "identity", None)
+
+
+# One lock per (client, project, sheet): serialises the read-check-compose-write of
+# exports / renames / imports / unlocks of ONE sheet inside this container, so two
+# tabs racing the same sheet can never both pass the pre-check and both compose.
+# Across containers only the R2 precondition protects — see `_write_manifest_cas`.
+_SHEET_LOCKS: dict[tuple[str, str, str], threading.Lock] = {}
+_SHEET_LOCKS_GUARD = threading.Lock()
+
+
+@contextlib.contextmanager
+def _sheet_guard(*sheets: str):
+    """Hold the per-sheet lock of every named sheet, taken in sorted order so a
+    rename A->B and a rename B->A cannot deadlock."""
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    with _SHEET_LOCKS_GUARD:
+        locks = [_SHEET_LOCKS.setdefault((ck, pk, s), threading.Lock())
+                 for s in sorted({s for s in sheets if s})]
+    with contextlib.ExitStack() as stack:
+        for lk in locks:
+            stack.enter_context(lk)
+        yield
+
+
+def _doc_id(sheet: str) -> str:
+    return f"manifests/atlas_manifest_{safe_name(sheet, '')}.json"
+
+
+def _cas_on() -> bool:
+    """Whether manifest writes are versioned. Off for a local run with no R2 (no
+    bucket configured): there is no shared store to race on, and every read would
+    otherwise fail as "R2 unreadable" and refuse the save."""
+    return bool(_ctx()["r2_prefix"]) and bool(os.environ.get("R2_BUCKET"))
+
+
+def _manifest_key(sheet: str) -> str:
+    return f"{_ctx()['r2_prefix']}/{_doc_id(sheet)}"
+
+
+def _manifest_bytes(doc: dict) -> bytes:
+    # Byte-identical to atlas_writers.write_manifest, so a staged copy and its R2
+    # object compare equal and the load-time re-sync is a no-op when nothing moved.
+    return json.dumps(doc, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def _read_manifest_r2(sheet: str) -> tuple[dict | None, str | None, bytes | None]:
+    """`(doc, etag, raw)` of a sheet's manifest as R2 holds it NOW — etag verbatim
+    (the value `If-Match` must send back), None when the object is absent.
+
+    With versioning off it reads staging and returns etag None. Raises
+    `storage.ObjectUnreadable` when R2 could not be asked: never read that as
+    absence, or a create-only claim would go through over a live sheet."""
+    if not _cas_on():
+        try:
+            raw = _manifest_path_for(sheet).read_bytes()
+        except OSError:
+            return None, None, None
+        return docsave.parse_doc(raw), None, raw
+    got = storage.get_with_etag(_manifest_key(sheet))
+    if got is None:
+        return None, None, None
+    raw, etag = got
+    return docsave.parse_doc(raw), etag, raw
+
+
+def _stage_bytes(p: Path, body: bytes) -> None:
+    """Write a staging file atomically: a concurrent reader (a load, the lock
+    check) sees the old bytes or the new ones, never a torn manifest."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_bytes(body)
+        os.replace(tmp, p)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _put_manifest(sheet: str, doc: dict, *, if_match: str | None = None,
+                  if_none_match: str | None = None) -> str | None:
+    """Write a sheet's manifest to R2 WITH its precondition, then to staging.
+
+    Not `_mirror`: that pushes unconditionally and swallows every failure, which
+    is exactly the blind overwrite this replaces. R2 goes FIRST so a refused
+    write leaves staging untouched — staging only ever mirrors a version R2
+    accepted. Raises `storage.Conflict` when R2 refuses (412) and anything else
+    the put raises; returns the new ETag (verbatim), None with versioning off.
+
+    Claim bookkeeping follows `_mirror`'s ordering rules: claimed before the push,
+    the landed flag recorded BEFORE the count comes off. A put that did not land
+    records nothing — unlike `_mirror`, nothing was written locally, so there is
+    no local-only state to protect and a failure flag would only park a bogus
+    stuck-work line."""
+    mp = _manifest_path_for(sheet)
+    body = _manifest_bytes(doc)
+    if not _cas_on():
+        _stage_bytes(mp, body)
+        _mirror(mp)
+        return None
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    landed = False
+    project_paths.note_authored(ck, pk, "manifests", mp.name)
+    try:
+        etag = storage.put(_manifest_key(sheet), body, "application/json",
+                           if_match=if_match, if_none_match=if_none_match)
+        landed = True
+        try:
+            _stage_bytes(mp, body)
+        except OSError:
+            pass    # R2 took it; the next load re-syncs staging from there
+        return etag
+    finally:
+        if landed:
+            project_paths.mark_pushed(ck, pk, "manifests", mp.name, True)
+        project_paths.clear_authored(ck, pk, "manifests", mp.name)
+
+
+def _sync_manifest(sheet: str) -> tuple[dict, bytes | None]:
+    """Bring the staged manifest up to R2's version for a LOAD, and say which
+    version that is: `({etag, saved_by, version_unknown}, raw)`.
+
+    The coords a load returns and the ETag it returns must describe the SAME
+    bytes, or the page's next save would claim a version it never saw — so the
+    caller parses `raw` rather than re-reading the file. R2 unreadable falls back
+    to staging with etag "" + `version_unknown`: a save then asks for a CREATE,
+    which fails loud on an existing sheet instead of overwriting it blind. An
+    object absent in R2 leaves staging alone (it may be unpushed local work) and
+    returns etag "" too — the next save is a create."""
+    if not _cas_on():
+        doc = _read_manifest(sheet)
+        return {"etag": "", "saved_by": docsave.saved_by_of(doc),
+                "version_unknown": False}, None
+    try:
+        doc, etag, raw = _read_manifest_r2(sheet)
+    except storage.ObjectUnreadable:
+        return {"etag": "", "saved_by": docsave.saved_by_of(_read_manifest(sheet)),
+                "version_unknown": True}, None
+    if raw is None:
+        return {"etag": "", "saved_by": None, "version_unknown": False}, None
+    mp = _manifest_path_for(sheet)
+    try:
+        staged = mp.read_bytes()
+    except OSError:
+        staged = None
+    if staged != raw:
+        _stage_bytes(mp, raw)
+    return {"etag": docsave.norm_etag(etag), "saved_by": docsave.saved_by_of(doc),
+            "version_unknown": False}, raw
+
+
+def _conflict(sheet: str, c: docsave.DocConflict) -> dict:
+    return {**c.payload(), "sheet": safe_name(sheet, "")}
+
+
+def _check_base(sheet: str, base_etag) -> tuple[str | None, dict | None]:
+    """The pre-write check: does the version this save was based on still stand?
+
+    Returns `(etag to write on, refusal)`. The etag is the verbatim value just
+    read (None = absent → create-only). A save with no base (Save As / a new
+    sheet / an import) is a create, so a name somebody already holds is EXISTS.
+    Runs BEFORE anything is composed or written, so a refused save writes nothing."""
+    if not _cas_on():
+        return None, None
+    try:
+        doc, etag, _ = _read_manifest_r2(sheet)
+    except storage.ObjectUnreadable as e:
+        return None, {"error": f"Could not read the saved version of '{sheet}' from R2 "
+                      f"({e}). Nothing was saved — saving without knowing what is "
+                      "there could overwrite someone else's work. Try again."}
+    raw_base = str(base_etag or "").strip()
+    base = docsave.Base(docsave.norm_etag(raw_base)) if raw_base else None
+    try:
+        docsave.check(_doc_id(sheet), base, etag, doc, allow_rev_merge=False,
+                      missing_base=docsave.EXISTS)
+    except docsave.DocConflict as c:
+        return None, _conflict(sheet, c)
+    return etag, None
+
+
+def _refused(sheet: str, read_etag: str | None) -> dict:
+    """R2 refused the conditional write although the pre-check passed: another
+    CONTAINER wrote the manifest in between. Re-read it so the page can say who."""
+    try:
+        doc, etag, _ = _read_manifest_r2(sheet)
+    except storage.ObjectUnreadable:
+        return _conflict(sheet, docsave.DocConflict(_doc_id(sheet), docsave.STALE))
+    base = docsave.Base(docsave.norm_etag(read_etag)) if read_etag else None
+    try:
+        docsave.check(_doc_id(sheet), base, etag, doc, allow_rev_merge=False,
+                      missing_base=docsave.EXISTS)
+    except docsave.DocConflict as c:
+        return _conflict(sheet, c)
+    return _conflict(sheet, docsave.DocConflict(_doc_id(sheet), docsave.STALE,
+                                                etag=etag, doc=doc))
+
+
+def _write_manifest_cas(sheet: str, manifest: dict,
+                        read_etag: str | None) -> tuple[str | None, dict | None]:
+    """Write a stamped manifest on exactly the version `_check_base` read.
+    Returns `(new etag, refusal)`."""
+    try:
+        etag = _put_manifest(sheet, manifest, if_match=read_etag,
+                             if_none_match=None if read_etag else "*")
+    except storage.Conflict:
+        return None, _refused(sheet, read_etag)
+    except Exception as e:  # noqa: BLE001 — a transport failure is not a conflict
+        return None, {"error": f"The sheet's manifest could not be saved to R2 "
+                      f"({type(e).__name__}: {e}), so its page was not uploaded either. "
+                      "Save again."}
+    return etag, None
+
+
+def _unstage(paths: list[Path]) -> None:
+    """Put staged files back to what R2 holds after a refused save.
+
+    A save composes its page/.atlas/.json into staging and pushes them only once
+    its manifest has landed, so on a refusal R2 still has the winner's files and
+    only staging holds the loser's. Staging must not keep them: a later load
+    re-slices from the staged page, and hydration never overwrites a NEWER local
+    file. A file R2 lacks, or that cannot be read back, is removed rather than
+    left as the loser's bytes — the next load pulls R2's copy on demand."""
+    ctx = _ctx()
+    r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
+    for p in paths:
+        blob = None
+        if _cas_on() and staging_root:
+            try:
+                rel = Path(p).resolve().relative_to(
+                    Path(staging_root).resolve()).as_posix()
+                blob = storage.get_strict(f"{r2_prefix}/{rel}")
+            except Exception:  # noqa: BLE001 — unreadable: drop the loser's copy
+                blob = None
+        try:
+            if blob is None:
+                Path(p).unlink(missing_ok=True)
+            else:
+                _stage_bytes(Path(p), blob)
+        except OSError:
+            pass
+
+
+def _holder_note(by: dict | None) -> str:
+    return f" (saved by {by.get('name') or 'someone'})" if by else ""
+
+
+_UNLOCK_ATTEMPTS = 4    # the first try + 3 retries through a concurrent write
+
+
 def api_unlock_sheet(payload: dict) -> dict:
     """Clear a sheet's verbatim-import lock so it can be re-packed again."""
     sheet = safe_name(payload.get("sheet", ""), "")
     if not sheet:
         return {"error": "No sheet name given."}
-    man = _read_manifest(sheet)
-    if man is None:
-        return {"error": f"Sheet '{sheet}' has no manifest to unlock (looked for "
-                f"atlas_manifest_{sheet}.json in manifests/)."}
-    if not man.get("locked"):
-        return {"sheet": sheet, "locked": False,
-                "note": f"'{sheet}' was not locked."}
-    man["locked"] = False
-    mp = _manifest_path_for(sheet)
-    atlas_writers.write_manifest(mp, man)
-    _mirror(mp)
-    return {"sheet": sheet, "locked": False,
+    with _sheet_guard(sheet):
+        return _unlock_sheet(sheet, str(payload.get("base_etag") or "").strip())
+
+
+def _unlock_sheet(sheet: str, base: str = "") -> dict:
+    """A server-side read-modify-write of the manifest: a write that loses to a
+    concurrent save simply re-reads and re-applies the one field it changes
+    rather than asking anybody.
+
+    The reply's `etag` is one the page may ADOPT as its loaded version, so it is
+    returned only when the unlock was applied to exactly the version the page
+    holds (`base`, sent when the page unlocks the sheet it has open). Otherwise
+    somebody saved since the page loaded, and adopting the post-unlock version
+    would let the page's next Save — a canvas from before their save — replace
+    it silently. With no `etag` the page keeps its own, and that Save conflicts."""
+    def adoptable(read_etag: str | None, reply_etag: str | None) -> dict:
+        if base and docsave.norm_etag(read_etag) == docsave.norm_etag(base):
+            return {"etag": docsave.norm_etag(reply_etag)}
+        return {}
+
+    done = {"sheet": sheet, "locked": False,
             "note": f"'{sheet}' unlocked — saving it now RE-PACKS the page and "
                     "rewrites every rect. The original coordinates are gone once "
                     "you save."}
+    for _ in range(_UNLOCK_ATTEMPTS):
+        try:
+            man, etag, raw = _read_manifest_r2(sheet)
+        except storage.ObjectUnreadable as e:
+            return {"error": f"Could not read '{sheet}' from R2 ({e}) — nothing was "
+                    "changed. Try again."}
+        if man is None:
+            if raw is not None:
+                return {"error": f"Sheet '{sheet}''s manifest could not be parsed, so "
+                        "it cannot be unlocked."}
+            return {"error": f"Sheet '{sheet}' has no manifest to unlock (looked for "
+                    f"atlas_manifest_{sheet}.json in manifests/)."}
+        if not man.get("locked"):
+            if raw is not None and etag is not None:
+                _stage_bytes(_manifest_path_for(sheet), raw)   # staging may say locked
+            return {"sheet": sheet, "locked": False, **adoptable(etag, etag),
+                    "saved_by": docsave.saved_by_of(man),
+                    "note": f"'{sheet}' was not locked."}
+        man["locked"] = False
+        by = docsave.stamp(man, _identity(), "sheet")
+        try:
+            new = _put_manifest(sheet, man, if_match=etag)
+        except storage.Conflict:
+            continue
+        return {**done, **adoptable(etag, new), "saved_by": by}
+    return {"error": f"'{sheet}' kept changing while it was being unlocked (another "
+            "save landed each time) — nothing was changed. Try again."}
 
 
 def api_arrange(payload: dict) -> dict:
@@ -861,7 +1171,8 @@ def api_export(payload: dict) -> dict:
     dest = _resolve_dest(sheet, str(payload.get("dest_dir") or "").strip())
     # The manifest is claimed too: losing it is the "sheet in the rail with no
     # coords" failure the rest of this path works hard to prevent.
-    with (_claim_scope("sheets", _sheet_key(dest) or sheet),
+    with (_sheet_guard(sheet),
+          _claim_scope("sheets", _sheet_key(dest) or sheet),
           _claim_scope("manifests", f"atlas_manifest_{sheet}.json")):
         return _export(payload, dest)
 
@@ -925,6 +1236,14 @@ def _export(payload: dict, dest: Path) -> dict:
                 "a stray _glow/_shine copy left by an atlas round-trip) resolved to the "
                 "same name: delete the extra cell, re-tick the FX on the base, and export."}
 
+    # Compare-and-swap, checked BEFORE compose writes a single byte: a save based
+    # on a version somebody has since replaced is refused with who did it, and
+    # the page is left exactly as the winner wrote it. `base_etag` absent or ""
+    # = Save As / a new sheet, which may only CREATE the name.
+    read_etag, refusal = _check_base(sheet, payload.get("base_etag"))
+    if refusal:
+        return refusal
+
     # Each sheet keeps its OWN sprite copies under sheet_src/<sheet>/ — they are
     # not shared between sheets. A region whose file isn't in THIS sheet's folder
     # would crash compose with a raw FileNotFoundError, so surface it as an
@@ -940,16 +1259,17 @@ def _export(payload: dict, dest: Path) -> dict:
                 + f"sheet_src/{safe_name(sheet)}/): " + ", ".join(missing)
                 + ". Re-upload them here — a sprite added to another sheet isn't "
                 "shared; each sheet keeps its own copies."}
-    # Claim the sheet BEFORE the first local write. An export writes the page,
-    # the .atlas, the TexturePacker json and the manifest, mirroring each as it
-    # goes — so between the first save and its push there is a window where the
-    # directory has files but R2 has nothing, which is exactly what
-    # `prune_listing_ghosts` reads as a ghost. `_mirror` releases the claim on
-    # the first CONFIRMED push.
+    # The page, .atlas and json are written to STAGING here and pushed to R2 only
+    # once the manifest has landed (see the CAS write below), so a refused save
+    # never touches R2's copy of the winner's page. Between these local writes
+    # and their pushes staging holds files R2 lacks — what `prune_listing_ghosts`
+    # reads as a ghost — which is why `api_export` holds the sheet's claim for
+    # the whole export.
+    staged: list[Path] = []
     sheet_img = packer.compose(regions, width, height, image_for)
     sheet_png = out / f"{basename}.png"
     sheet_img.save(sheet_png)
-    _mirror(sheet_png)
+    staged.append(sheet_png)
     written = [str(sheet_png)]
 
     # B14 — self-contained manifest. Compute the R2 keys of everything this
@@ -980,7 +1300,7 @@ def _export(payload: dict, dest: Path) -> dict:
     if fmts.get("libgdx"):
         ap = out / f"{basename}.atlas"
         atlas_writers.write_libgdx_atlas(ap, sheet_png.name, width, height, regions)
-        _mirror(ap)
+        staged.append(ap)
         written.append(str(ap))
         if export_prefix:
             atlas_file_key = f"{export_prefix}/{ap.name}"
@@ -988,7 +1308,7 @@ def _export(payload: dict, dest: Path) -> dict:
     if fmts.get("texturepacker"):
         jp = out / f"{basename}.json"
         atlas_writers.write_texturepacker_json(jp, sheet_png.name, width, height, regions)
-        _mirror(jp)
+        staged.append(jp)
         written.append(str(jp))
         if export_prefix:
             tp_json_key = f"{export_prefix}/{jp.name}"
@@ -1016,8 +1336,23 @@ def _export(payload: dict, dest: Path) -> dict:
     man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
     man_dir.mkdir(parents=True, exist_ok=True)
     mp = man_dir / man_name
-    atlas_writers.write_manifest(mp, manifest)
-    _mirror(mp)
+    saved_by = docsave.stamp(manifest, _identity(), "sheet")
+    # Lands only on the version `_check_base` read. The sheet lock only orders
+    # Sheet Maker saves in THIS container; the manifest key is also written by
+    # other Sheet Maker containers and by the Atlas Maker (render post-hooks, FX
+    # rebuild, activation seeding, author edits), none of which take it — so a
+    # refusal here is possible anywhere. That is why the page files are pushed
+    # only AFTER this lands: a refused save restores staging from R2 and has
+    # written nothing there.
+    # RESIDUAL: once the manifest has landed there is a short window (until the
+    # pushes below finish) where R2 holds the new coords beside the previous
+    # page; a push that fails leaves the name flagged unpushed, as `_mirror` does.
+    new_etag, refusal = _write_manifest_cas(sheet, manifest, read_etag)
+    if refusal:
+        _unstage(staged)
+        return refusal
+    for p in staged:
+        _mirror(p)
     written.append(str(mp))
     manifest_note = ""
     if fmts.get("manifest"):
@@ -1028,7 +1363,8 @@ def _export(payload: dict, dest: Path) -> dict:
     manifest_path = str(man_dir / f"atlas_manifest_{basename}.json")
     return {"written": written, "manifest_note": manifest_note,
             "output_dir": str(out), "dir": str(out),
-            "manifest_path": manifest_path, "name": basename}
+            "manifest_path": manifest_path, "name": basename,
+            "etag": docsave.norm_etag(new_etag), "saved_by": saved_by}
 
 
 def _swap_sheet_path(v: str, old: str, new: str) -> str:
@@ -1067,9 +1403,15 @@ def _rewrite_manifest_refs(man: dict, old: str, new: str) -> None:
                 r["shape_ref"] = sr.replace(f"sheet_src/{old}/", f"sheet_src/{new}/")
 
 
-def _patch_session_for_rename(old: str, new: str) -> None:
+def _patch_session_for_rename(old: str, new: str, etag: str = "",
+                              moved_etag: str | None = None) -> None:
     """If the persisted editor session points at the renamed sheet, follow the
-    rename so a later Refresh restores the new identity (best-effort)."""
+    rename so a later Refresh restores the new identity (best-effort).
+
+    The session is shared per project, so its canvas may come from ANY version
+    of the old sheet. It inherits the new key's `etag` only when its loaded
+    version is the one the rename moved (`moved_etag`); otherwise it gets "" —
+    its next save is then a create, refused as EXISTS, never a blind write."""
     sp = _session_path()
     try:
         sess = json.loads(sp.read_text(encoding="utf-8"))
@@ -1086,6 +1428,9 @@ def _patch_session_for_rename(old: str, new: str) -> None:
     if isinstance(loaded, dict):
         if loaded.get("name") == old:
             loaded["name"] = new
+            same = (moved_etag is not None and docsave.norm_etag(moved_etag)
+                    and docsave.norm_etag(loaded.get("etag")) == docsave.norm_etag(moved_etag))
+            loaded["etag"] = etag if same else ""
             changed = True
         for k in ("path", "dir"):
             v = loaded.get(k)
@@ -1102,6 +1447,30 @@ def _patch_session_for_rename(old: str, new: str) -> None:
             pass
 
 
+def _repull_tree(rel_prefix: str, prune: bool) -> None:
+    """Re-download every object under `<project>/<rel_prefix>` into staging,
+    STRICTLY: a listing or read that fails raises, so the caller can refuse
+    rather than work from a half-refreshed tree (`pull_prefix` swallows per-file
+    errors and skips "newer" local files, which is the wrong trade here).
+    `prune` also drops staged files R2 no longer has."""
+    ctx = _ctx()
+    r2_prefix, root = ctx["r2_prefix"], Path(ctx["staging_root"])
+    listed: set[Path] = set()
+    for obj in storage.list_keys(f"{r2_prefix}/{rel_prefix}"):
+        key = obj["key"]
+        blob = storage.get_strict(key)
+        if blob is None:
+            continue                     # deleted between the listing and the read
+        dest = root / key[len(r2_prefix) + 1:]
+        _stage_bytes(dest, blob)
+        listed.add(dest.resolve())
+    local = root / rel_prefix
+    if prune and local.is_dir():
+        for p in local.rglob("*"):
+            if p.is_file() and p.resolve() not in listed:
+                p.unlink(missing_ok=True)
+
+
 def api_rename_sheet(payload: dict) -> dict:
     """Claim BOTH names for the whole rename, then run it.
 
@@ -1112,7 +1481,8 @@ def api_rename_sheet(payload: dict) -> dict:
     held-claims diagnostic permanent noise."""
     old = safe_name(payload.get("from", ""), "")
     new = safe_name(payload.get("to", ""), "")
-    with (_claim_scope("sheets", old),
+    with (_sheet_guard(old, new),
+          _claim_scope("sheets", old),
           _claim_scope("sheets", new),
           _claim_scope("manifests", f"atlas_manifest_{new}.json" if new else "")):
         return _rename_sheet(payload)
@@ -1157,6 +1527,77 @@ def _rename_sheet(payload: dict) -> dict:
     if new_out.exists() or new_man.exists():
         return {"error": f"A sheet named '{new}' already exists — pick another name."}
 
+    # The OLD manifest as R2 holds it — staging can be stale, and whatever is read
+    # here is what moves. A page renaming the sheet it has open sends the version
+    # it loaded: renaming a sheet somebody has saved since would carry their work
+    # under a name they do not know about, so that is refused like a stale save.
+    cas = _cas_on()
+    base_raw = str(payload.get("base_etag") or "").strip()
+    try:
+        man, old_etag, old_raw = _read_manifest_r2(old)
+    except storage.ObjectUnreadable as e:
+        return {"error": f"Could not read '{old}' from R2 ({e}) — nothing was "
+                "renamed. Try again."}
+    if old_raw is not None and man is None:
+        return {"error": f"Could not read the manifest to rename it: "
+                f"atlas_manifest_{old}.json is not a JSON object."}
+    if cas and base_raw:
+        try:
+            docsave.check(_doc_id(old), docsave.Base(docsave.norm_etag(base_raw)),
+                          old_etag, man, allow_rev_merge=False)
+        except docsave.DocConflict as c:
+            by = c.saved_by
+            return {**_conflict(old, c),
+                    "error": (f"'{old}' was deleted since you opened it — nothing was renamed."
+                              if c.reason == docsave.DELETED else
+                              f"'{old}' was saved{_holder_note(by)} since you opened it — "
+                              "nothing was renamed. Reload it, then rename.")}
+    if man is None and cas and old_etag is None:
+        man = _read_manifest(old)      # not in R2: unpushed local work, carry it over
+
+    # The copy below reads STAGING, the manifest came from R2. If they differ,
+    # another writer saved since this container hydrated, and copying the staged
+    # page would put fresh coords over a stale page under the new name. Re-pull
+    # the old sheet's files first; if that cannot be done, refuse.
+    if cas and old_raw is not None:
+        try:
+            staged_man = old_man.read_bytes()
+        except OSError:
+            staged_man = None
+        if staged_man != old_raw:
+            try:
+                _repull_tree(f"sheets/{old}/", prune=True)
+                _repull_tree(f"sheet_src/{old}/", prune=False)
+                _stage_bytes(old_man, old_raw)
+            except Exception as e:  # noqa: BLE001 — a half-refreshed copy is worse
+                return {"error": f"'{old}' changed in R2 since this server loaded it, and "
+                        f"its files could not be re-read ({type(e).__name__}: {e}) — "
+                        "nothing was renamed. Try ↻ Refresh from R2, then rename."}
+
+    # CLAIM the new name before copying anything: the manifest goes first,
+    # create-only, so a name somebody else holds in R2 (another container's
+    # sheet this staging has never seen) refuses the rename with nothing written.
+    # A sheet with no manifest has nothing to claim with; the staging check above
+    # is all it gets, as before.
+    new_etag = None
+    new_by = None
+    if man is not None:
+        man = json.loads(json.dumps(man))
+        _rewrite_manifest_refs(man, old, new)
+        new_by = docsave.stamp(man, _identity(), "sheet")
+        try:
+            new_etag = _put_manifest(new, man, if_none_match="*")
+        except storage.Conflict:
+            try:
+                holder = docsave.saved_by_of(_read_manifest_r2(new)[0])
+            except storage.ObjectUnreadable:
+                holder = None
+            return {"error": f"A sheet named '{new}' already exists"
+                    f"{_holder_note(holder)} — pick another name."}
+        except Exception as e:  # noqa: BLE001 — nothing is copied yet; say so
+            return {"error": f"Could not create '{new}' in R2 ({type(e).__name__}: "
+                    f"{e}) — nothing was renamed."}
+
     # 1. packed output sheets/<old>/ -> sheets/<new>/ (rename the <old>.* files).
     if old_out.exists():
         new_out.mkdir(parents=True, exist_ok=True)
@@ -1177,21 +1618,36 @@ def _rename_sheet(payload: dict) -> dict:
                 dest.write_bytes(p.read_bytes())
                 _mirror(dest)
 
-    # 3. manifest: rewrite the baked back-refs, write it under the new name.
-    if old_man.exists():
-        try:
-            man = json.loads(old_man.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValueError) as e:
-            return {"error": f"Could not read the manifest to rename it: {e}"}
-        if isinstance(man, dict):
-            _rewrite_manifest_refs(man, old, new)
-        new_man.write_text(json.dumps(man, indent=2, ensure_ascii=False), encoding="utf-8")
-        _mirror(new_man)
+    # 3. the manifest was written under the new name first (the claim above).
 
     # 4. follow the rename in the persisted editor session (best-effort).
-    _patch_session_for_rename(old, new)
+    _patch_session_for_rename(old, new, docsave.norm_etag(new_etag), old_etag)
 
-    # 5. delete the OLD keys LAST — R2 (source of truth) then local staging.
+    def sheets_now() -> list[str]:
+        return (sorted(p.name for p in out_root.iterdir() if p.is_dir())
+                if out_root.exists() else [])
+
+    done ={"ok": True, "from": old, "to": new,
+            "etag": docsave.norm_etag(new_etag), "saved_by": new_by}
+
+    # 5. delete the OLD keys LAST — but only the version that was copied. If the
+    # old name was saved while this ran (another container: here the sheet lock
+    # holds it off) its newest work exists nowhere else, so everything under it
+    # is kept and the author is told. RESIDUAL: a save landing between this
+    # re-read and the deletes below is still lost — S3 deletes are unconditional.
+    if cas:
+        try:
+            _, now_etag, _ = _read_manifest_r2(old)
+            moved = now_etag is not None and (docsave.norm_etag(now_etag)
+                                              != docsave.norm_etag(old_etag))
+            why = "was saved by someone while the rename ran" if moved else ""
+        except storage.ObjectUnreadable:
+            why = "could not be re-checked in R2 after the copy"
+        if why:
+            return {**done, "sheets": sheets_now(), "kept_old": True,
+                    "note": f'Copied "{old}" → "{new}", but "{old}" {why}, so it was '
+                            f'KEPT rather than deleted — both sheets now exist. Check '
+                            f'"{old}" and delete it yourself once nothing in it is needed.'}
     if r2_prefix:
         for pre in (f"{r2_prefix}/sheets/{old}/", f"{r2_prefix}/sheet_src/{old}/"):
             for obj in storage.list_keys(pre):
@@ -1202,10 +1658,7 @@ def _rename_sheet(payload: dict) -> dict:
     old_man.unlink(missing_ok=True)
     _forget_sheet(old)
 
-    sheets = sorted(p.name for p in out_root.iterdir() if p.is_dir()) \
-        if out_root.exists() else []
-    return {"ok": True, "from": old, "to": new, "sheets": sheets,
-            "note": f'Renamed "{old}" → "{new}".'}
+    return {**done, "sheets": sheets_now(), "note": f'Renamed "{old}" → "{new}".'}
 
 
 def _clear_session_if_sheet(sheet: str) -> None:
@@ -1625,13 +2078,15 @@ def api_browse(path: str, mode: str = "") -> dict:
 # load existing (manifest / .atlas / TexturePacker JSON) by slicing
 # ---------------------------------------------------------------------------
 
-def _parse_coords_file(path: Path) -> dict:
+def _parse_coords_file(path: Path, raw: bytes | None = None) -> dict:
     """Return {image, width, height, regions:[{name,x,y,w,h,rotated,prompt,shape_ref,seed}]}.
-    Supports our AI manifest, TexturePacker JSON, and libGDX/Spine .atlas."""
+    Supports our AI manifest, TexturePacker JSON, and libGDX/Spine .atlas.
+    `raw` = the JSON bytes already read (the version a load reports), parsed
+    instead of re-reading a file another request may have replaced since."""
     suffix = path.suffix.lower()
     if suffix == ".atlas":
         return _parse_libgdx(path)
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(raw if raw is not None else path.read_text(encoding="utf-8"))
     if "frames" in data:
         return _parse_texturepacker(data)
     return _parse_manifest(data)
@@ -1958,6 +2413,24 @@ def _load_generation_manifest(path: Path, sheet: str, raw: dict) -> dict:
             "name": name, "is_project": True}
 
 
+def _project_manifest_sheet(path: Path) -> str:
+    """The sheet name when `path` is a sheet's canonical manifest
+    (`manifests/atlas_manifest_<S>.json` in this project's staging), else "".
+    Only that key is versioned; a manifest-shaped file anywhere else is a plain
+    import and gets no version."""
+    if not (path.name.startswith("atlas_manifest_") and path.suffix.lower() == ".json"):
+        return ""
+    name = path.name[len("atlas_manifest_"):-len(".json")]
+    if not name or safe_name(name, "") != name:
+        return ""
+    try:
+        if path.resolve().parent != Path(_ctx()["manifest_dir"]).resolve():
+            return ""
+    except (OSError, TypeError):
+        return ""
+    return name
+
+
 def api_load(payload: dict) -> dict:
     """Load an existing coords file, slice its sheet into per-region PNGs in the
     uploads dir, and return canvas dims + region list for the editor."""
@@ -1984,8 +2457,16 @@ def api_load(payload: dict) -> dict:
         if fetched is None:
             return {"error": f"File not found: {raw_path}"}
         path = fetched
+    # A project manifest is a versioned doc: bring staging up to R2's copy and
+    # report WHICH version the page got, so a later in-place save can prove it
+    # replaces exactly that one.
+    version: dict = {}
+    man_raw = None
+    proj_sheet = _project_manifest_sheet(path)
+    if proj_sheet:
+        version, man_raw = _sync_manifest(proj_sheet)
     try:
-        parsed = _parse_coords_file(path)
+        parsed = _parse_coords_file(path, man_raw)
     except (OSError, json.JSONDecodeError, ValueError) as e:
         return {"error": f"Could not parse {path.name}: {e}"}
 
@@ -1993,11 +2474,12 @@ def api_load(payload: dict) -> dict:
     # generated cutout as a loose sprite instead of slicing a packed sheet.
     if path.suffix.lower() == ".json":
         try:
-            raw_manifest = json.loads(path.read_text(encoding="utf-8"))
+            raw_manifest = json.loads(man_raw if man_raw is not None
+                                      else path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             raw_manifest = {}
         if _is_generation_manifest(path, parsed, raw_manifest):
-            return _load_generation_manifest(path, sheet, raw_manifest)
+            return {**_load_generation_manifest(path, sheet, raw_manifest), **version}
 
     img_path = _resolve_image(path, parsed["image"])
     if img_path is None:
@@ -2055,7 +2537,7 @@ def api_load(payload: dict) -> dict:
             "regions": regions_out, "count": len(regions_out),
             "skipped": skipped,
             "source_path": str(path.resolve()), "source_dir": str(path.resolve().parent),
-            "name": name, "is_project": is_project}
+            "name": name, "is_project": is_project, **version}
 
 
 def _recover_sheet_from_sprites(sheet: str) -> dict | None:
@@ -2131,12 +2613,16 @@ def api_load_sheet(payload: dict) -> dict:
         return {"error": "No sheet name given."}
 
     ctx = _ctx()
+    # R2's manifest first, into staging: the coords this returns and the version
+    # it reports must be the same bytes (see _sync_manifest).
+    version, man_raw = _sync_manifest(sheet)
     # Look up the coords file against UNCREATED paths first: mkdir-ing before
     # this check would leave an empty sheets/<typo>/ behind that api_state then
     # lists in everyone's dropdown.
     out = project_paths.resolve()["output_root"] / sheet
     man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
-    coords = next((c for c in (man_dir / f"atlas_manifest_{sheet}.json",
+    man_path = man_dir / f"atlas_manifest_{sheet}.json"
+    coords = next((c for c in (man_path,
                                out / f"{sheet}.atlas",
                                out / f"{sheet}.json") if c.exists()), None)
     if coords is None:
@@ -2148,12 +2634,12 @@ def api_load_sheet(payload: dict) -> dict:
         # genuinely nothing to recover do we surface the hard error.
         recovered = _recover_sheet_from_sprites(sheet)
         if recovered is not None:
-            return recovered
+            return {**recovered, **version}
         return {"error": f"Sheet '{sheet}' has no coords file — looked for "
                 f"atlas_manifest_{sheet}.json (manifests/), {sheet}.atlas and "
                 f"{sheet}.json (sheets/{sheet}/). Try ↻ Refresh from R2."}
     try:
-        parsed = _parse_coords_file(coords)
+        parsed = _parse_coords_file(coords, man_raw if coords == man_path else None)
     except (OSError, json.JSONDecodeError, ValueError) as e:
         return {"error": f"Could not parse {coords.name}: {e}"}
     up = uploads_dir(sheet)            # hydrates sheet_src/ lazily from R2
@@ -2287,7 +2773,8 @@ def api_load_sheet(payload: dict) -> dict:
             "source_path": str(coords.resolve()), "source_dir": str(out.resolve()),
             "name": sheet,
             "locked": _is_locked(sheet),
-            "is_project": coords.name.startswith("atlas_manifest_")}
+            "is_project": coords.name.startswith("atlas_manifest_"),
+            **version}
 
 
 # ---------------------------------------------------------------------------
@@ -2302,7 +2789,8 @@ def api_import_plist(fields: dict, files: list) -> dict:
     A verbatim import is the user's only copy of those bytes — it is never
     re-derivable from anything else in staging."""
     name = _plist_sheet_name(fields, files)
-    with (_claim_scope("sheets", name),
+    with (_sheet_guard(name),
+          _claim_scope("sheets", name),
           _claim_scope("manifests", f"atlas_manifest_{name}.json" if name else "")):
         return _import_plist(fields, files)
 
@@ -2383,6 +2871,13 @@ def _import_plist(fields: dict, files: list) -> dict:
         return {"error": "That plist has no frames."}
     sequences = plist_import.detect_sequences([f["name"] for f in frames])
 
+    # An import CREATES a sheet under this name: over one that exists it is
+    # refused (naming who saved it) until the page re-sends the version it was
+    # shown as `base_etag` — never a blind replace of somebody's sheet.
+    read_etag, refusal = _check_base(sheet, fields.get("base_etag"))
+    if refusal:
+        return refusal
+
     # --- write the page BYTE-FOR-BYTE ----------------------------------------
     # Stored verbatim, rotated frames and all. cocos2d packs a rotated frame in the SAME
     # direction PIXI un-rotates it (both are the TexturePacker convention), so the runtime
@@ -2396,7 +2891,7 @@ def _import_plist(fields: dict, files: list) -> dict:
     out = output_dir(sheet)
     page_path = out / f"{sheet}{ext}"
     page_path.write_bytes(page_file["data"])
-    _mirror(page_path)
+    staged = [page_path]         # pushed only once the manifest lands (see _export)
     written = [str(page_path)]
 
     # --- TexturePacker JSON: the coords file the rest of the pipeline reads --
@@ -2407,7 +2902,7 @@ def _import_plist(fields: dict, files: list) -> dict:
     json_path = out / f"{sheet}.json"
     json_path.write_text(
         json.dumps(plist_import.to_texturepacker(parsed), indent=2), encoding="utf-8")
-    _mirror(json_path)
+    staged.append(json_path)
     written.append(str(json_path))
 
     # --- the AI manifest, in exactly build_manifest's shape ------------------
@@ -2449,8 +2944,15 @@ def _import_plist(fields: dict, files: list) -> dict:
     man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
     man_dir.mkdir(parents=True, exist_ok=True)
     mp = man_dir / f"atlas_manifest_{sheet}.json"
-    atlas_writers.write_manifest(mp, manifest)
-    _mirror(mp)
+    saved_by = docsave.stamp(manifest, _identity(), "sheet")
+    # As in `_export`: the page and JSON reach R2 only after the manifest lands,
+    # so a refusal (any other writer of this key) leaves R2's files untouched.
+    new_etag, refusal = _write_manifest_cas(sheet, manifest, read_etag)
+    if refusal:
+        _unstage(staged)
+        return refusal
+    for p in staged:
+        _mirror(p)
     written.append(str(mp))
 
     if editable:
@@ -2492,7 +2994,8 @@ def _import_plist(fields: dict, files: list) -> dict:
                 "padding": 2, "allow_rotation": False,
                 "loaded": {"path": loaded.get("source_path"),
                            "dir": loaded.get("source_dir"),
-                           "name": sheet, "is_project": True},
+                           "name": sheet, "is_project": True,
+                           "etag": loaded.get("etag", "")},
                 "regions": loaded.get("regions") or [],
             })
 
@@ -2504,12 +3007,20 @@ def _import_plist(fields: dict, files: list) -> dict:
             "editable": editable,
             "warnings": warnings,
             "written": written,
-            "page": str(page_path)}
+            "page": str(page_path),
+            "etag": docsave.norm_etag(new_etag), "saved_by": saved_by}
 
 
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+
+def status_for(result) -> int:
+    """409 for a refused compare-and-swap save (the body is the conflict payload
+    the page words its prompt from), 200 for everything else — handler errors
+    stay 200 + `{"error"}`, which is what the page already reads."""
+    return 409 if isinstance(result, dict) and result.get("conflict") is True else 200
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quieter console
@@ -2531,6 +3042,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_bytes(b"", "text/plain", 303, {"Location": res.redirect})
             return False
         return True
+
+    def _reply(self, result) -> None:
+        self._send_json(result, status_for(result))
 
     def _send_json(self, obj, code=200):
         data = json.dumps(obj).encode("utf-8")
@@ -2657,6 +3171,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authenticate():
             return
         self._resolve_context()
+        # Who a save is stamped with (`saved_by`) — read by the handlers below.
+        set_request_identity(self._identity)
         path = urllib.parse.urlparse(self.path).path
         ctype = self.headers.get("Content-Type", "")
         try:
@@ -2666,7 +3182,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/import-plist":
                 fields, files = parse_multipart(self._body(), ctype)
-                self._send_json(api_import_plist(fields, files))
+                self._reply(api_import_plist(fields, files))
                 return
             payload = {}
             raw = self._body()
@@ -2677,15 +3193,15 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/fx-sync":
                 self._send_json(api_fx_sync(payload))
             elif path == "/api/export":
-                self._send_json(api_export(payload))
+                self._reply(api_export(payload))
             elif path == "/api/load":
                 self._send_json(api_load(payload))
             elif path == "/api/load-sheet":
                 self._send_json(api_load_sheet(payload))
             elif path == "/api/rename-sheet":
-                self._send_json(api_rename_sheet(payload))
+                self._reply(api_rename_sheet(payload))
             elif path == "/api/unlock-sheet":
-                self._send_json(api_unlock_sheet(payload))
+                self._reply(api_unlock_sheet(payload))
             elif path == "/api/rescale-sheet":
                 self._send_json(api_rescale_sheet(payload))
             elif path == "/api/delete-sheet":

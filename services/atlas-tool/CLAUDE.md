@@ -11,7 +11,8 @@ The LOCAL `Invisible Atlas Maker` Python tool, **re-hosted on Railway** (project
 ## Don't regress
 - **Cloudflare blocks `Python-urllib` UA → 403.** Every ComfyUI call needs `User-Agent: InvisibleAtlas/1.0` + the CF Access headers (already in `cloud_paths.cf_headers()`).
 - ComfyUI can't see our filesystem — upload refs, fetch outputs via `/view`. Never assume shared disk.
-- Staging hydrates from R2 **only at startup** → after seeding/changing R2, **restart the service**.
+- Staging hydrates from R2 **only at startup** (and ↻ Refresh) → after seeding/changing R2 assets, **restart the service**. Exception: the authored docs (`manifests/*.json`, `atlas_config.json`) are re-read from R2 on every write-intent load.
+- **Never write a manifest or `atlas_config.json` except through `_store_doc`** (`save_manifest` = an author's edit, `_write_manifest_at` = a machine write, `save_config(user=)`) — `doc_sync.py` compare-and-swaps it in R2 and the page's `doc-guard.js` turns a refusal into the reload / overwrite prompt. A raw `write_text` + `_mirror` is a blind overwrite of whoever saved last (multi-user-concurrency.md Phase 3b).
 - No secrets in code (`atlas_config.json` with the comfy.org key is gitignored / not copied). Env only.
 
 ## Validate / ship

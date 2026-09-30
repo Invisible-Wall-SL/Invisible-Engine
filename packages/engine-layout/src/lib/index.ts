@@ -55,6 +55,7 @@ export * from './signalGates';
 export * from './completeOnLoaded';
 export * from './engineBindings';
 export * from './sceneRole';
+export * from './kindCapabilities';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';

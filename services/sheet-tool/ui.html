@@ -428,6 +428,14 @@
   </div>
 </div>
 
+<div id="conflict" class="modal" hidden onclick="if(event.target===this) closeConflict('cancel')">
+  <div class="box" role="dialog" aria-labelledby="conflict-title" onkeydown="if(event.key==='Escape'){event.preventDefault();closeConflict('cancel');}">
+    <h2 id="conflict-title">Sheet changed</h2>
+    <div class="warn" id="conflict-msg" style="white-space:pre-line"></div>
+    <div class="btns" id="conflict-btns"></div>
+  </div>
+</div>
+
 <script>
 let STATE=null;
 let regions=[];              // {src,name,x,y,w,h,iw,ih,ow,oh,rotated,locked,prompt,shape_ref,seed,unplaced?}
@@ -438,13 +446,25 @@ let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused acros
 let bboxCache={};            // src -> {x0,y0,x1,y1,nw,nh} opaque bounds (native px) for content-aware centring
 let activeSheet=null;        // which sheet the current canvas regions belong to
 let loadedPath=null, loadedDir=null, loadedName=null, isProject=false;  // loaded project identity
+let loadedEtag='';           // the manifest version loaded — an in-place Save lands only on it
 let browseMode='projects';   // 'projects' (manifests only) | 'import' (any coords/image)
 let importTarget='';         // editor deep-link: atlas basename to land on (?import=)
 
 const $=id=>document.getElementById(id);
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 async function jget(u){return (await fetch(u)).json();}
-async function jpost(u,b){return (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();}
+/* POSTs never throw and always yield an object: a 409 conflict carries JSON like
+   any reply, and a proxy error page or a dropped connection becomes {error} —
+   so no caller is left showing "Saving…" for ever. */
+async function jsend(u,init){
+  let r;
+  try{ r=await fetch(u,init); }catch(e){ return {error:'Request failed: '+e}; }
+  const t=await r.text();
+  try{ return JSON.parse(t); }
+  catch(e){ return {error:'Server answered '+r.status+(t?': '+t.slice(0,200):'')}; }
+}
+function jpost(u,b){return jsend(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});}
+function jform(u,fd){return jsend(u,{method:'POST',body:fd});}
 const reg=src=>regions.find(r=>r.src===src);
 /* Sprite image URL. `_cb` (a change token set on upload) is appended so a
    re-uploaded file gets a fresh URL — no stale cached image after a recolour. */
@@ -464,7 +484,7 @@ function sessionSnapshot(){
     active_sheet:activeSheet||'',
     canvas_w:canvasW,canvas_h:canvasH,
     padding:parseInt($('pad').value)||2,allow_rotation:$('rot').checked,
-    loaded:{path:loadedPath,dir:loadedDir,name:loadedName,is_project:isProject},
+    loaded:{path:loadedPath,dir:loadedDir,name:loadedName,is_project:isProject,etag:loadedEtag},
     regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,
       iw:r.iw||r.w,ih:r.ih||r.h,
       ow:r.ow,oh:r.oh,rotated:!!r.rotated,locked:!!r.locked,
@@ -499,6 +519,7 @@ function restoreSession(s){
   $('sheet').value=s.display_name||s.sheet||$('sheet').value;
   const ld=s.loaded||{};
   loadedPath=ld.path||null; loadedDir=ld.dir||null; loadedName=ld.name||null; isProject=!!ld.is_project;
+  loadedEtag=ld.etag||'';
   clearCanvasDom();
   const dropped=[];
   regions=(s.regions||[]).filter(r=>{
@@ -1049,7 +1070,7 @@ function confirmNewSheet(){
     'Cancel to pick a different name.')) return;
   closeNewSheet();
   regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
-  loadedPath=null; loadedDir=null; loadedName=null; isProject=false;
+  loadedPath=null; loadedDir=null; loadedName=null; isProject=false; loadedEtag='';
   $('sheet').value=name; sheetName=name; activeSheet=name;
   selectedSheet=''; renderSheetList();
   updateReadouts();
@@ -1243,7 +1264,7 @@ async function runDownscale(f, inPlace){
   // one — and loading a sheet prefers the loose sprites over re-slicing its
   // page, so that mismatch would come back as small art in huge cells. Re-save
   // in place (the dialog said so) whenever there is a saved sheet to re-save.
-  if(inPlace) await runExport(loadedDir);
+  if(inPlace) await runExport(loadedDir, inPlaceBase());
 }
 
 /* ---------- sheets rail ---------- */
@@ -1302,8 +1323,17 @@ async function unlockSheet(){
     +'Once unlocked, saving RE-PACKS the page and rewrites every rect — any game '
     +'bound to the original coordinates will break. This cannot be undone by '
     +'re-locking; only a fresh import restores the original.')) return;
-  const j=await jpost('/api/unlock-sheet',{sheet:name});
+  // Unlocking re-saves the manifest. When it is the open sheet, send the version
+  // this page holds: the server returns an etag to adopt ONLY if it unlocked
+  // exactly that version. Otherwise someone saved since this page loaded, the
+  // page keeps its old version, and its next Save is refused instead of
+  // silently replacing their work.
+  const open=(name===loadedName && isProject);
+  const body={sheet:name};
+  if(open && loadedEtag) body.base_etag=loadedEtag;
+  const j=await jpost('/api/unlock-sheet',body);
   if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+  if(open && body.base_etag && j.etag){ loadedEtag=j.etag; markDirty(); }
   setLocked(name,false);
   renderSheetList();
   if(m){ m.className='note'; m.textContent=j.note||('"'+name+'" unlocked.'); }
@@ -1314,7 +1344,7 @@ function onPlistEditable(){
   const ed=$('plisteditable'), lk=$('plistlock');
   if(ed.checked){ lk.checked=false; lk.disabled=true; } else { lk.disabled=false; lk.checked=true; }
 }
-async function importPlist(){
+async function importPlist(baseEtag){
   const m=$('plistmsg');
   const pf=$('plistfile').files[0], pg=$('plistpage').files[0];
   if(!pf||!pg){ m.className='err'; m.textContent='Pick both the .plist and its .png/.webp page.'; return; }
@@ -1322,12 +1352,21 @@ async function importPlist(){
   fd.append('sheet',$('plistsheet').value.trim());
   fd.append('lock',$('plistlock').checked?'1':'0');
   fd.append('editable',$('plisteditable').checked?'1':'0');
+  // An import CREATES its sheet; replacing one needs the version the author was shown.
+  if(baseEtag) fd.append('base_etag',baseEtag);
   fd.append('plist',pf,pf.name);
   fd.append('page',pg,pg.name);
   m.className='muted'; m.textContent='Importing…';
-  let j;
-  try{ j=await (await fetch('/api/import-plist',{method:'POST',body:fd})).json(); }
-  catch(e){ m.className='err'; m.textContent='Import request failed: '+e; return; }
+  const j=await jform('/api/import-plist',fd);
+  if(j.conflict){
+    const nm=conflictSheet(j);
+    if(!j.overwritable){ m.className='err'; m.textContent='Import refused: '+conflictText(j,nm); return; }
+    if(!confirm(conflictText(j,nm)+'\n\nReplace it with this import? Its PNG, JSON and manifest '
+      +'are replaced on R2 too, with no undo.')){
+      m.className='note'; m.textContent='Import cancelled — "'+nm+'" left untouched.'; return;
+    }
+    return importPlist(j.etag||'');
+  }
   if(j.error){ m.className='err'; m.textContent=j.error; return; }
   let h='<div class="ok">Imported "'+esc(j.sheet)+'" — '+j.frames+' frame(s), '
     +(j.rotated?j.rotated+' rotated':'none rotated')+(j.locked?' · read-only 🔒':'')+'</div>';
@@ -1372,6 +1411,7 @@ async function loadSheet(){
   activeSheet=sheetName;
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
+  loadedEtag=j.etag||'';
   updateReadouts();
   let msg;
   if(j.recovered){
@@ -1389,7 +1429,8 @@ async function loadSheet(){
   if(j.locked) msg='🔒 "'+j.name+'" is READ-ONLY (imported verbatim) — '+j.count
     +' region(s) shown for reference. Auto-arrange, Save and FX are blocked; '
     +'Save As a new copy, or Unlock to re-author it.';
-  const noted=j.recovered||j.locked||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
+  if(j.version_unknown) msg+=' · R2 could not confirm which version this is, so Save will ask before replacing it.';
+  const noted=j.recovered||j.locked||j.version_unknown||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
   m.className=noted?'note':'ok'; m.textContent=msg;
   fitView();
   if(j.recovered) doArrange();   // pack the recovered loose sprites for the user
@@ -1431,7 +1472,11 @@ async function renameSheet(){
   const to=(prompt('Rename sheet "'+from+'" to:', from)||'').trim();
   if(!to || to===from) return;
   if(m){ m.className='muted'; m.textContent='Renaming…'; }
-  const j=await jpost('/api/rename-sheet',{from,to});
+  // Renaming the sheet that is open: the server refuses if it was saved since it
+  // was loaded, rather than moving someone else's newer work under a new name.
+  const body={from,to};
+  if(from===loadedName && isProject && loadedEtag) body.base_etag=loadedEtag;
+  const j=await jpost('/api/rename-sheet',body);
   if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
   const wasLoaded=(activeSheet===from);
   if(STATE) STATE.sheets=j.sheets||[];
@@ -1440,7 +1485,8 @@ async function renameSheet(){
   // If the renamed sheet was the one on the canvas, reload it under the new name so
   // the loaded* identity (dir/path/name) is fresh and a later Save targets the new key.
   if(wasLoaded){ await loadSheet(); }
-  else if(m){ m.className='ok'; m.textContent='✓ Renamed to "'+selectedSheet+'"'; }
+  if(j.kept_old){ if(m){ m.className='note'; m.textContent=j.note; } }
+  else if(!wasLoaded && m){ m.className='ok'; m.textContent='✓ Renamed to "'+selectedSheet+'"'; }
 }
 async function deleteSheet(name){
   const m=$('railmsg');
@@ -1460,7 +1506,7 @@ async function deleteSheet(name){
   if(wasOpen){
     regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
     activeSheet=null; sheetName='newsheet'; $('sheet').value='';
-    loadedPath=null; loadedDir=null; loadedName=null; isProject=false; updateReadouts();
+    loadedPath=null; loadedDir=null; loadedName=null; isProject=false; loadedEtag=''; updateReadouts();
     clearSession();
   }
   if(m){ m.className='ok'; m.textContent='✓ '+(j.note||('Deleted "'+target+'"')); }
@@ -1515,6 +1561,7 @@ async function loadFile(path){
   sel=null; activeSheet=sheetName;
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
+  loadedEtag=j.etag||'';
   updateReadouts();
   let msg;
   if(j.packed===false){
@@ -1531,8 +1578,91 @@ async function loadFile(path){
   markDirty();
 }
 
+/* ---------- save conflicts ----------
+   Every save names the version it replaces (`base_etag`): the one this page
+   loaded for an in-place Save, "" for Save As / a new sheet (= "the name is
+   free"). The server answers 409 + {conflict, reason, saved_by, etag} when that
+   is no longer true, and the author picks. "Overwrite" re-sends the save based on
+   the version just SHOWN (conflict.etag) — never a blind write, so a third save
+   landing meanwhile is caught again. */
+let conflictResolve=null;
+function conflictSheet(c){
+  const mm=/atlas_manifest_(.+)\.json$/.exec(c.doc||'');
+  return c.sheet||(mm?mm[1]:'this sheet');
+}
+function conflictWho(c){
+  const by=c.saved_by;
+  if(!by) return 'someone';
+  const tool=by.tool==='atlas'?' in the Atlas Maker':by.tool==='sheet'?' in the Sheet Maker':'';
+  let when='';
+  if(by.at){ const d=new Date(by.at); if(!isNaN(d)) when=' on '+d.toLocaleString(); }
+  return (by.name||by.sub||'someone')+tool+when;
+}
+function conflictText(c,name){
+  if(c.reason==='exists') return 'A sheet named "'+name+'" already exists (last saved by '+conflictWho(c)+').';
+  if(c.reason==='deleted') return '"'+name+'" was deleted since you opened it.';
+  if(c.reason==='stale') return '"'+name+'" was saved by '+conflictWho(c)+' since you opened it.';
+  return '"'+name+'" is not the sheet this page opened — reload it before saving.';
+}
+function showConflict(title,text,buttons){
+  $('conflict-title').textContent=title;
+  $('conflict-msg').textContent=text;
+  const box=$('conflict-btns'); box.innerHTML='';
+  buttons.forEach(b=>{
+    const el=document.createElement('button');
+    el.textContent=b.label; if(b.cls) el.className=b.cls;
+    el.onclick=()=>closeConflict(b.value);
+    box.appendChild(el);
+  });
+  $('conflict').hidden=false;
+  const last=box.lastElementChild; if(last) last.focus();
+  return new Promise(res=>{ conflictResolve=res; });
+}
+function closeConflict(v){
+  $('conflict').hidden=true;
+  const r=conflictResolve; conflictResolve=null;
+  if(r) r(v);
+}
+async function onSaveConflict(c,destDir){
+  const m=$('exportmsg'), name=conflictSheet(c), text=conflictText(c,name);
+  const cancel={label:'Cancel',cls:'sec',value:'cancel'};
+  let choice;
+  if(!c.overwritable){
+    choice=await showConflict('Cannot save',text,[{label:'OK',cls:'sec',value:'cancel'}]);
+  }else if(c.reason==='exists'){
+    choice=await showConflict('Name already taken',text+' Replace it?\n\nThis replaces its PNG, '
+      +'.atlas, JSON and manifest — on R2 too, with no undo.',
+      [cancel,{label:'Replace',cls:'danger',value:'mine'}]);
+  }else if(c.reason==='deleted'){
+    choice=await showConflict('Sheet deleted',text,[cancel,{label:'Save it again',value:'mine'}]);
+  }else{
+    choice=await showConflict('Sheet changed',text+'\n\nOverwriting replaces their version '
+      +'with yours, on R2 too. Reloading theirs discards your unsaved changes.',
+      [cancel,{label:'Reload theirs',cls:'sec',value:'theirs'},
+       {label:'Overwrite with mine',cls:'danger',value:'mine'}]);
+  }
+  if(choice==='mine') return runExport(destDir, c.reason==='deleted'?'':(c.etag||''));
+  if(choice==='theirs'){
+    m.className='note'; m.textContent='Kept their version of "'+name+'" — reloading it.';
+    // Theirs may be a sheet this page's rail has never listed (saved elsewhere).
+    if(STATE){
+      if(!Array.isArray(STATE.sheets)) STATE.sheets=[];
+      if(!STATE.sheets.includes(name)){ STATE.sheets.push(name); STATE.sheets.sort(); }
+    }
+    selectedSheet=name; renderSheetList(); await loadSheet();
+    return false;
+  }
+  m.className='note'; m.textContent='Save cancelled — "'+name+'" left as it is. '+text;
+  return false;
+}
+
+/* The version an in-place save replaces. The server writes under `sheet` (the
+   pile key), so the loaded version only applies when that IS the loaded sheet;
+   anything else is a create ("" = "I believe the name is free"). */
+function inPlaceBase(){ return (isProject && safeNm(sheetName)===loadedName) ? (loadedEtag||'') : ''; }
+
 /* ---------- save ---------- */
-async function runExport(destDir){
+async function runExport(destDir, baseEtag){
   const m=$('exportmsg'); m.className='muted'; m.textContent='Saving…';
   if(!regions.length){ m.className='err'; m.textContent='Nothing to save.'; return false; }
   // Region names are the persisted identity — block blanks/dupes before the
@@ -1551,9 +1681,12 @@ async function runExport(destDir){
       prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed,
       fx_mode:r.fx_mode||''}))};   // FX cells carry their mode into the manifest
   if(destDir) body.dest_dir=destDir;
+  body.base_etag=baseEtag||'';
   const j=await jpost('/api/export',body);
+  if(j.conflict) return onSaveConflict(j,destDir);
   if(j.error){ m.className='err'; m.textContent=j.error; return false; }
   loadedPath=j.manifest_path; loadedDir=j.output_dir; loadedName=j.name; isProject=true;
+  loadedEtag=j.etag||'';
   updateReadouts();
   markDirty();          // loaded identity changed — persist it
   // A save can create a new sheet — surface it in the Sheets rail.
@@ -1576,20 +1709,15 @@ function doSave(){
     const ok=confirmReplace(loadedName,'Overwrite the existing sheet "'+loadedName+'" in place?',
       'Cancel and use "Save As (new copy)" to keep the original untouched.');
     if(!ok){ const m=$('exportmsg'); m.className='note'; m.textContent='Save cancelled — original left untouched.'; return false; }
-    return runExport(loadedDir);
+    return runExport(loadedDir, inPlaceBase());
   }
   return doSaveAs();
 }
 async function doSaveAs(){
-  // The server writes under the payload's `sheet` (= sheetName, the sprite-pile
-  // key) and ignores `basename`, so the collision check keys on THAT name.
-  const name=safeNm(sheetName);
-  if(regions.length && sheetExists(name) && !confirmReplace(name,
-    'A sheet named "'+name+'" already exists. Overwrite it?',
-    'Cancel and change the sheet name to keep both.')){
-    const m=$('exportmsg'); m.className='note'; m.textContent='Save cancelled — "'+name+'" left untouched.'; return;
-  }
-  const ok=await runExport(null);
+  // A create: the server refuses a name that is already taken with a 409 naming
+  // who last saved it (see onSaveConflict), which is authoritative in a way this
+  // page's rail — a snapshot from page load — never was.
+  const ok=await runExport(null, '');
   if(ok && $('pane-load').style.display!=='none') browse('');
 }
 

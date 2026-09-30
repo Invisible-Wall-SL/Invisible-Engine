@@ -58,10 +58,14 @@ const assert = (cond: boolean, msg: string): void => {
 console.log('\n[1] codegen --check (fixture == parsed-from-source)');
 let checkOk = false;
 try {
-	execFileSync('node', ['scripts/gen-flow-vocabulary.mjs', '--check'], {
-		cwd: ROOT,
-		stdio: 'pipe',
-	});
+	execFileSync(
+		'node',
+		['--experimental-strip-types', 'scripts/gen-flow-vocabulary.mjs', '--check'],
+		{
+			cwd: ROOT,
+			stdio: 'pipe',
+		},
+	);
 	checkOk = true;
 } catch {
 	checkOk = false;

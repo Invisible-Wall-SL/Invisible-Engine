@@ -1,10 +1,11 @@
 # Pipeline tools — multi-user concurrency (lost-update prevention)
 
 Status: **Phases 0 + 1 + 2 SHIPPED + owner-verified live** (2026-08-04; migration 0014 applied,
-two-profile tests run per tool). Phase 3 (Python tools Atlas/Sheet) is the only remaining concurrency
-work — a separate later effort gated on threading a stable user id to those services. See the Phase 1
-header below for the exact residual — the conditional-write floor is live across every authoring tool; what
-remains inside Phase 1 is small and enumerated there.
+two-profile tests run per tool). **Phase 3 (Python tools Atlas/Sheet) SHIPPED 2026-09-30** (3a the CAS
+floor + container lease, 3b every authored save compare-and-swapped + the person-level "X is editing"
+banner) — offline-proved, **a two-browser live run is owed**. See the Phase 1 header below for the exact
+residual — the conditional-write floor is live across every authoring tool; what remains inside Phase 1 is
+small and enumerated there.
 
 Owner decision 2026-07-16: **lease now, CRDT later.** Two to three people share a
 `(client, project)`; many more work concurrently on *different* projects through
@@ -207,7 +208,10 @@ The correctness floor. Contained because of the linchpin above.
 > `ConflictError`, `isPreconditionFailed` = 412-only, `jsonBaseEtag`/`formBaseEtag`).
 > **16 storage helpers** thread it and **13 authoring surfaces** (editor, flow-v2,
 > flow-v2 library, symbols, fx, flipbook, win-text, game-config, localization,
-> component, kind, template + the componentDefaults sidecar) are wired. Every
+> component, kind, template + the componentDefaults sidecar) are wired. The Python tools
+> joined on 2026-09-30 (Phase 3b below): **Atlas Maker** — the atlas manifest, `atlas_config.json`
+> and every region edit; **Sheet Maker** — Save / Save As / rename / `.plist` import / unlock of
+> `manifests/atlas_manifest_<sheet>.json`. The Rigger joined 2026-09-28 (below). Every
 > autoserver and manual-save tool now: reads with an etag, distinguishes absent
 > (`null`) from malformed (etag-carried), CAS-writes on save, and answers `409
 > { error: 'conflict' }` via `json()`/`fail()` (never `error()`), with a visible,
@@ -705,8 +709,68 @@ What makes the tools usable for 2–3 people on a project.
 > long as R2 itself is unreachable, on the grounds that a tool which refuses to render
 > is the worse failure. See [flipbook status](../status/flipbook.md).
 
-**Partly shipped — see Phase 3a above.** What is left is the PERSON-level lease,
-and that is still blocked. Per [atlas-per-user-session](atlas-per-user-session.md)`:34-39`,
+> **Phase 3b — SHIPPED 2026-09-30 (every authored save in the Atlas + Sheet Makers is
+> compare-and-swapped; the person-level "X is editing" banner).**
+>
+> - **The stamp + the rule** (`iw_common/docsave.py`). Every USER save stamps the doc with
+>   `saved_by: {uid, sub, name, tool, at, rev}` from the launch token's identity, so a refused save
+>   can name who got there first. `check()` compares the page's loaded version (`Base`: etag + rev)
+>   with what the server just read: same ETag passes; a moved ETag with the SAME `rev` passes only for
+>   a tool that opts in (`allow_rev_merge`) — `rev` changes on user saves and on nothing else, so a
+>   matching one means only machine writes happened since, and a tool whose every edit is applied
+>   server-side onto the freshly read doc merges by construction. An EMPTY rev never merges: an
+>   unstamped doc (every doc until an author first saves it after this shipped, or one rewritten by a
+>   writer that does not stamp) reads "" on every version, so a foreign write would pass. The cost is
+>   one "this atlas changed since this page loaded" prompt per doc after a render, until its first
+>   stamped save. A tool whose save REPLACES the doc
+>   wholesale (the Sheet Maker's export) keeps it off. Reasons: `stale`, `exists`, `deleted`,
+>   `unseen` (the page never loaded the doc this save would write — never overwritable).
+> - **Atlas Maker** (`atlas-tool/doc_sync.py`, the chokepoint). A load that means to write re-reads
+>   R2 into staging first and records the ETag it read per request thread — this is what finally
+>   closes §3 (staging divergence) for authored docs. `save_manifest` / `save_config(user=True)` =
+>   an author's edit: page check + stamp + `If-Match` on the version THIS request read.
+>   `_write_manifest_at` = a machine write (render post-hook, FX rebuild, auto-pack, page pointer,
+>   fit-mode repair, seeding): CAS on its fresh `_read_manifest_at`, never checked against a page and
+>   never stamped, so it cannot trip an author. A race it loses is REBASED (`doc_sync.rebase`: its own
+>   changes re-applied onto the winner, regions matched by name) and retried; only a repeated loss is
+>   dropped, and its callers then say so instead of reporting success. A page learns only versions its
+>   request WROTE — never one it merely read, and never the one that refused it (a 409 that handed the
+>   page the winner's version would let its next save through). A handler that writes a shared key
+>   before its save (a region's committed tile) prechecks the page's version first.
+>   Switching the active atlas is a SELECTION (`save_config(user=False)`), so two people switching
+>   atlases never read as one overwriting the other's settings. Creates (＋ New atlas, Duplicate, the
+>   sheet import, the `.atlas` stub, the Flipbook ref export) are `If-None-Match` claims; replacing a
+>   taken name needs the page to have been SHOWN that version — the EXISTS 409 names its author and
+>   "Replace it" re-sends with it as the base, so the replace is `If-Match` on exactly it. A page edit
+>   R2 did not take (a non-412 failure) is a 503, never a 200 that lives only in staging. The page sends `X-IW-Doc-Bases` on every POST via one
+>   fetch wrapper (`doc-guard.js` — the page has ~40 inline `fetch` calls and no helper), adopts
+>   `X-IW-Doc-Versions` from every response for the docs it shows, and answers a 409 itself: **Reload
+>   theirs** / **Overwrite with mine** (the SAME request re-sent on the version the dialog showed).
+> - **Sheet Maker** (`sheet_server.py`): the CAS token is the sheet's manifest. Load returns its ETag;
+>   Save sends it (`base_etag`, "" = create); the check runs BEFORE compose writes a byte; the manifest
+>   is written `If-Match` / `If-None-Match`, and the page/`.atlas`/`.json` are pushed to R2 only after
+>   it lands (a refusal restores staging from R2). Rename re-pulls a stale staged tree, claims the new
+>   name `If-None-Match` before copying and re-reads the old manifest before deleting it (kept when it
+>   moved). Unlock hands the page a new version only if it was based on the page's own. A per-sheet
+>   in-process lock serialises one container's saves of one sheet.
+> - **The person-level lease** — `POST /presence` in the Atlas Maker: every open tab heartbeats every
+>   10 s through `iw_common/lease.py` (key `atlasMaker/<manifest stem>`, holder `(users.id, tab)`,
+>   `holderName` added to the row), and a second person sees "X is editing this atlas". **Advisory
+>   only** — it blocks nothing; the CAS is what keeps work from being lost. It stays on its own R2
+>   object rather than `doc_leases` for the same structural reasons as 3a.
+>
+> **Residuals (accepted, recorded).** (1) `/save` posts every card's fields, not a diff, so
+> "Overwrite with mine" re-applies the whole card set, and a stale page can re-send a variant pick a
+> render just spent — only on the author's explicit overwrite, never silently. (2) Sheet Maker: after
+> a manifest lands, R2 briefly holds the new coords beside the previous page until the page push
+> finishes. (3) Sheet rename: a save of the old name landing between the pre-delete re-read and the
+> deletes is lost (S3 deletes are unconditional). (4) A Flipbook clip re-export refused at its manifest
+> write has already replaced the clip's own page + JSON (derived output; exporting again re-pairs
+> them). (5) The presence lease is exclusive like `doc_leases`: the holder does not see the banner,
+> the other person does; the pagehide release can hand it over across a reload.
+
+**Shipped — see Phases 3a and 3b above.** The history of what blocked the person-level
+lease is kept below for the rationale. Per [atlas-per-user-session](atlas-per-user-session.md)`:34-39`,
 those services "literally cannot tell two users apart" — the launcher `session`
 cookie is httpOnly and scoped to the launcher origin, so identity never crosses to
 their separate Railway origins. A partial prerequisite HAS since landed by another
@@ -716,11 +780,11 @@ which the tools parse), but a slug is not a `users.id` and so cannot satisfy
 
 - ~~Add `IfMatch` to `iw_common/storage.py` `put`~~ — **done in Phase 3a**, along
   with `get_with_etag` and `Conflict`.
-- Still open: **give the staging mirror a precondition** instead of a blind
-  overwrite (`push_dir`/`push_file`), which also blunts the startup-hydration
-  staleness in §3 — a different bug with a different blast radius, deliberately not
-  bundled with 3a.
-- Still open: a PERSON-level lease from the Python side. **Unblocked 2026-09-29:** the
+- ~~Give the staging mirror a precondition~~ — **done in 3b for the authored docs**
+  (manifests, `atlas_config.json`, sheet manifests), which never go through `_mirror` any more.
+  Still blind, by design: generated artifacts (pages, variants, ref images, sheet `.atlas`/`.json`)
+  — derived output keyed by region/sheet name, rewritten whole by whoever regenerates it.
+- ~~A PERSON-level lease from the Python side~~ — **done in 3b** (advisory banner). **Unblocked 2026-09-29:** the
   launcher's signed launch token carries the real `users.id` as `uid` (next to the slug
   `sub`), and `iw_common/launch.py` exposes it as `Identity.uid` on every request — see
   [INFRA § Tool launch tokens](../INFRA.md#tool-launch-tokens--atlas-tool--sheet-tool-2026-09-29).
@@ -750,6 +814,9 @@ which the tools parse), but a slug is not a `users.id` and so cannot satisfy
   — ETag threading, read-only mode, banner
 - `apps/launcher-api/src/lib/server/lease.ts` (new) + `src/routes/api/lease/*`
 - `services/_shared/iw_common/storage.py` — `IfMatch` on `put`
+- `services/_shared/iw_common/docsave.py` (3b) — the `saved_by` stamp + the page precondition
+- `services/atlas-tool/doc_sync.py` + `doc-guard.js` (3b) — Atlas Maker CAS chokepoint + page wrapper
+- `services/sheet-tool/sheet_server.py` + `ui.html` (3b) — Sheet Maker manifest CAS
 - `docs/STATUS.md`, `docs/status/*.md`, `docs/design/atlas-per-user-session.md`,
   `docs/design/invisible-rigger.md`
 

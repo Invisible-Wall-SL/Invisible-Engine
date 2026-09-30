@@ -101,7 +101,7 @@ jobs:
       # regenerated it. This is that gate.
       - name: flow vocabulary is up to date
         if: steps.changes.outputs.code == 'true'
-        run: node scripts/gen-flow-vocabulary.mjs --check
+        run: node --experimental-strip-types scripts/gen-flow-vocabulary.mjs --check
 
       # RGS gate — the client and the server must agree about MONEY, for all four win models.
       #
