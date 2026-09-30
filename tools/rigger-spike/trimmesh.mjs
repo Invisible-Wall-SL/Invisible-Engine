@@ -266,7 +266,8 @@ const server = createServer((req, res) => {
 	res.end('<!doctype html><meta charset="utf-8"><script src="/spine/vendor/spine-webgl-4.2.js"></script>');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const { evaluate, close: closeChrome } = await launchChrome({ name: 'trimmesh', url: `http://127.0.0.1:${server.address().port}/`, cdpTimeoutMs: 60000 });
+const browser = await launchChrome({ name: 'trimmesh', url: `http://127.0.0.1:${server.address().port}/`, cdpTimeoutMs: 60000 });
+const { evaluate } = browser;
 for (let t0 = Date.now(); !(await evaluate('!!window.spine').catch(() => false)); ) {
 	if (Date.now() - t0 > 20000) throw new Error('the vendored runtime never loaded');
 	await new Promise((r) => setTimeout(r, 100));
@@ -626,7 +627,7 @@ console.log(`  UV panel: ${STILLS.length} images drawn by the shipped helpers an
 
 // ---- done -------------------------------------------------------------------------------------
 server.close();
-await closeChrome();
+await browser.close();
 if (absent.length) console.log(`  (not in this view.html: ${absent.join(', ')})`);
 console.log(pass ? `\n✅ PASS — ${checks} checks` : `\n✗ FAIL (${checks} checks)`);
 process.exit(pass ? 0 : 1);

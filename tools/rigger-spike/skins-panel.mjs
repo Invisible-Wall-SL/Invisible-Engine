@@ -112,11 +112,12 @@ const PORT = server.address().port;
 
 // ------------------------------------------------------------------ CDP ----
 
-const { evaluate, waitFor, pageLog, close: closeChrome } = await launchChrome({
+const browser = await launchChrome({
 	name: 'skins',
 	url: `http://127.0.0.1:${PORT}/`,
 	args: ['--window-size=1600,1000'],
 });
+const { evaluate, waitFor, pageLog } = browser;
 
 let pass = 0;
 let fail = 0;
@@ -456,7 +457,7 @@ try {
 	if (fail && pageLog.length)
 		console.log('\npage console:\n  ' + pageLog.slice(0, 25).join('\n  '));
 	server.close();
-	await closeChrome();
+	await browser.close();
 }
 
 console.log(`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — ${pass}/${pass + fail}`);

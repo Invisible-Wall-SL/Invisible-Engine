@@ -162,12 +162,13 @@ const PORT = server.address().port;
 
 // ------------------------------------------------------------------ CDP ----
 
-const { evaluate, pageLog, close: closeChrome } = await launchChrome({
+const browser = await launchChrome({
 	name: 'rigtext-browser',
 	url: `http://127.0.0.1:${PORT}/`,
 	args: ['--hide-scrollbars'],
 	logAll: true,
 });
+const { evaluate, pageLog } = browser;
 
 // Wait for the harness to have loaded the bundle.
 for (let i = 0; i < 100; i++) {
@@ -426,7 +427,7 @@ try {
 } finally {
 	if (pageLog.length) console.log('\npage console:\n  ' + pageLog.join('\n  '));
 	server.close();
-	await closeChrome();
+	await browser.close();
 }
 
 console.log(`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — ${pass}/${pass + fail}`);

@@ -72,17 +72,22 @@ export function findChromium() {
 	return null;
 }
 
-const describe = (details) => details.exception?.description ?? details.text ?? JSON.stringify(details);
+const describe = (details) =>
+	details.exception?.description ?? details.text ?? JSON.stringify(details);
 
 /** One Chrome process and its CDP pipe. Resolves once Chrome answers and a page is attached. */
 async function start(binary, name, extraArgs, cdpTimeoutMs) {
 	const profile = mkdtempSync(join(tmpdir(), `${name}-cdp-`));
-	const chrome = spawn(binary, [...BASE_ARGS, ...extraArgs, `--user-data-dir=${profile}`, 'about:blank'], {
-		stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
-		// Its own process group, so a kill takes the renderer and GPU processes with it.
-		detached: POSIX,
-		windowsHide: true,
-	});
+	const chrome = spawn(
+		binary,
+		[...BASE_ARGS, ...extraArgs, `--user-data-dir=${profile}`, 'about:blank'],
+		{
+			stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
+			// Its own process group, so a kill takes the renderer and GPU processes with it.
+			detached: POSIX,
+			windowsHide: true,
+		},
+	);
 	let stderr = '';
 	chrome.stderr.on('data', (c) => (stderr = (stderr + c).slice(-4000)));
 	const exited = new Promise((r) => chrome.once('exit', (code, signal) => r({ code, signal })));
@@ -170,7 +175,8 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
 		await cdp('Browser.getVersion', {}, undefined, LAUNCH_TIMEOUT_MS);
 		const { result: targets } = await cdp('Target.getTargets');
 		let targetId = targets.targetInfos.find((t) => t.type === 'page')?.targetId;
-		if (!targetId) ({ targetId } = (await cdp('Target.createTarget', { url: 'about:blank' })).result);
+		if (!targetId)
+			({ targetId } = (await cdp('Target.createTarget', { url: 'about:blank' })).result);
 		const { result: attached } = await cdp('Target.attachToTarget', { targetId, flatten: true });
 		return { cdp, listeners, session: attached.sessionId, shutdown, readyMs: Date.now() - began };
 	} catch (e) {
@@ -189,7 +195,13 @@ async function start(binary, name, extraArgs, cdpTimeoutMs) {
  * @param {boolean} [opts.logAll]  keep `console.log` lines in `pageLog` too, not only warn/error
  * @param {number} [opts.cdpTimeoutMs]  how long one CDP call may go unanswered
  */
-export async function launchChrome({ name, url, args = [], logAll = false, cdpTimeoutMs = 30_000 }) {
+export async function launchChrome({
+	name,
+	url,
+	args = [],
+	logAll = false,
+	cdpTimeoutMs = 30_000,
+}) {
 	const binary = findChromium();
 	if (!binary) {
 		console.error(
@@ -202,12 +214,18 @@ export async function launchChrome({ name, url, args = [], logAll = false, cdpTi
 	for (let attempt = 1; !chrome; attempt++) {
 		try {
 			chrome = await start(binary, name, args, cdpTimeoutMs);
-			console.log(`[chrome] ready in ${chrome.readyMs} ms (attempt ${attempt} of ${LAUNCH_ATTEMPTS})`);
+			console.log(
+				`[chrome] ready in ${chrome.readyMs} ms (attempt ${attempt} of ${LAUNCH_ATTEMPTS})`,
+			);
 		} catch (e) {
 			failures.push(`attempt ${attempt}: ${e.message}`);
-			console.log(`[chrome] launch attempt ${attempt} of ${LAUNCH_ATTEMPTS} failed — ${e.message.split('\n')[0]}`);
+			console.log(
+				`[chrome] launch attempt ${attempt} of ${LAUNCH_ATTEMPTS} failed — ${e.message.split('\n')[0]}`,
+			);
 			if (attempt === LAUNCH_ATTEMPTS)
-				throw new Error(`Chrome did not start in ${LAUNCH_ATTEMPTS} attempts:\n${failures.join('\n')}`);
+				throw new Error(
+					`Chrome did not start in ${LAUNCH_ATTEMPTS} attempts:\n${failures.join('\n')}`,
+				);
 		}
 	}
 	const { cdp, listeners, session, shutdown } = chrome;

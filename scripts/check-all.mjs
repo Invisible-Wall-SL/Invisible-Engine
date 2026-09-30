@@ -165,6 +165,15 @@ const FILE_PATTERNS = [
 /** A check that talks to the mock RGS reads its port this way; the runner starts one for it. */
 const MOCK_RGS_CLIENT = /process\.env\.PORT \?\? 7777/;
 
+/**
+ * A spike that drives a headless Chrome (through `tools/rigger-spike/chrome.mjs`). At most
+ * BROWSER_SLOTS run at once: Chrome's first launch on a fresh CI runner pays a one-time start-up of
+ * several seconds, and two paying it together beside the shard's other checks on the 2-core runner
+ * went past the old 20 s launch limit — both failing in the same second.
+ */
+const BROWSER_CLIENT = /from '\.\/chrome\.mjs'/;
+const BROWSER_SLOTS = 1;
+
 /** Codegen whose committed output must match a fresh generation. */
 const CODEGEN_CHECKS = trackedFiles.filter(
 	(rel) =>
@@ -224,13 +233,19 @@ function discover() {
 	// skeleton runs against RIG; the rest take no input. A file with no such line is a library.
 	for (const rel of trackedFiles) {
 		if (!/^tools\/rigger-spike\/[^/]+\.mjs$/.test(rel)) continue;
+		const source = readFileSync(join(ROOT, rel), 'utf8');
 		const usage = new RegExp(
 			`^//\\s+node tools/rigger-spike/${rel.split('/').pop()}(.*)$`,
 			'm',
-		).exec(readFileSync(join(ROOT, rel), 'utf8'));
+		).exec(source);
 		if (!usage) continue;
 		const perRig = /\.json|\.atlas/.test(usage[1]);
-		checks.push({ id: rel, cwd: ROOT, cmd: [nodeBin, rel, ...(perRig ? RIG : [])] });
+		checks.push({
+			id: rel,
+			cwd: ROOT,
+			cmd: [nodeBin, rel, ...(perRig ? RIG : [])],
+			browser: BROWSER_CLIENT.test(source),
+		});
 	}
 	for (const [id, rig] of Object.entries(RIG_EXTRA))
 		checks.push({ id, cwd: ROOT, cmd: [nodeBin, id.split(' @')[0], ...rig] });
@@ -421,10 +436,23 @@ async function runOne(check) {
 
 const jobs = Number(opt('--jobs')) || Math.max(2, Math.floor(availableParallelism() / 2));
 const results = [];
-let next = 0;
+const queue = [...selected];
+let browsers = 0;
+const browserWaiters = [];
 async function worker() {
-	while (next < selected.length) {
-		const result = await runOne(selected[next++]);
+	while (queue.length > 0) {
+		const i = queue.findIndex((c) => !c.browser || browsers < BROWSER_SLOTS);
+		if (i < 0) {
+			await new Promise((wake) => browserWaiters.push(wake));
+			continue;
+		}
+		const [check] = queue.splice(i, 1);
+		if (check.browser) browsers++;
+		const result = await runOne(check);
+		if (check.browser) {
+			browsers--;
+			for (const wake of browserWaiters.splice(0)) wake();
+		}
 		results.push(result);
 		const secs = (result.ms / 1000).toFixed(1);
 		console.log(`${result.ok ? '✓' : '✗'} ${result.check.id} (${secs}s)`);
