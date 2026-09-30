@@ -56,6 +56,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+### 2026-09-30 — Leftovers from the docs drift sweep (#872)
+- **Invisible Launcher onboarding steps** now describe its real job — sign in, ↻ Sync,
+  ☁ Publish / 📦 Deliver — with ComfyUI + tunnel marked optional (`roles.ts` `install.steps`).
+- **`/comfyui`'s "keep a pack" note** points at Custom nodes (`nodes.json`) instead of hand-editing
+  the pod Dockerfile.
+- **`pnpm check:toolbar-icons` runs in CI** (Lint → launcher gates); it had only ever been run by
+  hand.
+- `scripts/bump-game-engine.mjs` deleted — a game repo's engine submodule is never bumped by hand;
+  desktop builds advance it. Stale comments fixed in `ktx2Encode.ts` (mipmaps are off) and
+  `flipbookExport.ts` / `bake-editor-doc.mjs` (clips ARE reachability-pruned).
+
 ### 2026-09-30 — /admin's cache hint no longer says `games` is behind Cloudflare
 - **The "Edge cache & build" card now matches INFRA's "Game freshness".** `games` is DNS-only like
   `app.`, so a zone purge drops nothing for either. For a stale game the hint says to reload with

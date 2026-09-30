@@ -24,16 +24,10 @@
  * runtime registry would resolve them. Stale `deploy/clips/` objects from a previous export are
  * pruned, so a de-authored project bakes no clips (parity). Idempotent — re-running converges.
  *
- * ── DIVERGENCE FROM THE EFFECTS CHAIN: no reachability filter ──────────────────────────────
- * The bake prunes UNREACHABLE effects (`bake-editor-doc.mjs`, the "Ship only REACHABLE effects"
- * block) — an effect nothing places, rig-binds, or event-triggers never reaches the game. Clips
- * still ship in FULL, but the reason has changed: consumers now exist (a symbol cell, a placed
- * `flipbook` node, and a rig-timeline `event.flipbook` binding), so a filter is finally BUILDABLE —
- * it is just not built. Writing one means walking all FOUR referrers, and the rig one does not live
- * in the layout doc at all: it is in the rig `.irig`, reachable only through the `rigFlipbooks`
- * manifest (`rigFlipbookExport.ts`). Missing a referrer would delete a clip that is genuinely in
- * use, which is worse than the bytes — a clip is a name list plus two numbers. Tracked in
- * `docs/status/flipbook.md` open item 3.
+ * Only clips something PLAYS ship: `collectPlayedClipIds` (`clipReachability.ts`) walks every
+ * referrer — the layout doc and component defs, the symbols doc, FX effects, the flow graph and
+ * the rig `event.flipbook` bindings — and the editor-art export gates the clips' atlas pages on
+ * the same set. Unknown reachability ships every clip.
  */
 import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
 import { collectPlayedClipIds } from './clipReachability';

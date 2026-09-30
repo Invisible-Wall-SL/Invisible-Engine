@@ -304,7 +304,8 @@ operator.
 - [Publisher runbook](../guides/publisher-runbook.md) — the one-page checklist for ☁ Publish and
   📦 Deliver, and what each refusal means.
 
-- [ComfyUI](comfyui.md) — what the launcher installs + starts.
+- [ComfyUI](comfyui.md) — the cloud ComfyUI; the launcher's local install is the optional
+  *My computer* alternative.
 - [Invisible Game Maker](game-maker.md) — where a project's game kind is authored,
   and where a data-only project is published without any local build.
 - `docs/INFRA.md` — the tunnel, Cloudflare Access, R2.
