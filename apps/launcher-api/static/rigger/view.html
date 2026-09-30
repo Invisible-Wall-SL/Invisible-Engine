@@ -6764,9 +6764,7 @@ function finishDrawMesh(){
   const tris = earClip(drawPoints.map((_, i) => i), worldFlat) || [];
   const flatTris = [];
   for (const t of tris) flatTris.push(t[0], t[1], t[2]);
-  let skinEntry = null;
-  for (const sk of rawDoc.skins)
-    if (sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]){ skinEntry = sk; break; }
+  const skinEntry = rawDocAttSkin(attName);
   if (!skinEntry){ done(); renderSlotDetail(); return; }
   const region = skinEntry.attachments[selSlot][attName];
   const mesh = { type: "mesh", uvs, triangles: flatTris, vertices: verts, hull: drawPoints.length, width: att.width, height: att.height };
@@ -7068,11 +7066,18 @@ function renderPathAttachmentEditor(det, att){
 // All authored into the ACTIVE skin's attachment map (like region/mesh/path).
 // =============================================================================
 
+// The raw-doc skin whose attachment of this name the stage shows on the selected slot: the skin on
+// stage if it defines one, else default — skeleton.getAttachment's order. An edit that REPLACES the
+// entry must replace this one, not the first skin holding the name (usually default).
+function rawDocAttSkin(attName){
+  if (!rawDoc || selSlot == null || !attName) return null;
+  const holds = (skName) => rawDoc.skins.find((s) => s.name === skName && s.attachments && s.attachments[selSlot] && s.attachments[selSlot][attName]);
+  return holds(activeSkinName()) || holds("default") || null;
+}
 // The raw-doc skin entry of an attachment by name on the selected slot (active skin → default).
 function rawDocAttEntry(attName){
-  if (!rawDoc || selSlot == null || !attName) return null;
-  const inSkin = (skName) => { const sk = rawDoc.skins.find((s) => s.name === skName); return (sk && sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]) || null; };
-  return inSkin(activeSkinName()) || inSkin("default") || null;
+  const sk = rawDocAttSkin(attName);
+  return sk ? sk.attachments[selSlot][attName] : null;
 }
 
 // Write a new attachment def into the skin that should define this slot (active skin; create the
@@ -8604,9 +8609,7 @@ function convertRegionToMesh(){
   if (!isRegionAtt(att)) return;
   if (att.updateRegion) att.updateRegion();
   if (!att.offset) return;
-  let skinEntry = null;
-  for (const sk of rawDoc.skins)
-    if (sk.attachments && sk.attachments[selSlot] && sk.attachments[selSlot][attName]){ skinEntry = sk; break; }
+  const skinEntry = rawDocAttSkin(attName);
   if (!skinEntry) return;
   const region = skinEntry.attachments[selSlot][attName];
   const mesh = {

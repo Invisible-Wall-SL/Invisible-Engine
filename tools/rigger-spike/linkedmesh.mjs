@@ -1,7 +1,7 @@
 // Verify linked-mesh and skin authoring headlessly, on the SHIPPED code: every function the actions
 // reach is pulled out of view.html (transitively), the rebuild runs as shipped but through the
 // strict spine-core 4.2 loader, and each action must leave a rig that LOADS with every linked mesh
-// bound to the parent the author meant, in the skin on stage — without replacing anything there.
+// bound to the parent the author meant, in the skin on stage — replacing nothing it was not asked to.
 //
 // The crux, read off SkeletonJson ("Linked meshes"): the parent is looked up by NAME in the linked
 // mesh's OWN slot, in the skin its `skin` names — and an ABSENT `skin` means the DEFAULT skin, not
@@ -25,6 +25,15 @@
 // after each. The rig on the command line then gets the import, ＋ Linked mesh in its imported
 // skins, a rename of every skin, ＋ Linked mesh from a fresh skin on every slot with a mesh, and ＋ add
 // image in a fresh skin on every slot, each placed like the image the slot showed.
+//
+// ▸ Convert to mesh and ✎ Draw mesh replace the image the stage shows — the skin on stage's if it
+// has one of that name, else default's. They used to rewrite the FIRST skin holding the name: with a
+// skin on stage that overrides a same-named image, default's became a mesh of the other skin's quad
+// and the stage did not change. A synthetic rig of images runs both with each skin on stage (one
+// overriding, one holding nothing, and default listed after another skin), and Convert on a text
+// element's source locale, whose other locales must follow it in the same skin. The rig on the
+// command line gets both on every slot showing an image, from a fresh skin that holds nothing and
+// from one that holds its own same-named copy.
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -72,7 +81,7 @@ function pull(name) {
 // The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
 // of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
 const STUBS = new Set(['makeAttachmentLoader', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
-const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto'];
+const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto', 'convertRegionToMesh', 'finishDrawMesh'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
 	const name = q.shift();
@@ -114,6 +123,7 @@ const sandbox = {
 	SPINE, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'rig.atlas' }, selSlot: null, selBone: null, meshCtx: null,
 	selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
+	rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null,
 	assetMgr: { require: () => sandbox.__atlas },
 	$: (sel) => (sel === '#skin' ? picker : null),
 	document: { createElement: element, createTextNode: (text) => ({ text }) },
@@ -288,6 +298,76 @@ function checkAddImage(what, skin, region) {
 	return true;
 }
 
+// A rig as an edit can change it: each attachment's raw entry, by key, and the rest.
+const snapshot = (doc) => ({
+	entries: new Map(doc.skins.flatMap((sk) => Object.entries(sk.attachments || {}).flatMap(([slot, bag]) => Object.entries(bag).map(([n, d]) => [key(sk.name, slot, n), JSON.stringify(d)])))),
+	rest: JSON.stringify({ ...doc, skins: doc.skins.map((sk) => ({ ...sk, attachments: null })) }),
+});
+// The key of every attachment whose entry differs between two snapshots, and REST if the rest does.
+const REST = 'the rest of the rig';
+function changedBetween(a, b) {
+	const out = [...new Set([...a.entries.keys(), ...b.entries.keys()])].filter((k) => a.entries.get(k) !== b.entries.get(k));
+	if (a.rest !== b.rest) out.push(REST);
+	return out.sort();
+}
+const showChange = (k) => (k === REST ? k : show(k));
+// Where a world point sits in a quad of corners BL, UL, UR, BR: s along UL→UR, t along UL→BL.
+function quadParams(q, x, y) {
+	const ux = q[4] - q[2], uy = q[5] - q[3], vx = q[0] - q[2], vy = q[1] - q[3], dx = x - q[2], dy = y - q[3];
+	const det = ux * vy - vx * uy;
+	return { s: (dx * vy - vx * dy) / det, t: (ux * dy - dx * uy) / det };
+}
+const worst = (a, b) => (a.length === b.length ? Math.max(0, ...Array.from(a, (v, i) => Math.abs(v - b[i]))) : Infinity);
+// ▸ Convert to mesh (`convert`) or ✎ Draw mesh (`draw`, clicking the image's corners and centre) on
+// the selected slot, with the skin on stage it was opened with. The image the stage shows is
+// `holder`'s — the skin on stage's if it has one of that name, else default's — and that entry alone
+// (with `linked`, a text element's other locales in the same skin) must be rewritten, into a mesh of
+// the same art that the stage then shows with the same skin on it: the vertices where the image was
+// (or was clicked), and at each of them the texel the image drew there. Returns whether that texture
+// mapping was checked, which is only on an untrimmed image.
+function checkToMesh(what, action, holder, linked = []) {
+	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot;
+	const si = sandbox.skeletonData.slots.findIndex((s) => s.name === slot);
+	const name = sandbox.skeletonData.slots[si].attachmentName;
+	const shown = sandbox.skeleton.getAttachment(si, name);
+	const label = action === 'convert' ? '▸ Convert to mesh' : '✎ Draw mesh';
+	if (!log(shown instanceof SPINE.RegionAttachment, `${what}: the stage shows ${shown && shown.constructor.name} on ${slot}, not an image`)) return false;
+	const quad = new Array(8).fill(0);
+	shown.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
+	const clicked = [...quad, (quad[0] + quad[4]) / 2, (quad[1] + quad[5]) / 2];
+	const before = snapshot(sandbox.rawDoc);
+	const err = act((s) => {
+		if (action === 'convert') return s.convertRegionToMesh();
+		s.drawMeshMode = true;
+		s.drawPoints = Array.from({ length: clicked.length / 2 }, (_, i) => ({ x: clicked[i * 2], y: clicked[i * 2 + 1] }));
+		s.finishDrawMesh();
+	});
+	if (!log(!err, `${what}: ${label} on ${slot} — the rig no longer loads: ${err}`)) return false;
+	const changed = changedBetween(before, snapshot(sandbox.rawDoc)), expected = [name, ...linked].map((n) => key(holder, slot, n)).sort();
+	log(JSON.stringify(changed) === JSON.stringify(expected), `${what}: ${label} on ${slot} rewrote [${changed.map(showChange).join(', ')}], expected [${expected.map(show).join(', ')}]`);
+	onStage(`${what}: ${label} on ${slot}`, skin);
+	const now = sandbox.skeleton.getAttachment(si, name);
+	if (!log(now instanceof SPINE.MeshAttachment, `${what}: after ${label} the stage shows ${now && now.constructor.name} on ${slot}, expected the new mesh`)) return false;
+	log(now.path === shown.path, `${what}: after ${label} the stage's mesh on ${slot} shows ${now.path}, expected ${shown.path}`);
+	// a drawn mesh has never taken the image's tint; a converted one does
+	if (action === 'convert') log(worst([now.color.r, now.color.g, now.color.b, now.color.a], [shown.color.r, shown.color.g, shown.color.b, shown.color.a]) < 1e-6, `${what}: after ${label} the stage's mesh on ${slot} lost the image's tint`);
+	const at = new Array(now.worldVerticesLength).fill(0);
+	now.computeWorldVertices(sandbox.skeleton.slots[si], 0, now.worldVerticesLength, at, 0, 2);
+	const r = shown.region, trimmed = r.offsetX !== 0 || r.offsetY !== 0 || r.width !== r.originalWidth || r.height !== r.originalHeight;
+	if (action === 'draw') log(worst(at, clicked) < 1e-3, `${what}: after ${label} the stage's mesh on ${slot} is ${worst(at, clicked).toFixed(4)} off where it was clicked`);
+	// A trimmed image's mesh spans the whole untrimmed image over the ink's quad (an open item), so its
+	// texels are not the image's, and a fix may move its vertices.
+	if (trimmed) return false;
+	if (action === 'convert') log(worst(at, quad) < 1e-3, `${what}: after ${label} the stage's mesh on ${slot} is ${worst(at, quad).toFixed(4)} off the image's corners`);
+	const uv = shown.uvs, texels = [];
+	for (let i = 0; i < at.length; i += 2) {
+		const { s, t } = quadParams(quad, at[i], at[i + 1]);
+		texels.push(uv[2] + s * (uv[4] - uv[2]) + t * (uv[0] - uv[2]), uv[3] + s * (uv[5] - uv[3]) + t * (uv[1] - uv[3]));
+	}
+	log(worst(now.uvs, texels) < 1e-5, `${what}: after ${label} the stage's mesh on ${slot} samples texels up to ${worst(now.uvs, texels)} off the image's`);
+	return true;
+}
+
 // ---- (1) the synthetic rig ---------------------------------------------------------------------
 const SYNTH_ATLAS = 'synth.png\nsize:64,64\nfilter:Linear,Linear\nbody\nbounds:0,0,16,16\ngold_body\nbounds:16,0,16,16\ntrim\nbounds:32,0,16,16\nplate\nbounds:48,0,16,16\narm\nbounds:0,16,16,16\n';
 const quad = (path, w) => ({ type: 'mesh', path, width: w, height: w, hull: 4, uvs: [0, 0, 1, 0, 1, 1, 0, 1], triangles: [0, 1, 2, 2, 3, 0], vertices: [0, 0, w, 0, w, w, 0, w] });
@@ -451,6 +531,54 @@ console.log('\n=== skins — synthetic rig: ＋ Add skin · pick · ＋ add imag
 	}
 }
 
+// ▸ Convert to mesh and ✎ Draw mesh rewrite the image the stage shows, in the skin it belongs to
+console.log('\n=== mesh from an image — synthetic rig (skins default · gold, overriding its images · blue, holding none) ===');
+const IMAGE_ATLAS = 'images.png\nsize:64,64\nfilter:Linear,Linear\nbody\nbounds:0,0,10,10\ngold_body\nbounds:16,0,30,30\ntitle_en\nbounds:0,32,24,8\ntitle_de\nbounds:0,48,32,8\n';
+const IMAGES = {
+	skeleton: { spine: '4.2.00' },
+	bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: 30, rotation: 20 }],
+	slots: [{ name: 'body', bone: 'arm', attachment: 'body' }, { name: 'caption', bone: 'root', attachment: 'title@en' }],
+	skins: [
+		{
+			name: 'default', attachments: {
+				body: { body: { width: 10, height: 10 } },
+				caption: { 'title@en': { path: 'title_en', width: 24, height: 8, y: 20 }, 'title@de': { path: 'title_de', width: 32, height: 8, y: 20 } },
+			},
+		},
+		// default's names: `body` with other art, placement and tint, the text placed elsewhere
+		{
+			name: 'gold', attachments: {
+				body: { body: { path: 'gold_body', width: 30, height: 30, x: 4, rotation: 15, color: 'ffcc00ff' } },
+				caption: { 'title@en': { path: 'title_en', width: 24, height: 8, y: 40, scaleX: 2 }, 'title@de': { path: 'title_de', width: 32, height: 8, y: 40, scaleX: 2 } },
+			},
+		},
+		{ name: 'blue', attachments: {} },
+	],
+};
+// the rule goes by name: listed after gold, default still holds what the stage shows
+const IMAGES_DEFAULT_SECOND = { ...IMAGES, skins: [IMAGES.skins[1], IMAGES.skins[0], IMAGES.skins[2]] };
+// [rig, the skin on stage, the skin whose image the stage shows]
+const ON_STAGE = [[IMAGES, 'default', 'default'], [IMAGES, 'gold', 'gold'], [IMAGES, 'blue', 'default'], [IMAGES_DEFAULT_SECOND, 'default', 'default']];
+for (const action of ['convert', 'draw']) for (const [doc, skin, holder] of ON_STAGE) {
+	open(doc, IMAGE_ATLAS, skin, 'body');
+	checkToMesh(`"${skin}" on stage${doc === IMAGES ? '' : ', listed second'}`, action, holder);
+}
+// a text element's source locale takes its other locales along, as linked meshes in the same skin
+sandbox.rigText.elements = [{ id: 'title', sourceLocale: 'en', slot: 'caption' }];
+for (const [doc, skin, holder] of ON_STAGE) {
+	open(doc, IMAGE_ATLAS, skin, 'caption');
+	const what = `"${skin}" on stage${doc === IMAGES ? '' : ', listed second'}, text "title"`;
+	checkToMesh(what, 'convert', holder, ['title@de']);
+	const got = bindings(sandbox.skeletonData).get(key(holder, 'caption', 'title@de'));
+	log(got === key(holder, 'caption', 'title@en'), `${what}: ${holder}'s title@de follows ${show(got)}, expected ${holder}'s title@en`);
+}
+sandbox.rigText.elements = [];
+// ＋ add image is placed like the image the slot shows, which `rawDocAttEntry` resolves by the same rule
+open(IMAGES, IMAGE_ATLAS, 'gold', 'body');
+checkAddImage('"gold" on stage, overriding body', 'gold', 'gold_body');
+open(IMAGES_DEFAULT_SECOND, IMAGE_ATLAS, 'blue', 'body');
+checkAddImage('"blue" on stage, default listed second', 'blue', 'gold_body');
+
 // ---- (2) the rig on the command line ---------------------------------------------------------
 const [, , jsonPath, atlasPath] = process.argv;
 if (jsonPath && atlasPath) {
@@ -507,8 +635,35 @@ if (jsonPath && atlasPath) {
 		}
 		console.log(`  ＋ add image in new skin "${fresh}": ${added} of ${raw.slots.length} slot(s)`);
 	}
+
+	// ▸ Convert to mesh and ✎ Draw mesh on every slot showing an image, from a skin added this session:
+	// holding nothing, so the stage shows default's image, and holding a same-named copy of it placed
+	// elsewhere, which the stage shows instead
+	open(raw, atlasText, 'default');
+	const meshErr = act((s) => s.addSkin());
+	if (log(!meshErr, `＋ Add skin — the rig no longer loads: ${meshErr}`)) {
+		const bare = clone(sandbox.rawDoc), fresh = bare.skins.at(-1).name, own = clone(bare), slots = [];
+		const base = bare.skins.find((s) => s.name === 'default');
+		for (const slot of bare.slots || []) {
+			const def = slot.attachment && base?.attachments?.[slot.name]?.[slot.attachment];
+			// a sequence image is a run of regions, not one image
+			if (!def || (def.type ?? 'region') !== 'region' || def.sequence) continue;
+			bagOf(own, fresh, slot.name)[slot.attachment] = { ...clone(def), x: (def.x ?? 0) + 7, rotation: (def.rotation ?? 0) + 30 };
+			slots.push(slot.name);
+		}
+		let mapped = 0;
+		for (const [doc, holder, what] of [[bare, 'default', 'holding nothing'], [own, fresh, 'holding its own']]) for (const action of ['convert', 'draw']) {
+			// one session per skin and action, over every slot in turn
+			open(doc, atlasText, fresh);
+			for (const slot of slots) {
+				sandbox.selSlot = slot;
+				if (checkToMesh(`"${fresh}" on stage, ${what}`, action, holder)) mapped++;
+			}
+		}
+		console.log(`  ▸ Convert / ✎ Draw mesh from new skin "${fresh}": ${slots.length} slot(s) showing an image, in both skins; texels checked on ${mapped} of ${slots.length * 4} (the rest are trimmed)`);
+	}
 }
 
 log(changesFromCode === 0, `the page fired the skin picker's change ${changesFromCode} time(s) from code`);
-console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads bound to the mesh the author picked, every edit lands in the skin on stage, and nothing is replaced.` : `\n✗ FAIL (${checks} checks)`);
+console.log(pass ? `\n✅ PASS — ${checks} checks; every linked mesh loads bound to the mesh the author picked, every new attachment lands in the skin on stage, every image rewritten is the one the stage shows, and nothing else changes.` : `\n✗ FAIL (${checks} checks)`);
 process.exit(pass ? 0 : 1);

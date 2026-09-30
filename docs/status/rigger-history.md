@@ -5,6 +5,60 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **▸ Convert to mesh and ✎ Draw mesh rewrite the image the stage shows.** Both read
+  the slot's image off the stage (`skeleton.getAttachment`: the active skin, then default) but
+  picked the raw entry to rewrite with a loop that took the FIRST skin holding the name, usually
+  `default`. A probe of the shipped functions on a two-skin rig (`default`: `body`, 10×10; `gold`: a
+  same-named `body` drawing `gold_body` at 30×30), `gold` on stage: default's `body` became a mesh on
+  gold's ±15 quad (for ✎ Draw mesh, with UVs measured off gold's quad too) over default's own art,
+  gold's stayed a region, and the stage did not change. With `default` listed after another skin,
+  the same loop rewrote the other skin's image while default was on stage.
+  - **One rule.** `rawDocAttSkin(attName)` names the raw skin whose image the stage shows — the
+    skin on stage if it defines the name, else default, `skeleton.getAttachment`'s order — and both
+    actions rewrite that one. `rawDocAttEntry`, which ＋ add image and the point, box / clip and
+    linked-mesh editors read, is now read off it too; the mesh, path, placement, pivot and
+    replace-image lookups still resolve on their own. In a skin that only inherits the image, the
+    one rewritten is default's, which every skin without its own then shows as a mesh — the rule
+    mesh edits already follow (`meshInActiveSkin`, ⎘ Make skin-specific). Unchanged: converting a
+    text element's source locale still links its other locales in the same skin
+    (`syncTextLocaleMeshes`), and path and tint carry over as before (✎ Draw mesh has never taken
+    the tint).
+  - **Gate.** `linkedmesh.mjs` now also pulls the shipped `convertRegionToMesh` and
+    `finishDrawMesh`. On a synthetic rig — `default`; `gold`, overriding `body` with other art,
+    placement and tint and a text element's two locales with other placement; `blue`, holding
+    nothing; and the same rig with `default` listed second — each action runs with each skin on
+    stage, and Convert on the text element's source locale. On the CLI rig, both run on every slot
+    whose setup image is a default-skin region (63 of 68 on `anticipation`, 34 of 51 on `S`), from
+    a skin added that session: holding nothing (default's image must become the mesh) and holding a
+    same-named copy placed elsewhere (the copy must), one session per skin and action. Each check
+    asserts that a snapshot diff is exactly that entry (plus the linked locales), that the same skin
+    stays on stage and shows a mesh of the same art (and tint, for Convert), that a drawn mesh's
+    vertices are where they were clicked, and — on an untrimmed image — that a converted mesh sits
+    on the image's corners and every vertex samples the texel the image drew there. ＋ add image is
+    also run with `gold` on stage over its own `body`, and with `blue` on stage and `default` listed
+    second, to pin `rawDocAttEntry`. 335 checks synthetic, 2542 on `anticipation`, 2147 on `S`; the
+    previous `view.html` fails 14, 266 and 150 of them. Fourteen mutants are each caught: the whole
+    revert; either function's loop reverted; default preferred to the skin on stage; the skin on
+    stage with no fallback, or even when it lacks the image; no text linking; path or tint dropped
+    (Convert) or path dropped (Draw); u and v swapped in a drawn mesh; the rebuild putting default
+    back on stage; `rawDocAttEntry` preferring default, or taking the first skin holding the name.
+  - **Found, not fixed.** Three other lookups have the same first-skin rule (open item 9), each
+    probed: the placement fields (`applyAttachmentEdit`: with `gold` on stage, x = 7 moves gold's
+    image live but is written into default's `body`, and the next rebuild puts gold's back at 0);
+    the pivot (`pivotRawDef`, read by `setPivotUV`, `pivotUV` and the placement fields: with `gold`
+    on stage, pivot `[0, 1]` wrote the pivot and the offsets computed from gold's 30×30 quad into
+    default's `body`, and gold snapped back); and replace image, whose fallback is the first skin
+    holding the name, not default (skins `[gold, default, blue]` with `blue` on stage re-pointed
+    gold's `body`, and the stage kept default's art). Both actions map a TRIMMED image wrong (open
+    item 12): a `RegionAttachment`'s quad is the trimmed ink (`updateRegion` offsets it by
+    `region.offsetX/Y`), but a `MeshAttachment`'s `regionUVs` span the original canvas (its
+    `updateRegion` subtracts those offsets and scales by `originalWidth/Height`), so UVs laid 0–1
+    across the ink's quad draw the whole canvas into it — a 40×40 image trimmed to 20×10 samples
+    u −0.078…0.547 where the region sampled 0…0.313 (64 px page). And ▸ Convert to mesh drops a
+    sequence image's `sequence` (open item 10): once the stage has drawn it, the mesh names the
+    sequence's base (`fx_`), which the strict loader cannot find ("Region not found in atlas") and
+    the page draws as placeholder art.
+
 - 2026-09-30 — **A rig that fails to open leaves no rig open, so a save can no longer write one
   rig's content under another rig's name.** Open item 11, found in the review of the entry below
   and reproduced against a mock launcher: open S, then open S-broken, whose linked mesh names a
