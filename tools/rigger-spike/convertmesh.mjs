@@ -39,7 +39,7 @@ if (hit.a.updateRegion) hit.a.updateRegion();
 const before = new Array(8).fill(0);
 hit.a.computeWorldVertices(slot, before, 0, 2);
 
-// build the mesh entry (matches convertRegionToMesh)
+// build the mesh entry: convertRegionToMesh's geometry (its UVs, which differ on a trimmed image, are gated by trimmesh.mjs)
 const region = raw.skins.find((s) => s.name === hit.skin).attachments[hit.slot][hit.att];
 const mesh = { type: 'mesh', uvs: [0, 1, 0, 0, 1, 0, 1, 1], triangles: [0, 1, 2, 2, 3, 0], vertices: Array.from(hit.a.offset), hull: 4, width: hit.a.width, height: hit.a.height };
 if (region.path) mesh.path = region.path;

@@ -1,12 +1,14 @@
 // Verify the Phase 3.6a visual-UV-panel geometry headlessly: the region-local UV ↔ panel-pixel
-// fit transform (letterbox), the drag clamp, the nearest-vertex hit-test, and the rotated-pack
-// aspect swap. These are the pure pieces; the actual art blit (drawRegionUpright's 90° branch)
-// is a canvas transform that must be verified LIVE in /rigger — a headless spike can't render it.
+// fit transform (letterbox), the drag clamp, the nearest-vertex hit-test, and the art's aspect —
+// the whole untrimmed image, which is what a mesh's UVs span, or the rotated pack's swapped span
+// without one. These are the pure pieces; the art blit (drawRegionUpright) is drawn in a real
+// browser and read back per pixel by tools/rigger-spike/trimmesh.mjs.
 //
-// The functions below MIRROR the pure helpers in
-//   apps/launcher-api/static/rigger/view.html  (uvArtAspect / computeUvFit / uvPanelNearestVert)
-// which lives in one non-module <script>, so it can't be imported — keep the two in sync.
+// `uvArtAspect` and `computeUvFit` are pulled out of view.html; the hit-test and the drag mirror
+// uvPanelNearestVert and cv.onpointermove, which read the page's globals.
 //   node tools/rigger-spike/uvpanel.mjs
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
@@ -14,19 +16,17 @@ const approx = (a, b, e = 1e-6) => Math.abs(a - b) < e;
 
 console.log('\n=== Phase 3.6a UV-panel geometry ===');
 
-// ---- mirrored pure helpers ------------------------------------------------
-function uvArtAspect(r){
-	const pw = r.page.width || 1, ph = r.page.height || 1;
-	const spanU = Math.abs(r.u2 - r.u) * pw, spanV = Math.abs(r.v2 - r.v) * ph;
-	if (spanU < 1e-6 || spanV < 1e-6) return 1;
-	const deg = r.degrees || 0;
-	return deg === 90 || deg === 270 ? spanV / spanU : spanU / spanV;
-}
-function computeUvFit(aspect, pw, ph){
-	let aw = pw, ah = pw / aspect;
-	if (ah > ph){ ah = ph; aw = ph * aspect; }
-	return { ox: (pw - aw) / 2, oy: (ph - ah) / 2, aw, ah };
-}
+const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const pull = (name) => {
+	const at = html.indexOf('\nfunction ' + name + '(');
+	if (at < 0) throw new Error(name + ' not found in view.html');
+	return html.slice(at, html.indexOf('\n}', at) + 2);
+};
+const shipped = {};
+vm.createContext(shipped);
+vm.runInContext(pull('uvArtAspect') + pull('computeUvFit') + ';globalThis.uvArtAspect = uvArtAspect; globalThis.computeUvFit = computeUvFit;', shipped);
+const { uvArtAspect, computeUvFit } = shipped;
+
 function nearestVert(uvs, fit, p, dpr = 1){
 	const n = uvs.length / 2, R = 14 * dpr;
 	let best = -1, bd = Infinity;
@@ -96,7 +96,10 @@ const uvToPx = (fit, u, v) => ({ x: fit.ox + u * fit.aw, y: fit.oy + v * fit.ah 
 	log(approx(flat, 2, 1e-6), `degrees 0: aspect ${flat.toFixed(3)} (packed 200x100 → 2.0)`);
 	log(approx(rot, 0.5, 1e-6), `degrees 90: aspect ${rot.toFixed(3)} (art upright is 100x200 → 0.5)`);
 	log(approx(uvArtAspect({ ...base, u2: base.u + 100 / 1024, v2: base.v + 100 / 1024, degrees: 0 }), 1, 1e-6), 'square region → aspect 1');
+	// trimmed: the ink is 200x100, the image it was cut from 300x300 — the panel shows the image
+	const trimmed = uvArtAspect({ ...base, degrees: 90, originalWidth: 300, originalHeight: 300 });
+	log(approx(trimmed, 1, 1e-6), `trimmed to 200x100 from a 300x300 image: aspect ${trimmed.toFixed(3)} (the image's, 1.0)`);
 }
 
-console.log(pass ? '\n✅ PASS — UV-panel geometry is consistent (rotation blit still owes a LIVE check).' : '\n✗ FAIL');
+console.log(pass ? '\n✅ PASS — UV-panel geometry is consistent.' : '\n✗ FAIL');
 process.exit(pass ? 0 : 1);
