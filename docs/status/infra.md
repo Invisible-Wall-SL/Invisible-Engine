@@ -176,3 +176,4 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 - 2026-08-15 — **serverless worker hardened**: cu128 / torch 2.8 so one image spans Blackwell → Ampere, and a free-VRAM-conditional ComfyUI restart between jobs to fix the DepthAnything OOM (it loads a transformers model outside ComfyUI's memory manager, so `/free` can't release it). Detail in [status/comfyui](comfyui.md).
 - 2026-08-13 — **ComfyUI went multi-host**: a RunPod Serverless endpoint for Atlas Maker generation (`COMFY_TRANSPORT=serverless`) + a multi-pod R&D fleet behind `/comfyui` + a baked pod image (`services/atlas-comfy-pod`) that survives RunPod recreating the container on resume. Runbook in [docs/INFRA.md](../INFRA.md) "ComfyUI R&D pod (RunPod)".
 - 2026-06-13 — auto-migrate on boot shipped + prod baselined through `0010` after the `db:push` replay-from-0000 incident ([detail in history](../history.md)).
+
