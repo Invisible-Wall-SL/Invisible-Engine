@@ -604,6 +604,8 @@ library it's **shared and cross-project** (stored under `_shared/rigs/` in R2).
   name (defaulting to the current rig's stem) and saves the whole open skeleton to the
   library. The library is shared by every project, so if the name is already taken the
   tool tells you which project saved it and when, and only replaces it if you confirm.
+  Like 💾 Save, it refuses a rig that would not open again and says why (before asking
+  for a name): a broken library rig would break every rig it is imported into.
 - **🗂 Rig library** (sidebar) — opens a modal listing every saved rig with its stats
   (e.g. "12 bones · 3 anims") and a filter box. Each row offers:
   - **Use in new rig** — closes the modal and opens the **＋ New rig** panel with this
@@ -612,6 +614,10 @@ library it's **shared and cross-project** (stored under `_shared/rigs/` in R2).
   - **Import into open rig** — merges this rig into the rig currently on stage
     (enabled only when a rig is loaded; see the namespaced merge below).
   - **🗑** — deletes the rig from the library.
+  - A saved rig that would not load (the library save now refuses one, but an older
+    entry can still be broken) is refused with the reason instead of breaking your work:
+    creating a rig from it (**Use in new rig** / **Apply saved rig**) makes nothing, and
+    **Import into open rig** leaves the open rig as it was.
 
 **Apply at creation.** The **＋ New rig** panel has an **Apply saved rig (optional)**
 dropdown (first option "— none (blank skeleton) —"). With a rig selected, the new rig

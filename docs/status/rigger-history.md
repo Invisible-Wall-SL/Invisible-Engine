@@ -5,6 +5,73 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **A rig that will not load can no longer enter the rig library, or leave it.** Open
+  item 6: 📦 Save rig to library posted `rawDoc` without the tab's `rigDocLoadProblem` (only
+  💾 Save ran it), and `irigDocProblem` — behind both saves and the 🕘 restore — stopped at a skin's
+  slot keys and an animation's bone / slot keys. A rig whose linked mesh or deform key named a
+  missing skin, parent or attachment was accepted into the shared library; **Import into open
+  rig** then broke the open rig (the merge went straight into `rawDoc` and the rebuild threw), and
+  **Apply saved rig** wrote an `.irig` that opens as "Load failed".
+  - **The rules, read off SkeletonJson 4.2.74 and each confirmed by running it:**
+    - A linked mesh is any `mesh` or `linkedmesh` with a truthy `parent`. The parent is
+      `skin ? findSkin(skin) : defaultSkin`, looked up by NAME on the linked mesh's own slot.
+      `findSkin` returns the FIRST skin with the name, but `defaultSkin` is the LAST skin named
+      `default` (each one reassigns it), so with two skins of one name an explicit and an implicit
+      reference read different skins. An empty `skin` means none. A skin named `""` never loads
+      (`new Skin("")` throws), so the check now refuses it, like an empty bone or slot name.
+    - The parent must be a mesh. A region / bounding-box / path / point / clipping parent is found
+      by name, then throws a TypeError in `updateRegion()` at load — or, for a linked mesh with a
+      `sequence`, in its first `computeWorldVertices` (`Sequence.apply`), so that rig loads and
+      crashes on its first frame. A linked mesh whose parent is another linked mesh loads in either
+      order, but resolved before its parent it copies the parent's still-empty geometry and draws
+      nothing, like one naming ITSELF. Neither is refused (the Rigger writes neither).
+    - `animations.<a>.attachments.<skin>.<slot>.<attachment>`: the skin and the slot must exist
+      even when their maps are empty (`findSkin`, no default fallback). The attachment is looked
+      up in THAT skin only, and read only by a `deform` or `sequence` timeline whose first key is
+      present — an empty list, a missing first key or an unknown timeline over a missing
+      attachment loads, so the check lets those through. What the key reads must then be there:
+      a deform key reads `vertices`, which only the `VertexAttachment`s have (mesh, linked mesh,
+      bounding box, path, point, clipping — a region throws), and a sequence key reads
+      `attachment.sequence.id`, so it needs a region or mesh that declares a `sequence`.
+  - **The library save** calls `rigDocLoadProblem` before the name prompt (the refusal goes in the
+    error banner, as for 💾 Save), and a server refusal shows its `message` in the status line
+    instead of the raw JSON body.
+  - **Out of the library** (found in review — a rig saved before these checks can already be in
+    it). `resolveRigSkeletonBody` (＋ New rig → Apply saved rig, for `/api/rigger/new` and
+    `/api/rigger/upload`) runs `irigDocProblem` on the library skeleton and answers 422 before
+    anything is written. `importRig` merges copies first and runs the tab's full parse on the
+    result; on a problem it shows **Import refused** with the reason and leaves the open rig
+    untouched and clean.
+  - **Verified.** `irig-save.mjs` 82/82: 16 named breaks on a synthetic rig, each pinned to the
+    loader's message (for a TypeError, the property it could not read) and to what the check
+    names; 8 near misses the loader accepts, which the check must accept too; every checked-in rig
+    loads (one stand-in region answers every atlas lookup) and passes — 153 rigs, 906 linked
+    meshes, 347 deform / sequence keys, `S`'s 180 linked meshes all naming no skin; on every
+    checked-in rig that has them, a missing parent, a missing skin and a renamed default skin (6
+    rigs), a renamed animation skin / slot / attachment key (27 rigs) and a sequence key's
+    attachment losing its `sequence` (21 rigs) make the loader throw and the check name the break;
+    and Apply refuses a broken library rig with a 422. The pre-change code fails 24 of these. 18
+    mutants are each caught: first / last skin swapped, an empty skin taken as a name, no mesh
+    check on the parent, keys with no first key counted as reading, the implicit skin read as the
+    linked mesh's own, a `""` skin allowed, the parent searched on every slot, no animation skin or
+    slot check, `type: "mesh"` not counted as linked, deform allowed on any type or only on
+    meshes, sequence keys allowed without a declared sequence, on any type, only on regions or
+    only on meshes, and the apply guard removed. The review's differential fuzzer ran 145,184
+    generated docs through the check and the loader: none the loader rejects is accepted, and the
+    only loadable docs refused are sequence linked meshes over a non-mesh parent, which crash on
+    their first frame. The real `view.html` in a browser against a mock API backed by the real
+    `irigDocProblem`, on `S`: the valid rig reaches the library; a broken parent and a missing-skin
+    deform key are refused before the name prompt with no request sent; a duplicate bone name (the
+    loader accepts it, the server refuses it) shows the server's message as text; a broken library
+    rig is refused on import with the open rig unchanged and not dirty, and a valid one still
+    imports. `pnpm check:all` 300/300.
+  - **Still skipped by the server check** (open item 6), each probed to make the loader throw and
+    each caught by the tab's full parse on both saves: a skin's `bones` / constraint lists, an
+    animation's IK / transform / path / physics keys, draw-order slots and event names.
+  - **Found in review, not fixed here** (open item 11, reproduced): after a rig fails to open, the
+    tab still holds the previous rig's document under the failed rig's name and ETag, so 💾 Save
+    overwrites the failed rig with the previous one.
+
 - 2026-09-30 — **The Skin picker follows the rig's skins, and every edit lands in the skin on
   stage.** The picker (`#skin`, in the bottom bar — older comments called it the top bar) had its
   options built once, in `buildSkeleton`. A `<select>` reads back `""` for a value no option
