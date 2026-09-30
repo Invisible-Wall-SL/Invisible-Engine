@@ -138,6 +138,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     packages in sequence.
   - `.github/dependabot.yml` was added (INFRA "Dependabot"). Security updates need the owner switch
     (Blocked).
+  - Dependabot's first run on the merge: github-actions grouped as designed (#903, 7 updates in one
+    PR). pip opened 5 single PRs (#904–#908), because the services pin floors, so a `minor`/`patch`
+    filter matches nothing. A follow-up groups every pip bump by pattern alone. The 5 open PRs stay
+    open: closing a Dependabot PR by hand tells it to ignore that version.
 - 2026-09-30 — **Source maps go to Sentry and never ship.** The runtime release now builds the game
   with hidden maps, and `scripts/sentry-sourcemaps.mjs` re-bases the bundle's map onto
   `index.html` (the game is one inlined file, so frames are numbered by the page), tags page + map

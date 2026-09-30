@@ -872,8 +872,10 @@ while, add both names (integration `15368`) to the `required_status_checks` list
 `.github/dependabot.yml` asks for weekly (Monday 06:00 Madrid) grouped updates for three
 ecosystems: **npm** (the pnpm workspace root lockfile), **pip** (`services/atlas-tool`,
 `services/sheet-tool` and the hash-pinned `scripts/backup`) and **github-actions**. Minor + patch
-bumps come as one PR per ecosystem per week. A major bump gets its own PR. Open version-update PRs
-are capped at 5 / 3 / 3. Security updates are grouped per ecosystem too, but they arrive when an
+bumps come as one PR per ecosystem per week. A major bump gets its own PR. For pip, every bump
+shares one PR per directory, majors included. The services pin floors (`>=`), so Dependabot cannot
+tell minor from major there: on the first run, 5 pip bumps came as 5 separate PRs (#904–#908).
+Open version-update PRs are capped at 5 / 3 / 3. Security updates are grouped per ecosystem too, but they arrive when an
 advisory lands, not on the schedule.
 
 A Dependabot PR is gated like any other: it runs Checks, Lint and Secrets and cannot merge until
