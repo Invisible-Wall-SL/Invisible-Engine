@@ -3600,7 +3600,8 @@ function prefixRigNames(src, p){
     if (typeof s.name === "string") s.name = p + s.name;
     if (typeof s.bone === "string") s.bone = p + s.bone;
   }
-  // skins: rename skin + every attachment-slot key; linkedmesh skin refs.
+  // skins: rename skin + every attachment-slot key; linkedmesh skin refs. The default skin is
+  // renamed too, so a linked mesh that relied on it implicitly must now name it.
   for (const sk of src.skins || []){
     if (typeof sk.name === "string") sk.name = p + sk.name;
     const att = sk.attachments || {};
@@ -3608,7 +3609,7 @@ function prefixRigNames(src, p){
     for (const slotName of Object.keys(att)){
       const slot = att[slotName];
       for (const a of Object.values(slot || {}))
-        if (a && a.type === "linkedmesh" && typeof a.skin === "string") a.skin = p + a.skin;
+        if (isRawLinkedMeshDef(a)) a.skin = p + linkedMeshParentSkin(a);
       rekeyed[p + slotName] = slot;
     }
     sk.attachments = rekeyed;
@@ -4602,7 +4603,9 @@ function renameSlot(oldName, newName){
   markDirty();
 }
 
-// Rename a skin (+ any linkedmesh `skin` refs pointing at it).
+// Rename a skin, rewriting every reference to it: the linked meshes whose parent lives in it (by
+// `skin`, or implicitly when it is the default) and the animations' deform / sequence keys, which
+// SkeletonJson resolves by skin name and throws on.
 function renameSkin(oldName, newName){
   if (!rawDoc) return;
   newName = cleanName(newName);
@@ -4610,7 +4613,12 @@ function renameSkin(oldName, newName){
   for (const sk of rawDoc.skins || []){
     if (sk.name === oldName) sk.name = newName;
     for (const slot of Object.values(sk.attachments || {}))
-      for (const att of Object.values(slot)) if (att && att.type === "linkedmesh" && att.skin === oldName) att.skin = newName;
+      for (const att of Object.values(slot))
+        if (isRawLinkedMeshDef(att) && linkedMeshParentSkin(att) === oldName) setLinkedMeshParentSkin(att, newName);
+  }
+  for (const an of Object.values(rawDoc.animations || {})) for (const channel of ["attachments", "deform"]){
+    const bySkin = an[channel];
+    if (bySkin && bySkin[oldName]){ bySkin[newName] = bySkin[oldName]; delete bySkin[oldName]; }
   }
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -6015,7 +6023,7 @@ function renderSlotDetail(){
       b.onclick = () => startDrawPoly("clipping");
       extras.appendChild(b);
     }
-    // Linked mesh: only offered when there's at least one source mesh to reference.
+    // Linked mesh: only offered when this slot has a mesh to borrow from (the parent shares its slot).
     if (sourceMeshCandidates().length){
       const b = document.createElement("button");
       b.textContent = "＋ Linked mesh";
@@ -7221,20 +7229,33 @@ function renderPolyAttachmentEditor(det, att, kind){
 }
 
 // ---- LINKED MESH ------------------------------------------------------------
-// Every MESH attachment in the rig that is NOT itself a linked mesh — candidate parents, with their
-// skin + slot name so we can resolve them across skins. Returns [{skin, slot, name, def}].
+// SkeletonJson looks a linked mesh's parent up by NAME in the linked mesh's OWN slot, in the skin
+// its `skin` names — and an ABSENT `skin` means the DEFAULT skin, never the skin the linked mesh
+// sits in. So `skin` is omitted only for "default"; a parent in any other skin, the linked mesh's
+// own included, is named, or the rig stops loading ("Parent mesh not found") — or, when default
+// holds a same-named mesh on that slot, silently binds to that one (tools/rigger-spike/linkedmesh.mjs).
+function isRawLinkedMeshDef(d){
+  return !!d && !!d.parent && (d.type === "mesh" || d.type === "linkedmesh");
+}
+function linkedMeshParentSkin(def){
+  return def.skin || "default";
+}
+function setLinkedMeshParentSkin(def, skinName){
+  if (skinName && skinName !== "default") def.skin = skinName; else delete def.skin;
+}
+
+// Every MESH attachment on the selected slot that is NOT itself a linked mesh, in any skin — the
+// parents a linked mesh there can have. Returns [{skin, slot, name, def}].
 function sourceMeshCandidates(){
-  if (!rawDoc) return [];
+  if (!rawDoc || selSlot == null) return [];
   const out = [];
   for (const sk of rawDoc.skins || []){
-    if (!sk.attachments) continue;
-    for (const slotName of Object.keys(sk.attachments)){
-      const atts = sk.attachments[slotName];
-      for (const an of Object.keys(atts)){
-        const d = atts[an];
-        const isMesh = d && (d.type === "mesh" || (Array.isArray(d.uvs) && Array.isArray(d.triangles)));
-        if (isMesh && d.type !== "linkedmesh" && !d.parent) out.push({ skin: sk.name, slot: slotName, name: an, def: d });
-      }
+    const atts = sk.attachments && sk.attachments[selSlot];
+    if (!atts) continue;
+    for (const an of Object.keys(atts)){
+      const d = atts[an];
+      const isMesh = d && (d.type === "mesh" || (Array.isArray(d.uvs) && Array.isArray(d.triangles)));
+      if (isMesh && d.type !== "linkedmesh" && !d.parent) out.push({ skin: sk.name, slot: selSlot, name: an, def: d });
     }
   }
   return out;
@@ -7247,7 +7268,7 @@ function addLinkedMesh(parentName, parentSkin, parentDef){
   const def = { type: "linkedmesh", parent: parentName };
   const path = (parentDef && parentDef.path) || parentName; // a linkedmesh needs a resolvable region
   if (path) def.path = path;
-  if (parentSkin && parentSkin !== activeSkinName()) def.skin = parentSkin;
+  setLinkedMeshParentSkin(def, parentSkin);
   if (parentDef && parentDef.width != null) def.width = parentDef.width;
   if (parentDef && parentDef.height != null) def.height = parentDef.height;
   const attName = addAttachmentToActiveSkin(parentName, def, true);
@@ -7260,7 +7281,7 @@ function setLinkedMeshParent(parentName, parentSkin, parentDef){
   const rd = rawDocAttEntry(meshCtx && meshCtx.attName); if (!rd || !meshCtx) return;
   const attName = meshCtx.attName;
   rd.parent = parentName;
-  if (parentSkin && parentSkin !== activeSkinName()) rd.skin = parentSkin; else delete rd.skin;
+  setLinkedMeshParentSkin(rd, parentSkin);
   if (parentDef && parentDef.path) rd.path = parentDef.path; else if (parentName) rd.path = parentName;
   reselectAttachment(attName);
   markDirty();
@@ -7287,7 +7308,7 @@ function renderLinkedMeshEditor(det, att){
   const psel = document.createElement("select");
   psel.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
   cands.forEach((c) => { const o = document.createElement("option"); o.value = c.skin + "›" + c.name; o.textContent = c.name + " (" + c.skin + ")"; psel.appendChild(o); });
-  const curParent = rd && rd.parent ? ((rd.skin || activeSkinName()) + "›" + rd.parent) : "";
+  const curParent = rd && rd.parent ? (linkedMeshParentSkin(rd) + "›" + rd.parent) : "";
   if (curParent) psel.value = curParent;
   psel.onchange = () => { const c = cands.find((x) => (x.skin + "›" + x.name) === psel.value); if (c) setLinkedMeshParent(c.name, c.skin, c.def); };
   pr.appendChild(pl); pr.appendChild(psel); det.appendChild(pr);

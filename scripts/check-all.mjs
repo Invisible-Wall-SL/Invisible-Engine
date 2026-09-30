@@ -59,11 +59,15 @@ const spines = (dir, name, atlas = name) => [
  * unweighted mesh and 12 path constraints, so each spike reaches its real path rather than a skip.
  */
 const RIG = spines('anticipation', 'anticipation');
-/** What RIG lacks: a sequence timeline and a weighted first mesh (W), an interior fan (S). */
+/**
+ * What RIG lacks: a sequence timeline and a weighted first mesh (W); an interior fan and 180 linked
+ * meshes (S).
+ */
 const RIG_EXTRA = {
 	'tools/rigger-spike/sequence.mjs @W': spines('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/meshremove.mjs @W': spines('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/retriangulate.mjs @S': spines('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/linkedmesh.mjs @S': spines('symbols2', 'S', 'symbols2'),
 };
 
 /** Extra arguments for a check that needs an input to have anything to check. */

@@ -322,6 +322,11 @@ a rival answer to the same question. Move the box, or bind a different bone.
   **🖼 Texture** button cycles the mesh image **full → dim → off** (off = wireframe
   only). The image stays bound the whole time — toggle **⛶** off to drop back into the
   full rig with your edits live. All the mesh tools above work the same inside it.
+- **Linked meshes:** **＋ Linked mesh** (offered on a slot that already has a mesh) adds,
+  to the active skin, a mesh that borrows another mesh's vertices, UVs and weights — edit
+  the source and it follows. Its **source** dropdown lists every mesh on the same slot, in
+  any skin (a linked mesh can only borrow from its own slot); **inherit deform
+  (timelines)** makes it follow the source's deform keys too.
 - **Weights:** on an unweighted mesh, **Bind to slot bone** makes it weighted
   (every vertex 100% to the slot bone). Selecting a weighted-mesh vertex lists its
   bone influences with auto-normalising weight inputs, an ✕ to remove an
