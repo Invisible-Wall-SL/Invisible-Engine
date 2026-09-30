@@ -17,6 +17,7 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		clearRegionCache,
@@ -518,6 +519,17 @@
 	const savedSig = $state({ value: docSignature(structuredClone(data.doc) as SymbolsDoc) });
 	const dirty = $derived(docSignature(doc) !== savedSig.value);
 
+	guardUnsavedWork(() =>
+		dirty
+			? {
+					title: 'The symbols doc has unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
+
 	let savedAt = $state<string | null>(data.doc.updatedAt ?? null);
 
 	/**
@@ -579,6 +591,9 @@
 			body: JSON.stringify({ id, baseEtag: saveState.etag }),
 		});
 		if (res.ok) {
+			// The history dialog already warned that restoring discards unsaved edits; mark them
+			// settled so the leave guard does not ask again over a restore the server has applied.
+			savedSig.value = docSignature(doc);
 			location.reload();
 			return null;
 		}

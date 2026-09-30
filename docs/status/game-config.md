@@ -636,6 +636,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-09-30 (follow-up) — **A History… restore no longer raises "Leave site?".** The restore reloads the page, and with unsaved edits the leave guard added on 2026-09-29 (#869) fired the browser prompt over a restore the server had already applied (Stay left a pre-restore doc on a stale ETag). The history dialog already warns that restoring discards unsaved edits, so the restore now marks the doc settled before reloading.
 - 2026-09-29 — **Leaving with unsaved config edits now asks first.** The page tracked a dirty state but
   registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded unsaved
   edits silently. It now calls the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`) — the

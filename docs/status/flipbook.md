@@ -92,6 +92,7 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-09-30 — **Leaving with unsaved edits asks in-app too**: the page's own `beforeunload` (reload / tab close only) is replaced by the shared `guardUnsavedWork`, so a tool-bar switch or Back with an unsaved clip raises the app's confirm (Stay / Leave anyway) instead of discarding it. Pagehide lease release unchanged. (Small enough to need no history entry — see the launcher status of the same date.)
 - 2026-09-30 — Stale "clips are not reachability-pruned" comments in `flipbookExport.ts` and
   `bake-editor-doc.mjs` corrected (open item 6 closed).
 - 2026-09-29 — **Docs caught up**: unplayed clips have not shipped since #645 and 🖼 To Atlas Maker is merged (both were still described as open). Status detail split into [flipbook-history.md](flipbook-history.md).

@@ -1025,6 +1025,9 @@
 			body: JSON.stringify({ id, baseEtag: saveState.etag }),
 		});
 		if (res.ok) {
+			// The history dialog already warned that restoring discards unsaved edits; mark them
+			// settled so the leave guard does not ask again over a restore the server has applied.
+			baseline = JSON.stringify($state.snapshot(doc));
 			location.reload();
 			return null;
 		}

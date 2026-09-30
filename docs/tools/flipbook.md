@@ -214,6 +214,8 @@ Type a name in the left column and press **Save**.
   and you are told so. You can reload to take their version, rename yours, or confirm
   an overwrite — which permanently replaces their clip with no way to recover it.
 - Saving without a source sheet is refused: a clip needs one to resolve its frames.
+- Leaving the page with unsaved changes asks first: a tool-bar switch or Back raises the app's
+  own dialog (**Stay** / **Leave anyway**), a reload or closing the tab the browser's prompt.
 
 ### Broken frames
 
