@@ -5,6 +5,16 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **Stage errors read in full.** `#err` and `#artWarn` were each `position:absolute;
+  top:10px`, the same `top` as the floating `#modeBar` (z-index 5 over their 4), so the bar covered
+  the middle ~330 px of every stage message at a 1280 px window ("Load failed: Parent mesh no…"),
+  and the two messages covered each other when both showed. Both now live in a `#stageMsgs` flex
+  column at `top:66px` (below the 48 px mode bar) that stacks them with a gap; `#stage.tweaking`
+  (set by `applyTweakChrome`) moves it to `96px`, under the tweak bar. Measured in the browser pane:
+  mode bar 47–95, error 103–137, banner 143–196; tweaking, tweak bar 89–123 and error from 133.
+  `rig-switch.mjs` asserts the error's box does not intersect the mode bar (38/38; the previous
+  page fails exactly that check).
+
 - 2026-09-30 — **The placement fields, the pivot and replace image edit the image the stage
   shows.** The last three lookups with the first-skin rule (open item 9), each probed with the
   shipped functions on the synthetic two-skin rig (`default`: slot `body` → region `body`, 10×10;
