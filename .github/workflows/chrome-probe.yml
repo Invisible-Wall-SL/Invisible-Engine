@@ -1,41 +1,19 @@
-# TEMPORARY (removed before merge): measure the old Chrome launch and loop the new one on the runner.
+# TEMPORARY (removed before merge): what Chrome's first launch on a fresh runner waits on.
 name: Chrome probe
 
 on:
   pull_request:
 
 jobs:
-  first-launch:
-    name: first launch (${{ matrix.warm }} ${{ matrix.i }})
+  trace:
+    name: trace first launch (${{ matrix.i }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         i: [1, 2, 3]
-        warm: [none, fontconfig]
     steps:
       - uses: actions/checkout@v7
-      - run: ls -la ~/.cache/fontconfig /var/cache/fontconfig 2>&1 | head -5; fc-list | wc -l
-      - if: matrix.warm == 'fontconfig'
-        run: time fc-cache; time fc-list > /dev/null
-      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/old-launch.mjs 4
-      - run: ls -la ~/.cache/fontconfig 2>&1 | head -5; ls -la ~/.cache ~/.config 2>&1 | head -30
-
-  new-helper:
-    name: new helper (${{ matrix.i }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        i: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: CHROME_PATH="$(command -v google-chrome)" node .github/chrome-probe/spike-loop.mjs 6 5
+      - run: sudo apt-get install -y strace > /dev/null 2>&1 || true
+      - run: bash .github/chrome-probe/trace-first.sh
