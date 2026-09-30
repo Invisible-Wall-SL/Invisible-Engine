@@ -468,6 +468,9 @@ already have one) and a **show Bet Menu** node, then:
 
 1. The HUD node's **`onBetMenu`** exec-out — the bet readout's press — into **show Bet
    Menu**'s exec-in.
+   It is on whichever HUD screen holds the **bet** readout, not only the seeded bottom bar,
+   including a readout placed before the bet menu became authorable. The readout must sit
+   directly on the screen: one inside a group gets no pin.
 2. **show Bet Menu**'s own **`onSelect`** exec-out into a `setBetAmount` action, and its
    **`selectedValue`** data-out into that action's **`amount`** data-in.
 3. `setBetAmount`'s exec-out into **hide Bet Menu**.
