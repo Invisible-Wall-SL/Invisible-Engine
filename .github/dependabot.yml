@@ -3,6 +3,7 @@
 # VERSION updates: one grouped PR per ecosystem per week for minor + patch bumps, so a week's
 # churn is one review, not thirty. A MAJOR bump gets its own PR (it is the one that needs reading),
 # and `open-pull-requests-limit` caps how many can sit open at once so the queue never floods.
+# pip is the exception: its requirements are floors, so all its bumps share one PR (see below).
 #
 # SECURITY updates: raised as soon as an advisory lands, not on the weekly schedule, grouped per
 # ecosystem the same way. They need "Dependabot security updates" switched on in the repo settings
@@ -53,10 +54,13 @@ updates:
     commit-message:
       prefix: deps
     groups:
-      pip-minor-patch:
+      # ALL pip version updates in one PR, majors included. The services pin FLOORS (`boto3>=…`),
+      # so Dependabot sees no current version and cannot call a bump minor or patch: with an
+      # `update-types` filter here, every one of them fell out of the group into its own PR (the
+      # first run opened five). A floor bump is low-risk: a fresh image build installs the latest anyway.
+      pip:
         applies-to: version-updates
         patterns: ['*']
-        update-types: [minor, patch]
       pip-security:
         applies-to: security-updates
         patterns: ['*']

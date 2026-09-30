@@ -17,9 +17,9 @@
 // count goes UP, which covers a brand-new file or rule as well as one more of an existing error; it
 // passes when counts go down, and says which entries to lower. Warnings are not gated.
 //
-// THE BASELINE IS CI'S (Linux): an error only one OS reports is dropped by `withoutPlatformNoise`,
-// so a Windows run and CI agree. The first CI run matched a Windows-taken baseline in 16 of 17
-// packages; the 17th is the one entry there.
+// FLAKY ERRORS ARE DROPPED: an error that comes and goes between runs of one commit is filtered by
+// `withoutFlakyErrors` before counting, so neither CI nor a Windows run fails on it. Otherwise a
+// Windows-taken baseline matched Linux CI exactly in all 17 packages.
 //
 // THE BASELINE IS A CLEAN CHECKOUT'S: some of today's errors come from files a checkout only has
 // after a build or an asset pull (`static/assets/**`, the baked editor bundle, `.env`). CI runs on
@@ -148,15 +148,15 @@ export function parseMachineVerbose(stdout, workspace, root = ROOT) {
 }
 
 /**
- * Errors one OS reports and CI's Linux does not. The baseline is CI's, so without this a local run
- * on that OS fails on errors nobody introduced.
+ * Errors that are not about the code and come and go between runs of the same commit. Gating on
+ * them fails PRs that changed nothing.
  *
- * win32: Lingui cannot load a package's `lingui.config.ts` while the style preprocessor runs, so
- * every `<style lang="scss">` in `components-shared` reported "No Lingui config found" (7 errors,
- * none on Linux).
+ * "No Lingui config found" (`svelte(style)`): the style preprocessor sometimes cannot load
+ * `components-shared`'s `lingui.config.ts`, and then every `<style lang="scss">` there reports it
+ * (7 errors). Every Windows run hit it. On Linux CI it hit 1 run in 3 of the same baseline,
+ * including a PR that touched only YAML.
  */
-export function withoutPlatformNoise(errors, platform = process.platform) {
-	if (platform !== 'win32') return errors;
+export function withoutFlakyErrors(errors) {
 	return errors.filter(
 		(e) => !(e.rule === 'svelte(style)' && e.message === 'No Lingui config found'),
 	);
@@ -268,7 +268,7 @@ function runPackage(pkg) {
 				`${(run.stderr ?? '').slice(-4000)}`,
 		);
 	return {
-		errors: withoutPlatformNoise(errors),
+		errors: withoutFlakyErrors(errors),
 		seconds: Math.round((Date.now() - started) / 1000),
 	};
 }

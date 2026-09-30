@@ -125,9 +125,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     number-picker 26 · engine-layout 296 (276 in its Node `scripts/`, no `@types/node`) · engine-game
     38 · pixi-svelte-storybook 43 · components-shared 25 · -ui-html 24 · -ui-pixi 23 · pixi-svelte
     14 · components-storybook 8 · components-pixi 7 · components-layout 1.
-  - The Windows-taken baseline matched CI in 16 of 17 packages. In `components-shared`, Windows
-    alone reports 7 `svelte(style)` "No Lingui config found" errors. The runner drops exactly that
-    error on win32 (`withoutPlatformNoise`), so the baseline is Linux's and a Windows run agrees.
+  - The Windows-taken baseline matched Linux CI in all 17 packages except for one flaky error. In
+    `components-shared`, 7 `svelte(style)` "No Lingui config found" errors appear on every Windows
+    run, and on 1 Linux CI run in 3 of the same baseline (a YAML-only PR, #916). That run failed.
+    The runner drops exactly that error on every platform (`withoutFlakyErrors`). Its root cause,
+    the style preprocessor sometimes failing to load `lingui.config.ts`, is not investigated.
   - CI time: `svelte-check (1/2)` 2m11s, `(2/2)` 1m52s, in parallel with the other checks.
   - Why lines is below the ad-hoc ~189 and the launcher below ~59: the runner `svelte-kit sync`s
     first, so `$app/*` / `./$types` resolve.
@@ -138,6 +140,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     packages in sequence.
   - `.github/dependabot.yml` was added (INFRA "Dependabot"). Security updates need the owner switch
     (Blocked).
+  - Dependabot's first run on the merge: github-actions grouped as designed (#903, 7 updates in one
+    PR). pip opened 5 single PRs (#904–#908), because the services pin floors, so a `minor`/`patch`
+    filter matches nothing. A follow-up groups every pip bump by pattern alone. The 5 open PRs stay
+    open: closing a Dependabot PR by hand tells it to ignore that version.
 - 2026-09-30 — **Source maps go to Sentry and never ship.** The runtime release now builds the game
   with hidden maps, and `scripts/sentry-sourcemaps.mjs` re-bases the bundle's map onto
   `index.html` (the game is one inlined file, so frames are numbered by the page), tags page + map
