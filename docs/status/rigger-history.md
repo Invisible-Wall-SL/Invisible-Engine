@@ -5,6 +5,44 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **＋ add image… in a skin other than default belongs to that skin only; the default
+  skin can't be deleted.** `attachRegion` wrote the region into the skin on stage under its own
+  name AND set `slots[].attachment` to it — the setup attachment, one name for every skin — so with
+  `skin1` on stage, `frame_radial1` (setup `radial1`) became `dust1` everywhere, and default, which
+  has no `dust1` there, drew nothing (still nothing after `skin1` was deleted). Owner decision
+  (2026-09-30), option A: Spine's idiom of a same-named override.
+  - **Naming.** In a non-default skin the new entry is keyed by the slot's setup name (`radial1`)
+    with `path: dust1`; the setup attachment is untouched, so the skin on stage resolves its own
+    `radial1` and every other skin its own, else default's — exactly what it drew before. `path`
+    is written only when the key differs from the region; the attachment's name stays the key.
+  - **No setup attachment.** The key is the region's name, suffixed `2`, `3`… until no skin holds
+    it on that slot, and it becomes the setup attachment: every other skin then resolves a name it
+    does not hold, so default stays empty (anticipation's `payframe` slot has no setup attachment
+    but default holds a `payframe` there — adding the `payframe` region in `skin1` names it
+    `payframe2`).
+  - **The skin already holds its own image under that name.** A plain region is replaced in place,
+    inheriting its placement (no linked mesh or deform key can hang off a region). A mesh, a region
+    with a `sequence`, or another kind is refused with the reason: replacing it would throw away
+    geometry, deform / sequence keys (SkeletonJson throws on a deform or sequence key naming a
+    region without one) and linked meshes. So in an imported skin that holds its own images (the
+    only skin drawing its slots), adding an image replaces the one shown rather than adding a
+    second one beside it.
+  - **Default.** Unchanged: a new attachment under the region's name, made the setup attachment.
+  - The mesh-inheritance confirm now says, outside default, that only the skin on stage stops
+    showing the mesh. The ＋ add image select resets after a pick, so a refused add does not leave
+    the region shown in it.
+  - **Deleting default.** `skinDeleteRefusal` (shared by `deleteSkinCore`, `deleteSkin` and the
+    🗑 button) refuses `default` — a game that sets no skin draws it, the reason `renameSkin` keeps
+    its name — and the last skin; 🗑 on default alerts without asking to confirm.
+  - **Proof.** `skins-panel.mjs` (real page, headless Chromium, anticipation): add in a new skin on
+    `frame_radial1`, again there, on `payframe` (no setup), in default, and in the imported
+    `gem_default` (replacing its own); after each, every other skin draws what it drew (a fresh
+    skeleton per skin), `rigDocLoadProblem` passes, and the rig read back through the tool's loader
+    draws the same in every skin; 🗑 on default refuses and changes nothing. 71/71; the previous
+    `view.html` fails 27. `linkedmesh.mjs` asserts the same rule on the synthetic rigs and on every
+    slot of the CI rigs, in default and in a new skin (anticipation 68 + 68, S 51 + 51), plus the
+    delete refusal; the previous `view.html` fails 236 of its checks on anticipation and 195 on S.
+
 - 2026-09-30 — **Stage errors read in full.** `#err` and `#artWarn` were each `position:absolute;
   top:10px`, the same `top` as the floating `#modeBar` (z-index 5 over their 4), so the bar covered
   the middle ~330 px of every stage message at a 1280 px window ("Load failed: Parent mesh no…"),

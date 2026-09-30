@@ -43,12 +43,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    move to the parent keeping their LOCAL values, so they jump by the deleted bone's own
    transform (the confirm says they move; it does not say they jump). Composing that transform
    in would keep them in place.
-9. **Skins in the editor.** ＋ add image… makes the new image the slot's setup attachment, one name
-   for every skin: added in a skin other than default, it leaves that slot empty in default (and
-   still empty once the skin is deleted). Spine's own idiom is a same-named override in the skin —
-   a behaviour decision, not a bug fix. Deleting the default skin is still allowed while another
-   exists, though a rig without one draws nothing in a game that sets no skin (renaming it is
-   refused for that reason).
+9. ~~Skins in the editor: ＋ add image… in a non-default skin, deleting the default skin~~ — fixed
+   2026-09-30 (Recent changes); kept so the numbers after it stay put.
 10. **＋ Linked mesh onto a sequence mesh** copies its `path` (the sequence base) but not its
     `sequence`, so the linked mesh shows placeholder art. **▸ Convert to mesh on a sequence image**
     drops its `sequence` the same way: the mesh names the sequence's base, which the atlas does not
@@ -71,6 +67,18 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **＋ add image… in a skin other than default belongs to that skin only; the default
+  skin can't be deleted** (was open item 9; owner decision A). Adding an image made it the slot's
+  setup attachment, one name for every skin, so added in another skin it left the slot empty in
+  default. It is now that skin's same-named override of the name the slot shows (sampling the art
+  through `path`), and the setup attachment is left alone; a slot with no setup attachment gets the
+  region's name, suffixed until no skin holds it there, so default still draws nothing. The skin's
+  own plain image under that name is replaced in place; its own mesh, sequence or other kind is
+  refused. In default nothing changed. 🗑 on the default skin now refuses and says why.
+  `skins-panel.mjs` (real page, Chromium, 71 checks; the previous page fails 27) and
+  `linkedmesh.mjs` (every slot of the CI rigs, in default and a new skin) check that every other
+  skin draws what it drew, and that the rig read back through the loader draws the same.
 
 - 2026-09-30 — **Stage errors read in full** (was open item 11). The error bar and the amber
   missing-images banner sat at the floating mode bar's own `top`, so the middle of every stage

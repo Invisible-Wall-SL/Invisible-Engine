@@ -285,21 +285,45 @@ function onStage(what, want) {
 const namesIn = (skin, slot) => Object.keys(sandbox.rawDoc.skins.find((s) => s.name === skin)?.attachments?.[slot] ?? {});
 const otherSkins = (skin) => canon(sandbox.rawDoc.skins.filter((s) => s.name !== skin));
 const PLACEMENT = [['x', 0], ['y', 0], ['rotation', 0], ['scaleX', 1], ['scaleY', 1]];
-// ＋ add image of `region` on the selected slot: it lands in the skin on stage, as one new
-// attachment, placed like the image the slot showed — as spine-core resolves it, that skin's else
-// default's — and that skin stays on stage.
+// What each skin draws on `slot` in the setup pose — the attachment's name, its art and where — as a
+// fresh skeleton of the loaded data shows it with that skin set.
+function drawnBySkin(slot) {
+	const sd = sandbox.skeletonData, si = sd.slots.findIndex((s) => s.name === slot), sk = new SPINE.Skeleton(sd);
+	return Object.fromEntries(sd.skins.map((skin) => {
+		sk.setSkin(skin);
+		sk.setSlotsToSetupPose();
+		const a = sk.slots[si].attachment;
+		return [skin.name, a ? JSON.stringify([a.name, a.path, ...PLACEMENT.map(([k]) => a[k])]) : null];
+	}));
+}
+// ＋ add image of `region` on the selected slot: it lands in the skin on stage, placed like the image
+// the slot showed — as spine-core resolves it, that skin's else default's — the stage draws it, and
+// that skin stays on stage. In default it is a new attachment under the region's name and the
+// slot's setup attachment. In any other skin it is that skin's override of the setup name (a slot
+// without one gets a name no skin holds there), and every other skin draws exactly what it drew.
 function checkAddImage(what, skin, region) {
 	const slot = sandbox.selSlot, had = namesIn(skin, slot), others = otherSkins(skin);
 	const si = sandbox.skeletonData.slots.findIndex((s) => s.name === slot);
 	const setup = sandbox.skeletonData.slots[si].attachmentName;
 	const shown = setup ? sandbox.skeleton.getAttachment(si, setup) : null;
+	const drew = drawnBySkin(slot);
 	const err = act((s) => s.attachRegion(region));
 	if (!log(!err, `${what}: ＋ add image — the rig no longer loads: ${err}`)) return false;
-	const now = namesIn(skin, slot);
-	log(now.length === had.length + 1 && now.includes(region), `${what}: ＋ add image left [${now}] on ${slot} in "${skin}", expected [${had}] + ${region}`);
+	const setupNow = sandbox.skeletonData.slots[si].attachmentName;
+	const name = skin === 'default' ? region : setup || setupNow;
+	log(setupNow === name, `${what}: ＋ add image left the setup attachment of ${slot} "${setupNow}", expected "${name}"`);
+	const now = namesIn(skin, slot), want = had.includes(name) ? had : [...had, name];
+	log(now.join() === want.join(), `${what}: ＋ add image left [${now}] on ${slot} in "${skin}", expected [${want}]`);
 	log(otherSkins(skin) === others, `${what}: ＋ add image changed a skin other than "${skin}"`);
+	const drawn = sandbox.skeleton.slots[si].attachment;
+	log(drawn && drawn.path === region, `${what}: ＋ add image — the stage draws ${drawn && drawn.path} on ${slot}, expected ${region}`);
+	if (skin !== 'default') {
+		const after = drawnBySkin(slot);
+		const moved = Object.keys(drew).filter((k) => k !== skin && after[k] !== drew[k]);
+		log(!moved.length, `${what}: ＋ add image changed what ${moved.map((k) => `"${k}" draws on ${slot} (${drew[k]} → ${after[k]})`).join(', ')}`);
+	}
 	if (shown instanceof SPINE.RegionAttachment) {
-		const def = sandbox.rawDoc.skins.find((s) => s.name === skin).attachments[slot][region];
+		const def = sandbox.rawDoc.skins.find((s) => s.name === skin).attachments[slot][name] ?? {};
 		const lost = PLACEMENT.filter(([k, d]) => (def[k] ?? d) !== shown[k]).map(([k, d]) => `${k} ${def[k] ?? d} ≠ ${shown[k]}`);
 		log(!lost.length, `${what}: ＋ add image on ${slot} did not keep the placement of the ${setup} it showed (${lost.join(', ')})`);
 	}
@@ -591,10 +615,13 @@ console.log('\n=== skins — synthetic rig: ＋ Add skin · pick · ＋ add imag
 	err = pick(fresh);
 	log(!err, `pick "${fresh}" — ${err}`);
 	onStage(`pick "${fresh}"`, fresh);
+	// on arm, which default draws as a mesh: body is left for ⎘ Make skin-specific below
+	sandbox.selSlot = 'arm';
 	if (checkAddImage(`"${fresh}" on stage`, fresh, 'plate')) {
-		const listed = sandbox.slotAttachmentList('body').map((d) => d.skin + '›' + d.name);
-		log(listed[0] === fresh + '›plate', `"${fresh}" on stage: the slot lists [${listed}], "${fresh}"'s image first`);
+		const listed = sandbox.slotAttachmentList('arm').map((d) => d.skin + '›' + d.name);
+		log(listed[0] === fresh + '›arm', `"${fresh}" on stage: the slot lists [${listed}], "${fresh}"'s image first`);
 	}
+	sandbox.selSlot = 'body';
 	// The rig-text placement follows the same rule. (The tool places text right after a bake reloads
 	// the rig, so with default on stage — this checks the rule, not that flow.) Two synthetic regions
 	// stand in for two locales' art.
@@ -633,6 +660,11 @@ console.log('\n=== skins — synthetic rig: ＋ Add skin · pick · ＋ add imag
 		onStage('delete "jade"', 'default');
 		log(pick('jade') !== null, 'delete "jade": the picker still offers it');
 	}
+	// a game that sets no skin draws default, so it cannot be deleted while other skins exist
+	const kept = canon(sandbox.rawDoc);
+	err = act((s) => s.deleteSkin('default'));
+	log(/default skin can't be deleted/.test(err ?? '') && canon(sandbox.rawDoc) === kept, `delete "default" is refused, says why and changes nothing — ${err}`);
+	offers('delete "default"', SKINS);
 	err = act(importInto(SYNTH));
 	if (log(!err, `import — the rig no longer loads: ${err}`)) {
 		offers('import', [...SKINS, ...SKINS.map((k) => 'imp_' + k)]);
@@ -747,7 +779,19 @@ if (jsonPath && atlasPath) {
 		console.log(`  ＋ Linked mesh from new skin "${fresh}": ${added} linked meshes over ${meshSlots.length} slot(s) with a mesh`);
 	}
 
-	// ＋ add image in a skin added this session and picked in the picker, on every slot in turn
+	// ＋ add image in default, then in a skin added this session and picked in the picker, on every
+	// slot in turn
+	open(raw, atlasText, 'default');
+	{
+		const region = atlasOf(atlasText).regions[0].name;
+		let added = 0;
+		for (const slot of raw.slots.map((s) => s.name)) {
+			sandbox.selSlot = slot;
+			if (!checkAddImage(`"default" on stage, slot ${slot}`, 'default', region)) break;
+			added++;
+		}
+		console.log(`  ＋ add image in "default": ${added} of ${raw.slots.length} slot(s)`);
+	}
 	open(raw, atlasText, 'default');
 	const addErr = act((s) => s.addSkin()) || pick(sandbox.rawDoc.skins.at(-1).name);
 	if (log(!addErr, `＋ Add skin, then pick it — ${addErr}`)) {

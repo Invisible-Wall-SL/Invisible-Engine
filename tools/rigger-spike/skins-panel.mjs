@@ -16,6 +16,14 @@
 // a skin added, renamed or imported since, it read "", ＋ add image wrote into the first skin, and
 // every rebuild put the default skin back on stage.
 //
+// ＋ add image… in a skin other than default adds the image to that skin only: that skin's override
+// of the name the slot shows, so every other skin draws what it drew. It used to make the new image
+// the slot's setup attachment, which left the slot empty in default (and every skin without that
+// name). The gate adds images in a new skin (twice on one slot, and on a slot with no setup
+// attachment, where default must still draw nothing), in default, and in an imported skin that holds
+// its own image; after each, the rig is read back through the loader and must draw the same, and
+// 🗑 on the default skin must refuse.
+//
 // What it does NOT cover: R2, auth, saving.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -328,8 +336,53 @@ const slotState = (skin, slot) =>
 			regionOf: drawn && drawn.region ? drawn.region.name : null,
 			listed: slotAttachmentList(${q(slot)}).map((d) => d.skin + "›" + d.name),
 			others: JSON.stringify(rawDoc.skins.filter((s) => s.name !== ${q(skin)})),
+			setup: skeletonData.slots[si].attachmentName,
 		};
 	})()`);
+/**
+ * What each skin draws on `slot` in the setup pose — the attachment's name, its region and where —
+ * on a fresh skeleton of the loaded data, or (`reparsed`) of the rig as a save writes it, read
+ * back through the loader the tool opens rigs with.
+ */
+const drawnBySkin = (slot, reparsed = false) =>
+	evaluate(`(() => {
+		const keep = missingArt;
+		try {
+			const sd = ${reparsed}
+				? new SPINE.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(rawDoc)))
+				: skeletonData;
+			const si = sd.slots.findIndex((s) => s.name === ${q(slot)}), sk = new SPINE.Skeleton(sd);
+			return Object.fromEntries(sd.skins.map((skin) => {
+				sk.setSkin(skin);
+				sk.setSlotsToSetupPose();
+				const a = sk.slots[si].attachment;
+				return [skin.name, a ? [a.name, a.region ? a.region.name : null, a.x ?? 0, a.y ?? 0, a.rotation ?? 0, a.scaleX ?? 1, a.scaleY ?? 1] : null];
+			}));
+		} finally { missingArt = keep; }
+	})()`);
+/**
+ * The rig still loads the way a save checks it, and read back it draws on `slot` in every skin
+ * exactly what the tool draws.
+ */
+async function survivesSave(what, slot) {
+	const problem = await evaluate('rigDocLoadProblem(rawDoc)');
+	ok(`${what}: the rig loads as a save checks it`, problem === null, problem);
+	const [live, back] = [await drawnBySkin(slot), await drawnBySkin(slot, true)];
+	ok(
+		`${what}: read back, every skin draws on ${slot} what the tool draws`,
+		q(back) === q(live),
+		`${q(back)} vs ${q(live)}`,
+	);
+}
+/** Every skin but `skin` draws on `slot` what it drew in `before`. */
+function othersDrawAsBefore(what, skin, slot, before, after) {
+	const moved = Object.keys(before).filter((k) => k !== skin && q(after[k]) !== q(before[k]));
+	ok(
+		`${what} every other skin draws on ${slot} what it drew`,
+		!moved.length,
+		moved.map((k) => `"${k}": ${q(before[k])} → ${q(after[k])}`).join(', '),
+	);
+}
 
 const SLOT = 'frame_radial1';
 const REGION = 'dust1';
@@ -363,40 +416,128 @@ try {
 
 	console.log(`\n3. ＋ add image… on ${SLOT}, in the new skin`);
 	{
-		// skin1 is empty, so the slot shows default's image — the one a new image takes its place from
+		// skin1 is empty, so the slot shows default's image — the one a new image takes its place
+		// from, and the name it overrides in skin1 only
 		const before = await slotState('skin1', SLOT);
+		const drew = await drawnBySkin(SLOT);
 		await evaluate(`selectSlot(${q(SLOT)})`);
 		ok('the slot panel offers ＋ add image…', await addImage(REGION));
 		const after = await slotState('skin1', SLOT);
-		ok(`the image went into "skin1"`, q(after.names) === q([REGION]), q(after.names));
+		const name = before.setup;
+		ok(
+			`the image went into "skin1" as its own "${name}", the name the slot shows`,
+			q(after.names) === q([name]),
+			q(after.names),
+		);
+		ok('…the slot still shows that name in every skin', after.setup === name, after.setup);
 		ok('…and no other skin changed', after.others === before.others);
+		othersDrawAsBefore('…', 'skin1', SLOT, drew, await drawnBySkin(SLOT));
 		ok(
 			`…placed like the ${before.drawn} the slot showed`,
-			q(after.placed[REGION]) === q(before.drawnAt),
-			`${q(after.placed[REGION])} vs ${q(before.drawnAt)}`,
+			q(after.placed[name]) === q(before.drawnAt),
+			`${q(after.placed[name])} vs ${q(before.drawnAt)}`,
 		);
 		ok(
 			'…and the minified runtime draws it from its own region',
-			after.drawn === REGION && after.regionOf === REGION,
+			after.drawn === name && after.regionOf === REGION,
 			`${after.drawn} · ${after.regionOf}`,
 		);
-		ok(`…and the slot lists it first`, after.listed[0] === `skin1›${REGION}`, q(after.listed));
+		ok(`…and the slot lists it first`, after.listed[0] === `skin1›${name}`, q(after.listed));
 		await shows('＋ add image…', ['default', 'skin1'], 'skin1');
+		await survivesSave('＋ add image… in "skin1"', SLOT);
+
+		// again in skin1: its own plain image under that name is replaced, placed where it was
+		ok('＋ add image… again', await addImage('dust2'));
+		const again = await slotState('skin1', SLOT);
+		ok(
+			`skin1's "${name}" now draws dust2, still its only image there`,
+			q(again.names) === q([name]) && again.drawn === name && again.regionOf === 'dust2',
+			q(again),
+		);
+		ok('…placed where it was', q(again.placed[name]) === q(after.placed[name]), q(again.placed));
+		othersDrawAsBefore('…', 'skin1', SLOT, drew, await drawnBySkin(SLOT));
+		await survivesSave('＋ add image… again in "skin1"', SLOT);
+
+		// a slot with no setup attachment: default holds `payframe` there but draws nothing, and
+		// still draws nothing after skin1 gets the same region
+		const BARE = 'payframe';
+		const bare = await slotState('skin1', BARE);
+		const bareDrew = await drawnBySkin(BARE);
+		ok(
+			`${BARE} starts with no setup attachment`,
+			bare.setup === null && bareDrew.default === null,
+			q(bare),
+		);
+		await evaluate(`selectSlot(${q(BARE)})`);
+		ok(`＋ add image… ${BARE} on ${BARE}`, await addImage(BARE));
+		const bareAfter = await slotState('skin1', BARE);
+		ok(
+			`skin1 holds it under a name no skin holds there, which the slot now shows`,
+			q(bareAfter.names) === q([BARE + '2']) && bareAfter.setup === BARE + '2',
+			q(bareAfter),
+		);
+		ok(
+			'…and the runtime draws it in skin1',
+			bareAfter.drawn === BARE + '2' && bareAfter.regionOf === BARE,
+			`${bareAfter.drawn} · ${bareAfter.regionOf}`,
+		);
+		othersDrawAsBefore('…', 'skin1', BARE, bareDrew, await drawnBySkin(BARE));
+		await survivesSave(`＋ add image… on ${BARE} in "skin1"`, BARE);
+		await shows(`＋ add image… on ${BARE}`, ['default', 'skin1'], 'skin1');
 	}
 
-	console.log('\n4. rename the skin with ✎, then delete it with 🗑');
+	console.log('\n4. rename the skin with ✎, refuse 🗑 on default, then delete the skin with 🗑');
 	{
-		await evaluate('window.prompt = () => "jade"; window.confirm = () => true');
+		await evaluate(
+			'window.prompt = () => "jade"; window.__confirms = 0; window.confirm = () => (window.__confirms++, true); window.__alerts = []; window.alert = (m) => window.__alerts.push(String(m))',
+		);
 		ok('"skin1" has ✎', await skinButton('skin1', 'rename skin'));
 		await shows('✎ "skin1" → "jade"', ['default', 'jade'], 'jade');
 		const jade = await slotState('jade', SLOT);
 		ok(
 			'…and the image went with it',
-			q(jade.names) === q([REGION]) && jade.drawn === REGION,
+			q(jade.names) === q(['radial1']) && jade.drawn === 'radial1' && jade.regionOf === 'dust2',
 			q(jade),
 		);
+		const rig = await evaluate('JSON.stringify(rawDoc)');
+		ok('"default" has 🗑 while another skin exists', await skinButton('default', 'delete skin'));
+		const said = await evaluate('window.__alerts');
+		ok(
+			'…which refuses, saying a game that sets no skin draws default, without asking to confirm',
+			said.length === 1 &&
+				/sets no skin draws the default skin/.test(said[0]) &&
+				(await evaluate('window.__confirms')) === 0,
+			q(said),
+		);
+		ok('…and changes nothing', (await evaluate('JSON.stringify(rawDoc)')) === rig);
+		await shows('🗑 "default"', ['default', 'jade'], 'jade');
 		ok('"jade" has 🗑', await skinButton('jade', 'delete skin'));
 		await shows('🗑 "jade"', ['default'], 'default');
+	}
+
+	console.log(`\n4b. ＋ add image… on ${SLOT}, in default`);
+	{
+		const before = await slotState('default', SLOT);
+		await evaluate(`selectSlot(${q(SLOT)})`);
+		ok('the slot panel offers ＋ add image…', await addImage('dust3'));
+		const after = await slotState('default', SLOT);
+		ok(
+			'default gets a new image under its own name, which the slot now shows',
+			q(after.names) === q([...before.names, 'dust3']) && after.setup === 'dust3',
+			q(after),
+		);
+		ok(
+			`…placed like the ${before.drawn} the slot showed`,
+			q(after.placed.dust3) === q(before.drawnAt),
+			`${q(after.placed.dust3)} vs ${q(before.drawnAt)}`,
+		);
+		ok(
+			'…and the runtime draws it',
+			after.drawn === 'dust3' && after.regionOf === 'dust3',
+			q(after),
+		);
+		await survivesSave('＋ add image… in default', SLOT);
+		await shows('＋ add image… in default', ['default'], 'default');
 	}
 
 	console.log('\n5. ⤵ import a rig, then work in its skin');
@@ -407,20 +548,27 @@ try {
 		await shows('click "gem_default"', ['default', 'gem_default'], 'gem_default');
 		const slot = 'gem_' + SLOT;
 		const before = await slotState('gem_default', slot);
+		const drew = await drawnBySkin(slot);
 		await evaluate(`selectSlot(${q(slot)})`);
 		ok('the imported slot offers ＋ add image…', await addImage(REGION));
 		const after = await slotState('gem_default', slot);
+		// gem_default holds its own plain image under the name the slot shows: that one is replaced
 		ok(
-			'the image went into "gem_default"',
-			q(after.names) === q([...before.names, REGION]),
-			q(after.names),
+			`the image replaced "gem_default"'s own "${before.setup}"`,
+			q(after.names) === q(before.names) &&
+				after.setup === before.setup &&
+				after.drawn === before.setup &&
+				after.regionOf === REGION,
+			q(after),
 		);
 		ok('…and no other skin changed', after.others === before.others);
+		othersDrawAsBefore('…', 'gem_default', slot, drew, await drawnBySkin(slot));
 		ok(
 			`…placed like the ${before.drawn} the slot showed`,
-			q(after.placed[REGION]) === q(before.drawnAt),
-			`${q(after.placed[REGION])} vs ${q(before.drawnAt)}`,
+			q(after.placed[before.setup]) === q(before.drawnAt),
+			`${q(after.placed[before.setup])} vs ${q(before.drawnAt)}`,
 		);
+		await survivesSave('＋ add image… in "gem_default"', slot);
 		await shows('＋ add image… in "gem_default"', ['default', 'gem_default'], 'gem_default');
 	}
 

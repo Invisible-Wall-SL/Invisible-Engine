@@ -274,13 +274,14 @@ a rival answer to the same question. Move the box, or bind a different bone.
   the image a slot shows — its x / y / rotation / scale, its pivot, **replace image
   (keep mesh)**, **▸ Convert to mesh**, **✎ Draw mesh** — changes the image you see:
   the active skin's own, or, when that skin only inherits it, default's, which every
-  skin without its own image there shows too. Note that
-  **＋ add image…** also makes the new image the one the slot shows in *every* skin, so
-  adding it while another skin is active leaves that slot empty in `default`. Rename (✎),
-  delete (🗑, the last skin can't be removed), and **＋ Add skin** (a new skin starts
-  empty; click it to work in it). The skin named `default` can't be renamed: a game
-  draws it whenever no skin is chosen, and falls back to it for any slot another
-  skin leaves empty.
+  skin without its own image there shows too. **＋ add image…** in `default` adds a new
+  image that the slot then shows (in every skin without its own). In any other skin the
+  image belongs to that skin only: it becomes that skin's own image under the name the
+  slot already shows, so `default` and every other skin look exactly as before (see
+  **Traps**). Rename (✎), delete (🗑), and **＋ Add skin** (a new skin starts empty;
+  click it to work in it). The skin named `default` can't be renamed or deleted, and the
+  last skin can't be deleted: a game draws `default` whenever no skin is chosen, and
+  falls back to it for any slot another skin leaves empty.
 - **What a delete takes with it:** deleting a bone, slot, attachment or skin also
   removes every IK / transform / path / physics constraint that can no longer work
   without it (an IK or transform constraint whose target bone went, one left with
@@ -1012,6 +1013,14 @@ they appear in no scene.
   **Bounds** frame round the art that should fill the cell (a custom frame is locked against the
   auto-fit), or keep the effect's attachment empty in the setup pose and key it on in the
   animation.
+- **＋ add image… in a skin other than `default` names the image after the slot, not the art.**
+  Spine picks a slot's image by NAME, then looks it up in the skin on stage, else in `default`. So
+  to show new art in one skin only, the image is stored in that skin under the name the slot
+  already shows (e.g. `radial1`), drawing the art you chose (e.g. `dust1`); the slot list shows it
+  under that name. Adding again in the same skin replaces that skin's image, keeping where it sat;
+  if that skin's image there is a mesh or an image sequence, the add is refused (use **replace
+  image (keep mesh)…**). A slot that shows nothing gets the art's own name, or `name2`, `name3`…
+  when another skin already holds that name there, so `default` still shows nothing on it.
 
 ## Known limitations / TODOs
 
