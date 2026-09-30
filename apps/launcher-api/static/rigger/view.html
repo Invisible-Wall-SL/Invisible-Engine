@@ -2241,10 +2241,12 @@ function buildInspector(entry){
     if (editMode){
       const ctl = document.createElement("span");
       ctl.style.cssText = "float:right;display:inline-flex;gap:2px;";
-      const rn = document.createElement("button");
-      rn.textContent = "✎"; rn.title = "rename skin"; rn.style.cssText = "padding:0 6px;";
-      rn.onclick = (e) => { e.stopPropagation(); const nn = prompt("Rename skin", sk.name); if (nn) renameSkin(sk.name, nn); };
-      ctl.appendChild(rn);
+      if (sk.name !== "default"){ // renameSkin says why the default skin keeps its name
+        const rn = document.createElement("button");
+        rn.textContent = "✎"; rn.title = "rename skin"; rn.style.cssText = "padding:0 6px;";
+        rn.onclick = (e) => { e.stopPropagation(); const nn = prompt("Rename skin", sk.name); if (nn) renameSkin(sk.name, nn); };
+        ctl.appendChild(rn);
+      }
       if (skeletonData.skins.length > 1){
         const del = document.createElement("button");
         del.textContent = "🗑"; del.title = "delete skin"; del.style.cssText = "padding:0 6px;";
@@ -4603,11 +4605,13 @@ function renameSlot(oldName, newName){
   markDirty();
 }
 
-// Rename a skin, rewriting every reference to it: the linked meshes whose parent lives in it (by
-// `skin`, or implicitly when it is the default) and the animations' deform / sequence keys, which
-// SkeletonJson resolves by skin name and throws on.
+// Rename a skin, rewriting every reference to it: the linked meshes whose parent lives in it and
+// the animations' deform / sequence keys, which SkeletonJson resolves by skin name and throws on.
+// The skin named "default" keeps its name: Spine draws it when no skin is set (how the game mounts
+// a rig unless a `skin` prop names one) and falls back to it for every slot another skin leaves
+// empty, so a rig without it draws nothing there.
 function renameSkin(oldName, newName){
-  if (!rawDoc) return;
+  if (!rawDoc || oldName === "default") return;
   newName = cleanName(newName);
   if (!newName || newName === oldName || (rawDoc.skins || []).some((s) => s.name === newName)) return;
   for (const sk of rawDoc.skins || []){
@@ -4737,7 +4741,7 @@ function deleteBoneCore(doc, name){
     if (!anyDropped) continue;
     remapWeightedDeform(doc, sk.name, slotName, attName, src, entry);
     for (const other of doc.skins || []) for (const [childName, child] of Object.entries((other.attachments || {})[slotName] || {}))
-      if (child && child.parent === attName && child.timelines === false && (child.skin || "default") === sk.name)
+      if (isRawLinkedMeshDef(child) && child.parent === attName && child.timelines === false && linkedMeshParentSkin(child) === sk.name)
         remapWeightedDeform(doc, other.name, slotName, childName, src, entry);
   }
   return { heir, removed };
@@ -4789,8 +4793,8 @@ function dropSlotFromDrawOrderKey(frame, oldNames, name){
 // and takes over the parent's deform keys when it inherited them, so it shows and moves as before.
 function detachLinkedMeshes(doc, isGone){
   for (const sk of doc.skins || []) for (const [slotName, slot] of Object.entries(sk.attachments || {})) for (const [attName, att] of Object.entries(slot)){
-    if (!att || !att.parent || (att.type !== "mesh" && att.type !== "linkedmesh")) continue;
-    const parentSkin = att.skin || "default";
+    if (!isRawLinkedMeshDef(att)) continue;
+    const parentSkin = linkedMeshParentSkin(att);
     const ps = (doc.skins || []).find((x) => x.name === parentSkin);
     const parent = ps && ps.attachments && ps.attachments[slotName] && ps.attachments[slotName][att.parent];
     if (!parent || !isGone(parentSkin, slotName, att.parent)) continue;
@@ -6950,14 +6954,17 @@ function rawDocAttEntry(attName){
 }
 
 // Write a new attachment def into the skin that should define this slot (active skin; create the
-// slot map if absent). Returns the chosen attachment name (unique on the slot). If makeActive and
-// the slot has no setup attachment, make this the active one so it renders/edits.
+// slot map if absent). Returns the chosen attachment name, unique on the slot AND in that skin:
+// `slotAttachmentList` follows the top-bar skin picker, which has no option for a skin added,
+// renamed or imported since the rig opened, so on its own it can miss a name the skin holds and
+// the new def would silently replace that attachment. If makeActive and the slot has no setup
+// attachment, make this the active one so it renders/edits.
 function addAttachmentToActiveSkin(baseName, def, makeActive){
-  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name));
-  let attName = baseName; let i = 2; while (existing.has(attName)) attName = baseName + (i++);
   const skName = activeSkinName();
   let sk = rawDoc.skins.find((s) => s.name === skName); if (!sk){ sk = { name: skName, attachments: {} }; rawDoc.skins.push(sk); }
   sk.attachments = sk.attachments || {}; sk.attachments[selSlot] = sk.attachments[selSlot] || {};
+  const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name).concat(Object.keys(sk.attachments[selSlot])));
+  let attName = baseName; let i = 2; while (existing.has(attName)) attName = baseName + (i++);
   sk.attachments[selSlot][attName] = def;
   const sdRaw = rawDoc.slots.find((s) => s.name === selSlot);
   if (makeActive && sdRaw && !sdRaw.attachment) sdRaw.attachment = attName;
