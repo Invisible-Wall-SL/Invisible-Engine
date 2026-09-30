@@ -159,6 +159,14 @@ export const buildStamp = (debug) => ({
 	debug,
 });
 
+/**
+ * `IE_SOURCEMAPS=hidden` (the runtime release) writes source maps WITHOUT a `sourceMappingURL`
+ * comment, for `scripts/sentry-sourcemaps.mjs` to upload to Sentry and then delete. The repo and the
+ * bundle are public, so a map must never ship next to the code; unset keeps a production build
+ * map-less.
+ */
+const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? 'hidden' : false);
+
 export default () =>
 	defineConfig({
 		plugins: [sveltekit(), lingui()],
@@ -175,9 +183,9 @@ export default () =>
 		// (a Worker's `importScripts()` rejects `data:` but accepts `blob:`).
 		build: {
 			assetsInlineLimit: Infinity,
-			sourcemap: dev ? true : false,
+			sourcemap: sourcemap(),
 			output: {
-				sourcemap: dev ? true : false,
+				sourcemap: sourcemap(),
 			},
 		},
 	});

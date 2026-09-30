@@ -195,6 +195,16 @@ const swap = await readPointerForSwap(r2, runtimeId);
 
 const files = [];
 for await (const file of walk(buildDir)) files.push(file);
+// Every release is public: a source map here would publish the engine's source next to the bundle.
+// The release job uploads maps to Sentry and deletes them first (scripts/sentry-sourcemaps.mjs).
+const maps = files.filter((file) => file.endsWith('.map'));
+if (maps.length) {
+	console.error(
+		`Refusing to publish source maps: ${maps.map((f) => relative(buildDir, f)).join(', ')}. ` +
+			`Run node scripts/sentry-sourcemaps.mjs runtime ${buildDir} first.`,
+	);
+	process.exit(1);
+}
 let bytes = 0;
 const UPLOAD_CONCURRENCY = 8;
 for (let i = 0; i < files.length; i += UPLOAD_CONCURRENCY) {

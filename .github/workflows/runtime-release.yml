@@ -135,6 +135,10 @@ jobs:
       # PUBLIC_SENTRY_DSN turns on client error reporting (packages/error-tracking); without the
       # secret the bundle carries no SDK at all. PUBLIC_BUILD_SHA names the commit in every report,
       # the same prefix the release is stored under (`_runtime/<id>@<sha12>`).
+      #
+      # IE_SOURCEMAPS=hidden writes the bundle's source map with no reference to it, for the next
+      # step to upload to Sentry and delete. Always on, token or not, so the strip + gate below run
+      # on every release rather than only once someone configures Sentry.
       - name: Build the ${{ env.RUNTIME }} runtime
         env:
           PUBLIC_RGS_TRANSPORT: play4fun
@@ -142,7 +146,26 @@ jobs:
           PUBLIC_BUILD_SHA: ${{ github.sha }}
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
+          IE_SOURCEMAPS: hidden
         run: pnpm --filter ${{ env.RUNTIME }} build
+
+      # The repo and every served bundle are PUBLIC, so the map goes to Sentry and nowhere else. The
+      # script re-bases it onto index.html (the game is one inlined file, so frames are numbered by
+      # the page, not the bundle), tags page + map with one debug ID, uploads them for the release
+      # the SDK reports (the commit's first 12 chars), then deletes every .map from the build.
+      # No SENTRY_AUTH_TOKEN (or org/project) → the upload is skipped with a notice; a failed upload
+      # is a warning. Neither ever fails the release — only a map left in the build does.
+      - name: Upload source maps to Sentry and strip them from the build
+        env:
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+        run: node scripts/sentry-sourcemaps.mjs runtime "apps/${{ env.RUNTIME }}/build"
+
+      - name: 'Gate: no source map or sourceMappingURL ships'
+        run: node scripts/sentry-sourcemaps.mjs verify "apps/${{ env.RUNTIME }}/build"
 
       - name: Publish to _runtime/${{ env.RUNTIME }}@<version> and promote it
         env:
