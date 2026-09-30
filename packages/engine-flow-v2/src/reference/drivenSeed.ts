@@ -81,6 +81,7 @@ import {
 	type ChoreoStep,
 } from './bookOfChoreo';
 import { BOOK_OF_VOCAB } from './bookOf';
+import { resolveTemplateId, UNREGISTERED_TEMPLATE_FALLBACK } from './registry';
 import { WAYS_VOCAB } from './ways';
 
 // Canonical scaffold container ids (a fresh book-of project's scenes).
@@ -509,13 +510,33 @@ const DRIVEN_SEEDS: Record<string, FlowDoc> = {
 };
 
 /**
- * A fresh DEEP CLONE of the starter flow for `templateId` — the doc a new project is seeded with, so
- * it owns an independent copy the editor can mutate + save without touching the shared reference.
- *
- * Falls back to the book-of seed for an unregistered id, matching `templateVocabulary()`: an editor
- * that opened on a blank canvas would be a worse failure than one that opened on a flow to edit.
+ * Built-in kinds that ship no starter flow of their own, and the seed each one is scaffolded with —
+ * named so the borrowing is visible rather than a silent floor. The borrowed seed carries ITS
+ * `templateId`, so such a project also runs that template's vocabulary (a cluster project runs the
+ * Book-of vocabulary, not `CLUSTER_VOCAB`). A chain resolves (`holdAndWin` → `lines` → `bookOf`).
+ *  - `lines`, `cluster`, `scatter`: the Book-of seed (parity — what they have always been given).
+ *  - `holdAndWin`: whatever `lines` gets, until Hold and Win Phase 5 registers its own seed.
  */
-export function freshDrivenSeedDoc(templateId?: string): FlowDoc {
-	const doc = (templateId ? DRIVEN_SEEDS[templateId] : undefined) ?? BOOK_OF_DRIVEN_SEED_DOC;
-	return JSON.parse(JSON.stringify(doc)) as FlowDoc;
+export const DRIVEN_SEED_FALLBACKS: Readonly<Record<string, string>> = {
+	lines: BOOK_OF_DRIVEN_SEED_DOC.templateId,
+	cluster: BOOK_OF_DRIVEN_SEED_DOC.templateId,
+	scatter: BOOK_OF_DRIVEN_SEED_DOC.templateId,
+	holdAndWin: 'lines',
+};
+
+/**
+ * The seed id a game type resolves to: its own when registered, else through
+ * {@link DRIVEN_SEED_FALLBACKS}, else the Book-of seed (an author-created custom kind) — matching
+ * `templateVocabulary()`: an editor that opened on a blank canvas would be a worse failure than one
+ * that opened on a flow to edit.
+ */
+export const drivenSeedTemplateId = (gameType?: string): string =>
+	resolveTemplateId(gameType, DRIVEN_SEEDS, DRIVEN_SEED_FALLBACKS, UNREGISTERED_TEMPLATE_FALLBACK);
+
+/**
+ * A fresh DEEP CLONE of the starter flow for a game type — the doc a new project is seeded with, so
+ * it owns an independent copy the editor can mutate + save without touching the shared reference.
+ */
+export function freshDrivenSeedDoc(gameType?: string): FlowDoc {
+	return JSON.parse(JSON.stringify(DRIVEN_SEEDS[drivenSeedTemplateId(gameType)])) as FlowDoc;
 }

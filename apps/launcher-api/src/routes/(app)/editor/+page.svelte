@@ -32,6 +32,7 @@
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
+	import { GAME_KINDS } from 'constants-shared/gameKinds';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -2113,11 +2114,7 @@
 
 	// ---------- template authoring (§7.5) ----------
 
-	/** Known game types (mirrors game-spec's GameTypeSchema) — what a saved
-	 * template is keyed by in R2. Lets you author e.g. a `bookOf` template even
-	 * though a project's resolved game type defaults to `lines` for now. */
-	const GAME_TYPES = ['lines', 'ways', 'cluster', 'scatter', 'bookOf'] as const;
-	/** The game type the authored template is saved under (§7.5). */
+	/** The game type the authored template is saved under (§7.5), picked from `GAME_KINDS`. */
 	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
 
 	// ---------- game settings (jurisdiction + player-led speed features) ----------
@@ -2635,7 +2632,7 @@
 				<label class="gametype" title="Game type the template is saved under">
 					<span>type</span>
 					<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
-						{#each GAME_TYPES as gt (gt)}
+						{#each GAME_KINDS as gt (gt)}
 							<option value={gt}>{gt}</option>
 						{/each}
 					</select>

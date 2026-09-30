@@ -30,6 +30,7 @@
 
 import assert from 'node:assert/strict';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
+import { GAME_KINDS } from 'constants-shared/gameKinds';
 import { derivePublishBlock, launcherProfileFor } from '../src/lib/server/launcherProfile';
 import { protocolFor } from '../src/lib/server/mockProtocol';
 
@@ -51,6 +52,7 @@ ok('every built-in kind maps to its own mock', () => {
 	assert.equal(protocolFor('ways'), 'ways');
 	assert.equal(protocolFor('cluster'), 'cluster');
 	assert.equal(protocolFor('scatter'), 'scatter');
+	assert.equal(protocolFor('holdAndWin'), 'holdAndWin');
 });
 ok('a custom kind falls back to the lines mock, not to undefined', () => {
 	// §21.6 custom kinds are author-created ids with no mock of their own.
@@ -58,7 +60,7 @@ ok('a custom kind falls back to the lines mock, not to undefined', () => {
 	assert.equal(protocolFor(''), 'lines');
 });
 ok('the derived block reads the SAME map (no second copy)', () => {
-	for (const kind of ['lines', 'bookOf', 'ways', 'cluster', 'scatter', 'whatever']) {
+	for (const kind of [...GAME_KINDS, 'whatever']) {
 		assert.equal(
 			derivePublishBlock({ key: 'k', name: 'K', gameType: kind }).protocol,
 			protocolFor(kind),

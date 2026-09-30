@@ -109,7 +109,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		bigTiers,
 		projectName: await projectName(projectKey),
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
-		// this — they show only for a book game (`gameType === 'bookOf'`).
+		// this — they show only for a kind with the book reveal (`kindCapabilities`).
 		gameType,
 		// Does this project tumble? Gates the `Clear reel` column, which only means anything to
 		// a cascading game. Resolved (not the raw stored field) so the answer matches the one the game

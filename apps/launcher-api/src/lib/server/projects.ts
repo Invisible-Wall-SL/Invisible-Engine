@@ -11,7 +11,7 @@ import {
 } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
-import { DEFAULT_GAME_KIND } from '$lib/roles';
+import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 
@@ -104,7 +104,7 @@ export async function projectName(key: string): Promise<string | null> {
  *
  * Returns the stored `game_type` verbatim when non-empty (a built-in kind id OR
  * an author-created custom kind id — §21.6), otherwise (null / legacy rows) falls
- * back to the default `'lines'`. No `isGameKind` restriction: a custom kind id is a
+ * back to the default `'lines'`. No built-in-kind restriction: a custom kind id is a
  * valid value now, and the admin actions are the gatekeeper that validate against
  * the built-in + custom union before writing. The DB read is wrapped in try/catch
  * returning the default — a TRANSITIONAL guard for the brief deploy window where the

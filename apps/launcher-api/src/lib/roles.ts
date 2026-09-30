@@ -37,23 +37,6 @@ export function roleLabel(role: string): string {
 	return ROLE_LABELS[role as Role] ?? role;
 }
 
-/**
- * The game kinds a project can target — mirrors the Invisible Editor's
- * `GAME_TYPES` (and game-spec's `GameTypeSchema`). A project's recorded kind
- * picks its editor template + scaffold projection. Defined ONCE here so the
- * admin create/edit selects and `projectGameType` validation share it. The
- * default when unset is `'lines'`.
- */
-export type GameKind = 'lines' | 'ways' | 'cluster' | 'scatter' | 'bookOf';
-
-export const GAME_KINDS: GameKind[] = ['lines', 'ways', 'cluster', 'scatter', 'bookOf'];
-
-export const DEFAULT_GAME_KIND: GameKind = 'lines';
-
-export function isGameKind(value: unknown): value is GameKind {
-	return typeof value === 'string' && (GAME_KINDS as string[]).includes(value);
-}
-
 export type ToolKind = 'online' | 'local';
 
 export interface ToolDef {

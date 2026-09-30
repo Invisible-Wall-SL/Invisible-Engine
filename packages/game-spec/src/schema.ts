@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { locales } from 'config-lingui';
+import { GAME_KINDS } from 'constants-shared/gameKinds';
 
 /**
  * Game Spec — the single authoring document for a game's frontend.
@@ -21,12 +22,14 @@ import { locales } from 'config-lingui';
 export const LocaleSchema = z.enum(locales as unknown as [string, ...string[]]);
 export type Locale = (typeof locales)[number];
 
-// Mechanic / template the game starts from.
-export const GameTypeSchema = z.enum(['lines', 'ways', 'cluster', 'scatter', 'bookOf']);
+// Mechanic / template the game starts from — the one built-in kind list, not a copy of it.
+export const GameTypeSchema = z.enum(GAME_KINDS);
 
-// Symbol role — drives engine behaviour AND info-page rendering.
+// Symbol role — drives engine behaviour AND info-page rendering. The Hold and Win roles (from
+// `coin` on) are the design's §5 Symbols row (docs/design/hold-and-win.md).
 export const SymbolKindSchema = z.enum([
 	'high', 'low', 'wild', 'scatter', 'wildScatter', 'bonus', 'multiplier',
+	'coin', 'jackpotCoin', 'collector', 'payer', 'mystery', 'meterSpecial', 'blank',
 ]);
 
 export const SymbolAssetSchema = z.object({
