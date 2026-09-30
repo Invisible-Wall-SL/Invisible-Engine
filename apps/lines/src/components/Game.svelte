@@ -54,6 +54,7 @@
 		registerBuyFeature,
 		registerHudMenus,
 		BuyBonusConfirm,
+		RoundStartConfirm,
 	} from 'components-ui-html';
 	import {
 		LayoutScene,
@@ -943,6 +944,11 @@
 			editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ??
 			fallbackBuyConfirm,
 	);
+	// The operator's round-start CONFIRM (`confirmGameRoundStart`) — an authored `roundConfirm`
+	// scene if the doc has one, else `undefined` ⇒ `<ConfirmDialog>` renders the engine default.
+	// There is no `roundConfirm` ROLE and no seeded fallback: a doc that never authored it gets the
+	// engine's dialog, not a copy of the buy page.
+	const roundConfirmScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'roundConfirm'));
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -1238,6 +1244,9 @@
 		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
 		// (which would show the confirm dialog permanently).
 		'buyConfirm',
+		// The round-start CONFIRM is mounted by its OWN `<RoundStartConfirm>` takeover (below), gated
+		// on a pending confirmation — same reason as `buyConfirm`.
+		'roundConfirm',
 		// The bet-amount and auto-spin menus are shown ONLY by the flow (a `Show` wired off the HUD
 		// bet readout's `onBetMenu` / the auto-spin button's `onAutoSpin`). Unlike the buy screens
 		// they have no coded takeover at all — with no flow wiring the coded HTML modal opens instead
@@ -2313,6 +2322,12 @@
 			returns to the SELECT screen. Uses the authored/fallback `buyConfirm` scene.
 		-->
 	<BuyBonusConfirm zIndex={LAYER_BAND_TAKEOVER} scene={buyConfirmScene} />
+	<!--
+			The operator's round-start CONFIRM (`confirmGameRoundStart`) — the same in-canvas
+			`<ConfirmDialog>` at the same takeover band, shown only while `newGame` holds a paid round on
+			the player's answer. An operator that never asked ⇒ it never opens.
+		-->
+	<RoundStartConfirm zIndex={LAYER_BAND_TAKEOVER} scene={roundConfirmScene} />
 	<!-- Engine-owned TOP band (§11.5-C): the coded path's free-spin counter + the info overlay sit at
 			 a FIXED `LAYER_BAND_TOP` z, ABOVE every doc-ordered layerable scene — so an author reordering
 			 the HUD/overlays/specialBook in the editor can never bury them. The free-spin intro / outro are

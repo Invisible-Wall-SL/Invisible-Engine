@@ -1,12 +1,9 @@
 import { stateI18n } from 'state-shared';
 
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
-import { stateBet } from 'state-shared';
+import { stateBet, stateOperator } from 'state-shared';
 
-const NO_LOCALISATION_CURRENCY_MAP: Record<string, string> = {
-	XGC: 'GC',
-	XSC: 'SC',
-};
+import { formatMoney, moneyFractionDigits, parseMoneyPattern } from './money';
 
 // bookEventAmount: is the amount or win numbers in the events of books, e.g. the amount in setTotalWin bookEvent
 // {
@@ -29,78 +26,30 @@ export const bookEventAmountToNormalisedAmount = (bookEventAmount: number) => {
 
 export const numberToFloat = (value: number) => Number.parseFloat(`${value}`);
 
-/** The `currency` part of a narrow-symbol rendering (`R$`, `¥`, `zł`), or undefined when
- *  the runtime can't format that code. Read off `formatToParts` so the glyph comes back
- *  clean, without digits, spaces or the locale's grouping. */
-const narrowSymbolOf = (locale: string, currency: string): string | undefined => {
-	try {
-		return new Intl.NumberFormat(locale, {
-			style: 'currency',
-			currency,
-			currencyDisplay: 'narrowSymbol',
-		})
-			.formatToParts(0)
-			.find((part) => part.type === 'currency')?.value;
-	} catch {
-		return undefined;
-	}
-};
-
-const narrowSymbolUniqueCache = new Map<string, boolean>();
+/**
+ * THE money formatter: every amount the player reads — HUD, win text, buy prices, the info page —
+ * comes through here, so the operator's `currencySymbol` / `currencyFormat` reach all of them. The
+ * rules live in `money.ts` (`formatMoney`).
+ */
+export const numberToCurrencyString = (value: number, minimumDecimals?: number) =>
+	formatMoney(value, {
+		locale: stateI18n.i18n.locale,
+		currency: stateBet.currency,
+		symbol: stateOperator.currencySymbol,
+		pattern: stateOperator.currencyFormat,
+		minimumDecimals,
+	});
 
 /**
- * Is `currency`'s narrow symbol unambiguous in `locale`?
- *
- * `Intl`'s default (`currencyDisplay: 'symbol'`) prints the ISO code wherever CLDR
- * judges the glyph ambiguous FOR THAT LOCALE — Italian renders `€` and `£` but
- * `1234,50 USD`, because a bare `$` doesn't tell an Italian reader WHICH dollar.
- * Forcing `narrowSymbol` everywhere wins back `R$`, `zł`, `₹`, `₺` — but collapses
- * USD/CAD/AUD/NZD/MXN/ARS/CLP to one indistinguishable `$`, which is not acceptable
- * in a money product.
- *
- * So take the narrow symbol only when nothing else claims it. Uniqueness is COMPUTED,
- * not listed: every currency the runtime knows (`Intl.supportedValuesOf`) is narrow-
- * formatted and compared, so the answer tracks the platform's own CLDR data instead of
- * a hand-kept table that would silently rot. Cached per (locale, currency) — a session
- * has one of each, so this scan runs once. A runtime without `supportedValuesOf` can't
- * prove uniqueness and keeps the `symbol` behaviour.
+ * The decimals a bare, symbol-less amount prints with: two, unless the operator's `currencyFormat`
+ * states fewer and the amount has nothing below them. For the surfaces that print money without the
+ * currency rendering (the bet ladder), so they agree with it on decimals.
  */
-const narrowSymbolIsUnique = (locale: string, currency: string): boolean => {
-	const cacheKey = `${locale}|${currency}`;
-	const cached = narrowSymbolUniqueCache.get(cacheKey);
-	if (cached !== undefined) return cached;
-
-	const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
-		.supportedValuesOf;
-	const target = narrowSymbolOf(locale, currency);
-	const all = typeof supportedValuesOf === 'function' ? supportedValuesOf('currency') : [];
-	const unique =
-		!!target &&
-		all.length > 0 &&
-		!all.some((other) => other !== currency && narrowSymbolOf(locale, other) === target);
-
-	narrowSymbolUniqueCache.set(cacheKey, unique);
-	return unique;
-};
-
-export const numberToCurrencyString = (value: number) => {
-	if (stateBet.currency in NO_LOCALISATION_CURRENCY_MAP) {
-		return `${NO_LOCALISATION_CURRENCY_MAP[stateBet.currency]} ${numberToFloat(value).toFixed(2)}`;
-	}
-
-	const locale = stateI18n.i18n.locale;
-	return stateI18n.i18n.number(value, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-		style: 'currency',
-		currency: stateBet.currency,
-		// Prefer the glyph where it can't be mistaken for another currency; fall back to
-		// `Intl`'s own (code-or-symbol) choice where it can. See `narrowSymbolIsUnique`.
-		...(narrowSymbolIsUnique(locale, stateBet.currency)
-			? { currencyDisplay: 'narrowSymbol' as const }
-			: {}),
-		// numberingSystem: 'latn',
-	});
+export const amountFractionDigits = (value: number): number => {
+	const pattern = stateOperator.currencyFormat
+		? parseMoneyPattern(stateOperator.currencyFormat)
+		: null;
+	return pattern ? moneyFractionDigits(value, pattern.decimals) : 2;
 };
 
 export const bookEventAmountToCurrencyString = (bookEventAmount: number) => {

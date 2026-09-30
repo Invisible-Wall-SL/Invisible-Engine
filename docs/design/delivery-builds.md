@@ -152,10 +152,11 @@ reference client rather than inferred — which settled two of these three and c
    defaults, so each one was overwritten, and the engine read none of them anyway. Now
    `enableTurbo` / `allowAutoplay` / `allowOutcomeBuy` LOCK turbo, autoplay and every buy off for the
    launch — a lock the game's own authored settings cannot lift. `disabledBuyFeature` is no longer
-   invented as `true` for a server with no bet table. Still open: `minNormalBet` / `maxNormalBet`
-   (their units are unconfirmed, so nothing clamps the ladder yet). `showTheoreticalPayback`
-   arrives as `displayRTP` and, since 2026-09-29, shows the RTP on the info page rules. Record:
-   [engine status](../status/engine.md), 2026-09-28.
+   invented as `true` for a server with no bet table. `showTheoreticalPayback` arrives as
+   `displayRTP` and, since 2026-09-29, shows the RTP on the info page rules. Since 2026-09-30
+   `minNormalBet` / `maxNormalBet` clamp the ladder, read as credits (units still to confirm with
+   the partner) — see "What we honour" below. Record: [engine status](../status/engine.md),
+   2026-09-28 and 2026-09-30.
 3. **Cascade vocabulary.** `tumbleStep`/`multiplierCollect` in the facade are OUR mock's invention,
    not a capture — and the reference client is the strongest evidence yet: it covers gamble, pickups,
    free rounds and fast play, and has **no cascade vocabulary at all**. Whatever Stargate's tumbles
@@ -232,26 +233,21 @@ honouring a new one is a one-line read that cannot break an operator who has not
 field is cheap on both sides; the expensive thing is inventing client behaviour for a value the
 operator never declared, which is the mistake `betOptionsName` nearly walked us into.
 
-### What we should ask for — and what we should honour first
+### What we honour — every declared field, neutral when absent ✅ BUILT 2026-09-30
 
-Nothing is blocking: every field the client currently reads already exists in `eanew`. The gap runs
-the other way — fields that are **already there** and which we still answer ourselves:
+The gap this section used to list — fields already declared in `eanew` that we still answered
+ourselves — is closed. **Owner decision (2026-09-30): any game can be published under ANY
+jurisdiction**, so the game carries no per-market logic: each behaviour follows only what the
+operator's `config` declares, and an absent field gives the neutral default (the behaviour off, the
+surface not shown). One reader types them all (`delivery-profile/src/operator.ts`), and the
+field-by-field table — meaning, neutral default, where the engine honours it, and which meanings are
+inferred — lives in ONE place: [`docs/reference/play4fun-protocol.md` § Host settings](../reference/play4fun-protocol.md#host-settings--gamesettingsconfig-2026-09-30).
+Current state and what is still owed to the partner: [engine status](../status/engine.md).
 
-| Already declared, not yet honoured                                                                                  | What we do instead today              |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `minNormalBet` · `maxNormalBet`                                                                                     | the ladder is not clamped (units TBC) |
-| `currencySymbol` · `currencyFormat` · `isLockChangeCurrency`                                                        | format money from our own config      |
-| `locale`                                                                                                            | Lingui's own resolution               |
-| `autoplayDisabled` · `autoplaySpins`                                                                                | a coded autoplay menu                 |
-| `minSpinDuration`                                                                                                   | coded spin timing                     |
-| `home`                                                                                                              | no lobby/exit affordance              |
-| `showCreditValue` · `showBetRanges` · `errorPanel` · `clock` · `elapsedTime` · `showTime` · `confirmGameRoundStart` | coded on/off                          |
-| `historyClient` · `externalHistoryUrl`                                                                              | no history surface                    |
-
-Each is an operator's declaration about a REGULATED or contractual surface, so each one we answer
-ourselves is a place a delivery can be wrong for a jurisdiction. Work through them by how much they
-cost to get wrong — the bet ladder first, then currency, then autoplay. The ladder itself
-(`betMultipliers`, `initialBetMultiplierIndex`) and `allowAutoplay` are honoured since 2026-09-28.
+A delivery's `config.json` cannot override any of these: they are the operator's own declaration,
+read off their page at launch, and the profile's overridable fields are the RGS and session wiring
+above. To try one without the partner, the Invisible Test Server plays the operator
+(`hostSettings` on a game's manifest entry, or `?host=<json>` per launch).
 
 ### A real delivery names no RGS host at all (`rgs.source: 'host'`) ✅ BUILT
 

@@ -28,7 +28,10 @@ import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
 import {
 	stateBet,
 	stateBetDerived,
+	stateOperator,
 	stateUi,
+	stateUrlDerived,
+	spinClock,
 	showMessage as showGameMessage,
 	armAutoSpins,
 	openBetMenu,
@@ -988,6 +991,28 @@ export const presentReveal = async ({
 	// A new board ⇒ last spin's expansion is over. Cleared BEFORE the board arrives so a `winInfo` can
 	// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
 	stateGame.expandedSymbol = null;
+
+	// THE OPERATOR'S MINIMUM SPIN DURATION: this spin's result may not show sooner than
+	// `minSpinDuration` after the spin started — the press for a paid round's first reveal
+	// (`newGame` marked it), this reveal's own start for a free spin or a resumed round
+	// (`spinClock`). Here, the one reveal both drivers call, so the coded handler and the flow-v2
+	// `revealBoard` effect are held alike, base spin and every free spin. A plain timer, not
+	// `interruptible` and not `roundSkip.wait`: a slam or turbo cannot cut it short, only land the
+	// reels at once when it ends. The reels ROLL through it — a free spin, or a round whose press
+	// skipped the pre-spin (turbo autoplay, Space hold), starts the same roll `onNewGameStart` would
+	// have; a swap-in-place board has no roll and just waits before its drop-in. No minimum (the
+	// neutral default) or a replay ⇒ this block is skipped whole: not one await, not one pre-spin.
+	if (stateOperator.minSpinDuration > 0 && !stateUrlDerived.replay()) {
+		const deadline = spinClock.revealDeadline(stateOperator.minSpinDuration);
+		if (spinClock.remainingUntil(deadline) > 0) {
+			const { enhancedBoard } = stateGameDerived;
+			const rolling = enhancedBoard.board.some((reel) => reel.reelState.rolling);
+			if (!rolling && !stateGameDerived.boardSwapsInPlace()) {
+				await enhancedBoard.preSpin({ paddingBoard: paddingReels(bookEvent.gameType) });
+			}
+			await waitForTimeout(spinClock.remainingUntil(deadline));
+		}
+	}
 
 	// THE MODE SWITCH. A swap-in-place board has no reel path at all, so the opening board drops in
 	// instead of rolling. Absent `swapInPlace` this is false and the spin below is reached exactly as

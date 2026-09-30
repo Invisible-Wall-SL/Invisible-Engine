@@ -2,6 +2,9 @@ import { locales } from 'config-lingui';
 import { page } from '$app/state';
 import { getDeliveryProfile, readHostGameSettings } from 'delivery-profile';
 
+import { resolveLanguage } from './localeResolution';
+import { stateOperator } from './stateOperator.svelte';
+
 export type Language = (typeof locales)[number];
 
 export type Key =
@@ -65,8 +68,18 @@ const getDemoSessionId = () => {
 };
 
 // params for play
+/**
+ * The UI language — the operator's declared `locale` when the game ships it, else `?lang=`, else
+ * `en` (`resolveLanguage`). Read off `stateOperator` rather than the page: `<Authenticate>` adopts
+ * the page's settings before the first read of this (the RGS `authenticate` call), and `<LoadI18n>`
+ * — which activates Lingui, and so fixes the locale every amount is formatted in — mounts inside it.
+ */
 const lang = () =>
-	getUrlSearchParam('lang') === 'br' ? 'pt' : (getUrlSearchParam('lang') as Language) || 'en';
+	resolveLanguage({
+		operatorLocale: stateOperator.locale,
+		urlLang: getUrlSearchParam('lang'),
+		shipped: locales,
+	}) as Language;
 /**
  * The session token this launch is playing on.
  *

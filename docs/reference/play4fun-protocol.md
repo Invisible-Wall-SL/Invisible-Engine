@@ -251,18 +251,25 @@ Alongside `context`, the `config` EVENT itself carries the resume contract:
 
 A missing `config` event is **fatal** in their client (it throws). Ours should be at least as loud.
 
-### Most of it reaches nothing (audited 2026-09-17)
+### What reaches the engine (audited 2026-09-17, extended 2026-09-30)
 
 The facade bridges three fields to the engine — `__IE_SERVER_CONFIG__` carries `availablePayLines`,
 `symbols` and `window` — plus `betOptions` and `gameCost` consumed separately by `betOptions.ts`, and
-since 2026-09-28 `paytable`, which is COMPARED rather than adopted (below). Everything else the server
-declares is read by nothing:
+since 2026-09-28 `paytable`, which is COMPARED rather than adopted (below).
 
-| Declared, unread                     | Why it matters                                                   |
-| ------------------------------------ | ---------------------------------------------------------------- |
-| `symbolsPay.scatter`                 | Which symbols are scatters — currently a client-side assumption. |
-| `oneCreditBuysLines` · `costPerReel` | The lines/reels cost model, for games priced that way.           |
-| `maxWays`                            | Ways count; we take the payline count instead.                   |
+Since 2026-09-30 three more are published and compared the same way — warned once per boot
+(`[game-config] warning: the RGS's boot config disagrees …`), never adopted, because which side is
+wrong is a question for the math (`game-config/src/serverDeclaration.ts`,
+`serverDeclaration.fixture.mts`; run from `warnOnServerPaytableMismatch`, so no game calls it):
+
+| Declared | Compared with | Not compared |
+| --- | --- | --- |
+| `maxWinMp` | the base bet mode's authored `max_win` — against `maxWinMp[0]` | later entries: what each one caps is not known. The book mock declares `[10000]` while the remake authors 5,000×, so that boot warns |
+| `symbolsPay.scatter` | the symbols the config marks `special_properties: ['scatter']` | — |
+| `maxWays` | the ways count of a `ways` game (product of `numRows`) | a lines game (their client uses it only as a payline-count fallback there) |
+
+Still read by nothing: `oneCreditBuysLines` · `costPerReel` — the lines/reels cost model, for games
+priced that way. None of ours is.
 
 ### The paytable is cross-checked, not adopted (2026-09-28)
 
@@ -436,6 +443,165 @@ which neither drop includes.
 Nothing turns on it. We build the request URL from `GameSettings.service` + `.token` via
 `host.ts`, where they consume the page's pre-assembled `params.GameAPI`; the two produce the same
 request against the same origin.
+
+## Host settings — `GameSettings.config` (2026-09-30)
+
+`window.params.GameSettings.config` is the OPERATOR's declaration of what this launch may do. The
+set is per brand and extensible on request (`docs/design/delivery-builds.md` § "Host settings");
+the table below is every field we know of — the `eanew` set, plus the few the partner's client
+names that `eanew` does not carry yet.
+
+**The rule (owner decision, 2026-09-30): any game may ship under ANY jurisdiction.** So there is no
+per-jurisdiction logic anywhere in the game. Every behaviour below is driven ONLY by what the
+operator declared, and a field that is absent — or present with a value we cannot read — gives the
+**neutral default**: the behaviour off, the surface not shown. Never a market's assumed value. A
+launch that declares nothing (every game we host ourselves) therefore behaves exactly as it did
+before any of this was read.
+
+**Where the semantics come from.** Neither core reads `GameSettings` (above), so no field's meaning
+is read off an assignment. Where the core's own `GameConfig` / `BalanceConfig` carries the SAME name
+(`minSpinDuration`, `confirmGameRoundStart`, `autoplayDisabled`, `autoplaySpins`, `historyClient`,
+`locale`, `isLockChangeCurrency`, `currencySymbol`, `denom`) the meaning is what the core does with
+it; the rest are read from their names and marked _inferred_. Every inferred one is on the owed list
+at the end.
+
+**One reader.** `delivery-profile/src/operator.ts` (`readOperatorSettings`) types every field the
+engine honours beyond the bet ladder and the jurisdiction flags; `state-shared` holds the result as
+`stateOperator`, adopted once at boot in `Authenticate`. Unreadable ⇒ neutral, per field:
+`operator.fixture.ts`. A boolean counts only when it is the literal `true` (a `"true"` string is
+silence), a ladder with one bad rung is no ladder, and a link must be `http(s)` or a same-origin path.
+
+**Trying one without the partner.** The Invisible Test Server injects a real `window.params` from a
+project's `hostSettings` (its `test_server/games.json` entry) and, per launch, from
+`?host={"minSpinDuration":3000}` (URL-encoded JSON, merged over the project's) on a link that also
+carries the project's read token `k` — so a crafted link cannot repoint a HOME button or a money
+symbol. A dev server reads the same `?host=`; a production build does not. `services/test-server/hostSettings.fixture.mjs`.
+
+### The fields
+
+Units are the protocol's: stakes in **credits** (`betOptions[x] × M`), money = credits × `denom`,
+durations in **ms**.
+
+| Field | Meaning | Absent ⇒ | Where the engine honours it |
+| --- | --- | --- | --- |
+| **Bet ladder** | | | |
+| `betMultipliers` | The M values: total stake = `betOptions[x] × M` | placeholder $0.10–$100 ladder | `rgs-translator-eagaming/betOptions.ts` `buildBetLadder` |
+| `initialBetMultiplierIndex` | Rung the game opens on | ladder's own default | same |
+| `minNormalBet` · `maxNormalBet` | Lowest / highest total BASE stake, credits — _inferred units_ | no clamp | facade authenticate ladder: rungs outside dropped, default moved inside; a clamp that would empty the ladder is refused with a warning |
+| `showBetRanges` | Show lowest – highest bet | not shown | info page `BET RANGE` block (`infoManifest.ts`) |
+| `denom` | Money per credit — a whole number of millionths (finer cannot be priced in engine units, so it is refused) | `0.01` (the protocol's; 1 credit = 1 cent) | amount scale in `rgs-translator-eagaming/src/amounts.ts`; the placeholder ladder snaps to whole credits |
+| `showCreditValue` | Show what a credit is worth | not shown | info page `CREDIT VALUE` block, with as many decimals as the credit has |
+| `betFactors` · `betPoints` | Their older point-ladder encoding | — | **not read** — `betMultipliers` states the same ladder |
+| `oneCreditBuysLines` · `reelsCost` · `ignoreLines` | Lines / reels cost model (`ignoreLines` server-only) | — | **not read** — the server's `betOptions` price every game we ship |
+| **Speed** | | | |
+| `enableTurbo` | `false` forbids turbo (and hold-to-spin-fast) | allowed | facade → `jurisdiction.disabledTurbo` → `setJurisdiction` lock |
+| `allowAutoplay` | `false` forbids autoplay (and hold-Space) | allowed | facade → `jurisdiction.disabledAutoplay` |
+| `autoplayDisabled` | `true` forbids autoplay — the core's own name for the same lock | allowed | same; either field forbidding wins |
+| `autoplaySpins` | Round counts the autoplay menu offers; `-1` = until stopped | the engine's `10 … 1000, ∞` | `stateUi` live ladder → HTML modal + authored repeater sources |
+| `lossLimits` · `singleWinLimits` | Limit options, **multiples of the stake**, `-1` = none — _ours to define: not in `eanew`, named by the core_ | the engine's `5× … 100×, ∞` | same |
+| `minSpinDuration` | No spin shows its result sooner than this after it started — every spin, free spins included, turbo and slam included | no minimum | `state-shared/spinClock.ts`, held in `presentReveal` (the reels keep rolling) |
+| `confirmGameRoundStart` | Ask before every paid round | no prompt | `newGame` gate (`utils-xstate`) + `RoundStartConfirm` (in-canvas `ConfirmDialog`) |
+| **Payback** | | | |
+| `showTheoreticalPayback` | Show the game's RTP | not shown | facade → `jurisdiction.displayRTP` → info page `RTP` block |
+| `showBuyBonusPayback` | Show the buy modes' RTP | not shown | info page `BUY FEATURE RTP` (never while buying is forbidden) |
+| `showHighChancePayback` | Show the ante ("high chance") modes' RTP | not shown | info page `HIGH CHANCE RTP` |
+| `allowOutcomeBuy` | `false` removes every bought feature | allowed | facade → `jurisdiction.disabledBuyFeature` |
+| **Money & locale** | | | |
+| `currencySymbol` | The glyph to print | the currency code's own | `utils-shared/amount.ts` `numberToCurrencyString` |
+| `currencyFormat` | Money pattern, numeral-style: `{0}` = symbol, `#,#` = grouping, `.00`/`.#0` = decimals — _inferred from the core's `balanceFormat`_ | the locale's own layout | same |
+| `locale` | UI language (`en`, `pt_BR`, `es-ES`) | `?lang=`, then `en` | `stateUrlDerived.lang()` |
+| `isLockChangeCurrency` | Locks the player's credits ↔ money toggle | — | **nothing to lock** — the engine always shows money and has no toggle |
+| `balanceUpdateInterval` | Wallet re-poll, ms (floored at 5000) | never polled | `Authenticate` |
+| **Chrome** | | | |
+| `home` | Lobby link — a HOME button | no button | operator chrome + authorable `home` action |
+| `clock` · `showTime` | Show the wall clock — _inferred_ (`showTime` is the core's `isShowTime`) | not shown | operator chrome + `clock` value source |
+| `elapsedTime` | Show how long the session has run — _inferred_ | not shown | operator chrome + `sessionTime` value source |
+| `errorPanel` | _Unknown_ — no name in either core | — | **not read** — owed item 3 |
+| `whiteLabel` · `brandName` · `scale` · `gameId` | Branding / layout / id | — | **not read** — no behaviour of ours depends on them |
+| **History** | | | |
+| `externalHistoryUrl` | Where round history lives — a HISTORY button — _inferred_ | no button | operator chrome + authorable `history` action |
+| `historyClient` | This launch IS the history viewer: with the boot `config`'s `replay: true` the core replays that round instead of playing | a normal launch | **not read** — owed item 4 |
+| `showFreeRoundBet` | Free-rounds display | — | **not read** — we implement no free rounds |
+| **Not ours** | | | |
+| `jackpot` · `jpspin` | Jackpot | — | not read — no jackpot |
+| `deniedCountryCodes` · `allowedCountryCodes` · `certificator` | Enforced by their page/server before we load | — | not read |
+| `versionPath` · `certifiedVersionPaths` · `customJs` · `beforeGameEmbedHeadInclude` · `flash` | Build / page injection | — | not read |
+| `demo` · `allowForcing` | Added by their page (`session.demo`, outcome forcing) | — | not read |
+
+The boot `config` EVENT (server-side, above) carries four more that are the game's, not the
+operator's: `symbolsPay.scatter`, `maxWays`, `costPerReel`, `maxWinMp` — see "What reaches the
+engine".
+
+### The rules, where a line in the table is not enough
+
+- **Bet clamp** (`clampBetLadder`, `betOptions.ts`). A rung's base stake in credits is
+  `level / amountScale()`; rungs below `minNormalBet` or above `maxNormalBet` (inclusive bounds) are
+  dropped, and an opening rung that was dropped moves to the nearest one left (the lower on a tie).
+  A clamp that would leave NO rung — what a misread unit looks like — is refused whole and warned
+  once: a wrong guess costs a limit, never a game that cannot bet. Applies to the server ladder and
+  the placeholder alike, on the Play4Fun transport only.
+- **Autoplay ladders** (`stateUi.svelte.ts`). A declared list (at most 24 options) is offered
+  exactly, sorted, `-1` read as `∞`; the current pick, when the list does not offer it, reads as the list's FIRST option (for a
+  limit, the most protective). The coded ladders and defaults stand when nothing is declared. An
+  ante's "activate" still writes `∞` to both limits; under a declared list without `∞` that reads as
+  the first option.
+- **Minimum spin duration** (`spinClock.ts`, held in `presentReveal`). A paid round's first reveal is
+  timed from the PRESS (marked in `newGame` after any confirmation, so the RGS round trip and the
+  pre-spin count, as on their client); every later reveal of the book — each free spin — and a
+  resumed round's first reveal from their own start. The reels keep rolling through the hold (a free
+  spin or a turbo/Space-hold round starts the pre-spin roll itself); a swap-in-place board just
+  waits. A plain timer: slam and turbo cannot shorten it, and land the reels at once when it ends.
+  So a result shows no sooner than the minimum PLUS the reels' landing — their client holds the
+  result the same way and lands after it. Replay is exempt. The time a round-start question is open
+  does not count.
+- **Round-start confirmation** (`roundConfirm.svelte.ts`, `RoundStartConfirm.svelte`). Asked in
+  `newGame`, before anything rolls, for every PAID round — each autoplay and Space-hold round
+  included, a bought feature too (after its own buy confirmation). Free spins are never asked. While
+  it is open the spin press is inert (the unskippable-presentation latch) and Space/Enter keydown is
+  held back from the game. A no places nothing, ends the machine without an error, and stops autoplay
+  and a Space hold. The question shows the stake. An authored `roundConfirm` scene replaces the
+  engine's dialog.
+- **Money** (`utils-shared/money.ts`). `currencySymbol` alone: the locale's own layout, with the
+  currency part swapped for the symbol. `currencyFormat`: the first run of `#0,.` is the number — a
+  `,` before the `.` turns grouping on (the LOCALE decides the separators), the digits after the `.`
+  are the decimals (none ⇒ 0, capped at 4) — everything else is literal text and `{0}` is the symbol
+  (the declared one, else the currency's own). A pattern with fewer than two decimals still prints two
+  for an amount with cents, so `0.5` never reads `1`. Social coins (`XGC`/`XSC`) keep their own form.
+  The compact bet-ladder tiles follow the pattern's decimals.
+- **Locale** (`localeResolution.ts`). A declared `locale` that maps to a language the game ships
+  (case-insensitive, `_` = `-`, exact tag then primary subtag: `pt_BR` → `pt`) wins; otherwise `?lang=`
+  exactly as before, then `en`. A declared locale we do not ship never forces `en`. The same answer
+  drives Lingui, money and number formatting, and the `language` sent to the RGS.
+- **`denom`** (`rgs-translator-eagaming/src/amounts.ts`). Every wire amount is credits; engine units
+  per credit are `1,000,000 × denom`, so a denom must be a whole number of millionths (`validDenom`)
+  — `1e-7` would price every credit at zero. Absent or refused ⇒ 0.01, the scale every game has
+  always used. The placeholder ladder (a server with no bet table, or no `betMultipliers`) is priced
+  in money and snapped to whole credits, so the stake shown is the stake charged.
+- **Operator chrome** (`registerOperatorChrome.svelte.ts`, `OperatorChrome.svelte`, mounted from
+  `GlobalStyle` so every game has it without authoring). A thin strip at the top edge shows the
+  declared clock (`HH:MM`, the locale's), `SESSION TIME H:MM:SS` since boot, HOME and HISTORY. It
+  renders no element when nothing is declared and starts no timer. Each item yields to the HUD: an
+  authored text box bound to `clock`/`sessionTime`, or an element gated by
+  `clockShow`/`sessionTimeShow`/`homeShow`/`historyShow` (or a button on the `home`/`history` action),
+  hides that item from the strip. HOME navigates the TOP window (this frame's when the top is
+  cross-origin); HISTORY opens a new tab, `noopener`. Both links must be `http(s)` or a same-origin
+  path — anything else is no link at all.
+
+### Owed to the partner — what only they can settle
+
+1. **`minNormalBet` / `maxNormalBet` units.** Read as credits of the total base stake. Neither core
+   reads them (the per-game bootstrap is not in the drop). The safety valve keeps a misread from
+   emptying the ladder, but a wrong unit still clamps wrongly.
+2. **`clock` · `showTime` · `elapsedTime` · `home` · `externalHistoryUrl` · `currencyFormat`** — names
+   read at face value (`currencyFormat` as their core's `balanceFormat` pattern). Confirm the types
+   (booleans / URL strings) and that `home` is a lobby URL rather than a flag.
+3. **`errorPanel`** — no meaning known; not read.
+4. **`historyClient`** — their core opens as a history VIEWER when this is `true` and the boot
+   `config` says `replay: true`. We have no such mode for this protocol: a launch declaring it plays
+   normally. Needed only if they launch our games as their own history viewer.
+5. **`lossLimits` / `singleWinLimits`** are not in `eanew`; we defined them (multiples of the stake).
+   If a regulator needs them, this is the field to request, with that meaning.
+6. **`maxWinMp`** beyond index 0.
 
 ## Things we have no equivalent for
 

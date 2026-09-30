@@ -32,4 +32,9 @@ export const i18nDerived = {
 	connectionLost: () => stateI18nDerived.translate(UI_TEXT.connectionLost),
 	connectionLostInfo: () => stateI18nDerived.translate(UI_TEXT.connectionLostInfo),
 	reload: () => stateI18nDerived.translate(UI_TEXT.reload),
+	roundConfirmTitle: () => stateI18nDerived.translate(UI_TEXT.roundConfirmTitle),
+	roundConfirmMessage: () => stateI18nDerived.translate(UI_TEXT.roundConfirmMessage),
+	home: () => stateI18nDerived.translate(UI_TEXT.home),
+	history: () => stateI18nDerived.translate(UI_TEXT.history),
+	sessionTime: () => stateI18nDerived.translate(UI_TEXT.sessionTime),
 };

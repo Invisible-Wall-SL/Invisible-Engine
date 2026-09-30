@@ -201,7 +201,22 @@ or point the repeater's **component** dropdown at a component of your own.
 A readout can also show the standing choice: the **source** dropdown on a HUD Readout,
 text box or message bar gained `autoSpins`, `autoSpinsLossLimit` and `autoSpinsWinLimit`
 (the picked option as text, `∞` included) plus `autoSpinsRemaining` (rounds still to play,
-`0` when autoplay isn't running).
+`0` when autoplay isn't running). The option tiles offer the operator's own ladder when their
+page declares one, and the defaults otherwise.
+
+**Operator chrome — clock, session time, home, history.** These show only when the operator's
+page declares them (`clock`, `elapsedTime`, `home`, `externalHistoryUrl`). With no authoring, every
+game draws them in a thin strip at the top edge. To place them in your own HUD instead:
+
+| Put this | Bind it to | Gate it with (**Shows during**) |
+|---|---|---|
+| a text box | **source** **Clock (operator)** (e.g. `14:05`) or **Session Time (operator)** (e.g. `0:12:34` — add your own label) | **Operator shows a clock** / **Operator shows session time** |
+| a button | **action** **home (operator lobby)** or **history (operator page, new tab)** | **Operator has a HOME (lobby) link** / **Operator has a HISTORY link** |
+
+Once your HUD shows one of them, the strip stops drawing that item. Ungated, a clock text box is
+empty and a home/history button is disabled on a launch that declares nothing. The editor preview
+shows these text boxes empty, like a balance readout. What each operator field means:
+[the protocol reference](../reference/play4fun-protocol.md#host-settings--gamesettingsconfig-2026-09-30).
 
 > **Nothing changes in the game until the flow wires it up.** These screens show
 > themselves for nobody: a screen only mounts when Invisible Flow's `Show` runs, and the

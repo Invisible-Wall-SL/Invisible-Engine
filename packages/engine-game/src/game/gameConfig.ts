@@ -24,6 +24,8 @@ import {
 	type ResolvedSounds,
 	type ResolvedWinTier,
 	type WinModel,
+	serverDeclarationDrift,
+	type ServerMathDeclaration,
 } from 'game-config';
 import type { SoundBindings } from 'engine-layout';
 
@@ -116,6 +118,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// board, not the authored one — re-decide it against the config the game will actually run.
 		gridChecked = false;
 		paytableChecked = false;
+		declarationChecked = false;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -145,7 +148,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		/** The declared paytable, symbol names already mapped to the engine's. Compared, never adopted
 		 *  — see {@link warnOnServerPaytableMismatch}. Absent when the server declares none. */
 		paytable?: PayEntry[];
-	};
+	} & ServerMathDeclaration;
 
 	/** The RGS-declared config, or `undefined` when no config event has been published (⇒ parity). A
 	 *  config with no symbols is treated as absent — it cannot describe an in-play set or strips. */
@@ -287,6 +290,37 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		);
 	}
 
+	/** Latched once the rest of the declaration has been compared — see
+	 *  {@link warnOnServerDeclarationDrift}. Released by {@link resetGameConfigCache}. */
+	let declarationChecked = false;
+
+	/**
+	 * The paytable's sibling: the win cap (`maxWinMp`), the scatter symbols and the ways count the RGS
+	 * declared, against the authored config — warned once, never adopted (`game-config`'s
+	 * `serverDeclarationDrift`). Runs from {@link warnOnServerPaytableMismatch}, which every game
+	 * already calls once its paytable is built, so no game has to call it too.
+	 */
+	function warnOnServerDeclarationDrift(): void {
+		if (declarationChecked) return;
+		const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
+		if (!cfg) return;
+		declarationChecked = true;
+		let drift: string[];
+		try {
+			drift = serverDeclarationDrift(getActiveGameConfig(), cfg);
+		} catch (error) {
+			// A diagnostic, run inside the game's mount: it may fail, it may not take the boot with it.
+			console.warn('[game-config] could not compare the RGS boot config:', error);
+			return;
+		}
+		if (drift.length === 0) return;
+		console.warn(
+			`[game-config] warning: the RGS's boot config disagrees with Invisible Game Config — ` +
+				`what the server declares is what it plays; fix whichever side is wrong:\n  ` +
+				drift.join('\n  '),
+		);
+	}
+
 	/** Latched once a declared paytable has been compared, so the warning is said once per boot.
 	 *  Released by {@link resetGameConfigCache}. */
 	let paytableChecked = false;
@@ -310,6 +344,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * nothing, so every game whose RGS states none is byte-identical to before (parity).
 	 */
 	function warnOnServerPaytableMismatch(shown: PayEntry[]): void {
+		warnOnServerDeclarationDrift();
 		if (paytableChecked) return;
 		const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
 		const declared = cfg?.paytable;
@@ -546,7 +581,6 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const grid = activeGrid();
 		return { x: grid.reels, y: grid.maxRows };
 	}
-
 
 	/**
 	 * THE GRID — per-column heights and their vertical placement, resolved once

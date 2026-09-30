@@ -24,12 +24,17 @@
  *     `costMultiplier` the card displays, which is what makes card and charge agree.
  *  6. GARBAGE IS REFUSED, NOT HALF-READ. A malformed table must read as "this server declares
  *     none" — falling back to the legacy path — rather than producing a ladder of NaN.
+ *  7. THE OPERATOR'S STAKE BOUNDS TRIM THE LADDER, IN CREDITS — and can never empty it.
+ *     `minNormalBet` / `maxNormalBet` drop the rungs outside them and move an opening rung that fell
+ *     outside to the nearest one left. Their unit is unconfirmed, so bounds that would leave NO rung
+ *     (a misread unit) leave the ladder alone and warn once, rather than brick the game.
  */
 
 import {
 	betOptionCostRatios,
 	betOptionIndexFor,
 	buildBetLadder,
+	clampBetLadder,
 	serverBetOptionEntries,
 	multiplierForAmount,
 	readServerBetOptions,
@@ -135,6 +140,34 @@ check('a string cost', readServerBetOptions({ betOptions: ['10', 1000] }), null)
 check('NaN', readServerBetOptions({ betOptions: [NaN] }), null);
 check('not an array', readServerBetOptions({ betOptions: 10 }), null);
 check('names of the wrong type are dropped, the table survives', readServerBetOptions({ betOptions: [10, 1000], betOptionsName: [1, 2] })?.betOptionsName, undefined); // prettier-ignore
+
+console.log("\n7. the operator's stake bounds trim the ladder, in credits");
+{
+	// 10 credits x [1, 2, 5, 10, 50] = 10 / 20 / 50 / 100 / 500 credits, opening on 50.
+	const ladder = buildBetLadder(BOOK, { betMultipliers: [1, 2, 5, 10, 50], initialBetMultiplierIndex: 2 })!; // prettier-ignore
+	const clamp = (min: number | null, max: number | null) =>
+		clampBetLadder(ladder, { minNormalBet: min, maxNormalBet: max });
+
+	check('neither bound declared ⇒ the very same ladder', clamp(null, null), ladder);
+	check('a min drops the rungs below it (inclusive)', clamp(20, null).betLevels, [200_000, 500_000, 1_000_000, 5_000_000]); // prettier-ignore
+	check('a max drops the rungs above it (inclusive)', clamp(null, 100).betLevels, [100_000, 200_000, 500_000, 1_000_000]); // prettier-ignore
+	check('both ends at once', clamp(20, 100).betLevels, [200_000, 500_000, 1_000_000]);
+	check('an opening rung inside the bounds stays put', clamp(20, 100).defaultBetLevel, 500_000);
+	check('an opening rung below the min moves UP to the lowest rung left', clamp(100, null).defaultBetLevel, 1_000_000); // prettier-ignore
+	check('an opening rung above the max moves DOWN to the highest rung left', clamp(null, 20).defaultBetLevel, 200_000); // prettier-ignore
+	check('a bound between rungs is not rounded onto one', clamp(15, 60).betLevels, [200_000, 500_000]); // prettier-ignore
+
+	const warnings: string[] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+	const valve = clamp(5000, null);
+	const inverted = clamp(100, 20);
+	console.warn = warn;
+	check('SAFETY VALVE: bounds that leave no rung leave the ladder untouched', valve, ladder);
+	check('...and so does a min above the max', inverted, ladder);
+	check('...warning ONCE, however often it trips', warnings.length, 1);
+	check('...naming both bounds and the ladder', /5000.*null.*10, 20, 50, 100, 500/.test(warnings[0] ?? ''), true); // prettier-ignore
+}
 
 console.log(
 	failures === 0 ? '\nAll bet-option claims hold.\n' : `\n${failures} FAILED claim(s).\n`,

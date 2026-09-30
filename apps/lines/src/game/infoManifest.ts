@@ -1,7 +1,9 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
 import { infoRulesWithFigures } from 'engine-layout';
 import { infoPageFigures } from 'game-config';
-import { stateConfig, stateI18n } from 'state-shared';
+import { DEFAULT_DENOM } from 'delivery-profile';
+import { stateConfig, stateI18n, stateOperator } from 'state-shared';
+import { numberToCurrencyString } from 'utils-shared/amount';
 
 import { getActiveGameConfig, getNumRows, getPaylines, paylineColor } from './gameConfig';
 import { numLines, paytable } from './paytable';
@@ -43,16 +45,45 @@ function buildSymbols(): Record<string, InfoSymbolIcon> {
 }
 
 /**
- * The rules page with the game's own figures. The RTP appears only where the operator allows it:
- * `jurisdiction.displayRTP`, which the Play4Fun facade sets from the embed page's
- * `showTheoreticalPayback`.
+ * The operator's money figures: the bet range (the ladder the player can actually pick from, after
+ * any operator clamp) and what one credit is worth. Each only when the operator asked for it.
+ */
+const operatorFigures = (): { betRange?: string; creditValue?: string } => {
+	const levels = stateConfig.betAmountOptions.filter((level) => level > 0);
+	const betRange =
+		stateOperator.showBetRanges && levels.length
+			? `${numberToCurrencyString(Math.min(...levels))} – ${numberToCurrencyString(Math.max(...levels))}`
+			: undefined;
+	const denom = stateOperator.denom ?? DEFAULT_DENOM;
+	// A credit may be worth less than a cent (0.001), and printing it to the cent would state a
+	// wrong value on a regulated surface — so it gets as many decimals as it has (a valid denom has
+	// at most six).
+	const creditDecimals = Math.min(6, `${denom}`.split('.')[1]?.length ?? 0);
+	const creditValue = stateOperator.showCreditValue
+		? numberToCurrencyString(denom, creditDecimals)
+		: undefined;
+	return { ...(betRange ? { betRange } : {}), ...(creditValue ? { creditValue } : {}) };
+};
+
+/**
+ * The rules page with the game's own figures. Each payback appears only where the operator allows
+ * it: the RTP on `jurisdiction.displayRTP` (the Play4Fun facade sets it from the embed page's
+ * `showTheoreticalPayback`), a bought feature's on `showBuyBonusPayback` — and never while the
+ * launch forbids buying one — and the ante's on `showHighChancePayback`.
  */
 const rules = () =>
-	infoRulesWithFigures(
-		infoPageFigures(getActiveGameConfig(), stateConfig.jurisdiction.displayRTP, (n) =>
-			stateI18n.i18n.number(n),
+	infoRulesWithFigures({
+		...infoPageFigures(
+			getActiveGameConfig(),
+			stateConfig.jurisdiction.displayRTP,
+			(n) => stateI18n.i18n.number(n),
+			{
+				buy: stateOperator.showBuyBonusPayback && !stateConfig.jurisdiction.disabledBuyFeature,
+				ante: stateOperator.showHighChancePayback,
+			},
 		),
-	);
+		...operatorFigures(),
+	});
 
 // Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this
 // module is imported at boot, long before the live runtime bundle's async fetch resolves, so a

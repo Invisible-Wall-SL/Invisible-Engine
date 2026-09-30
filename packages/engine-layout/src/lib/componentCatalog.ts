@@ -124,6 +124,18 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		label: 'Auto Spins Remaining',
 		note: 'Autoplay rounds still to play — 0 when autoplay is not running (`∞` reads as Infinity).',
 	},
+	{
+		key: 'clock',
+		kind: 'string',
+		label: 'Clock (operator)',
+		note: 'Wall-clock time, "HH:MM" in the player\'s locale (12h/24h as it writes it). Empty unless the operator\'s page turns the clock on (`clock`/`showTime`) — gate the box with `clockShow`. Binding it hides the built-in clock in the operator strip.',
+	},
+	{
+		key: 'sessionTime',
+		kind: 'string',
+		label: 'Session Time (operator)',
+		note: 'Time played since the game opened, "H:MM:SS" (digits only — label it yourself). Empty unless the operator\'s page declares `elapsedTime` — gate the box with `sessionTimeShow`. Binding it hides the built-in timer in the operator strip.',
+	},
 ];
 
 /**
@@ -154,6 +166,8 @@ const COMPOSED_STRING_SOURCE_KEYS = [
 	'autoSpins',
 	'autoSpinsLossLimit',
 	'autoSpinsWinLimit',
+	'clock',
+	'sessionTime',
 ];
 export const VALUE_SOURCE_KEYS: string[] = [
 	...VALUE_SOURCE_CATALOG.map((p) => p.key),
@@ -216,6 +230,14 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	// the drifting atmosphere reads as murk through the overlay's dim. The coded `Background` dust
 	// fades on the same signal.
 	'tapOverlayIdle',
+	// Operator chrome — true only when the operator's embed page declared the surface (a clock, a
+	// session timer, a lobby link, a history link). Gate an authored clock / timer / HOME / HISTORY
+	// with these so it exists only where the operator asked for it; a bound one also hides the
+	// matching item in the built-in operator strip.
+	'clockShow',
+	'sessionTimeShow',
+	'homeShow',
+	'historyShow',
 ];
 
 /**
@@ -239,6 +261,10 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	autoplayFeature: 'Autoplay feature enabled',
 	buyFeature: 'Buy feature available',
 	tapOverlayIdle: 'No tap overlay — hidden while a tap-to-continue celebration is on screen',
+	clockShow: 'Operator shows a clock',
+	sessionTimeShow: 'Operator shows session time',
+	homeShow: 'Operator has a HOME (lobby) link',
+	historyShow: 'Operator has a HISTORY link',
 };
 
 /**
@@ -266,6 +292,8 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'soundToggle',
 	'buyBonus',
 	'fullscreen',
+	'home',
+	'history',
 ];
 
 /**
@@ -291,6 +319,8 @@ export const ENGINE_ACTION_LABELS: Record<string, string> = {
 	betMenu: 'bet menu (open)',
 	close: 'close (dismiss screen)',
 	fullscreen: 'fullscreen on/off',
+	home: 'home (operator lobby)',
+	history: 'history (operator page, new tab)',
 };
 
 /**

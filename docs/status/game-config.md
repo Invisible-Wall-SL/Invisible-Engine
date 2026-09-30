@@ -618,9 +618,10 @@ its inverted default are in [sound.md](sound.md) and [engine.md](engine.md) (202
    but pays 0 (its scatter only triggers the feature). Neither is changed here: both are payouts on
    live test games.
 4. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
-   config's base-mode `max_win` (the remake: 5,000). What `maxWinMp` means per bet option is not in
-   the protocol reference, so it is not read yet. RTP per bet mode (a buy with its own RTP) is also
-   not shown — one game-level figure only.
+   config's base-mode `max_win` (the remake: 5,000). Since 2026-09-30 the boot compares
+   `maxWinMp[0]` with it and warns (never adopts) — so the remake warns until one side changes; what
+   later entries cap is still unknown. RTP per bet mode is shown when the operator asks
+   (`showBuyBonusPayback` / `showHighChancePayback`) — see [engine.md](engine.md), 2026-09-30.
 5. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
    whose scatter is called something else gets it `skipped` on import and a permanent
    `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.

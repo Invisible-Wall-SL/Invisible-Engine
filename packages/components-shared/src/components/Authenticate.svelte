@@ -5,6 +5,7 @@
 	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
 	import { addSensitiveParam, captureRgsFailure, setErrorTags } from 'error-tracking';
 	import {
+		adoptOperatorSettings,
 		setJurisdiction,
 		stateUrlDerived,
 		stateBet,
@@ -214,6 +215,8 @@
 		// `config.json` may have renamed the profile, or its session param, since reporting started.
 		addSensitiveParam(getDeliveryProfile().session.param);
 		setErrorTags({ profile: getDeliveryProfile().id });
+		// The operator's page is there before the game is, and a replay honours it too.
+		adoptOperatorSettings();
 
 		// Seeded before either branch: replay never calls `authenticate`, so this is the
 		// only place a replay link's currency can land.

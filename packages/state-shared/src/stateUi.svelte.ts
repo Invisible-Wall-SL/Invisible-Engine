@@ -1,16 +1,11 @@
 import {
 	INFINITY_MARK,
 	AUTO_SPINS_TEXT_OPTIONS,
-	AUTO_SPINS_TEXT_OPTION_MAP,
 	LOSS_LIMIT_TEXT_OPTIONS,
-	AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
-	AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP,
-	type AutoSpinsText,
-	type LossLimitText,
-	type SingleWinLimitText,
 } from 'constants-shared/autoSpins';
 import { stateBet, stateBetDerived } from './stateBet.svelte';
+import { stateOperator } from './stateOperator.svelte';
 
 /**
  * The autoplay option ladders now live in `constants-shared/autoSpins` (constants, not state — the
@@ -69,9 +64,11 @@ export const UI_FEATURES_UK: UIFeatureFlags = {
 };
 
 export const stateUi = $state({
-	autoSpinsText: '10' as AutoSpinsText,
-	autoSpinsLossLimitText: INFINITY_MARK as LossLimitText,
-	autoSpinsSingleWinLimitText: INFINITY_MARK as SingleWinLimitText,
+	// The STORED picks. Plain strings, because an operator's ladder offers options the constant
+	// ladders do not name; read the pick through `selected*Option()`, which answers for the live one.
+	autoSpinsText: '10' as string,
+	autoSpinsLossLimitText: INFINITY_MARK as string,
+	autoSpinsSingleWinLimitText: INFINITY_MARK as string,
 	freeSpinCounterShow: false,
 	freeSpinCounterCurrent: 0,
 	freeSpinCounterTotal: 0,
@@ -225,6 +222,43 @@ export const lockUiFeatures = (locks: Partial<Record<keyof UIFeatureFlags, boole
 };
 
 /**
+ * The LIVE autoplay ladders — what the menu offers on this launch. The operator's list when its page
+ * declared one (`autoplaySpins` / `lossLimits` / `singleWinLimits`), spelled the way the constant
+ * ladders are (`'10'`, `'0.5×'`, `'∞'`); otherwise the constant ladder itself, so a launch that
+ * declares nothing offers exactly what it always did. Every runtime reader goes through these —
+ * the HTML modal, the repeater sources an authored screen binds, and {@link armAutoSpins}.
+ */
+const countText = (n: number): string => (n === Infinity ? INFINITY_MARK : String(n));
+const multipleText = (n: number): string => (n === Infinity ? INFINITY_MARK : `${n}×`);
+
+export const autoSpinsOptions = (): readonly string[] =>
+	stateOperator.autoplaySpins?.map(countText) ?? AUTO_SPINS_TEXT_OPTIONS;
+export const lossLimitOptions = (): readonly string[] =>
+	stateOperator.lossLimits?.map(multipleText) ?? LOSS_LIMIT_TEXT_OPTIONS;
+export const singleWinLimitOptions = (): readonly string[] =>
+	stateOperator.singleWinLimits?.map(multipleText) ?? SINGLE_WIN_LIMIT_TEXT_OPTIONS;
+
+/** The number an option's text means: `'∞'` is `Infinity`, `'25×'` is 25, `'0.5×'` is 0.5. */
+export const autoSpinsOptionValue = (option: string): number =>
+	option === INFINITY_MARK ? Infinity : Number.parseFloat(option);
+
+/**
+ * The pick as the live ladder sees it: the stored text when that ladder offers it, else its FIRST
+ * option. Resolved on read rather than written back, because the stored text has writers this does
+ * not own (the buy-bonus confirm sets both limits to `∞`, which an operator's list need not contain),
+ * and a read-time fallback holds whichever of them wrote last.
+ */
+const selectedIn = (options: readonly string[], stored: string): string =>
+	options.includes(stored) ? stored : options[0];
+
+export const selectedAutoSpinsOption = (): string =>
+	selectedIn(autoSpinsOptions(), stateUi.autoSpinsText);
+export const selectedLossLimitOption = (): string =>
+	selectedIn(lossLimitOptions(), stateUi.autoSpinsLossLimitText);
+export const selectedSingleWinLimitOption = (): string =>
+	selectedIn(singleWinLimitOptions(), stateUi.autoSpinsSingleWinLimitText);
+
+/**
  * The AUTOPLAY COMMITTERS — the state half of starting an autoplay run, lifted out of
  * `AutoSpinsStartButton` so the HTML modal, an authored Pixi auto-spin screen and a flow action all
  * arm a run through ONE body instead of three copies that drift. They are deliberately state-only:
@@ -232,26 +266,20 @@ export const lockUiFeatures = (locks: Partial<Record<keyof UIFeatureFlags, boole
  * Svelte-context-bound and this package is context-free.
  *
  * Each `set*` takes the option's TEXT (`'100'`, `'25×'`, `'∞'`) rather than a number, because that is
- * what the option tables store and what a repeater tile's key carries; an unknown string is IGNORED
- * rather than written, so a stale doc or a typo'd flow payload can't put the state into a value the
- * limit maps have no entry for (which would silently make the limit `undefined` ⇒ `NaN`).
+ * what the option tables store and what a repeater tile's key carries; a string the LIVE ladder does
+ * not offer is IGNORED rather than written, so a stale doc or a typo'd flow payload can't put the
+ * state into a value the menu never showed.
  */
 export const setAutoSpinsOption = (option: string): void => {
-	if ((AUTO_SPINS_TEXT_OPTIONS as readonly string[]).includes(option)) {
-		stateUi.autoSpinsText = option as AutoSpinsText;
-	}
+	if (autoSpinsOptions().includes(option)) stateUi.autoSpinsText = option;
 };
 
 export const setAutoSpinsLossLimitOption = (option: string): void => {
-	if ((LOSS_LIMIT_TEXT_OPTIONS as readonly string[]).includes(option)) {
-		stateUi.autoSpinsLossLimitText = option as LossLimitText;
-	}
+	if (lossLimitOptions().includes(option)) stateUi.autoSpinsLossLimitText = option;
 };
 
 export const setAutoSpinsSingleWinLimitOption = (option: string): void => {
-	if ((SINGLE_WIN_LIMIT_TEXT_OPTIONS as readonly string[]).includes(option)) {
-		stateUi.autoSpinsSingleWinLimitText = option as SingleWinLimitText;
-	}
+	if (singleWinLimitOptions().includes(option)) stateUi.autoSpinsSingleWinLimitText = option;
 };
 
 /**
@@ -262,12 +290,10 @@ export const setAutoSpinsSingleWinLimitOption = (option: string): void => {
  * starts the machine.
  */
 export const armAutoSpins = (): void => {
-	stateBet.autoSpinsCounter = AUTO_SPINS_TEXT_OPTION_MAP[stateUi.autoSpinsText];
-	stateBet.autoSpinsLossLimitAmount = limitAmount(
-		AUTO_SPINS_LOSS_LIMIT_MULTIPLIER_MAP[stateUi.autoSpinsLossLimitText],
-	);
+	stateBet.autoSpinsCounter = autoSpinsOptionValue(selectedAutoSpinsOption());
+	stateBet.autoSpinsLossLimitAmount = limitAmount(autoSpinsOptionValue(selectedLossLimitOption()));
 	stateBet.autoSpinsSingleWinLimitAmount = limitAmount(
-		AUTO_SPINS_SINGLE_WIN_LIMIT_MULTIPLIER_MAP[stateUi.autoSpinsSingleWinLimitText],
+		autoSpinsOptionValue(selectedSingleWinLimitOption()),
 	);
 	if (stateBetDerived.activeBetMode().type === 'buy') stateBet.activeBetModeKey = 'BASE';
 };
