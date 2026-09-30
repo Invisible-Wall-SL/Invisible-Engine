@@ -41,7 +41,8 @@ const gameSvelte = readFileSync(
 	fileURLToPath(new URL('../../apps/lines/src/components/Game.svelte', import.meta.url)),
 	'utf8',
 );
-const reservedBlock = /const RESERVED_SCENE_IDS = \[([\s\S]*?)\] as const;/.exec(gameSvelte)?.[1] ?? '';
+const reservedBlock =
+	/const RESERVED_SCENE_IDS = \[([\s\S]*?)\] as const;/.exec(gameSvelte)?.[1] ?? '';
 const RESERVED = new Set<string>(
 	[...reservedBlock.replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((m) => m[1]),
 );

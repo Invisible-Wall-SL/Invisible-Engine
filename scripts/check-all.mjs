@@ -24,7 +24,7 @@
 // that reads `process.env.PORT ?? 7777` talks to the mock RGS, so it gets a private one.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { availableParallelism } from 'node:os';
@@ -101,12 +101,18 @@ function scriptFor(rel) {
 
 const nodeBin = process.execPath;
 const tsxCli = createRequire(join(LAUNCHER, 'package.json')).resolve('tsx/cli');
-const TS_NODE = ['--experimental-strip-types', '--no-warnings', '--import', './scripts/ts-loader.mjs'];
+const TS_NODE = [
+	'--experimental-strip-types',
+	'--no-warnings',
+	'--import',
+	'./scripts/ts-loader.mjs',
+];
 
 /** How to run a discovered file: [cwd, argv[]] with argv[0] = executable. */
 function commandFor(rel) {
 	const script = scriptFor(rel);
-	if (script) return { cwd: join(ROOT, script.pkgDir), cmd: ['pnpm', 'run', '--silent', script.name] };
+	if (script)
+		return { cwd: join(ROOT, script.pkgDir), cmd: ['pnpm', 'run', '--silent', script.name] };
 	if (/\.m?ts$/.test(rel)) {
 		// The launcher's own sources import `$lib` / `$env`; its scripts tsconfig maps both.
 		if (rel.startsWith('apps/launcher-api/'))
@@ -152,7 +158,11 @@ function discover() {
 		const key = run.cmd.join(' ') + run.cwd;
 		if (seenScripts.has(key)) continue;
 		seenScripts.add(key);
-		checks.push({ id: rel, ...run, mockRgs: MOCK_RGS_CLIENT.test(readFileSync(join(ROOT, rel), 'utf8')) });
+		checks.push({
+			id: rel,
+			...run,
+			mockRgs: MOCK_RGS_CLIENT.test(readFileSync(join(ROOT, rel), 'utf8')),
+		});
 	}
 	for (const rel of CODEGEN_CHECKS)
 		checks.push({ id: `${rel} --check`, cwd: ROOT, cmd: [nodeBin, rel, '--check'] });
@@ -162,9 +172,17 @@ function discover() {
 		if (!name.startsWith('check:')) continue;
 		if (checks.some((c) => c.cwd === LAUNCHER && c.cmd.at(-1) === name)) continue;
 		const target = cmd.split(/\s+/).find((t) => /\.(ts|mts|mjs)$/.test(t));
-		if (target && trackedFiles.includes(`apps/launcher-api/${target}`) && FILE_PATTERNS.some((re) => re.test(`apps/launcher-api/${target}`)))
+		if (
+			target &&
+			trackedFiles.includes(`apps/launcher-api/${target}`) &&
+			FILE_PATTERNS.some((re) => re.test(`apps/launcher-api/${target}`))
+		)
 			continue;
-		checks.push({ id: `apps/launcher-api:${name}`, cwd: LAUNCHER, cmd: ['pnpm', 'run', '--silent', name] });
+		checks.push({
+			id: `apps/launcher-api:${name}`,
+			cwd: LAUNCHER,
+			cmd: ['pnpm', 'run', '--silent', name],
+		});
 	}
 
 	// Headless spikes: every script of every `tools/*-spike` package.
@@ -172,7 +190,11 @@ function discover() {
 		const m = /^(tools\/[^/]+-spike)\/package\.json$/.exec(rel);
 		if (!m) continue;
 		for (const name of Object.keys(scriptsOf(m[1])))
-			checks.push({ id: `${m[1]}:${name}`, cwd: join(ROOT, m[1]), cmd: ['pnpm', 'run', '--silent', name] });
+			checks.push({
+				id: `${m[1]}:${name}`,
+				cwd: join(ROOT, m[1]),
+				cmd: ['pnpm', 'run', '--silent', name],
+			});
 	}
 	return checks.sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -181,12 +203,52 @@ function skipReason(id) {
 	return SKIP[id] ?? null;
 }
 
+/** A meta-runner in Lint stands for the directory it sweeps. */
+const COVERS = { 'scripts/check-engine-game-fixtures.mjs': 'packages/engine-game/fixtures' };
+
+/**
+ * Every check id the Lint workflow already runs, read from its `run:` lines so the two jobs can never
+ * run a gate twice (nor silently stop running one) as either file changes. A `pnpm <script>` is
+ * followed through package.json — root, or the `--filter`ed workspace — down to the files it runs.
+ */
+function lintGatedIds() {
+	const yml = readFileSync(join(ROOT, '.github', 'workflows', 'lint.yml'), 'utf8');
+	const ids = new Set();
+	const walk = (command, pkgDir, depth = 0) => {
+		if (depth > 8) throw new Error(`lint.yml: script recursion too deep at "${command}"`);
+		for (const part of command.split('&&').map((p) => p.trim())) {
+			const tokens = part.split(/\s+/);
+			if (tokens[0] === 'pnpm') {
+				const filter = tokens.indexOf('--filter');
+				const dir = filter >= 0 ? `apps/${tokens[filter + 1]}` : pkgDir;
+				const name = tokens
+					.filter((t, i) => i > 0 && !t.startsWith('-') && i !== filter + 1)
+					.find((t) => t !== 'run');
+				const script = scriptsOf(dir)[name];
+				if (script) walk(script, dir, depth + 1);
+				continue;
+			}
+			for (const token of tokens.filter((t) => /\.(mjs|mts|ts)$/.test(t))) {
+				const rel = relative(ROOT, join(ROOT, pkgDir, token))
+					.split(sep)
+					.join('/');
+				ids.add(COVERS[rel] ?? rel);
+				if (tokens.includes('--check')) ids.add(`${rel} --check`);
+			}
+		}
+	};
+	for (const [, command] of yml.matchAll(/^\s+run:\s*(.+)$/gm)) walk(command, '.');
+	return [...ids];
+}
+
 const all = discover();
 const stale = [...Object.keys(SKIP), ...Object.keys(ARGS)].filter(
 	(id) => !all.some((c) => c.id === id) && !existsSync(join(ROOT, id)),
 );
 if (stale.length > 0) {
-	console.error(`SKIP/ARGS name checks that no longer exist — delete them:\n  ${stale.join('\n  ')}`);
+	console.error(
+		`SKIP/ARGS name checks that no longer exist — delete them:\n  ${stale.join('\n  ')}`,
+	);
 	process.exit(1);
 }
 
@@ -195,6 +257,10 @@ const only = opt('--only');
 if (only) selected = selected.filter((c) => only.split(',').some((o) => c.id.includes(o)));
 const exclude = opt('--exclude');
 if (exclude) selected = selected.filter((c) => !exclude.split(',').includes(c.id));
+if (flag('--exclude-lint')) {
+	const gated = lintGatedIds();
+	selected = selected.filter((c) => !gated.some((id) => c.id === id || c.id.startsWith(`${id}/`)));
+}
 const shard = opt('--shard');
 if (shard) {
 	const [i, n] = shard.split('/').map(Number);
@@ -202,7 +268,10 @@ if (shard) {
 }
 
 if (flag('--list')) {
-	for (const c of selected) console.log(`  ${c.id}\n      (${relative(ROOT, c.cwd) || '.'}) ${c.cmd.map((a) => (a === nodeBin ? 'node' : a === tsxCli ? 'tsx' : a)).join(' ')}`);
+	for (const c of selected)
+		console.log(
+			`  ${c.id}\n      (${relative(ROOT, c.cwd) || '.'}) ${c.cmd.map((a) => (a === nodeBin ? 'node' : a === tsxCli ? 'tsx' : a)).join(' ')}`,
+		);
 	console.log(`\n${selected.length} to run. Skipped:`);
 	for (const c of all) if (skipReason(c.id)) console.log(`  ${c.id} — ${skipReason(c.id)}`);
 	process.exit(0);
@@ -245,8 +314,14 @@ async function startMockRgs() {
 	});
 	let log = '';
 	await new Promise((ready, fail) => {
-		const timer = setTimeout(() => fail(new Error(`mock RGS did not start:
-${log}`)), 20_000);
+		const timer = setTimeout(
+			() =>
+				fail(
+					new Error(`mock RGS did not start:
+${log}`),
+				),
+			20_000,
+		);
 		const onData = (d) => {
 			log += d;
 			if (log.includes('listening')) {
@@ -256,8 +331,12 @@ ${log}`)), 20_000);
 		};
 		mock.stdout.on('data', onData);
 		mock.stderr.on('data', (d) => (log += d));
-		mock.on('exit', () => fail(new Error(`mock RGS exited:
-${log}`)));
+		mock.on('exit', () =>
+			fail(
+				new Error(`mock RGS exited:
+${log}`),
+			),
+		);
 	});
 	return { port, stop: () => mock.kill() };
 }
@@ -318,7 +397,9 @@ for (const r of failed) {
 		.slice(-40)
 		.map((line) => (line.length > 300 ? `${line.slice(0, 300)} …` : line))
 		.join('\n');
-	console.log(`\n──── ✗ ${r.check.id}\n(${relative(ROOT, r.check.cwd) || '.'}) ${r.check.cmd.join(' ')}\n${tail}`);
+	console.log(
+		`\n──── ✗ ${r.check.id}\n(${relative(ROOT, r.check.cwd) || '.'}) ${r.check.cmd.join(' ')}\n${tail}`,
+	);
 }
 const total = ((Date.now() - started) / 1000).toFixed(0);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed in ${total}s.`);

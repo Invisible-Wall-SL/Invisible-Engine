@@ -5,7 +5,11 @@
  *
  * Needs the mock RGS: `node scripts/mock-rgs-server.mjs` (`pnpm check:all` starts one for it).
  */
-import { requestAuthenticate, requestBet, requestEndRound } from '../packages/rgs-translator-eagaming/engine-facade.ts';
+import {
+	requestAuthenticate,
+	requestBet,
+	requestEndRound,
+} from '../packages/rgs-translator-eagaming/engine-facade.ts';
 
 const url = `http://localhost:${process.env.PORT ?? 7777}`;
 const sid = `flow-${Date.now()}`;
@@ -45,7 +49,9 @@ for (let i = 0; i < 200 && !checked; i++) {
 		console.error('  ✗ MISMATCH — requestEndRound did not credit exactly the win');
 		process.exitCode = 1;
 	} else {
-		console.log(`  ✓ count-up will animate from $${interimStake / 1_000_000} to $${finalStake / 1_000_000}`);
+		console.log(
+			`  ✓ count-up will animate from $${interimStake / 1_000_000} to $${finalStake / 1_000_000}`,
+		);
 	}
 }
 if (!checked) {

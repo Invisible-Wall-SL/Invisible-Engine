@@ -1,0 +1,88 @@
+# Offline checks — every fixture, verify/check script, headless spike and Python test in the repo.
+#
+# WHY THIS EXISTS: Lint ran a handful of gates; the other ~200 checks, each with a `Run:` line in its
+# header, ran only when someone remembered. They decayed silently — six flow spikes and an
+# engine-layout test sat red on `main` as "known reds" until nobody could tell a new failure from an
+# old one. Both runners DISCOVER their checks, so a new fixture or test is gated the day it lands,
+# and every deliberate skip carries its reason in the runner (`pnpm check:all --list`).
+#
+#   check-all (n/3)  → `scripts/check-all.mjs`, sharded because the suite is ~15 CPU-minutes.
+#                      `--exclude-lint` drops what Lint already runs (read from lint.yml), so no gate
+#                      runs twice and none falls between the two.
+#   python tests     → `scripts/check-python.py`: every services/*/test_*.py, the ComfyUI node suite
+#                      (CPU torch), and the backup job's CLI. No secrets exist here, and the runner
+#                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI.
+#
+# Not a required check today, which is what makes paths-ignore safe (see lint.yml for the caveat).
+
+name: Checks
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '*.md'
+      - '.claude/**'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '*.md'
+      - '.claude/**'
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-all:
+    name: check-all (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: offline checks
+        run: pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4
+
+  python:
+    name: python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            services/atlas-tool/requirements.txt
+            services/sheet-tool/requirements.txt
+            scripts/backup/requirements.txt
+
+      # The backup job's pins are hash-checked, so they go in on their own; the services' floors
+      # (boto3>=…) are then already satisfied by those exact pins.
+      - name: install
+        run: |
+          python -m pip install --require-hashes -r scripts/backup/requirements.txt
+          python -m pip install -r services/atlas-tool/requirements.txt -r services/sheet-tool/requirements.txt requests numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: python tests
+        run: python scripts/check-python.py

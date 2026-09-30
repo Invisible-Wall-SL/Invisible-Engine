@@ -3,8 +3,9 @@
     "<ComfyUI>/python_embeded/python.exe" tests/run_tests.py
 
 Uses ComfyUI's own interpreter so the tests exercise the exact torch/PyYAML/Pillow the
-nodes will run against. `test_semantic.py` alone needs no torch and runs anywhere.
+nodes will run against. Both suites import torch (16 of `test_semantic.py`'s 49 tests do).
 """
+# check: requires torch — the suites exercise the real tensors ComfyUI ships
 
 from __future__ import annotations
 

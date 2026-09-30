@@ -45,7 +45,9 @@ const main = async () => {
 	console.log(`smoke test against ${BASE}, sid=${SID}\n`);
 
 	// Sanity: server up
-	const health = await fetch(`${BASE}/healthz`).then((r) => r.json()).catch((e) => fail('mock not reachable', e));
+	const health = await fetch(`${BASE}/healthz`)
+		.then((r) => r.json())
+		.catch((e) => fail('mock not reachable', e));
 	if (!health.ok) fail('healthz did not return ok', health);
 	ok('mock reachable');
 
@@ -55,7 +57,8 @@ const main = async () => {
 	// A session's FIRST call carries the config (the mock's "plus config if first call"); nothing else.
 	if (r1.json.events.some((e) => e.event !== 'config'))
 		fail('heartbeat should return no events beyond the first-call config', r1.json.events);
-	if (typeof r1.json.platform.balance !== 'number') fail('heartbeat missing balance', r1.json.platform);
+	if (typeof r1.json.platform.balance !== 'number')
+		fail('heartbeat missing balance', r1.json.platform);
 	const startingBalance = r1.json.platform.balance;
 	ok(`heartbeat returned balance=${startingBalance}`);
 
@@ -144,7 +147,9 @@ const main = async () => {
 	const autoWin = ev(r5, 'gameEnd').context.win;
 	const expectedAfterAuto = autoBalanceBefore - 10 + autoWin;
 	if (r5.json.platform.balance !== expectedAfterAuto) {
-		fail(`auto-collect balance: ${autoBalanceBefore} - 10 + ${autoWin} != ${r5.json.platform.balance}`);
+		fail(
+			`auto-collect balance: ${autoBalanceBefore} - 10 + ${autoWin} != ${r5.json.platform.balance}`,
+		);
 	}
 	ok(`auto-collect: win=${autoWin}, balance=${r5.json.platform.balance}`);
 
