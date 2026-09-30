@@ -34,6 +34,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | not started | — | — |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
@@ -64,6 +65,7 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 
 ## Decisions & findings
 
+- 2026-09-30 — **Owner: a bonus is a different game mode, and modes must queue.** A bonus-game signal can switch to a completely different mode, and two modes can be queued up to play one after another. Measured: nothing like this exists today. There is only `gameType` = `basegame | freegame`, a flat FlowDoc, strictly ordered book events, no feature queue, and a free-spin-only resume. Planned as design §4.5 / **Phase 4M**: a mode registry, a mode stack with a nest-or-queue policy, `modeEnter`/`modeExit` with the free-spin events as aliases, per-mode flow graphs shown as tabs, a scene role `mode`, and a mode-aware resume. It is a shared-runtime change, so parity is the gate.
 - 2026-09-30 — **Flights (things that travel from a cell to a target, e.g. coins/specials into pots): one `flyTo` primitive, planned in design §4.4.** It computes a Bézier route at runtime that bends around the cells showing a win. The trail is an `/fx` emitter following the moving head (the moving-owner mechanism already exists for Rigger bones). A cue fires on arrival. Authoring is a `flights` block in the Symbols doc. Phase 4 builds the primitive, Phase 7 the authoring, Phase 5 the flow action.
 - 2026-09-30 — **Phase 2: the config shape Phase 3 generates from** is `doc.holdAndWin`
   (`packages/game-config/src/holdAndWin.ts`; detail in [game-config.md](game-config.md)). Roles are
