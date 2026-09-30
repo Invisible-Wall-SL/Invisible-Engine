@@ -1094,4 +1094,7 @@ they appear in no scene.
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
   a name that matches an existing bundle case-insensitively (this was added after
   two same-name rigs got stuck), even when two people create `Hero` and `hero` at the
-  same moment — then at least one of them is refused; use distinct names.
+  same moment — then at least one of them is refused; use distinct names. A New rig that
+  failed half-way (it never shows in the list) frees its name after 10 minutes: creating
+  that name again then succeeds (recreated with the same capitalisation, the half-made rig
+  shows in the new rig's 🕘 History).

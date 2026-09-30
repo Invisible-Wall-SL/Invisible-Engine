@@ -5,6 +5,45 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **A create that died after its claim no longer holds the name** (the residual the
+  entry below left open).
+  - **The window.** `rigger/new` and `rigger/upload` claim `<spines>/<name>/<name>.irig` with
+    `If-None-Match`, then list for a case clash, then write the page, the atlas and
+    `skeletons.json`. A request that dies after the claim (or after the page) leaves a folder with
+    no atlas, so the index never lists it: no Rigger surface can open or delete it, and
+    `spineBundleNameTaken` refuses the name, in every case spelling, for good.
+  - **Reclaim** (`riggerAbandonedClaim.ts` `reclaimAbandonedClaims`, called by both routes before
+    the name check). A folder named like the new rig is abandoned when it is not in
+    `skeletons.json`, has no `.atlas`, holds only `<folder>.irig` and page images (no subfolder,
+    no `source.json`), and every object in it is at least `ABANDONED_CLAIM_MS` (10 min) old. A
+    create does seconds of work after its claim, so an in-flight one is never taken for dead. An
+    unreadable index reclaims nothing.
+  - **Order.** Back the `.irig` up to its 🕘 folder, take it over with `If-Match` (overwritten
+    with `{}`), then delete the folder's objects. Two guards make concurrent reclaimers safe.
+    First, the HEAD's ETag must equal the one the listing showed: a HEAD alone would read a fresh
+    claim another create made on the freed name since the listing, and the takeover would then
+    delete it. Second, the takeover is conditional, so of two creates that both read the stale
+    claim only one proceeds to delete. A reclaimer that dies after the takeover leaves a `{}`
+    `.irig` of the same shape, reclaimed 10 minutes later.
+  - **Not covered.** A create stalled more than 10 minutes between its claim and its page
+    write would find its folder reclaimed under it; nothing in that path waits on anything
+    slower than an R2 PUT.
+  - **Gate.** `check:rigger-writes` (51 checks, real routes, mocked R2 with per-object mtimes and
+    HEAD seams):
+    - For each route: a same-name stale claim, and a stale claim plus page under another case,
+      are reclaimed, and the rig is created and backed up.
+    - Refused and untouched: a young claim, a listed atlas-less rig however old, a folder with an
+      atlas, with another file, with a differently named skeleton, recently written, or with an
+      unreadable index.
+    - Same-name creates at once, with B held before and after its HEAD while A reclaims and claims.
+    - Two creates that both read the claim first.
+
+    Proof it has teeth:
+    - 15 checks fail on the previous routes. Six of those are the older interleaving cases, whose
+      list counts moved.
+    - Each rule of the reclaim has a mutant that fails a check: the listing-ETag comparison, the
+      `If-Match` takeover, the age check, the index check, and the folder-shape check.
+
 - 2026-09-30 — **A mesh made from an image draws the image's pixels — trimmed, rotated or a
   sequence — and meshes the earlier tools saved wrong can be repaired in one click** (were open
   items 10 and 12).

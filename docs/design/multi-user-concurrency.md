@@ -261,7 +261,9 @@ The correctness floor. Contained because of the linchpin above.
 > animation-library save (`/api/rigger/animations/save`) does the same since 2026-09-30 (one
 > shared `riggerLibraryWrite.ts`). `rigger/new` / `upload` also re-list after the claim and back
 > off on a name differing only by case (R2 keys are case-sensitive; `If-None-Match` guards only
-> the exact key). Offline proof: `tools/rigger-spike/irig-save.mjs`,
+> the exact key). A claim abandoned by a create that died (unlisted, no atlas, 10 min idle) is
+> reclaimed by the next create of that name: backed up, taken over `If-Match` on the ETag the
+> listing showed, then deleted (`riggerAbandonedClaim.ts`). Offline proof: `tools/rigger-spike/irig-save.mjs`,
 > `apps/launcher-api/scripts/check-rigger-writes.ts`.
 >
 > Everything below is the original plan, left for the rationale; it is DONE except where
