@@ -76,18 +76,6 @@ export const ENV = {
 		const n = Number(env.SOUND_MAX_KBPS);
 		return Number.isFinite(n) && n > 0 ? n : 128;
 	},
-	// Atlas Maker (cloud) — the generation backend + default manifest/style ref.
-	get ATLAS_BACKEND_URL() {
-		// Code default to the current Railway service so the launcher works even
-		// if the env var isn't applied (Railway vars stage); env overrides.
-		return env.ATLAS_BACKEND_URL ?? 'https://atlas-backend-production-0a70.up.railway.app';
-	},
-	get ATLAS_MANIFEST_KEY() {
-		return env.ATLAS_MANIFEST_KEY ?? 'atlas/manifests/loader.json';
-	},
-	get ATLAS_STYLE_REF_KEY() {
-		return env.ATLAS_STYLE_REF_KEY ?? 'spines/hotfruits/loader/loader.png';
-	},
 	// Atlas Maker (cloud Python tool) — the re-hosted ui_server, opened full-page
 	// from /atlas behind the launcher. URL of the atlas-tool Railway service.
 	get ATLAS_TOOL_URL() {
