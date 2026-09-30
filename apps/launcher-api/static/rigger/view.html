@@ -3571,7 +3571,10 @@ async function removeTextElement(id){
     if (!res.ok){ hideLoading(); showErr(res.message || "Removing the text failed."); return; }
     rigText.etag = res.etag ?? null;
     if (rawDoc && (rawDoc.slots || []).some((s) => s.name === el.slot)) deleteSlot(el.slot);
-    if (rawDoc) rawDoc.bones = (rawDoc.bones || []).filter((b) => b.name !== "text_" + id || (rawDoc.slots || []).some((s) => s.bone === b.name));
+    if (rawDoc && !(rawDoc.slots || []).some((s) => s.bone === "text_" + id)){
+      const res = deleteBoneCore(rawDoc, "text_" + id);
+      if (res) reportDroppedConstraints('bone "text_' + id + '"', res.removed);
+    }
     await loadRigText();
     if (rawDoc) rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   } catch (e){
@@ -3996,13 +3999,7 @@ function renameIkConstraint(oldName, newName){
 }
 
 function deleteIkConstraint(name){
-  const a = ikArr(); if (!a) return;
-  rawDoc.ik = a.filter((c) => c.name !== name);
-  if (!rawDoc.ik.length) delete rawDoc.ik;
-  for (const an of Object.values(rawDoc.animations || {})) if (an.ik){ delete an.ik[name]; if (!Object.keys(an.ik).length) delete an.ik; }
-  if (selIk === name) selIk = null;
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty(); animsDirty = true;
+  deleteConstraint("ik", name);
 }
 
 // Render the editor for the selected IK constraint into #consDetail (display-only when none).
@@ -4128,13 +4125,7 @@ function renameTransformConstraint(oldName, newName){
 }
 
 function deleteTransformConstraint(name){
-  const a = tcArr(); if (!a) return;
-  rawDoc.transform = a.filter((c) => c.name !== name);
-  if (!rawDoc.transform.length) delete rawDoc.transform;
-  for (const an of Object.values(rawDoc.animations || {})) if (an.transform){ delete an.transform[name]; if (!Object.keys(an.transform).length) delete an.transform; }
-  if (selTc === name) selTc = null;
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty(); animsDirty = true;
+  deleteConstraint("transform", name);
 }
 
 // Render the editor for the selected transform constraint into #consDetail.
@@ -4300,15 +4291,7 @@ function renamePathConstraint(oldName, newName){
 }
 
 function deletePathConstraint(name){
-  const a = pcArr(); if (!a) return;
-  rawDoc.path = a.filter((c) => c.name !== name);
-  if (!rawDoc.path.length) delete rawDoc.path;
-  // re-pack `order` contiguously so the remaining constraints stay active (CRUX above)
-  repackConstraintOrders();
-  for (const an of Object.values(rawDoc.animations || {})) if (an.path){ delete an.path[name]; if (!Object.keys(an.path).length) delete an.path; }
-  if (selPath === name) selPath = null;
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty(); animsDirty = true;
+  deleteConstraint("path", name);
 }
 
 // Re-pack every constraint's `order` to a contiguous 0..N-1 (preserving relative order), so a
@@ -4460,14 +4443,7 @@ function renamePhysicsConstraint(oldName, newName){
 }
 
 function deletePhysicsConstraint(name){
-  const a = physArr(); if (!a) return;
-  rawDoc.physics = a.filter((c) => c.name !== name);
-  if (!rawDoc.physics.length) delete rawDoc.physics;
-  for (const an of Object.values(rawDoc.animations || {})) if (an.physics){ delete an.physics[name]; if (!Object.keys(an.physics).length) delete an.physics; }
-  if (selPc === name) selPc = null;
-  repackConstraintOrders();
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty(); animsDirty = true;
+  deleteConstraint("physics", name);
 }
 
 // Render the editor for the selected physics constraint into #consDetail.
@@ -4641,83 +4617,286 @@ function renameSkin(oldName, newName){
 }
 
 // ---- delete (Phase A-delete) ----------------------------------------------
-// Delete a bone (not root). Children + slots reparent to its parent; constraints
-// that reference it are cleaned/dropped; animation track removed; and CRITICALLY
-// every weighted mesh's bone INDICES are remapped by name (the deleted bone's
-// influences dropped + weights renormalised — bone indices are positional).
-function deleteBone(name){
-  if (!rawDoc) return;
-  const idx = rawDoc.bones.findIndex((b) => b.name === name);
-  if (idx <= 0) return; // root (index 0) or not found
-  const parentName = rawDoc.bones[idx].parent;
-  const oldNames = rawDoc.bones.map((b) => b.name); // index→name BEFORE removal
-  for (const b of rawDoc.bones) if (b.parent === name) b.parent = parentName;
-  for (const s of rawDoc.slots || []) if (s.bone === name) s.bone = parentName;
-  let droppedAnyConstraint = false;
-  for (const grp of ["ik", "transform", "path", "physics"]){
-    if (!Array.isArray(rawDoc[grp])) continue;
-    const dropped = [];
-    rawDoc[grp] = rawDoc[grp].filter((c) => {
-      if (Array.isArray(c.bones)) c.bones = c.bones.filter((n) => n !== name);
-      const broken = c.target === name || c.bone === name || (Array.isArray(c.bones) && c.bones.length === 0);
-      if (broken) dropped.push(c.name);
-      return !broken;
-    });
-    // a dropped constraint's per-constraint timelines would dangle (loader throws) — clear them
-    if (dropped.length){ droppedAnyConstraint = true; for (const an of Object.values(rawDoc.animations || {})){ const tl = an[grp]; if (tl) for (const dn of dropped){ delete tl[dn]; if (!Object.keys(tl).length) delete an[grp]; } } }
-    if (!rawDoc[grp].length) delete rawDoc[grp];
-  }
-  // dropping a constraint leaves a hole in the contiguous `order` sequence — re-pack so no later
-  // constraint's order exceeds the count (else updateCache can't sort it → silently inactive).
-  if (droppedAnyConstraint) repackConstraintOrders();
-  rawDoc.bones.splice(idx, 1);
-  for (const an of Object.values(rawDoc.animations || {})) if (an.bones) delete an.bones[name];
+// A delete must leave nothing that names the deleted thing: SkeletonJson resolves every
+// reference by NAME and throws on a missing one, which the save refuses with a 422 and the rig
+// then no longer opens. The pure cores below take the doc and return the constraints they had to
+// remove (as "kind name"); the UI wrappers rebuild and tell the author which ones went.
+const CONSTRAINT_KINDS = ["ik", "transform", "path", "physics"];
 
-  // remap weighted-mesh bone indices by name
-  const newIndexByName = new Map(rawDoc.bones.map((b, i) => [b.name, i]));
-  const parentIdx = newIndexByName.get(parentName);
-  for (const sk of rawDoc.skins || []) for (const slot of Object.values(sk.attachments || {})) for (const att of Object.values(slot)){
-    if (!att || att.type !== "mesh" || !Array.isArray(att.vertices) || !Array.isArray(att.uvs)) continue;
-    if (att.vertices.length === att.uvs.length) continue; // unweighted — no bone indices
-    const vc = att.uvs.length / 2, out = [];
-    let ri = 0;
+// Remove every constraint `isBroken(kind, c)` flags, plus everything that names it: its animation
+// timelines and its entry in a skin's constraint list. Re-packs `order` (CRUX above) when any went.
+function dropConstraints(doc, isBroken){
+  const removed = [];
+  for (const kind of CONSTRAINT_KINDS){
+    if (!Array.isArray(doc[kind])) continue;
+    const gone = new Set();
+    doc[kind] = doc[kind].filter((c) => { if (!isBroken(kind, c)) return true; gone.add(c.name); return false; });
+    if (!doc[kind].length) delete doc[kind];
+    if (!gone.size) continue;
+    for (const an of Object.values(doc.animations || {})){
+      const tl = an[kind]; if (!tl) continue;
+      for (const n of gone) delete tl[n];
+      if (!Object.keys(tl).length) delete an[kind];
+    }
+    for (const sk of doc.skins || []) if (Array.isArray(sk[kind])){
+      sk[kind] = sk[kind].filter((n) => !gone.has(n));
+      if (!sk[kind].length) delete sk[kind];
+    }
+    for (const n of gone) removed.push(kind + " " + n);
+  }
+  if (removed.length) repackConstraintOrders(doc);
+  return removed;
+}
+
+// Vertex count of a WEIGHTED vertex attachment, else 0. Mesh, path, bounding box and clipping
+// attachments can all be weighted, and a weighted one names its bones by positional INDEX.
+function weightedVertexCount(att){
+  if (!att || !Array.isArray(att.vertices)) return 0;
+  const vc = att.type === "mesh" ? (Array.isArray(att.uvs) ? att.uvs.length / 2 : 0)
+    : (att.type === "path" || att.type === "boundingbox" || att.type === "clipping") ? att.vertexCount || 0
+    : 0;
+  return vc && att.vertices.length !== vc * 2 ? vc : 0;
+}
+
+// Rewrite every deform frame of one weighted attachment after its influences changed. A weighted
+// deform holds one (x, y) pair per INFLUENCE, so `src[i]` names the OLD influence entry that new
+// entry i came from; `oldEntries` is the old influence count.
+function remapWeightedDeform(doc, skinName, slotName, attName, src, oldEntries){
+  for (const an of Object.values(doc.animations || {})){
+    const tl = an.attachments && an.attachments[skinName] && an.attachments[skinName][slotName] && an.attachments[skinName][slotName][attName];
+    if (!tl || !Array.isArray(tl.deform)) continue;
+    for (const frame of tl.deform){
+      if (!Array.isArray(frame.vertices)) continue;
+      const off = frame.offset || 0, full = new Array(oldEntries * 2).fill(0);
+      for (let i = 0; i < frame.vertices.length; i++) if (off + i < full.length) full[off + i] = frame.vertices[i];
+      const nv = [];
+      for (const e of src) nv.push(full[e * 2] || 0, full[e * 2 + 1] || 0);
+      frame.offset = 0; frame.vertices = nv;
+    }
+  }
+}
+
+// Delete a bone (not root) from `doc`. Children + slots move to its parent. A constraint loses it
+// from its bones list and is removed once it has no bone left or it was the IK/transform target
+// (a path constraint's target is a SLOT, never a bone). Every weighted attachment's bone INDICES
+// are remapped by name, the bone's influences dropped and the vertex renormalised, and its deform
+// keys follow. Returns { heir, removed }, or null when there is nothing to delete.
+function deleteBoneCore(doc, name){
+  const idx = doc.bones.findIndex((b) => b.name === name);
+  if (idx <= 0) return null; // root (index 0) or not found
+  const parentName = doc.bones[idx].parent;
+  const heir = parentName || doc.bones[0].name;
+  const oldNames = doc.bones.map((b) => b.name); // index→name BEFORE removal
+  for (const b of doc.bones) if (b.parent === name){ if (parentName) b.parent = parentName; else delete b.parent; }
+  for (const s of doc.slots || []) if (s.bone === name) s.bone = heir;
+  const removed = dropConstraints(doc, (kind, c) => {
+    if (kind === "physics") return c.bone === name;
+    if (Array.isArray(c.bones)) c.bones = c.bones.filter((n) => n !== name);
+    return !Array.isArray(c.bones) || !c.bones.length || (kind !== "path" && c.target === name);
+  });
+  doc.bones.splice(idx, 1);
+  for (const sk of doc.skins || []) if (Array.isArray(sk.bones)){
+    sk.bones = sk.bones.filter((n) => n !== name);
+    if (!sk.bones.length) delete sk.bones;
+  }
+  for (const an of Object.values(doc.animations || {})) if (an.bones) delete an.bones[name];
+
+  const newIndexByName = new Map(doc.bones.map((b, i) => [b.name, i]));
+  const heirIdx = newIndexByName.get(heir);
+  for (const sk of doc.skins || []) for (const [slotName, slot] of Object.entries(sk.attachments || {})) for (const [attName, att] of Object.entries(slot)){
+    const vc = weightedVertexCount(att); if (!vc) continue;
+    const out = [], src = [];
+    let ri = 0, entry = 0, anyDropped = false;
     for (let v = 0; v < vc; v++){
       const n = att.vertices[ri++], infl = [];
-      for (let j = 0; j < n; j++){ const bi = att.vertices[ri++], x = att.vertices[ri++], y = att.vertices[ri++], w = att.vertices[ri++]; infl.push({ bi, x, y, w }); }
+      for (let j = 0; j < n; j++, entry++){ const bi = att.vertices[ri++], x = att.vertices[ri++], y = att.vertices[ri++], w = att.vertices[ri++]; infl.push({ bi, x, y, w, entry }); }
       let dropped = false;
       let kept = infl
         .filter((f) => { const keep = oldNames[f.bi] !== name; if (!keep) dropped = true; return keep; })
-        .map((f) => ({ bone: newIndexByName.get(oldNames[f.bi]), x: f.x, y: f.y, w: f.w }))
+        .map((f) => ({ bone: newIndexByName.get(oldNames[f.bi]), x: f.x, y: f.y, w: f.w, entry: f.entry }))
         .filter((f) => { if (f.bone === undefined){ dropped = true; return false; } return true; });
-      if (!kept.length && parentIdx !== undefined){ const r = infl[0] || { x: 0, y: 0 }; kept = [{ bone: parentIdx, x: r.x, y: r.y, w: 1 }]; dropped = true; }
+      if (!kept.length){ const r = infl[0] || { x: 0, y: 0, entry: 0 }; kept = [{ bone: heirIdx, x: r.x, y: r.y, w: 1, entry: r.entry }]; dropped = true; }
       // only renormalise vertices that actually lost an influence — leave the rest
       // bit-identical (the source weights may not sum to exactly 1; don't disturb them)
       if (dropped){
+        anyDropped = true;
         let sum = 0; for (const k of kept) sum += k.w;
-        if (sum > 1e-9) for (const k of kept) k.w /= sum; else { const eq = kept.length ? 1 / kept.length : 1; for (const k of kept) k.w = eq; }
+        if (sum > 1e-9) for (const k of kept) k.w /= sum; else { const eq = 1 / kept.length; for (const k of kept) k.w = eq; }
       }
-      out.push(kept.length); for (const k of kept) out.push(k.bone, k.x, k.y, k.w);
+      out.push(kept.length); for (const k of kept){ out.push(k.bone, k.x, k.y, k.w); src.push(k.entry); }
     }
     att.vertices = out;
+    if (!anyDropped) continue;
+    remapWeightedDeform(doc, sk.name, slotName, attName, src, entry);
+    for (const other of doc.skins || []) for (const [childName, child] of Object.entries((other.attachments || {})[slotName] || {}))
+      if (child && child.parent === attName && child.timelines === false && (child.skin || "default") === sk.name)
+        remapWeightedDeform(doc, other.name, slotName, childName, src, entry);
   }
-  if (collapsedBones.has(name)) collapsedBones.delete(name);
-  selBone = null;
-  rebuildFromRawDoc(parentName);
-  markDirty();
+  return { heir, removed };
 }
 
 // Delete a slot + its attachments (all skins) + animation slot/deform/attachments/drawOrder refs.
-function deleteSlot(name){
-  if (!rawDoc) return;
-  rawDoc.slots = (rawDoc.slots || []).filter((s) => s.name !== name);
-  for (const sk of rawDoc.skins || []) if (sk.attachments) delete sk.attachments[name];
-  for (const an of Object.values(rawDoc.animations || {})){
+// A path constraint targeting it is removed; a clipping attachment that ended at it now ends at
+// the slot drawn just before it, which clips the same remaining slots. Returns the removed.
+function deleteSlotCore(doc, name){
+  const slots = doc.slots || [];
+  const idx = slots.findIndex((s) => s.name === name);
+  const before = idx > 0 ? slots[idx - 1].name : null;
+  doc.slots = slots.filter((s) => s.name !== name);
+  for (const sk of doc.skins || []){
+    if (sk.attachments) delete sk.attachments[name];
+    for (const slot of Object.values(sk.attachments || {})) for (const att of Object.values(slot))
+      if (att && att.type === "clipping" && att.end === name){ if (before) att.end = before; else delete att.end; }
+  }
+  for (const an of Object.values(doc.animations || {})){
     if (an.slots) delete an.slots[name];
     if (an.deform) for (const sm of Object.values(an.deform)) if (sm) delete sm[name];
     if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm) delete sm[name];
-    if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) fr.offsets = fr.offsets.filter((o) => o.slot !== name);
+    if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) dropSlotFromDrawOrderKey(fr, slots.map((s) => s.name), name);
   }
+  return dropConstraints(doc, (kind, c) => kind === "path" && c.target === name);
+}
+
+// A draw-order key's offsets are relative to the whole slot list, so removing a slot shifts every
+// offset that spans it: one lands out of range and the runtime draws a hole it then crashes on.
+// Rebuild the key's full order the way SkeletonJson does, drop the slot, write minimal offsets.
+function dropSlotFromDrawOrderKey(frame, oldNames, name){
+  if (!Array.isArray(frame.offsets)) return;
+  const n = oldNames.length, order = new Array(n).fill(-1), unchanged = [];
+  const sorted = frame.offsets.map((o) => ({ idx: oldNames.indexOf(o.slot), offset: o.offset })).filter((o) => o.idx >= 0).sort((a, b) => a.idx - b.idx);
+  let oi = 0;
+  for (const o of sorted){ while (oi !== o.idx) unchanged.push(oi++); order[oi + o.offset] = oi++; }
+  while (oi < n) unchanged.push(oi++);
+  for (let i = n - 1; i >= 0; i--) if (order[i] === -1) order[i] = unchanged.pop();
+  const newNames = oldNames.filter((sn) => sn !== name);
+  const kept = order.map((i) => oldNames[i]).filter((sn) => sn !== undefined && sn !== name);
+  frame.offsets = kept.map((sn, pos) => ({ slot: sn, offset: pos - newNames.indexOf(sn) }))
+    .filter((o) => o.offset !== 0).sort((a, b) => newNames.indexOf(a.slot) - newNames.indexOf(b.slot));
+  if (!frame.offsets.length) delete frame.offsets;
+}
+
+// A linked mesh (any mesh with a `parent`) borrows its parent's geometry by NAME — same slot, in its
+// `skin` or the default — and SkeletonJson throws once that parent is gone. So before the parents
+// `isGone(skin, slot, name)` flags go, each child becomes a plain mesh with a copy of the geometry,
+// and takes over the parent's deform keys when it inherited them, so it shows and moves as before.
+function detachLinkedMeshes(doc, isGone){
+  for (const sk of doc.skins || []) for (const [slotName, slot] of Object.entries(sk.attachments || {})) for (const [attName, att] of Object.entries(slot)){
+    if (!att || !att.parent || (att.type !== "mesh" && att.type !== "linkedmesh")) continue;
+    const parentSkin = att.skin || "default";
+    const ps = (doc.skins || []).find((x) => x.name === parentSkin);
+    const parent = ps && ps.attachments && ps.attachments[slotName] && ps.attachments[slotName][att.parent];
+    if (!parent || !isGone(parentSkin, slotName, att.parent)) continue;
+    const mesh = JSON.parse(JSON.stringify(att));
+    delete mesh.parent; delete mesh.skin; delete mesh.timelines; delete mesh.deform;
+    mesh.type = "mesh";
+    for (const k of ["uvs", "triangles", "vertices", "hull", "edges"]) if (parent[k] !== undefined) mesh[k] = JSON.parse(JSON.stringify(parent[k]));
+    for (const k of ["width", "height"]) if (mesh[k] === undefined && parent[k] !== undefined) mesh[k] = parent[k];
+    slot[attName] = mesh;
+    if (att.timelines === false) continue; // its own keys already drove it
+    for (const an of Object.values(doc.animations || {})){
+      const tl = an.attachments, src = tl && tl[parentSkin] && tl[parentSkin][slotName] && tl[parentSkin][slotName][att.parent];
+      const own = tl && tl[sk.name] && tl[sk.name][slotName] && tl[sk.name][slotName][attName];
+      // an inheriting child ignored deform keyed on itself; its own sequence keys did apply
+      const next = {};
+      if (own && own.sequence) next.sequence = own.sequence;
+      if (src && src.deform) next.deform = JSON.parse(JSON.stringify(src.deform));
+      if (src && src.sequence && mesh.sequence && !next.sequence) next.sequence = JSON.parse(JSON.stringify(src.sequence));
+      if (!Object.keys(next).length){ if (own) delete tl[sk.name][slotName][attName]; continue; }
+      an.attachments = an.attachments || {};
+      const bySkin = (an.attachments[sk.name] = an.attachments[sk.name] || {});
+      (bySkin[slotName] = bySkin[slotName] || {})[attName] = next;
+    }
+  }
+}
+
+// Does any skin still give this slot a path attachment? A path constraint follows its target
+// slot's path, so one whose slot has none left does nothing and has no valid target to edit.
+function slotHasPath(doc, slotName){
+  return (doc.skins || []).some((sk) => sk.attachments && sk.attachments[slotName]
+    && Object.values(sk.attachments[slotName]).some((a) => a && a.type === "path"));
+}
+// After a path attachment went: remove the path constraints of every slot in `slotNames` that
+// no longer holds a path in any skin.
+function dropPathlessConstraints(doc, slotNames){
+  const pathless = new Set(slotNames.filter((s) => !slotHasPath(doc, s)));
+  return pathless.size ? dropConstraints(doc, (kind, c) => kind === "path" && pathless.has(c.target)) : [];
+}
+
+// Delete one attachment (image, mesh, path…) from a slot in every skin, with its deform/sequence
+// timelines; clear the slot's setup attachment if it pointed there; a linked mesh on it becomes a
+// plain mesh. Returns the removed.
+function deleteAttachmentCore(doc, slotName, attName){
+  detachLinkedMeshes(doc, (skin, slot, name) => slot === slotName && name === attName);
+  let wasPath = false;
+  for (const sk of doc.skins || []) if (sk.attachments && sk.attachments[slotName]){
+    const att = sk.attachments[slotName][attName];
+    if (att && att.type === "path") wasPath = true;
+    delete sk.attachments[slotName][attName];
+  }
+  const slot = (doc.slots || []).find((s) => s.name === slotName);
+  if (slot && slot.attachment === attName) delete slot.attachment;
+  for (const an of Object.values(doc.animations || {})){
+    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
+    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) delete sm[slotName][attName];
+  }
+  return wasPath ? dropPathlessConstraints(doc, [slotName]) : [];
+}
+
+// Delete a skin (keep at least one) and its animation timelines; a linked mesh elsewhere whose
+// parent lived in it becomes a plain mesh. Returns the removed, or null.
+function deleteSkinCore(doc, name){
+  if ((doc.skins || []).length <= 1) return null;
+  const skin = doc.skins.find((s) => s.name === name); if (!skin) return null;
+  const pathSlots = Object.entries(skin.attachments || {})
+    .filter(([, slot]) => Object.values(slot).some((a) => a && a.type === "path")).map(([s]) => s);
+  detachLinkedMeshes(doc, (parentSkin) => parentSkin === name);
+  doc.skins = doc.skins.filter((s) => s.name !== name);
+  for (const an of Object.values(doc.animations || {})){
+    if (an.attachments){ delete an.attachments[name]; if (!Object.keys(an.attachments).length) delete an.attachments; }
+    if (an.deform) delete an.deform[name];
+  }
+  return dropPathlessConstraints(doc, pathSlots);
+}
+
+// After a cascade: forget a selected constraint that no longer exists, and say what went.
+function reportDroppedConstraints(what, removed){
+  if (!removed.length) return;
+  const has = (kind, n) => (rawDoc[kind] || []).some((c) => c.name === n);
+  if (selIk && !has("ik", selIk)) selIk = null;
+  if (selTc && !has("transform", selTc)) selTc = null;
+  if (selPath && !has("path", selPath)) selPath = null;
+  if (selPc && !has("physics", selPc)) selPc = null;
+  animsDirty = true;
+  showNotice("Deleting " + what + " also removed " + removed.length + " constraint" + (removed.length === 1 ? "" : "s") + " that needed it: " + removed.join(", ") + ".", 10000);
+}
+
+function deleteConstraint(kind, name){
+  if (!rawDoc) return;
+  const removed = dropConstraints(rawDoc, (k, c) => k === kind && c.name === name);
+  if (!removed.length) return;
+  if (kind === "ik" && selIk === name) selIk = null;
+  if (kind === "transform" && selTc === name) selTc = null;
+  if (kind === "path" && selPath === name) selPath = null;
+  if (kind === "physics" && selPc === name) selPc = null;
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty(); animsDirty = true;
+}
+
+function deleteBone(name){
+  if (!rawDoc) return;
+  const res = deleteBoneCore(rawDoc, name); if (!res) return;
+  if (collapsedBones.has(name)) collapsedBones.delete(name);
+  selBone = null;
+  reportDroppedConstraints('bone "' + name + '"', res.removed);
+  rebuildFromRawDoc(res.heir);
+  markDirty();
+}
+
+function deleteSlot(name){
+  if (!rawDoc) return;
+  const removed = deleteSlotCore(rawDoc, name);
   if (selSlot === name) selSlot = null;
+  reportDroppedConstraints('slot "' + name + '"', removed);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -4853,17 +5032,9 @@ function autoCreateFxSlots(){
   alert(lines.join("\n"));
 }
 
-// Delete an attachment (image) from a slot in every skin; clear the slot's setup
-// attachment if it pointed there.
 function deleteAttachment(slotName, attName){
   if (!rawDoc) return;
-  for (const sk of rawDoc.skins || []) if (sk.attachments && sk.attachments[slotName]) delete sk.attachments[slotName][attName];
-  const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
-  if (slot && slot.attachment === attName) delete slot.attachment;
-  for (const an of Object.values(rawDoc.animations || {})){
-    if (an.deform) for (const sm of Object.values(an.deform)) if (sm && sm[slotName]) delete sm[slotName][attName];
-    if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[slotName]) delete sm[slotName][attName];
-  }
+  reportDroppedConstraints('attachment "' + attName + '"', deleteAttachmentCore(rawDoc, slotName, attName));
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   if (selSlot) selectSlot(selSlot);
   markDirty();
@@ -4903,10 +5074,10 @@ function selectSlotAttachment(attName){
   renderSlotDetail();
 }
 
-// Delete a skin (keep at least one).
 function deleteSkin(name){
-  if (!rawDoc || (rawDoc.skins || []).length <= 1) return;
-  rawDoc.skins = rawDoc.skins.filter((s) => s.name !== name);
+  if (!rawDoc) return;
+  const removed = deleteSkinCore(rawDoc, name); if (!removed) return;
+  reportDroppedConstraints('skin "' + name + '"', removed);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }

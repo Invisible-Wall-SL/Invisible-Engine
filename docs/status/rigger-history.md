@@ -5,6 +5,47 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-09-30 — **The delete cascade.** #877's CI spikes reported `delete` red on `symbols/l3`
+  ("Path constraint not found: circle_path"). That red was the harness: `delete.mjs` hand-copied
+  `deleteBone` and had drifted (the shipped one already cleared a dropped constraint's keys). Run
+  against the shipped code over all 153 checked-in rigs, the real breaks were elsewhere:
+  - **A slot delete broke the load.** A path constraint's `target` is a SLOT, and `deleteSlot`
+    never looked at constraints, so deleting one (`l3`'s `circle` / `shake`) left "Couldn't find
+    target slot" — 114 slot deletes across 72 rigs (every rig with a path constraint, all five
+    apps), each refused on save with a 422. Conversely `deleteBone` compared a path constraint's
+    target with the BONE name, dropping it when a bone happened to share the slot's name.
+  - **Weighted non-mesh attachments kept stale bone indices.** Path, bounding-box and clipping
+    attachments can be weighted too (`W`'s `string_mask` clip is); only meshes were remapped, so a
+    bone delete moved `W`'s clip by up to 655 px.
+  - **Weighted deform keys desynced.** A weighted deform holds one (x, y) pair per INFLUENCE;
+    dropping an influence without dropping its pair shifts every later vertex's key
+    (`symbolsSpecial`'s `scatter_box_glow`). A linked mesh with `timelines: false` keeps its own
+    keys in the same layout and now follows its parent's remap.
+  - **Deleting an IK or transform constraint left a hole in `order`.** Spine never runs a
+    constraint whose order is ≥ the constraint count, so a later one went silently inactive
+    (`h1`: delete `rays1` and the `shake` path constraint stops).
+  - **A slot delete scrambled animated draw order.** A draw-order key's offsets are relative to
+    the whole slot list; filtering out the deleted slot's own offset left the others spanning it
+    out of range, so the order held a HOLE the renderer crashes on every frame (`mm_bg`,
+    `mm_bg_feature`, `W`: dozens of slot deletes each).
+  - **Deleting a linked mesh's parent broke the load** ("Parent mesh not found"): `S` has 180
+    linked meshes on 15 parents, `symbolsSpecial` 6, and the rig-text locales are linked meshes.
+  - **Latent (no checked-in rig has a second skin or a skin constraint list):** a removed
+    constraint still named in a skin's constraint list, a deleted bone in a skin's `bones` list,
+    a skin delete leaving its `attachments.<skin>` keys ("Skin not found").
+  One `dropConstraints(doc, isBroken)` now owns "remove a constraint": its keys, its skin-list
+  entries, the `order` re-pack; every delete (bone, slot, attachment, skin, the four constraint
+  kinds, and the text-element bone) goes through it and reports what went with `showNotice`.
+  A path constraint is removed when its target slot goes or no longer holds a path in any skin.
+  An orphaned linked mesh becomes a plain mesh with a copy of the parent's geometry and, when it
+  inherited them, the parent's deform keys (its own were ignored). Draw-order keys are rebuilt
+  as SkeletonJson reads them, the slot dropped, minimal offsets rewritten. A clipping that ended
+  at a deleted slot ends at the slot drawn before it (same clip range). `delete.mjs` pulls the
+  shipped functions transitively out of `view.html` (only the rebuild, which LOADS the doc, and
+  four UI no-ops are stubbed) and fails 31 synthetic-rig checks on the old code; five mutants
+  (selection kept, inherited deform not copied, own-key child not remapped, draw order filtered,
+  non-mesh weights not remapped) are each caught.
+
 - 2026-09-28 — **The `.irig` save became safe to use with more than one author.** Before, a save
   was an unconditional PUT of `<spines>/<dir>/<stem>.irig`: no precondition, the project taken
   from the SESSION (a project switch in another tab wrote into the other project), no check

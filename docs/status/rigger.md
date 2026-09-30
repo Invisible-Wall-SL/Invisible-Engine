@@ -35,12 +35,14 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
 6. **Save residuals** — the animation-library save is still unconditional; two `＋ New rig` names differing only by case can both pass the create claim.
 7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
-   task): `delete` on `symbols/l3` leaves "Path constraint not found: circle_path" — a dangling
-   reference after a bone delete, most likely a real bug; `transform` shows a 0.00° constraint effect
-   on ~12 lines rigs and "Transform constraint not found: particle_control2" on `mm_bg`; `synth`
-   miscounts regions on `buy_button` / `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`,
-   `fs_total_number`, `S`, `W`; `delete` moves one `mm_bg` vertex by 0.01; the mesh spikes throw on
-   `apps/price/.../symbolsSpecial`.
+   task): `transform` shows a 0.00° constraint effect on ~12 lines rigs and "Transform constraint
+   not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
+   `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`, `fs_total_number`, `S`, `W`; the
+   mesh spikes throw on `apps/price/.../symbolsSpecial`. (`delete` is green on all 153 rigs.)
+8. **Bone delete is uncompensated.** Its children, its slots and any vertex weighted only to it
+   move to the parent keeping their LOCAL values, so they jump by the deleted bone's own
+   transform (the confirm says they move; it does not say they jump). Composing that transform
+   in would keep them in place.
 
 ## Blocked (owner / external)
 
@@ -50,6 +52,18 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-09-30 — **Deletes no longer leave a rig that will not open.** Deleting a path
+  constraint's target slot broke the load ("Couldn't find target slot") in 72 of the 153
+  checked-in rigs, `symbols/l3` included, so the save was refused with a 422. Bone, slot,
+  attachment, skin and constraint deletes now go through one cascade (`dropConstraints`) that
+  removes every IK / transform / path / physics constraint that can no longer work, its keys and
+  its skin-list entries, re-packs `order`, and names what went in a notice. It also remaps weighted
+  path / clipping / bounding-box indices, keeps weighted deform keys aligned, turns an orphaned
+  linked mesh into a plain mesh (a deleted parent broke `S`) and rebuilds draw-order keys (a slot
+  delete left a hole in `mm_bg` / `W`'s animated order). `tools/rigger-spike/delete.mjs` now
+  runs the shipped functions (the old copy had drifted, hence the `l3` red) on a synthetic rig
+  with every constraint kind, plus every bone / slot / path attachment of the given rig.
 
 - 2026-09-30 — **The rigger spikes are a CI gate** (`Checks` workflow, `pnpm check:all`): every
   spike with a usage line runs; the per-rig ones against `apps/lines/.../anticipation` (regions, a

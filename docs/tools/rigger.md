@@ -261,6 +261,15 @@ a rival answer to the same question. Move the box, or bind a different bone.
 - **Skins:** the **Skins** section lists skins; click one to make it the **active**
   skin (what determines which images/meshes/weights you see and paint). Rename
   (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**.
+- **What a delete takes with it:** deleting a bone, slot, attachment or skin also
+  removes every IK / transform / path / physics constraint that can no longer work
+  without it (an IK or transform constraint whose target bone went, one left with
+  no bones, a path constraint whose target slot went or no longer holds a path),
+  together with that constraint's animation keys, and a notice names each one.
+  A linked mesh whose parent mesh (or the skin holding it) is deleted becomes a
+  plain mesh with a copy of that geometry and its deform keys, so it looks and
+  moves as before; animated draw orders keep their order minus the deleted slot.
+  Rig editing has no undo, so read the confirm before you delete.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
