@@ -1,0 +1,80 @@
+# Dependabot — weekly, grouped dependency updates, plus security updates.
+#
+# VERSION updates: one grouped PR per ecosystem per week for minor + patch bumps, so a week's
+# churn is one review, not thirty. A MAJOR bump gets its own PR (it is the one that needs reading),
+# and `open-pull-requests-limit` caps how many can sit open at once so the queue never floods.
+#
+# SECURITY updates: raised as soon as an advisory lands, not on the weekly schedule, grouped per
+# ecosystem the same way. They need "Dependabot security updates" switched on in the repo settings
+# (docs/INFRA.md "Dependabot"); this file alone only configures them. Their open-PR cap is
+# GitHub's own (10), not the limits below.
+#
+# GATED LIKE ANY PR: a Dependabot PR runs Checks, Lint and Secrets and cannot merge until the six
+# required checks pass — no bypass. None of those jobs needs a secret, which matters because
+# Dependabot-triggered runs get none. The subjects use scopes the commit-msg hook accepts (`deps:`,
+# `ci:`), since the squash-merged PR title becomes the commit on `main`.
+
+version: 2
+
+updates:
+  # The pnpm workspace: the root lockfile covers apps/*, packages/* and the tools/*-spike packages.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Madrid
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  # Python: the two pipeline services and the backup job. The backup pins are hash-checked
+  # (`--require-hashes`); Dependabot rewrites the hashes with the version.
+  - package-ecosystem: pip
+    directories:
+      - /services/atlas-tool
+      - /services/sheet-tool
+      - /scripts/backup
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Madrid
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      pip-minor-patch:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
+      pip-security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Madrid
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns: ['*']
+      actions-security:
+        applies-to: security-updates
+        patterns: ['*']

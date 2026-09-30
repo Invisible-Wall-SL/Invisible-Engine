@@ -42,6 +42,7 @@
 		"check:build-provenance": "node scripts/check-build-provenance.mjs",
 		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs",
 		"check:all": "node scripts/check-all.mjs",
+		"check:svelte": "node scripts/svelte-check-ratchet.mjs",
 		"check:python": "python scripts/check-python.py"
 	},
 	"dependencies": {

@@ -17,7 +17,8 @@
     "eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
-		"config-storybook": "workspace:*"
+		"config-storybook": "workspace:*",
+		"svelte-check": "4.7.6"
   },
   "dependencies": {
     "svelte": "5.35.1",

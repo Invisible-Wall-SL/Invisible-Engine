@@ -91,6 +91,7 @@ pnpm storybook    # Launch Storybook component explorer
 pnpm lint         # Run ESLint across workspace
 pnpm format       # Run Prettier across workspace
 pnpm check:rgs    # RGS money/protocol fixture gates (Lint runs these and the other check:* gates)
+pnpm check:svelte # svelte-check vs svelte-check-baseline.json (--only <pkg>, --update to lower it)
 ```
 
 Per-app (e.g. from `apps/lines/`):

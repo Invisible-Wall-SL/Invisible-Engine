@@ -83,8 +83,8 @@ jobs:
       #
       # Deliberately narrow (see the script header): `tsc --noResolve`, reporting only
       # TS2304/TS2552/TS18004. That scope is what makes it need no baseline — the repo is clean
-      # under this rule today, so any hit is new and real. A FULL type-check is still owed;
-      # `docs/status/engine.md` records the debt it would have to clear first.
+      # under this rule today, so any hit is new and real. The FULL type-check is the svelte-check
+      # ratchet (`svelte-check.yml`), which carries its own baseline of the existing errors.
       - name: no undefined identifiers
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:undefined-names

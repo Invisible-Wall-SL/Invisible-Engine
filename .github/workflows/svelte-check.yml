@@ -1,0 +1,68 @@
+# svelte-check ratchet — fail a PR that introduces a NEW type error in any Svelte package.
+#
+# WHY THIS EXISTS: nothing type-checked the Svelte code. An app's `build` is a bare `vite build`
+# (esbuild transpiles per file, no types), and Lint's `check:undefined-names` covers one error class
+# only. The repo carries pre-existing errors in every Svelte package, so — like Lint's eslint
+# baseline — they are recorded in `svelte-check-baseline.json` as a count per (file, rule), and any
+# count going UP fails the job. Counts going down pass, with a notice to lower the baseline.
+# The runner, and how to read or update the baseline, is `scripts/svelte-check-ratchet.mjs`.
+#
+#   pnpm check:svelte --only apps/lines           # one package, locally
+#   pnpm check:svelte --only apps/lines --update  # lower (or re-record) its baseline
+#
+# SHARDED in two by package, balanced on cost (the two heavy apps, lines and the launcher, never
+# share a shard). `apps/lines` type-checks most of packages/* through its imports and needs an 8 GB
+# heap; the runner passes it (`HEAP_MB`), and a crash is a failure, never a silent pass.
+#
+# NOT A REQUIRED CHECK (yet): the job names are `svelte-check (1/2)` and `svelte-check (2/2)`. Once
+# they have run green on main for a while, the owner adds both to the ruleset (docs/INFRA.md
+# "Branch ruleset on main"). It already follows the required-check pattern so that is a settings
+# change only: no paths-ignore, and `.github/actions/code-changed` skips the work on a docs-only
+# change, so the jobs still report. Renaming a job or the matrix renames the check.
+
+name: svelte-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: svelte-check-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  svelte-check:
+    name: svelte-check (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - id: changes
+        uses: ./.github/actions/code-changed
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: pnpm/action-setup@v5
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - if: steps.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: svelte-check against the baseline
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:svelte --shard ${{ matrix.shard }}/2
