@@ -300,10 +300,14 @@ const coin = (raw: unknown): CoinValueEntry | undefined => {
 	if (w === undefined) return undefined;
 	const label = text(raw.jackpot);
 	if (raw.kind === 'jackpot' || (raw.kind === undefined && label)) {
-		return label ? withReels<CoinValueEntry>({ kind: 'jackpot', jackpot: label, weight: w }, raw) : undefined;
+		return label
+			? withReels<CoinValueEntry>({ kind: 'jackpot', jackpot: label, weight: w }, raw)
+			: undefined;
 	}
 	const value = positive(raw.value);
-	return value !== undefined ? withReels<CoinValueEntry>({ kind: 'cash', value, weight: w }, raw) : undefined;
+	return value !== undefined
+		? withReels<CoinValueEntry>({ kind: 'cash', value, weight: w }, raw)
+		: undefined;
 };
 
 const trigger = (raw: unknown): HoldAndWinTrigger => {
@@ -379,14 +383,17 @@ const boardEnd = (raw: unknown): BoardEnd => {
 const collector = (raw: unknown): CollectorSpecial | undefined => {
 	if (!isObject(raw)) return undefined;
 	const level = int(raw.level, 1) ?? 1;
-	return withReels<CollectorSpecial>({
-		level,
-		maxLevel: Math.max(level, int(raw.maxLevel, 1) ?? level),
-		sticky: raw.sticky !== false,
-		collects: raw.collects === 'atEnd' ? 'atEnd' : 'perRespin',
-		landsInBaseGame: raw.landsInBaseGame === true,
-		instantCollectInBaseGame: raw.instantCollectInBaseGame === true,
-	}, raw);
+	return withReels<CollectorSpecial>(
+		{
+			level,
+			maxLevel: Math.max(level, int(raw.maxLevel, 1) ?? level),
+			sticky: raw.sticky !== false,
+			collects: raw.collects === 'atEnd' ? 'atEnd' : 'perRespin',
+			landsInBaseGame: raw.landsInBaseGame === true,
+			instantCollectInBaseGame: raw.instantCollectInBaseGame === true,
+		},
+		raw,
+	);
 };
 
 const leaveBehind = (raw: unknown): LeaveBehind => {
@@ -398,13 +405,16 @@ const leaveBehind = (raw: unknown): LeaveBehind => {
 
 const multiplier = (raw: unknown): MultiplierSpecial | undefined => {
 	if (!isObject(raw)) return undefined;
-	return withReels<MultiplierSpecial>({
-		values: values(raw.values),
-		multipliesJackpots: raw.multipliesJackpots === true,
-		leaveBehind: leaveBehind(raw.leaveBehind),
-		landsInBaseGame: raw.landsInBaseGame === true,
-		instantCollectInBaseGame: raw.instantCollectInBaseGame === true,
-	}, raw);
+	return withReels<MultiplierSpecial>(
+		{
+			values: values(raw.values),
+			multipliesJackpots: raw.multipliesJackpots === true,
+			leaveBehind: leaveBehind(raw.leaveBehind),
+			landsInBaseGame: raw.landsInBaseGame === true,
+			instantCollectInBaseGame: raw.instantCollectInBaseGame === true,
+		},
+		raw,
+	);
 };
 
 const payer = (raw: unknown): PayerSpecial | undefined => {
@@ -549,8 +559,9 @@ export const symbolsWithRole = (
 
 /** The Hold and Win role that makes a symbol pay nothing on a line — true for every role. The
  *  paytable shows these as the coin value table, not as pays. */
-export const isHoldAndWinSymbol = (symbol: { special_properties?: string[] } | undefined): boolean =>
-	symbolHoldAndWinRoles(symbol).length > 0;
+export const isHoldAndWinSymbol = (
+	symbol: { special_properties?: string[] } | undefined,
+): boolean => symbolHoldAndWinRoles(symbol).length > 0;
 
 /** A coin entry's label as the board would print it: `1.5×` or `MINI`. */
 export const coinEntryLabel = (entry: CoinValueEntry): string =>
@@ -590,7 +601,8 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	};
 	const checkTable = (path: string, table: WeightedValue[], what: string) => {
 		if (!table.length) error(path, `${what} has no values.`);
-		else if (!table.some((v) => v.weight > 0)) error(path, `${what} has no value with a weight above 0.`);
+		else if (!table.some((v) => v.weight > 0))
+			error(path, `${what} has no value with a weight above 0.`);
 	};
 
 	if (doc.winModel && doc.winModel.type !== 'lines') {
@@ -653,7 +665,8 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	if (!hasTrigger) error('trigger', 'Nothing can start the feature — add a trigger.');
 	const cells = doc.numRows.reduce((sum, rows) => sum + rows, 0);
 	if (t.count) {
-		if (!t.count.roles.length) error('trigger.count.roles', 'The count trigger counts no symbol roles.');
+		if (!t.count.roles.length)
+			error('trigger.count.roles', 'The count trigger counts no symbol roles.');
 		if (t.count.min > cells) {
 			error(
 				'trigger.count.min',
@@ -662,7 +675,10 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		}
 		for (const role of t.count.roles) {
 			if (!tagged(role).length) {
-				warning('trigger.count.roles', `The trigger counts "${role}" but no symbol carries that role.`);
+				warning(
+					'trigger.count.roles',
+					`The trigger counts "${role}" but no symbol carries that role.`,
+				);
 			}
 		}
 	}
@@ -691,18 +707,27 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		}
 		const guaranteed = tier.guaranteed.reduce((sum, g) => sum + g.count, 0);
 		if (guaranteed > cells) {
-			error(`trigger.buy.${i}.guaranteed`, `Guarantees ${guaranteed} symbols on a ${cells}-cell board.`);
+			error(
+				`trigger.buy.${i}.guaranteed`,
+				`Guarantees ${guaranteed} symbols on a ${cells}-cell board.`,
+			);
 		}
 		for (const g of tier.guaranteed) {
 			if (!tagged(g.role).length) {
-				error(`trigger.buy.${i}.guaranteed`, `Guarantees a "${g.role}" but no symbol carries that role.`);
+				error(
+					`trigger.buy.${i}.guaranteed`,
+					`Guarantees a "${g.role}" but no symbol carries that role.`,
+				);
 			}
 		}
 	});
 
 	// Respins
 	if (block.respins.cap !== undefined && block.respins.cap < block.respins.start) {
-		error('respins.cap', `The cap (${block.respins.cap}) is below the starting count (${block.respins.start}).`);
+		error(
+			'respins.cap',
+			`The cap (${block.respins.cap}) is below the starting count (${block.respins.start}).`,
+		);
 	}
 
 	// Specials — each configured special needs a symbol, and each tagged symbol needs its table.
@@ -727,7 +752,10 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	}
 	const { collector: col, multiplier: mul, payer: pay, mystery: mys } = block.specials;
 	if (block.stickiness === 'collectorsOnly' && !col) {
-		error('stickiness', 'Only collectors stick, but there is no collector — nothing would ever stay on the board.');
+		error(
+			'stickiness',
+			'Only collectors stick, but there is no collector — nothing would ever stay on the board.',
+		);
 	}
 	if (col && col.level > col.maxLevel) {
 		error('specials.collector.level', 'The collector starts above its maximum level.');
@@ -735,12 +763,17 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 	if (mul) {
 		checkTable('specials.multiplier.values', mul.values, 'The multiplier');
 		if (mul.leaveBehind.type === 'becomesCoin') {
-			checkTable('specials.multiplier.leaveBehind.values', mul.leaveBehind.values, 'The coin a multiplier leaves');
+			checkTable(
+				'specials.multiplier.leaveBehind.values',
+				mul.leaveBehind.values,
+				'The coin a multiplier leaves',
+			);
 		}
 	}
 	if (pay) checkTable('specials.payer.values', pay.values, 'The payer');
 	if (mys) {
-		if (!mys.reveals.length) error('specials.mystery.reveals', 'The mystery has nothing to reveal.');
+		if (!mys.reveals.length)
+			error('specials.mystery.reveals', 'The mystery has nothing to reveal.');
 		mys.reveals.forEach((r, i) => {
 			if (r.type === 'jackpot') checkJackpot(`specials.mystery.reveals.${i}.jackpot`, r.jackpot);
 			if (r.type === 'special' && !block.specials[r.special]) {
@@ -760,7 +793,8 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		}
 	}
 	for (const kind of block.applyOrder) {
-		if (!block.specials[kind]) warning('applyOrder', `The apply order names the ${kind}, which is not configured.`);
+		if (!block.specials[kind])
+			warning('applyOrder', `The apply order names the ${kind}, which is not configured.`);
 	}
 	for (const kind of block.activeModifiers.atEntry) {
 		if (!block.specials[kind]) {
@@ -788,7 +822,10 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 		checkJackpot('boardEnd.jackpot', end.jackpot);
 		if (!end.roles.length) error('boardEnd.roles', 'The full board counts no symbol roles.');
 		if (block.stickiness === 'collectorsOnly' && end.roles.every((r) => r !== 'collector')) {
-			warning('boardEnd', 'Coins are cleared every respin, so the board can only fill with collectors.');
+			warning(
+				'boardEnd',
+				'Coins are cleared every respin, so the board can only fill with collectors.',
+			);
 		}
 	}
 	if (end.type === 'columnLetters') {
@@ -812,16 +849,23 @@ export function validateHoldAndWin(doc: GameConfigDoc): HoldAndWinIssue[] {
 			warning(`meters.${i}.symbol`, `${m.symbol} fills a meter but is not tagged "meterSpecial".`);
 		}
 		if (!block.specials[m.activates]) {
-			error(`meters.${i}.activates`, `A full ${m.id} meter activates the ${m.activates}, which is not configured.`);
+			error(
+				`meters.${i}.activates`,
+				`A full ${m.id} meter activates the ${m.activates}, which is not configured.`,
+			);
 		}
 		if (m.sizeStages.some((s) => s >= m.maxLevel)) {
-			error(`meters.${i}.sizeStages`, `A size stage is at or past the maximum level (${m.maxLevel}).`);
+			error(
+				`meters.${i}.sizeStages`,
+				`A size stage is at or past the maximum level (${m.maxLevel}).`,
+			);
 		}
 	});
 
 	// Wheel
 	if (block.wheel) {
-		if (!block.wheel.prizes.some((p) => p.weight > 0)) error('wheel.prizes', 'No wheel prize has a weight above 0.');
+		if (!block.wheel.prizes.some((p) => p.weight > 0))
+			error('wheel.prizes', 'No wheel prize has a weight above 0.');
 		block.wheel.prizes.forEach((p, i) => {
 			if (p.type === 'jackpot') checkJackpot(`wheel.prizes.${i}.jackpot`, p.jackpot);
 			if (p.type === 'extraCollect') {

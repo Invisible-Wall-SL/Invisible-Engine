@@ -290,7 +290,8 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'respin',
-		title: 'The Hold and Win respin feature: coins stick, the rest of the board respins, and a new coin resets the counter.',
+		title:
+			'The Hold and Win respin feature: coins stick, the rest of the board respins, and a new coin resets the counter.',
 		text: (ctx) => {
 			const hw = ctx.config?.holdAndWin;
 			if (!hw) return null;
@@ -337,7 +338,8 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'pots',
-		title: 'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',
+		title:
+			'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',
 		text: (ctx) => {
 			const meters = ctx.config?.holdAndWin?.meters ?? [];
 			return meters.length ? `Persistent pots (${meters.length})` : null;

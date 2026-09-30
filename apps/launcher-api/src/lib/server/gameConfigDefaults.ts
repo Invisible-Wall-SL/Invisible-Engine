@@ -83,13 +83,8 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
  */
 export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDoc | null {
 	const key = gameType ? (KIND_DEFAULT_KEY[gameType] ?? gameType) : FALLBACK_GAME_TYPE;
-	return (
-		DEFAULTS_BY_GAME_TYPE[key] ??
-		DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ??
-		null
-	);
+	return DEFAULTS_BY_GAME_TYPE[key] ?? DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ?? null;
 }
-
 
 export type GameConfigSource = 'authored' | 'template';
 

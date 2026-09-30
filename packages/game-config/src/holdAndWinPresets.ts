@@ -122,7 +122,9 @@ const LINE_SYMBOLS_5: Record<string, GameConfigSymbol> = {
 };
 
 const cash = (value: number, weight: number, reels?: number[]) =>
-	reels ? { kind: 'cash' as const, value, weight, reels } : { kind: 'cash' as const, value, weight };
+	reels
+		? { kind: 'cash' as const, value, weight, reels }
+		: { kind: 'cash' as const, value, weight };
 const jp = (jackpot: string, weight: number, reels?: number[]) =>
 	reels
 		? { kind: 'jackpot' as const, jackpot, weight, reels }
@@ -233,7 +235,20 @@ const POTS: RawGameConfig = {
 			strip(['H1', 'L3', 'BONUS', 'L4', 'H2', 'COLLECT', 'L2', 'W', 'H3', 'L1', 'BONUS', 'H4']),
 		],
 		respin: Array.from({ length: 5 }, () =>
-			strip(['BLANK', 'BONUS', 'BLANK', 'BOOST', 'BLANK', 'JACKPOT', 'BLANK', 'COLLECT', 'BLANK', 'MULTI', 'BLANK', 'MYSTERY']),
+			strip([
+				'BLANK',
+				'BONUS',
+				'BLANK',
+				'BOOST',
+				'BLANK',
+				'JACKPOT',
+				'BLANK',
+				'COLLECT',
+				'BLANK',
+				'MULTI',
+				'BLANK',
+				'MYSTERY',
+			]),
 		),
 	},
 	winLevels: winLevels([15, 25, 50, 80]),
@@ -247,7 +262,11 @@ const CLASSIC_HOLD_AND_WIN: HoldAndWin = {
 		count: { min: 6, roles: ['coin', 'jackpot', 'coinMultiplier'] },
 		buy: [
 			{ mode: 'buy', guaranteed: [], boostedSpecials: false },
-			{ mode: 'superBuy', guaranteed: [{ role: 'coinMultiplier', count: 2 }], boostedSpecials: true },
+			{
+				mode: 'superBuy',
+				guaranteed: [{ role: 'coinMultiplier', count: 2 }],
+				boostedSpecials: true,
+			},
 		],
 		randomMetre: { name: 'Diamond Metre' },
 	},

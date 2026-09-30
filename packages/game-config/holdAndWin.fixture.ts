@@ -47,13 +47,32 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 const pots = normalize(HOLD_AND_WIN_PRESETS.pots);
 const classic = normalize(HOLD_AND_WIN_PRESETS.classic);
 const collector = normalize(HOLD_AND_WIN_PRESETS.collector);
-check('pots: decimals survive', pots.holdAndWin?.coins.slice(0, 4).map((c) => c.kind === 'cash' && c.value), [1, 1.5, 2, 2.5]);
-check('pots: every special configured', configuredSpecials(pots.holdAndWin!), ['collector', 'multiplier', 'payer', 'mystery']);
-check('pots: three meters', pots.holdAndWin?.meters?.map((m) => `${m.symbol}→${m.activates}`), ['BOOST→payer', 'COLLECT→collector', 'MULTI→multiplier']);
+check(
+	'pots: decimals survive',
+	pots.holdAndWin?.coins.slice(0, 4).map((c) => c.kind === 'cash' && c.value),
+	[1, 1.5, 2, 2.5],
+);
+check('pots: every special configured', configuredSpecials(pots.holdAndWin!), [
+	'collector',
+	'multiplier',
+	'payer',
+	'mystery',
+]);
+check(
+	'pots: three meters',
+	pots.holdAndWin?.meters?.map((m) => `${m.symbol}→${m.activates}`),
+	['BOOST→payer', 'COLLECT→collector', 'MULTI→multiplier'],
+);
 check('classic: letters board end', classic.holdAndWin?.boardEnd.type, 'columnLetters');
-check('classic: buy tiers priced by their bet modes', classic.holdAndWin?.trigger.buy?.map((b) => classic.betModes[b.mode].cost), [70, 300]);
+check(
+	'classic: buy tiers priced by their bet modes',
+	classic.holdAndWin?.trigger.buy?.map((b) => classic.betModes[b.mode].cost),
+	[70, 300],
+);
 check('collector: collectors only', collector.holdAndWin?.stickiness, 'collectorsOnly');
-check('collector: COLLECT is the collector symbol', symbolsWithRole(collector, 'collector'), ['COLLECT']);
+check('collector: COLLECT is the collector symbol', symbolsWithRole(collector, 'collector'), [
+	'COLLECT',
+]);
 
 console.log('\nparity — a config without the block is untouched');
 const { holdAndWin: _drop, winLevels: _tiers, ...plain } = clone(HOLD_AND_WIN_PRESETS.classic);
@@ -74,9 +93,14 @@ check('weightless coins default to weight 1, garbage dropped', lax.holdAndWin?.c
 	{ kind: 'jackpot', jackpot: 'MINI', weight: 1 },
 ]);
 check('jackpot defaults to fixed', lax.holdAndWin?.jackpots[0].fixed, true);
-check('respins default to 3 resetting on a coin', lax.holdAndWin?.respins, { start: 3, reset: 'anyCoin' });
+check('respins default to 3 resetting on a coin', lax.holdAndWin?.respins, {
+	start: 3,
+	reset: 'anyCoin',
+});
 check('stickiness defaults to allCoins', lax.holdAndWin?.stickiness, 'allCoins');
-check('unknown roles dropped, duplicates collapsed', lax.holdAndWin?.trigger.count?.roles, ['coin']);
+check('unknown roles dropped, duplicates collapsed', lax.holdAndWin?.trigger.count?.roles, [
+	'coin',
+]);
 check('absent apply order = the configured specials', lax.holdAndWin?.applyOrder, ['payer']);
 check('board end defaults to none', lax.holdAndWin?.boardEnd, { type: 'none' });
 
@@ -90,7 +114,11 @@ const withBlock = (base: GameConfigDoc, edit: (doc: GameConfigDoc) => void): Gam
 
 check(
 	'a pattern needing a reel that does not exist',
-	issuePaths(withBlock(collector, (d) => d.holdAndWin!.trigger.pattern!.push({ reel: 3, roles: ['coin'], min: 1 }))),
+	issuePaths(
+		withBlock(collector, (d) =>
+			d.holdAndWin!.trigger.pattern!.push({ reel: 3, roles: ['coin'], min: 1 }),
+		),
+	),
 	['holdAndWin.trigger.pattern.3.reel'],
 );
 check(
@@ -117,12 +145,27 @@ check(
 );
 check(
 	'a coin naming an unknown jackpot',
-	issuePaths(withBlock(pots, (d) => d.holdAndWin!.coins.push({ kind: 'jackpot', jackpot: 'MEGA', weight: 1 }))),
+	issuePaths(
+		withBlock(pots, (d) =>
+			d.holdAndWin!.coins.push({ kind: 'jackpot', jackpot: 'MEGA', weight: 1 }),
+		),
+	),
 	['holdAndWin.coins.11.jackpot'],
 );
 check(
 	'letters that do not match the reel count',
-	issuePaths(withBlock(classic, (d) => (d.holdAndWin!.boardEnd = { type: 'columnLetters', letters: 'GRANDE', jackpot: 'GRAND', clearOnComplete: true }))),
+	issuePaths(
+		withBlock(
+			classic,
+			(d) =>
+				(d.holdAndWin!.boardEnd = {
+					type: 'columnLetters',
+					letters: 'GRANDE',
+					jackpot: 'GRAND',
+					clearOnComplete: true,
+				}),
+		),
+	),
 	['holdAndWin.boardEnd.letters'],
 );
 check(
@@ -137,17 +180,25 @@ check(
 );
 check(
 	'a count trigger larger than the board',
-	issuePaths(withBlock(collector, (d) => (d.holdAndWin!.trigger = { count: { min: 10, roles: ['coin'] } }))),
+	issuePaths(
+		withBlock(collector, (d) => (d.holdAndWin!.trigger = { count: { min: 10, roles: ['coin'] } })),
+	),
 	['holdAndWin.trigger.count.min'],
 );
-check(
-	'no trigger at all',
-	issuePaths(withBlock(classic, (d) => (d.holdAndWin!.trigger = {}))),
-	['holdAndWin.trigger'],
-);
+check('no trigger at all', issuePaths(withBlock(classic, (d) => (d.holdAndWin!.trigger = {}))), [
+	'holdAndWin.trigger',
+]);
 check(
 	'a meter activating an unconfigured special',
-	issuePaths(withBlock(classic, (d) => (d.holdAndWin!.meters = [{ id: 'x', symbol: 'BOOST', maxLevel: 12, sizeStages: [5], activates: 'payer' }]))),
+	issuePaths(
+		withBlock(
+			classic,
+			(d) =>
+				(d.holdAndWin!.meters = [
+					{ id: 'x', symbol: 'BOOST', maxLevel: 12, sizeStages: [5], activates: 'payer' },
+				]),
+		),
+	),
 	['holdAndWin.meters.0.activates'],
 );
 check(
@@ -157,7 +208,11 @@ check(
 );
 check(
 	'an extra-collect prize past the collector max',
-	issuePaths(withBlock(collector, (d) => d.holdAndWin!.wheel!.prizes.push({ type: 'extraCollect', count: 3, weight: 1 }))),
+	issuePaths(
+		withBlock(collector, (d) =>
+			d.holdAndWin!.wheel!.prizes.push({ type: 'extraCollect', count: 3, weight: 1 }),
+		),
+	),
 	['holdAndWin.wheel.prizes.7.count'],
 );
 check(
@@ -167,7 +222,9 @@ check(
 );
 check(
 	'a configured special missing from the apply order',
-	issuePaths(withBlock(pots, (d) => (d.holdAndWin!.applyOrder = ['payer', 'multiplier', 'collector']))),
+	issuePaths(
+		withBlock(pots, (d) => (d.holdAndWin!.applyOrder = ['payer', 'multiplier', 'collector'])),
+	),
 	['holdAndWin.applyOrder'],
 );
 check(
@@ -176,7 +233,10 @@ check(
 		withBlock(classic, (d) => {
 			d.symbols.MYSTERY = { special_properties: ['mystery'] };
 			d.paddingReels.respin[0].push({ name: 'MYSTERY' });
-			d.holdAndWin!.specials.mystery = { reveals: [{ type: 'special', special: 'payer', weight: 1 }], unlocksInactive: false };
+			d.holdAndWin!.specials.mystery = {
+				reveals: [{ type: 'special', special: 'payer', weight: 1 }],
+				unlocksInactive: false,
+			};
 			d.holdAndWin!.applyOrder.push('mystery');
 		}),
 	),
@@ -184,7 +244,9 @@ check(
 );
 check(
 	'a Hold and Win base game that does not pay by lines',
-	issuePaths(withBlock(pots, (d) => (d.winModel = { type: 'ways', direction: 'ltr', minKind: 3 }))).includes('winModel'),
+	issuePaths(
+		withBlock(pots, (d) => (d.winModel = { type: 'ways', direction: 'ltr', minKind: 3 })),
+	).includes('winModel'),
 	true,
 );
 check(
