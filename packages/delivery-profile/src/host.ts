@@ -62,12 +62,37 @@ export const readHostGameSettings = (): HostGameSettings | null => {
 	if (own) return own;
 
 	try {
-		if (window.parent && window.parent !== window) return readParams(window.parent);
+		if (window.parent && window.parent !== window) {
+			const parent = readParams(window.parent);
+			if (parent) return parent;
+		}
 	} catch {
 		/* cross-origin parent — nothing to read */
 	}
-	return null;
+	return devHostOverride();
 };
+
+/**
+ * `?host={"minSpinDuration":3000}` on a DEV server stands in for an operator page, so each host
+ * setting can be tried without one — the same query the Invisible Test Server turns into a real
+ * `window.params` for a published game. `import.meta.env.DEV` is replaced at build time, so a
+ * production bundle carries none of this and no URL can declare operator settings to it.
+ */
+const devHostOverride = (): HostGameSettings | null => {
+	if (!(import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) return null;
+	const raw = new URLSearchParams(window.location.search).get(HOST_OVERRIDE_PARAM);
+	if (!raw) return null;
+	try {
+		const config = asRecord(JSON.parse(raw));
+		return config ? { token: '', service: '', config } : null;
+	} catch {
+		console.warn(`[delivery-profile] ?${HOST_OVERRIDE_PARAM}= is not a JSON object — ignored`);
+		return null;
+	}
+};
+
+/** The query a dev server and the Invisible Test Server read operator settings from. */
+export const HOST_OVERRIDE_PARAM = 'host';
 
 /**
  * The RGS path the operator's page declared (`GameSettings.service`), as a same-origin path.

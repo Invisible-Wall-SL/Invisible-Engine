@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
+import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
 // Invisible Wall favicon — served for EVERY favicon request (the root page and every
 // game), so all tabs are IW-branded (overriding the games' own bundled favicons).
@@ -858,6 +859,7 @@ async function hydrateOnce() {
 			readToken: typeof meta.readToken === 'string' ? meta.readToken : null,
 			// What the mock is currently built from, so a live re-read can tell "unchanged" from "changed".
 			fingerprint: fingerprintOf(contract),
+			hostSettings: validHostSettings(meta.hostSettings, key),
 		};
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
@@ -1161,6 +1163,10 @@ const handleRequest = async (req, res) => {
 				(meta.runtime && rel.startsWith('_app/immutable/')
 					? own(own(retiredImmutable, meta.runtime) ?? {}, rel)
 					: undefined);
+			const hostConfig = file && rel === 'index.html' ? hostConfigFor(meta, url) : null;
+			const body = hostConfig
+				? Buffer.from(injectHostSettings(file.body.toString('utf8'), hostConfig))
+				: file?.body;
 			if (file) {
 				// Content-hashed bundle files (SvelteKit `_app/immutable/…`) get a new
 				// URL on every build, so they're safe to cache forever. Everything else
@@ -1172,7 +1178,7 @@ const handleRequest = async (req, res) => {
 				const immutable = rel.startsWith('_app/immutable/');
 				const headers = {
 					'Content-Type': file.contentType,
-					'Content-Length': file.body.length,
+					'Content-Length': body.length,
 					'Cache-Control': immutable
 						? 'public, max-age=31536000, immutable'
 						: 'no-store, must-revalidate',
@@ -1184,7 +1190,7 @@ const handleRequest = async (req, res) => {
 					return res.end();
 				}
 				res.writeHead(200, headers);
-				return res.end(file.body);
+				return res.end(body);
 			}
 			return send(res, 404, 'text/plain; charset=utf-8', Buffer.from(`not found: ${rel}`));
 		}

@@ -277,6 +277,11 @@ export interface TestServerGameEntry {
 	 *  so an unauthored game leaves the test server's protocol default (and its `CASCADE_GAMES`
 	 *  override) in charge. Synced on publish from `resolveCascade`. */
 	cascade?: boolean;
+	/** The OPERATOR settings the Invisible Test Server plays for this game — injected into its page as
+	 *  `window.params.GameSettings.config`, exactly as a partner's embed page would, so each host
+	 *  setting can be tried without the partner. Set by hand on the manifest; no publish writes it and
+	 *  a republish keeps it. Field contract: `docs/reference/play4fun-protocol.md` § Host settings. */
+	hostSettings?: Record<string, unknown>;
 	/** The project's OWN board grid (from its Game Config), so the mock RGS deals THIS project's
 	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
 	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
@@ -383,10 +388,16 @@ export async function upsertTestServerGame(
 		// A pin is set by the release tooling, not by the publisher — a republish must not drop it. It
 		// names a release OF one runtime, so it only survives a republish onto that same runtime.
 		const prior = manifest.games[key];
-		manifest.games[key] =
+		const pinned =
 			prior?.runtimeVersion && !('runtimeVersion' in entry) && prior.runtime === entry.runtime
 				? { ...entry, runtimeVersion: prior.runtimeVersion }
 				: entry;
+		// Operator settings are a TEST declaration made on the manifest, not by any publish, so a
+		// republish keeps them too.
+		manifest.games[key] =
+			prior?.hostSettings && !('hostSettings' in entry)
+				? { ...pinned, hostSettings: prior.hostSettings }
+				: pinned;
 		try {
 			await putObjectText(
 				TEST_SERVER_MANIFEST_KEY,
