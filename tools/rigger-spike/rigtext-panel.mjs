@@ -212,7 +212,7 @@ const server = createServer(async (req, res) => {
 				sourceLang: 'en',
 				targetLangs: ['de', 'es'],
 				entries: [
-					{ key: 'FREE_SPINS', source: 'FREE SPINS', reviewed: { de: 'FREISPIELE', es: 'GIROS' }, pending: 0 },
+					{ key: 'FREE_SPINS', source: 'FREE SPINS', translations: { de: 'FREISPIELE', es: 'GIROS' }, unreviewed: 0 },
 				],
 			});
 

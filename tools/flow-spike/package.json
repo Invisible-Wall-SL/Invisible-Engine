@@ -48,7 +48,6 @@
 		"v2preview": "tsx flowV2Preview.ts",
 		"v2lifecycle": "tsx flowV2Lifecycle.ts",
 		"v2translate": "tsx flowV2Translate.ts",
-		"v2translateremake": "tsx flowV2TranslateRemake.ts",
 		"v2choreo": "tsx flowV2Choreo.ts",
 		"v2hold": "tsx flowV2Hold.ts",
 		"v2holdsafety": "tsx flowV2HoldSafety.ts",
@@ -59,7 +58,7 @@
 		"v2halfon": "tsx flowV2HalfOn.ts",
 		"v2drivenseed": "tsx flowV2DrivenSeed.ts",
 		"loadingbar": "tsx loadingBarDefaults.ts",
-		"slamcounter": "tsx slamCounter.ts"
+		"slamcounter": "tsx --import ./appStubs.register.mjs slamCounter.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

@@ -132,8 +132,8 @@ const server = createServer((req, res) => {
 					{
 						key: 'FREE_SPINS',
 						source: '10',
-						reviewed: { de: '1000000', es: '100' },
-						pending: 1,
+						translations: { de: '1000000', es: '100' },
+						unreviewed: 1,
 					},
 				],
 			}),
@@ -372,7 +372,7 @@ try {
 		ok('the save reports success', res.ok === true, JSON.stringify(res).slice(0, 300));
 		ok('it returns one attachment per baked locale', res.attachments?.length === 3, JSON.stringify(res.attachments));
 		const locales = (res.attachments ?? []).map((a) => a.locale).sort().join(',');
-		ok('the locales are the source + the REVIEWED translations only', locales === 'de,en,es', locales);
+		ok('the locales are the source + every translation, reviewed or not', locales === 'de,en,es', locales);
 		ok('the region names are namespaced', res.attachments?.every((a) => a.region === 'text/title/' + a.locale));
 
 		ok('a page was PUT to the presigned URL', !!uploadedPage, 'no upload seen');
@@ -388,11 +388,17 @@ try {
 		const variants = savedDoc?.doc?.elements?.[0]?.variants ?? [];
 		ok('the document carries one variant per locale', variants.length === 3, JSON.stringify(variants.map((v) => v.locale)));
 		ok('each variant remembers the STRING it baked', variants.every((v) => typeof v.text === 'string' && v.text.length > 0));
-		// The `de` string is 7 chars and `es` is 3 — the packed rects must reflect that, which is
-		// the end-to-end proof that per-locale art really is per-locale.
+		// Every locale shares ONE placement, so a translation wider than the source is re-rasterised
+		// at a smaller font size until it fits the source's width (`fitTilesToSource`). `de` is 7
+		// chars, `es` 3, the source 2: both must shrink, and `de` further — the end-to-end proof
+		// that per-locale art really is per-locale, and that the fit really ran.
+		const en = variants.find((v) => v.locale === 'en');
 		const de = variants.find((v) => v.locale === 'de');
 		const es = variants.find((v) => v.locale === 'es');
-		ok('a longer translation packs a WIDER rect', de.w > es.w * 1.5, `de ${de.w} vs es ${es.w}`);
+		const sizes = `en ${en?.w}px@${en?.fontSize} de ${de?.w}px@${de?.fontSize} es ${es?.w}px@${es?.fontSize}`;
+		ok('the source locale bakes at the element size', en?.fontSize === 48, sizes);
+		ok('every translation fits the source width', de?.w <= en?.w && es?.w <= en?.w, sizes);
+		ok('a longer translation is shrunk FURTHER', de?.fontSize < es?.fontSize && es?.fontSize < 48, sizes);
 
 		const page = savedDoc.doc.page;
 		ok('every rect fits inside the declared page', variants.every((v) => v.x >= 0 && v.y >= 0 && v.x + v.w <= page.width && v.y + v.h <= page.height), JSON.stringify({ page, variants }));
