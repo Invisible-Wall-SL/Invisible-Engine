@@ -20,8 +20,13 @@ import { deleteObject, getObjectBytes, getObjectText, listAllKeys } from './r2';
  * this so a fresh rig can't shadow an existing one by case alone.
  */
 export async function spineBundleNameTaken(spinesPrefix: string, name: string): Promise<boolean> {
+	return (await bundleFoldersNamedLike(spinesPrefix, name)).length > 0;
+}
+
+/** The top-level names under `spinesPrefix` equal to `name` ignoring case. */
+export async function bundleFoldersNamedLike(spinesPrefix: string, name: string): Promise<string[]> {
 	const lower = name.toLowerCase();
-	return (await topLevelNames(spinesPrefix)).some((seg) => seg.toLowerCase() === lower);
+	return (await topLevelNames(spinesPrefix)).filter((seg) => seg.toLowerCase() === lower);
 }
 
 /**

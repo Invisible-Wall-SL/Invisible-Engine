@@ -23,6 +23,8 @@ import { error, isHttpError } from '@sveltejs/kit';
 interface Stored {
 	body: Uint8Array;
 	etag: string;
+	/** Epoch ms of the write — what a listing / HEAD reports as `lastModified`. */
+	modified: number;
 }
 interface Cond {
 	ifMatch?: string;
@@ -38,6 +40,9 @@ const who = new AsyncLocalStorage<string>();
 let afterPut: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
 let beforeList: ((caller: string | undefined) => Promise<void>) | null = null;
 let afterDelete: ((key: string, caller: string | undefined) => void) | null = null;
+/** Awaited before a HEAD reads the object / after it has read it. */
+let beforeHead: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
+let afterHead: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
 
 class ConflictError extends Error {
 	constructor(readonly key: string) {
@@ -54,7 +59,7 @@ async function put(key: string, body: Uint8Array, cond?: Cond): Promise<string> 
 	if (cond?.ifNoneMatch === '*' && current) throw new ConflictError(key);
 	if (cond?.ifMatch !== undefined && current?.etag !== cond.ifMatch) throw new ConflictError(key);
 	const etag = etagOf(body);
-	bucket.set(key, { body, etag });
+	bucket.set(key, { body, etag, modified: Date.now() });
 	writes.push(`put ${key}`);
 	await afterPut?.(key, who.getStore());
 	return etag;
@@ -96,8 +101,11 @@ mock.module(server('r2.ts'), {
 			return o ? { text: dec.decode(o.body), etag: o.etag } : null;
 		},
 		headObject: async (key: string) => {
+			await beforeHead?.(key, who.getStore());
 			const o = bucket.get(key);
-			return o ? { etag: o.etag, size: o.body.length, lastModified: 0 } : null;
+			const head = o ? { etag: o.etag, size: o.body.length, lastModified: o.modified } : null;
+			await afterHead?.(key, who.getStore());
+			return head;
 		},
 		copyObject: async (src: string, dest: string) => {
 			const o = bucket.get(src);
@@ -107,11 +115,15 @@ mock.module(server('r2.ts'), {
 		},
 		listAllKeys: keysUnder,
 		listAllObjects: async (prefix: string) =>
-			(await keysUnder(prefix)).map((key) => ({
-				key,
-				size: bucket.get(key)!.body.length,
-				lastModified: 0,
-			})),
+			(await keysUnder(prefix)).map((key) => {
+				const o = bucket.get(key)!;
+				return {
+					key,
+					size: o.body.length,
+					lastModified: o.modified,
+					etag: o.etag.replace(/"/g, ''),
+				};
+			}),
 		deleteObject: async (key: string) => remove(key),
 		deleteObjects: async (keys: string[]) => keys.forEach(remove),
 	},
@@ -222,6 +234,8 @@ const reset = (): void => {
 	afterPut = null;
 	beforeList = null;
 	afterDelete = null;
+	beforeHead = null;
+	afterHead = null;
 };
 
 // ── 6a: the animation library save is create-only / If-Match ─────────────────────────────────
@@ -329,9 +343,10 @@ const entry = (folder: string) => ({
 	pma: false,
 	dir_b64: b64(folder),
 });
-const seedStore = (key: string, body: string): void => {
+/** `ageMs` back-dates the object — how long ago it was written. */
+const seedStore = (key: string, body: string, ageMs = 0): void => {
 	const bytes = enc.encode(body);
-	bucket.set(key, { body: bytes, etag: etagOf(bytes) });
+	bucket.set(key, { body: bytes, etag: etagOf(bytes), modified: Date.now() - ageMs });
 };
 /** A healthy rig A, and an atlas-less rig B with no source to rebuild one — both listed. */
 function seedProject(): void {
@@ -463,8 +478,9 @@ function interleave(releaseFirst: boolean): void {
 	beforeList = async (caller) => {
 		const n = (lists.get(caller ?? '') ?? 0) + 1;
 		lists.set(caller ?? '', n);
-		if (n === 1) await checked();
-		else if (n === 2 && releaseFirst && caller === 'B') await released;
+		// Listing 1 is the abandoned-claim check, 2 the name check, 3 the post-claim re-check.
+		if (n === 2) await checked();
+		else if (n === 3 && releaseFirst && caller === 'B') await released;
 	};
 	afterPut = async (key) => {
 		if (HERO_CLAIM.test(key)) await claimed();
@@ -515,6 +531,133 @@ for (const create of creates) {
 		`${create.label} sequential: a case-only clash is a 409 before any write`,
 		[again.status, writes],
 		[409, []],
+	);
+}
+
+// ── A create that died after its claim does not hold the name forever ────────────────────────
+const STALE = 11 * 60_000;
+const backupsOf = (folder: string): string[] =>
+	[...bucket.keys()].filter((k) => k.startsWith(`${CLIENT}/p1/rigger-backups/${b64(folder)}/`));
+const created = (folder: string): boolean =>
+	[`${folder}.irig`, `${folder}.atlas`].every((f) => bucket.has(`${SPINES}/${folder}/${f}`)) &&
+	text(`${SPINES}/${folder}/${folder}.irig`) !== '{}';
+
+for (const create of creates) {
+	seedProject();
+	seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+	const same = await create.run('Hero', 'solo');
+	check(
+		`${create.label} abandoned: a lone stale claim of the same name is reclaimed and the rig created`,
+		[same.status, created('Hero'), listed()],
+		[200, true, ['A', 'B', 'Hero']],
+	);
+	check(
+		`${create.label} abandoned: the reclaimed .irig is kept in the name's 🕘 backups`,
+		backupsOf('Hero').map((k) => text(k)),
+		[skel('orphan')],
+	);
+
+	seedProject();
+	seedStore(`${SPINES}/HERO/HERO.irig`, skel('orphan'), STALE);
+	seedStore(`${SPINES}/HERO/page.png`, 'png', STALE);
+	const other = await create.run('hero', 'solo');
+	check(
+		`${create.label} abandoned: a stale claim + its page under another case is removed, the rig created`,
+		[other.status, heroKeys().filter((k) => k.includes('/HERO/')), created('hero')],
+		[200, [], true],
+	);
+}
+
+{
+	const refused = async (label: string, seed: () => void, name = 'Hero'): Promise<void> => {
+		seedProject();
+		seed();
+		const before = [...bucket.keys()].sort();
+		const res = await creates[0].run(name, 'solo');
+		check(`abandoned: ${label} — refused, nothing touched`, [res.status, [...bucket.keys()].sort()], [
+			409,
+			before,
+		]);
+	};
+	await refused('a claim still young (a create in flight)', () =>
+		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), 60_000),
+	);
+	await refused(
+		'a listed atlas-less rig, however old',
+		() => {
+			seedStore(`${SPINES}/B/B.irig`, skel('B'), STALE);
+			seedStore(`${SPINES}/B/B.png`, 'png', STALE);
+		},
+		'b',
+	);
+	await refused('a folder holding an atlas', () => {
+		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${SPINES}/Hero/Hero.atlas`, 'x', STALE);
+	});
+	await refused('a folder holding another file', () => {
+		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${SPINES}/Hero/source.json`, '{}', STALE);
+	});
+	await refused('a folder whose skeleton is not <folder>.irig', () =>
+		seedStore(`${SPINES}/Hero/Other.irig`, skel('orphan'), STALE),
+	);
+	await refused('a folder written to recently', () => {
+		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${SPINES}/Hero/page.png`, 'png', 1000);
+	});
+	await refused('an unreadable index', () => {
+		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${SPINES}/skeletons.json`, '{not json');
+	});
+}
+
+// Two creates of the same name, both judging the same stale claim abandoned: A reclaims it AND
+// claims the freed name while B is between its listing and its takeover — held before its HEAD
+// (the HEAD then reads A's claim, not what was listed) or after it (its `If-Match` then fails).
+// Either way B must not take over A's claim.
+for (const hold of ['before', 'after'] as const) {
+	seedProject();
+	seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+	let aClaimed: () => void = () => {};
+	const claimedByA = new Promise<void>((resolve) => {
+		aClaimed = resolve;
+		setTimeout(resolve, 250);
+	});
+	const holdB = async (key: string, caller: string | undefined): Promise<void> => {
+		if (caller === 'B' && HERO_CLAIM.test(key)) await claimedByA;
+	};
+	if (hold === 'before') beforeHead = holdB;
+	else afterHead = holdB;
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && HERO_CLAIM.test(key) && text(key) !== '{}') aClaimed();
+	};
+	const [a, b] = await Promise.all([creates[0].run('Hero', 'A'), creates[0].run('Hero', 'B')]);
+	check(
+		`abandoned, same name at once (B held ${hold} its HEAD): A creates, B is refused and removes nothing of A`,
+		[a.status, b.status, created('Hero'), listed()],
+		[200, 409, true, ['A', 'B', 'Hero']],
+	);
+}
+
+// Both creates read the stale claim before either takes it over: the `If-Match` lets only one win.
+{
+	seedProject();
+	seedStore(`${SPINES}/HERO/HERO.irig`, skel('orphan'), STALE);
+	const headed = barrier(2);
+	afterHead = async (key) => {
+		if (key.endsWith('/HERO/HERO.irig')) await headed();
+	};
+	const [a, b] = await Promise.all([creates[0].run('Hero', 'A'), creates[0].run('hero', 'B')]);
+	const ok = [a, b].filter((r) => r.status === 200).length;
+	check(
+		'abandoned, both read it first: never both created, the stale folder is gone',
+		[ok <= 1, heroKeys().filter((k) => k.includes('/HERO/'))],
+		[true, []],
+	);
+	check(
+		'abandoned, both read it first: every create that answered 200 left a whole rig',
+		[a.status !== 200 || created('Hero'), b.status !== 200 || created('hero')],
+		[true, true],
 	);
 }
 

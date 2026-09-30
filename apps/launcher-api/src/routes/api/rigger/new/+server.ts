@@ -7,6 +7,7 @@ import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server
 import { bundleRevision } from '$lib/server/spineBundleSync';
 import { releaseClaimOnCaseClash, spineBundleNameTaken } from '$lib/server/spineIndex';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
+import { reclaimAbandonedClaims } from '$lib/server/riggerAbandonedClaim';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -72,6 +73,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const spinesPrefix = SUB.spines(clientKey, projectKey);
 	const bundle = `${spinesPrefix}/${name}`;
+	// A create that died after its claim holds the name from a folder nobody can see; free it.
+	await reclaimAbandonedClaims(clientKey, projectKey, spinesPrefix, name);
 	if (await spineBundleNameTaken(spinesPrefix, name))
 		throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
