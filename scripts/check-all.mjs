@@ -45,6 +45,25 @@ const SKIP = {
 	// Need the network, R2 or a deployed service.
 	'apps/launcher-api/scripts/check-deployed-page.mjs': 'probes a deployed page over HTTP',
 	'apps/launcher-api/scripts/verify-runtime-live.mjs': 'reads R2 and the live launcher',
+	// Print a rig's structure for a human; they assert nothing.
+	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
+	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',
+};
+
+const spines = (dir, name, atlas = name) => [
+	`apps/lines/static/assets/spines/${dir}/${name}.json`,
+	`apps/lines/static/assets/spines/${dir}/${atlas}.atlas`,
+];
+/**
+ * The rig every per-rig Rigger spike runs against: regions, a weighted multi-influence mesh, an
+ * unweighted mesh and 12 path constraints, so each spike reaches its real path rather than a skip.
+ */
+const RIG = spines('anticipation', 'anticipation');
+/** What RIG lacks: a sequence timeline and a weighted first mesh (W), an interior fan (S). */
+const RIG_EXTRA = {
+	'tools/rigger-spike/sequence.mjs @W': spines('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/meshremove.mjs @W': spines('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/retriangulate.mjs @S': spines('symbols2', 'S', 'symbols2'),
 };
 
 /** Extra arguments for a check that needs an input to have anything to check. */
@@ -196,6 +215,21 @@ function discover() {
 				cmd: ['pnpm', 'run', '--silent', name],
 			});
 	}
+
+	// The Rigger's spikes are bare scripts. One whose `node tools/rigger-spike/x.mjs …` line names a
+	// skeleton runs against RIG; the rest take no input. A file with no such line is a library.
+	for (const rel of trackedFiles) {
+		if (!/^tools\/rigger-spike\/[^/]+\.mjs$/.test(rel)) continue;
+		const usage = new RegExp(
+			`^//\\s+node tools/rigger-spike/${rel.split('/').pop()}(.*)$`,
+			'm',
+		).exec(readFileSync(join(ROOT, rel), 'utf8'));
+		if (!usage) continue;
+		const perRig = /\.json|\.atlas/.test(usage[1]);
+		checks.push({ id: rel, cwd: ROOT, cmd: [nodeBin, rel, ...(perRig ? RIG : [])] });
+	}
+	for (const [id, rig] of Object.entries(RIG_EXTRA))
+		checks.push({ id, cwd: ROOT, cmd: [nodeBin, id.split(' @')[0], ...rig] });
 	return checks.sort((a, b) => a.id.localeCompare(b.id));
 }
 

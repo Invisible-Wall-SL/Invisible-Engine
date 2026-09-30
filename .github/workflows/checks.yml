@@ -57,8 +57,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The Rigger's text spikes drive a real headless browser; the runner image ships Chrome.
       - name: offline checks
-        run: pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4
+        run: CHROME_PATH="$(command -v google-chrome)" pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4
 
   python:
     name: python tests
