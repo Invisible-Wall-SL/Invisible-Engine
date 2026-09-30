@@ -21,7 +21,7 @@
 // file, that script is used — it carries the flags the author found were needed (`--tsconfig`,
 // `--experimental-test-module-mocks`, a `pre` hook). Otherwise by extension: `.ts`/`.mts` through
 // tsx, `.mjs` through node with type-stripping and the repo's extension-resolving loader. A check
-// that reads `process.env.PORT ?? 7777` talks to the mock RGS, so it gets a private one.
+// that reads `process.env.PORT ?? 7777` talks to the mock RGS, so it gets a private one, seeded.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -343,12 +343,18 @@ function freePort() {
 	});
 }
 
-/** A private mock RGS per check, so no two checks share a wallet or a round. */
-async function startMockRgs() {
+/**
+ * A private mock RGS per check, so no two checks share a wallet or a round. Seeded with the
+ * check's id, so it deals the same rounds on every run: unseeded it deals from the clock, and a
+ * check that trips only on a rare round goes red one run in N and green when re-run alone. Its
+ * other knobs (`WIN_MODEL`, `FORCE_TRIGGER`, …) still come from the environment, which CI leaves
+ * empty.
+ */
+async function startMockRgs(seed) {
 	const port = await freePort();
 	const mock = spawn(nodeBin, ['scripts/mock-rgs-server.mjs'], {
 		cwd: ROOT,
-		env: { ...process.env, PORT: String(port) },
+		env: { ...process.env, PORT: String(port), SEED: seed },
 	});
 	let log = '';
 	await new Promise((ready, fail) => {
@@ -383,7 +389,7 @@ async function runOne(check) {
 	const started = Date.now();
 	let mock;
 	try {
-		mock = check.mockRgs ? await startMockRgs() : undefined;
+		mock = check.mockRgs ? await startMockRgs(check.id) : undefined;
 	} catch (err) {
 		return { check, ok: false, ms: Date.now() - started, out: String(err) };
 	}
