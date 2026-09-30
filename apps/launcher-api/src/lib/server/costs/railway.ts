@@ -1,5 +1,5 @@
 /**
- * Railway cost collector — the launcher, atlas-tool, atlas-backend, sheet-tool and
+ * Railway cost collector — the launcher, atlas-tool, sheet-tool, the test server and
  * Postgres all bill here (one project, environment `production` — see docs/INFRA.md).
  *
  * Railway's public GraphQL API (https://backboard.railway.com/graphql/v2) is the same

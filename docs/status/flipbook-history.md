@@ -580,8 +580,8 @@ the status file holds the current answer).
     an unreadable slot; a boot collects the running job and leaves the queued tail, which only
     opening the session starts; and two adopters cannot take one session twice. **The real fix was Watch Paths on the Railway
     services** — set the same day on all four repo-root services (`docs/INFRA.md`), and
-    proved live the same evening: #602 (atlas-tool only) was *Skipped* by atlas-backend,
-    sheet-tool and the test-server, while #601 (which also touches `services/_shared/**`)
+    proved live the same evening: #602 (atlas-tool only) was *Skipped* by the other repo-root
+    services, while #601 (which also touches `services/_shared/**`)
     was correctly built by the two services that vendor it. This change is what makes a
     swap survivable; that setting is what stops most swaps happening at all.
 - 2026-09-04 — **Fourteen hours of video renders died on one corrupt file on the Network Volume —

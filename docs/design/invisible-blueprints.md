@@ -380,9 +380,6 @@ Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve an
 - Sharing precedent + launcher scope: `apps/launcher-api/src/lib/server/toolScope.ts`
   (`_shared/spines/`, `allowedPrefixes`, `ScopeOptions`), `r2.ts`,
   `apps/launcher-api/src/routes/(app)/atlas/+page.server.ts` (role gate + handoff).
-- Backend reference (dormant, but cleaner graph injection example):
-  `services/atlas-backend/workflows.py` (`sdxl_region`, `_resolve_text`), `app.py`
-  (`/generate-region`).
 
 ## 9. Open questions / risks
 

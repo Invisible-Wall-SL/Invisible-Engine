@@ -282,7 +282,7 @@ curl -H 'User-Agent: InvisibleAtlas/1.0' https://<podId>-8188.proxy.runpod.net/s
 
 ## 5. Point the backend at the pod
 
-On Railway, **atlas-backend** AND **atlas-tool** services → Variables:
+On Railway, the **atlas-tool** service → Variables:
 
 - Set `COMFY_URL` = `https://<podId>-8188.proxy.runpod.net`
 - **Delete** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (no Cloudflare Access

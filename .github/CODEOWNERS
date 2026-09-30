@@ -24,7 +24,6 @@
 
 # ── Python pipeline tools (Track 2) ────────────────────────────────────────
 /services/atlas-tool/               @GuiltyForever   # atlas-tool
-/services/atlas-backend/            @GuiltyForever   # atlas-backend
 /services/sheet-tool/               @GuiltyForever   # sheet-tool
 /services/test-server/              @GuiltyForever   # test-server
 /services/_shared/                  @GuiltyForever   # pipeline: iw_common

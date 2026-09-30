@@ -17,9 +17,9 @@ tunnel** (⚙ _Run generation on_ = My computer). Nothing in production depends 
 being up. See docs/INFRA.md for the diagram and the service/env tables.
 
 - **Railway (one project, env `production`):** launcher (`app.invisiblewall.org`), `atlas-tool`,
-  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`), `atlas-backend` (legacy —
-  nothing in the code calls it; slated for removal), + Postgres. All auto-deploy from GitHub
-  `main`; the repo-root Python services and the test server rebuild only on their Watch Paths.
+  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`) and Postgres. All auto-deploy
+  from GitHub `main`; the repo-root Python services and the test server rebuild only on their
+  Watch Paths.
 - **Health:** the launcher's `/api/health` is a readiness check (DB + migrations); atlas-tool and
   sheet-tool `/healthz` name the running commit; the test server's `/healthz` reports its last
   hydrate and answers 503 when it serves nothing (#868). All four answered green on 2026-09-29.
@@ -56,22 +56,20 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   owner adds the other five (Blocked; exact ruleset in INFRA "Branch ruleset on `main`").
 
 ## Open items / next
-1. **Remove `atlas-backend`** — delete the Railway service, `services/atlas-backend/`, its Watch
-   Paths row and the unused `ATLAS_BACKEND_URL` getter in the launcher's `env.ts`.
-2. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
+1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
    skip only persists across deploys with a real volume; on ephemeral disk the first hydrate per
    boot re-reads everything, which costs R2 request operations (R2 has no egress fees). Disk growth
    is bounded (lazy hydrate + "Clear local cache"), but **no `railway.json` confirms `/data` is
    persistent — verify whether already done.**
-3. **Launcher OOM-on-bake (Railway RAM):** the editor bake/export path has 502'd mid-bake from the
+2. **Launcher OOM-on-bake (Railway RAM):** the editor bake/export path has 502'd mid-bake from the
    launcher running out of memory (bake retries 5xx as a soft cover). Durable fix = more RAM on the
    launcher service / stream exports rather than buffering.
-4. **cloudflared as a Windows service** (`cloudflared service install`) so a person's tunnel
+3. **cloudflared as a Windows service** (`cloudflared service install`) so a person's tunnel
    survives reboots. Low priority — production generation does not use the tunnel.
-5. **Tool signing secrets have no dual-key window** — each tool verifies against one
+4. **Tool signing secrets have no dual-key window** — each tool verifies against one
    `*_TOOL_SIGNING_SECRET`, so rotating one signs everyone out of that tool for a short 403
    window. Accepting a previous secret during a rotation would close it.
-6. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
+5. **svelte-check ratchet** — not built: `svelte-check` is not a dependency anywhere (people run it
    ad hoc; `apps/lines` sits at ~189–193 errors per the engine status). Needs it added as a
    devDependency, then a baseline-count gate.
 ## Blocked (owner / external)
@@ -103,6 +101,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **Retired service removed: `atlas-backend`.** The owner deleted the Railway service
+  (nothing called it); this change deletes `services/atlas-backend/`, the launcher's unused
+  `ATLAS_BACKEND_URL` / `ATLAS_MANIFEST_KEY` / `ATLAS_STYLE_REF_KEY` getters, the ComfyUI
+  submit/poll/upload/fetch client in `iw_common/comfy.py` that only it imported (atlas-tool keeps
+  `USER_AGENT`, `cf_headers`, `comfy_url`), and every doc, agent, CODEOWNERS and commit-scope
+  entry that named it. Railway is now four app services + Postgres.
 - 2026-09-30 — **Every CI check the owner wants required now reports on every PR** (#881). Checks
   and Lint dropped `paths-ignore`, which would have left a docs-only PR pending forever on a required
   check. A composite action, `.github/actions/code-changed`, diffs the PR merge commit against its

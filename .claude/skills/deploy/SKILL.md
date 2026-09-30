@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy checklist for this monorepo's Railway services (launcher, atlas-backend, atlas-tool). Use when the user wants to ship/deploy a change, or asks why a deploy "isn't working". Encodes the hard-won gotchas (always push, staged env vars, verify the runtime).
+description: Deploy checklist for this monorepo's Railway services (launcher, atlas-tool, sheet-tool, test-server). Use when the user wants to ship/deploy a change, or asks why a deploy "isn't working". Encodes the hard-won gotchas (always push, staged env vars, verify the runtime).
 ---
 
 # Deploy
@@ -11,7 +11,7 @@ Railway auto-deploys each service from GitHub `main` on push. There is no manual
 
 1. **Build locally first** (catch errors before they reach Railway):
    - Node service (launcher): `pnpm --filter launcher-api build`
-   - Python service (`atlas-backend`/`atlas-tool`): `py -m py_compile services/<svc>/*.py`
+   - Python service (`atlas-tool`/`sheet-tool`): `py -m py_compile services/<svc>/*.py`
 2. **Commit** with a concise imperative message. End with the Co-Authored-By line.
 3. **Push** — `git push origin HEAD`. ⚠️ This is the step most often forgotten. A commit that isn't pushed does NOT deploy. After pushing, confirm with `git log origin/main..HEAD --oneline` (should be empty).
 4. **Verify the running service actually picked up the change** — do not assume. Poll the live URL until it reflects the new code (e.g. a new route returns 200/401 instead of 404, or a changed response appears). Service URLs are in `docs/INFRA.md`.
@@ -25,7 +25,7 @@ Railway auto-deploys each service from GitHub `main` on push. There is no manual
 ## Service-specific notes
 
 - **Launcher** (`Invisible launcher` project): serves `app.invisiblewall.org`. Has Postgres. Routes under `(app)/` require auth+role.
-- **atlas-backend / atlas-tool**: both call local ComfyUI over the `comfy.invisiblewall.org` tunnel with CF Access headers + a custom User-Agent (Cloudflare 403s `Python-urllib`). `atlas-tool` hydrates its staging from R2 **only at container start**, so after seeding R2 you must **restart it**.
+- **atlas-tool**: on ⚙ *Run generation on* = *My computer* it calls ComfyUI over the `comfy.invisiblewall.org` tunnel with CF Access headers + a custom User-Agent (Cloudflare 403s `Python-urllib`). `atlas-tool` hydrates its staging from R2 at start and per project on first use, then only on **↻ Refresh from R2** — after changing R2 data out-of-band, refresh; don't assume the staged copy is current.
 
 ## Secrets
 
