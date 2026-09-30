@@ -52,8 +52,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 - **Every would-be required check reports on every PR** — `check-all (1/3…3/3)`, `python tests`,
   `eslint`, `check-secrets`. Checks and Lint dropped `paths-ignore`; their first step
   (`.github/actions/code-changed`) skips the rest on a docs-only change (`docs/**`, `.claude/**`,
-  `*.md`), so those jobs pass in ~10 s with no install. Only `check-secrets` is required so far — the
-  owner adds the other five (Blocked; exact ruleset in INFRA "Branch ruleset on `main`").
+  `*.md`), so those jobs pass in ~10 s with no install. All six are required checks in the `main`
+  ruleset (INFRA "Branch ruleset on `main`"), so every change lands through a PR that passed them.
 
 ## Open items / next
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
@@ -73,10 +73,6 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    ad hoc; `apps/lines` sits at ~189–193 errors per the engine status). Needs it added as a
    devDependency, then a baseline-count gate.
 ## Blocked (owner / external)
-- **Require the CI checks on `main` (owner, ~2 min):** add `check-all (1/3)`, `check-all (2/3)`,
-  `check-all (3/3)`, `python tests` and `eslint` to the existing `main` ruleset's required checks
-  (`check-secrets` is already there). The exact ruleset and a one-call `gh api` PUT are in INFRA
-  "Branch ruleset on `main`". The workflows already report all six on every PR, docs-only included.
 - **Nightly backups setup (owner, ~25 min; the workflow is a green no-op until done):** the full numbered list is "One-time owner setup" in [guides/backups](../guides/backups.md). In short:
   - Cloudflare: create R2 bucket `invisible-backups`. Add lifecycle rules `postgres/` 35 d, `r2-docs/` 90 d, `r2-assets/` 14 d, `_restore-drill/` 7 d, and abort multipart after 1 d. Add 7-day bucket-lock rules on the first three prefixes.
   - Cloudflare: create R2 tokens `backup-writer` (Object R&W, that bucket only) and `backup-source-reader` (Object Read, `invisibleassets` only).
@@ -101,6 +97,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-09-30 — **All six CI checks are required on `main`.** The owner added `check-all (1/3…3/3)`,
+  `python tests` and `eslint` beside `check-secrets` in ruleset `24185070` (read back via `gh api`).
+  Every name reports on docs-only and code PRs alike: #882 (docs-only test) 8–11 s each, #887 and
+  #886 (code) ran them for real, and push runs on `main` report all six too.
 - 2026-09-30 — **Retired service removed: `atlas-backend`.** The owner deleted the Railway service
   (nothing called it); this change deletes `services/atlas-backend/`, the launcher's unused
   `ATLAS_BACKEND_URL` / `ATLAS_MANIFEST_KEY` / `ATLAS_STYLE_REF_KEY` getters, the ComfyUI
