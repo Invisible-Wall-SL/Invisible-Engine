@@ -1844,14 +1844,15 @@
 			<div class="card">
 				<h3>Edge cache &amp; build</h3>
 				<p class="muted hint">
-					Force Cloudflare to drop its cached copies for the
-					<span class="mono">invisiblewall.org</span> zone — a manual lever for when the
-					<strong>game</strong> host (<span class="mono">games.invisiblewall.org</span>) is
-					suspected of serving a stale file. Safe: game assets are
-					<span class="mono">no-store</span> or content-hashed, so a purge only forces a re-fetch.
-					Note: <span class="mono">app.invisiblewall.org</span> (this launcher + the tool pages) is
-					DNS-only, <strong>not</strong> behind Cloudflare — those refresh via content-hashing and
-					the per-deploy <span class="mono">?v=</span> bust, so this button does not affect them.
+					Asks Cloudflare to drop its cached copies for the
+					<span class="mono">invisiblewall.org</span> zone. Both
+					<span class="mono">app.</span> and <span class="mono">games.invisiblewall.org</span> are
+					DNS-only, so neither has a Cloudflare copy and this purge drops nothing for them. The
+					button only matters if a host is switched to proxied. For a game serving a stale file,
+					reload it with <span class="mono">?cb=&lt;anything&gt;</span>, then check
+					<span class="mono">lastHydrate</span> on the games host's
+					<span class="mono">/healthz</span> (see <span class="mono">docs/INFRA.md</span>, "Game
+					freshness").
 				</p>
 
 				<div class="token-status">

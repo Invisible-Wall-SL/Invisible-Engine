@@ -22,8 +22,8 @@
 // read from R2 rather than hardcoded, since every such game serves the one release the pointer names.
 //
 // The index is fetched with a `?cb=` query and never the bare immutable bundle URL: fetching that
-// before the hydrate lands 404s, and the edge caches the 404 for hours on the exact file every game
-// then needs.
+// before the hydrate lands 404s, and that 404 carries no cache headers, so a browser or proxy may keep
+// it for the exact file every game then needs.
 //
 // Exits 1 if the served bundle never matches within the deadline. The deadline outlasts a test
 // server reboot (it hydrates all of R2 before it listens, and a push to `main` can redeploy it at
