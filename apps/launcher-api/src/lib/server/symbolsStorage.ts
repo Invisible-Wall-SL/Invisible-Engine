@@ -2,7 +2,10 @@ import { z } from 'zod';
 import {
 	BLEND_MODES,
 	COIN_LABEL_CASH_FORMATS,
+	FLIGHT_EASES,
+	FLIGHT_HEAD_KINDS,
 	isManifestAssetKey,
+	normalizeFlights,
 	pruneCoinLabel,
 	SYMBOL_STATES,
 	TUMBLE_PATTERNS,
@@ -696,6 +699,55 @@ const coinLabelSchema = z
 	})
 	.strict();
 
+/**
+ * HOLD AND WIN FLIGHTS — the authored look and feel of each flight kind (design §4.4 of
+ * `docs/design/hold-and-win.md`): the head that travels, its Invisible FX trail, the effect on
+ * impact, the route's shape and the timing. Keyed by flight kind (`toTotal` / `toCollector` /
+ * `boostBeam` / `toMeter` / `toMeter:<id>`); every field sparse.
+ *
+ * The SHAPE is strict (an unknown field or head kind is a 400, like every sibling), the VALUES are
+ * not: a junk key, an out-of-range number or a head missing the field its kind needs are dropped or
+ * clamped by `engine-layout`'s `normalizeFlights` — the same function the page's setters run, so the
+ * tool and the server agree on what "unchanged" looks like. Absent ⇒ every flight flies the coded
+ * glow (`resolveFlightStyle`), byte-identical to before the block existed.
+ */
+const flightStyleSchema = z
+	.object({
+		head: z
+			.object({
+				kind: z.enum(FLIGHT_HEAD_KINDS),
+				assetKey: z.string().optional(),
+				animationName: z.string().optional(),
+				clipId: z.string().optional(),
+				scale: z.number().optional(),
+				tint: z.string().optional(),
+			})
+			.strict()
+			.optional(),
+		trail: z
+			.object({ effectId: z.string().optional(), off: z.boolean().optional() })
+			.strict()
+			.optional(),
+		arrival: z.object({ effectId: z.string().optional() }).strict().optional(),
+		path: z
+			.object({
+				bend: z.number().optional(),
+				overRoute: z.boolean().optional(),
+				avoid: z.boolean().optional(),
+				padding: z.number().optional(),
+			})
+			.strict()
+			.optional(),
+		speed: z.number().optional(),
+		minMs: z.number().optional(),
+		maxMs: z.number().optional(),
+		ease: z.enum(FLIGHT_EASES).optional(),
+		stagger: z.number().optional(),
+	})
+	.strict();
+
+const flightsSchema = z.record(z.string(), flightStyleSchema);
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -715,6 +767,7 @@ export const symbolsDocSchema = z
 		tumblePattern: tumblePatternSchema.optional(),
 		anticipation: anticipationSchema.optional(),
 		coinLabel: coinLabelSchema.optional(),
+		flights: flightsSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -966,6 +1019,8 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// no key and keeps the coded coin label byte-for-byte.
 	const coinLabel = pruneCoinLabel(doc.coinLabel);
 	if (coinLabel) next.coinLabel = coinLabel;
+	const flights = normalizeFlights(doc.flights);
+	if (flights) next.flights = flights;
 	return next;
 }
 

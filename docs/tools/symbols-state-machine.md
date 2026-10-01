@@ -930,6 +930,62 @@ field over the coded `codedTierFx` ramp for that tier's rank among the config bi
 (`activeBigTiers`). The two cue names resolve sound doc → this doc → the coded
 `sfx_anticipation_start` / `sfx_anticipation`.
 
+### Flights (Hold and Win)
+
+Shown for a **Hold and Win** project (and for any project that already authored flights, so they can
+be cleared). In Hold and Win things fly across the screen: a coin into the total win at the end of the
+feature, coins into a collector, a special into its meter (a pot). This section decides how each of
+those looks and moves. Leave everything alone and the game flies its built-in gold glow.
+
+On the left is the list of **flight kinds**:
+
+- **Into the total win** (`toTotal`) — the feature-end tally and the Grand column sweep.
+- **Into a collector** (`toCollector`) — coins into a collector (the Hotfire streak, the collect
+  step), and the base game's instant win: each coin flies into its nearest special (Grand's BOOST
+  star, Hotfire's COLLECT diamond). Those flights are styled by this row too.
+- **Into a meter (every meter)** (`toMeter`) — specials into their pots.
+- **Boost beam** (`boostBeam`) is not listed: beams are not built yet, so nothing flies one. The doc
+  still accepts it, and a project that already authored it sees the row so it can reset it.
+- One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
+  for whatever you set there and falls back to **every meter** for the rest, field by field — so you
+  can give the gold pot its own head and keep the shared timing. A meter you authored that the Game
+  Config no longer has is still listed, marked _not in Game Config_, so you can reset it.
+
+A row marked **set** has something authored. Pick a row to edit it on the right:
+
+- **Head** — what travels. **Built-in** (or **Inherit** for a single meter) is the gold glow; **Glow**
+  re-tints and re-sizes it; **Sprite**, **Spine** and **Flipbook** fly your own art (a spine plays the
+  chosen animation on a loop while it flies); **None** flies only the trail. **Size** is × the glow
+  for a glow and × one cell for art; **Tint** colours it. A sprite / spine / flipbook head applies once
+  its frame, bundle + animation, or clip is picked.
+- **Trail** — an Invisible FX effect left behind the head, or **No trail**. The effect is emitted from
+  the moving head, so its particles stay where they were born and form a streak; once the head lands
+  the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
+  free-placed effects (a bone-placed layer does not follow the head).
+- **On arrival** — an Invisible FX effect played once where the head lands.
+- **Avoid win cells** / **Over-route** / **Max bend** / **Padding** — the route. The game picks a
+  curve that bends around the cells showing a win; **Max bend** is the strongest bend it may try
+  (0 = never bend; blank = the built-in ladder), **Over-route** lets it climb over the obstacles when
+  no bend is clean, **Padding** grows each win cell (in cells), and **Avoid win cells: Off** flies
+  straight through them.
+- **Speed** (cells per second), **Min ms** / **Max ms** (the flight time is the distance over the
+  speed, kept between the two), **Stagger ms** (the gap between two flights that leave together) and
+  **Ease**.
+
+Blank fields show what they will use in grey. **↺ Reset** clears the selected kind.
+
+**The flight preview** under the editor is a mock 5 × 3 board. Drag **A** (where the coin starts)
+and **B** (the target), and click a cell to mark or unmark it as showing a win (red). The dashed line
+is the route the game would take — planned by the same code the game flies with — and the head flies
+it over and over with your timing, head and trail. The line under the board names the route
+(straight, a bend, or over) and the flight time. The arrival effect is shown by its thumbnail in the
+editor rather than on the board, and the built-in gold trail is drawn as an approximation.
+
+Stored as `flights: Record<kind, { head?, trail?, arrival?, path?, speed?, minMs?, maxMs?, ease?,
+stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
+effects ship with it). The plan is in
+[the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
+
 ### Saving is not the last step — shipping a rebind
 
 Save only persists the override doc to R2. For a rebind to actually reach the running

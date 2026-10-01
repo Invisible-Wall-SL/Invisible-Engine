@@ -86,6 +86,18 @@
 		 * the inspector dropdowns). Called once per successful load (or with empty lists on
 		 * unload / failure). */
 		onSpineMeta?: (meta: { animations: string[]; skins: string[]; bones: string[] }) => void;
+		/**
+		 * A MOVING OWNER for every free layer, in world units (the stage centre is 0,0) — the trail
+		 * mechanism the game's `<EffectPlayer ownerPos>` uses: the container stays still and the
+		 * emitter's owner moves, so particles stay where they were born. Added to the layer's offset.
+		 * The `/symbols` flight preview flies a head with it.
+		 */
+		ownerPos?: () => { x: number; y: number };
+		/** Spawn new particles (default true). False lets the live ones play out — a trail whose head
+		 *  has landed. Independent of `playing`, which freezes the whole stage. */
+		emitting?: boolean;
+		/** Draw the faint atlas page behind the particles (default true). */
+		showReference?: boolean;
 	}
 
 	export interface ResolvedArt {
@@ -104,7 +116,12 @@
 		spineAnimation = '',
 		spineSkin = '',
 		onSpineMeta,
+		ownerPos,
+		emitting = true,
+		showReference = true,
 	}: Props = $props();
+
+	const emitOn = $derived(playing && emitting);
 
 	let host: HTMLDivElement | null = $state(null);
 	let app: Application | null = null;
@@ -271,7 +288,8 @@
 				entry.container.rotation = 0;
 				entry.container.scale.set(1, 1);
 				const owner = emitterOwnerLocal(layer, null, worldAffine);
-				entry.emitter.updateOwnerPos(owner.x, owner.y);
+				const moving = ownerPos?.() ?? { x: 0, y: 0 };
+				entry.emitter.updateOwnerPos(owner.x + moving.x, owner.y + moving.y);
 			}
 		}
 	}
@@ -442,7 +460,7 @@
 				entry.emitter.init(config);
 				entry.hasArt = true;
 			}
-			entry.emitter.emit = playing;
+			entry.emitter.emit = emitOn;
 		}
 
 		// Layer order IS draw order (the runtime mounts one `<EffectLayer>` per layer in document
@@ -490,7 +508,7 @@
 			// tunable, exactly like an art-less sprite layer.
 			const config = bindArt(layer.config, [placeholderTexture()], false);
 			const emitter = new Emitter(container, config);
-			emitter.emit = playing;
+			emitter.emit = emitOn;
 			live.set(layer.key, { emitter, container, hasArt: false });
 			return;
 		}
@@ -504,7 +522,7 @@
 		};
 		const config = bindSpineParticleConfig(layer.config, spineParticle);
 		const emitter = new Emitter(container, config);
-		emitter.emit = playing;
+		emitter.emit = emitOn;
 		live.set(layer.key, { emitter, container, hasArt: true });
 	}
 
@@ -538,7 +556,9 @@
 
 	async function updateReference(): Promise<void> {
 		if (!world) return;
-		const withArt = layers.find((l) => l.art.assetKey && l.art.frames.length > 0);
+		const withArt = showReference
+			? layers.find((l) => l.art.assetKey && l.art.frames.length > 0)
+			: undefined;
 		if (!withArt) {
 			reference?.destroy();
 			reference = null;
@@ -573,7 +593,7 @@
 	// layer would otherwise spawn invisible particles).
 	$effect(() => {
 		for (const { emitter, hasArt } of live.values()) {
-			emitter.emit = playing && hasArt;
+			emitter.emit = emitOn && hasArt;
 		}
 	});
 

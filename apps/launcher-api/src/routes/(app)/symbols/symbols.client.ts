@@ -29,9 +29,12 @@ import {
 	TUMBLE_STEP_MS_MAX,
 	isTumblePattern,
 	kindCapabilities,
+	normalizeFlights,
 	tumbleExplosionDelays,
 	type BlendMode,
 	type CoinLabelConfig,
+	type FlightsConfig,
+	type FlightStyle,
 	type SymbolNameEntry,
 	type SymbolStateName,
 	type TumblePatternConfig,
@@ -635,6 +638,11 @@ export interface SymbolsDoc {
 	 *  pops. Sparse: absent ⇒ the coded label, nothing ships. Passed through verbatim to
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
+	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
+	 *  `toCollector`, `boostBeam`, `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the
+	 *  coded glow. Normalized by `engine-layout`'s `normalizeFlights` on both sides of the save.
+	 *  Passed through verbatim to `bundle.symbols.flights`. */
+	flights?: FlightsConfig;
 	updatedAt?: string;
 }
 
@@ -1020,6 +1028,23 @@ export function clearCoinLabel(doc: SymbolsDoc): SymbolsDoc {
 /** The jackpot tiers the label section lists: the Game Config's, else the four the presets use. */
 export function coinLabelTiers(configured: readonly string[]): string[] {
 	return configured.length ? [...configured] : [...COIN_LABEL_FALLBACK_JACKPOTS];
+}
+
+/**
+ * Set (or, with `undefined`, clear) ONE flight kind's style, returning a NEW doc. The whole block
+ * goes through `normalizeFlights` — the function the server runs on save — so values are clamped
+ * and an emptied style or block leaves no key, and the page signs exactly what the server returns.
+ */
+export function setFlightStyle(
+	doc: SymbolsDoc,
+	key: string,
+	style: FlightStyle | undefined,
+): SymbolsDoc {
+	const flights = normalizeFlights({ ...doc.flights, [key]: style });
+	const next = { ...doc };
+	if (flights) next.flights = flights;
+	else delete next.flights;
+	return next;
 }
 
 /** The effective "draw the win LINE" flag = the doc's value ?? `true` (game default). Governs the
@@ -1708,6 +1733,9 @@ export function docSignature(doc: SymbolsDoc): string {
 		tumblePattern,
 		anticipation,
 		coinLabel,
+		// Same trap again: without this line authoring a flight never marks the page dirty. Signed
+		// normalized, so the key and field order cannot move the signature.
+		flights: normalizeFlights(doc.flights) ?? null,
 	});
 }
 

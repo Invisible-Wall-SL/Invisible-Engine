@@ -4,6 +4,7 @@ import { createApp } from 'pixi-svelte';
 import {
 	bakedBookVfxAssets,
 	bakedEditorArtAssets,
+	bakedFlightAssets,
 	bakedFontCatalog,
 	bakedFontSrcBase,
 	bakedSymbolAssets,
@@ -35,5 +36,6 @@ export const { stateApp } = createApp({
 		...bakedSymbolAssets(),
 		...bakedBookVfxAssets(),
 		...bakedSymbolTransitionAssets(),
+		...bakedFlightAssets(),
 	},
 });

@@ -579,6 +579,25 @@ since a currency rendering's separator can differ from the locale's plain number
 (`resolveCoinLabelLook`: tier style over shared style over coded); `RespinHeldSymbol` cues the pops
 (on `land` / `coinStick`, and when a held count-up is released); `countMs` replaces the coded 600 ms
 payer / boost count in `holdAndWinPresentation.ts`, and a collect step scales with it (×350/600).
+## Flights — added 2026-10-01 (Hold and Win Phase 7c)
+
+The `flights` doc global: one style per flight kind (`toTotal` · `toCollector` · `boostBeam` ·
+`toMeter` · `toMeter:<id>`) — head, Invisible FX trail, arrival effect, route shape and timing. The
+plan and the runtime it styles are [hold-and-win §4.4](hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
+What is specific to this tool:
+
+- **One definition for three readers.** `engine-layout/flightStyle.ts` owns the shape, the
+  normalizer (`normalizeFlights`: junk keys and invalid values dropped, numbers clamped) and the
+  resolution (`resolveFlightStyle`: exact kind → `toMeter` family → coded, field by field);
+  `engine-layout/flightPath.ts` owns the route and `flightPlanOptions` / `flightEaseOf`. The page's
+  setter, the server's `normalizeSymbolsDoc`, `docSignature` and the game's `flyTo` all call them, so
+  the tool previews and signs exactly what the game flies. (`flightPath.ts` moved here from
+  `engine-game` for this; the launcher does not depend on `engine-game`.)
+- **Strict shape, forgiving values.** The Zod schema rejects an unknown field, head kind or ease;
+  everything else is repaired rather than 400ing the save.
+- **The preview uses the game's trail mechanism.** An authored trail plays on `FxStage` with the
+  container still and the emitter's owner moving (`ownerPos`), as `<EffectPlayer ownerPos>` does in
+  the game — no fourth renderer. The coded trail is a canvas approximation.
 
 ## "Spine export" demystified
 

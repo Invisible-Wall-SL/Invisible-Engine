@@ -40,7 +40,8 @@ export const POST: RequestHandler = async ({ url }) => {
 		// intro the live one no longer waits on. `symbolSounds` (the per-symbol cues) is here as the
 		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
 		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
-		// `coinLabel` (the Hold and Win coin value label) is here for the same reach-both reason.
+		// `coinLabel` (the Hold and Win coin value label) and `flights` (its flight styles) are here
+		// for the same reach-both reason.
 		const {
 			map,
 			index,
@@ -59,6 +60,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			anticipation,
 			stacked,
 			coinLabel,
+			flights,
 		} = await withDeployWrite(projectKey, () =>
 			exportEditorSymbols(clientKey, projectKey, {
 				// The page store the BAKE path was missing. Without it this export took the per-bundle
@@ -91,6 +93,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			anticipation,
 			stacked,
 			coinLabel,
+			flights,
 		});
 	} catch (e) {
 		console.error('export-symbols failed:', e);

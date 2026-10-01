@@ -14,6 +14,8 @@ export * from './symbolNames';
 export * from './symbolStates';
 export * from './tumblePattern';
 export * from './coinLabel';
+export * from './flightPath';
+export * from './flightStyle';
 // The HUD's standard design box, re-exported so the editor (which has no live
 // layout context) can frame `space: 'standard' | 'canvas'` scenes. Canonical
 // copy lives in constants-shared so utils-layout (runtime) shares the one source.

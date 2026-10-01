@@ -18,6 +18,7 @@ import type {
 	TumblePatternConfig,
 	WinTextDoc,
 	CinematicDoc,
+	FlightsConfig,
 } from 'engine-layout';
 import {
 	editorArtNamespace,
@@ -324,6 +325,12 @@ type BakedBundle = {
 		 * `engine-layout/tumblePattern` owns the pattern list + the ordering both halves share.
 		 * Assetless. Absent ⇒ every seat pops in the same frame, byte-identical to before (parity). */
 		tumblePattern?: TumblePatternConfig;
+		/** Hold and Win FLIGHTS (Invisible Symbols State Machine output) — the head, trail, arrival
+		 * effect, route and timing per flight kind. `game/flights.svelte.ts` resolves each `flyTo`
+		 * through `resolveFlightStyle`; a sprite/spine head rides `symbols.index` (registered by
+		 * {@link bakedFlightAssets}), a trail/arrival rides {@link bakedEffects}. Absent ⇒ every flight
+		 * flies the coded glow, byte-identical to before (parity). */
+		flights?: FlightsConfig;
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
 		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
 		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
@@ -970,6 +977,18 @@ export function bakedCoinLabel(): CoinLabelConfig | undefined {
 }
 
 /**
+ * The Hold and Win FLIGHT styles authored in the Invisible Symbols State Machine, keyed by flight
+ * kind. `game/flights.svelte.ts` resolves each flight through `resolveFlightStyle`. Mirrors
+ * `bakedBookVfx`'s runtime→baked→undefined resolution; undefined ⇒ every flight flies the coded
+ * glow, exactly as it always did (parity).
+ */
+export function bakedFlights(): FlightsConfig | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.flights;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.flights;
+}
+
+/**
  * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
  * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay spine key. When
  * set, `resolveTierFx` / `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it
@@ -978,8 +997,7 @@ export function bakedCoinLabel(): CoinLabelConfig | undefined {
  * ⇒ the coded ramp, byte-identical to an un-authored game.
  */
 export function bakedAnticipation():
-	| NonNullable<BakedBundle['symbols']>['anticipation']
-	| undefined {
+	NonNullable<BakedBundle['symbols']>['anticipation'] | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.anticipation;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.anticipation;
@@ -1355,6 +1373,22 @@ export function bakedBookVfxAssets(): Record<string, SymbolAssetEntry> {
 export function bakedSymbolTransitionAssets(): Record<string, SymbolAssetEntry> {
 	const transition = bakedSymbolTransition();
 	return transition ? layerAssets([transition]) : {};
+}
+
+/**
+ * The same guarantee for the flight HEADS ({@link bakedFlights}): a sprite/spine head reaches
+ * `symbols.index` through the exporter's `addLayerRefs`, so this too returns nothing in practice.
+ * Empty when un-baked / no flights (parity).
+ */
+export function bakedFlightAssets(): Record<string, SymbolAssetEntry> {
+	const heads: AssetLayer[] = [];
+	for (const style of Object.values(bakedFlights() ?? {})) {
+		const head = style?.head;
+		if (head?.kind === 'sprite' || head?.kind === 'spine' || head?.kind === 'flipbook') {
+			heads.push({ kind: head.kind, assetKey: head.assetKey });
+		}
+	}
+	return heads.length ? layerAssets(heads) : {};
 }
 
 /** What {@link layerAssets} needs of a kind-tagged layer — a book-VFX layer or the transition. */
