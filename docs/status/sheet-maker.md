@@ -20,7 +20,7 @@ Works today on `main` / live:
   only after the manifest lands, so a refused save leaves R2's page untouched. Rename re-pulls a stale
   staged tree, claims the new name first and keeps the old one if it was saved mid-rename; unlock is a
   retried server-side CAS that never hands the page a version it did not see. A per-sheet lock
-  serialises one container's saves. `test_doc_conflicts.py` (101). ⏳ Not yet run live with two
+  serialises one container's saves. `test_doc_conflicts.py` (97). ⏳ Not yet run live with two
   browsers.
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
@@ -75,6 +75,16 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-01 — **The per-sheet lock test no longer races the clock.** Its mutant ("without the
+  lock both compose") failed on CI with 1 compose: the two exports overlapped only through a 0.2 s
+  fake-R2 read delay, so a runner that let one thread finish before the other reached its pre-check
+  composed once — a test-only race (reproduced by starting the second thread 0.5 s late). Now an
+  `Overlap` rendezvous holds the first thread past `_check_base` until the other has either passed its
+  own pre-check or is WAITING on the sheet's lock (a `ContendedLock` stands in for it and reports
+  that), so the outcome is decided by the code every run; bounded at 10 s so a deadlock fails fast.
+  The lock run also asserts the contention happened. 200/200 locally; with the lock stripped from
+  `_sheet_guard` the real checks fail (2 composes, no contention). The atlas-maker race got the same
+  error capture + bounded joins.
 - 2026-09-30 — **Save / Save As / rename / import / unlock are compare-and-swapped; a conflict names
   who saved and asks.** Before, `/api/export` overwrote `sheets/<name>` and its manifest blindly and
   the Save As guard only knew the page-load rail. Now the manifest ETag is the sheet's version
