@@ -6,8 +6,8 @@
  *   1. PARITY — `normalizeSymbolsDoc` writes NO `flights` for a project that never authored one
  *      (byte-identical to before the block existed), round-trips a real style sparsely, drops junk
  *      keys and invalid values, clamps numbers, and is a fixed point.
- *   2. REJECTION — the `.strict()` shape refuses an unknown field, an unknown head kind and an
- *      unknown ease (the values the normalizer cannot repair).
+ *   2. REJECTION — an unknown head kind or ease is refused (the values the normalizer cannot repair);
+ *      an unknown FIELD is stripped, so a newer launcher's addition cannot fail the whole doc on read.
  *   3. THE CLIENT HALF — `setFlightStyle` + `docSignature` mark and unmark dirty, and a draft signs
  *      the same as the doc the server hands back.
  *   4. SHIPPING — a sprite/spine head reaches the symbols asset refs, a flipbook head's clip the
@@ -156,10 +156,15 @@ const AUTHORED = {
 }
 
 // 2. REJECTION
-rejects('an unknown style field', { flights: { toTotal: { colour: 'red' } } });
 rejects('an unknown head kind', { flights: { toTotal: { head: { kind: 'laser' } } } });
 rejects('an unknown ease', { flights: { toTotal: { ease: 'bounce' } } });
-rejects('an unknown path field', { flights: { toTotal: { path: { wobble: 2 } } } });
+check(
+	'an unknown style or path field is stripped, the rest kept',
+	normalizeSymbolsDoc({
+		flights: { toTotal: { colour: 'red', speed: 0.8, path: { wobble: 2, bend: 0.3 } } },
+	}).flights,
+	{ toTotal: { path: { bend: 0.3 }, speed: 0.8 } },
+);
 rejects('a non-object block', { flights: 'toTotal' });
 
 // 3. THE CLIENT HALF

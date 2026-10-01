@@ -6,7 +6,8 @@
  *   1. PARITY — `normalizeSymbolsDoc` writes NO `coinLabel` for a project that never authored one,
  *      nor for one whose every field sits at its default or is empty; it round-trips a real label.
  *   2. JUNK — an out-of-range number is clamped, a non-hex tint / blank font / blank tier text is
- *      dropped, and an unknown key or a wrong type fails the save loudly (`.strict()`).
+ *      dropped, an unknown key is STRIPPED (a newer launcher's field must not fail the whole doc on
+ *      read), and a wrong type fails the save loudly.
  *   3. BOTH BUNDLE PATHS — the runtime exporter carries the field, `/api/editor/export-symbols`
  *      forwards it, and the bake's rebuild (`scripts/lib/bakeCoinLabel.mjs`, RUN here on the
  *      normalized doc) hands back the same block the runtime bundle carries.
@@ -180,10 +181,38 @@ check(
 		jackpots: { MINI: { text: 'Mini' } },
 	},
 );
-rejects('an unknown key at the top', { coinLabel: { colour: '#ffffff' } });
-rejects('an unknown key in a style', { coinLabel: { style: { weight: 'bold' } } });
-rejects('an unknown key in a jackpot', { coinLabel: { jackpots: { MINI: { label: 'x' } } } });
-rejects('an unknown key in a pop', { coinLabel: { animation: { landPop: { ease: 'backOut' } } } });
+check('an unknown key at the top is stripped', label({ colour: '#ffffff' }), undefined);
+check(
+	'an unknown key in a style is stripped, the rest kept',
+	label({ style: { size: 0.4, weight: 'bold' } }),
+	{ style: { size: 0.4 } },
+);
+check(
+	'an unknown key in a jackpot is stripped, the rest kept',
+	label({ jackpots: { MINI: { text: 'Mini', label: 'x' } } }),
+	{ jackpots: { MINI: { text: 'Mini' } } },
+);
+check(
+	'an unknown key in a pop is stripped, the rest kept',
+	label({ animation: { landPop: { enabled: true, scale: 1.4, ease: 'backOut' } } }),
+	{ animation: { landPop: { enabled: true, scale: 1.4 } } },
+);
+check(
+	'a state key this launcher does not know is dropped, the doc survives',
+	normalizeSymbolsDoc({
+		symbols: {
+			H1: {
+				win: { type: 'sprite', assetKey: 'h1.webp' },
+				futureState: { type: 'sprite', assetKey: 'x' },
+			},
+		},
+		coinLabel: { style: { size: 0.4 } },
+	}),
+	normalizeSymbolsDoc({
+		symbols: { H1: { win: { type: 'sprite', assetKey: 'h1.webp' } } },
+		coinLabel: { style: { size: 0.4 } },
+	}),
+);
 rejects('an unknown cash format', { coinLabel: { cash: { format: 'credits' } } });
 rejects('a non-number size', { coinLabel: { style: { size: '0.4' } } });
 rejects('a non-finite number', { coinLabel: { animation: { countMs: Infinity } } });

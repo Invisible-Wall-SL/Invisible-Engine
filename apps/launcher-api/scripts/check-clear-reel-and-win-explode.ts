@@ -178,7 +178,7 @@ const both = normalizeSymbolsDoc({
 check('the binding keeps the new one', both.symbols.H1?.clearReel, BOOM);
 check('the cue keeps the new one', both.symbolSounds?.H1?.clearReel, 'new_cue');
 
-console.log('\n4. a current doc is untouched, and a bad state is still refused');
+console.log('\n4. a current doc is untouched, and an unknown state is dropped, not the doc');
 const current = normalizeSymbolsDoc({ version: 1, symbols: { H1: { clearReel: BOOM } } });
 check('a `clearReel` binding round-trips verbatim', current.symbols.H1?.clearReel, BOOM);
 check(
@@ -186,9 +186,13 @@ check(
 	migrateLegacySymbolStates(current) === current,
 	true,
 );
-rejects('a state name nothing renders is still rejected', {
-	symbols: { H1: { madeUpState: BOOM } },
-});
+// A state this launcher does not know (a newer launcher's, read after a rollback) loses only that
+// binding; rejecting it would read the whole doc as never authored.
+check(
+	'a state name nothing renders is dropped, its siblings kept',
+	normalizeSymbolsDoc({ symbols: { H1: { madeUpState: BOOM, clearReel: BOOM } } }).symbols.H1,
+	{ clearReel: BOOM },
+);
 
 console.log('\n5. the win-explosion pop is sparse and OFF by default');
 const untouched = normalizeSymbolsDoc({ version: 1, symbols: { H1: { win: MORPH } } });
