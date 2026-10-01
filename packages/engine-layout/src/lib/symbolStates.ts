@@ -25,6 +25,14 @@ export const SYMBOL_STATES = [
 	'bookIntro',
 	'bookIdle',
 	'stacked',
+	'coinIdle',
+	'coinLand',
+	'coinStick',
+	'coinCollect',
+	'coinBoost',
+	'jackpotReveal',
+	'mysteryReveal',
+	'flyToMeter',
 ] as const;
 
 export type SymbolStateName = (typeof SYMBOL_STATES)[number];
@@ -84,6 +92,50 @@ export const LINES_SYMBOL_STATES = ['stacked'] as const;
 export const SWAP_SYMBOL_STATES = ['intro'] as const;
 
 /**
+ * The HOLD AND WIN states — the respin feature's beats (docs/design/hold-and-win.md §4.4), each a
+ * moment the coded presentation already plays through a borrowed state:
+ *
+ * - `coinIdle` — a held coin at rest on the respin board;
+ * - `coinLand` — a respin CELL whose one-cell reel stops (empty or not — the stick comes after);
+ * - `coinStick` — a landed coin STICKING into the held layer (also a mystery or a multiplier landing
+ *   as what it became);
+ * - `coinCollect` — a coin pulsing as a collector takes it;
+ * - `coinBoost` — a special raising other coins (a payer paying, a multiplier boosting);
+ * - `jackpotReveal` — a jackpot coin, or a full board, lit for its jackpot;
+ * - `mysteryReveal` — a mystery opening before it becomes what it revealed;
+ * - `flyToMeter` — a base-board special lit while it flies into its pot.
+ *
+ * Unauthored each INHERITS exactly what the coded presentation played before it existed
+ * (`packages/engine-game/src/game/symbolCell.ts`), so a project that binds none renders
+ * byte-identically. Valid in the doc for every game (the schema accepts them so bindings
+ * round-trip), but the Symbols grid only shows their columns for a Hold and Win project — same gating
+ * idea as {@link BOOK_SYMBOL_STATES}.
+ */
+export const HOLD_AND_WIN_SYMBOL_STATES = [
+	'coinIdle',
+	'coinLand',
+	'coinStick',
+	'coinCollect',
+	'coinBoost',
+	'jackpotReveal',
+	'mysteryReveal',
+	'flyToMeter',
+] as const;
+
+/**
+ * The states that are a WIN HIGHLIGHT — `win` and the Hold and Win beats that played `win` before
+ * they had names of their own. The authored win frame (`highlight`) draws over all of them, as it did
+ * when each of these beats requested `win`.
+ */
+export const WIN_HIGHLIGHT_SYMBOL_STATES = [
+	'win',
+	'coinCollect',
+	'coinBoost',
+	'jackpotReveal',
+	'flyToMeter',
+] as const;
+
+/**
  * The TERMINAL states — the ones a presentation plays and then MOVES PAST, so their animation
  * defaults to ONE-SHOT where every other state defaults to a loop.
  *
@@ -109,12 +161,15 @@ export const SWAP_SYMBOL_STATES = ['intro'] as const;
  * the `explosion` binding itself — so leaving it out would give one project's pop an end and its
  * neighbour's an endless loop depending only on which of the two cells got bound.
  *
+ * `mysteryReveal` is the same beat on the respin board — a mystery opening on its way to becoming
+ * something else — and unauthored it renders the `explosion` binding.
+ *
  * Deliberately NOT extended to `win`/`land`. Both are also awaited, but both are states a game may
  * legitimately want to repeat while the board rests, and changing their default would re-time every
  * shipped game's win presentation — which is what `winBeat.maxMs` exists to let a project do
  * deliberately.
  */
-export const TERMINAL_SYMBOL_STATES = ['explosion', 'clearReel'] as const;
+export const TERMINAL_SYMBOL_STATES = ['explosion', 'clearReel', 'mysteryReveal'] as const;
 
 /**
  * Does this state's animation repeat when the authored cell says nothing? The one home for the
@@ -141,4 +196,12 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	bookIntro: 'Book reveal',
 	bookIdle: 'Book idle',
 	stacked: 'Stacked picture',
+	coinIdle: 'Coin idle',
+	coinLand: 'Coin land',
+	coinStick: 'Coin stick',
+	coinCollect: 'Coin collect',
+	coinBoost: 'Coin boost',
+	jackpotReveal: 'Jackpot reveal',
+	mysteryReveal: 'Mystery reveal',
+	flyToMeter: 'Fly to meter',
 };

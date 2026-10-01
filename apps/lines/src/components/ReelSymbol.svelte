@@ -57,6 +57,7 @@
 		'explosion',
 		'clearReel',
 		'intro',
+		'flyToMeter',
 	];
 
 	/** This cell's seat on the lattice — `x` and the row `scale` always come from here. */
@@ -193,6 +194,7 @@
 				// cell that has since moved on.
 				if (
 					state === 'win' ||
+					state === 'flyToMeter' ||
 					state === 'explosion' ||
 					state === 'clearReel' ||
 					state === 'intro'

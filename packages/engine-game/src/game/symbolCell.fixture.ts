@@ -85,6 +85,36 @@ check(
 	'static',
 );
 
+console.log('\nthe Hold and Win states replay what the coded presentation played');
+const coin: StateMapLike = {
+	static: sprite('c'),
+	land: spine('c_land'),
+	win: spine('c_win'),
+	explosion: spine('c_boom'),
+};
+for (const [state, donor] of [
+	['coinIdle', 'static'],
+	['coinLand', 'static'],
+	['coinStick', 'land'],
+	['coinCollect', 'win'],
+	['coinBoost', 'win'],
+	['jackpotReveal', 'win'],
+	['mysteryReveal', 'explosion'],
+	['flyToMeter', 'win'],
+]) {
+	check(`${state} inherits ${donor}`, resolveSymbolState(coin, state), donor);
+}
+check(
+	'a bound H&W state draws itself',
+	resolveSymbolState({ ...coin, coinStick: spine('c_stick') }, 'coinStick'),
+	'coinStick',
+);
+check(
+	'mysteryReveal with no explosion falls to static, as explosion itself does',
+	resolveSymbolState({ static: sprite('c') }, 'mysteryReveal'),
+	'static',
+);
+
 console.log('\nwhen there is genuinely nothing to draw');
 check('no map at all ⇒ null', resolveSymbolState(undefined, 'static'), null);
 check('an empty map ⇒ null', resolveSymbolState({}, 'explosion'), null);

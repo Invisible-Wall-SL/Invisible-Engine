@@ -38,6 +38,17 @@ export interface KindCapabilities {
 	coinSymbols: boolean;
 	/** Paylines pay: the config's win model when given, else the kind's default. */
 	winLines: boolean;
+	/** The Symbols tool's "Book symbol VFX" section — the layers drawn behind/in front of the book
+	 *  symbol during free spins. Offered to every kind that has free spins (it always was, book reveal
+	 *  or not); off for Hold and Win, which has no free spins for it to dress. */
+	bookSymbolVfx: boolean;
+	/** The Symbols tool's "Explosion pattern" section — the order the winning seats pop in on a
+	 *  cascade or a board clear. The section's own gate (does the board explode its seats?) still
+	 *  applies; this only takes it off a kind whose board never pops winning seats. */
+	tumblePattern: boolean;
+	/** The Symbols tool's "Transition" section — the explosion → intro animation under the `emerge`
+	 *  swap style. The emerge gate still applies; this only takes it off a kind that never swaps. */
+	symbolTransition: boolean;
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
@@ -58,5 +69,8 @@ export function kindCapabilities(
 		holdAndWin,
 		coinSymbols: holdAndWin,
 		winLines: config.winModel ? config.winModel === 'lines' : !NON_LINE_KINDS.has(kind),
+		bookSymbolVfx: !holdAndWin,
+		tumblePattern: !holdAndWin,
+		symbolTransition: !holdAndWin,
 	};
 }

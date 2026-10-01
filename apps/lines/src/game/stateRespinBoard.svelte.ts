@@ -11,6 +11,7 @@ import {
 	type RespinBoard,
 	type SymbolState,
 } from 'engine-game';
+import { TERMINAL_SYMBOL_STATES } from 'engine-layout';
 import { symbolsWithRole } from 'game-config';
 import { stateBet } from 'state-shared';
 
@@ -43,9 +44,10 @@ export const stateRespinBoard = $state({
 	 */
 	held: [] as HoldAndWinCell[],
 	/**
-	 * A held cell's presentation state, by `respinCellKey` — a beat's state while it plays (`land` as
-	 * it sticks, `win` as a special applies or a coin is collected, `explosion` as a mystery opens,
-	 * `clearReel` as a streak clears), else `static`.
+	 * A held cell's presentation state, by `respinCellKey` — a beat's state while it plays
+	 * (`coinStick` as it sticks, `coinBoost` as a special applies, `coinCollect` as a coin is
+	 * collected, `jackpotReveal` as a jackpot lights, `mysteryReveal` as a mystery opens, `clearReel`
+	 * as a streak clears), else {@link HELD_REST}.
 	 */
 	heldState: {} as Record<string, SymbolState>,
 	/**
@@ -175,6 +177,9 @@ export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 	});
 };
 
+/** What a held cell plays between beats. Unauthored it inherits `static`. */
+export const HELD_REST: SymbolState = 'coinIdle';
+
 /** Pending beats of held cells, resolved by the cell's `oncomplete`. Never read reactively. */
 const heldBeats: Record<string, () => void> = {};
 
@@ -200,32 +205,32 @@ export const armHeldBeat = (key: string, resolve: () => void) => {
 
 /**
  * The states a held cell plays on its way OUT — a mystery opening before it becomes something else,
- * a streak's coin leaving. They are not settled back to `static` (that would show the old symbol
- * again for a frame); the sync that follows replaces or removes the cell.
+ * a streak's coin leaving. They are not settled back to {@link HELD_REST} (that would show the old
+ * symbol again for a frame); the sync that follows replaces or removes the cell.
  */
-const TERMINAL_STATES: ReadonlySet<SymbolState> = new Set(['explosion', 'clearReel']);
+const TERMINAL_STATES: ReadonlySet<string> = new Set(TERMINAL_SYMBOL_STATES);
 
 const settles = (state: SymbolState | undefined, terminal: boolean) =>
-	state !== undefined && state !== 'static' && (terminal || !TERMINAL_STATES.has(state));
+	state !== undefined && state !== HELD_REST && (terminal || !TERMINAL_STATES.has(state));
 
-/** A held cell reported its animation complete: its beat state settles to `static` (a terminal one
- *  holds), its beat resolves. */
+/** A held cell reported its animation complete: its beat state settles to {@link HELD_REST} (a
+ *  terminal one holds), its beat resolves. */
 export const completeHeldBeat = (key: string) => {
-	if (settles(stateRespinBoard.heldState[key], false)) stateRespinBoard.heldState[key] = 'static';
+	if (settles(stateRespinBoard.heldState[key], false)) stateRespinBoard.heldState[key] = HELD_REST;
 	const resolve = heldBeats[key];
 	delete heldBeats[key];
 	resolve?.();
 };
 
 /**
- * Settle these held cells back to `static` — a beat whose cap or a slam won must not leave a cell
- * mid-state. A terminal state holds unless `terminal` (a cell that played its way out and was not,
+ * Settle these held cells back to {@link HELD_REST} — a beat whose cap or a slam won must not leave a
+ * cell mid-state. A terminal state holds unless `terminal` (a cell that played its way out and was not,
  * after all, replaced or removed).
  */
 export const settleHeldBeats = (keys: string[], { terminal = false } = {}) => {
 	for (const key of keys) {
 		if (settles(stateRespinBoard.heldState[key], terminal)) {
-			stateRespinBoard.heldState[key] = 'static';
+			stateRespinBoard.heldState[key] = HELD_REST;
 		}
 		delete heldBeats[key];
 	}
