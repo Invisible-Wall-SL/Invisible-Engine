@@ -34,7 +34,7 @@ titled **"Hold and win game pipeline"**.
 | 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
-| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | in review | Hold and Win Phase 3 — mock RGS + wire | — |
+| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
@@ -160,7 +160,7 @@ only has to register its own vocab + seed.
 
 ## Recent changes
 
-- 2026-09-30 — **Phase 3: mock RGS `holdAndWin` protocol + wire contract** (session "Hold and Win
+- 2026-09-30 — **Phase 3 merged (#924): mock RGS `holdAndWin` protocol + wire contract** (session "Hold and Win
   Phase 3 — mock RGS + wire").
 
   - `scripts/mock-rgs-server-holdandwin.mjs`: deals from `doc.holdAndWin` + symbols + paylines only
