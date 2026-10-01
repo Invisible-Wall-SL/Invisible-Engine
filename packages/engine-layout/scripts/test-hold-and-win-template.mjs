@@ -27,6 +27,8 @@ const bundled = await esbuild.build({
 			`export { getFullSceneSet, holdAndWinReferenceLayout, HOLD_AND_WIN_BOARD, HOLD_AND_WIN_HOTFIRE_BOARD } from '../src/lib/referenceLayouts/index.ts';`,
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
+			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
+			`export { HOLD_AND_WIN_BANNER_SCREENS } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
 		resolveDir: HERE,
@@ -288,6 +290,30 @@ for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
 		}
 	}
 }
+
+// Step-aside: a coded default yields only while its authored twin is MOUNTED, ref-counted.
+const key = mod.sceneMountKey('luckySpin');
+assert(!mod.isComponentMounted(key), 'nothing is mounted before a mount');
+const releaseA = mod.trackComponentMount(key);
+const releaseB = mod.trackComponentMount(key);
+releaseA();
+assert(mod.isComponentMounted(key), 'a second mount keeps it counted');
+releaseB();
+assert(
+	!mod.isComponentMounted(key),
+	'the last unmount releases it — the coded default plays again',
+);
+assert(!mod.isComponentMounted('luckySpin'), 'a screen key never collides with a component id');
+// The banner's authored screens exist, gated on the banner beat they replace; the wheel screen
+// holds the `wheel` component the coded wheel steps aside for.
+const GATE = { luckySpin: 'luckySpinShow', jackpot: 'jackpotWinShow' };
+for (const [kind, id] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
+	assert(sceneById.get(id)?.visibleSource === GATE[kind], `${id} is not gated on ${GATE[kind]}`);
+}
+assert(
+	instancesIn(sceneById.get('wheel')).some((n) => n.componentId === 'wheel'),
+	'the wheel screen holds no wheel component',
+);
 
 if (failures) {
 	console.error(`\n${failures} failure(s).`);

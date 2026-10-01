@@ -54,6 +54,16 @@ export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
+/**
+ * The authored screen that draws each coded banner beat. While the flow shows one (the screen is
+ * mounted) the game's coded banner for that beat steps aside, so the two never draw together; with
+ * the screen unmounted the coded banner plays exactly as before.
+ */
+export const HOLD_AND_WIN_BANNER_SCREENS = {
+	luckySpin: 'luckySpin',
+	jackpot: 'jackpotWin',
+} as const;
+
 /** The meters of the Pots preset (`holdAndWinPresets.ts`) — one pot each. */
 const POT_METERS = ['red', 'blue', 'green'] as const;
 

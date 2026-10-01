@@ -16,6 +16,7 @@ export {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_HOTFIRE_BOARD,
 	HOLD_AND_WIN_MODE,
+	HOLD_AND_WIN_BANNER_SCREENS,
 } from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
 // editor's "Add HUD layer" action + a game's fallback doc.

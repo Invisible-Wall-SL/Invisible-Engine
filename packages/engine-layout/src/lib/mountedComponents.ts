@@ -23,3 +23,8 @@ export function trackComponentMount(componentId: string): () => void {
 export function isComponentMounted(componentId: string): boolean {
 	return (mounted.get(componentId) ?? 0) > 0;
 }
+
+/** The key a mounted SCREEN counts itself in under — kept apart from component ids by its prefix. */
+export function sceneMountKey(sceneId: string): string {
+	return `scene:${sceneId}`;
+}
