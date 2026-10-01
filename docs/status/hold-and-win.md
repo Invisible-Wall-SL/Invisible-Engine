@@ -45,7 +45,7 @@ titled **"Hold and win game pipeline"**.
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
-| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + Classic/Collector playbooks merged; 9b symbols seed at scaffold on its branch; owed: create, publish and play the Classic + Collector samples live | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: `hw-phase9b-symbols-seed` |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
@@ -572,11 +572,38 @@ Hold and Win beats prints copy.
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
 3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
-4. **Phase 9 owed (owner / a session with a launcher login):** create `hw-classic-sample` and
-   `hw-collector-sample` in Game Maker with their presets, publish, and run their playbooks
-   ([classic](../playtest/hw-classic-sample.md), [collector](../playtest/hw-collector-sample.md))
-   end to end on the authoring mock. Then run `hw-3pots-sample`'s S1–S7 again on the current
-   runtime.
+4. **Phase 9 owed** — see the Owner checklist below (steps 1–4), then a session plays the samples.
+
+## Owner checklist (every owner-owed Hold and Win item, in one place)
+
+Each of these needs a launcher login or a decision only the owner has. A session cannot sign in, so
+Phase 9b stopped here (2026-10-01). Tick them off here when done.
+
+1. **Create `hw-classic-sample`** — app.invisiblewall.org → **Game Maker** → Create a game: Name
+   `hw-classic-sample`, Client **Invisible_Wall**, Game type **Hold and Win**, Preset **Classic sticky
+   (Grand)** → **Create project**. Since #969 the scaffold also writes its symbols doc (BONUS /
+   JACKPOT / BOOST bound to placeholder art).
+2. **Create `hw-collector-sample`** — same, Preset **Collector streak (Super Hotfire Diamonds)**
+   (BONUS / JACKPOT / COLLECT bound).
+3. **Publish both** from their Game Maker cards; then open
+   `https://games.invisiblewall.org/api/<key>/healthz` for each and confirm `protocol: "holdAndWin"`.
+4. **Hand back to a session** (no login needed from here): play both end to end with forced beats on
+   a FREE local mock port (never 7788), per [classic](../playtest/hw-classic-sample.md) (boost incl.
+   jackpots, base-game instant collect, column letters + sweep → GRAND, buy / super buy) and
+   [collector](../playtest/hw-collector-sample.md) (pattern trigger, the wheel — every prize, its copy
+   never verified live — collector streak with coin flights, GRAND as a coin); check balances vs the
+   server, Win Text, toasts, 0 console errors, Borut parity. Then rerun `hw-3pots-sample` S1–S7 on the
+   current runtime.
+5. **`hw-3pots-sample` layout** — `/editor`: **＋ Add missing screens**, place an **Info Bar** on its
+   base game (its toasts "UNLOCKED" / "PAYER ACTIVE" / "Good luck" have no message host today).
+6. **Re-publish `hw-3pots-sample`** so plain player URLs (not just `authoring=1`) get the authored coin
+   label, flights and seeded symbol art.
+7. **Real art** — replace the seeded placeholder symbol art (scatter / wild / M spine / exploded
+   wild) in `/symbols` for all three samples.
+8. **Older Hold and Win projects** with no symbols doc: `/admin` → **Rescaffold** writes the bindings
+   (it never touches an existing symbols doc; bind by hand in `/symbols` if one exists).
+9. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2) —
+   unblocks Phase 10.
 
 ## Blocked (owner / external)
 
@@ -584,8 +611,10 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
-- 2026-10-01 — **Phase 9b part 1: a `holdAndWin` project's symbols are seeded at scaffold**
-  (session "H&W Phase 9b — symbols seed + samples"). `scaffoldProject` now writes
+- 2026-10-01 — **Phase 9b part 1: a `holdAndWin` project's symbols are seeded at scaffold** (#969,
+  launcher deployed; session "H&W Phase 9b — symbols seed + samples"). Part 2 (create, publish and
+  play the Classic + Collector samples) stopped: the session cannot sign in to the launcher — see the
+  Owner checklist. `scaffoldProject` now writes
   `<client>/<project>/symbols/symbols.json` for a `holdAndWin` project with no symbols doc:
   `holdAndWinSymbolsSeed()` takes every symbol of the STORED Game Config that carries a Hold and
   Win role (not `blank`) and copies its `symbolDefaults/holdAndWin.json` cells, type / assetKey /
