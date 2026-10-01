@@ -45,7 +45,7 @@ titled **"Hold and win game pipeline"**.
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
-| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + Classic/Collector playbooks done; owed: create, publish and play the Classic + Collector samples live | H&W Phase 9 — Game Maker presets, 3 samples, docs | 9a: this branch (`claude/cool-ramanujan-dsnupa`) |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
@@ -536,10 +536,9 @@ Hold and Win beats prints copy.
      flies them yet.
 2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
-     feature total). Publish a Classic and a Collector sample project — a new project is seeded
-     with Pots, so pick the preset in `/config` ("Reset to preset") and save, then Re-publish — and play their letters, instant
-     collect, streak flights and wheel live. Start their playbooks beside
-     [hw-3pots-sample.md](../playtest/hw-3pots-sample.md).
+     feature total). Create a Classic and a Collector sample project with the Game Maker preset
+     picker (Phase 9a seeds their config; no `/config` save needed), publish, and play their
+     letters, instant collect, streak flights and wheel live through their playbooks.
    - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
      (its coins already stick through the trigger).
    - **From the live checks (not regressions):** the "RESPINS 3" counter shows ~0.7 s before the
@@ -555,7 +554,11 @@ Hold and Win beats prints copy.
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
 3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
-4. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
+4. **Phase 9 owed (owner / a session with a launcher login):** create `hw-classic-sample` and
+   `hw-collector-sample` in Game Maker with their presets, publish, and run their playbooks
+   ([classic](../playtest/hw-classic-sample.md), [collector](../playtest/hw-collector-sample.md))
+   end to end on the authoring mock. Then run `hw-3pots-sample`'s S1–S7 again on the current
+   runtime.
 
 ## Blocked (owner / external)
 
@@ -563,6 +566,18 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
+- 2026-10-01 — **Phase 9a: Game Maker preset picker + Classic/Collector playbooks.** **Create a
+  game** shows a **Preset** dropdown for Hold and Win (Pots / Classic sticky / Collector streak);
+  `scaffoldProject(…, { holdAndWinPreset })` → `gameConfigSeedFor(gameType, preset)` seeds that
+  preset through #956's create-only seed instead of the default Pots. **Symbols and Win Text are
+  deliberately NOT seeded:** both already resolve by kind when unauthored
+  (`symbolDefaultsFor('holdAndWin')` covers every preset's symbol names; Win Text's empty doc means
+  the engine defaults), so seeding would only freeze today's defaults into every project. Guides:
+  [game-maker](../tools/game-maker.md) (Create step + trap), [game-config](../tools/game-config.md).
+  Playbooks: [hw-classic-sample](../playtest/hw-classic-sample.md),
+  [hw-collector-sample](../playtest/hw-collector-sample.md) — both projects **not created yet**
+  (the session had no launcher login). Verified offline: each preset's seed passes
+  `prepareGameConfigDoc` with 0 warnings and carries its `holdAndWin` block.
 - 2026-10-01 — **Phase 7 merged: Symbols SM for Hold and Win** (session "Hold and Win Phase 7 —
   Symbols SM"; #950, #955, #957, #961, #963 — each a runtime release; live as `lines@bf0e5932ac30`,
   launcher deployed). What landed (detail in [status/symbols](symbols.md)):

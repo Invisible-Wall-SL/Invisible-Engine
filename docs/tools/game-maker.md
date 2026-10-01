@@ -53,12 +53,17 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
    action offers — the built-in scene sets (`lines`, `ways`, `cluster`,
    `scatter`, `bookOf`) plus any author-created custom kinds. The game type seeds
    the project's starting layout template.
+   - **Hold and Win** shows a **Preset** dropdown: **Pots (3 Pots of Egypt)**, **Classic
+     sticky (Grand)** or **Collector streak (Super Hotfire Diamonds)**. The preset is saved as
+     the project's own [Game Config](/docs/game-config), so the mock RGS deals the Hold and
+     Win feature from the first spin. Symbols and Win Text start on the kind's defaults. To
+     switch preset later, use **Reset to preset** in Game Config.
 4. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
-   also gets its kind's default [Game Config](/docs/game-config), the Pots preset,
+   also gets the preset you picked as its own [Game Config](/docs/game-config),
    so its first publish already deals the feature). A confirmation appears and
    the project shows up under **Your projects** below.
 
@@ -353,6 +358,11 @@ version and ship on their own cadence. A project can start in Game Maker and
 graduate later; its R2 authoring data carries over.
 
 ## Traps
+
+- **A Hold and Win game plays plain lines (no coins, `PIC*` symbols).** — The project has no
+  Game Config of its own, so the mock deals its base game as lines. Projects created before the
+  scaffold seeded it (2026-10-01) can be in this state; Publish warns **⚠ dealt plain lines**. Open [Game Config](/docs/game-config), press
+  **Save** (or **Reset to preset**), then **Publish**.
 
 - **"My edit isn't in the game."** — **Play ↗**, **Copy URL** and every player link boot the
   _published_ version, so anything saved since the last Publish is missing there by design. Check

@@ -11,7 +11,7 @@
  *  - the scaffold never overwrites an authored config, and loses a concurrent first save quietly.
  */
 import { mock } from 'node:test';
-import { holdAndWinMockInputs, normalizeGameConfigDoc } from 'game-config';
+import { HOLD_AND_WIN_PRESETS, holdAndWinMockInputs, normalizeGameConfigDoc } from 'game-config';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -74,6 +74,8 @@ const GAME_TYPES: Record<string, string> = {
 	hw: 'holdAndWin',
 	hwAuthored: 'holdAndWin',
 	hwRace: 'holdAndWin',
+	hwClassic: 'holdAndWin',
+	linesPreset: 'lines',
 	lines: 'lines',
 	ways: 'ways',
 	scatter: 'scatter',
@@ -120,6 +122,19 @@ await check('a holdAndWin project is seeded with the Pots preset', async () => {
 		'the seeded block is not the default preset',
 	);
 	assert(holdAndWinMockInputs(doc), 'the seeded config yields no mock inputs (plain lines)');
+});
+
+await check('the preset picked at Create is the one seeded', async () => {
+	await scaffoldProject(CLIENT, 'hwClassic', { holdAndWinPreset: 'classic' });
+	const doc = storedConfig('hwClassic');
+	const classic = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic);
+	assert(doc?.holdAndWin && classic?.holdAndWin, 'no holdAndWin block');
+	assert(
+		JSON.stringify(doc.holdAndWin) === JSON.stringify(classic.holdAndWin),
+		'the seeded block is not the Classic preset',
+	);
+	await scaffoldProject(CLIENT, 'linesPreset', { holdAndWinPreset: 'classic' });
+	assert(!R2.has(gameConfigDocKey(CLIENT, 'linesPreset')), 'a preset seeded a non-preset kind');
 });
 
 await check('every other kind stays un-authored', async () => {

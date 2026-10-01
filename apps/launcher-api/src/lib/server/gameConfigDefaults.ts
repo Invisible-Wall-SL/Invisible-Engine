@@ -6,6 +6,7 @@ import {
 	normalizeGameConfigDoc,
 	resolveWinLevels,
 	type GameConfigDoc,
+	type HoldAndWinPresetId,
 } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
@@ -94,8 +95,15 @@ export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDo
  * `holdAndWin` project was dealt plain lines until someone saved `/config`. Every other kind stays
  * un-authored, so what it plays is byte-identical to before (the compiled template, `null` bake).
  */
-export function gameConfigSeedFor(gameType: string): GameConfigDoc | null {
-	return gameType in KIND_DEFAULT_KEY ? gameConfigDefaultFor(gameType) : null;
+export function gameConfigSeedFor(
+	gameType: string,
+	holdAndWinPreset?: HoldAndWinPresetId,
+): GameConfigDoc | null {
+	if (!(gameType in KIND_DEFAULT_KEY)) return null;
+	if (gameType === 'holdAndWin' && holdAndWinPreset) {
+		return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(holdAndWinPreset)] ?? null;
+	}
+	return gameConfigDefaultFor(gameType);
 }
 
 export type GameConfigSource = 'authored' | 'template';

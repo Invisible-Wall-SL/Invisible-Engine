@@ -5,6 +5,7 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
+import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { gameConfigSeedFor } from './gameConfigDefaults';
@@ -92,8 +93,15 @@ function buildSeeds(
 	];
 }
 
-/** Write any missing seed files for `(client, project)` into R2. */
-export async function scaffoldProject(client: string, project: string): Promise<void> {
+/**
+ * Write any missing seed files for `(client, project)` into R2. `holdAndWinPreset` picks which
+ * preset a `holdAndWin` project's Game Config is seeded from (default: Pots).
+ */
+export async function scaffoldProject(
+	client: string,
+	project: string,
+	opts: { holdAndWinPreset?: HoldAndWinPresetId } = {},
+): Promise<void> {
 	const gameType = await projectGameType(project);
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
@@ -105,7 +113,7 @@ export async function scaffoldProject(client: string, project: string): Promise<
 	}
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
-	const config = gameConfigSeedFor(gameType);
+	const config = gameConfigSeedFor(gameType, opts.holdAndWinPreset);
 	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
 		try {
 			await saveGameConfigDoc(client, project, config, null);
