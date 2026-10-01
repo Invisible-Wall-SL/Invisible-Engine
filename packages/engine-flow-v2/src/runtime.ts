@@ -338,8 +338,12 @@ class FlowInterpreter {
 			case 'exitMode': {
 				const raw = this.resolveDataIn(graph, node.id, 'total', scope);
 				const total = raw === undefined ? NaN : Number(raw);
+				// Blank = the mode this chain is about (a Mode trigger's or a mode event's `mode`), else
+				// the mode on screen. So a blank Exit mode in a mode's own exit chain names the mode that
+				// just exited (a no-op), never the one underneath it.
+				const about = typeof scope.trigger.mode === 'string' ? scope.trigger.mode : undefined;
 				await this.ctx.env.exitMode?.(
-					node.modeId || undefined,
+					node.modeId || about || undefined,
 					Number.isFinite(total) ? total : undefined,
 				);
 				return this.nextExec(graph, node.id, 'exec');

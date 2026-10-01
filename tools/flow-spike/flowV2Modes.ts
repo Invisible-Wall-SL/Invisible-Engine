@@ -217,11 +217,11 @@ const main = async (): Promise<void> => {
 	await runFlowModeTransition(MODED, ctx, { kind: 'exit', mode: 'holdAndWin', total: 40 });
 	check('exit reaches only the exit trigger', take(), ['cue freeSpinOutroShow']);
 	await runFlowModeTransition(MODED, ctx, { kind: 'resume', mode: 'holdAndWin' });
-	check('resume runs its chain, into Enter mode (queue) and Exit mode (total)', take(), [
-		'cue freeSpinCounterShow',
-		'enterMode wheel {"policy":"queue"}',
-		'exitMode - 12.5',
-	]);
+	check(
+		'resume runs its chain, into Enter mode (queue) and a blank Exit mode (= the mode the trigger is about)',
+		take(),
+		['cue freeSpinCounterShow', 'enterMode wheel {"policy":"queue"}', 'exitMode holdAndWin 12.5'],
+	);
 	await runFlowModeTransition(MODED, ctx, { kind: 'enter', mode: 'freeSpins' });
 	check('a mode nobody listens for is a no-op', take(), []);
 	await runFlowModeTransition(MODED, ctx, { kind: 'allFinished' });

@@ -135,6 +135,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 	 *     that mode's last beat, so the mode closes once the event has been presented.
 	 * Neither hook, or an event that records nothing and moves no mode ⇒ just the presentation.
 	 */
+	let restoring = 0;
 	const aroundPresentation = async (
 		bookEvent: BookEvent,
 		present: () => Promise<void>,
@@ -143,7 +144,18 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		if (!modes) return present();
 		if (bookEvent.type === 'createBonusSnapshot') {
 			modes.restore((bookEvent as BookEventOfType<'createBonusSnapshot'>).bookEvents);
+			// The snapshot's handler replays the last trigger to redraw its feature; the stack was just
+			// rebuilt from the whole snapshot (which knows whether that feature already ended), so the
+			// replay must not move it again.
+			restoring++;
+			try {
+				await present();
+			} finally {
+				restoring--;
+			}
+			return;
 		}
+		if (restoring > 0) return present();
 		await modes.before(bookEvent);
 		await present();
 		await modes.after(bookEvent);

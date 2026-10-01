@@ -593,10 +593,14 @@ start with that tab's mode filled in):
 | **Mode trigger** | An entry point. It fires when the engine's mode stack moves its mode: **enter** when the mode actually starts playing (a queued mode starts after the modes before it finish, not when the book announces it), **exit** when it finishes, **resume** when a mode played on top of it finishes. Outputs `mode`, `cause` (why it was entered, as the book named it) and `total` (what it won, set on exit). Reads e.g. `On enter · holdAndWin`. | **Mode** (pick from the list or type one), **Fires on** |
 | **On all modes finished** | An entry point. It fires when no mode is playing or queued, so the game is back at the base game. Collect, big win and idle hang off it. It only fires from the **Global** or the **Base game** tab, so the palette does not offer it on other mode tabs. | — |
 | **Enter mode** | Asks the engine to enter a mode. **Nest** plays it now, on top of the current mode. **Queue** plays it after the current modes finish. A mode already playing or queued merges. Optional data-in `cause`. Reads e.g. `Enter holdAndWin (queue)`. | **Mode**, **Policy** |
-| **Exit mode** | Closes a mode, or the mode on screen when **Mode** is blank. Optional data-in `total`, which its exit trigger reads. | **Mode** |
+| **Exit mode** | Closes a mode. With **Mode** blank it closes the mode the chain is about (the Mode trigger's mode), else the mode on screen. Optional data-in `total`, which its exit trigger reads. | **Mode** |
 
 A mode transition runs the matching triggers in that mode's own tab and in **Global**. The book
 stays the source of truth: Enter mode orders the presentation and never invents a feature.
+
+An Enter mode or Exit mode wired off a Mode trigger takes effect once that transition has finished
+presenting, so it never moves the stack under a trigger that is still playing. A mode a flow
+enters must also be exited within the same round: each new bet starts at the base game.
 
 Validation covers every tab at once. An issue found in a mode tab carries the tab's name, and
 clicking it opens that tab before selecting the node. Two codes are specific to modes:

@@ -4,6 +4,7 @@ import { gameModeById, gameTypeForMode, resolveGameModes } from 'game-config';
 import { eventEmitter } from './eventEmitter';
 import { getActiveGameConfig } from './gameConfig';
 import { stateGame } from './stateGame.svelte';
+import type { MusicName } from './sound';
 import type { GameType } from './types';
 
 /**
@@ -25,7 +26,9 @@ export const setModeTransitionPresenter = (
 const presentCoded = (transition: ModeTransition): void => {
 	if (transition.kind !== 'enter' && transition.kind !== 'resume') return;
 	const music = gameModeById(getActiveGameConfig(), transition.mode.id)?.music;
-	if (music) eventEmitter.broadcast({ type: 'soundMusic', name: music });
+	// An authored cue name, the same footing as a music slot's (`soundBindings` `musicCue`): howler
+	// declines an unknown sprite key silently.
+	if (music) eventEmitter.broadcast({ type: 'soundMusic', name: music as MusicName });
 };
 
 /**

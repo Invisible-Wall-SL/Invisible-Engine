@@ -192,7 +192,8 @@ check(
 		policy: 'nest',
 		cause: 'count',
 		payload: { cells: [], respins: 3 },
-		legacyGameType: false,
+		// Hold and Win keeps the game type until the respin board reads `respin` (modeEvents.ts).
+		legacyGameType: true,
 	},
 );
 check(
@@ -202,7 +203,7 @@ check(
 		op: 'exit',
 		id: 'holdAndWin',
 		total: 25,
-		legacyGameType: false,
+		legacyGameType: true,
 	},
 );
 for (const type of ['reveal', 'winInfo', 'updateFreeSpin', 'freeSpinRetrigger', 'setTotalWin']) {
@@ -236,4 +237,4 @@ check(
 );
 
 console.log(failures === 0 ? '\nAll mode-stack assertions passed.\n' : `\n${failures} FAILED\n`);
-process.exit(failures === 0 ? 0 : 1);
+if (failures > 0) throw new Error('mode-stack fixture failed');

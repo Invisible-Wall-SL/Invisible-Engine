@@ -33,7 +33,31 @@ export type ModeControllerDeps = {
 export function createModeController(deps: ModeControllerDeps) {
 	const state = $state<{ current: ModeStackState }>({ current: emptyModeStack() });
 
+	/**
+	 * Stack ops asked for WHILE a transition is being presented (an Enter / Exit mode flow node inside a
+	 * Mode trigger chain). They run once that step has finished presenting, in order, so a nested op
+	 * never moves the stack under a step that is still presenting — and the caller is not made to wait
+	 * for the presentation it is part of, which would deadlock.
+	 */
+	let presenting = 0;
+	const deferred: (() => Promise<void>)[] = [];
+	const whenSettled = (run: () => Promise<void>): Promise<void> => {
+		if (presenting === 0) return run();
+		deferred.push(run);
+		return Promise.resolve();
+	};
+
 	const apply = async (step: ModeStep, op: ModeOp | undefined): Promise<void> => {
+		presenting++;
+		try {
+			await present(step, op);
+		} finally {
+			presenting--;
+		}
+		while (presenting === 0 && deferred.length) await deferred.shift()!();
+	};
+
+	const present = async (step: ModeStep, op: ModeOp | undefined): Promise<void> => {
 		state.current = step.state;
 		for (const transition of step.transitions) {
 			// The free-spin aliases' own handlers write the game type, each at its own moment (the
@@ -51,6 +75,8 @@ export function createModeController(deps: ModeControllerDeps) {
 		}
 	};
 
+	// The step is computed when the op RUNS (not when it was asked for), so a deferred op sees the
+	// stack the presentation before it left.
 	const run = (op: ModeOp): Promise<void> =>
 		apply(
 			op.op === 'enter'
@@ -78,12 +104,14 @@ export function createModeController(deps: ModeControllerDeps) {
 		},
 		/** Enter a mode on the engine's own initiative (the flow's Enter mode node). */
 		enter: (op: Omit<Extract<ModeOp, { op: 'enter' }>, 'op' | 'legacyGameType'>) =>
-			run({ ...op, op: 'enter', legacyGameType: false }),
+			whenSettled(() => run({ ...op, op: 'enter', legacyGameType: false })),
 		/** Exit a mode on the engine's own initiative (the flow's Exit mode node). */
-		exit: (id?: string, total?: number) => apply(exitMode(state.current, id, { total }), undefined),
+		exit: (id?: string, total?: number) =>
+			whenSettled(() => apply(exitMode(state.current, id, { total }), undefined)),
 		/** A round starts at the base game. Silent: the game type is the round's own business. */
 		reset: (): void => {
 			state.current = emptyModeStack();
+			deferred.length = 0;
 		},
 		/**
 		 * Rebuild the stack from the mode events a resume snapshot kept, with NO transitions — a reload

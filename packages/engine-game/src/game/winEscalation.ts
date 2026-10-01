@@ -39,9 +39,7 @@ export const tierHasExit = (animationMap: TierAnimationMap): boolean =>
 	!!animationMap.outro && animationMap.outro !== animationMap.idle;
 
 /** What a TAP during the win count-up does: advance the chain one tier, or LAND the total. */
-export type WinTapAction =
-	| { kind: 'step'; toTier: number }
-	| { kind: 'land'; hold: boolean };
+export type WinTapAction = { kind: 'step'; toTier: number } | { kind: 'land'; hold: boolean };
 
 /**
  * What a tap on the win presentation means, given where the tier walk currently is.

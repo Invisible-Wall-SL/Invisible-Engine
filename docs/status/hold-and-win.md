@@ -36,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
-| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #MODES_PR |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | in review | Hold and Win Phase 4M — Game modes | #930, #MODES_PR |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
@@ -214,9 +214,21 @@ only has to register its own vocab + seed.
     book mock, `main` vs branch: same 10 spins' structure, same intro/outro holds, same
     `setFreeGameType` → `enterFreeSpinOutro` → `exitFreeSpinOutro` order and game-type moments, no
     exceptions; the stack goes `freeSpins` at the trigger and back to base after `freeSpinEnd`.
+  - **Hold and Win keeps `gameType` unchanged for now** (`HOLD_AND_WIN_KEEPS_GAME_TYPE`,
+    `modeEvents.ts`): its mode is declared with game type `respin`, but writing it today would hide both
+    backgrounds (`Background.svelte` keys on basegame/freegame) and pad the reels from no strips.
+    Flip the flag when the respin board and the background read `respin` (Phase 4 / 6).
+  - **Known gaps (code review, not parity):** (1) `playBet` resets the stack silently — a mode a FLOW
+    entered must be exited within its round (book-driven modes always are). (2) Two ownership probes
+    run once and see only the global graph + base: `Game.svelte` `flowOwnsSetWin` (boot) and
+    `flowEffects.ts` `showWinInfoMessage`'s `ownsEvent('freeSpinTrigger')` (during the base reveal) — a
+    mode tab that alone owns `setWin` / `freeSpinTrigger` is not seen there. (3) `freeSpinEnd` for a
+    SUSPENDED free-spins mode (Hold and Win nested on top) lets the coded handler write `basegame` under
+    Hold and Win; an unusual book order. (4) `/flow-v2`'s "Fix duplicate ids" repairs only the open
+    graph; the editor and collapse mint ids unique across sections, so only a hand-edited doc collides.
   - **Left for Phase 5/6:** the Hold and Win mode's graph and its respin screens (tag them `mode` +
     `holdAndWin`); the facade/mock emit no `modeEnter` yet (nothing needs a queued mode until a game
-    announces one); the respin board reads the `respin` game type.
+    announces one).
 
 - 2026-10-01 — **Phase 4a: the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
   engine runtime"). The §4.3 events as typed arms of the shared runtime's union (payloads in
