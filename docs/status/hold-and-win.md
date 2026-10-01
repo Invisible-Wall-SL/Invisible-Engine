@@ -8,8 +8,11 @@
 feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
 spins only the free cells onto what the server named, new coins stick with their value label, the
 counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
-Specials, jackpots, meters, letters and the end tally are recorded and shown as labels but have no
-beat of their own yet (next PRs). Production is blocked on the partner's Hold and Win wire format;
+Phase 4d (2026-10-01, on a branch) adds the specials and mystery beats: a payer or multiplier lights
+and every coin's label counts up to its new value, a multiplier lands as a coin, a collector pulses
+each coin and climbs, a mystery opens into what it revealed (with an "UNLOCKED" toast), a streak's
+cells clear, a jackpot coin lights and a banked jackpot gets a toast. Meters, letters, the wheel and
+the end tally are still recorded and shown as labels without a beat of their own (next PRs). Production is blocked on the partner's Hold and Win wire format;
 authoring is not (mock-first).
 
 ## How sessions use this file (the hub)
@@ -36,7 +39,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c merged; resume fix + 4d (specials, mystery) + flights next; then pots, Lucky Spin, feature end, Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c merged; resume fix + 4d (specials, mystery) in review; flights building; then pots, Lucky Spin, feature end, Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -68,6 +71,28 @@ only has to register its own vocab + seed.
 
 ## Decisions & findings
 
+- 2026-10-01 — **Phase 4d: the specials and mystery beats.** Decisions a later phase must know:
+  - **A count-up is a display override, never a write.** The play seam has already recorded the
+    final value when a `coinPay` / `coinBoost` / `coinCollect` beat starts, so the beat pins each
+    changed label at its OLD value (`stateRespinBoard.heldDisplay[key]`, a `Tween` per cell, set in
+    the same tick as the held layer syncs) and lets go when the count ends; the label then reads the
+    recorded value. `Symbol.svelte` takes the override as `labelOverride` and applies it to the label
+    only, so a ticking label never re-resolves the art. The reducer stays the source of truth.
+  - **The collect's per-coin moment is one function, `presentCollectStep`** (coin pulses, collector
+    label rises by that coin's share). When `flyTo` ships (Phase 4 step 9) it replaces that
+    function's body: the head flies coin → collector and the rise lands on `flightArrive`. The legs
+    come from `countSteps` (engine-game `respinCount.ts`): proportional to each coin's `amount`, last
+    leg exactly on the server's `value`.
+  - **Terminal states hold.** `explosion` (a mystery opening) and `clearReel` (a streak's coin
+    leaving) are not settled back to `static` on completion — that showed the old symbol for a
+    frame — the sync that follows replaces or removes the cell.
+  - **Symbol states used by the coded defaults:** `win` (payer, multiplier, collected coin, jackpot
+    coin; held at least 400 ms so a sprite is seen), `land` (a multiplier becoming a coin, a revealed
+    mystery), `explosion` (mystery opening), `clearReel` (streak clear). Phase 7 authors them.
+  - **Toasts are English literals for now** ("UNLOCKED: PAYER", "MINI JACKPOT €15.00"), through
+    `showMessage` like the free-spin award. Phase 8 (Win Text) owns their copy and localization.
+  - **A `jackpotWin` with `banked: false` gets no toast**, only the coin highlight when
+    `source: 'coin'` — its money is already in a tally cell or a collector.
 - 2026-10-01 — **4c live check (#934, merged as `lines@28b09d57cd88`).** Borut parity held (14 base
   spins, a natural and a bought feature, every balance = the RGS, 0 exceptions). On
   `hw-3pots-sample` the respin board covers exactly the reel seats, held coins stay, only free cells
@@ -282,12 +307,13 @@ only has to register its own vocab + seed.
   the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
   total?}`, `total` in credits.
 
-1. **Phase 4 (engine runtime), next beats** on the respin board: specials (payer, multiplier,
-   collector, mystery), jackpot wins, the end tally into the total (with `flyTo`, design §4.4),
-   column letters, the wheel and the meters. Force any beat with
+1. **Phase 4 (engine runtime), next beats** on the respin board: the pots (meters) and active
+   modifiers, Lucky Spin, the end tally into the total (with `flyTo`, design §4.4, which also
+   replaces `presentCollectStep`), the full jackpot celebration, column letters and the wheel. Force any beat with
    `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
-   **4c visual check owed** on a live published `holdAndWin` project — the board was not rendered
-   locally (see Recent changes); Storybook `MODE_HOLD_AND_WIN/book` plays two recorded rounds.
+   **4c + 4d visual check owed** on a live published `holdAndWin` project — the board was not
+   rendered locally (see Recent changes: Storybook mounts no board in this setup); Storybook
+   `MODE_HOLD_AND_WIN/book` plays seven recorded rounds, verified by state probes.
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
@@ -296,6 +322,36 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4d: specials and mystery beats** (session "Hold and Win Phase 4 — engine
+  runtime", branch `engine/hold-win-4d-specials`, stacked on 4c). Each beat is one function in
+  `holdAndWinPresentation.ts`, called by its coded handler and by a new flow effect:
+  `payCoins` (`coinPay`: payer `win`, then every coin counts up `from` → `to`, staggered),
+  `boostCoins` (`coinBoost`: booster `win` when `source: 'special'`, then the counts; a jackpot's
+  factor steps `MINI` → `MINI ×2`), `turnSpecialIntoCoin` (`specialBecomesCoin`: lands as a coin),
+  `collectCoins` (`coinCollect`: each coin pulses via `presentCollectStep`, the collector's label
+  climbs to its new value), `revealMystery` (`mysteryReveal`: `explosion`, becomes what it revealed,
+  `land`; an unlock shows "UNLOCKED: <KIND>"), `clearRespinCells` (`cellsCleared`: `clearReel`, then
+  gone), `showJackpotWin` (`jackpotWin`: a jackpot coin lights; a banked jackpot gets a toast). New
+  cues (notifications): `respinCoinPay`, `respinCoinBoost`, `respinSpecialBecomesCoin`,
+  `respinCoinCollect`, `respinCollectStep` (once per collected coin), `respinMysteryReveal`,
+  `respinModifierUnlock`, `respinCellsCleared`, `respinJackpotWin`; flow vocabulary regenerated. A
+  slam compresses every wait and count and skips no state change; every symbol beat is capped
+  (650 ms). Other games: one optional `Symbol.svelte` prop nobody else passes. Storybook
+  `MODE_HOLD_AND_WIN/book` gained five rounds recorded from the pots mock through the real facade
+  (`trigger,special:payer`, `special:multiplier`, `special:collector`, `mystery:jackpot:MINI`,
+  `unlock:payer`; specials on H1–H4, role-tagged in the story). Verified: svelte-check at baseline
+  (apps/lines 166, engine-game 38, completed), eslint, `gen:flow-vocab:check`, `check:engine-game`
+  (new `respinCount` fixture), `check:holdandwin`, `check-all` 319/319. All five stories played in
+  Storybook from a short path, with the respin board's state probed every 250 ms off the live
+  modules: each label is pinned at `from` while the picture already holds `to`, counts up staggered
+  and lets go on the final value; the collector climbs 0 → 8.5 as its five coins pulse in turn; a
+  mystery goes `explosion` → becomes `W MINI` / the payer → `land`; a slam in the payer's beat
+  ended every count on its final value within 0.1 s and the next respin rolled at full pace.
+  **Not seen as pixels:** this Storybook mounts no board for ANY story (`MODE_BASE/book` too — the
+  stage has no reel or respin subtree; `Game.svelte` gates the reel stack on
+  `!isFlowDriven || isBasegameActive`), so the 4c visual check on a live published project still
+  covers 4d's beats too.
 
 - 2026-10-01 — **4c merged (#934): the respin board** — live as `lines@28b09d57cd88` (findings
   above). **Then: Hold and Win resume through the snapshot** — the facade hands the engine the
