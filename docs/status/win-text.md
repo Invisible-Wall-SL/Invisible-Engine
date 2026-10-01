@@ -4,7 +4,8 @@
 
 **One-line state:** shipped — `/win-text` authors the win-message templates (toasts that name the
 paying symbol or show it as an image, "on N reels" for expanded Book-of wins, free-spin retrigger
-copy, optional tier captions), which ship through both bundle paths and feed Invisible Localization.
+copy, optional tier captions, and the Hold and Win jackpot / respin / feature copy), which ship
+through both bundle paths and feed Invisible Localization.
 Owed: an owner visual pass on the page and on a real authored win in-game.
 
 ## Current state
@@ -278,8 +279,10 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
    Worth a warning in the tool when a template uses characters the chosen font lacks.
 3. **Match counts are `[2,3,4,5]` in the page** — every current template is a 5-reel board. The
    doc accepts any count key, so only that list widens for a wider board.
-4. **Win-level aliases are listed in the page** (`big`/`superwin`/`mega`/`epic`/`max`) — unlike
-   the symbol list they aren't published to R2, so there's no live source to read them from.
+4. **Hold and Win runtime wiring** (Phase 8, second PR, after Phase 4f merges) — the respin
+   presentation still draws its English literals; it must read `bakedWinText()` through
+   `formatWinText` + `jackpotCaption` / `specialDisplayName`. The defaults already equal those
+   literals, so the swap is invisible until a doc authors something.
 5. **No dedicated agent file** (`.claude/agents/win-text.md` doesn't exist).
 
 ## Blocked (owner / external)
@@ -287,6 +290,30 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 - Nothing.
 
 ## Recent changes
+
+- 2026-10-01 — **Hold and Win copy + kind gating (Hold and Win Phase 8, part 1).** Three new doc
+  families in `engine-layout/winText.ts`, each with `WIN_TEXT_DEFAULTS` equal to the literal the respin
+  presentation draws today:
+  - `jackpots`: `captions` per tier (keyed by the CONFIG's tier names; an unset tier speaks its own name
+    via `jackpotCaption`), `award` / `awardDetail` / `fullBoardDetail` / `coin` for the banners.
+  - `respins`: `counter` / `award` / `reset` / `last`.
+  - `feature`: `total` / `intro` / `outro` (empty) / `instantCollect` / `luckySpin` / `meterFull` /
+    `modifiersActive` / `modifiersUnlocked`, plus `specialNames` (`specialDisplayName`).
+  - New tokens `{jackpot}` `{meter}` `{modifiers}`, each localized at its source then interpolated.
+  - Field lists (`WIN_TEXT_*_FIELDS`) are exported once and drive the page, the Zod schema, the
+    prune and the harvest, so a new field can't reach one and miss another.
+  - **Harvest:** `collectWinTextTemplates(doc, { holdAndWin, jackpots })` lists the families' resolved
+    defaults (and each tier's caption) only when `kindCapabilities().holdAndWin`, skipping token-only
+    templates; authored fields are listed for any kind. Every other project's harvest is unchanged.
+  - **Page:** the three sections show only for Hold and Win; `toast.expanded` (box + preview) only
+    with `bookReveal`; Free spins only with `freeSpins`. Win-level rows come from the config's big tiers
+    (`bigTiersOf`, labelled by name), falling back to the coded five, plus any alias the doc holds.
+  - **Proof:** `packages/engine-layout/scripts/test-win-text-hold-and-win.mjs` (defaults, resolve,
+    localize-then-interpolate, harvest gating) and `apps/launcher-api/scripts/check-win-text-doc.ts`
+    (the families survive `normalizeWinTextDoc` — which is what BOTH bundle paths ship — blanks prune,
+    legacy bytes unchanged, Localization gating). A read-only pass over every `win-text.json` in R2
+    (3 docs) normalized and harvested byte-identically on `main` and on this branch. The
+    conditional-write save path is untouched.
 
 - 2026-09-29 — **Leaving with unsaved win-text edits now asks first.** The page tracked a dirty state but
   registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded unsaved

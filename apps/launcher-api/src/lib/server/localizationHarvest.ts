@@ -204,8 +204,11 @@ export const WIN_TEXT_SECTION_ID = '__winText';
  * Source-as-key + exact/untrimmed, matching {@link harvestSceneText}. The Win Text tool owns
  * these sources, so they're read-only here (`origin: 'winText'`).
  */
-export function harvestWinText(doc: WinTextDoc | undefined): HarvestSection[] {
-	const items = collectWinTextTemplates(doc).filter((i) => isLocalizableText(i.source));
+export function harvestWinText(
+	doc: WinTextDoc | undefined,
+	options: Parameters<typeof collectWinTextTemplates>[1] = {},
+): HarvestSection[] {
+	const items = collectWinTextTemplates(doc, options).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' }];
 }
