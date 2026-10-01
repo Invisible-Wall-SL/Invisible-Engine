@@ -46,6 +46,28 @@ to its server whitelist** (`normalizeScene`, `normalizeAlign`, `normalizeGameSet
 silently dropped on save); **the launcher `vite build` is not a type-check** (run `svelte-check`);
 **"shows in the editor" ≠ "ships"** (check the export walks the new reference).
 
+- 2026-10-01 — **In-game view: the canvas draws what the idle game shows.** Reported on
+  `hw-3pots-sample`: every screen drew at once (buy cards, confirm dialog, bet menu over the
+  board), with labelled "Panel" / "spine: Spine" / "Button ribbon" boxes for Feature Card parts
+  that have no art picked. A canvas-toolbar toggle **🎮 In-game view** (on by default, kept per
+  project in the editor's UI localStorage) now draws only the screens at rest
+  (`engine-layout` `isShownAtRest` / `inGameViewSceneIds`): it drops the transient ids `Game.svelte`
+  mounts only for a moment (loading, win visual, free-spin intro/outro/counter, special book,
+  Hold and Win beat screens, buy feature/confirm, round confirm, bet menu, auto spin), the
+  transient roles (incl. every `mode` screen) and `visibleSource`-gated screens. The edited screen
+  is always added. For a mode screen, its mode's non-beat screens are added too. The Screens list
+  italicises what it leaves off. In the same view, a NESTED sprite/spine with no art bound
+  (empty region and key, or an empty bound spine key) draws nothing instead of its placeholder,
+  as in the game. The Component Editor does not pass the prop, so it keeps its placeholders.
+  `test-resting-scenes.mjs` pins the at-rest set per kind.
+  - **Add missing screens** also fixed: it matched by ROLE, and every Hold and Win feature screen
+    shares `role: 'mode'`. So once any mode screen existed, the rest counted as present and were
+    never offered. `mode` now matches by id only. Added screens are inserted after their
+    predecessor in the kind's own set, not appended (appending put Pots above the HUD).
+  - ⏳ Not browser-verified (no launcher login in the session). The placeholders on the HUD
+    readouts (`UI_0005_WidgetBig`) and the buy button (`spine: R_BuyBonus`) are a different thing:
+    those are real art references the canvas failed to load. They are not diagnosed — the doc and
+    R2 were not readable from the session.
 - 2026-10-01 — **Hold and Win kind** (#951): "New game from kind → holdAndWin" now scaffolds the real Hold and Win screen set (jackpot bar, pots, the `holdAndWin` mode screens, the base-game message host — see [hold-and-win status](hold-and-win.md)), and the Library's **Components** list is filtered by the project's kind (`componentOfferedForKind`): the seven Hold and Win components appear only in a Hold and Win project. Palette only — a placed instance always renders. Other kinds' scene sets are hash-pinned unchanged (`test-hold-and-win-template.mjs`).
 - 2026-09-29 — **Docs caught up with the code**: new screens have mounted in the game in list order since the generic-mount work (the old open item said otherwise); `reelGrid.symbolSizeRatios` is long gone (symbols are sized by their art); the guide's pane layout matches the 2026-08-11 shell. `EDITOR_DOC_SECRET` is set; rotation is the owner item.
 - 2026-09-29 — **History… uses the shared version-history modal** (#859, live `4f32e773`). The
