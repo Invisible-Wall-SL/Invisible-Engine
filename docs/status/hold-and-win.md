@@ -36,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
-| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | in review | Hold and Win Phase 4M — Game modes | #930, #933 |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
