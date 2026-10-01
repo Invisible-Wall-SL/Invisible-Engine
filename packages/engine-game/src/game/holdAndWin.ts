@@ -226,10 +226,15 @@ export const emptyHoldAndWinState = (): HoldAndWinState => ({
 
 const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.row === b.row;
 
-const putCells = (cells: HoldAndWinCell[], incoming: HoldAndWinCell[]): HoldAndWinCell[] => [
-	...cells.filter((cell) => !incoming.some(samePosition(cell))),
-	...incoming.map(({ reel, row, symbol }) => ({ reel, row, symbol })),
-];
+/** One cell per position — the last one named wins, so a payload that repeats a position cannot
+ *  put two cells on one seat (the held layer is keyed by position). */
+const putCells = (cells: HoldAndWinCell[], incoming: HoldAndWinCell[]): HoldAndWinCell[] => {
+	const unique = incoming.filter((cell, i) => !incoming.slice(i + 1).some(samePosition(cell)));
+	return [
+		...cells.filter((cell) => !unique.some(samePosition(cell))),
+		...unique.map(({ reel, row, symbol }) => ({ reel, row, symbol })),
+	];
+};
 
 const withChanges = (cells: HoldAndWinCell[], changes: HoldAndWinCoinChange[]): HoldAndWinCell[] =>
 	cells.map((cell) => {
@@ -331,7 +336,13 @@ export const applyHoldAndWinEvent = (
 		case 'respinUpdate':
 			return { ...state, left: event.left, played: event.played, start: event.start };
 		case 'holdAndWinState':
-			return { ...event.snapshot, active: true, luckySpin: state.luckySpin, meters: state.meters };
+			return {
+				...event.snapshot,
+				cells: putCells([], event.snapshot.cells),
+				active: true,
+				luckySpin: state.luckySpin,
+				meters: state.meters,
+			};
 		case 'holdAndWinEnd':
 			return { ...emptyHoldAndWinState(), meters: state.meters, total: event.total };
 		case 'coinInstantCollect':

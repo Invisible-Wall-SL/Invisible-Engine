@@ -246,6 +246,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, spine symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-01 — **Hold and Win respin board (Phase 4c).** A per-cell `RespinBoard` (one-cell `createReelForSpinning` reels from `engine-game` `createRespinBoard`, a held layer through `Symbol.svelte`, a coded respin counter) replaces the reel board for the length of a Hold and Win feature; each beat is one function shared by its coded handler and its flow effect (six effects); `respinReveal` re-arms the slam per respin; a base `reveal` always takes the respin board down. Other games: one empty container and one subscription, nothing built. Detail: [status/hold-and-win](hold-and-win.md). A runtime release on merge.
 
 - 2026-10-01 — **Game modes: a mode stack + queue in the shared runtime** (Hold and Win Phase 4M;
   design [hold-and-win §4.5](../design/hold-and-win.md)). `engine-game` `modeStack.ts` (pure rules,

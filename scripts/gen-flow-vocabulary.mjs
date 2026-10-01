@@ -80,6 +80,7 @@ const GAMES = [
 			EmitterEventSpecialBook: 'Special book',
 			EmitterEventTumbleBoard: 'Cascade',
 			EmitterEventMultiplierBoard: 'Multipliers',
+			EmitterEventRespinBoard: 'Hold and Win',
 			EmitterEventSound: 'Sound',
 			EmitterEventTransition: 'Transition',
 			EmitterEventFlight: 'Flights',

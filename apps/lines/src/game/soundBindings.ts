@@ -189,3 +189,12 @@ export const playSymbolLandSound = (symbolName: string, scatterIndex: number): v
 export const playWildExplodeSound = (): void => {
 	broadcastCue(slotCue('wildExplode'));
 };
+
+/**
+ * A reel's stop, on the rising `reelStop` ladder indexed by the reel — the cue the column reels play
+ * from `engine-game`'s `buildBoard`, for the Hold and Win respin board's one-cell reels, which stop
+ * one column at a time the same way. `forcePlay` off in turbo, as there.
+ */
+export const playReelStopSound = (reelIndex: number, turbo: boolean): void => {
+	broadcastCue(activeSounds().pick('reelStop', reelIndex), !turbo);
+};

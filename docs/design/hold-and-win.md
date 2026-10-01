@@ -150,6 +150,10 @@ Following [game-type-templates.md](game-type-templates.md): the base game pays b
 
 ### 4.2 The respin board — a dedicated per-cell board, not a rewrite of the reel board
 
+> **Built (Phase 4c, 2026-10-01).** `engine-game` `respinBoard.ts` / `respinBoard.svelte.ts` and
+> `apps/lines` `RespinBoard.svelte` + `holdAndWinPresentation.ts`. The decisions it fixed are in the
+> status file's findings.
+
 The shared reel board is column-strip based, and everything (anticipation, sequential stop, win
 positions, tumble) assumes one reel per column. Rewriting it for per-cell spins would risk every live
 game. Instead:
@@ -207,7 +211,7 @@ Hold and Win is full of **flights**. Each one is a head that travels from a boar
 The start point is known only at runtime (whichever cell the symbol landed in), and several flights can run at once. In the references the paths **bend around the cells that are showing a win** instead of crossing them. 3 Oaks' own particle names (`flyRed…Top` / `…Bottom`) suggest they pick between an over-route and an under-route per flight.
 
 **What we already have:**
-- **Trail.** An `/fx` emitter that follows a moving owner. The Rigger bone binding already drives `updateOwnerPos` every frame, and particles spawn in the container's space, so a moving owner leaves a trail.
+- **Trail — NOT as first written (measured 2026-10-01).** No renderer leaves a trail today: the `/fx` preview, `SpineBoneAttach`, `RiggedEffect`, the symbol `fx` layer and the launcher overlays all move the emitter's CONTAINER, so existing particles ride along rigidly (a 2026-07-14 change made bone layers rigid on purpose). The particle library does trail: hold the emitter's `parent` still and call `emitter.updateOwnerPos(x, y)` each tick — new spawns follow, old ones stay, and spawns within a frame are lerped. Nothing in the game calls it: `pixi-svelte` `ParticleEmitter.svelte` neither calls `updateOwnerPos` nor exposes the emitter. So `flyTo` needs a small hook there (an `ownerPos` getter prop, kept out of `propsSyncEffect`, applied before `update`; and remove its never-removed ticker callback). An unused coded trail config already exists (`constants-shared/particleConfig/trail.ts`); a radial-glow texture does not.
 - **Arrival.** Event-triggered effects (cue → effect).
 - **Heads.** Spine/flipbook/sprite rendering.
 - **Precedent.** A coded "fly to a point" in scatter's `MultiplierBoard`.
@@ -221,6 +225,7 @@ The start point is known only at runtime (whichever cell the symbol landed in), 
   - The primitive tries a few candidate curves: bend left/right at a few strengths, then an over-route that leaves through the column's top edge. It samples each and keeps the first whose samples miss every padded rect; the cost is the curve length.
   - If none is clean, it picks the one with the fewest hits.
   - This is deterministic for a given board, so a replay or resume draws the same route. It costs a few dozen point-in-rect tests per flight.
+- **Trail lifetime.** On arrival the head is done (the Promise resolves, `flightArrive` fires) but the trail is not: stop emitting (`emit = false`) and unmount only after the last particle dies (`playOnce` / the complete callback, or the max lifetime via `emitterSecondsToWallMs`). Unmounting at arrival kills the trail in one frame. `init()` resets `ownerPos` to 0, so set the owner position before the first update or the first wave spawns at the origin. Emitters run at 2.34× wall clock (`engine-fx` `DEFAULT_EMIT_SPEED`). The flight layer is one stage-level container at a fixed zIndex seat; cell and target positions are converted global → that layer's local, so a trail's size does not depend on the board's scale.
 - **Timing.** Duration comes from distance (speed plus min/max clamp) with an ease. A stagger per flight index spreads simultaneous flights, and a slam compresses the time without skipping the arrival: the pot still fills, just faster (the slam rules in docs/status/engine.md).
 - **Arrival.** A cue per arrival (`flightArrive` with the target id), so the pot bump, the level up and the number increment happen on impact, not when the flight is fired.
 - **Z-order.** Flights draw in their own layer above the board and below celebration overlays. The layer uses a fixed zIndex seat, never mount order (pixi-svelte freezes child order at mount).

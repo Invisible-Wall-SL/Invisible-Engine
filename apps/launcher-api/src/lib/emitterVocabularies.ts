@@ -440,6 +440,57 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Multipliers',
 			},
 			{
+				type: 'respinBoardShow',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardHide',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinsLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCounterUpdate',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'start',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'reset',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -528,6 +579,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'showRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'spinRespin',
+				group: 'Effect',
+			},
+			{
+				name: 'stickCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'setRespinCounter',
+				group: 'Effect',
+			},
+			{
+				name: 'restoreRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'hideRespinBoard',
 				group: 'Effect',
 			},
 			{
@@ -1204,6 +1279,57 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Multipliers',
 			},
 			{
+				type: 'respinBoardShow',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardHide',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinsLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCounterUpdate',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'start',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'reset',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1292,6 +1418,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'showRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'spinRespin',
+				group: 'Effect',
+			},
+			{
+				name: 'stickCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'setRespinCounter',
+				group: 'Effect',
+			},
+			{
+				name: 'restoreRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'hideRespinBoard',
 				group: 'Effect',
 			},
 			{
@@ -1968,6 +2118,57 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Multipliers',
 			},
 			{
+				type: 'respinBoardShow',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardHide',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinsLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCounterUpdate',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'start',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'reset',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -2056,6 +2257,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'showRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'spinRespin',
+				group: 'Effect',
+			},
+			{
+				name: 'stickCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'setRespinCounter',
+				group: 'Effect',
+			},
+			{
+				name: 'restoreRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'hideRespinBoard',
 				group: 'Effect',
 			},
 			{
@@ -2732,6 +2957,57 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Multipliers',
 			},
 			{
+				type: 'respinBoardShow',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardHide',
+				group: 'Hold and Win',
+			},
+			{
+				type: 'respinBoardSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinsLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCounterUpdate',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'start',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'reset',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -2820,6 +3096,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'showRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'spinRespin',
+				group: 'Effect',
+			},
+			{
+				name: 'stickCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'setRespinCounter',
+				group: 'Effect',
+			},
+			{
+				name: 'restoreRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'hideRespinBoard',
 				group: 'Effect',
 			},
 			{

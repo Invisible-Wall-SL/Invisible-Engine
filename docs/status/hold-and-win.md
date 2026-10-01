@@ -4,12 +4,13 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 3 (2026-09-30) — the mock RGS deals the whole Hold and Win feature
-for all three presets from the project's Game Config, on our own documented wire
-([hold-and-win-wire.md](../reference/hold-and-win-wire.md)), with every beat forceable. The engine
-does not render it yet (Phase 4): today's runtime plays a Hold and Win round to its end as
-partner-shaped free spins and settles the right balance, but shows no coins. Production is blocked
-on the partner's Hold and Win wire format; authoring is not (mock-first).
+**One-line state:** Phase 4c (2026-10-01, in review) — the shared runtime presents the Hold and Win
+feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
+spins only the free cells onto what the server named, new coins stick with their value label, the
+counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
+Specials, jackpots, meters, letters and the end tally are recorded and shown as labels but have no
+beat of their own yet (next PRs). Production is blocked on the partner's Hold and Win wire format;
+authoring is not (mock-first).
 
 ## How sessions use this file (the hub)
 
@@ -35,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a merged; 4b (facade + coin labels) merging; 4c (respin board) in review | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a + 4b merged; 4c (respin board) in review; specials, mystery, pots, Lucky Spin, feature end, flights, Grand/Hotfire next | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -66,6 +67,48 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
+  step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
+  the symbol `fx` layer, launcher overlays — moves the emitter's container, so particles move
+  rigidly. The library trails via `emitter.updateOwnerPos` on a still parent, which no game path
+  calls. `flyTo` therefore adds an `ownerPos` getter to `pixi-svelte` `ParticleEmitter.svelte` (and
+  fixes its leaked ticker callback); the coded default can use the unused
+  `constants-shared/particleConfig/trail.ts` plus a generated glow texture. Any future `/fx` "flight"
+  preview must use the same `updateOwnerPos` path, or it becomes a fourth hand-synced renderer.
+  Stale comments describing the old behaviour: `apps/launcher-api/src/routes/(app)/fx/fxModel.client.ts`
+  (:385, :408).
+
+- 2026-10-01 — **Phase 4c: the respin board.** `engine-game` builds it: `respinBoard.ts` is pure and
+  pinned by `fixtures/respinBoard.fixture.ts` (which cells spin and onto what, which cells a new
+  picture releases, what each cell shows at mount); `respinBoard.svelte.ts` makes `reels × rows`
+  one-cell `createReelForSpinning` reels, columns stopping left to right. `apps/lines` wires and draws
+  it (`stateRespinBoard.svelte.ts`, `RespinBoard`/`RespinCell`/`RespinHeldSymbol`/`RespinCounter`).
+  Decisions a later phase must know:
+  - **One function per beat** (`holdAndWinPresentation.ts`), called by the coded handler AND by the
+    flow effect of the same beat (`showRespinBoard`, `spinRespin`, `stickCoins`, `setRespinCounter`,
+    `restoreRespinBoard`, `hideRespinBoard`). The cues (`respinBoardShow`/`Hide`/`Spin`,
+    `respinCoinsLand`, `respinCounterUpdate`) are NOTIFICATIONS for authored sound/FX — broadcasting
+    one does not move the board. Phase 5 wires the effects, not the cues.
+  - **No beat records its event.** Since 4M (#933) the play seam (`createPlayBook`'s
+    `recordBookEvent`) folds every Hold and Win event into `stateHoldAndWin` before any path presents
+    it, so a flow-owned event reads the same picture and nothing is applied twice (the wheel's
+    `extraCollect`, a banked `jackpotWin` and a cleared `columnComplete` are NOT idempotent). The
+    unpresented events' handler is `syncHoldAndWin`: it only re-syncs the held layer.
+  - **The held layer is a copy of the picture**, re-synced on every Hold and Win event while the board
+    is up and kept through the end, so the final board stays on screen until the swap back. A cell
+    that leaves it (a streak clear, a column sweep, a snapshot correcting the client) has its reel
+    settled to the blank first.
+  - **`respinReveal` re-arms the slam**, as `updateFreeSpin` does per free spin
+    (`SPIN_REARM_BOOK_EVENTS`): a press lands the rolling respin, the next one rolls at full pace.
+  - **A base `reveal` always takes the respin board down** (`presentReveal`), so a feature whose end
+    never arrived (a respin refused mid-feature) cannot leave the next round's reels rolling unseen.
+  - **Respin strips:** the config's `respin` strips, else the base game's. Blank = the symbol tagged
+    `blank`, else `BLANK`; with no art bound it draws nothing.
+  - **Coded counter** "RESPINS n" above the board; `respinsLeft` (value) and `respinCounterShow`
+    (visibility) are registered so Phase 6's authored counter binds the same state.
+  - **Not covered:** stepped grids (the board assumes every column has the board's row count);
+    perspective boards seat the resting cell exactly but roll on the flat pitch.
 
 - 2026-10-01 — **First published Hold and Win project: `hw-3pots-sample`** (Invisible_Wall, Pots
   preset; playbook [docs/playtest/hw-3pots-sample.md](../playtest/hw-3pots-sample.md)). **Trap:** a
@@ -201,9 +244,22 @@ only has to register its own vocab + seed.
 
 ## Open items / next
 
-1. **Phase 4 (engine runtime)** builds on the wire doc: facade identity mapping + `parseCell`
-   jackpots, `gameType: 'respin'`, the §4.3 events. Force any beat with
+- **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) once Phase 6 gives
+  `Background.svelte` a `respin` branch. The respin board already rolls `paddingReels.respin`
+  (`getPaddingReels('respin')`, base strips only for a config without them); writing `gameType:
+  'respin'` before the background handles it would hide both backgrounds. A one-line flip + a parity
+  boot.
+- **Facade `modeEnter` / `modeExit`** for a QUEUED mode: today's wire has no mode change other than
+  the aliased `holdAndWinTrigger`/`End` (the wheel is part of the entry, not a mode). Map them when
+  the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
+  total?}`, `total` in credits.
+
+1. **Phase 4 (engine runtime), next beats** on the respin board: specials (payer, multiplier,
+   collector, mystery), jackpot wins, the end tally into the total (with `flyTo`, design §4.4),
+   column letters, the wheel and the meters. Force any beat with
    `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
+   **4c visual check owed** on a live published `holdAndWin` project — the board was not rendered
+   locally (see Recent changes); Storybook `MODE_HOLD_AND_WIN/book` plays two recorded rounds.
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
@@ -212,6 +268,21 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4c: respin board, sticky coins, respin counter** (session "Hold and Win
+  Phase 4 — engine runtime", branch `engine/hold-win-4c-respin-board`). `holdAndWinTrigger` swaps
+  the reel board for the respin board over the same seats, triggering coins held; `respinReveal`
+  spins the free cells onto the revealed symbols; `coinsLand` sticks them (a `land` beat);
+  `respinUpdate` moves the counter and a reset pulses it; `holdAndWinState` rebuilds the whole board
+  with no intro (resume); `holdAndWinEnd` holds the final board, then swaps back. Six flow effects and
+  five cues; flow vocabulary regenerated. Other games: one empty container in the board stack and one
+  `stopButtonClick` subscription — the reels are built on the first feature only. Verified:
+  `check:engine-game` (new respin-board fixture; 4 planted mutants caught), the facade fixture,
+  `gen:flow-vocab:check`, eslint, svelte-check (engine-game 38 = baseline; apps/lines 169 on this
+  branch and on its base alike — the 3 over baseline are a Windows long-path `svelte(style)` artefact
+  of the checkout). NOT rendered locally: the checkout's path is past Windows `MAX_PATH`, which breaks
+  Vite; the Storybook story `MODE_HOLD_AND_WIN/book` (two rounds recorded from the pots mock through
+  the real facade, symbols renamed onto the sample art) is there to run from a short path.
 
 - 2026-10-01 — **Phase 4b: facade mapping + coin labels** (session "Hold and Win Phase 4 — engine
   runtime"). The facade translates every wire Hold and Win event into the 4a contract (cell values,

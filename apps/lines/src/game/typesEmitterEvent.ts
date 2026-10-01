@@ -9,6 +9,7 @@ import type { EmitterEventWinLine } from '../components/WinLine.svelte';
 import type { EmitterEventSound } from '../components/Sound.svelte';
 import type { EmitterEventTumbleBoard } from '../components/TumbleBoard.svelte';
 import type { EmitterEventMultiplierBoard } from '../components/MultiplierBoard.svelte';
+import type { EmitterEventRespinBoard } from '../components/RespinBoard.svelte';
 import type { EmitterEventTransition } from 'engine-game';
 import type { EmitterEventFlight } from 'engine-game';
 
@@ -24,5 +25,6 @@ export type EmitterEventGame =
 	| EmitterEventSound
 	| EmitterEventTumbleBoard
 	| EmitterEventMultiplierBoard
+	| EmitterEventRespinBoard
 	| EmitterEventTransition
 	| EmitterEventFlight;

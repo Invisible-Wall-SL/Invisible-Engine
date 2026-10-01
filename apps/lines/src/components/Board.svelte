@@ -43,6 +43,8 @@
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
 	import { stateTumble, tumbleBoardCombined } from '../game/stateTumble.svelte';
+	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import { Container } from 'pixi-svelte';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
 	import BoardTiles from './BoardTiles.svelte';
@@ -328,10 +330,17 @@
 	context.stateGameDerived.enhancedBoard.readyToSpinEffect();
 </script>
 
-{#if mounted}
-	<BoardContext animate={false}>
-		<BoardContainer>
-			<!-- `allowOverflow`: once no reel's strip is moving, the window may grow by the `reelGrid`
+<!--
+	Hold and Win: the respin board covers this one by VISIBILITY, never by `boardHide`. Unmounting
+	here would remount the board at the END of its parent (pixi-svelte freezes child order at
+	mount), above the anticipation overlays, and restart every cell's art on the swap back. Always
+	visible for a game with no feature.
+-->
+<Container visible={!stateRespinBoard.shown}>
+	{#if mounted}
+		<BoardContext animate={false}>
+			<BoardContainer>
+				<!-- `allowOverflow`: once no reel's strip is moving, the window may grow by the `reelGrid`
 			     node's authored symbol overflow, so a landed symbol drawn bigger than its cell is not
 			     cut off at the board edge. Nothing authored / any reel still rolling ⇒ the same window
 			     as always (`boardOverflow`).
@@ -342,11 +351,11 @@
 			     which counts the beats where a symbol actually travels (drain, slide, vacate). The two
 			     are alternatives, never combined: the board is driven either by its reels or by a
 			     cascade step, never both. Nothing authored ⇒ no spill either way. -->
-			<BoardMask
-				allowOverflow={!stateTumble.active}
-				overlaySettled={stateTumble.active && stateTumble.transiting === 0}
-			/>
-			<!--
+				<BoardMask
+					allowOverflow={!stateTumble.active}
+					overlaySettled={stateTumble.active && stateTumble.transiting === 0}
+				/>
+				<!--
 				GROUND TILES (docs/design/perspective-board-mode.md §"The tiles") — the FIRST painted
 				child, so the whole layer sits behind every symbol. Two reasons it is one flat layer
 				rather than interleaved row-by-row with the symbols: a tile has no vertical extent, so
@@ -359,22 +368,23 @@
 				constructed, so an un-tiled board's scene graph is byte-identical to before this
 				existed.
 			-->
-			{#if tileArt}
-				<BoardTiles art={tileArt} />
-			{/if}
-			<BoardBase />
-			<!-- Free-spin book VFX shares the resting board's coordinate space + mask; its bg/fg
+				{#if tileArt}
+					<BoardTiles art={tileArt} />
+				{/if}
+				<BoardBase />
+				<!-- Free-spin book VFX shares the resting board's coordinate space + mask; its bg/fg
 				 layers interleave with the symbols by zIndex. Inert unless a bookVfx is baked. -->
-			<BookVfx />
-			<!-- Stacked-picture reel mode overlay — shares the resting board's coordinate space +
+				<BookVfx />
+				<!-- Stacked-picture reel mode overlay — shares the resting board's coordinate space +
 				 mask. Renders nothing unless the mode is on (docs/design/stacked-picture-mode.md). -->
-			<StackedPictures />
-		</BoardContainer>
-	</BoardContext>
+				<StackedPictures />
+			</BoardContainer>
+		</BoardContext>
 
-	<BoardContext animate={true}>
-		<BoardContainer>
-			<BoardBase />
-		</BoardContainer>
-	</BoardContext>
-{/if}
+		<BoardContext animate={true}>
+			<BoardContainer>
+				<BoardBase />
+			</BoardContainer>
+		</BoardContext>
+	{/if}
+</Container>
