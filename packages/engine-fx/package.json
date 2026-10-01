@@ -21,6 +21,6 @@
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
 		"pixi.js": "8.21.0",
-		"typescript": "5.9.3"
+		"typescript": "6.0.3"
 	}
 }
