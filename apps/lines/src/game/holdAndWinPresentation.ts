@@ -130,7 +130,7 @@ export const syncHoldAndWin = async () => {
  * (`payload.cells`) and the total are the next PRs' beats (flights into the total, count-up); the
  * round's own `setWin` / `setTotalWin` that follow present the money as for any other win.
  */
-export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
+export const presentHoldAndWinEnd = async (_event: Beat<'holdAndWinEnd'>) => {
 	if (!stateRespinBoard.shown) return;
 	await waitPresentation(END_HOLD_MS);
 	hideRespinBoard();

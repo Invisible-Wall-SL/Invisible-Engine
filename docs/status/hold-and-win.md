@@ -4,7 +4,7 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 4c (2026-10-01, branch) — the shared runtime presents the Hold and Win
+**One-line state:** Phase 4c (2026-10-01, in review) — the shared runtime presents the Hold and Win
 feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
 spins only the free cells onto what the server named, new coins stick with their value label, the
 counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
@@ -79,9 +79,11 @@ only has to register its own vocab + seed.
     `restoreRespinBoard`, `hideRespinBoard`). The cues (`respinBoardShow`/`Hide`/`Spin`,
     `respinCoinsLand`, `respinCounterUpdate`) are NOTIFICATIONS for authored sound/FX — broadcasting
     one does not move the board. Phase 5 wires the effects, not the cues.
-  - **Each beat records its own event**, idempotently. A FLOW-OWNED Hold and Win event skips the coded
-    handler, so Phase 5 must move the recording to the dispatch seam (`playBook.ts`, beside
-    `recordWinCycleWins`) for the events it owns; the beats' own records are safe to keep alongside.
+  - **No beat records its event.** Since 4M (#933) the play seam (`createPlayBook`'s
+    `recordBookEvent`) folds every Hold and Win event into `stateHoldAndWin` before any path presents
+    it, so a flow-owned event reads the same picture and nothing is applied twice (the wheel's
+    `extraCollect`, a banked `jackpotWin` and a cleared `columnComplete` are NOT idempotent). The
+    unpresented events' handler is `syncHoldAndWin`: it only re-syncs the held layer.
   - **The held layer is a copy of the picture**, re-synced on every Hold and Win event while the board
     is up and kept through the end, so the final board stays on screen until the swap back. A cell
     that leaves it (a streak clear, a column sweep, a snapshot correcting the client) has its reel
