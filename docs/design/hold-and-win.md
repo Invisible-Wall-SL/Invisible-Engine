@@ -241,6 +241,8 @@ The start point is known only at runtime (whichever cell the symbol landed in), 
 
 Phase 4 builds `flyTo` and a coded default (a plain glow trail) so unauthored games still read correctly. Phase 7 adds the `flights` authoring block and its `/fx` preview. Phase 5's vocabulary exposes `flyTo` as an action (source cell, target node, flight kind, await or not) plus the `flightArrive` event.
 
+**Built (2026-10-01, step 9):** `flyTo` + the coded glow trail, the route planner (`engine-game` `flightPath.ts`), the `ownerPos` hook in `ParticleEmitter`, the flight layer at `LAYER_BAND_FLIGHTS`, the `flyTo` flow effect and the feature-end volley into the win meter. Targets resolve through `pixi-svelte` named anchors (a node id, or `'total'`). What is built and what is not: [status/hold-and-win](../status/hold-and-win.md).
+
 ### 4.5 Game modes — a bonus is a different game, and modes queue
 
 A Hold and Win feature is not a decoration on the base game. It is a **different game mode** with its own board (the respin board), screens, HUD, counter, music and rules. Other kinds have the same shape: free spins, a wheel, a pick game.

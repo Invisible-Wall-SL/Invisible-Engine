@@ -119,6 +119,28 @@ export {
 } from './src/game/respinBoard.svelte';
 export { countSteps, staggerDelays, type CountStep } from './src/game/respinCount';
 export { type EmitterEventFlight } from './src/game/flight';
+export {
+	curveLength,
+	FLIGHT_BEND_STRENGTHS,
+	flightDuration,
+	flightEase,
+	flightStagger,
+	planFlight,
+	pointOnCurve,
+	type FlightCandidateKind,
+	type FlightCurve,
+	type FlightDurationOptions,
+	type FlightPoint,
+	type FlightRect,
+	type FlightRoute,
+	type PlanFlightOptions,
+} from './src/game/flightPath';
+export {
+	FLIGHT_HEAD_TINT,
+	FLIGHT_TRAIL_CONFIG,
+	FLIGHT_TRAIL_LIFETIME_S,
+	flightGlowTexture,
+} from './src/game/flightGlow';
 export { coinLabelText } from './src/game/coinLabel';
 
 export {
@@ -153,3 +175,4 @@ export {
 	type WinAnimationStep,
 } from './src/components/WinAnimation.svelte';
 export { default as WinCoins } from './src/components/WinCoins.svelte';
+export { default as FlightView } from './src/components/FlightView.svelte';

@@ -804,6 +804,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'flyTo',
+			group: 'Effect',
+		},
+		{
 			name: 'setWinBookEventAmount',
 			group: 'Effect',
 		},

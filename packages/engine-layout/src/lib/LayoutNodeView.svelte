@@ -15,6 +15,7 @@
 
 <script lang="ts">
 	import {
+		Anchor,
 		Container,
 		EffectPlayer,
 		Flipbook,
@@ -837,6 +838,7 @@
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
 		>
+			<Anchor name={node.id} />
 			{#if isBackground}
 				<Bound
 					{transform}
@@ -865,6 +867,7 @@
 			cursor={isPressTarget ? 'pointer' : undefined}
 			onpointerup={isPressTarget ? onNodePress : undefined}
 		>
+			<Anchor name={node.id} />
 			{#each node.children as child (child.id)}
 				<svelte:self node={child} {space} />
 			{/each}
@@ -892,6 +895,7 @@
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
 		>
+			<Anchor name={node.id} />
 			<ComponentInstance {node} {space} bind:tap={instanceTap} />
 		</Container>
 		<!--

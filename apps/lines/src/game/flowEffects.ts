@@ -84,6 +84,8 @@ import {
 	presentSpecialBecomesCoin,
 } from './holdAndWinPresentation';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
+import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
+import { FLIGHT_TO_TOTAL } from './holdAndWinFlights';
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
@@ -673,6 +675,16 @@ export const cueBigWinCountUp = async ({
 const numberOrUndefined = (value: unknown): number | undefined =>
 	typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
+/** A flow payload `{reel, row}` (or a list of them) as cells; anything malformed is dropped. */
+const toCells = (value: unknown): { reel: number; row: number }[] => {
+	const list = Array.isArray(value) ? value : value === undefined ? [] : [value];
+	return list.flatMap((item) => {
+		if (typeof item !== 'object' || item === null) return [];
+		const { reel, row } = item as { reel?: unknown; row?: unknown };
+		return typeof reel === 'number' && typeof row === 'number' ? [{ reel, row }] : [];
+	});
+};
+
 /**
  * Coerce a sequential-stop knob payload into a PER-REEL override array (or null). A `list<float>`
  * from the Flow node is used as-is (indexed by reel); a lone number is broadcast to every reel; a
@@ -1239,6 +1251,29 @@ const effects: Record<string, FlowEffect> = {
 		presentCellsCleared(payload.bookEvent as BookEventOfType<'cellsCleared'>),
 	showJackpotWin: (payload) =>
 		presentJackpotWin(payload.bookEvent as BookEventOfType<'jackpotWin'>),
+
+	/**
+	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`
+	 * `{flight, target, index}` as each lands. `cells` (or one `reel` + `row`) are the sources; `target`
+	 * is a layout node id, or `'total'` (the win meter; the default); `flight` is the kind reported in
+	 * the cue (default `toTotal`); `avoid` lists cells the routes bend around; `stagger` is the ms
+	 * between two flights. `await` (default true) holds the flow until the last head lands.
+	 */
+	flyTo: async (payload) => {
+		const cells = toCells(payload.cells ?? (payload.reel !== undefined ? payload : undefined));
+		const target = typeof payload.target === 'string' && payload.target ? payload.target : null;
+		const flight = typeof payload.flight === 'string' && payload.flight ? payload.flight : null;
+		const volley = Promise.all(
+			cells.map((cell, index) =>
+				flyTo(cell, target ?? FLIGHT_TARGET_TOTAL, flight ?? FLIGHT_TO_TOTAL, {
+					index,
+					avoid: toCells(payload.avoid),
+					stagger: numberOrUndefined(payload.stagger),
+				}),
+			),
+		);
+		if (boolOr(payload.await, true)) await volley;
+	},
 
 	/** Set the win-meter amount (`setTotalWin`). */
 	setWinBookEventAmount: (payload) => {

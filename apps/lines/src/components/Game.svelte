@@ -117,6 +117,7 @@
 		isSceneLayerPinned,
 		LAYER_BAND_BACKGROUND,
 		LAYER_BAND_BACKGROUND_CODED,
+		LAYER_BAND_FLIGHTS,
 		LAYER_BAND_INPUT_MASK,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
@@ -241,6 +242,7 @@
 	import TumbleBoard from './TumbleBoard.svelte';
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import RespinBoard from './RespinBoard.svelte';
+	import FlightLayer from './FlightLayer.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -2363,6 +2365,12 @@
 			the player's answer. An operator that never asked ⇒ it never opens.
 		-->
 	<RoundStartConfirm zIndex={LAYER_BAND_TAKEOVER} scene={roundConfirmScene} />
+	<!-- FLIGHTS (Hold and Win §4.4) — a coin's glow travelling from the board into the win meter or a
+			 pot. Unconditional, at its own fixed band (above the board, the HUD and the win line, below the
+			 pinned celebrations), and empty until a flight runs (`FlightLayer.svelte`). -->
+	<Container zIndex={LAYER_BAND_FLIGHTS}>
+		<FlightLayer />
+	</Container>
 	<!-- Engine-owned TOP band (§11.5-C): the coded path's free-spin counter + the info overlay sit at
 			 a FIXED `LAYER_BAND_TOP` z, ABOVE every doc-ordered layerable scene — so an author reordering
 			 the HUD/overlays/specialBook in the editor can never bury them. The free-spin intro / outro are
