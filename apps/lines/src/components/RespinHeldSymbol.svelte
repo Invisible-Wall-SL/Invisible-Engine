@@ -25,12 +25,16 @@
 	 * strictly positive so the parent sorts only once a cell exists.
 	 */
 	const zIndex = $derived(1 + props.cell.reel * boardDimensions().y + props.cell.row);
+	/** A count-up in flight on this cell's label (a payer, a multiplier, a collector collecting). */
+	const display = $derived(stateRespinBoard.heldDisplay[key]);
+	const labelOverride = $derived(display ? { [display.field]: display.tween.current } : undefined);
 </script>
 
 <Container x={seat.x} y={seat.y} {scale} {zIndex}>
 	<Symbol
 		state={stateRespinBoard.heldState[key] ?? 'static'}
 		rawSymbol={props.cell.symbol}
+		{labelOverride}
 		oncomplete={() => completeHeldBeat(key)}
 	/>
 </Container>

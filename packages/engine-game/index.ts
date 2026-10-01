@@ -117,6 +117,7 @@ export {
 	type RespinBoardCell,
 	type RespinBoardDeps,
 } from './src/game/respinBoard.svelte';
+export { countSteps, staggerDelays, type CountStep } from './src/game/respinCount';
 export { type EmitterEventFlight } from './src/game/flight';
 export { coinLabelText } from './src/game/coinLabel';
 

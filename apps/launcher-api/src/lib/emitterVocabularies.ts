@@ -491,6 +491,180 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCoinPay',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'payer',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinBoost',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'booster',
+						kind: 'object',
+						required: false,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinSpecialBecomesCoin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'from',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinCollect',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCollectStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinMysteryReveal',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinModifierUnlock',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCellsCleared',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinJackpotWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'banked',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -603,6 +777,34 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'hideRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'payCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'boostCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'turnSpecialIntoCoin',
+				group: 'Effect',
+			},
+			{
+				name: 'collectCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'revealMystery',
+				group: 'Effect',
+			},
+			{
+				name: 'clearRespinCells',
+				group: 'Effect',
+			},
+			{
+				name: 'showJackpotWin',
 				group: 'Effect',
 			},
 			{
@@ -1330,6 +1532,180 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCoinPay',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'payer',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinBoost',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'booster',
+						kind: 'object',
+						required: false,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinSpecialBecomesCoin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'from',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinCollect',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCollectStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinMysteryReveal',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinModifierUnlock',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCellsCleared',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinJackpotWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'banked',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1442,6 +1818,34 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'hideRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'payCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'boostCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'turnSpecialIntoCoin',
+				group: 'Effect',
+			},
+			{
+				name: 'collectCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'revealMystery',
+				group: 'Effect',
+			},
+			{
+				name: 'clearRespinCells',
+				group: 'Effect',
+			},
+			{
+				name: 'showJackpotWin',
 				group: 'Effect',
 			},
 			{
@@ -2169,6 +2573,180 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCoinPay',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'payer',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinBoost',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'booster',
+						kind: 'object',
+						required: false,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinSpecialBecomesCoin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'from',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinCollect',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCollectStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinMysteryReveal',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinModifierUnlock',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCellsCleared',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinJackpotWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'banked',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -2281,6 +2859,34 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'hideRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'payCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'boostCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'turnSpecialIntoCoin',
+				group: 'Effect',
+			},
+			{
+				name: 'collectCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'revealMystery',
+				group: 'Effect',
+			},
+			{
+				name: 'clearRespinCells',
+				group: 'Effect',
+			},
+			{
+				name: 'showJackpotWin',
 				group: 'Effect',
 			},
 			{
@@ -3008,6 +3614,180 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCoinPay',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'payer',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinBoost',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'booster',
+						kind: 'object',
+						required: false,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinSpecialBecomesCoin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'from',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinCollect',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'value',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCollectStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'collector',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinMysteryReveal',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinModifierUnlock',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'activates',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCellsCleared',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinJackpotWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'source',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'banked',
+						kind: 'boolean',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -3120,6 +3900,34 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'hideRespinBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'payCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'boostCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'turnSpecialIntoCoin',
+				group: 'Effect',
+			},
+			{
+				name: 'collectCoins',
+				group: 'Effect',
+			},
+			{
+				name: 'revealMystery',
+				group: 'Effect',
+			},
+			{
+				name: 'clearRespinCells',
+				group: 'Effect',
+			},
+			{
+				name: 'showJackpotWin',
 				group: 'Effect',
 			},
 			{
