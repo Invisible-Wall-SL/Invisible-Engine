@@ -7,7 +7,7 @@
 		"select": "tsx select.ts"
 	},
 	"devDependencies": {
-		"tsx": "4.19.2",
+		"tsx": "4.23.15",
 		"engine-layout": "workspace:*"
 	}
 }

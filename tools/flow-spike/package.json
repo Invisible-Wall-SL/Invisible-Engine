@@ -63,7 +63,7 @@
 		"slamcounter": "tsx --import ./appStubs.register.mjs slamCounter.ts"
 	},
 	"devDependencies": {
-		"tsx": "4.19.2",
+		"tsx": "4.23.15",
 		"constants-shared": "workspace:*",
 		"engine-flow": "workspace:*",
 		"engine-flow-v2": "workspace:*",
