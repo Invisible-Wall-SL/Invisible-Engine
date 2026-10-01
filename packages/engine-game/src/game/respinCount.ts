@@ -42,3 +42,51 @@ export const staggerDelays = (count: number, staggerMs: number, maxSpanMs: numbe
 	const step = count > 1 ? Math.min(staggerMs, maxSpanMs / (count - 1)) : 0;
 	return Array.from({ length: count }, (_, i) => Math.max(0, i * step));
 };
+
+/**
+ * THE FEATURE END'S COUNT-UP into the Total Win bar — what the bar reads as each tallied coin lands.
+ * `start` is what the bar showed before the tally, `amounts` each coin's credits (book units),
+ * `banked` what was banked on the way (jackpots, swept columns) and `total` the server's feature
+ * total (`holdAndWinEnd.total`).
+ *
+ * Coins land in whatever order their flights finish, so each arrival adds ITS coin's amount, not the
+ * next in a list; the bar never goes down and never passes `start + total − banked` while coins are
+ * still flying. The LAST coin lands the bar exactly there, and {@link TallyCountUp.final} — the
+ * banked part, added at the end — exactly on `start + total`, whatever the per-coin amounts sum to:
+ * they are rounded per coin, and the bar must not end a cent off what the round pays.
+ */
+export type TallyCountUp = {
+	/** The bar's value once the coin at `index` has landed. A coin landing twice counts once. */
+	arrive: (index: number) => number;
+	/** The bar's value with every coin and the banked part in: `start + total`. */
+	final: number;
+};
+
+export const tallyCountUp = ({
+	start,
+	amounts,
+	banked,
+	total,
+}: {
+	start: number;
+	amounts: number[];
+	banked: number;
+	total: number;
+}): TallyCountUp => {
+	const cells = Math.max(0, total - banked);
+	const landed = new Set<number>();
+	let sum = 0;
+	let shown = start;
+	return {
+		arrive: (index) => {
+			if (index < 0 || index >= amounts.length || landed.has(index)) return shown;
+			landed.add(index);
+			const amount = amounts[index];
+			sum += Number.isFinite(amount) && amount > 0 ? amount : 0;
+			const next = landed.size === amounts.length ? start + cells : start + Math.min(sum, cells);
+			shown = Math.max(shown, next);
+			return shown;
+		},
+		final: start + total,
+	};
+};

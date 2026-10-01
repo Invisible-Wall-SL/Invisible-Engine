@@ -193,6 +193,13 @@
 		stateGameDerived,
 	} from '../game/stateGame.svelte';
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import { stateHoldAndWin } from '../game/stateHoldAndWin.svelte';
+	import {
+		configuredMeters,
+		meterLevelShown,
+		meterMax,
+		seedHoldAndWinMeters,
+	} from '../game/holdAndWinMeters.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -243,6 +250,7 @@
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import FlightLayer from './FlightLayer.svelte';
+	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -327,6 +335,11 @@
 	// Safe here for the same reason the warning below is: `<Authenticate>` gates this mount on the
 	// request that publishes the overlay, so the server's declared window is already in.
 	if (captureServerGrid()) rebuildBoard();
+
+	// Hold and Win: the persistent meters' levels the server declared at boot (published by the facade
+	// on the same `config` request `<Authenticate>` gates this mount on). A no-op for every game whose
+	// server declares none, and once a book event has recorded the meters itself.
+	seedHoldAndWinMeters();
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
 	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
@@ -682,6 +695,20 @@
 		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
 		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
 		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
+		// …and the modifiers active in the feature ("PAYER · MULTIPLIER"), what the coded counter's
+		// second line shows.
+		activeModifiers: textSource(() =>
+			stateHoldAndWin.activeModifiers.map((kind) => kind.toUpperCase()).join(' · '),
+		),
+		// Each persistent meter the Game Config declares: `meter.<id>.level` (the level the pot shows —
+		// the server's, ticking up as a special lands) and `meter.<id>.max`, what Phase 6's authored
+		// pots bind. None declared ⇒ none registered.
+		...Object.fromEntries(
+			configuredMeters().flatMap(({ id }) => [
+				[`meter.${id}.level`, valueSource(() => meterLevelShown(id))],
+				[`meter.${id}.max`, valueSource(() => meterMax(id))],
+			]),
+		),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
 		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
 		// presents the retrigger.
@@ -2370,6 +2397,9 @@
 			 pinned celebrations), and empty until a flight runs (`FlightLayer.svelte`). -->
 	<Container zIndex={LAYER_BAND_FLIGHTS}>
 		<FlightLayer />
+		<!-- The Hold and Win banner (Lucky Spin, jackpots): nothing mounted until one is up; its own
+		     zIndex seat puts it above the flights, whatever mounted first. -->
+		<HoldAndWinBanner />
 	</Container>
 	<!-- Engine-owned TOP band (§11.5-C): the coded path's free-spin counter + the info overlay sit at
 			 a FIXED `LAYER_BAND_TOP` z, ABOVE every doc-ordered layerable scene — so an author reordering

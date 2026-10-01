@@ -70,6 +70,7 @@ import { waitForTimeout } from 'utils-shared/wait';
 
 import type { BookEvent } from './typesBookEvent';
 import { activeWinLevelIsBig } from './gameConfig';
+import { luckySpinRevealArmed } from './luckySpin';
 
 /**
  * The book events whose whole presentation is unskippable.
@@ -77,11 +78,31 @@ import { activeWinLevelIsBig } from './gameConfig';
  *    authored `FreeSpinIntroSymbolReveal` rig the chosen symbol rides.
  *  - `freeSpinTrigger` — the free-spin intro: the scatter animation, the transition wipe and the
  *    intro screen's own animation/delays.
+ *  - `luckySpin` — the Hold and Win Lucky Spin intro (design §1.3: "no skip"). The reveal it arms is
+ *    unskippable too, for that one spin ({@link ownsUnskippablePresentation}).
  */
 export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
 	'setExpandingSymbol',
 	'freeSpinTrigger',
+	'luckySpin',
 ]);
+
+/**
+ * The Hold and Win CELEBRATIONS — a banked jackpot (full board, letters, the wheel) and the feature
+ * end's tally into the Total Win bar. {@link startsCelebration} re-arms the slam before them, like
+ * any celebration; unlike the big win and the free-spin outro they have no SCREEN for the
+ * screen-driven celebration lock to see (their coded default is a banner over the board and a
+ * count-up into the HUD), so they also run inside the unskippable window, whose lock keeps the spin
+ * button inert for their length. Neither holds on a player press, so THE HANG RULE is met: every wait
+ * in them is a timer, a flight or a bounded symbol beat.
+ */
+const HOLD_AND_WIN_CELEBRATIONS: ReadonlySet<string> = new Set(['jackpotWin', 'holdAndWinEnd']);
+
+/** Does this dispatch run unskippable (and lock the spin button for its length)? */
+const ownsUnskippablePresentation = (bookEventType: string, opensCelebration: boolean): boolean =>
+	UNSKIPPABLE_BOOK_EVENTS.has(bookEventType) ||
+	(bookEventType === 'reveal' && luckySpinRevealArmed()) ||
+	(opensCelebration && HOLD_AND_WIN_CELEBRATIONS.has(bookEventType));
 
 /**
  * The book event that STARTS one free spin — where the slam token is re-armed.
@@ -123,6 +144,8 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
  *  - `setWin` — the win overlay fires for EVERY win, so it is a celebration ONLY at a `big` win level
  *    ({@link winLevelMap}). A small / medium win keeps fast-forwarding (owner direction: ordinary
  *    wins still slam).
+ *  - `holdAndWinEnd` and a BANKED `jackpotWin` — the Hold and Win feature end and its jackpot
+ *    celebration ({@link HOLD_AND_WIN_CELEBRATIONS}). A coin jackpot named in the tally is not one.
  *
  * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
  * would legitimately stop, so the unskippable scope + the window lock already cover it.
@@ -132,7 +155,14 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		case 'freeSpinTrigger':
 		case 'freeSpinEnd':
 		case 'freeSpinRetrigger':
+		case 'holdAndWinEnd':
 			return true;
+		// Not a celebration, but re-armed for the free-spin intro's reason: a press made while the
+		// round was being requested must not trip the token the unskippable intro then plays under.
+		case 'luckySpin':
+			return true;
+		case 'jackpotWin':
+			return bookEvent.banked;
 		case 'setWin':
 			return activeWinLevelIsBig(bookEvent.winLevel);
 		default:
@@ -230,7 +260,7 @@ export const runBookEventPresentation = async (
 	opensCelebration = false,
 ): Promise<void> => {
 	if (SPIN_REARM_BOOK_EVENTS.has(bookEventType) || opensCelebration) rearmSlamForSpin();
-	if (!UNSKIPPABLE_BOOK_EVENTS.has(bookEventType)) {
+	if (!ownsUnskippablePresentation(bookEventType, opensCelebration)) {
 		await dispatch();
 		return;
 	}

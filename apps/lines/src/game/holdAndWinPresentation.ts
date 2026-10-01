@@ -4,6 +4,7 @@ import {
 	countSteps,
 	respinCellKey,
 	staggerDelays,
+	tallyCountUp,
 	type CountStep,
 	type HoldAndWinCell,
 	type HoldAndWinCoinChange,
@@ -11,13 +12,26 @@ import {
 	type Position,
 	type SymbolState,
 } from 'engine-game';
-import { showMessage } from 'state-shared';
+import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { eventEmitter } from './eventEmitter';
+import { flyTo } from './flights.svelte';
+import { hideHoldAndWinBanner, showHoldAndWinBanner } from './holdAndWinBanner.svelte';
 import { flyCoinsToTotal } from './holdAndWinFlights';
+import {
+	configuredMeters,
+	holdMeterDisplay,
+	meterAnchor,
+	meterFlight,
+	meterMax,
+	pulseMeter,
+	releaseMeterDisplay,
+} from './holdAndWinMeters.svelte';
+import { armLuckySpinReveal } from './luckySpin';
 import { playSymbolLandSound } from './soundBindings';
+import { stateGame } from './stateGame.svelte';
 import {
 	armHeldBeat,
 	hideRespinBoard,
@@ -75,8 +89,22 @@ const COUNT_SPAN_MS = 900;
 const COLLECT_STAGGER_MS = 220;
 const COLLECT_SPAN_MS = 1_400;
 const COLLECT_COUNT_MS = 350;
-/** How long an "UNLOCKED" or a banked jackpot's toast holds the board before the next beat. */
+/** How long an "UNLOCKED" or "<KIND> ACTIVE" toast holds the board before the next beat. */
 const TOAST_HOLD_MS = 900;
+/** One level of a pot ticking up as a special lands in it. */
+const METER_TICK_MS = 180;
+/** A full pot's pulse, held before the round moves on. */
+const METER_FULL_MS = 700;
+/** A consumed pot draining to empty as the feature it bought starts. */
+const METER_DRAIN_MS = 500;
+/** The Lucky Spin intro banner, before its reveal rolls. */
+const LUCKY_INTRO_MS = 1_600;
+/** A banked jackpot's celebration (full board, letters, the wheel). */
+const JACKPOT_HOLD_MS = 2_600;
+/** A coin jackpot's highlight during the tally. */
+const COIN_JACKPOT_MS = 900;
+/** The Total Win bar settling on its last value before the respin board goes. */
+const TALLY_SETTLE_MS = 500;
 
 const updateCounter = ({ left, start }: { left: number; start: number }) => {
 	stateRespinBoard.counter.left = left;
@@ -140,11 +168,122 @@ const runCounts = (counts: HeldCount[]) => {
 	);
 };
 
+/** The coded name of a special kind in the "UNLOCKED" / "ACTIVE" toasts. */
+const SPECIAL_NAMES: Record<string, string> = {
+	collector: 'COLLECTOR',
+	multiplier: 'MULTIPLIER',
+	payer: 'PAYER',
+	mystery: 'MYSTERY',
+};
+const specialName = (kind: string) => SPECIAL_NAMES[kind] ?? kind.toUpperCase();
+
+/**
+ * Light a base-board cell (`win`) while its special flies. The base reels carry a padding row above
+ * the window, so visible row `r` is the reel's symbol `r + 1`. Returns the undo.
+ */
+const lightBaseCell = (cell: HoldAndWinCell) => {
+	const symbol = stateGame.board[cell.reel]?.reelState.symbols[cell.row + 1];
+	if (!symbol || symbol.rawSymbol.name !== cell.symbol.name) return () => {};
+	symbol.symbolState = 'win';
+	return () => {
+		if (symbol.symbolState === 'win') symbol.symbolState = 'static';
+	};
+};
+
+/**
+ * `meterUpdate` — a special landed in the BASE game and fills its pot (3 Pots). Each special in
+ * `from` lights where it landed and flies into its pot (`flyTo(cell, 'meter:<id>', 'toMeter:<id>')`);
+ * the pot's level ticks up by one on each arrival, from the level before (`level − from.length`) to
+ * the server's `level`, and a meter the update FILLED pulses. The level is the server's: the beat
+ * only shows it arriving, never computes it (the play seam recorded it before the beat started).
+ *
+ * No avoidance: the update comes straight after the reveal, before any win is shown. A slam
+ * compresses the flights (`flights.svelte.ts`) and never skips an arrival or the final level.
+ */
+export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
+	const before = Math.max(0, event.level - event.from.length);
+	const shown = holdMeterDisplay(event.meter, before);
+	eventEmitter.broadcast({
+		type: 'potFill',
+		meter: event.meter,
+		level: event.level,
+		max: event.max,
+		full: event.full,
+		cells: event.from.map(cellOf),
+	});
+	let reached = before;
+	await Promise.all(
+		event.from.map(async (cell, index) => {
+			const unlight = stateRespinBoard.shown ? () => {} : lightBaseCell(cell);
+			await flyTo(
+				{ reel: cell.reel, row: cell.row },
+				meterAnchor(event.meter),
+				meterFlight(event.meter),
+				{ index },
+			);
+			unlight();
+			reached = Math.min(event.level, reached + 1);
+			void shown.set(reached, { duration: roundSkip.isSkipped() ? 0 : METER_TICK_MS });
+		}),
+	);
+	void shown.set(event.level, { duration: 0 });
+	releaseMeterDisplay(event.meter, shown);
+	if (!event.full) return;
+	pulseMeter(event.meter);
+	eventEmitter.broadcast({ type: 'potFull', meter: event.meter });
+	await waitPresentation(METER_FULL_MS);
+};
+
+/**
+ * The FULL meters a `meter` trigger consumed drain to empty, and the modifier each one buys is
+ * announced ("PAYER ACTIVE") before the board swaps. What each pot activates is the Game Config's
+ * (`meters[].activates`); the server already emptied the meters (recorded at the play seam), so the
+ * drain runs from each pot's maximum down to the recorded 0.
+ */
+const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
+	const ids = event.payload.meters ?? [];
+	if (ids.length === 0) return;
+	const declared = configuredMeters();
+	const activates = ids.flatMap((id) => declared.find((meter) => meter.id === id)?.activates ?? []);
+	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates });
+	await Promise.all(
+		ids.map(async (id) => {
+			const shown = holdMeterDisplay(id, meterMax(id));
+			pulseMeter(id);
+			void shown.set(0, {
+				duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS,
+				easing: cubicOut,
+			});
+			await waitPresentation(METER_DRAIN_MS);
+			releaseMeterDisplay(id, shown);
+		}),
+	);
+	if (activates.length === 0) return;
+	showMessage(`${activates.map(specialName).join(', ')} ACTIVE`, { kind: 'info' });
+	await waitPresentation(TOAST_HOLD_MS);
+};
+
+/**
+ * `luckySpin` — this base spin is a guaranteed trigger. A "LUCKY SPIN" banner holds over the rolling
+ * reels, and the reveal that follows is armed (`luckySpin.ts`) to anticipate on every reel and to run
+ * unskippable. The intro is unskippable itself (`UNSKIPPABLE_BOOK_EVENTS`), with the slam re-armed
+ * before it, so a press made while the round was being requested cannot cut it short.
+ */
+export const presentLuckySpin = async () => {
+	armLuckySpinReveal();
+	eventEmitter.broadcast({ type: 'luckySpinIntro' });
+	const banner = showHoldAndWinBanner({ title: 'LUCKY SPIN', size: 'large' });
+	await waitPresentation(LUCKY_INTRO_MS);
+	hideHoldAndWinBanner(banner);
+};
+
 /**
  * `holdAndWinTrigger` — the board swaps to the respin board with the triggering coins held exactly
- * where they landed, and the counter shows the respins awarded.
+ * where they landed, and the counter shows the respins awarded. A `meter` cause first drains the
+ * meters it consumed and announces what they activated.
  */
 export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>) => {
+	if (event.cause === 'meter') await presentMeterConsume(event);
 	showRespinBoard({ seedFromBaseBoard: true });
 	updateCounter({ left: event.payload.respins, start: event.payload.respins });
 	stateRespinBoard.counter.show = true;
@@ -291,14 +430,6 @@ export const presentCoinCollect = async (event: Beat<'coinCollect'>) => {
 	releaseHeldDisplay(key, collectorLabel);
 };
 
-/** The coded name of a special kind in the "UNLOCKED" toast. */
-const SPECIAL_NAMES: Record<string, string> = {
-	collector: 'COLLECTOR',
-	multiplier: 'MULTIPLIER',
-	payer: 'PAYER',
-	mystery: 'MYSTERY',
-};
-
 /**
  * `mysteryReveal` — each mystery opens (`explosion`, where it stands), then becomes what it revealed
  * (a coin with its value, a jackpot, a special) and lands as it. A reveal that UNLOCKS a modifier
@@ -317,10 +448,7 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
 	await playHeldBeat(event.cells, 'land');
 	if (event.activates.length === 0) return;
-	showMessage(
-		`UNLOCKED: ${event.activates.map((kind) => SPECIAL_NAMES[kind] ?? kind.toUpperCase()).join(', ')}`,
-		{ kind: 'info' },
-	);
+	showMessage(`UNLOCKED: ${event.activates.map(specialName).join(', ')}`, { kind: 'info' });
 	eventEmitter.broadcast({ type: 'respinModifierUnlock', activates: event.activates });
 	await waitPresentation(TOAST_HOLD_MS);
 };
@@ -338,9 +466,15 @@ export const presentCellsCleared = async (event: Beat<'cellsCleared'>) => {
 };
 
 /**
- * `jackpotWin` — presentation only (the money is already counted elsewhere, wire doc "Money"): a
- * jackpot COIN highlights where it stands, and a BANKED jackpot (wheel, letters, full board) gets a
- * toast. The full jackpot celebration is a later step.
+ * `jackpotWin` — presentation only (the money is already counted elsewhere, wire doc "Money").
+ *
+ * - A BANKED jackpot (full board, letters, the wheel) is a CELEBRATION: a large banner with its tier
+ *   and amount holds over the board (a full board also lights every held cell). The play seam re-arms
+ *   the slam before it and keeps the spin button inert through it (`startsCelebration` +
+ *   `unskippablePresentation.ts`), as for the big win and the free-spin outro.
+ * - A COIN jackpot (the tally names every jackpot coin before `holdAndWinEnd`) gets a smaller
+ *   highlight: the coin lights and a small banner names it. A slam compresses it.
+ * - Any other source (a collect, a column, an instant collect) presents nothing of its own.
  */
 export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 	if (stateRespinBoard.shown) syncHeldCells();
@@ -351,14 +485,35 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		source: event.source,
 		banked: event.banked,
 	});
-	if (event.source === 'coin' && event.cell && stateRespinBoard.shown) {
-		await playHeldBeat([event.cell], 'win', { minMs: HIGHLIGHT_MIN_MS });
+	const amount = bookEventAmountToCurrencyString(event.amount);
+	if (event.banked) {
+		eventEmitter.broadcast({
+			type: 'jackpotCelebration',
+			tier: event.tier,
+			amount: event.amount,
+			source: event.source,
+		});
+		const banner = showHoldAndWinBanner({
+			title: `${event.tier} JACKPOT`,
+			detail: event.source === 'fullBoard' ? `FULL BOARD  ${amount}` : amount,
+			size: 'large',
+		});
+		await Promise.all([
+			waitPresentation(JACKPOT_HOLD_MS),
+			event.source === 'fullBoard' && stateRespinBoard.shown
+				? playHeldBeat(stateRespinBoard.held, 'win', { minMs: HIGHLIGHT_MIN_MS })
+				: undefined,
+		]);
+		hideHoldAndWinBanner(banner);
+		return;
 	}
-	if (!event.banked) return;
-	showMessage(`${event.tier} JACKPOT ${bookEventAmountToCurrencyString(event.amount)}`, {
-		kind: 'win',
-	});
-	await waitPresentation(TOAST_HOLD_MS);
+	if (event.source !== 'coin' || !event.cell || !stateRespinBoard.shown) return;
+	const banner = showHoldAndWinBanner({ title: event.tier, detail: amount, size: 'small' });
+	await Promise.all([
+		playHeldBeat([event.cell], 'win', { minMs: HIGHLIGHT_MIN_MS }),
+		waitPresentation(COIN_JACKPOT_MS),
+	]);
+	hideHoldAndWinBanner(banner);
 };
 
 /**
@@ -392,23 +547,45 @@ export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => 
 };
 
 /**
- * Every Hold and Win event whose beat is not presented yet (meters, column letters, the wheel, the
- * base-game instant collect — the next PRs): the held layer follows the recorded picture at once,
- * so the board reads right even before the beat has an animation.
+ * Every Hold and Win event whose beat is not presented yet (column letters, the wheel, the
+ * base-game instant collect, the random metre — the next PRs) and `meterLevels` (the pots read the
+ * recorded levels themselves): the held layer follows the recorded picture at once, so the board
+ * reads right even before the beat has an animation.
  */
 export const syncHoldAndWin = async () => {
 	if (stateRespinBoard.shown) syncHeldCells();
 };
 
 /**
- * `holdAndWinEnd` — the final board holds for a moment, every tallied coin flies into the Total Win
- * bar (`flyCoinsToTotal`), then the reel board comes back. The per-coin count-up into the bar is a
- * later beat; the round's own `setWin` / `setTotalWin` that follow present the money as for any
- * other win.
+ * `holdAndWinEnd` — the final board holds for a moment, then every tallied coin flies into the Total
+ * Win bar (`flyCoinsToTotal`) and the bar COUNTS UP as each lands: that coin's amount is added on its
+ * `flightArrive`, whatever order the flights finish in (`tallyCountUp`). What was banked on the way
+ * (jackpots, swept columns) is added once the last coin is in, and the bar settles on what it read
+ * before the tally plus `total` — exactly, whatever the rounded per-coin amounts sum to. Then the reel
+ * board comes back; the round's own `setWin` (big-win tier) / `setTotalWin` follow unchanged.
+ *
+ * A celebration (`startsCelebration`): the slam is re-armed before it and the button is inert
+ * through it. Should a slam reach it anyway, the flights compress and every landing value is still
+ * written — nothing is skipped but time.
  */
 export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	if (!stateRespinBoard.shown) return;
 	await waitPresentation(END_HOLD_MS);
-	await flyCoinsToTotal(event.payload.cells);
+	const order = [...event.payload.cells].sort((a, b) => a.reel - b.reel || a.row - b.row);
+	const tally = tallyCountUp({
+		start: stateBet.winBookEventAmount,
+		amounts: order.map((cell) => cell.amount),
+		banked: event.payload.banked,
+		total: event.total,
+	});
+	const step = (index: number, amount: number, shown: number) => {
+		stateBet.winBookEventAmount = shown;
+		eventEmitter.broadcast({ type: 'respinTallyStep', index, amount, total: shown });
+	};
+	await flyCoinsToTotal(order, (index) => step(index, order[index].amount, tally.arrive(index)));
+	if (stateBet.winBookEventAmount !== tally.final) {
+		step(order.length, event.payload.banked, tally.final);
+	}
+	await waitPresentation(TALLY_SETTLE_MS);
 	hideRespinBoard();
 };

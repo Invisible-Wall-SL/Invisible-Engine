@@ -4,7 +4,7 @@
  *
  * Run: node --experimental-strip-types packages/engine-game/fixtures/respinCount.fixture.ts
  */
-import { countSteps, staggerDelays } from '../src/game/respinCount.ts';
+import { countSteps, staggerDelays, tallyCountUp } from '../src/game/respinCount.ts';
 
 // No `node:assert` — the package has no Node types, and svelte-check reads this file too.
 const assert = {
@@ -99,6 +99,55 @@ it('a board full of coins compresses the stagger to the span', () => {
 it('one item starts at once; none, nothing', () => {
 	assert.deepEqual(staggerDelays(1, 120, 900), [0]);
 	assert.deepEqual(staggerDelays(0, 120, 900), []);
+});
+
+it('the tally adds each coin as it lands and ends exactly on the feature total', () => {
+	const tally = tallyCountUp({ start: 200, amounts: [100, 150, 250], banked: 1500, total: 2000 });
+	assert.equal(tally.arrive(0), 300);
+	assert.equal(tally.arrive(1), 450);
+	assert.equal(tally.arrive(2), 700);
+	assert.equal(tally.final, 2200);
+});
+
+it('coins landing out of order add their own amounts, and a repeat counts once', () => {
+	const tally = tallyCountUp({ start: 0, amounts: [100, 150, 250], banked: 0, total: 500 });
+	assert.equal(tally.arrive(2), 250);
+	assert.equal(tally.arrive(2), 250);
+	assert.equal(tally.arrive(0), 350);
+	assert.equal(tally.arrive(1), 500);
+});
+
+it('rounded per-coin amounts still land the last coin and the end exactly', () => {
+	// Short: 33 × 3 = 99 against 100 — the last coin takes up the cent.
+	const short = tallyCountUp({ start: 0, amounts: [33, 33, 33], banked: 0, total: 100 });
+	assert.deepEqual([short.arrive(0), short.arrive(1), short.arrive(2)], [33, 66, 100]);
+	// Over: 34 × 3 = 102 against 100 — the bar never passes the coins' share early, never goes down.
+	const over = tallyCountUp({ start: 0, amounts: [34, 34, 34], banked: 0, total: 100 });
+	const seen = [over.arrive(0), over.arrive(1), over.arrive(2)];
+	assert.deepEqual(seen, [34, 68, 100]);
+	assert.equal(over.final, 100);
+	// Every order of every split is monotonic and lands on the total.
+	for (const order of [
+		[0, 1, 2],
+		[2, 1, 0],
+		[1, 2, 0],
+	]) {
+		const t = tallyCountUp({ start: 5, amounts: [70, 0, 45], banked: 10, total: 120 });
+		let last = 5;
+		for (const i of order) {
+			const v = t.arrive(i);
+			assert.equal(v >= last, true);
+			last = v;
+		}
+		assert.equal(last, 115);
+		assert.equal(t.final, 125);
+	}
+});
+
+it('a tally with no coins is only its banked part', () => {
+	const tally = tallyCountUp({ start: 0, amounts: [], banked: 200000, total: 200000 });
+	assert.equal(tally.arrive(0), 0);
+	assert.equal(tally.final, 200000);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
