@@ -48,6 +48,17 @@ const payloadOf = (event: LooseEvent, drop: readonly string[]): Record<string, u
 	return out;
 };
 
+/**
+ * The payload a mode entry keeps: the event's nested `payload` (the `modeEnter` shape, which
+ * `holdAndWinTrigger` shares — `engine-game` `holdAndWin.ts`), else every field but the envelope.
+ */
+const modePayloadOf = (event: LooseEvent): Record<string, unknown> => {
+	const nested = event.payload;
+	return typeof nested === 'object' && nested !== null && !Array.isArray(nested)
+		? (nested as Record<string, unknown>)
+		: payloadOf(event, ['mode', 'cause', 'policy']);
+};
+
 /** The book-event types that can move the stack — the snapshot keeps these for a resume. */
 export const MODE_EVENT_TYPES = [
 	'modeEnter',
@@ -65,16 +76,12 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 		case 'modeEnter': {
 			const id = text(event.mode);
 			if (!id) return undefined;
-			const nested = event.payload;
 			return {
 				op: 'enter',
 				id,
 				policy: policyOf(event.policy),
 				cause: text(event.cause),
-				payload:
-					typeof nested === 'object' && nested !== null && !Array.isArray(nested)
-						? (nested as Record<string, unknown>)
-						: payloadOf(event, ['mode', 'cause', 'policy']),
+				payload: modePayloadOf(event),
 				legacyGameType: false,
 			};
 		}
@@ -98,7 +105,7 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 				id: text(event.mode) ?? 'holdAndWin',
 				policy: policyOf(event.policy),
 				cause: text(event.cause),
-				payload: payloadOf(event, ['mode', 'cause', 'policy']),
+				payload: modePayloadOf(event),
 				legacyGameType: false,
 			};
 		case 'holdAndWinEnd':

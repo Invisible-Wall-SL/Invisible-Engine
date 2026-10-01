@@ -179,14 +179,19 @@ check(
 );
 check('modeEnter without a mode is ignored', modeOpOf({ type: 'modeEnter' }), undefined);
 check(
-	'holdAndWinTrigger defaults to the holdAndWin mode',
-	modeOpOf({ type: 'holdAndWinTrigger', cause: 'count', respins: 3 } as never),
+	'holdAndWinTrigger (the Phase 4a shape) enters holdAndWin with its nested payload',
+	modeOpOf({
+		type: 'holdAndWinTrigger',
+		mode: 'holdAndWin',
+		cause: 'count',
+		payload: { cells: [], respins: 3 },
+	} as never),
 	{
 		op: 'enter',
 		id: 'holdAndWin',
 		policy: 'nest',
 		cause: 'count',
-		payload: { respins: 3 },
+		payload: { cells: [], respins: 3 },
 		legacyGameType: false,
 	},
 );
