@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | in review — PR #960 (deploy on merge): vocab, seed with the Phase 6 screens, gates, review fixes, live play and the Borut parity boot done | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
+| 5 | Flow vocabulary + driven seed | merged, live (`lines@ef2ca06bed2a`) | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
@@ -610,6 +610,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 5 merged (#960), live as `lines@ef2ca06bed2a`.** Rebased onto `main` after
+  #959/#963/#966–#968 and re-verified before the merge: `v2holdandwin` 160, `check:all` 336/336,
+  `check:flow-publish-gate`, svelte-check `apps/lines` at baseline, lint; a Borut parity round (local
+  book mock, SPIN after big wins) and a `hw-3pots-sample` seeded-flow smoke (own mock port, four forced
+  beats) both clean. The `Runtime release` run succeeded; `bookofborutremake` and `hw-3pots-sample`
+  both serve `X-Runtime-Release: lines@ef2ca06bed2a` with the released bundle, no game pinned.
+  A live round against the production test server was not run from the merging session.
 
 - 2026-10-01 — **Phase 9b part 1: a `holdAndWin` project's symbols are seeded at scaffold** (#969,
   launcher deployed; session "H&W Phase 9b — symbols seed + samples"). Part 2 (create, publish and
