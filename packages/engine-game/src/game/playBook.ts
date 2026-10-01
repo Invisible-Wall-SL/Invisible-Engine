@@ -320,7 +320,9 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
-			await aroundPresentation(bookEvent, () => coded.playBookEvent(bookEvent, { ...context, bookEvents }));
+			await aroundPresentation(bookEvent, () =>
+				coded.playBookEvent(bookEvent, { ...context, bookEvents }),
+			);
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 	};
@@ -381,9 +383,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		...HOLD_AND_WIN_SNAPSHOT_EVENTS,
 		// The mode events ride along so a resume rebuilds the WHOLE stack and queue (design §4.5), not
 		// only free spins. The coded `createBonusSnapshot` handler reads only what it always read.
-		...MODE_EVENT_TYPES.filter(
-			(type) => type !== 'freeSpinTrigger' && type !== 'holdAndWinEnd',
-		),
+		...MODE_EVENT_TYPES.filter((type) => type !== 'freeSpinTrigger' && type !== 'holdAndWinEnd'),
 	];
 
 	const convertTorResumableBet = (betToResume: Bet) => {
