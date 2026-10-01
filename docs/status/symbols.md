@@ -152,7 +152,9 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   next save overwrote the real one). `normalizeSymbolsDoc` and the published-defaults parse
   (`parseSymbolDefaults`) now strip unknown keys first (`stripUnknownKeys`, a server warning names
   each path); malformed KNOWN fields still 400. The six gates that asserted "an unknown key is
-  refused" now assert "ignored, with a warning". Real R2 docs normalize unchanged. Rule:
+  refused" now assert "ignored, with a warning". This supersedes #961's silent fix (`coinLabel`/`flights`
+  turned `.strip()`, unknown states deleted in `migrateLegacySymbolStates`): those blocks are
+  `.strict()` again and the strip pass drops the same keys, now with the warning. Real R2 docs normalize unchanged. Rule:
   `docs/conventions/doc-readers.md`.
 
 - 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
