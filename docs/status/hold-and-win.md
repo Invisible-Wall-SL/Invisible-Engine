@@ -13,9 +13,11 @@ and every coin's label counts up to its new value, a multiplier lands as a coin,
 each coin and climbs, a mystery opens into what it revealed (with an "UNLOCKED" toast), a streak's
 cells clear. Steps 6–8 (in review) add the pots (specials fly in, levels tick, a full pot buys the
 feature with its modifier), the Lucky Spin (intro banner, all-reel anticipation, no skip), the
-jackpot celebration and the feature end's per-coin count-up into the Total Win bar. Column letters,
-the wheel and the base-game instant collect are still recorded and shown without a beat of their own
-(next PRs). Production is blocked on the partner's Hold and Win wire format;
+jackpot celebration and the feature end's per-coin count-up into the Total Win bar. Step 10 (built,
+not yet a PR) adds Grand and Hotfire: the G-R-A-N-D letters light as columns complete and a cleared
+column's coins fly into the Total Win bar, a base-game instant collect flies its coins into the
+special with an "INSTANT WIN" banner, a streak collector takes every coin by flight, and Hotfire's
+pre-feature wheel spins onto the server's prize. Only the random metre has no beat of its own yet. Production is blocked on the partner's Hold and Win wire format;
 authoring is not (mock-first).
 
 ## How sessions use this file (the hub)
@@ -42,7 +44,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d, flights merged; 4e (pots, Lucky Spin, feature end) in review; Grand/Hotfire building | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 · flights: #942 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d, flights merged; 4e (pots, Lucky Spin, feature end) in review (#943); Grand/Hotfire built on `engine/hold-win-4f-grand-hotfire` (no PR yet) | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 · flights: #942 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -73,6 +75,38 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Step 10: Grand + Hotfire.** Things a later phase must know:
+  - **A swept column reaches the Total Win bar DURING the feature.** `presentColumnComplete` counts
+    the column's `amount` into the bar as its coins land (shares by worth, `cellWorth` + `countSteps`,
+    the last landing exact) and remembers it (`featureCountedIntoBar`); the end's tally takes it off
+    `banked` and `total`, so the bar still ends on start + total once. A flow that owns
+    `columnComplete` without the `lightLetter` effect leaves it at 0 and the end adds the whole
+    banked part, as before.
+  - **The letters row and the collector level are display copies**, like the held layer: the play
+    seam has recorded a lit column and a raised collector before their beat. Letters copy
+    `lettersLit` at the trigger and every snapshot and light on their own beat; the wheel pins the
+    old collector level (`stateHoldAndWinShown`) until it has landed, or the counter would read
+    "DOUBLE COLLECTOR" before the wheel spun (seen in the first Storybook run).
+  - **Instant collect flies to the SPECIAL, not to the bar.** The bar belongs to the round's own
+    `setWin` / `setTotalWin`, which follow and count the instant amount with the line wins; flying
+    into the bar would count it twice. Each coin goes to its nearest special; the banner shows the
+    multiplier and `times` when above 1.
+  - **The wheel follows the free-spin intro's slam rule but is not unskippable:** re-armed before it
+    (`startsCelebration`), a press while it turns lands it at once on the very rotation the spin was
+    easing onto, and the landed segment and the prize banner each hold at least 700 ms on a bare
+    timer. Its segments are the config's prizes when the config's prize at `index` matches the
+    server's; otherwise a one-segment wheel of the server's prize (it never lands on something not
+    awarded). A jackpot prize gets no banner: the `jackpotWin {source: 'wheel'}` that follows
+    celebrates.
+  - **Contract wart (not fixed): `holdAndWinWheel.index` overwrites the book event's own `index`.**
+    The facade builds every event as `{index: ordinal, ...fields}`, so the wheel event's ordinal is
+    the segment index. Nothing reads a book event's `index` field today; rename the payload field
+    (e.g. `segment`) in the facade and the contract before anything does.
+  - **New flight kind `toCollector`** (streak collect and instant collect); Phase 7's `flights` block
+    should author it beside `toTotal` / `toMeter:<id>`.
+  - **Value sources:** `collectorLevel`, `lettersLit` (value) and `letter.<reel>.lit` (visibility),
+    the last two only for a `columnLetters` config.
 
 - 2026-10-01 — **Steps 6–8: pots, Lucky Spin, full board + feature end.** Things a later phase must
   know:
@@ -367,9 +401,8 @@ only has to register its own vocab + seed.
   the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
   total?}`, `total` in credits.
 
-1. **Phase 4 (engine runtime), next beats:** column letters (Grand), the collectors-only streak +
-   wheel (Hotfire), the base-game instant collect and the random metre; `presentCollectStep` as a
-   flight (coin → collector). Force any beat with
+1. **Phase 4 (engine runtime), next beats:** the random metre (`randomMetreTrigger`), the last
+   event without a beat; open the step-10 PR once #943 merges. Force any beat with
    `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
    **Live check owed** on a published `holdAndWin` project (4c–4d and steps 6–8). Storybook DOES
    render the board once its loading screen is completed (Decisions & findings, steps 6–8):
@@ -384,6 +417,43 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4, step 10: Grand + Hotfire** (branch `engine/hold-win-4f-grand-hotfire`, on
+  `engine/hold-win-4e-pots-lucky-end` / #943; no PR yet). One function per beat in
+  `holdAndWinPresentation.ts`, each with a coded handler, a flow effect and cues:
+  - **Column letters** (`lightLetter`, `columnComplete`): a coded "G R A N D" row above the respin
+    board from `boardEnd.letters` (`HoldAndWinLetters`/`HoldAndWinLetter`, mounted only while the
+    board is up on a `columnLetters` config). The letter lights and pulses with its column; a cleared
+    column's coins fly to the Total Win bar, which counts up by the column's amount, and the cells play
+    `clearReel` and go. Cues `respinColumnComplete`, `respinColumnStep`.
+  - **Instant collect** (`instantCollect`, `coinInstantCollect`, base game): specials and coins
+    light on the base board (padded row = visible + 1), each coin flies into its nearest special
+    (`toCollector`), then "INSTANT WIN ×3 $12.00"; the round's own win presentation follows. Cue
+    `instantCollectWin`.
+  - **Streak collect by flight:** `presentCollectStep` flies each coin into its collector
+    (`flyTo(cell, collector, 'toCollector')`); the collector's label rises on each arrival.
+  - **Jackpot factor step:** a jackpot coin a boost multiplies steps `MINI` → `MINI ×2` on its turn
+    and lights, instead of waiting among the counting coins.
+  - **Wheel** (`spinWheel`, `holdAndWinWheel`): a Graphics wheel of the config's prizes
+    (`HoldAndWinWheel.svelte`, flights band, zIndex between the flights and the banner, which moved
+    to 2), 4 turns in 3.2 s with a quartic ease onto the server's `index` (`engine-game`
+    `holdAndWinWheel.ts`), then "COIN BOOST ×2 / EVERY COIN ×2" or "+1 COLLECT / DOUBLE COLLECT";
+    the counter's line reads "DOUBLE COLLECTOR". Cues `wheelShow`, `wheelSpin`, `wheelLand`.
+  - **Verified:** `check:engine-game` 9/9 (new `holdAndWinWheel` fixture: every index of 1–12
+    segments lands centred under the pointer, turn bounds, wrap, labels, `cellWorth`, a column's
+    split; two planted mutants fail it), `check:holdandwin` (820 facade checks), `gen:flow-vocab:check`
+    (86 events, 60 effects), `pnpm lint`, svelte-check at baseline and completed (apps/lines 165,
+    engine-game 38), `check-all` 324/324. Storybook from `C:\IW-4f2` on a real clock (GPU headless
+    shell): `MODE_HOLD_AND_WIN/grand` (classic mock: `letter`, `letters`, `special:multiplier` with a
+    MINI, `instant`) and `MODE_HOLD_AND_WIN/hotfire` (collector mock on a 3×3 window: `trigger`,
+    `chain`, `wheel:extraCollect`, `wheel:coinBoost`, `wheel:jackpot:GRAND`), books in
+    `stories/data/hold_and_win_grand_hotfire_books.ts`. Every story's bar ended on its feature total
+    (3400, 103900, 6200, 1200, 4600, 8800, 2000, 2000, 101000), 0 exceptions. `letters`: G-R-A-N-D
+    lit in turn, the bar stepped 800 → 1300 → 2100 → 3000 → 3900 as 15 coins landed, the GRAND
+    banner with the button locked, the GRAND joined at the end → 103900. `chain`: 12 coins flew into
+    the double collector, 11 clears. Wheel: landed on index 0 / 1 / 6 at exactly 4 turns; slammed
+    mid-spin (`roundSkip.skip()` at 2.2 s) it landed on the same rotation within one frame, then held
+    the segment and the banner about 700 ms each.
 
 - 2026-10-01 — **Phase 4, steps 6–8: pots, Lucky Spin, full board + feature end** (branch
   `engine/hold-win-4e-pots-lucky-end`, off `engine/hold-win-flights`). Coded default presentations,
