@@ -12,14 +12,26 @@
  *    one exec-out is an error.
  * 3. **The editor replaces, never adds, a second exec wire** (`addExecEdgeIn`), while a different
  *    out-pin on the same node keeps its own wire.
- * 4. **Every kind resolves to the starter flow + vocabulary it is recorded to** — the parity pin on the
- *    named fallbacks (`DRIVEN_SEED_FALLBACKS` / `VOCABULARY_FALLBACKS`). Every kind that predates
- *    `holdAndWin` resolves exactly as it did when the fallback was a silent `?? bookOf`; `holdAndWin`
- *    follows `lines` until Hold and Win Phase 5 registers its own. A new kind must be added here, so
- *    what it resolves to is a decision rather than a floor it fell through to.
+ * 4. **Every kind resolves to the starter flow + vocabulary it is recorded to** — the pin on the
+ *    named fallbacks (`DRIVEN_SEED_FALLBACKS` / `VOCABULARY_FALLBACKS`). `cluster` and `scatter` own
+ *    their seeds since 2026-10-01 (they borrowed the Book-of one before); `holdAndWin` follows
+ *    `lines` until Hold and Win Phase 5 registers its own. A new kind must be added here, so what it
+ *    resolves to is a decision rather than a floor it fell through to.
+ * 5. **Every registered starter flow validates against its OWN vocabulary** — every `DRIVEN_SEEDS`
+ *    entry is keyed by its `templateId`, that id has a registered vocabulary (not a fallback), and
+ *    `validateFlowDoc` finds no error. §1 reaches only the seeds a game kind resolves to; this
+ *    reaches every seed.
  */
 import { GAME_KINDS } from 'constants-shared/gameKinds';
-import { freshDrivenSeedDoc, templateVocabulary, type FlowDoc } from 'engine-flow-v2';
+import {
+	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+	DRIVEN_SEEDS,
+	freshDrivenSeedDoc,
+	TEMPLATE_VOCABULARIES,
+	templateVocabulary,
+	validateFlowDoc,
+	type FlowDoc,
+} from 'engine-flow-v2';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';
@@ -97,8 +109,8 @@ check(
 const RESOLVES_TO: Record<string, [string, string]> = {
 	lines: ['bookOf', 'bookOf'],
 	ways: ['ways', 'ways'],
-	cluster: ['bookOf', 'cluster'],
-	scatter: ['bookOf', 'scatter'],
+	cluster: ['cluster', 'cluster'],
+	scatter: ['scatter', 'scatter'],
 	bookOf: ['bookOf', 'bookOf'],
 	holdAndWin: ['bookOf', 'bookOf'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
@@ -117,6 +129,25 @@ check(
 	'4. an absent templateId gets the bookOf vocabulary',
 	templateVocabulary(undefined).templateId === 'bookOf',
 );
+
+for (const [id, seed] of Object.entries(DRIVEN_SEEDS)) {
+	check(`5. ${id}: the seed is keyed by its templateId`, seed.templateId === id, seed.templateId);
+	check(
+		`5. ${id}: has a registered vocabulary of its own`,
+		Object.hasOwn(TEMPLATE_VOCABULARIES, id),
+	);
+	const errors = validateFlowDoc(
+		seed,
+		templateVocabulary(seed.templateId),
+		EMPTY_LIBRARY,
+		BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+	).filter((i) => i.severity === 'error');
+	check(
+		`5. ${id}: the seed validates against its own vocabulary with no error`,
+		errors.length === 0,
+		errors.map((e) => `${e.code}: ${e.message}`).join(' | '),
+	);
+}
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');
 if (fails) process.exitCode = 1;

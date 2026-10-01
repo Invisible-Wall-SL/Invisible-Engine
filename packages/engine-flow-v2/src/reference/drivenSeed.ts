@@ -8,7 +8,8 @@
  * own vocabulary (`choreoForVocabulary`) rather than carrying a hand-written copy per type — a copy
  * would drift, and a seed that references a surface the palette does not declare opens the canvas on
  * validation errors. `WAYS_DRIVEN_SEED_DOC` is the book-of flow without the expanding-symbol
- * mechanic or its `specialBook` screen.
+ * mechanic or its `specialBook` screen; the `cluster` and `scatter` seeds are the same flow against
+ * their own vocabularies, with the cascade events left to the coded path.
  *
  * The prose below describes the book-of seed, which remains the reference shape.
  *
@@ -81,7 +82,9 @@ import {
 	type ChoreoStep,
 } from './bookOfChoreo';
 import { BOOK_OF_VOCAB } from './bookOf';
+import { CLUSTER_VOCAB } from './cluster';
 import { resolveTemplateId, UNREGISTERED_TEMPLATE_FALLBACK } from './registry';
+import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
 // Canonical scaffold container ids (a fresh book-of project's scenes).
@@ -96,6 +99,10 @@ const FS_OUTRO = 'freeSpinOutro';
 
 /** Every screen the driven game shows once play begins (mounted; cue-driven internal visibility). */
 const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] as const;
+
+/** The screen set of a type without the expanding-symbol mechanic — its scaffold has no
+ *  `specialBook` scene. */
+const NO_SPECIAL_BOOK_SCREENS = GAME_SCREENS.filter((id) => id !== SPECIAL_BOOK);
 
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
 const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
@@ -495,32 +502,47 @@ export const BOOK_OF_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(BOOK_OF_VOCAB, G
  * expanding-symbol beats — `choreoForVocabulary` drops the two book events outright and strips the
  * `specialBookHide` cue out of the middle of `freeSpinEnd`.
  */
-export const WAYS_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(
-	WAYS_VOCAB,
-	GAME_SCREENS.filter((id) => id !== SPECIAL_BOOK),
+export const WAYS_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(WAYS_VOCAB, NO_SPECIAL_BOOK_SCREENS);
+
+/**
+ * The cluster and scatter starter flows: the ways flow, typed against their own vocabularies.
+ *
+ * Their cascade events (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`, and scatter's
+ * `boardMultiplierInfo`) stay UNWIRED, so they fall through to the coded handlers. A tumble step
+ * ends by re-seating the reel board on the board the cascade left behind, a value no accessor
+ * exposes, so a flow-owned step would leave the reels showing the pre-tumble board. The tumble and
+ * multiplier overlays mount beside the reels, so the coded steps play under a driven flow.
+ */
+export const CLUSTER_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(
+	CLUSTER_VOCAB,
+	NO_SPECIAL_BOOK_SCREENS,
+);
+export const SCATTER_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(
+	SCATTER_VOCAB,
+	NO_SPECIAL_BOOK_SCREENS,
 );
 
 /** The driven seed's function library — empty (the choreographies are linear/forEach chains). */
 export const BOOK_OF_DRIVEN_SEED_LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
 
 /** Every template that ships a starter flow, keyed by `templateId`. */
-const DRIVEN_SEEDS: Record<string, FlowDoc> = {
+export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
 	[BOOK_OF_DRIVEN_SEED_DOC.templateId]: BOOK_OF_DRIVEN_SEED_DOC,
 	[WAYS_DRIVEN_SEED_DOC.templateId]: WAYS_DRIVEN_SEED_DOC,
+	[CLUSTER_DRIVEN_SEED_DOC.templateId]: CLUSTER_DRIVEN_SEED_DOC,
+	[SCATTER_DRIVEN_SEED_DOC.templateId]: SCATTER_DRIVEN_SEED_DOC,
 };
 
 /**
  * Built-in kinds that ship no starter flow of their own, and the seed each one is scaffolded with —
  * named so the borrowing is visible rather than a silent floor. The borrowed seed carries ITS
- * `templateId`, so such a project also runs that template's vocabulary (a cluster project runs the
- * Book-of vocabulary, not `CLUSTER_VOCAB`). A chain resolves (`holdAndWin` → `lines` → `bookOf`).
- *  - `lines`, `cluster`, `scatter`: the Book-of seed (parity — what they have always been given).
+ * `templateId`, so such a project also runs that template's vocabulary. A chain resolves
+ * (`holdAndWin` → `lines` → `bookOf`).
+ *  - `lines`: the Book-of seed (parity — what it has always been given).
  *  - `holdAndWin`: whatever `lines` gets, until Hold and Win Phase 5 registers its own seed.
  */
 export const DRIVEN_SEED_FALLBACKS: Readonly<Record<string, string>> = {
 	lines: BOOK_OF_DRIVEN_SEED_DOC.templateId,
-	cluster: BOOK_OF_DRIVEN_SEED_DOC.templateId,
-	scatter: BOOK_OF_DRIVEN_SEED_DOC.templateId,
 	holdAndWin: 'lines',
 };
 

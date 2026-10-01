@@ -57,6 +57,7 @@
 		"v2optional": "tsx flowV2OptionalParams.ts",
 		"v2halfon": "tsx flowV2HalfOn.ts",
 		"v2drivenseed": "tsx flowV2DrivenSeed.ts",
+		"v2cascadeseedplay": "tsx flowV2CascadeSeedPlay.ts",
 		"loadingbar": "tsx loadingBarDefaults.ts",
 		"slamcounter": "tsx --import ./appStubs.register.mjs slamCounter.ts"
 	},
