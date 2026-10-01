@@ -103,6 +103,8 @@ const LUCKY_INTRO_MS = 1_600;
 const JACKPOT_HOLD_MS = 2_600;
 /** A coin jackpot's highlight during the tally. */
 const COIN_JACKPOT_MS = 900;
+/** The beat between the last coin landing and the banked jackpots joining the Total Win bar. */
+const BANKED_BEAT_MS = 350;
 /** The Total Win bar settling on its last value before the respin board goes. */
 const TALLY_SETTLE_MS = 500;
 
@@ -584,6 +586,7 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	};
 	await flyCoinsToTotal(order, (index) => step(index, order[index].amount, tally.arrive(index)));
 	if (stateBet.winBookEventAmount !== tally.final) {
+		if (event.payload.banked > 0) await waitPresentation(BANKED_BEAT_MS);
 		step(order.length, event.payload.banked, tally.final);
 	}
 	await waitPresentation(TALLY_SETTLE_MS);

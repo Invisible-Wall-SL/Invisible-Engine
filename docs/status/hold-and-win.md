@@ -4,15 +4,18 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 4c merged, 4d in review (2026-10-01) — the shared runtime presents the Hold and Win
+**One-line state:** Phase 4c merged; 4d, flights and steps 6–8 (pots, Lucky Spin, full board + feature end) in review (2026-10-01) — the shared runtime presents the Hold and Win
 feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
 spins only the free cells onto what the server named, new coins stick with their value label, the
 counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
 Phase 4d (in review) adds the specials and mystery beats: a payer or multiplier lights
 and every coin's label counts up to its new value, a multiplier lands as a coin, a collector pulses
 each coin and climbs, a mystery opens into what it revealed (with an "UNLOCKED" toast), a streak's
-cells clear, a jackpot coin lights and a banked jackpot gets a toast. Meters, letters, the wheel and
-the end tally are still recorded and shown as labels without a beat of their own (next PRs). Production is blocked on the partner's Hold and Win wire format;
+cells clear. Steps 6–8 (in review) add the pots (specials fly in, levels tick, a full pot buys the
+feature with its modifier), the Lucky Spin (intro banner, all-reel anticipation, no skip), the
+jackpot celebration and the feature end's per-coin count-up into the Total Win bar. Column letters,
+the wheel and the base-game instant collect are still recorded and shown without a beat of their own
+(next PRs). Production is blocked on the partner's Hold and Win wire format;
 authoring is not (mock-first).
 
 ## How sessions use this file (the hub)
@@ -39,7 +42,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d merged; flights in review; pots, Lucky Spin, feature end built; then Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d merged; flights (#942) + pots, Lucky Spin, feature end in review; then Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -70,6 +73,47 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Steps 6–8: pots, Lucky Spin, full board + feature end.** Things a later phase must
+  know:
+  - **Boot meter levels travel through a facade global** (`__IE_HOLD_AND_WIN_METERS__`, written at
+    `config` capture only for a wire-1 Hold and Win server that declares meters) and are seeded once
+    as a `meterLevels` through the reducer, so `stateHoldAndWin` keeps one writer. Seeding stands
+    down once any book event recorded meters (a resume's `meterLevels` wins).
+  - **The reducer now empties the meters a `meter` trigger names** (`payload.meters`, "now 0" on the
+    wire): the server's word, applied at the trigger instead of waiting for the play's
+    `meterLevels`, so the pots read empty while the feature runs.
+  - **A pot's drawn level is a display override**, like a coin label's: the play seam has recorded
+    the server's level before the beat starts, so `meterUpdate` pins the pot at `level − from.length`
+    and ticks it per `flightArrive`, then lets go on the server's level. A forced full meter
+    (`forced: true`, the level set one short first) therefore jumps to `max − n` before ticking.
+  - **`'meter:<id>'` is the pot's anchor, `'toMeter:<id>'` its flight kind**; Phase 6's authored pots
+    must anchor the same names (a pot node with that id does it through `LayoutNodeView`), and bind
+    `meter.<id>.level` / `meter.<id>.max`. Without an anchor the flight lands on the board's bottom
+    centre and the level still ticks.
+  - **The meter beat lights each special on the BASE board** (`win`, padded row = visible row + 1)
+    while it flies; flight seats themselves take the visible row (`getSymbolSeat`'s lattice row).
+    No avoidance: `meterUpdate` comes right after the reveal, before any win is shown.
+  - **Lucky Spin = an explicit one-shot, not faked scatters.** The intro beat arms it; every
+    `presentReveal` takes it; the dispatch seam reads it to run that reveal unskippable. The reels
+    hold on every reel after the first at level 1 (the lowest big tier's alias); the anticipation
+    OVERLAYS (spine stack, grey-out, camera) still need the project's `anticipationMode`, so a project
+    without it sees long holds only. In the sample config each armed reel holds ~2 s, so a Lucky Spin
+    reveal takes ~8 s — tune `reelPaddingMultiplierAnticipated` if that reads long.
+  - **Celebrations without a screen.** `holdAndWinEnd` and a banked `jackpotWin` re-arm the slam
+    (`startsCelebration`) and run inside the unskippable window, which is what locks the button for a
+    coded celebration that mounts no `bigWin`/intro/outro screen. When Phase 6 authors them as
+    screens, the screen lock takes over and the unskippable window stays harmless (no tap holds).
+  - **The Total Win bar count-up starts from what the bar read** (the trigger spin's line wins, if
+    any): it lands the coins' share exactly on `start + total − banked`, adds the banked part after a
+    350 ms beat, and ends on `start + total` — the same figure `setTotalWin` then assigns, so nothing
+    jumps. Coins land in flight order, not list order, so each arrival adds ITS amount
+    (`tallyCountUp`, fixture-pinned for out-of-order arrivals and rounded per-coin amounts).
+  - **The coded banner** (Lucky Spin, jackpots) is one at a time, English literals until Phase 8,
+    centred on the board in the flights band above the flight layer.
+  - **Storybook does mount the board** — the reference flow parks on its loading screen; completing
+    it (`completeActiveScreen()` from `/src/game/flowInterpreterHolder.ts`) shows the reels, so the
+    4c/4d "no board in Storybook" note was the loading screen, not a missing mount.
 
 - 2026-10-01 — **Flights are built (step 9).** Things a later phase must know:
   - **A trail needs a STILL emitter parent plus `ownerPos`.** Moving the container (what every other
@@ -323,13 +367,15 @@ only has to register its own vocab + seed.
   the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
   total?}`, `total` in credits.
 
-1. **Phase 4 (engine runtime), next beats** on the respin board: the pots (meters) and active
-   modifiers, Lucky Spin, the end tally into the total (with `flyTo`, design §4.4, which also
-   replaces `presentCollectStep`), the full jackpot celebration, column letters and the wheel. Force any beat with
+1. **Phase 4 (engine runtime), next beats:** column letters (Grand), the collectors-only streak +
+   wheel (Hotfire), the base-game instant collect and the random metre; `presentCollectStep` as a
+   flight (coin → collector). Force any beat with
    `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
-   **4c + 4d visual check owed** on a live published `holdAndWin` project — the board was not
-   rendered locally (see Recent changes: Storybook mounts no board in this setup); Storybook
-   `MODE_HOLD_AND_WIN/book` plays seven recorded rounds, verified by state probes.
+   **Live check owed** on a published `holdAndWin` project (4c–4d and steps 6–8). Storybook DOES
+   render the board once its loading screen is completed (Decisions & findings, steps 6–8):
+   `MODE_HOLD_AND_WIN/pots` was checked that way; `MODE_HOLD_AND_WIN/book` can be re-checked the same.
+   Before boot meter levels can show on a live game, the published config must declare its meters
+   (the facade publishes only what the server's `config` carries).
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
@@ -338,6 +384,47 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4, steps 6–8: pots, Lucky Spin, full board + feature end** (branch
+  `engine/hold-win-4e-pots-lucky-end`, off `engine/hold-win-flights`). Coded default presentations,
+  each beat one function in `holdAndWinPresentation.ts` shared by its coded handler and a flow effect:
+  - **Pots** (`fillMeter`, `meterUpdate`): boot levels from the facade, seeded at game start; coded
+    pots above the board (`HoldAndWinPots`/`HoldAndWinPot`: one bar per config meter, "RED 10/12",
+    what it activates, a size step per `sizeStages`, a pulse when full or consumed). Each special in
+    `from` lights on the base board and flies into its pot; the pot ticks a level per arrival and
+    pulses when the update filled it. Cues `potFill`, `potFull`; value sources `meter.<id>.level` /
+    `meter.<id>.max`.
+  - **Entry with modifiers** (inside `showRespinBoard`, `holdAndWinTrigger` `cause: 'meter'`): the
+    consumed pots drain to empty, "PAYER ACTIVE" toasts, then the board swaps; the respin counter
+    shows the active modifiers under it ("MYSTERY · COLLECTOR · PAYER", following mystery unlocks).
+    Cue `potsConsume`; value source `activeModifiers`.
+  - **Lucky Spin** (`playLuckySpinIntro`, `luckySpin`): a "LUCKY SPIN" banner holds 1.6 s,
+    unskippable; the reveal it arms anticipates on every reel and runs unskippable. Cue
+    `luckySpinIntro`.
+  - **Jackpots** (`showJackpotWin`): a banked jackpot (full board, letters, wheel) is a held
+    celebration banner "GRAND JACKPOT / FULL BOARD $2,000.00" (a full board also lights every held
+    cell), slam re-armed and button inert; a coin jackpot named in the tally lights with a small
+    "MINI $15.00" banner, slammable. Cue `jackpotCelebration`.
+  - **Feature end** (`hideRespinBoard`): the coins fly to the Total Win bar and the bar counts up per
+    arrival by that coin's amount, the banked part last, landing exactly on the feature total; then
+    the round's `setWin` / `setTotalWin` as before. A celebration (re-armed, button inert). Cue
+    `respinTallyStep {index, amount, total}`.
+  - **Verified:** `check:engine-game` 8/8 (new: the meter-cause reducer case; `tallyCountUp` lands
+    exactly for in-order, out-of-order, short and over-rounded amounts), the facade fixture (boot
+    meters published for pots, absent for classic/collector; a planted no-publish mutant fails 10
+    checks), `check:holdandwin`, `gen:flow-vocab:check` (80 events, 57 effects), eslint, svelte-check
+    at baseline (apps/lines 166, engine-game 38, completed), `check-all` 322/322. Storybook
+    `MODE_HOLD_AND_WIN/pots` from `C:\IW-4e` on a real clock (headless shell, GPU): four books
+    recorded from the pots mock through the real facade (`meter:red`, `lucky`, `fullBoard`,
+    `jackpot:MINI`). `meter:red`: two heads fly into RED, 10 → 12 and a pulse, three into BLUE 0 → 3,
+    RED drains 12 → 0, the counter shows "MYSTERY · COLLECTOR · PAYER", the tally steps the bar 150 →
+    250 → 450 = the total. `lucky`: banner up with the button locked, the reveal holds reels 1–4 in
+    turn (`01000` → `01111`) with the button still locked; 85 of 129 spammed presses refused (intro,
+    reveal, end), the respins in between slammed, and the tally still landed on 1700. `fullBoard`: the
+    GRAND banner with every cell lit, button inert; 15 coins step the bar to 4000, then the GRAND
+    joins 366 ms later at 204000 = the total. `jackpot:MINI`: the MINI coin lit with its small banner,
+    button live; the bar lands on 4350. A free-spin bonus story plays with no pots, no banner and no
+    lock.
 
 - 2026-10-01 — **Phase 4, step 9: flights** (branch `engine/hold-win-flights`, off
   `engine/hold-win-4c-respin-board`). A head that travels from a cell to a target, leaves a trail and
