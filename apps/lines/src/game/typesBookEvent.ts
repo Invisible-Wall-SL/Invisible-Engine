@@ -1,4 +1,4 @@
-import type { ImplementsEngineBookEvents } from 'engine-game';
+import type { HoldAndWinEventFields, ImplementsEngineBookEvents } from 'engine-game';
 import type { BetType } from 'rgs-requests';
 
 import type { SymbolName, RawSymbol, GameType, Position } from './types';
@@ -152,6 +152,89 @@ type BookEventBoardMultiplierInfo = {
 	};
 };
 
+// --- hold and win --------------------------------------------------------------------------------
+// Design §4.3 of `docs/design/hold-and-win.md`. The payloads live in `engine-game` (`holdAndWin.ts`,
+// one home); each arm is spelled out here so the flow vocabulary codegen reads its `type`. Declared
+// in the shared runtime's union for the reason the cascade's are: a mechanic missing here cannot
+// reach a published project. A game whose RGS never sends them is unaffected.
+type BookEventHwLuckySpin = {
+	index: number;
+	type: 'luckySpin';
+} & HoldAndWinEventFields['luckySpin'];
+type BookEventHwMeterUpdate = {
+	index: number;
+	type: 'meterUpdate';
+} & HoldAndWinEventFields['meterUpdate'];
+type BookEventHwMeterLevels = {
+	index: number;
+	type: 'meterLevels';
+} & HoldAndWinEventFields['meterLevels'];
+type BookEventHwCoinInstantCollect = {
+	index: number;
+	type: 'coinInstantCollect';
+} & HoldAndWinEventFields['coinInstantCollect'];
+type BookEventHwRandomMetreTrigger = {
+	index: number;
+	type: 'randomMetreTrigger';
+} & HoldAndWinEventFields['randomMetreTrigger'];
+type BookEventHwHoldAndWinTrigger = {
+	index: number;
+	type: 'holdAndWinTrigger';
+} & HoldAndWinEventFields['holdAndWinTrigger'];
+type BookEventHwHoldAndWinWheel = {
+	index: number;
+	type: 'holdAndWinWheel';
+} & HoldAndWinEventFields['holdAndWinWheel'];
+type BookEventHwRespinReveal = {
+	index: number;
+	type: 'respinReveal';
+} & HoldAndWinEventFields['respinReveal'];
+type BookEventHwCoinsLand = {
+	index: number;
+	type: 'coinsLand';
+} & HoldAndWinEventFields['coinsLand'];
+type BookEventHwMysteryReveal = {
+	index: number;
+	type: 'mysteryReveal';
+} & HoldAndWinEventFields['mysteryReveal'];
+type BookEventHwCoinPay = { index: number; type: 'coinPay' } & HoldAndWinEventFields['coinPay'];
+type BookEventHwCoinBoost = {
+	index: number;
+	type: 'coinBoost';
+} & HoldAndWinEventFields['coinBoost'];
+type BookEventHwSpecialBecomesCoin = {
+	index: number;
+	type: 'specialBecomesCoin';
+} & HoldAndWinEventFields['specialBecomesCoin'];
+type BookEventHwCoinCollect = {
+	index: number;
+	type: 'coinCollect';
+} & HoldAndWinEventFields['coinCollect'];
+type BookEventHwCellsCleared = {
+	index: number;
+	type: 'cellsCleared';
+} & HoldAndWinEventFields['cellsCleared'];
+type BookEventHwColumnComplete = {
+	index: number;
+	type: 'columnComplete';
+} & HoldAndWinEventFields['columnComplete'];
+type BookEventHwJackpotWin = {
+	index: number;
+	type: 'jackpotWin';
+} & HoldAndWinEventFields['jackpotWin'];
+type BookEventHwRespinUpdate = {
+	index: number;
+	type: 'respinUpdate';
+} & HoldAndWinEventFields['respinUpdate'];
+type BookEventHwHoldAndWinState = {
+	index: number;
+	type: 'holdAndWinState';
+} & HoldAndWinEventFields['holdAndWinState'];
+type BookEventHwHoldAndWinEnd = {
+	index: number;
+	type: 'holdAndWinEnd';
+} & HoldAndWinEventFields['holdAndWinEnd'];
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -176,6 +259,26 @@ export type BookEvent =
 	| BookEventSetExpandingSymbol
 	| BookEventExpandBookColumns
 	| BookEventFreeSpinRetrigger
+	| BookEventHwLuckySpin
+	| BookEventHwMeterUpdate
+	| BookEventHwMeterLevels
+	| BookEventHwCoinInstantCollect
+	| BookEventHwRandomMetreTrigger
+	| BookEventHwHoldAndWinTrigger
+	| BookEventHwHoldAndWinWheel
+	| BookEventHwRespinReveal
+	| BookEventHwCoinsLand
+	| BookEventHwMysteryReveal
+	| BookEventHwCoinPay
+	| BookEventHwCoinBoost
+	| BookEventHwSpecialBecomesCoin
+	| BookEventHwCoinCollect
+	| BookEventHwCellsCleared
+	| BookEventHwColumnComplete
+	| BookEventHwJackpotWin
+	| BookEventHwRespinUpdate
+	| BookEventHwHoldAndWinState
+	| BookEventHwHoldAndWinEnd
 	// customised
 	| BookEventCreateBonusSnapshot;
 

@@ -10,6 +10,7 @@ import type {
 	GameBookEventOfType as BookEventOfType,
 } from './bookEvents';
 import type { WinLevelData } from './winLevelMap';
+import { HOLD_AND_WIN_SNAPSHOT_EVENTS } from './holdAndWin';
 
 /**
  * What a game hands the play pipeline. Every entry is a presentation hook the ROUND SEAM calls
@@ -328,11 +329,12 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 	};
 
-	const BOOK_EVENT_TYPES_TO_RESERVE_FOR_SNAPSHOT = [
+	const BOOK_EVENT_TYPES_TO_RESERVE_FOR_SNAPSHOT: string[] = [
 		'updateGlobalMult',
 		'freeSpinTrigger',
 		'updateFreeSpin',
 		'setTotalWin',
+		...HOLD_AND_WIN_SNAPSHOT_EVENTS,
 	];
 
 	const convertTorResumableBet = (betToResume: Bet) => {

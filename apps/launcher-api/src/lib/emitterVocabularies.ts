@@ -444,6 +444,27 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Transition',
 			},
 			{
+				type: 'flightArrive',
+				group: 'Flights',
+				fields: [
+					{
+						key: 'flight',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'stopButtonEnable',
 				group: 'UI',
 			},
@@ -690,6 +711,66 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'freeSpinRetrigger',
+			},
+			{
+				type: 'luckySpin',
+			},
+			{
+				type: 'meterUpdate',
+			},
+			{
+				type: 'meterLevels',
+			},
+			{
+				type: 'coinInstantCollect',
+			},
+			{
+				type: 'randomMetreTrigger',
+			},
+			{
+				type: 'holdAndWinTrigger',
+			},
+			{
+				type: 'holdAndWinWheel',
+			},
+			{
+				type: 'respinReveal',
+			},
+			{
+				type: 'coinsLand',
+			},
+			{
+				type: 'mysteryReveal',
+			},
+			{
+				type: 'coinPay',
+			},
+			{
+				type: 'coinBoost',
+			},
+			{
+				type: 'specialBecomesCoin',
+			},
+			{
+				type: 'coinCollect',
+			},
+			{
+				type: 'cellsCleared',
+			},
+			{
+				type: 'columnComplete',
+			},
+			{
+				type: 'jackpotWin',
+			},
+			{
+				type: 'respinUpdate',
+			},
+			{
+				type: 'holdAndWinState',
+			},
+			{
+				type: 'holdAndWinEnd',
 			},
 		],
 	},
@@ -1121,6 +1202,27 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Transition',
 			},
 			{
+				type: 'flightArrive',
+				group: 'Flights',
+				fields: [
+					{
+						key: 'flight',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'stopButtonEnable',
 				group: 'UI',
 			},
@@ -1367,6 +1469,66 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'freeSpinRetrigger',
+			},
+			{
+				type: 'luckySpin',
+			},
+			{
+				type: 'meterUpdate',
+			},
+			{
+				type: 'meterLevels',
+			},
+			{
+				type: 'coinInstantCollect',
+			},
+			{
+				type: 'randomMetreTrigger',
+			},
+			{
+				type: 'holdAndWinTrigger',
+			},
+			{
+				type: 'holdAndWinWheel',
+			},
+			{
+				type: 'respinReveal',
+			},
+			{
+				type: 'coinsLand',
+			},
+			{
+				type: 'mysteryReveal',
+			},
+			{
+				type: 'coinPay',
+			},
+			{
+				type: 'coinBoost',
+			},
+			{
+				type: 'specialBecomesCoin',
+			},
+			{
+				type: 'coinCollect',
+			},
+			{
+				type: 'cellsCleared',
+			},
+			{
+				type: 'columnComplete',
+			},
+			{
+				type: 'jackpotWin',
+			},
+			{
+				type: 'respinUpdate',
+			},
+			{
+				type: 'holdAndWinState',
+			},
+			{
+				type: 'holdAndWinEnd',
 			},
 		],
 	},
@@ -1798,6 +1960,27 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Transition',
 			},
 			{
+				type: 'flightArrive',
+				group: 'Flights',
+				fields: [
+					{
+						key: 'flight',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'stopButtonEnable',
 				group: 'UI',
 			},
@@ -2044,6 +2227,66 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'freeSpinRetrigger',
+			},
+			{
+				type: 'luckySpin',
+			},
+			{
+				type: 'meterUpdate',
+			},
+			{
+				type: 'meterLevels',
+			},
+			{
+				type: 'coinInstantCollect',
+			},
+			{
+				type: 'randomMetreTrigger',
+			},
+			{
+				type: 'holdAndWinTrigger',
+			},
+			{
+				type: 'holdAndWinWheel',
+			},
+			{
+				type: 'respinReveal',
+			},
+			{
+				type: 'coinsLand',
+			},
+			{
+				type: 'mysteryReveal',
+			},
+			{
+				type: 'coinPay',
+			},
+			{
+				type: 'coinBoost',
+			},
+			{
+				type: 'specialBecomesCoin',
+			},
+			{
+				type: 'coinCollect',
+			},
+			{
+				type: 'cellsCleared',
+			},
+			{
+				type: 'columnComplete',
+			},
+			{
+				type: 'jackpotWin',
+			},
+			{
+				type: 'respinUpdate',
+			},
+			{
+				type: 'holdAndWinState',
+			},
+			{
+				type: 'holdAndWinEnd',
 			},
 		],
 	},
@@ -2475,6 +2718,27 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Transition',
 			},
 			{
+				type: 'flightArrive',
+				group: 'Flights',
+				fields: [
+					{
+						key: 'flight',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'stopButtonEnable',
 				group: 'UI',
 			},
@@ -2721,6 +2985,66 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'freeSpinRetrigger',
+			},
+			{
+				type: 'luckySpin',
+			},
+			{
+				type: 'meterUpdate',
+			},
+			{
+				type: 'meterLevels',
+			},
+			{
+				type: 'coinInstantCollect',
+			},
+			{
+				type: 'randomMetreTrigger',
+			},
+			{
+				type: 'holdAndWinTrigger',
+			},
+			{
+				type: 'holdAndWinWheel',
+			},
+			{
+				type: 'respinReveal',
+			},
+			{
+				type: 'coinsLand',
+			},
+			{
+				type: 'mysteryReveal',
+			},
+			{
+				type: 'coinPay',
+			},
+			{
+				type: 'coinBoost',
+			},
+			{
+				type: 'specialBecomesCoin',
+			},
+			{
+				type: 'coinCollect',
+			},
+			{
+				type: 'cellsCleared',
+			},
+			{
+				type: 'columnComplete',
+			},
+			{
+				type: 'jackpotWin',
+			},
+			{
+				type: 'respinUpdate',
+			},
+			{
+				type: 'holdAndWinState',
+			},
+			{
+				type: 'holdAndWinEnd',
 			},
 		],
 	},

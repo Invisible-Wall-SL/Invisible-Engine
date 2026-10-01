@@ -166,6 +166,12 @@ game. Instead:
 
 ### 4.3 Engine book events (the contract the flow, the mock and the facade share)
 
+> **Built (Phase 4a, 2026-10-01).** The contract is code: `HoldAndWinEventFields` in
+> `packages/engine-game/src/game/holdAndWin.ts`. The table below is the original sketch; where they
+> differ the code wins — positions are visible 0-based, values ride on each cell's `RawSymbol`,
+> trigger/end carry the §4.5 mode fields, and `meterLevels` / `randomMetreTrigger` / `cellsCleared` /
+> `holdAndWinState` (the resume snapshot) were added. See the status file's findings.
+
 | Event | Payload | Meaning |
 |---|---|---|
 | `reveal` (existing) | board with coin cells carrying `{value}` or `{jackpot}` | base-game board, coins labelled |

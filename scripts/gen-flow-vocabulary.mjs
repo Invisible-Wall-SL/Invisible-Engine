@@ -82,6 +82,7 @@ const GAMES = [
 			EmitterEventMultiplierBoard: 'Multipliers',
 			EmitterEventSound: 'Sound',
 			EmitterEventTransition: 'Transition',
+			EmitterEventFlight: 'Flights',
 		},
 		effectGroup: 'Effect',
 	},
@@ -126,7 +127,10 @@ const resolveWorkspaceType = (specifier, typeName, importerRel) => {
 	while ((m = reExportRe.exec(indexSrc))) {
 		// Compare whole identifiers, so `Transition` never matches `TransitionAnimation`.
 		const names = new Set(m[1].split(/[^\w$]+/).filter(Boolean));
-		if (names.has(typeName)) return resolve(pkgDir, m[2]);
+		if (!names.has(typeName)) continue;
+		// A `.ts` module is re-exported without its extension; a `.svelte` one with it.
+		const file = resolve(pkgDir, m[2]);
+		return existsSync(file) ? file : `${file}.ts`;
 	}
 	throw new Error(
 		`${importerRel} imports ${typeName} from '${specifier}', but packages/${specifier}/index.ts ` +

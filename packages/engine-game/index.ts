@@ -64,6 +64,26 @@ export {
 	type StackedPictureRun,
 } from './src/game/gameState.svelte';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
+export {
+	applyHoldAndWinEvent,
+	emptyHoldAndWinState,
+	HOLD_AND_WIN_SNAPSHOT_EVENTS,
+	type HoldAndWinCause,
+	type HoldAndWinCell,
+	type HoldAndWinCellAmount,
+	type HoldAndWinCoinChange,
+	type HoldAndWinEntry,
+	type HoldAndWinEvent,
+	type HoldAndWinEventFields,
+	type HoldAndWinEventType,
+	type HoldAndWinJackpotSource,
+	type HoldAndWinMeterLevel,
+	type HoldAndWinSnapshot,
+	type HoldAndWinState,
+	type HoldAndWinTally,
+	type HoldAndWinWheelPrize,
+} from './src/game/holdAndWin';
+export { type EmitterEventFlight } from './src/game/flight';
 
 export {
 	tierHasExit,
