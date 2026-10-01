@@ -279,7 +279,11 @@ export const applyHoldAndWinEvent = (
 		case 'holdAndWinTrigger':
 			return {
 				...emptyHoldAndWinState(),
-				meters: state.meters,
+				// A `meter` cause names the full meters it consumed, which the server has emptied (wire
+				// doc); its `meterLevels` restates them only after the play, and the pots read empty now.
+				meters: state.meters.map((meter) =>
+					event.payload.meters?.includes(meter.id) ? { ...meter, level: 0 } : meter,
+				),
 				luckySpin: state.luckySpin,
 				active: true,
 				cells: putCells([], event.payload.cells),

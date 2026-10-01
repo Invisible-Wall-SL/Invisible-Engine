@@ -44,6 +44,31 @@ export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null 
 	};
 };
 
+/** A meter's level as the engine reads it (`HoldAndWinMeterLevel` in engine-game). */
+export type HoldAndWinMeterLevel = { id: string; level: number; max: number };
+
+/**
+ * The meters' levels at boot — `config.holdAndWin.meters[].{id, level, max}`. Meter levels are SERVER
+ * state (per player, surviving rounds): this is the only place the client learns them before its
+ * first `play` restates them in `meterLevels`. An entry missing a field is dropped; no block, no
+ * meters, or a wire this client was not written for ⇒ `[]`.
+ */
+export const readBootMeterLevels = (cfg: unknown): HoldAndWinMeterLevel[] => {
+	const block = (cfg as { holdAndWin?: { wire?: unknown; meters?: unknown } } | null)?.holdAndWin;
+	if (!block || block.wire !== HOLD_AND_WIN_WIRE || !Array.isArray(block.meters)) return [];
+	return block.meters.flatMap((meter: unknown) => {
+		const { id, level, max } = (meter ?? {}) as Record<string, unknown>;
+		return typeof id === 'string' &&
+			id &&
+			typeof level === 'number' &&
+			Number.isFinite(level) &&
+			typeof max === 'number' &&
+			Number.isFinite(max)
+			? [{ id, level, max }]
+			: [];
+	});
+};
+
 export type HoldAndWinSymbol = { name: string; value?: number; jackpot?: string; factor?: number };
 type Position = { reel: number; row: number };
 type Cell = Position & { symbol: HoldAndWinSymbol };

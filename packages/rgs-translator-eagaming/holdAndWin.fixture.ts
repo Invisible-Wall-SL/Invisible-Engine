@@ -81,6 +81,10 @@ const startMock = async (preset: string, force: string) => {
 	return { doc, server, rgsUrl: `localhost:${port}` };
 };
 
+type MetersGlobal = {
+	__IE_HOLD_AND_WIN_METERS__?: { id: string; level: number; max: number }[];
+};
+
 const HW_TYPES = new Set([
 	'luckySpin',
 	'meterUpdate',
@@ -224,11 +228,20 @@ const CASES: [preset: string, force: string][] = [
 
 const seen = new Set<string>();
 for (const [preset, force] of CASES) {
-	const { server, rgsUrl } = await hush(() => startMock(preset, force));
+	const { doc, server, rgsUrl } = await hush(() => startMock(preset, force));
 	const facade = await openTab();
 	const sid = `fx-${preset}-${force}`;
+	delete (globalThis as MetersGlobal).__IE_HOLD_AND_WIN_METERS__;
 	const events = await hush(async () => {
 		await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
+		// The boot levels are published at authenticate, for the game to seed its pots from.
+		const published = (globalThis as MetersGlobal).__IE_HOLD_AND_WIN_METERS__;
+		const declared = doc?.holdAndWin?.meters ?? [];
+		check(
+			`${preset} ${force}: the boot meter levels are published (only when the game has meters)`,
+			published?.map((m) => [m.id, typeof m.level, m.max]),
+			declared.length ? declared.map((m) => [m.id, 'number', m.maxLevel]) : undefined,
+		);
 		const bet = (await facade.requestBet({
 			sessionID: sid,
 			currency: 'EUR',

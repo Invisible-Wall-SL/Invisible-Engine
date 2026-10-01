@@ -87,6 +87,34 @@ it('the trigger opens the feature with what sticks, keeping the meters', () => {
 	assert.deepEqual(entered.meters, base.meters);
 });
 
+it('a meter cause empties the meters it consumed, and only those', () => {
+	const pots = play([
+		{
+			type: 'meterLevels',
+			meters: [
+				{ id: 'red', level: 12, max: 12 },
+				{ id: 'blue', level: 7, max: 12 },
+			],
+		},
+		{
+			type: 'holdAndWinTrigger',
+			mode: 'holdAndWin',
+			cause: 'meter',
+			payload: {
+				cells: [coin(0, 0, 1)],
+				respins: 3,
+				stickiness: 'allCoins',
+				activeModifiers: ['payer'],
+				meters: ['red'],
+			},
+		},
+	]);
+	assert.deepEqual(pots.meters, [
+		{ id: 'red', level: 0, max: 12 },
+		{ id: 'blue', level: 7, max: 12 },
+	]);
+});
+
 const respin = play(
 	[
 		{ type: 'coinsLand', cells: [{ reel: 2, row: 0, symbol: { name: 'BOOST', value: 2 } }] },

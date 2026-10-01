@@ -13,9 +13,19 @@
 	 * listeners (sound, FX). The beats themselves are `holdAndWinPresentation.ts`, run by the coded
 	 * handlers and by the flow effects (`showRespinBoard`, `spinRespin`, `stickCoins`,
 	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `boostCoins`,
-	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`);
-	 * broadcasting a cue does not move the board. `respinCollectStep` fires once per collected coin,
-	 * as its moment starts — the hook a per-coin sound (and, later, a flight) hangs on.
+	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`,
+	 * `fillMeter`, `playLuckySpinIntro`); broadcasting a cue does not move the board.
+	 * `respinCollectStep` fires once per collected coin, as its moment starts — the hook a per-coin
+	 * sound (and, later, a flight) hangs on.
+	 *
+	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
+	 * - `potFill` as a meter's specials take off (each landing is a `flightArrive` with flight
+	 *   `toMeter:<id>`), `potFull` when the update filled it;
+	 * - `potsConsume` as a `meter` trigger drains the meters it consumed, with what they activate;
+	 * - `luckySpinIntro` as the Lucky Spin banner goes up;
+	 * - `jackpotCelebration` for a banked jackpot (full board, letters, the wheel);
+	 * - `respinTallyStep` each time the Total Win bar steps in the feature end's tally — `total` is
+	 *   what the bar now reads; the last step (`index` = the coin count) adds the banked part.
 	 */
 	export type EmitterEventRespinBoard =
 		| { type: 'respinBoardShow' }
@@ -53,13 +63,32 @@
 				amount: number;
 				source: HoldAndWinJackpotSource;
 				banked: boolean;
-		  };
+		  }
+		| {
+				type: 'potFill';
+				meter: string;
+				level: number;
+				max: number;
+				full: boolean;
+				cells: HoldAndWinCell[];
+		  }
+		| { type: 'potFull'; meter: string }
+		| { type: 'potsConsume'; meters: string[]; activates: HoldAndWinSpecial[] }
+		| { type: 'luckySpinIntro' }
+		| {
+				type: 'jackpotCelebration';
+				tier: string;
+				amount: number;
+				source: HoldAndWinJackpotSource;
+		  }
+		| { type: 'respinTallyStep'; index: number; amount: number; total: number };
 </script>
 
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { BoardContainer, respinCellKey } from 'engine-game';
 
+	import HoldAndWinPots from './HoldAndWinPots.svelte';
 	import RespinCell from './RespinCell.svelte';
 	import RespinCounter from './RespinCounter.svelte';
 	import RespinHeldSymbol from './RespinHeldSymbol.svelte';
@@ -78,6 +107,10 @@
 	 * Inside it, nothing exists until `stateRespinBoard.shown`, and the reels themselves are not even
 	 * built until the first feature (`stateRespinBoard.svelte.ts`). A game that never receives a Hold
 	 * and Win event pays one empty container and one `stopButtonClick` subscription.
+	 *
+	 * The persistent meters' pots (`HoldAndWinPots`) share this container: they sit above the board in
+	 * the base game and the feature alike, and draw nothing — mount nothing — for a game whose config
+	 * declares no meters.
 	 */
 
 	const context = getContext();
@@ -108,4 +141,5 @@
 			<RespinCounter />
 		</BoardContainer>
 	{/if}
+	<HoldAndWinPots />
 </Container>

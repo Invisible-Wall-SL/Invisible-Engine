@@ -79,8 +79,10 @@ import {
 	boardCells,
 	holdAndWinState,
 	parseHoldAndWinCell,
+	readBootMeterLevels,
 	readHoldAndWinConfig,
 	translateHoldAndWinEvent,
+	type HoldAndWinMeterLevel,
 	type HoldAndWinTranslation,
 	type HoldAndWinWireConfig,
 } from './holdAndWin';
@@ -180,6 +182,21 @@ const publishServerConfig = (cfg: Play4FunConfigContext): void => {
 	};
 };
 
+/**
+ * Publish the persistent meters' BOOT levels to a global the GAME reads (`apps/lines`
+ * `seedHoldAndWinMeters`) — the same decoupled-global bridge as `__IE_SERVER_CONFIG__`. A meter level
+ * is server state that changes only by `meterUpdate` and is restated by `meterLevels` after every
+ * `play`; before the first play the boot `config` is the only place it travels, so without this the
+ * pots read empty until the player spins. Written only for a Hold and Win server that declares
+ * meters, so every other server leaves the global undefined and the game seeds nothing.
+ */
+const publishHoldAndWinMeters = (meters: HoldAndWinMeterLevel[]): void => {
+	if (meters.length === 0) return;
+	(
+		globalThis as { __IE_HOLD_AND_WIN_METERS__?: HoldAndWinMeterLevel[] }
+	).__IE_HOLD_AND_WIN_METERS__ = meters;
+};
+
 /** Capture the boot config (first one wins). Returns the captured config so
  *  callers can immediately run the cross-check on the same data. */
 const captureConfig = (
@@ -194,7 +211,10 @@ const captureConfig = (
 	const detected = pickMappingForConfig(cfg);
 	if (detected) activeMapping = detected;
 	const holdAndWin = readHoldAndWinConfig(cfg);
-	if (holdAndWin) capturedHoldAndWin.set(sid, holdAndWin);
+	if (holdAndWin) {
+		capturedHoldAndWin.set(sid, holdAndWin);
+		publishHoldAndWinMeters(readBootMeterLevels(cfg));
+	}
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
 	// The bet-option table, when the server declares one. Null leaves every bet on the legacy lines

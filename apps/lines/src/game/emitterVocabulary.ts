@@ -661,6 +661,110 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'potFill',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'meter',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'level',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'max',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'full',
+					kind: 'boolean',
+					required: true,
+				},
+				{
+					key: 'cells',
+					kind: 'list',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'potFull',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'meter',
+					kind: 'string',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'potsConsume',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'meters',
+					kind: 'list',
+					required: true,
+				},
+				{
+					key: 'activates',
+					kind: 'list',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'luckySpinIntro',
+			group: 'Hold and Win',
+		},
+		{
+			type: 'jackpotCelebration',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'tier',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'amount',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'source',
+					kind: 'object',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'respinTallyStep',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'index',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'amount',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'total',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'transition',
 			group: 'Transition',
 		},
@@ -801,6 +905,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'showJackpotWin',
+			group: 'Effect',
+		},
+		{
+			name: 'fillMeter',
+			group: 'Effect',
+		},
+		{
+			name: 'playLuckySpinIntro',
 			group: 'Effect',
 		},
 		{

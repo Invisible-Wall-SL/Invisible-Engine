@@ -117,7 +117,13 @@ export {
 	type RespinBoardCell,
 	type RespinBoardDeps,
 } from './src/game/respinBoard.svelte';
-export { countSteps, staggerDelays, type CountStep } from './src/game/respinCount';
+export {
+	countSteps,
+	staggerDelays,
+	tallyCountUp,
+	type CountStep,
+	type TallyCountUp,
+} from './src/game/respinCount';
 export { type EmitterEventFlight } from './src/game/flight';
 export {
 	curveLength,

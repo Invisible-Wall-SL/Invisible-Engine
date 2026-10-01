@@ -78,11 +78,14 @@ import {
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
 	presentJackpotWin,
+	presentLuckySpin,
+	presentMeterUpdate,
 	presentMysteryReveal,
 	presentRespinReveal,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
 } from './holdAndWinPresentation';
+import { luckySpinArming, takeLuckySpinReveal } from './luckySpin';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { FLIGHT_TO_TOTAL } from './holdAndWinFlights';
@@ -91,6 +94,7 @@ import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import type { WinLineShape } from '../components/WinLine.svelte';
 import {
+	activeBigTiers,
 	activeBigTierThresholds,
 	activeWinLevelData,
 	activeWinModel,
@@ -1015,6 +1019,10 @@ export const presentReveal = async ({
 		recordBookEvent({ bookEvent });
 	}
 
+	// The Lucky Spin intro armed THIS reveal (`luckySpin.ts`): taken here, by every reveal, so the
+	// one-shot never outlives the spin it was armed for.
+	const lucky = takeLuckySpinReveal();
+
 	stateGame.gameType = bookEvent.gameType;
 	// A new board ⇒ last spin's expansion is over. Cleared BEFORE the board arrives so a `winInfo` can
 	// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
@@ -1086,7 +1094,12 @@ export const presentReveal = async ({
 		// rest, so a policy passed at only one of them silently never arms on the other. That is what
 		// this function being shared buys. Off by default ⇒ `undefined` (parity), and it returns
 		// `undefined` on a swap-in-place board for the same reason as above.
-		computeArming: buildAnticipationArming(bookEvent),
+		//
+		// A LUCKY SPIN anticipates on every reel instead — announced by the server, not reached by the
+		// board — whether or not the project turned the reach-based mode on.
+		computeArming: lucky
+			? luckySpinArming(activeBigTiers()[0]?.alias ?? null)
+			: buildAnticipationArming(bookEvent),
 	});
 };
 
@@ -1218,7 +1231,8 @@ const effects: Record<string, FlowEffect> = {
 	 * - `stickCoins` (`coinsLand`) — the landed cells stick and play `land`.
 	 * - `setRespinCounter` (`respinUpdate`) — move the counter; a reset is its own beat.
 	 * - `restoreRespinBoard` (`holdAndWinState`) — the server's picture; rebuilds the board on resume.
-	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, then swap back.
+	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, fly the tally into the Total Win
+	 *   bar (counting up per coin), then swap back.
 	 * - `payCoins` (`coinPay`) — the payer plays `win`, then every coin's label counts up.
 	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
 	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
@@ -1226,7 +1240,15 @@ const effects: Record<string, FlowEffect> = {
 	 * - `revealMystery` (`mysteryReveal`) — each mystery opens and lands as what it revealed; an
 	 *   unlocked modifier gets its toast.
 	 * - `clearRespinCells` (`cellsCleared`) — a streak's collected cells play `clearReel` and go.
-	 * - `showJackpotWin` (`jackpotWin`) — a jackpot coin highlights; a banked jackpot gets a toast.
+	 * - `showJackpotWin` (`jackpotWin`) — a banked jackpot is a held celebration banner (tier +
+	 *   amount); a jackpot coin in the tally lights with a small banner.
+	 * - `fillMeter` (`meterUpdate`) — the base-game specials fly into their pot, which ticks up a
+	 *   level per arrival and pulses when full.
+	 * - `playLuckySpinIntro` (`luckySpin`) — the "LUCKY SPIN" banner; arms the next reveal to
+	 *   anticipate on every reel and to run unskippable.
+	 *
+	 * `showRespinBoard` also drains the meters a `meter` trigger consumed ("<KIND> ACTIVE"), and
+	 * `hideRespinBoard` counts the Total Win bar up coin by coin as the tally lands in it.
 	 */
 	showRespinBoard: (payload) =>
 		presentHoldAndWinTrigger(payload.bookEvent as BookEventOfType<'holdAndWinTrigger'>),
@@ -1251,6 +1273,8 @@ const effects: Record<string, FlowEffect> = {
 		presentCellsCleared(payload.bookEvent as BookEventOfType<'cellsCleared'>),
 	showJackpotWin: (payload) =>
 		presentJackpotWin(payload.bookEvent as BookEventOfType<'jackpotWin'>),
+	fillMeter: (payload) => presentMeterUpdate(payload.bookEvent as BookEventOfType<'meterUpdate'>),
+	playLuckySpinIntro: () => presentLuckySpin(),
 
 	/**
 	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`
