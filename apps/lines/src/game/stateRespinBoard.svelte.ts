@@ -1,3 +1,4 @@
+import { Tween } from 'svelte/motion';
 import {
 	createRespinBoard,
 	releasedCells,
@@ -5,6 +6,7 @@ import {
 	respinSeedBoard,
 	respinSpins,
 	type HoldAndWinCell,
+	type Position,
 	type RawSymbol,
 	type RespinBoard,
 	type SymbolState,
@@ -28,6 +30,9 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  * game that never receives a Hold and Win event never constructs one; until then this module is a
  * few empty fields.
  */
+/** A count-up in flight on a held cell's label: which field it stands in for, and its tween. */
+export type HeldDisplay = { field: 'value' | 'factor'; tween: Tween<number> };
+
 export const stateRespinBoard = $state({
 	/** Is the respin board up in place of the reel board? */
 	shown: false,
@@ -37,8 +42,19 @@ export const stateRespinBoard = $state({
 	 * the picture while the board is still on screen showing what it paid.
 	 */
 	held: [] as HoldAndWinCell[],
-	/** A held cell's presentation state, by `respinCellKey` — `land` while it sticks, else `static`. */
+	/**
+	 * A held cell's presentation state, by `respinCellKey` — a beat's state while it plays (`land` as
+	 * it sticks, `win` as a special applies or a coin is collected, `explosion` as a mystery opens,
+	 * `clearReel` as a streak clears), else `static`.
+	 */
 	heldState: {} as Record<string, SymbolState>,
+	/**
+	 * What a held cell's LABEL reads while a count-up runs, by `respinCellKey` — the value (or a
+	 * jackpot's factor) on its way from what the cell showed to what the server says it is now.
+	 * Presentation only: the recorded picture already holds the final value the moment the event is
+	 * played, and the label falls back to it when the count ends ({@link releaseHeldDisplay}).
+	 */
+	heldDisplay: {} as Record<string, HeldDisplay>,
 	counter: { show: false, left: 0, start: 0, resets: 0 },
 });
 
@@ -97,6 +113,7 @@ export const syncHeldCells = () => {
 	for (const { reel, row } of releasedCells(stateRespinBoard.held, next)) {
 		board?.settleCell(reel, row, { name: respinBlank() });
 		delete stateRespinBoard.heldState[respinCellKey(reel, row)];
+		delete stateRespinBoard.heldDisplay[respinCellKey(reel, row)];
 	}
 	stateRespinBoard.held = next;
 };
@@ -115,6 +132,7 @@ export const showRespinBoard = ({ seedFromBaseBoard }: { seedFromBaseBoard: bool
 	const respinBoard = ensureBoard();
 	stateRespinBoard.held = $state.snapshot(stateHoldAndWin.cells);
 	stateRespinBoard.heldState = {};
+	stateRespinBoard.heldDisplay = {};
 	const baseBoard = seedFromBaseBoard ? stateGameDerived.boardRaw() : undefined;
 	respinBoard.settle(
 		respinSeedBoard({
@@ -136,6 +154,7 @@ export const hideRespinBoard = () => {
 	stateRespinBoard.shown = false;
 	stateRespinBoard.held = [];
 	stateRespinBoard.heldState = {};
+	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.counter.show = false;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
@@ -159,31 +178,72 @@ export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 /** Pending beats of held cells, resolved by the cell's `oncomplete`. Never read reactively. */
 const heldBeats: Record<string, () => void> = {};
 
-/** Put these held cells on `land` and return their keys, for the caller to arm and await. */
-export const startHeldLand = (cells: HoldAndWinCell[]): string[] =>
-	cells.map((cell) => {
-		const key = respinCellKey(cell.reel, cell.row);
-		stateRespinBoard.heldState[key] = 'land';
-		return key;
-	});
+/**
+ * Put the held cells at these positions on `state` and return their keys, for the caller to arm and
+ * await. A position the held layer does not draw is skipped — nothing there could ever report.
+ */
+export const startHeldBeat = (cells: Position[], state: SymbolState): string[] => {
+	const held = stateRespinBoard.held.map((cell) => respinCellKey(cell.reel, cell.row));
+	return cells
+		.map((cell) => respinCellKey(cell.reel, cell.row))
+		.filter((key, i, keys) => held.includes(key) && keys.indexOf(key) === i)
+		.map((key) => {
+			stateRespinBoard.heldState[key] = state;
+			return key;
+		});
+};
 
 /** Arm a held cell's beat: the next completion it reports resolves `resolve`. */
 export const armHeldBeat = (key: string, resolve: () => void) => {
 	heldBeats[key] = resolve;
 };
 
-/** A held cell reported its animation complete: a `land` settles to `static`, its beat resolves. */
+/**
+ * The states a held cell plays on its way OUT — a mystery opening before it becomes something else,
+ * a streak's coin leaving. They are not settled back to `static` (that would show the old symbol
+ * again for a frame); the sync that follows replaces or removes the cell.
+ */
+const TERMINAL_STATES: ReadonlySet<SymbolState> = new Set(['explosion', 'clearReel']);
+
+const settles = (state: SymbolState | undefined, terminal: boolean) =>
+	state !== undefined && state !== 'static' && (terminal || !TERMINAL_STATES.has(state));
+
+/** A held cell reported its animation complete: its beat state settles to `static` (a terminal one
+ *  holds), its beat resolves. */
 export const completeHeldBeat = (key: string) => {
-	if (stateRespinBoard.heldState[key] === 'land') stateRespinBoard.heldState[key] = 'static';
+	if (settles(stateRespinBoard.heldState[key], false)) stateRespinBoard.heldState[key] = 'static';
 	const resolve = heldBeats[key];
 	delete heldBeats[key];
 	resolve?.();
 };
 
-/** Settle every held cell still on `land` — a beat whose cap won must not leave a cell mid-state. */
-export const settleHeldLand = () => {
-	for (const key of Object.keys(stateRespinBoard.heldState)) {
-		if (stateRespinBoard.heldState[key] === 'land') stateRespinBoard.heldState[key] = 'static';
+/**
+ * Settle these held cells back to `static` — a beat whose cap or a slam won must not leave a cell
+ * mid-state. A terminal state holds unless `terminal` (a cell that played its way out and was not,
+ * after all, replaced or removed).
+ */
+export const settleHeldBeats = (keys: string[], { terminal = false } = {}) => {
+	for (const key of keys) {
+		if (settles(stateRespinBoard.heldState[key], terminal)) {
+			stateRespinBoard.heldState[key] = 'static';
+		}
 		delete heldBeats[key];
 	}
+};
+
+/**
+ * Start a count-up on a held cell's label at `from` and return its tween; the caller moves it
+ * (`tween.set`) and ends it with {@link releaseHeldDisplay}. A count already running on that cell is
+ * replaced — the newest beat owns the label.
+ */
+export const holdHeldDisplay = (key: string, field: HeldDisplay['field'], from: number) => {
+	const tween = new Tween(from);
+	stateRespinBoard.heldDisplay[key] = { field, tween };
+	return tween;
+};
+
+/** End a count-up: the label reads the cell's recorded value again. A no-op if a later count (or a
+ *  board that came down) already replaced this one. */
+export const releaseHeldDisplay = (key: string, tween: Tween<number>) => {
+	if (stateRespinBoard.heldDisplay[key]?.tween === tween) delete stateRespinBoard.heldDisplay[key];
 };

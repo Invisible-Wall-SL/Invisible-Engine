@@ -69,12 +69,19 @@ import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from '
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import { hideRespinBoard, stateRespinBoard } from './stateRespinBoard.svelte';
 import {
+	presentCellsCleared,
+	presentCoinBoost,
+	presentCoinCollect,
+	presentCoinPay,
 	presentCoinsLand,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
+	presentJackpotWin,
+	presentMysteryReveal,
 	presentRespinReveal,
 	presentRespinUpdate,
+	presentSpecialBecomesCoin,
 } from './holdAndWinPresentation';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';
@@ -1200,6 +1207,14 @@ const effects: Record<string, FlowEffect> = {
 	 * - `setRespinCounter` (`respinUpdate`) — move the counter; a reset is its own beat.
 	 * - `restoreRespinBoard` (`holdAndWinState`) — the server's picture; rebuilds the board on resume.
 	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, then swap back.
+	 * - `payCoins` (`coinPay`) — the payer plays `win`, then every coin's label counts up.
+	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
+	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
+	 * - `collectCoins` (`coinCollect`) — each coin pulses, the collector's label climbs.
+	 * - `revealMystery` (`mysteryReveal`) — each mystery opens and lands as what it revealed; an
+	 *   unlocked modifier gets its toast.
+	 * - `clearRespinCells` (`cellsCleared`) — a streak's collected cells play `clearReel` and go.
+	 * - `showJackpotWin` (`jackpotWin`) — a jackpot coin highlights; a banked jackpot gets a toast.
 	 */
 	showRespinBoard: (payload) =>
 		presentHoldAndWinTrigger(payload.bookEvent as BookEventOfType<'holdAndWinTrigger'>),
@@ -1212,6 +1227,18 @@ const effects: Record<string, FlowEffect> = {
 		presentHoldAndWinState(payload.bookEvent as BookEventOfType<'holdAndWinState'>),
 	hideRespinBoard: (payload) =>
 		presentHoldAndWinEnd(payload.bookEvent as BookEventOfType<'holdAndWinEnd'>),
+	payCoins: (payload) => presentCoinPay(payload.bookEvent as BookEventOfType<'coinPay'>),
+	boostCoins: (payload) => presentCoinBoost(payload.bookEvent as BookEventOfType<'coinBoost'>),
+	turnSpecialIntoCoin: (payload) =>
+		presentSpecialBecomesCoin(payload.bookEvent as BookEventOfType<'specialBecomesCoin'>),
+	collectCoins: (payload) =>
+		presentCoinCollect(payload.bookEvent as BookEventOfType<'coinCollect'>),
+	revealMystery: (payload) =>
+		presentMysteryReveal(payload.bookEvent as BookEventOfType<'mysteryReveal'>),
+	clearRespinCells: (payload) =>
+		presentCellsCleared(payload.bookEvent as BookEventOfType<'cellsCleared'>),
+	showJackpotWin: (payload) =>
+		presentJackpotWin(payload.bookEvent as BookEventOfType<'jackpotWin'>),
 
 	/** Set the win-meter amount (`setTotalWin`). */
 	setWinBookEventAmount: (payload) => {

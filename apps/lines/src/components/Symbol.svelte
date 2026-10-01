@@ -56,6 +56,12 @@
 		 * touches no container property and is byte-identical to before this prop existed.
 		 */
 		tint?: number;
+		/**
+		 * What the coin label READS instead of `rawSymbol`'s own value / factor — a Hold and Win count-up
+		 * in flight (`stateRespinBoard.heldDisplay`). Only the label follows it, so a label ticking
+		 * every frame never re-resolves the art. Omitted everywhere else.
+		 */
+		labelOverride?: Pick<RawSymbol, 'value' | 'factor'>;
 	};
 
 	const props: Props = $props();
@@ -72,7 +78,11 @@
 	 * with no art bound — the value is what the player reads — and it sits in its own band after the
 	 * win frame's, so a frame mounting later on `win` cannot land on top of it.
 	 */
-	const coinLabel = $derived(coinLabelFor(props.rawSymbol));
+	const coinLabel = $derived(
+		coinLabelFor(
+			props.labelOverride ? { ...props.rawSymbol, ...props.labelOverride } : props.rawSymbol,
+		),
+	);
 	/**
 	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
 	 * (`symbolStateLoopsByDefault`) — loop for a state that says how a symbol IS, one-shot for a
