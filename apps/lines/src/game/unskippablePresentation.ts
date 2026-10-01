@@ -93,8 +93,15 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
  * never re-arms mid-round and keeps exactly the round-scoped slam the owner approved. A RETRIGGER
  * needs no special case for the same reason: extra free spins arrive as more `updateFreeSpin` events,
  * each re-arming its own spin.
+ *
+ * `respinReveal` is the same unit in a Hold and Win feature: the first event of every respin, and
+ * sent ONLY inside one (the facade emits it for a respin's board and nowhere else), so a press slams
+ * the respin that is rolling and the next one rolls at full pace.
  */
-export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeSpin']);
+export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
+	'updateFreeSpin',
+	'respinReveal',
+]);
 
 /**
  * Does this book event OPEN A CELEBRATION the player must actually watch — the one a slam must never

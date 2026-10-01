@@ -191,6 +191,7 @@
 		stateGame,
 		stateGameDerived,
 	} from '../game/stateGame.svelte';
+	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -239,6 +240,7 @@
 	import SpecialBook from './SpecialBook.svelte';
 	import TumbleBoard from './TumbleBoard.svelte';
 	import MultiplierBoard from './MultiplierBoard.svelte';
+	import RespinBoard from './RespinBoard.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -675,6 +677,9 @@
 		// `freeSpinTrigger` handler (before the intro shows) so it's populated while the intro
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
+		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
+		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
+		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
 		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
 		// presents the retrigger.
@@ -760,6 +765,8 @@
 	// self-show/hide.
 	registerComponentVisibility({
 		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
+		// Hold and Win: true while the respin counter is up — the whole feature, trigger to end.
+		respinCounterShow: boolSource(() => stateRespinBoard.counter.show),
 		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
 		// is active, so the bar shows only when there's a message and hides on the existing
 		// auto-clear — the engine-layout equivalent of the coded HTML `MessageToast`.
@@ -2073,6 +2080,9 @@
 					 for an author to move. -->
 			<TumbleBoard />
 			<MultiplierBoard />
+			<!-- The Hold and Win respin board — an unconditional, empty container until a feature puts
+			     the per-cell board up in the reels' place (`RespinBoard.svelte`). -->
+			<RespinBoard />
 		{/snippet}
 
 		<MainContainer>

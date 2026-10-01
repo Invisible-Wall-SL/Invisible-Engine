@@ -67,6 +67,15 @@ import { type WinLevelData } from 'engine-game';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
+import { hideRespinBoard, stateRespinBoard } from './stateRespinBoard.svelte';
+import {
+	presentCoinsLand,
+	presentHoldAndWinEnd,
+	presentHoldAndWinState,
+	presentHoldAndWinTrigger,
+	presentRespinReveal,
+	presentRespinUpdate,
+} from './holdAndWinPresentation';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
@@ -992,6 +1001,12 @@ export const presentReveal = async ({
 	// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
 	stateGame.expandedSymbol = null;
 
+	// A base reveal always plays on the REEL board. A Hold and Win feature whose end never arrived (a
+	// respin the server refused mid-feature, so the book stops short of `holdAndWinEnd`) would
+	// otherwise leave the respin board up over reels rolling unseen. False for every game that never
+	// ran a feature, so this is one boolean read.
+	if (stateRespinBoard.shown) hideRespinBoard();
+
 	// THE OPERATOR'S MINIMUM SPIN DURATION: this spin's result may not show sooner than
 	// `minSpinDuration` after the spin started — the press for a paid round's first reveal
 	// (`newGame` marked it), this reveal's own start for a free spin or a resumed round
@@ -1173,6 +1188,30 @@ const effects: Record<string, FlowEffect> = {
 	disableStackedPictures: () => {
 		stateGame.stackedPictureMode = false;
 	},
+
+	/**
+	 * THE HOLD AND WIN RESPIN BOARD (design §4.2) — one effect per beat, each fed its book event as
+	 * `bookEvent` the way `revealBoard` is, and each the SAME function the coded handler of that event
+	 * calls (`holdAndWinPresentation.ts`), so a flow-driven game and a coded one present it alike.
+	 *
+	 * - `showRespinBoard` (`holdAndWinTrigger`) — swap to the respin board, triggering coins held.
+	 * - `spinRespin` (`respinReveal`) — spin the free cells onto the revealed symbols.
+	 * - `stickCoins` (`coinsLand`) — the landed cells stick and play `land`.
+	 * - `setRespinCounter` (`respinUpdate`) — move the counter; a reset is its own beat.
+	 * - `restoreRespinBoard` (`holdAndWinState`) — the server's picture; rebuilds the board on resume.
+	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, then swap back.
+	 */
+	showRespinBoard: (payload) =>
+		presentHoldAndWinTrigger(payload.bookEvent as BookEventOfType<'holdAndWinTrigger'>),
+	spinRespin: (payload) =>
+		presentRespinReveal(payload.bookEvent as BookEventOfType<'respinReveal'>),
+	stickCoins: (payload) => presentCoinsLand(payload.bookEvent as BookEventOfType<'coinsLand'>),
+	setRespinCounter: (payload) =>
+		presentRespinUpdate(payload.bookEvent as BookEventOfType<'respinUpdate'>),
+	restoreRespinBoard: (payload) =>
+		presentHoldAndWinState(payload.bookEvent as BookEventOfType<'holdAndWinState'>),
+	hideRespinBoard: (payload) =>
+		presentHoldAndWinEnd(payload.bookEvent as BookEventOfType<'holdAndWinEnd'>),
 
 	/** Set the win-meter amount (`setTotalWin`). */
 	setWinBookEventAmount: (payload) => {

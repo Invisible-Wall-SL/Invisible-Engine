@@ -104,6 +104,19 @@ export {
 	type HoldAndWinWheelPrize,
 	isHoldAndWinEvent,
 } from './src/game/holdAndWin';
+export {
+	releasedCells,
+	respinCellKey,
+	respinSeedBoard,
+	respinSpins,
+	type RespinSpin,
+} from './src/game/respinBoard';
+export {
+	createRespinBoard,
+	type RespinBoard,
+	type RespinBoardCell,
+	type RespinBoardDeps,
+} from './src/game/respinBoard.svelte';
 export { type EmitterEventFlight } from './src/game/flight';
 export { coinLabelText } from './src/game/coinLabel';
 

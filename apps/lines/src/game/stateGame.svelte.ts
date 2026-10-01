@@ -72,6 +72,8 @@ const gameState = createGameState<GameType>({
 });
 
 export const {
+	cellSymbolLead,
+	cellWindow,
 	stateGame,
 	stateGameDerived,
 	setBoardOverride,

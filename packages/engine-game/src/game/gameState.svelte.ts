@@ -735,6 +735,28 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		return rowIndex + grid.rowOffsetForReel(reelIndex);
 	};
 
+	/**
+	 * The resting LEAD a ONE-CELL reel at `(reel, row)` needs so its visible symbol rests on exactly
+	 * that cell's seat — the column reel's own lead (`buildBoard`) plus the row, so the two kinds of
+	 * reel place a symbol by one expression. Read only by the Hold and Win respin board.
+	 */
+	const cellSymbolLead = (reelIndex: number, rowIndex: number) =>
+		getSymbolLead() + rowSeatIndex(reelIndex, rowIndex);
+
+	/**
+	 * ONE CELL's visible window in board-local px — `{ top, height }` — the per-cell analogue of
+	 * {@link boardWindowForReel}, and what a one-cell reel's mask clips at. Flat, the row's own pitch
+	 * band; under perspective, the running depth sum sampled at the cell's two row boundaries.
+	 */
+	const cellWindow = (reelIndex: number, rowIndex: number) => {
+		const { rowPitchLocal } = boardGeometry();
+		const seatRow = rowSeatIndex(reelIndex, rowIndex);
+		const model = boardPerspective();
+		if (!model) return { top: seatRow * rowPitchLocal, height: rowPitchLocal };
+		const top = rowPitchLocal * perspectiveRowSum(model, seatRow);
+		return { top, height: rowPitchLocal * perspectiveRowSum(model, seatRow + 1) - top };
+	};
+
 	const getSymbolSeat = (reelIndex: number, rowIndex: number) => {
 		const model = boardPerspective();
 		const seatRow = rowSeatIndex(reelIndex, rowIndex);
@@ -1359,6 +1381,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	return {
+		cellSymbolLead,
+		cellWindow,
 		getSymbolX,
 		getSymbolY,
 		getSymbolSeat,

@@ -15,6 +15,15 @@ import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import {
+	presentCoinsLand,
+	presentHoldAndWinEnd,
+	presentHoldAndWinState,
+	presentHoldAndWinTrigger,
+	presentRespinReveal,
+	presentRespinUpdate,
+	syncHoldAndWin,
+} from './holdAndWinPresentation';
+import {
 	presentReveal,
 	winLevelSoundsPlay,
 	winLevelSoundsStop,
@@ -31,14 +40,6 @@ import {
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
 import { bakedWinLineConfig } from '../editor-scenes';
-
-/**
- * The Hold and Win events' DEFAULT handler: nothing presented. Their state (`stateHoldAndWin`) is
- * recorded at the play seam (`createPlayBook`'s `recordBookEvent`, `utils.ts`) for every path, so a
- * flow that owns one reads the same picture. The presentation arrives beat by beat (design §6
- * Phase 4); until a beat has one, the round carries on exactly as before.
- */
-const recordHoldAndWin = async () => {};
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	/**
@@ -384,26 +385,29 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 	},
 
-	luckySpin: recordHoldAndWin,
-	meterUpdate: recordHoldAndWin,
-	meterLevels: recordHoldAndWin,
-	coinInstantCollect: recordHoldAndWin,
-	randomMetreTrigger: recordHoldAndWin,
-	holdAndWinTrigger: recordHoldAndWin,
-	holdAndWinWheel: recordHoldAndWin,
-	respinReveal: recordHoldAndWin,
-	coinsLand: recordHoldAndWin,
-	mysteryReveal: recordHoldAndWin,
-	coinPay: recordHoldAndWin,
-	coinBoost: recordHoldAndWin,
-	specialBecomesCoin: recordHoldAndWin,
-	coinCollect: recordHoldAndWin,
-	cellsCleared: recordHoldAndWin,
-	columnComplete: recordHoldAndWin,
-	jackpotWin: recordHoldAndWin,
-	respinUpdate: recordHoldAndWin,
-	holdAndWinState: recordHoldAndWin,
-	holdAndWinEnd: recordHoldAndWin,
+	// Hold and Win (design §4.3). The respin board's beats are presented (`holdAndWinPresentation.ts`,
+	// shared with their flow effects); every other event is recorded and the held layer follows it
+	// until its own beat ships.
+	luckySpin: syncHoldAndWin,
+	meterUpdate: syncHoldAndWin,
+	meterLevels: syncHoldAndWin,
+	coinInstantCollect: syncHoldAndWin,
+	randomMetreTrigger: syncHoldAndWin,
+	holdAndWinTrigger: presentHoldAndWinTrigger,
+	holdAndWinWheel: syncHoldAndWin,
+	respinReveal: presentRespinReveal,
+	coinsLand: presentCoinsLand,
+	mysteryReveal: syncHoldAndWin,
+	coinPay: syncHoldAndWin,
+	coinBoost: syncHoldAndWin,
+	specialBecomesCoin: syncHoldAndWin,
+	coinCollect: syncHoldAndWin,
+	cellsCleared: syncHoldAndWin,
+	columnComplete: syncHoldAndWin,
+	jackpotWin: syncHoldAndWin,
+	respinUpdate: presentRespinUpdate,
+	holdAndWinState: presentHoldAndWinState,
+	holdAndWinEnd: presentHoldAndWinEnd,
 
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing
