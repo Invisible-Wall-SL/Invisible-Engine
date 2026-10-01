@@ -11,7 +11,12 @@ export { bookofReferenceLayout } from './bookof';
 export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
-export { holdAndWinReferenceLayout } from './holdAndWin';
+export {
+	holdAndWinReferenceLayout,
+	HOLD_AND_WIN_BOARD,
+	HOLD_AND_WIN_HOTFIRE_BOARD,
+	HOLD_AND_WIN_MODE,
+} from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
 // editor's "Add HUD layer" action + a game's fallback doc.
 export {
@@ -55,7 +60,8 @@ const FULL_SCENE_SOURCES: Record<string, { name: string; build: () => LayoutDoc;
 		ways: { name: 'Ways', build: () => waysReferenceLayout(), filled: true },
 		cluster: { name: 'Cluster', build: () => clusterReferenceLayout() },
 		scatter: { name: 'Scatter', build: () => scatterReferenceLayout() },
-		// A 5×3 engine-skeleton placeholder until Hold and Win Phase 6 ships the real template.
+		// Hold and Win (Phase 6): the respin feature's screens on the engine skeleton — one set for
+		// all three reference games. Engine pieces only (no art), so scaffold-only like the skeletons.
 		holdAndWin: { name: 'Hold and Win', build: () => holdAndWinReferenceLayout() },
 	};
 

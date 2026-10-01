@@ -472,6 +472,18 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
+- 2026-10-01 — **Phase 6 (in progress, branch `claude/hw-phase6-scene-template`, NOT merged):** the
+  `holdAndWin` scene set + template (one set for Grand / Hotfire 3×3 / 3 Pots), 7 kind-gated
+  components (`ComponentDef.capability`, palette filter `componentOfferedForKind`), the `infoBar`
+  message host in `basegame`, `featureTotal` / `jackpot.<name>` / banner sources, coded parts
+  PotMeter / LettersStrip / HoldAndWinWheel, mount-based step-aside of the coded counter + pots
+  (`isComponentMounted`), Background shows the feature backdrop for `respin`. Fixture
+  `packages/engine-layout/scripts/test-hold-and-win-template.mjs` pins existing kinds byte-identical.
+  Svelte-check + eslint green. **Owed before merge:** code review, Borut parity boot, hw-3pots-sample
+  toast check, PR. **Phase 5 must** showContainer `jackpotBar`/`pots` at start and the mode screens
+  from the Mode trigger, and step the coded banner aside when it shows `luckySpin`/`jackpotWin`.
+  Intro/outro/wheel/luckySpin are flow-held screens; `jackpotBar` is not mode-tagged (always shown).
+
 - 2026-10-01 — **Phase 8 part 1: Win Text families + gating** (branch `claude/hw-phase8-win-text`).
   `WinTextDoc` gains `jackpots` / `respins` / `feature`, with defaults equal to the presentation's
   literals where it draws one (six fields are new copy with no draw site yet); `/win-text` shows them only for `holdAndWin` and hides `toast.expanded` without

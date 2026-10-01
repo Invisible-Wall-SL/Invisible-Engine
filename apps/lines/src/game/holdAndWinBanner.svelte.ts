@@ -9,6 +9,9 @@
  */
 export type HoldAndWinBannerView = {
 	id: number;
+	/** Which beat put it up — what the authored `luckySpin` / `jackpotWin` screens gate on
+	 *  (`luckySpinShow`, `jackpotWinShow`). */
+	kind: 'luckySpin' | 'jackpot' | 'coinJackpot' | 'instantWin' | 'wheelPrize';
 	title: string;
 	detail?: string;
 	size: 'large' | 'small';

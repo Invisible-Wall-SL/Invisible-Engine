@@ -76,6 +76,7 @@
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
+	import { trackComponentMount } from './mountedComponents';
 	import {
 		isTapToContinueEnabled,
 		tapSignalOf,
@@ -178,6 +179,10 @@
 		depth: parentNest.depth + 1,
 		visited: new Set([...parentNest.visited, node.componentId]),
 	});
+
+	// Count this instance in while it is mounted, so a coded default can step aside for it
+	// (`isComponentMounted` — the respin counter, the pots). Only a resolved, expanding instance counts.
+	$effect(() => (allowed ? untrack(() => trackComponentMount(node.componentId)) : undefined));
 
 	// Param threading (§13.2 / Phase B1+B4.5): resolve the instance's effective
 	// params — def defaults ◁ PER-PROJECT defaults (the B3 sidecar the game

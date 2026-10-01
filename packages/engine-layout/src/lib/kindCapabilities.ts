@@ -21,8 +21,7 @@ export interface KindCapabilityConfig {
 }
 
 export interface KindCapabilities {
-	/** Free-spin scenes, counter and states. Off for Hold and Win, whose feature is the respins
-	 *  (its Phase 1 placeholder scene set still carries the skeleton's free-spin scenes). */
+	/** Free-spin scenes, counter and states. Off for Hold and Win, whose feature is the respins. */
 	freeSpins: boolean;
 	/** The Book-of special symbol: its reveal/expand beats and the `bookIntro`/`bookIdle` states. */
 	bookReveal: boolean;

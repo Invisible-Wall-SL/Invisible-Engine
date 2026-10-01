@@ -182,6 +182,60 @@ export const VALUE_SOURCE_KEYS: string[] = [
 export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key);
 
 /**
+ * The Hold and Win feeds (design `docs/design/hold-and-win.md` §5): what the kind-gated respin
+ * counter, jackpot bar, total win bar and celebration screens bind. Kept OUT of
+ * {@link ENGINE_PARAM_CATALOG} so the source dropdowns of every existing component stay exactly as
+ * they were for every other kind; a Text Box keeps one of these as its value all the same (a custom
+ * source is preserved as an option). A pot reads `meter.<id>.level` / `meter.<id>.max` itself, from
+ * its `meter` param, because the ids are the project's own.
+ */
+export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
+	{
+		key: 'respinsLeft',
+		kind: 'number',
+		label: 'Respins Left',
+		note: 'Respins left on the counter — resets to the start count when a coin lands.',
+	},
+	{
+		key: 'activeModifiers',
+		kind: 'string',
+		label: 'Active Modifiers',
+		note: 'The specials active in this feature, "PAYER · MULTIPLIER" (entry + mystery unlocks).',
+	},
+	{
+		key: 'featureTotal',
+		kind: 'number',
+		label: 'Feature Total',
+		note: 'What the Total Win bar reads — counts up coin by coin as the feature ends.',
+	},
+	...['mini', 'minor', 'major', 'grand'].map((tier): EngineParamEntry => ({
+		key: `jackpot.${tier}`,
+		kind: 'number',
+		label: `Jackpot ${tier.toUpperCase()}`,
+		note: `The ${tier.toUpperCase()} jackpot's value at the current bet (multiplier × total bet).`,
+	})),
+	{
+		key: 'holdAndWinBanner',
+		kind: 'string',
+		label: 'Feature Banner',
+		note: 'The headline of the beat on screen — "LUCKY SPIN", "GRAND JACKPOT".',
+	},
+	{
+		key: 'holdAndWinBannerDetail',
+		kind: 'string',
+		label: 'Feature Banner Detail',
+		note: 'The line under it — the jackpot amount.',
+	},
+];
+
+export const HOLD_AND_WIN_VALUE_SOURCE_KEYS: string[] = HOLD_AND_WIN_PARAM_CATALOG.map(
+	(p) => p.key,
+);
+
+/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature. */
+export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = ['respinCounterShow'];
+
+/**
  * The boolean show/hide feeds a `visibleSource` param can bind to — the keys a game
  * registers via `registerComponentVisibility`. The editor renders the `visibleSource`
  * param as a dropdown of these (instead of a free-text box, where the exact source
