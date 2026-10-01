@@ -6,6 +6,8 @@
  *      are on for every built-in kind and for a custom kind, and off for `holdAndWin` alone.
  *   2. COLUMNS — `visibleStatesFor` gives every existing kind exactly the columns it had before the
  *      Hold and Win states existed, under every gate; `holdAndWin` gets those eight and no book ones.
+ *      `symbolStatesForKind` (the Scene Editor's state pickers) hides the eight Hold and Win states
+ *      from every kind but `holdAndWin`.
  *   3. DEFAULTS — `symbolDefaultsFor('holdAndWin')` is its own set, validates, carries every symbol
  *      of every Hold and Win preset (art for all but the blank), and is a strict SUPERSET of the
  *      `lines` set it used to fall back to, binding for binding.
@@ -14,7 +16,12 @@
  */
 
 import { GAME_KINDS } from 'constants-shared/gameKinds';
-import { HOLD_AND_WIN_SYMBOL_STATES, kindCapabilities } from 'engine-layout';
+import {
+	HOLD_AND_WIN_SYMBOL_STATES,
+	kindCapabilities,
+	SYMBOL_STATES,
+	symbolStatesForKind,
+} from 'engine-layout';
 import { HOLD_AND_WIN_PRESETS, symbolHoldAndWinRoles } from 'game-config';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
 import { visibleStatesFor } from '../src/routes/(app)/symbols/symbols.client.ts';
@@ -37,6 +44,14 @@ for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 	check(`${kind} · bookSymbolVfx`, caps.bookSymbolVfx, on);
 	check(`${kind} · tumblePattern`, caps.tumblePattern, on);
 	check(`${kind} · symbolTransition`, caps.symbolTransition, on);
+	// The Scene Editor's state pickers: every state for Hold and Win, the pre-Phase-7 list otherwise.
+	check(
+		`${kind} · symbolStatesForKind`,
+		symbolStatesForKind(kind),
+		on
+			? SYMBOL_STATES.filter((s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s))
+			: SYMBOL_STATES,
+	);
 }
 
 // ── 2. columns ──────────────────────────────────────────────────────────────────────────────────

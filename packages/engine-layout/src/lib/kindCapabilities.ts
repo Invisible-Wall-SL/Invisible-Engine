@@ -10,6 +10,8 @@
  * every tool gave it before.
  */
 
+import { HOLD_AND_WIN_SYMBOL_STATES, SYMBOL_STATES, type SymbolStateName } from './symbolStates';
+
 /** The facts about a project's config that a capability depends on — RESOLVED values, not the raw
  *  sparse doc, so the answer matches the one the game acts on. Structural on purpose:
  *  `engine-layout` does not depend on `game-config`. */
@@ -73,4 +75,15 @@ export function kindCapabilities(
 		tumblePattern: !holdAndWin,
 		symbolTransition: !holdAndWin,
 	};
+}
+
+/**
+ * The symbol states a kind's authoring surfaces offer: every state, minus the Hold and Win ones for
+ * a kind without the respin feature. The doc schema still accepts every state, so a binding never
+ * fails to round-trip; this only decides what a picker lists.
+ */
+export function symbolStatesForKind(gameType: string | undefined): readonly SymbolStateName[] {
+	if (kindCapabilities(gameType).holdAndWin) return SYMBOL_STATES;
+	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
+	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state));
 }

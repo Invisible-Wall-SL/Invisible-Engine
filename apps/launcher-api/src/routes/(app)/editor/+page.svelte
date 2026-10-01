@@ -3277,6 +3277,7 @@
 					{/if}
 					<EditorProperties
 						node={selectedNode}
+						gameType={projectGameType}
 						componentDefaults={data.componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}
