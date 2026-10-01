@@ -127,17 +127,17 @@ export const showRespinBoard = ({ seedFromBaseBoard }: { seedFromBaseBoard: bool
 		}),
 	);
 	stateRespinBoard.shown = true;
-	eventEmitter.broadcast({ type: 'boardHide' });
 };
 
-/** Swap back to the reel board. The held layer empties with it. */
+/** Swap back to the reel board. The held layer empties with it. Announced here rather than by the
+ *  end beat, so the safety net in `presentReveal` (a feature whose end never arrived) is heard too. */
 export const hideRespinBoard = () => {
 	if (!stateRespinBoard.shown) return;
 	stateRespinBoard.shown = false;
 	stateRespinBoard.held = [];
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.counter.show = false;
-	eventEmitter.broadcast({ type: 'boardShow' });
+	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
 
 /** Spin every free cell onto what `cells` names for it; resolves when the last one has landed. */

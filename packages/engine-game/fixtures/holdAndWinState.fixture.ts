@@ -142,6 +142,15 @@ it('the server snapshot replaces the picture wholesale', () => {
 	assert.equal(resumed.left, 1);
 });
 
+it('a payload that repeats a position keeps one cell there (the last named)', () => {
+	const twice = applyHoldAndWinEvent(entered, {
+		type: 'coinsLand',
+		cells: [coin(2, 2, 1), coin(2, 2, 5)],
+	});
+	assert.equal(twice.cells.filter((c) => c.reel === 2 && c.row === 2).length, 1);
+	assert.equal(valueAt(twice, 2, 2)?.value, 5);
+});
+
 it('a cleared column banks its amount and empties; a lit one stays', () => {
 	const grand = play(
 		[

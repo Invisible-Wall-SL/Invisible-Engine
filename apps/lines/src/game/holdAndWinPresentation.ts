@@ -134,5 +134,4 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	if (!stateRespinBoard.shown) return;
 	await waitPresentation(END_HOLD_MS);
 	hideRespinBoard();
-	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
