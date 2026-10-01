@@ -727,6 +727,22 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Hold and Win',
 		},
 		{
+			type: 'randomMetreFire',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'name',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'cells',
+					kind: 'list',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'jackpotCelebration',
 			group: 'Hold and Win',
 			fields: [
@@ -1048,6 +1064,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'playLuckySpinIntro',
+			group: 'Effect',
+		},
+		{
+			name: 'fireRandomMetre',
 			group: 'Effect',
 		},
 		{

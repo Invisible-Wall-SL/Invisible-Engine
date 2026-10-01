@@ -24,10 +24,14 @@ import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { getActiveGameConfig } from './gameConfig';
 import { hideHoldAndWinBanner, showHoldAndWinBanner } from './holdAndWinBanner.svelte';
 import {
+	featureIntroText,
+	featureOutroText,
+	featureTotalText,
 	instantCollectText,
 	jackpotBannerText,
 	jackpotCoinText,
 	luckySpinText,
+	meterFullText,
 	modifiersActiveText,
 	modifiersUnlockedText,
 	wheelPrizeDetailText,
@@ -90,6 +94,10 @@ type Beat<K extends HoldAndWinEvent['type']> = Extract<HoldAndWinEvent, { type: 
 
 /** The swap settles before the first respin rolls. */
 const TRIGGER_HOLD_MS = 500;
+/** An authored feature intro / outro line holds this long over the board. */
+const FEATURE_LINE_MS = 1_600;
+/** A random metre firing: its banner over the base board, the coins it added lit. */
+const RANDOM_METRE_MS = 1_600;
 /** The pause between two respins that changed nothing, so the board reads between rolls. */
 const RESPIN_PAUSE_MS = 250;
 /** How long the counter holds on its reset pulse — the beat that tells the player "back to 3". */
@@ -281,7 +289,11 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	if (!event.full) return;
 	pulseMeter(event.meter);
 	eventEmitter.broadcast({ type: 'potFull', meter: event.meter });
+	const activates = configuredMeters().find((meter) => meter.id === event.meter)?.activates;
+	const title = activates ? meterFullText(activates) : '';
+	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
 	await waitPresentation(METER_FULL_MS);
+	hideHoldAndWinBanner(banner);
 };
 
 /**
@@ -338,15 +350,44 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 	showRespinBoard();
 	syncLetters();
 	updateCounter({ left: event.payload.respins, start: event.payload.respins });
+	stateRespinBoard.counter.note = 'award';
 	stateRespinBoard.counter.show = true;
 	eventEmitter.broadcast({ type: 'respinBoardShow' });
-	await waitPresentation(TRIGGER_HOLD_MS);
+	const intro = featureIntroText(event.payload.respins);
+	if (!intro) {
+		await waitPresentation(TRIGGER_HOLD_MS);
+		return;
+	}
+	const banner = showHoldAndWinBanner({ kind: 'featureIntro', title: intro, size: 'large' });
+	await waitPresentation(FEATURE_LINE_MS);
+	hideHoldAndWinBanner(banner);
+};
+
+/**
+ * `randomMetreTrigger` — base game: the random metre (Grand's Diamond Metre, Hotfire's Extra Bonus
+ * Game) fired and ADDED the coins the trigger needed. Its banner (the config's metre name) holds over
+ * the base board while those coins play `coinStick` where they landed; the trigger beat follows.
+ */
+export const presentRandomMetreTrigger = async (event: Beat<'randomMetreTrigger'>) => {
+	eventEmitter.broadcast({
+		type: 'randomMetreFire',
+		name: event.name,
+		cells: event.cells.map(cellOf),
+	});
+	const unlight = event.cells.map((cell) => lightBaseCell(cell, 'coinStick'));
+	const banner = event.name
+		? showHoldAndWinBanner({ kind: 'randomMetre', title: event.name, size: 'small' })
+		: 0;
+	await waitPresentation(RANDOM_METRE_MS);
+	hideHoldAndWinBanner(banner);
+	unlight.forEach((undo) => undo());
 };
 
 /** `respinReveal` — every free cell spins and lands on the symbol the server names for it. */
 export const presentRespinReveal = async (event: Beat<'respinReveal'>) => {
 	// A respin with no board up (a book that skipped its trigger) still has to land somewhere.
 	if (!stateRespinBoard.shown) showRespinBoard();
+	if (stateRespinBoard.counter.note === 'award') stateRespinBoard.counter.note = null;
 	eventEmitter.broadcast({ type: 'respinBoardSpin', cells: event.cells });
 	await spinRespinCells(event.cells);
 };
@@ -766,7 +807,10 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
  */
 export const presentRespinUpdate = async (event: Beat<'respinUpdate'>) => {
 	updateCounter(event);
-	if (event.reset) stateRespinBoard.counter.resets += 1;
+	if (event.reset) {
+		stateRespinBoard.counter.resets += 1;
+		stateRespinBoard.counter.note = 'reset';
+	}
 	eventEmitter.broadcast({
 		type: 'respinCounterUpdate',
 		left: event.left,
@@ -774,6 +818,7 @@ export const presentRespinUpdate = async (event: Beat<'respinUpdate'>) => {
 		reset: event.reset,
 	});
 	await waitPresentation(event.reset ? RESET_BEAT_MS : RESPIN_PAUSE_MS);
+	if (stateRespinBoard.counter.note === 'reset') stateRespinBoard.counter.note = null;
 };
 
 /**
@@ -793,9 +838,8 @@ export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => 
 };
 
 /**
- * Every Hold and Win event whose beat is not presented yet (the random metre — a later PR) and
- * `meterLevels` (the pots read the recorded levels themselves): the held layer follows the recorded
- * picture at once, so the board reads right even before the beat has an animation.
+ * `meterLevels` — the pots read the recorded levels themselves; the held layer follows the recorded
+ * picture at once.
  */
 export const syncHoldAndWin = async () => {
 	if (stateRespinBoard.shown) syncHeldCells();
@@ -840,7 +884,19 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		if (banked > 0) await waitPresentation(BANKED_BEAT_MS);
 		step(order.length, tally.final - stateBet.winBookEventAmount, tally.final);
 	}
+	const amount = bookEventAmountToCurrencyString(event.total);
+	const total = featureTotalText(amount);
+	const totalBanner = total
+		? showHoldAndWinBanner({ kind: 'featureTotal', title: total, size: 'small' })
+		: 0;
 	await waitPresentation(TALLY_LAND_MS + TALLY_HOLD_MS);
+	hideHoldAndWinBanner(totalBanner);
+	const outro = featureOutroText(amount);
+	if (outro) {
+		const banner = showHoldAndWinBanner({ kind: 'featureOutro', title: outro, size: 'large' });
+		await waitPresentation(FEATURE_LINE_MS);
+		hideHoldAndWinBanner(banner);
+	}
 	eventEmitter.broadcast({ type: 'winPresentationForget' });
 	settleReelsOnHeldCells();
 	hideRespinBoard();

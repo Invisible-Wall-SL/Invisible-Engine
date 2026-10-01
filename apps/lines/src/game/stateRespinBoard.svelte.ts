@@ -57,7 +57,8 @@ export const stateRespinBoard = $state({
 	 * played, and the label falls back to it when the count ends ({@link releaseHeldDisplay}).
 	 */
 	heldDisplay: {} as Record<string, HeldDisplay>,
-	counter: { show: false, left: 0, start: 0, resets: 0 },
+	/** `note`: the beat the counter is announcing instead of the count (`respinCounterText`). */
+	counter: { show: false, left: 0, start: 0, resets: 0, note: null as 'award' | 'reset' | null },
 });
 
 let board = $state.raw<RespinBoard | null>(null);
@@ -176,6 +177,7 @@ export const hideRespinBoard = () => {
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.counter.show = false;
+	stateRespinBoard.counter.note = null;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
 

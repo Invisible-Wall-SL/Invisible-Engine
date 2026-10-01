@@ -16,8 +16,41 @@ import { bakedWinText } from '../editor-scenes';
  * in (tier, special, collector level, pot) are localized at their own source.
  */
 
-export const respinCounterText = (left: number) =>
-	formatWinText(bakedWinText().respins.counter, { count: left });
+/**
+ * The respin counter's line. `note` is the beat it is announcing: the award as the feature opens
+ * ("3 RESPINS", until the first respin rolls) and a reset while its pulse plays ("RESPINS RESET");
+ * otherwise it counts, and the last respin reads as such ("LAST RESPIN"). An authored note left
+ * empty falls back to the count.
+ */
+export const respinCounterText = (left: number, note: 'award' | 'reset' | null = null) => {
+	const { respins } = bakedWinText();
+	const template =
+		note === 'award'
+			? respins.award
+			: note === 'reset'
+				? respins.reset
+				: left === 1
+					? respins.last
+					: '';
+	return formatWinText(template || respins.counter, { count: left });
+};
+
+/** The feature's total over the board once the Total Win bar has landed ("BONUS WIN $20.00"). */
+export const featureTotalText = (amount: string) =>
+	formatWinText(bakedWinText().feature.total, { amount });
+
+/** The feature's intro and outro lines — empty by default, so nothing is drawn unless authored. */
+export const featureIntroText = (respins: number) =>
+	formatWinText(bakedWinText().feature.intro, { count: respins });
+
+export const featureOutroText = (amount: string) =>
+	formatWinText(bakedWinText().feature.outro, { amount });
+
+/** A pot that filled, named by what it activates ("PAYER ACTIVATED"). */
+export const meterFullText = (kind: string) =>
+	formatWinText(bakedWinText().feature.meterFull, {
+		meter: specialDisplayName(bakedWinText(), kind),
+	});
 
 /** Special names for a toast, joined with ", ". */
 export const modifiersText = (kinds: readonly string[]) => {

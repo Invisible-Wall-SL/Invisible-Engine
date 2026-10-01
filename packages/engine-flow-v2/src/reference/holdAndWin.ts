@@ -511,6 +511,7 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('lightLetter', 'columnComplete'),
 	beat('instantCollect', 'coinInstantCollect'),
 	beat('spinWheel', 'holdAndWinWheel'),
+	beat('fireRandomMetre', 'randomMetreTrigger'),
 	{ name: 'playLuckySpinIntro', params: [], category: 'command' },
 	{
 		name: 'flyTo',
@@ -658,6 +659,13 @@ const CUES: TemplateVocabulary['cues'] = [
 		],
 	},
 	{ name: 'luckySpinIntro', payload: [] },
+	{
+		name: 'randomMetreFire',
+		payload: [
+			{ name: 'name', type: STRING },
+			{ name: 'cells', type: list(CELL) },
+		],
+	},
 	{
 		name: 'jackpotCelebration',
 		payload: [
