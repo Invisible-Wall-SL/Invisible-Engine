@@ -759,14 +759,14 @@ def _stub_world():
 
     polls: dict[str, int] = {}
 
-    def fake_post(path, payload):
+    def fake_post(path, payload, endpoint):
         if path == "/run":
             jid = f"job{len(polls) + 1}"
             polls[jid] = 0
             return {"id": jid}
         return {}
 
-    def fake_get(path):
+    def fake_get(path, endpoint):
         jid = path.rsplit("/", 1)[-1]
         polls[jid] = polls.get(jid, 0) + 1
         if polls[jid] < 2:
@@ -1043,7 +1043,7 @@ def test_cancel_a_session_we_do_not_own() -> None:
     video_runner._ACTIVE = None
 
     cancelled = []
-    video_runner._cancel_job = lambda jid, why: cancelled.append(jid)
+    video_runner._cancel_job = lambda jid, endpoint, why: cancelled.append(jid)
 
     res = video_runner.cancel_session(sid)
     check("cancelling an unowned session succeeds", res["ok"], True)
@@ -1070,10 +1070,10 @@ def _gate_job(name: str = "job1"):
     gate = threading.Event()
     passthrough = batch_atlas._runpod_get
 
-    def gated_get(path):
+    def gated_get(path, endpoint):
         if path.endswith(name) and not gate.is_set():
             return {"status": "IN_PROGRESS"}
-        return passthrough(path)
+        return passthrough(path, endpoint)
 
     batch_atlas._runpod_get = gated_get
     return gate
@@ -1272,13 +1272,13 @@ def test_cancelling_reads_as_cancelled_not_failed() -> None:
     stopped: set[str] = set()
     passthrough = batch_atlas._runpod_post
 
-    def tracking_post(path, payload):
+    def tracking_post(path, payload, endpoint):
         if path.startswith("/cancel/"):
             stopped.add(path.rsplit("/", 1)[-1])
             return {}
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
-    def cancel_aware_get(path):
+    def cancel_aware_get(path, endpoint):
         jid = path.rsplit("/", 1)[-1]
         # Exactly what RunPod reports once a job has been cancelled remotely —
         # the payload that used to reach the author as their "error".
@@ -1320,7 +1320,7 @@ def test_a_transient_status_blip_does_not_lose_a_job() -> None:
     reads = {"n": 0}
     b64 = __import__("base64").b64encode(b"WEBPDATA").decode()
 
-    def flaky_get(path):
+    def flaky_get(path, endpoint):
         reads["n"] += 1
         # The exact shape the author hit: HTTP 500 mid-render, twice over.
         if reads["n"] in (2, 3):
@@ -1335,11 +1335,11 @@ def test_a_transient_status_blip_does_not_lose_a_job() -> None:
     cancelled: list[str] = []
     passthrough = batch_atlas._runpod_post
 
-    def tracking_post(path, payload):
+    def tracking_post(path, payload, endpoint):
         if path.startswith("/cancel/"):
             cancelled.append(path.rsplit("/", 1)[-1])
             return {}
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_get = flaky_get
     batch_atlas._runpod_post = tracking_post
@@ -1364,17 +1364,17 @@ def test_contact_lost_for_good_stops_the_job() -> None:
     grace = video_runner.STATUS_GRACE_SECONDS
     video_runner.STATUS_GRACE_SECONDS = 0.05
 
-    def always_500(path):
+    def always_500(path, endpoint):
         raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
 
     cancelled: list[str] = []
     passthrough = batch_atlas._runpod_post
 
-    def tracking_post(path, payload):
+    def tracking_post(path, payload, endpoint):
         if path.startswith("/cancel/"):
             cancelled.append(path.rsplit("/", 1)[-1])
             return {}
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_get = always_500
     batch_atlas._runpod_post = tracking_post
@@ -1391,7 +1391,7 @@ def test_contact_lost_for_good_stops_the_job() -> None:
     check("and it is stopped so it stops burning", cancelled, ["job1"])
 
 
-def _job_not_found(path):
+def _job_not_found(path, endpoint):
     """RunPod's answer for a job it no longer has — the literal body from the
     2026-09-07 incident."""
     import batch_atlas
@@ -1415,10 +1415,10 @@ def _worker_that_uploads(blob: bytes):
         return [f"https://r2.invalid/{k}" for k in keys], keys
 
     def submit(wf, prefix=""):
-        jid, wf_out, keys = real_submit(wf, prefix)
+        jid, endpoint, wf_out, keys = real_submit(wf, prefix)
         if keys:
             video_runner.storage.put(keys[0], blob)
-        return jid, wf_out, keys
+        return jid, endpoint, wf_out, keys
     return slots, submit
 
 
@@ -1442,11 +1442,11 @@ def _cancel_tracker(cancelled: list):
     import batch_atlas
     passthrough = batch_atlas._runpod_post
 
-    def tracking_post(path, payload):
+    def tracking_post(path, payload, endpoint):
         if path.startswith("/cancel/"):
             cancelled.append(path.rsplit("/", 1)[-1])
             return {}
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
     return tracking_post
 
 
@@ -1462,8 +1462,8 @@ def test_a_purged_job_collects_the_render_it_left_in_r2() -> None:
     process never submitted and RunPod no longer admits to — is re-checked on its
     own short schedule rather than the three-minute grace budgeted for an
     unreadable API, and the collect must go where the render actually is. It is
-    still sent a cancel on the way out: the same 404 comes back for a LIVE job on a
-    rotated endpoint, and the cancel is a harmless second 404 when it is not."""
+    still sent a cancel on the way out: the same 404 comes back for a LIVE job in a
+    RunPod incident, and the cancel is a harmless second 404 when it is not."""
     import batch_atlas
 
     tmp, objects = _stub_world()
@@ -1543,7 +1543,7 @@ def test_an_unreadable_job_still_collects_a_render_that_landed() -> None:
 
     _stub_world()
 
-    def always_500(path):
+    def always_500(path, endpoint):
         raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
 
     cancelled: list[str] = []
@@ -1581,7 +1581,7 @@ def test_a_job_runpod_calls_failed_still_hands_back_its_render() -> None:
     video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
         b"UPLOADED-THEN-THE-JOB-DIED")
 
-    def failed_after_upload(path):
+    def failed_after_upload(path, endpoint):
         return {"status": "FAILED", "error": "worker fell over after saving"}
 
     batch_atlas._runpod_get = failed_after_upload
@@ -1609,7 +1609,7 @@ def test_an_empty_payload_is_not_a_lost_render_when_the_slot_has_one() -> None:
     real_slots, real_submit = video_runner._upload_slots, video_runner._submit
     video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
         b"TOO-BIG-TO-RETURN-BUT-IN-R2")
-    batch_atlas._runpod_get = lambda path: {"status": "COMPLETED", "output": {}}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "COMPLETED", "output": {}}
     try:
         started = video_runner.start_session(_req("empty payload"),
                                              ("clientx", "projecty"))
@@ -1635,7 +1635,7 @@ def test_a_stop_after_the_upload_keeps_the_render() -> None:
     started = video_runner.start_session(_req("stop me"), ("clientx", "projecty"))
     sid = started["id"]
 
-    def never_settles(path):
+    def never_settles(path, endpoint):
         return {"status": "IN_PROGRESS"}
 
     batch_atlas._runpod_get = never_settles
@@ -1888,12 +1888,12 @@ def test_a_mixed_run_of_bad_reads_takes_the_long_grace() -> None:
     _stub_world()
     reads = {"n": 0}
 
-    def flaky(path):
+    def flaky(path, endpoint):
         reads["n"] += 1
         if reads["n"] == 1:
             return {"status": "IN_PROGRESS"}      # seen once: the record exists
         if reads["n"] == 2:
-            _job_not_found(path)                  # …and now it 404s
+            _job_not_found(path, endpoint)        # …and now it 404s
         raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
 
     cancelled: list[str] = []
@@ -1947,9 +1947,9 @@ def _with_endpoint(value: str | None) -> str | None:
 
 def test_a_404_is_rechecked_on_a_backoff_then_cancelled_and_logged() -> None:
     """flipbook.md open item 3. A 404 on a job already read used to be given up on
-    in 15 s with NO cancel — and a 404 is not only an expired record: a rotated
-    RUNPOD_ENDPOINT_ID or a RunPod incident answers the same for a job that is still
-    rendering, which then billed on with nobody left to collect it.
+    in 15 s with NO cancel — and a 404 is not only an expired record: a RunPod
+    incident answers the same for a job that is still rendering, which then billed on
+    with nobody left to collect it.
 
     Now the 404 is re-read on a backoff — one read per re-check, not one per poll
     tick — then the job is cancelled, and the give-up and the cancel both name the
@@ -1960,11 +1960,11 @@ def test_a_404_is_rechecked_on_a_backoff_then_cancelled_and_logged() -> None:
     _stub_world()
     reads: list[float] = []
 
-    def read_then_gone(path):
+    def read_then_gone(path, endpoint):
         reads.append(time.monotonic())
         if len(reads) == 1:
             return {"status": "IN_PROGRESS"}
-        _job_not_found(path)
+        _job_not_found(path, endpoint)
 
     cancelled: list[str] = []
     batch_atlas._runpod_get = read_then_gone
@@ -2013,12 +2013,12 @@ def test_a_404_that_clears_on_a_recheck_is_just_a_render() -> None:
     _stub_world()
     reads = {"n": 0}
 
-    def blip(path):
+    def blip(path, endpoint):
         reads["n"] += 1
         if reads["n"] == 1:
             return {"status": "IN_PROGRESS"}
         if reads["n"] in (2, 3):
-            _job_not_found(path)
+            _job_not_found(path, endpoint)
         return {"status": "COMPLETED", "output": {"images": [
             {"filename": "out.webp", "image": base64.b64encode(b"BLIP").decode()}]}}
 
@@ -2048,20 +2048,20 @@ def test_a_cancel_that_fails_does_not_stop_the_tile_settling() -> None:
     _stub_world()
     reads = {"n": 0}
 
-    def read_then_gone(path):
+    def read_then_gone(path, endpoint):
         reads["n"] += 1
         if reads["n"] == 1:
             return {"status": "IN_PROGRESS"}
-        _job_not_found(path)
+        _job_not_found(path, endpoint)
 
     passthrough = batch_atlas._runpod_post
     attempts: list[str] = []
 
-    def refuse_cancels(path, payload):
+    def refuse_cancels(path, payload, endpoint):
         if path.startswith("/cancel/"):
             attempts.append(path)
             raise batch_atlas.RunPodHTTPError(500, f"RunPod {path} failed: HTTP 500")
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_get = read_then_gone
     batch_atlas._runpod_post = refuse_cancels
@@ -2096,7 +2096,7 @@ def test_a_body_that_is_not_a_status_is_an_unreadable_read() -> None:
 
     _stub_world()
     cancelled: list[str] = []
-    batch_atlas._runpod_get = lambda path: ["not", "a", "status"]
+    batch_atlas._runpod_get = lambda path, endpoint: ["not", "a", "status"]
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
     grace = video_runner.STATUS_GRACE_SECONDS
     video_runner.STATUS_GRACE_SECONDS = 0.05
@@ -2119,7 +2119,7 @@ def test_a_job_past_the_cap_is_cancelled_and_a_terminal_one_is_not() -> None:
 
     _stub_world()
     cancelled: list[str] = []
-    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "IN_PROGRESS"}
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
     cap = video_runner.JOB_TIMEOUT_SECONDS
     video_runner.JOB_TIMEOUT_SECONDS = 0.3
@@ -2135,7 +2135,7 @@ def test_a_job_past_the_cap_is_cancelled_and_a_terminal_one_is_not() -> None:
 
     _stub_world()
     cancelled.clear()
-    batch_atlas._runpod_get = lambda path: {"status": "FAILED", "error": "boom"}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "FAILED", "error": "boom"}
     batch_atlas._runpod_post = _cancel_tracker(cancelled)
     started = video_runner.start_session(_req("fails"), ("clientx", "projecty"))
     final = _await_session(started["id"], timeout=8.0)
@@ -2157,12 +2157,12 @@ def test_deleting_an_orphaned_session_stops_its_running_job() -> None:
     _interrupted(objects, sid)
 
     cancelled: list[str] = []
-    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner._cancel_job = lambda jid, endpoint, why: cancelled.append(jid) or True
     check("the orphan is deleted", video_runner.delete_session(sid).get("ok"), True)
     check("and its running job is cancelled first", cancelled, ["job1"])
 
     _stub_world()
-    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner._cancel_job = lambda jid, endpoint, why: cancelled.append(jid) or True
     cancelled.clear()
     done = video_runner.start_session(_req("settled"), ("clientx", "projecty"))
     _await_session(done["id"])
@@ -2182,7 +2182,7 @@ def test_a_blueprint_gone_session_stops_its_running_job() -> None:
     _interrupted(objects, sid)
 
     cancelled: list[str] = []
-    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner._cancel_job = lambda jid, endpoint, why: cancelled.append(jid) or True
     video_runner.blueprints.get_blueprint = lambda i: None
     got = video_runner.get_session(sid) or {}
     v = (got.get("variations") or [{}])[0]
@@ -2201,7 +2201,7 @@ def test_a_blueprint_gone_session_another_container_holds_is_not_cancelled() -> 
     _other_container(sid)
 
     cancelled: list[str] = []
-    video_runner._cancel_job = lambda jid, why: cancelled.append(jid) or True
+    video_runner._cancel_job = lambda jid, endpoint, why: cancelled.append(jid) or True
     video_runner.blueprints.get_blueprint = lambda i: None
     video_runner.get_session(sid)
     check("a job another container's lease holds is not cancelled", cancelled, [])
@@ -2216,14 +2216,14 @@ def test_a_cancel_runpod_has_no_record_of_is_not_a_billing_alarm() -> None:
     _stub_world()
     passthrough = batch_atlas._runpod_post
 
-    def no_record(path, payload):
+    def no_record(path, payload, endpoint):
         if path.startswith("/cancel/"):
             raise batch_atlas.RunPodHTTPError(
                 404, f"RunPod {path} failed: HTTP 404 Not Found: job not found")
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_post = no_record
-    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "IN_PROGRESS"}
     prev = _with_endpoint("ep-video")
     logged = _capture_log()
     try:
@@ -2241,6 +2241,159 @@ def test_a_cancel_runpod_has_no_record_of_is_not_a_billing_alarm() -> None:
               for line in logged), True)
     check("and never as a job that may still be billing",
           any("may still be running and billing" in line for line in logged), False)
+
+
+def test_a_job_is_polled_and_cancelled_on_the_endpoint_it_was_submitted_to() -> None:
+    """flipbook.md open item 2. Status and cancel were built from the CURRENT
+    RUNPOD_ENDPOINT_ID, so after a rotation a job submitted to the old endpoint 404ed,
+    its cancel went to the new one and missed, and it billed on. The endpoint is now
+    recorded on the variation at submit, and every later call for the job goes there."""
+    import time
+    import batch_atlas
+
+    tmp, objects = _stub_world()
+    seen: list[tuple[str, str]] = []
+    passthrough = batch_atlas._runpod_post
+
+    def post(path, payload, endpoint):
+        seen.append((path.split("/")[1], endpoint))
+        return passthrough(path, payload, endpoint)
+
+    def rotate_while_running(path, endpoint):
+        seen.append(("status", endpoint))
+        os.environ["RUNPOD_ENDPOINT_ID"] = "ep-new"
+        return {"status": "IN_PROGRESS"}
+
+    batch_atlas._runpod_post = post
+    batch_atlas._runpod_get = rotate_while_running
+    prev = _with_endpoint("ep-old")
+    try:
+        sid = video_runner.start_session(_req("rotated mid-render"),
+                                         ("clientx", "projecty"))["id"]
+        deadline = time.time() + 10
+        while sum(k == "status" for k, _ in seen) < 3 and time.time() < deadline:
+            time.sleep(0.01)
+        stored = json.loads(objects[f"clientx/projecty/video/{sid}/meta.json"])
+        video_runner.cancel_session(sid)
+        _await_session(sid)
+    finally:
+        _with_endpoint(prev)
+
+    v = stored["variations"][0]
+    check("the variation records its endpoint beside its job id",
+          (v.get("job_id"), v.get("job_endpoint")), ("job1", "ep-old"))
+    check("the job was submitted to the endpoint the env named then",
+          seen[0], ("run", "ep-old"))
+    check("after the rotation every status read still goes to the original",
+          {ep for kind, ep in seen if kind == "status"}, {"ep-old"})
+    cancels = [ep for kind, ep in seen if kind == "cancel"]
+    check("and the Stop cancels it there, not on the rotated endpoint",
+          bool(cancels) and set(cancels) == {"ep-old"}, True)
+
+
+def _orphan(prompt: str, endpoint: str) -> tuple[dict, str]:
+    """A finished session submitted to `endpoint`, then rewritten the way a container
+    swap leaves it: running, job id persisted, nothing in memory. Returns
+    (objects, session id)."""
+    _, objects = _stub_world()
+    prev = _with_endpoint(endpoint)
+    try:
+        sid = video_runner.start_session(_req(prompt), ("clientx", "projecty"))["id"]
+        _await_session(sid)
+    finally:
+        _with_endpoint(prev)
+    _interrupted(objects, sid)
+    return objects, sid
+
+
+def _blueprint_gone(sid: str) -> None:
+    video_runner.blueprints.get_blueprint = lambda i: None
+    video_runner.get_session(sid)
+
+
+def test_a_reattach_and_every_orphan_cancel_use_the_recorded_endpoint() -> None:
+    """A re-attach, a Stop of an orphan, an adopt whose blueprint is gone and a delete
+    of an orphan all address a job a PREVIOUS process submitted — across a deploy,
+    which is exactly when RUNPOD_ENDPOINT_ID gets rotated. Each goes to the endpoint
+    the job was submitted to."""
+    import batch_atlas
+
+    b64 = __import__("base64").b64encode(b"WEBPDATA").decode()
+    _, sid = _orphan("re-attach after a rotation", "ep-old")
+    polled: list[str] = []
+    batch_atlas._runpod_get = lambda path, endpoint: polled.append(endpoint) or {
+        "status": "COMPLETED", "output": {"images": [{"filename": "out.webp", "image": b64}]}}
+    prev = _with_endpoint("ep-new")
+    try:
+        video_runner.get_session(sid)
+        final = _await_session(sid)
+    finally:
+        _with_endpoint(prev)
+    check("a re-attach polls the endpoint the job was submitted to", set(polled), {"ep-old"})
+    check("and collects the render", final["variations"][0]["status"], "done")
+
+    for label, act in (("a Stop of an orphan", video_runner.cancel_session),
+                       ("a delete of an orphan", video_runner.delete_session),
+                       ("an adopt whose blueprint is gone", _blueprint_gone)):
+        _, sid = _orphan(label, "ep-old")
+        cancelled: list = []
+        video_runner._cancel_job = (
+            lambda jid, endpoint, why: cancelled.append((jid, endpoint)) or True)
+        prev = _with_endpoint("ep-new")
+        try:
+            act(sid)
+        finally:
+            _with_endpoint(prev)
+        check(f"{label} cancels on the recorded endpoint", cancelled, [("job1", "ep-old")])
+
+
+def test_a_variation_with_no_recorded_endpoint_falls_back_to_the_env_and_says_so() -> None:
+    """A session persisted before endpoints were recorded has a job id and no
+    endpoint. It is still addressable — on the current RUNPOD_ENDPOINT_ID, the only
+    guess there is — and the guess is logged once, naming the job, because after a
+    rotation it is the wrong one."""
+    import batch_atlas
+
+    def legacy(prompt: str) -> str:
+        objects, sid = _orphan(prompt, "ep-old")
+        key = f"clientx/projecty/video/{sid}/meta.json"
+        meta = json.loads(objects[key])
+        for v in meta["variations"]:
+            v.pop("job_endpoint", None)
+        objects[key] = json.dumps(meta).encode()
+        return sid
+
+    logged: list[str] = []
+
+    def tee(*a, **k):
+        logged.append(" ".join(str(x) for x in a))
+        print(*a, **k)
+
+    b64 = __import__("base64").b64encode(b"WEBPDATA").decode()
+    sid = legacy("legacy re-attach")
+    polled: list[str] = []
+    batch_atlas._runpod_get = lambda path, endpoint: polled.append(endpoint) or {
+        "status": "COMPLETED", "output": {"images": [{"filename": "out.webp", "image": b64}]}}
+    batch_atlas.print = tee
+    prev = _with_endpoint("ep-env")
+    try:
+        video_runner.get_session(sid)
+        _await_session(sid)
+        assumed = [line for line in logged if "no recorded endpoint" in line]
+
+        sid = legacy("legacy stop")
+        cancelled: list = []
+        video_runner._cancel_job = (
+            lambda jid, endpoint, why: cancelled.append((jid, endpoint)) or True)
+        video_runner.cancel_session(sid)
+    finally:
+        batch_atlas.__dict__.pop("print", None)
+        _with_endpoint(prev)
+    check("a legacy re-attach polls the current env endpoint", set(polled), {"ep-env"})
+    check("and says so in one log line", len(assumed), 1)
+    check("naming the job and the assumed endpoint",
+          "job job1 has no recorded endpoint; assuming ep-env" in (assumed or [""])[0], True)
+    check("a legacy Stop cancels on the env endpoint too", cancelled, [("job1", "ep-env")])
 
 
 def test_a_reroll_cannot_rescue_the_attempt_before_it() -> None:
@@ -2317,11 +2470,11 @@ def test_a_failure_before_the_job_exists_still_settles_the_tile() -> None:
     _stub_world()
     passthrough = batch_atlas._runpod_post
 
-    def refuse_run(path, payload):
+    def refuse_run(path, payload, endpoint):
         if path == "/run":
             raise RuntimeError(
                 "RunPod /run failed: HTTP 500 Internal Server Error")
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_post = refuse_run
     started = video_runner.start_session(_req("submit refused"),
@@ -2355,7 +2508,7 @@ def test_a_rescue_that_cannot_be_persisted_does_not_wedge_the_runner() -> None:
             raise RuntimeError("R2 PUT wobble")
         return real_put(key, body, ctype)
 
-    batch_atlas._runpod_get = lambda path: {"status": "FAILED", "error": "died"}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "FAILED", "error": "died"}
     video_runner.storage.put = put_that_fails_on_the_render
     try:
         started = video_runner.start_session(_req("unsaveable rescue"),
@@ -2744,10 +2897,10 @@ def test_a_session_another_container_holds_is_left_alone() -> None:
     submits: list = []
     passthrough = batch_atlas._runpod_post
 
-    def counting_post(path, payload):
+    def counting_post(path, payload, endpoint):
         if path == "/run":
             submits.append(path)
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_post = counting_post
     slot = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 1))[0]
@@ -2960,7 +3113,7 @@ def test_the_lease_is_renewed_while_a_render_is_running() -> None:
     polls = {"n": 0}
     beats: list = []
 
-    def slow_job(path):
+    def slow_job(path, endpoint):
         polls["n"] += 1
         if polls["n"] < 12:                      # several dispatcher wait cycles
             row = _lease.held_by(video_runner._lease_key(sid_box[0])) or {}
@@ -3020,13 +3173,13 @@ def test_a_cancel_runpod_refuses_is_reported_not_swallowed() -> None:
     _stub_world()
     passthrough = batch_atlas._runpod_post
 
-    def refuse_cancels(path, payload):
+    def refuse_cancels(path, payload, endpoint):
         if path.startswith("/cancel/"):
             raise RuntimeError("RunPod /cancel/job1 failed: HTTP 500 Internal Server Error")
-        return passthrough(path, payload)
+        return passthrough(path, payload, endpoint)
 
     batch_atlas._runpod_post = refuse_cancels
-    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    batch_atlas._runpod_get = lambda path, endpoint: {"status": "IN_PROGRESS"}
 
     started = video_runner.start_session(_req("wont stop", variations=2),
                                          ("clientx", "projecty"))
@@ -3282,13 +3435,13 @@ def _capture_workflows():
     real = batch_atlas._runpod_post
     seen: dict[str, dict] = {}
 
-    def spy(path, payload):
+    def spy(path, payload, endpoint):
         if path == "/run":
             wf = ((payload or {}).get("input") or {}).get("workflow") or {}
             node = wf.get("200") or {}
             prefix = (node.get("inputs") or {}).get("filename_prefix", "")
             seen[str(prefix)[-3:]] = wf
-        return real(path, payload)
+        return real(path, payload, endpoint)
 
     batch_atlas._runpod_post = spy
     return seen
@@ -3513,7 +3666,7 @@ def _fan_out_world(fail: frozenset[str] = frozenset()) -> dict:
     w: dict = {"live": set(), "peak": 0, "submitted": 0, "released": set(),
                "cancelled": set(), "release_all": False}
 
-    def post(path, payload):
+    def post(path, payload, endpoint):
         with lock:
             if path == "/run":
                 w["submitted"] += 1
@@ -3527,7 +3680,7 @@ def _fan_out_world(fail: frozenset[str] = frozenset()) -> dict:
                 w["live"].discard(jid)
             return {}
 
-    def get(path):
+    def get(path, endpoint):
         jid = path.rsplit("/", 1)[-1]
         with lock:
             if jid in w["cancelled"]:
@@ -3769,9 +3922,9 @@ def test_cancel_settles_resumed_tiles_the_cap_never_claimed() -> None:
         polled: set[str] = set()
         inner = batch_atlas._runpod_get
 
-        def spy(path):
+        def spy(path, endpoint):
             polled.add(path.rsplit("/", 1)[-1])
-            return inner(path)
+            return inner(path, endpoint)
 
         batch_atlas._runpod_get = spy
 
@@ -3872,6 +4025,9 @@ if __name__ == "__main__":
     test_a_blueprint_gone_session_stops_its_running_job()
     test_a_blueprint_gone_session_another_container_holds_is_not_cancelled()
     test_a_cancel_runpod_has_no_record_of_is_not_a_billing_alarm()
+    test_a_job_is_polled_and_cancelled_on_the_endpoint_it_was_submitted_to()
+    test_a_reattach_and_every_orphan_cancel_use_the_recorded_endpoint()
+    test_a_variation_with_no_recorded_endpoint_falls_back_to_the_env_and_says_so()
     test_a_reroll_cannot_rescue_the_attempt_before_it()
     test_the_rescue_prefers_the_clip_over_a_preview()
     test_an_unreadable_slot_is_not_an_empty_one()

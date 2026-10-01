@@ -3036,10 +3036,20 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 # and fed into the SAME _persist_variant path the http transport uses. See
 # docs/design/comfyui-serverless.md and services/atlas-serverless/handler.py.
 # --------------------------------------------------------------------------
-# Marker line carrying the in-flight RunPod job id to the UI process, which
-# cannot otherwise know it. `ui_server.stop_render` reads it so Stop can cancel
-# the REMOTE job, not just the local poller.
+# Marker line carrying the in-flight RunPod job id and its endpoint to the UI
+# process, which cannot otherwise know them. `ui_server.stop_render` reads it so
+# Stop can cancel the REMOTE job, not just the local poller.
 RUNPOD_JOB_MARK = "@@RUNPOD_JOB@@"
+
+
+def read_runpod_job_mark(line: str) -> tuple[str, str] | None:
+    """(job id, endpoint) from a `RUNPOD_JOB_MARK` line; None for any other line."""
+    if not line.startswith(RUNPOD_JOB_MARK):
+        return None
+    jid, _, eid = line[len(RUNPOD_JOB_MARK):].strip().partition(" ")
+    return jid, eid.strip()
+
+
 # How long a run of UNREADABLE status polls is tolerated before a job is given
 # up on, and the re-check schedule for a run of 404s on a job already read — a job
 # RunPod has no record of, which is an ANSWER rather than a failure to answer, but
@@ -3054,25 +3064,25 @@ NOT_FOUND_RECHECK_SECONDS = (10.0, 20.0, 40.0, 80.0)
 CANCEL_TIMEOUT_SECONDS = 15
 
 
-def runpod_cancel(job_id: str) -> str:
-    """Ask RunPod to cancel `job_id`. Returns "" on success, else a reason.
+def runpod_cancel(job_id: str, endpoint: str) -> str:
+    """Ask RunPod to cancel `job_id` on `endpoint`, the one it was submitted to.
+    Returns "" on success, else a reason.
 
     Called from the UI process on Stop. Best-effort by design: a cancel that
     fails must not stop us terminating the local subprocess.
 
-    A 404 is not a failure to cancel: RunPod has no record of the job on this
+    A 404 is not a failure to cancel: RunPod has no record of the job on its
     endpoint, so nothing there is running or billing. It is logged as that and
     answered "", so no caller turns it into a billing warning."""
     if not (job_id or "").strip():
         return "no job id"
     try:
-        _runpod_post(f"/cancel/{job_id.strip()}", {})
+        _runpod_post(f"/cancel/{job_id.strip()}", {}, endpoint)
         return ""
     except Exception as e:  # noqa: BLE001 - report, never raise into Stop
         if getattr(e, "code", None) == 404:
             print(f"   ... RunPod has no record of job {job_id.strip()} on endpoint "
-                  f"{runpod_endpoint_id() or '?'} (expired, or submitted to another "
-                  "endpoint) — nothing to cancel there")
+                  f"{endpoint or '?'} (its record expired) — nothing to cancel there")
             return ""
         return f"{type(e).__name__}: {e}"
 
@@ -3095,18 +3105,42 @@ class RunPodHTTPError(RuntimeError):
 
 
 def runpod_endpoint_id() -> str:
-    """The endpoint jobs are submitted to and polled on — named in every give-up
-    log, because a job id means nothing in the RunPod console without it."""
+    """The endpoint NEW jobs are submitted to. A job already submitted is polled and
+    cancelled on the endpoint recorded with it (`job_endpoint`), never on this — a
+    rotated RUNPOD_ENDPOINT_ID would send its status and cancel to an endpoint that
+    has never heard of it, and it would bill on."""
     return (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
 
 
-def _runpod_endpoint_base() -> str:
+def job_endpoint(recorded: str, job_id: str) -> str:
+    """The endpoint `job_id` lives on: the one recorded when it was submitted. A
+    record from before endpoints were recorded has none, so the current
+    RUNPOD_ENDPOINT_ID is assumed — and said, since a rotation makes that wrong."""
+    if recorded:
+        return recorded
     eid = runpod_endpoint_id()
-    if not eid:
+    print(f"[runpod] job {job_id} has no recorded endpoint; assuming {eid or '?'} "
+          "from the current RUNPOD_ENDPOINT_ID env", flush=True)
+    return eid
+
+
+def runpod_submit(job: dict) -> tuple[str, str]:
+    """POST `job` to /run on the current endpoint. Returns (job id, endpoint) — the
+    endpoint is the job's address from here on, so callers record the pair."""
+    eid = runpod_endpoint_id()
+    resp = _runpod_post("/run", job, eid)
+    jid = resp.get("id")
+    if not jid:
+        raise RuntimeError(f"RunPod /run did not return a job id: {resp}")
+    return str(jid), eid
+
+
+def _runpod_endpoint_base(endpoint: str) -> str:
+    if not endpoint:
         raise RuntimeError(
             "COMFY_TRANSPORT=serverless but RUNPOD_ENDPOINT_ID is not set. "
             "Set the RunPod endpoint id in the atlas-tool env, then retry.")
-    return f"https://api.runpod.ai/v2/{eid}"
+    return f"https://api.runpod.ai/v2/{endpoint}"
 
 
 def _runpod_headers() -> dict:
@@ -3118,8 +3152,8 @@ def _runpod_headers() -> dict:
     return {"Authorization": f"Bearer {key}", "User-Agent": "InvisibleAtlas/1.0"}
 
 
-def _runpod_post(path: str, payload: dict) -> dict:
-    base = _runpod_endpoint_base()
+def _runpod_post(path: str, payload: dict, endpoint: str) -> dict:
+    base = _runpod_endpoint_base(endpoint)
     req = Request(
         f"{base}{path}",
         data=json.dumps(payload).encode("utf-8"),
@@ -3138,8 +3172,8 @@ def _runpod_post(path: str, payload: dict) -> dict:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
 
-def _runpod_get(path: str) -> dict:
-    base = _runpod_endpoint_base()
+def _runpod_get(path: str, endpoint: str) -> dict:
+    base = _runpod_endpoint_base(endpoint)
     req = Request(f"{base}{path}", headers=_runpod_headers())
     try:
         with urlopen(req, timeout=120) as r:
@@ -3166,16 +3200,13 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
     tolerated for `STATUS_GRACE_SECONDS` of continuous failure. There is no
     hand-off slot to rescue from on the still path — this transport returns its
     image through RunPod — so a genuinely lost job is still a lost render here."""
-    resp = _runpod_post("/run", job)
-    jid = resp.get("id")
-    if not jid:
-        raise RuntimeError(f"RunPod /run did not return a job id: {resp}")
-    # Announce the job id on a machine-readable line so the UI can CANCEL it if
-    # the user presses Stop. Killing this subprocess only stops the polling —
-    # the worker keeps rendering and billing unless RunPod is told. The worker
-    # is already built to notice (handler.py `_job_cancelled`); nobody was
-    # telling it.
-    print(f"{RUNPOD_JOB_MARK}{jid}", flush=True)
+    jid, eid = runpod_submit(job)
+    # Announce the job id and its endpoint on a machine-readable line so the UI
+    # can CANCEL it if the user presses Stop. Killing this subprocess only stops
+    # the polling — the worker keeps rendering and billing unless RunPod is told.
+    # The worker is already built to notice (handler.py `_job_cancelled`); nobody
+    # was telling it.
+    print(f"{RUNPOD_JOB_MARK}{jid} {eid}", flush=True)
     deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
     started = time.time()
     last_tick = started
@@ -3191,7 +3222,7 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
         if now < recheck_at:
             continue
         try:
-            st = _runpod_get(f"/status/{jid}")
+            st = _runpod_get(f"/status/{jid}", eid)
             status = str(st.get("status") or "").upper()
         except Exception as e:  # noqa: BLE001 — a bad READ is not a bad job
             last_read_error = str(e)
@@ -3201,9 +3232,9 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
             only_not_found = only_not_found and getattr(e, "code", None) == 404
             # A 404 on a job we HAVE read is an answer — usually that RunPod
             # dropped a finished job's record (~30 min after it ends) — but not
-            # always a true one: a rotated RUNPOD_ENDPOINT_ID or a RunPod incident
-            # 404s a job that is still rendering. So it is re-checked on a backoff
-            # before it is believed, and then cancelled anyway, since the render
+            # always a true one: a RunPod incident 404s a job that is still
+            # rendering. So it is re-checked on a backoff before it is
+            # believed, and then cancelled anyway, since the render
             # it might still produce has no one left to collect it. A 404 before
             # any successful read is just a job not indexed yet, and a run that
             # stops being 404-only is an unreadable API again — so the latch, and
@@ -3224,9 +3255,9 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
                     last_tick = now
                 continue
             print(f"   !!! giving up on RunPod job {jid} (endpoint "
-                  f"{runpod_endpoint_id() or '?'}) for region '{region_name}' after "
+                  f"{eid or '?'}) for region '{region_name}' after "
                   f"{int(now - unreadable_since)}s unreadable — sending a cancel")
-            why = runpod_cancel(jid)
+            why = runpod_cancel(jid, eid)
             not_stopped = (f" (and RunPod would not cancel it: {why} — it may still "
                            f"be running and billing)" if why else "")
             if gone:
@@ -3234,7 +3265,7 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
                           msg="the job record has expired"))
                 raise RuntimeError(
                     f"RunPod no longer has a record of job {jid} for region "
-                    f"'{region_name}' (endpoint {runpod_endpoint_id() or '?'}), so "
+                    f"'{region_name}' (endpoint {eid or '?'}), so "
                     f"its result is gone — a finished job is dropped after about "
                     f"half an hour" + not_stopped)
             emit(diag("RUNPOD_STATUS_UNREADABLE", CATALOG, name=region_name,
@@ -3262,9 +3293,9 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
             last_tick = now
     # Nothing collects this job's output after we stop polling — the still path
     # returns its image through RunPod — so a job still running here is pure spend.
-    print(f"   !!! RunPod job {jid} (endpoint {runpod_endpoint_id() or '?'}) for "
+    print(f"   !!! RunPod job {jid} (endpoint {eid or '?'}) for "
           f"region '{region_name}' passed the 30 min cap — sending a cancel")
-    why = runpod_cancel(jid)
+    why = runpod_cancel(jid, eid)
     emit(diag("COMFY_TIMEOUT", CATALOG, name=region_name))
     raise TimeoutError(
         f"RunPod job {jid} for region '{region_name}' timed out after 30 min"

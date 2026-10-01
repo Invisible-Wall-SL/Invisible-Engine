@@ -57,7 +57,10 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   GPU (the worker polls its own status and kills ComfyUI). Status polls tolerate 180 s of
   failure; a 404 on a job already read is re-read at +10/+30/+70/+150 s, then **cancelled** (job
   id + endpoint logged) before the tile settles from its slot. Every path that abandons a job
-  still possibly running cancels it; a known-terminal one is never cancelled.
+  still possibly running cancels it; a known-terminal one is never cancelled. A job is polled,
+  cancelled and re-attached on the endpoint it was submitted to (`job_endpoint`, persisted with
+  `job_id`), so rotating `RUNPOD_ENDPOINT_ID` cannot strand one; a variation persisted before
+  that field existed falls back to the env, with a log line naming the job.
 - **Cutout weights** — RMBG-2.0 and all 12 BiRefNet variants are fetched onto the volume by
   `fetch-models.py --set rmbg --set birefnet` (commit-pinned, sha256-checked). The worker never
   links the volume's `models/RMBG/`: at boot it verifies that set file by file and stages what
@@ -78,14 +81,9 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    on; whether a full-length render clears the hand-off path on a real endpoint; and whether a
    session goes **pick → pack → clip in the editor**, **⤓ zip** on a full 81-frame render, and
    **🖼 To Atlas Maker → regenerate** on real R2.
-2. **A cancel after an endpoint rotation goes to the NEW endpoint.** Status and cancel use the
-   current `RUNPOD_ENDPOINT_ID`, so a job submitted before a rotation 404s, is cancelled on the
-   wrong endpoint, and keeps billing; the give-up log names both and points at the old
-   endpoint's Requests tab. The proper fix is polling each job on the endpoint it was submitted
-   to (store it on the variation).
-3. **Rename-repair hint is unconfirmed** — `sheet_session.json` is one open sheet's state, so
+2. **Rename-repair hint is unconfirmed** — `sheet_session.json` is one open sheet's state, so
    per-sheet recovery of `src` must be verified before the tool promises "did you mean…".
-4. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
+3. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
    int matters" has no clean signal. Deliberate.
 
 ## Blocked (owner / external)
@@ -107,6 +105,17 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-10-01 — **A RunPod job is addressed on the endpoint it was submitted to.** Status, cancel,
+  re-attach and every orphan cancel (Stop, delete, blueprint-gone adopt) built their URL from the
+  CURRENT `RUNPOD_ENDPOINT_ID`, so after a rotation an old job 404ed, its cancel missed, and it
+  billed on. `batch_atlas.runpod_submit` returns `(job id, endpoint)`; the variation persists the
+  endpoint as `job_endpoint` beside `job_id`, and `_runpod_get` / `_runpod_post` /
+  `runpod_cancel` now take the endpoint explicitly. A variation without one (persisted before
+  this) uses the env endpoint and logs `job <id> has no recorded endpoint; assuming <ep> …`.
+  The Atlas Maker's still path carries the endpoint on its `@@RUNPOD_JOB@@` marker, so its Stop
+  cancels there too. Open item 2 closed (later items renumbered). Offline only, RunPod mocked:
+  `test_video_runner.py` + `test_render_slot.py` (3 + 2 new fixtures).
 
 - 2026-09-30 — **Cutout weights pre-fetched and checksummed; abandoned RunPod jobs are
   cancelled.** The pinned BiRefNet loader rewrites `birefnet.py` in place on every load, so the
