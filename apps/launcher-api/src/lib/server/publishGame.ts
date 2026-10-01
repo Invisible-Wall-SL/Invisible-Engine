@@ -63,6 +63,10 @@ export interface PublishResult {
 	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
 	 *  Never blocking — shown next to the publish so the author re-binds them. */
 	spinesMissing: { scene: string[]; symbols: string[] };
+	/** A `holdAndWin` project whose shipped config has no `holdAndWin` block — the mock deals its
+	 *  base game as plain lines and no feature ever triggers. Never blocking; the fix is saving
+	 *  `/config` once (a project scaffolded before the kind's config was seeded). */
+	holdAndWinConfigMissing: boolean;
 	/** The immutable snapshot players now boot. */
 	snapshot: SnapshotMeta;
 }
@@ -254,6 +258,13 @@ export async function publishGame(
 				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
 		);
 	}
+	const holdAndWinConfigMissing = gameType === 'holdAndWin' && !bundle.config?.holdAndWin;
+	if (holdAndWinConfigMissing) {
+		console.warn(
+			`[publish] ${projectKey}: a Hold and Win project with no holdAndWin block in its Game ` +
+				'Config — the mock deals it plain lines. Save the config once in /config and re-publish.',
+		);
+	}
 	// An authoring boot's cached assemble predates this publish's exports. Drop it.
 	invalidateRuntimeBundle(projectKey);
 
@@ -349,6 +360,7 @@ export async function publishGame(
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing,
+		holdAndWinConfigMissing,
 		snapshot,
 	};
 }

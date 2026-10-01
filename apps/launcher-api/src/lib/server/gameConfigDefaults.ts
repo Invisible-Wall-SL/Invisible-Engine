@@ -86,6 +86,18 @@ export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDo
 	return DEFAULTS_BY_GAME_TYPE[key] ?? DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ?? null;
 }
 
+/**
+ * The config a NEW project of this kind is scaffolded with, or `null` to leave it un-authored.
+ *
+ * Only a kind whose defaults are presets is seeded: its mock and runtime need the kind's block, and
+ * an un-authored project falls through to the compiled LINES config, which has none — so a fresh
+ * `holdAndWin` project was dealt plain lines until someone saved `/config`. Every other kind stays
+ * un-authored, so what it plays is byte-identical to before (the compiled template, `null` bake).
+ */
+export function gameConfigSeedFor(gameType: string): GameConfigDoc | null {
+	return gameType in KIND_DEFAULT_KEY ? gameConfigDefaultFor(gameType) : null;
+}
+
 export type GameConfigSource = 'authored' | 'template';
 
 export type ResolvedGameConfig = {

@@ -538,6 +538,15 @@
 						'Re-pick the rig in the Scene Editor or Invisible Symbols.',
 				};
 			}
+			if (out?.holdAndWinConfigMissing) {
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						'⚠ This Hold and Win game has no Hold and Win block in its Game Config, so it is ' +
+						'dealt plain lines. Open Invisible Game Config, save, and re-publish.',
+				};
+			}
 			// Reload so the project row shows the new play URL + "published" state.
 			await invalidateAll();
 		} catch (e) {
