@@ -10,6 +10,9 @@
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
+	import { ResponsiveBitmapText } from 'components-pixi';
+	import { SYMBOL_SIZE } from 'engine-game';
+	import { coinLabelFor } from '../game/coinLabel';
 
 	type Props = {
 		x?: number;
@@ -95,6 +98,9 @@
 	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
 	 * reads as a rendering fault rather than as the missing binding it is.
 	 */
+	/** A Hold and Win coin's value, jackpot tier or factor — drawn with the readouts, over the art. */
+	const coinLabel = $derived(coinLabelFor(props.rawSymbol));
+
 	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
 
 	/**
@@ -173,13 +179,7 @@
 -->
 <Container>
 	{#each behindLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer
-			{layer}
-			x={props.x ?? 0}
-			y={props.y ?? 0}
-			tint={layerTint(layer)}
-			zIndex={i + 1}
-		/>
+		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
 	{/each}
 </Container>
 
@@ -216,13 +216,7 @@
 
 <Container>
 	{#each overLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer
-			{layer}
-			x={props.x ?? 0}
-			y={props.y ?? 0}
-			tint={layerTint(layer)}
-			zIndex={i + 1}
-		/>
+		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
 	{/each}
 </Container>
 
@@ -240,6 +234,20 @@
 			style={{
 				fontFamily: 'gold',
 				fontSize: 50,
+			}}
+		/>
+	{/if}
+
+	{#if coinLabel}
+		<ResponsiveBitmapText
+			anchor={0.5}
+			x={props.x}
+			y={props.y}
+			maxWidth={SYMBOL_SIZE * 0.9}
+			text={coinLabel}
+			style={{
+				fontFamily: 'gold',
+				fontSize: SYMBOL_SIZE * 0.3,
 			}}
 		/>
 	{/if}

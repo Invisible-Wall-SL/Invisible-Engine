@@ -105,6 +105,7 @@ export {
 	isHoldAndWinEvent,
 } from './src/game/holdAndWin';
 export { type EmitterEventFlight } from './src/game/flight';
+export { coinLabelText } from './src/game/coinLabel';
 
 export {
 	tierHasExit,

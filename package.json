@@ -11,7 +11,7 @@
 		"check:cluster": "node scripts/check-cluster-evaluator.mjs",
 		"check:scatter": "node scripts/check-scatter-evaluator.mjs",
 		"check:freespins": "node scripts/check-freespin-protocol.mjs",
-		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs",
+		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts",
 		"check:book-paytable": "node scripts/check-book-paytable.mjs",
 		"check:lines-scatter-paytable": "node scripts/check-lines-scatter-paytable.mjs",
 		"check:paytable": "node --experimental-strip-types scripts/verify-server-paytable.mts && node --experimental-strip-types scripts/verify-server-paytable-import.mts",
