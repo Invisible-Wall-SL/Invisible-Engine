@@ -39,6 +39,8 @@
 		speed?: number;
 		/** Fired once when a non-looping cinematic reaches its end — the Flow `complete` seam. */
 		oncomplete?: () => void;
+		/** Fired for each cue key the playhead crosses, with its `ns:name` string. */
+		oncue?: (cue: string) => void;
 	};
 	const props: Props = $props();
 
@@ -93,15 +95,17 @@
 	const cueKeys = $derived(
 		(
 			(props.doc.tracks as CinematicTrack[]).find((t) => t.kind === 'cue') as
-				| { keys?: { time: number; cue: string }[] }
-				| undefined
+				{ keys?: { time: number; cue: string }[] } | undefined
 		)?.keys ?? [],
 	);
 
+	// Game content mounts after the Pixi app has initialised, so the application is already here.
+	const ticker = appContext.stateApp.pixiApplication?.ticker;
+
 	function tick() {
-		if (!props.playing || duration <= 0 || done) return;
+		if (!ticker || !props.playing || duration <= 0 || done) return;
 		const prev = time;
-		time += (appContext.app.ticker.deltaMS / 1000) * (props.speed ?? 1);
+		time += (ticker.deltaMS / 1000) * (props.speed ?? 1);
 		// `cuesCrossed` owns the "did we cross it" rule (and refuses on a backwards or over-large
 		// step, i.e. a seek), so the game and the editor preview share ONE definition of "fired".
 		if (props.oncue && cueKeys.length) {
@@ -119,8 +123,8 @@
 		props.oncomplete?.();
 	}
 
-	appContext.app.ticker.add(tick);
-	onDestroy(() => appContext.app.ticker.remove(tick));
+	ticker?.add(tick);
+	onDestroy(() => ticker?.remove(tick));
 
 	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted).
 	$effect(() => {

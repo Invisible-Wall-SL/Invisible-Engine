@@ -5,8 +5,9 @@
 **One-line state:** Phases 0–3 + Tweak Mode, strip masks and inline posing are built — `/rigger`'s
 🎬 Cinematic mode stages several rigs as tracks of strips + property/camera/visibility/cue keys,
 saves per project, ships with the rigs it casts, and plays in game through `<Cinematic>` from a
-Flow `playCinematic` node. ⏳ The editor is live-verified; the in-game player has mounted once (and
-was fixed), but a full authored cinematic has not yet been watched end to end in a game.
+Flow `playCinematic` node. ⏳ The editor is live-verified. The in-game player plays at authored
+speed on a real clock (2026-10-01, a probe cinematic injected into the remake), but no project has
+yet shipped an authored cinematic through a `playCinematic` node.
 
 ## Current state
 
@@ -113,9 +114,10 @@ was fixed), but a full authored cinematic has not yet been watched end to end in
 
 ## Open items / next
 
-1. **⏳ Watch a full cinematic in a game.** The first mount found the frozen-rig bug; since the fix,
-   no authored cinematic (strips + cues + set + a `playCinematic` with `awaitComplete`) has been
-   watched end to end. Treat the next run as debugging.
+1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
+   but only with a probe doc injected into the runtime bundle and started from the flow handle. No
+   authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
+   export chain yet; the remake's one doc (`suca_cine`) has no cast and is not exported.
 2. **⏳ Live-verify the server chain against real R2 + Postgres** — save, reload, open, publish,
    and confirm `deploy/cinematics/` fills and the bundle carries `cinematics`.
 3. **⏳ Owner eyeball** — two rigs staged together (premultiply halos, relative scale between rigs
@@ -133,6 +135,24 @@ was fixed), but a full authored cinematic has not yet been watched end to end in
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-01 — **`<Cinematic>` threw on every in-game mount, and now plays.** It read
+  `appContext.app.ticker`, but pixi-svelte's app context is `{ stateApp }` (the application is
+  `stateApp.pixiApplication`), so mounting it threw "Cannot read properties of undefined (reading
+  'ticker')" and nothing played. svelte-check had reported it from day one (5 × `ts:2339`, with the
+  undeclared `oncue` prop), but the errors sat in the ratchet baseline. Both are fixed and the
+  baseline is lowered. Found while proving the spine-pixi-v8 4.2.120 bump (#929).
+  - **autoUpdate verdict:** 4.2.120 made the `autoUpdate` setter idempotent and moved it onto a
+    configurable `ticker` (default `Ticker.shared`). A default `Spine` still registers once, and
+    `false` still detaches. 4.2.74 used to add a second listener on a repeated `true`, which would
+    double-update a rig. `<CinematicActor>` never touches `autoUpdate`, so its contract is unchanged.
+    `tools/rigger-spike/cinematic-pixi.mjs` part C now asserts this against the real runtime.
+  - **Real-clock proof:** a local `apps/lines` build (the bump + this fix) on the headless shell at
+    60 fps booted the remake's live data. A two-rig probe doc (`R_Cinematic1` Intro → Idle,
+    `R_Cinematic2` Tier1_Intro, 6 s) was injected into `/api/editor/runtime` over CDP and started via
+    `__IE_FLOW_V2__.playingCinematics`. `oncomplete` fired at 6.012 s for ×1 and 3.032 s for ×2,
+    both rigs re-posed every sample, and it unmounted on completion. Across about 200k spine
+    updates, none ran twice on a tick with dt > 0; the only repeats were `SpineTrack`'s `update(0)`.
 
 - 2026-08-19 — **Inline posing** (✎ on a cast row) — the owner's third iteration on "edit my bones
   straight into cinematic"; Tweak Mode had answered with a surface swap onto an empty clip.
