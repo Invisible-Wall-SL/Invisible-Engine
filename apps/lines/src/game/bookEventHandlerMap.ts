@@ -409,6 +409,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing
 	},
+	// The mode stack moves at the play seam (`stateModes`), on every dispatch path; the coded path has
+	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens.
+	modeEnter: async () => {},
+	modeExit: async () => {},
 	// customised
 	createBonusSnapshot: async (bookEvent: BookEventOfType<'createBonusSnapshot'>) => {
 		const { bookEvents } = bookEvent;

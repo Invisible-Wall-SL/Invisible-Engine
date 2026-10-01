@@ -11,6 +11,8 @@ import type {
 } from './bookEvents';
 import type { WinLevelData } from './winLevelMap';
 import { HOLD_AND_WIN_SNAPSHOT_EVENTS } from './holdAndWin';
+import { MODE_EVENT_TYPES } from './modeEvents';
+import type { ModeController } from './modeController.svelte';
 
 /**
  * What a game hands the play pipeline. Every entry is a presentation hook the ROUND SEAM calls
@@ -71,6 +73,13 @@ export type PlayBookDeps<TWins> = {
 
 	/** The tumble-explosion sound ladder. */
 	trackCascadeStep: (bookEvent: BookEvent) => void;
+
+	/**
+	 * The game's MODE STACK (`modeController.svelte.ts`). Optional: a game without one plays exactly
+	 * as before. Moved here, at the seam, so a flow-owned `freeSpinTrigger` enters free spins exactly
+	 * as the coded one does.
+	 */
+	modes?: Pick<ModeController, 'before' | 'after' | 'reset' | 'restore'>;
 };
 
 /**
@@ -103,9 +112,27 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		holdAfterBigWin,
 		clearSpinHold,
 		trackCascadeStep,
+		modes,
 	} = deps;
 
 	const coded = createPlayBookUtils({ bookEventHandlerMap });
+
+	/**
+	 * GAME MODES around one event's presentation, on every path. A resume snapshot rebuilds the stack
+	 * silently (no intro replays). An event that ENTERS a mode opens it first — the event belongs to
+	 * the mode it opens, so the active-mode-first flow dispatch already sees that mode — and an event
+	 * that EXITS one is that mode's last beat, so the mode closes once the event has been presented.
+	 * No mode controller, or an event that moves no mode ⇒ just the presentation.
+	 */
+	const withModes = async (bookEvent: BookEvent, present: () => Promise<void>): Promise<void> => {
+		if (!modes) return present();
+		if (bookEvent.type === 'createBonusSnapshot') {
+			modes.restore((bookEvent as BookEventOfType<'createBonusSnapshot'>).bookEvents);
+		}
+		await modes.before(bookEvent);
+		await present();
+		await modes.after(bookEvent);
+	};
 
 	/**
 	 * Play one book event. When the Invisible Flow interpreter is active (a FlowDoc is authored)
@@ -125,7 +152,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		// (the same three paths) — celebrations are never fast-forwarded.
 		runBookEventPresentation(
 			bookEvent.type,
-			() => dispatchBookEvent(bookEvent, context),
+			() => withModes(bookEvent, () => dispatchBookEvent(bookEvent, context)),
 			startsCelebration(bookEvent),
 		);
 
@@ -278,7 +305,9 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
-			await coded.playBookEvent(bookEvent, { ...context, bookEvents });
+			await withModes(bookEvent, () =>
+				coded.playBookEvent(bookEvent, { ...context, bookEvents }),
+			);
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 	};
@@ -295,6 +324,8 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		// straight to the final total, rather than costing the player a press per spin.
 		roundSkip.reset();
 		stateBet.winBookEventAmount = 0;
+		// Every round starts at the base game; a resumed one rebuilds its stack from the snapshot.
+		modes?.reset();
 		try {
 			await playBookEvents(bet.state);
 		} finally {
@@ -335,6 +366,11 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		'updateFreeSpin',
 		'setTotalWin',
 		...HOLD_AND_WIN_SNAPSHOT_EVENTS,
+		// The mode events ride along so a resume rebuilds the WHOLE stack and queue (design §4.5), not
+		// only free spins. The coded `createBonusSnapshot` handler reads only what it always read.
+		...MODE_EVENT_TYPES.filter(
+			(type) => type !== 'freeSpinTrigger' && type !== 'holdAndWinEnd',
+		),
 	];
 
 	const convertTorResumableBet = (betToResume: Bet) => {

@@ -54,6 +54,26 @@ export { createGameContext, getGameContext, type GameContext } from './src/game/
 export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
 export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
+	BASE_MODE_ID,
+	activeModeId,
+	emptyModeStack,
+	enterMode,
+	exitMode,
+	isModeActive,
+	restoreModes,
+	type ModeEntry,
+	type ModePolicy,
+	type ModeStackState,
+	type ModeStep,
+	type ModeTransition,
+} from './src/game/modeStack';
+export { MODE_EVENT_TYPES, modeOpOf, type ModeOp } from './src/game/modeEvents';
+export {
+	createModeController,
+	type ModeController,
+	type ModeControllerDeps,
+} from './src/game/modeController.svelte';
+export {
 	createGameState,
 	type GameStateDeps,
 	type GameStateApi,

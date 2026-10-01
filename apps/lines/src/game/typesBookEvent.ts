@@ -235,6 +235,26 @@ type BookEventHwHoldAndWinEnd = {
 	type: 'holdAndWinEnd';
 } & HoldAndWinEventFields['holdAndWinEnd'];
 
+// GAME MODES (`docs/design/hold-and-win.md` §4.5): a bonus that switches to a different game mode,
+// and back. The mode stack moves at the play seam (`engine-game` `modeController`), so the coded
+// handlers have nothing left to do; `freeSpinTrigger` / `freeSpinEnd` and the Hold and Win
+// trigger / end are aliases of this pair.
+type BookEventModeEnter = {
+	index: number;
+	type: 'modeEnter';
+	mode: string;
+	cause?: string;
+	policy?: 'nest' | 'queue';
+	payload?: Record<string, unknown>;
+};
+
+type BookEventModeExit = {
+	index: number;
+	type: 'modeExit';
+	mode: string;
+	total?: number;
+};
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -279,6 +299,8 @@ export type BookEvent =
 	| BookEventHwRespinUpdate
 	| BookEventHwHoldAndWinState
 	| BookEventHwHoldAndWinEnd
+	| BookEventModeEnter
+	| BookEventModeExit
 	// customised
 	| BookEventCreateBonusSnapshot;
 

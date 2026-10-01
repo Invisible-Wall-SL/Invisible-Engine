@@ -24,6 +24,7 @@ import {
 } from './winSymbolCycle';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
+import { stateModes } from './stateModes.svelte';
 
 /**
  * THE SYMBOL RESOLVER, built on this game's symbol map. The resolution itself — the memo, the
@@ -63,4 +64,5 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	holdAfterBigWin,
 	clearSpinHold,
 	trackCascadeStep,
+	modes: stateModes,
 });
