@@ -10,6 +10,8 @@
 // which live in one non-module <script> and can't be imported — keep the two in sync.
 //   node tools/rigger-spike/hulledges.mjs
 
+import { SPINE_CORE } from './spine.mjs';
+
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 console.log('\n=== Phase 3.6b hull + constraint edges ===');
@@ -127,7 +129,6 @@ const removeOneRemap = (k, count) => { const r = new Array(count); for (let i = 
 
 // ---- 2. hull + edges round-trip through spine-core -------------------------
 {
-	const SPINE_CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
 	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
 	// minimal atlas: one 64×64 page with one region "img"
 	const atlasText = 'page.png\nsize: 64,64\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nimg\n  rotate: false\n  xy: 0, 0\n  size: 64, 64\n  orig: 64, 64\n  offset: 0, 0\n  index: -1\n';

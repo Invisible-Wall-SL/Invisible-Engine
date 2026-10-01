@@ -44,20 +44,10 @@
 // where the edit put it. The rig on the command line gets all three on every slot showing an image,
 // from the same two fresh skins.
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { SPINE_CORE } from './spine.mjs';
 
-// A git worktree has no node_modules of its own, so walk up to the first checkout that does.
-const SUB = 'node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js';
-const SPINE_CORE = (() => {
-	for (let up = 2; up <= 8; up++) {
-		const u = new URL('../'.repeat(up) + SUB, import.meta.url);
-		if (existsSync(fileURLToPath(u))) return u.href;
-	}
-	console.error(`✗ spine-core 4.2.74 not found — run pnpm install (looked for ${SUB})`);
-	process.exit(2);
-})();
 const SPINE = await import(SPINE_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = SPINE;
 

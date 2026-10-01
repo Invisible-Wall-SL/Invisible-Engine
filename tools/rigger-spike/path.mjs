@@ -69,17 +69,10 @@
 //                   across all three (per-channel value handles in absolute value-space).
 //   poseAtTime preview reads the live PathConstraint.{position,spacing,mixRotate,mixX,mixY} that
 //   the runtime sets at time t, before updateWorld.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-const SPINE = '.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js';
-// resolve spine-core from the nearest node_modules up the tree (worktrees may lack their own)
-let CORE = null;
-for (let up = 2; up <= 8; up++) {
-	const cand = new URL('../'.repeat(up) + 'node_modules/' + SPINE, import.meta.url);
-	if (existsSync(cand)) { CORE = cand; break; }
-}
-if (!CORE) throw new Error('spine-core@4.2.74 not found in any ancestor node_modules');
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(CORE.href);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

@@ -46,9 +46,9 @@
 //  later). curve is ONE per key (one easing for the whole vertex frame), bezier controls in
 //  absolute (time,value)=(time,progress) coords exactly like the bone channels (curve.mjs).
 import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-const CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

@@ -65,19 +65,13 @@
 
 import { readFileSync } from 'node:fs';
 import { evaluateActor } from '../../packages/engine-cinematic/src/cinematicEval.js';
+import { SPINE_CORE, spinePixiFile } from './spine.mjs';
 
-const CORE = new URL(
-	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
-	import.meta.url,
-).href;
-const SPINE = await import(CORE);
+const SPINE = await import(SPINE_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState, AnimationStateData, MixBlend, MixDirection, Physics } = SPINE;
 const spineNs = { MixBlend, MixDirection, Physics };
 
-const SPINE_PIXI_DIST = new URL(
-	'../../node_modules/.pnpm/@esotericsoftware+spine-pixi-v8@4.2.74_pixi.js@8.8.1/node_modules/@esotericsoftware/spine-pixi-v8/dist/Spine.js',
-	import.meta.url,
-);
+const SPINE_PIXI_DIST = spinePixiFile('dist/Spine.js');
 
 let pass = 0;
 let fail = 0;

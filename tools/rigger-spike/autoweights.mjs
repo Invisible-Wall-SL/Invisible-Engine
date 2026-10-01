@@ -17,11 +17,8 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
+import { SPINE_CORE } from './spine.mjs';
 
-const SPINE_CORE = new URL(
-	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
-	import.meta.url,
-).href;
 const spine = await import(SPINE_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = spine;
 

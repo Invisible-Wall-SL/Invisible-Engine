@@ -29,6 +29,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
+    # SPINE: 4.2.x patches only. A Spine runtime reads exactly one editor version's data, and every
+    # skeleton we export and the Rigger's `.irig` are Spine 4.2 JSON — semver calls 4.2 → 4.3 a
+    # minor, but for Spine it is a data-format boundary (it rode into the weekly group once, #911).
+    # Moving to 4.3 is a deliberate project: re-export every asset from Spine 4.3 and move the
+    # Rigger's format, the vendored spine-webgl and the spikes along with the runtime.
+    # `scripts/check-spine-version.mjs` (check:all) refuses a hand bump the same way.
+    ignore:
+      - dependency-name: '@esotericsoftware/*'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
       npm-minor-patch:
         applies-to: version-updates

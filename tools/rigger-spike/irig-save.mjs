@@ -14,13 +14,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SPINE_CORE } from './spine.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const ESBUILD = new URL('node_modules/.pnpm/esbuild@0.25.5/node_modules/esbuild/lib/main.js', ROOT).href;
-const SPINE_CORE = new URL(
-	'node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
-	ROOT,
-).href;
 const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
 const SERVER_DIR = join(APP, 'src/lib/server');
 const esbuild = await import(ESBUILD);

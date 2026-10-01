@@ -6,6 +6,7 @@
 // hull carves its notch (a point in the notch is left uncovered).
 //   node tools/rigger-spike/retriangulate.mjs [skeleton.json skeleton.atlas]
 import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
 // ---- the EXACT functions ported into view.html ----------------------------
 function pointInPolygon(px, py, poly) {
@@ -142,8 +143,7 @@ console.log('\n=== Re-triangulation spike ===');
 // --- Test 4 (optional): swap into a real skeleton + load via spine-core ------
 const [, , jsonPath, atlasPath] = process.argv;
 if (jsonPath && atlasPath) {
-	const CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
-	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(CORE);
+	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
 	const atlasText = readFileSync(atlasPath, 'utf8');
 	const raw = JSON.parse(readFileSync(jsonPath, 'utf8'));
 	// find the first mesh attachment, retriangulate it from its own (local) verts

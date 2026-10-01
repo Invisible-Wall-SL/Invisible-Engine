@@ -24,7 +24,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
-The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against spine-core 4.2).
+The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against spine-core 4.2, imported through `tools/rigger-spike/spine.mjs`).
 
 ## Open items / next
 
@@ -56,6 +56,10 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
     `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
     `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than Spine's).
     Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
+14. **Seven spikes still hard-code `.pnpm/esbuild@0.25.5/…`** (`irig-save`, `rigtext`,
+    `rigtext-runtime`, `rigtext-panel`, `reindex-preserve`, `cinematic-flow`, `cinematic-storage`).
+    Any esbuild bump breaks them with ERR_MODULE_NOT_FOUND, and Dependabot's #911 group carries
+    esbuild 0.25.5 → 0.28.2. They need the same fix Spine got: resolve through a workspace package.
 
 ## Blocked (owner / external)
 
@@ -65,6 +69,15 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-10-01 — **The spikes get Spine from one helper, `tools/rigger-spike/spine.mjs`.** 48 spikes
+  hard-coded `node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/…` (and `cinematic-pixi` the
+  spine-pixi-v8 one), so any version change, even a 4.2 patch, broke them with
+  ERR_MODULE_NOT_FOUND. A spike now does `import { SPINE_CORE } from './spine.mjs'`. The helper
+  resolves the package from `packages/pixi-svelte` (the game's pin), trying each ancestor checkout
+  for a worktree with no install. It exits 1 with "spine-core X found, spikes require 4.2.x" for
+  anything other than 4.2.x, because the spikes check Spine 4.2 data. A planted `4.3` requirement
+  fails the spikes with that message. Why Spine stays on 4.2: [infra](infra.md) (2026-10-01).
 
 - 2026-09-30 — **The browser spikes share one Chrome launcher,
   `tools/rigger-spike/chrome.mjs`.** A new browser spike imports `launchChrome` and never spawns

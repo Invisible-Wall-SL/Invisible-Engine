@@ -10,14 +10,10 @@
 //    serializer round-trips faithfully.
 
 import { readFileSync } from 'node:fs';
-// spine-core is a transitive dep (via spine-pixi-v8) → only in pnpm's .pnpm store,
-// not hoisted to top-level node_modules. Import the dist entry explicitly for the spike.
-const SPINE_CORE = new URL(
-	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
-	import.meta.url,
-).href;
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
 import { parseSkeleton, serializeSkeleton } from './spineModel.mjs';
+import { SPINE_CORE } from './spine.mjs';
+
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

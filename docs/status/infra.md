@@ -63,7 +63,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   going down passes with a notice to lower it. A crashed run (no `COMPLETED` line) fails.
 - **Dependabot** (`.github/dependabot.yml`): weekly grouped npm / pip / github-actions updates, capped
   open PRs, gated by the same required checks. Its security updates wait on the owner switch
-  (Blocked).
+  (Blocked). The Spine runtimes (`@esotericsoftware/*`) get 4.2.x patches only, and
+  `scripts/check-spine-version.mjs` (check:all) fails a hand bump past 4.2 (2026-10-01 below).
 
 ## Open items / next
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
@@ -116,6 +117,21 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-01 — **Dependabot stops offering Spine 4.3.** The weekly `npm-minor-patch` group (#911)
+  carried `@esotericsoftware/spine-core` + `spine-pixi-v8` 4.2.74 → 4.3.13 among 34 bumps, because
+  semver calls it a minor. For Spine it is a data-format boundary: the runtime must match the editor
+  version, and every exported skeleton and the Rigger's `.irig` are 4.2 JSON. CI caught it only
+  because the Rigger spikes hard-coded the `.pnpm/…spine-core@4.2.74` store path
+  (ERR_MODULE_NOT_FOUND).
+  - `.github/dependabot.yml` ignores `semver-major` and `semver-minor` for `@esotericsoftware/*`
+    (4.2.x patches still come). A 4.3 move is a project: re-export the assets, move the Rigger's
+    format, the vendored `spine-webgl` and the spikes.
+  - New gate `scripts/check-spine-version.mjs` (discovered by check:all): every tracked
+    `package.json`'s `@esotericsoftware/*` spec must be `4.2.x` / `~4.2.x` (a `^` range is refused —
+    a fresh lock could resolve 4.3), and every lockfile entry must resolve to 4.2.x. Mutants: a
+    `^4.3.13` spec in pixi-svelte and a `spine-core@4.3.13` lockfile key each fail it, exit 1.
+  - The spikes resolve Spine through one helper, `tools/rigger-spike/spine.mjs` ([rigger](rigger.md)).
+  - #911 was asked to `@dependabot recreate` once this landed.
 - 2026-09-30 — **The "no devtools endpoint" flake in the required `check-all (n/3)` jobs is fixed**
   (PR #921).
   - The five Chrome spikes (`skins-panel`, `rig-switch`, `rigtext-panel`, `rigtext-browser`,

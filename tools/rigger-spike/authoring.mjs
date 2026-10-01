@@ -5,8 +5,8 @@
 // (empty default skin + attachment-less slot), so an empty atlas suffices.
 //   node tools/rigger-spike/authoring.mjs
 import { fileURLToPath } from 'node:url';
+import { SPINE_CORE } from './spine.mjs';
 
-const SPINE_CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
 
 function load(doc) {
