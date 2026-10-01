@@ -4,8 +4,8 @@
 
 **One-line state:** Built and shipping — bones, meshes, weights, animation (incl. image sequences
 and a dopesheet stretch), localized text art and FX/flipbook event bindings are on `main`, and
-rigs travel the full ship chain. Saves are conditional with 20 restorable versions. ⏳ The whole
-tool still owes owner live-verify against real R2; rig editing has no undo.
+rigs travel the full ship chain. Saves are conditional with 20 restorable versions, and rig edits
+undo/redo. ⏳ The whole tool still owes owner live-verify against real R2.
 
 ## Current state
 
@@ -21,6 +21,13 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredSpineBox`) by `/symbols`, the Scene Editor and the game (`<SpineProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim).
 - **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig and animation library saves create only (a taken name shows who saved it and when; the confirmed overwrite is `If-Match` on that entry), and the rig library refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too. `＋ New rig` / upload refuse a name that differs from an existing bundle only by case, even when both are created at once, and a create that died after its claim does not keep the name: its lone `.irig` (unlisted, no atlas, untouched for 10 minutes) is backed up to 🕘 and reclaimed. Every `skeletons.json` rebuild (save, new, upload, delete, the editor's reindex) goes through `reindexProjectSkeletons`, so an atlas-less rig is never dropped from the index.
+- **Undo / redo** — ↶ ↷ and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over a bounded snapshot history of
+  `rawDoc` plus the selection, skin on stage and open clip (`historyNote` / `historyFlush` /
+  `historyStep` in `view.html`). A step is one user action, one pointer gesture, a burst of typing in
+  one field (≤ 800 ms gaps), or a `historyStep` operation (delete cascades, convert, import,
+  auto-weights, 🩹 Repair). Cinematic keeps its own history for its own document; the rig's takes the
+  keys everywhere else, tweaking included. Local to the tab, never saves, an undo leaves the rig
+  unsaved; any open clears it. Capped at 100 steps and 64 MB.
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
@@ -28,7 +35,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 ## Open items / next
 
-1. **Rig undo.** Only Cinematic mode has a history; it is written to be pointed at `rawDoc`.
+1. ~~Rig undo~~ — built 2026-10-01 (Recent changes); kept so the numbers after it stay put.
 2. ~~Index rebuilds could drop an atlas-less rig~~ — fixed 2026-09-30 (Recent changes); kept so the numbers after it stay put.
 3. **Better auto-weights** — the proximity skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative character-mesh gate (Spike 2) is open.
 4. **Localized text** — no rename for a text element (the id is the attachment name); a text element converted to a **mesh** cannot be width-fitted (its locales are linked meshes sharing the source hull); **persistent FX slots** (an always-on, keyable emitter living on the rig, the other half of §12.4a) are unbuilt.
@@ -68,6 +75,15 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-01 — **Rig edits undo and redo** (was open item 1). ↶ ↷ beside the mode toggle, Ctrl+Z /
+  Ctrl+Shift+Z / Ctrl+Y, in Preview / Setup / Animate and while tweaking a cinematic clip; the plain
+  Cinematic stage keeps its own history. One step per user action, drag, typing burst or
+  multi-edit operation; an undo restores the selection, skin and clip, never saves, and marks the
+  rig unsaved; opening any rig, or failing to, clears it. Gate: `rig-undo.mjs` (89 checks, real
+  page; `--mutants` plants 12 mutants, all caught). Also: save / ⤓ / the bounds toggle no longer
+  slip their derived frame write into the next undo step, importing a library rig no longer
+  asks first over unsaved edits (it undoes), and the cinematic no longer throws every frame while
+  it boots.
 - 2026-10-01 — **Deleting a bone keeps everything where it was in the setup pose** (was open item
   8). Its children, its slots and the vertices weighted to it moved to its parent keeping their
   LOCAL values, so they jumped by the deleted bone's transform. The delete now composes that

@@ -5,6 +5,47 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-01 — **Rig undo / redo** (was open item 1).
+  - **Model.** Snapshots, not commands, as in cinematic.js and Flow's `undoHistory.ts`: each entry
+    is `rawDoc` as JSON text plus the selection (bone, slot, constraint), the skin on stage and the
+    open clip with its playhead. The existing edit funnel draws the steps: `markDirty()` only notes
+    that the open step has changes (`historyNote`); `historyFlush` serialises and pushes it, and is
+    a no-op when the text did not change. So no edit site was touched except the ones that must be
+    one step whatever calls them.
+  - **Step boundaries.** Capture-phase listeners on `window` (pointerdown, keydown, input, change,
+    click, dblclick, contextmenu, drop) key each user action and close a pending step whose key
+    differs BEFORE the action's handler runs, which is what keeps "typed, then deleted 100 ms later"
+    two steps. A field's key is its place in the page plus the selection and playhead, so typing in
+    one field coalesces (800 ms debounce, as in Flow) and survives the inspector re-rendering. A
+    pointer gesture holds every flush until after pointerup's task (the mouseup handlers that
+    commit a drag run there); a FIELD's blur must not end it, because a pointerdown on the canvas
+    blurs the focused field. `historyStep(fn)` closes the open step, runs `fn`, closes again — used
+    by bone/slot/constraint delete, ▸ Convert, ② Auto-weight, 🩹 Repair and the import's merge,
+    which lands after a fetch with no user action around it.
+  - **Two histories.** The cinematic's covers its own document; it takes Ctrl+Z only on the plain
+    Cinematic stage (its handler already returns while tweaking). The rig's takes it in every other
+    mode with a rig open, tweaking included (`rigHistoryActive`). Neither can reach the other's
+    document. Undoing during a tweak keeps the strip's clip open; a clip the snapshot lacks (an
+    inline override born from the key being undone) is dropped and the next key makes it again.
+  - **Derived writes.** `ensureRigBounds` writes `skeleton.x/y/width/height` on save, ⤓ .irig, 📦
+    and the bounds toggle with no `markDirty`, so that write rode into the NEXT undo step and undoing
+    to "the saved document" came back without it. `settleRigBounds` folds it into the present
+    instead.
+  - **Memory.** `RIG_HISTORY_LIMIT` 100 entries and `RIG_HISTORY_MAX_BYTES` 64 MB over past +
+    future (string length ≈ bytes: rig JSON is ASCII, one byte per char in V8), always keeping at
+    least one step. Measured in headless Chromium on the biggest checked-in rig, mm_bigwin: 1.07 MB
+    per snapshot, `JSON.stringify` ~7 ms, a step ~6-8 ms; 64 MB keeps 59 of its steps.
+  - **Gate.** `tools/rigger-spike/rig-undo.mjs` (89 checks) drives the real page: typing, a canvas
+    drag, a colour scrub, a keyboard-stepped slider, ◆ Key, ＋ animation / skin, a delete cascade,
+    convert / auto-weight / a constructed stale mesh + 🩹 Repair, an import mid-typing; each undo
+    string-equal to the previous `rawDoc`, each redo to the next. `--mutants` runs it against 12
+    planted mutants (no coalescing, no boundary, gesture not one step, `historyStep` not closing,
+    undo leaving the rig clean, a failed open keeping history, no byte cap, no entry cap, selection
+    not restored, redo branch kept, rig history taking Ctrl+Z in Cinematic, keys reaching into text
+    fields); every one fails the gate.
+  - **Found on the way.** cinematic.js's `frame` read `doc.stage` from the moment the script loaded,
+    before `init` set `doc`, so entering 🎬 threw every frame until its imports landed; it now
+    returns until there is a doc.
 - 2026-10-01 — **A bone delete is compensated** (open item 8).
   - **The jump.** `deleteBoneCore` re-parented the bone's children and slots onto its parent and
     moved its weighted influences there, all keeping their LOCAL values, which were relative to

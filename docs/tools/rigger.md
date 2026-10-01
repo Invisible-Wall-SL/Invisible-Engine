@@ -156,6 +156,34 @@ A floating segmented toggle at the top of the stage switches the workflow:
 **not** need one — it opens with no rig loaded and boots its own renderer, because
 it casts rigs from the project rather than editing the one on the stage.)
 
+### Undo / redo (rig edits)
+
+**↶ / ↷** sit beside the mode toggle whenever a rig is open.
+
+| Keys | Does |
+|---|---|
+| **Ctrl+Z** (⌘Z) | undo the last rig edit |
+| **Ctrl+Shift+Z** (⌘⇧Z) or **Ctrl+Y** | redo |
+
+- It works the same in Preview, Setup (bones, meshes, weights, slots, skins) and
+  Animate, and while **tweaking or posing** inside Cinematic — those key the rig.
+  On the plain Cinematic stage the keys and buttons belong to the cinematic's own
+  history (see [Undo, saving, and getting it into a game](#undo-saving-and-getting-it-into-a-game)).
+- With the cursor in a text or number field, Ctrl+Z is the field's own text undo.
+- **One step = one thing you did.** A drag (on the canvas, in the dopesheet) is one
+  step; so is typing in one field, a colour scrub or a slider stepped with the
+  arrow keys, as long as you don't pause for more than ~0.8 s. A delete with all
+  it takes along, ▸ Convert to mesh, ② Auto-weight, 🩹 Repair and importing a rig
+  from the library are one step each.
+- An undo brings back the selection, the skin on stage and the open animation
+  that went with that step.
+- Undo stays in this tab and **never saves**: after an undo the rig is unsaved, and
+  the next 💾 Save stores whatever is on screen (with the usual "someone saved
+  since" check). Opening another rig — or reopening this one (⟳ Refresh, 🕘
+  Restore, a text bake, ⟳ Re-sync atlas) — starts an empty history.
+- The last 100 steps are kept, fewer on a very large rig (the history holds up to
+  64 MB: about 59 steps of a 1 MB rig).
+
 ### Timeline events (fire an effect or a flipbook on the beat)
 
 An animation can carry **events** on its timeline — the purple ⚡ keys on the
@@ -324,7 +352,7 @@ a rival answer to the same question. Move the box, or bind a different bone.
   A linked mesh whose parent mesh (or the skin holding it) is deleted becomes a
   plain mesh with a copy of that geometry and its deform keys, so it looks and
   moves as before; animated draw orders keep their order minus the deleted slot.
-  Rig editing has no undo, so read the confirm before you delete.
+  One **↶ Undo** (Ctrl+Z) puts the whole delete back.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -754,7 +782,8 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
   of a rig that failed to load. **Restore** puts one back and reopens the rig (your
   unsaved edits in the tab are discarded; the version it replaces is kept in History
   too, so a restore can be undone).
-- Closing or reloading the tab with unsaved rig or cinematic changes asks first.
+- Closing or reloading the tab with unsaved rig or cinematic changes asks first —
+  an undo counts as a change.
 - **⤓ .irig** downloads the skeleton locally as Spine 4.2 JSON under the `.irig`
   extension.
 
@@ -1027,9 +1056,11 @@ sprites and text along with the effects.
 ### Undo, saving, and getting it into a game
 
 **↶ / ↷** plus Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, with the action's name on the
-button; rapid edits to one field coalesce into a single step. This is `/rigger`'s
-first undo stack and it covers the **cinematic document only** — rig editing still
-has no undo.
+button; rapid edits to one field coalesce into a single step. This history covers
+the **cinematic document only**. While you tweak or pose a clip, the keys undo the
+**rig** edits instead (the rig has its own history — see
+[Undo / redo (rig edits)](#undo--redo-rig-edits)); the two never undo each other's
+document.
 
 Save with **Open / Save / ＋ New / 🗑** or Ctrl+S; cinematics are stored per
 project. If someone else saved over your copy you are **asked** before overwriting,
@@ -1096,8 +1127,6 @@ they appear in no scene.
   constraint-edge editing (✎ Edge, Phase 3.6b) ships, and hull **promote/demote**
   (⬡ Hull, Phase 3.6c) ships. The non-bone animation channels once listed here —
   **draw-order, events and mesh deform** — have all since shipped.
-- **Undo covers cinematics only.** Rig editing (Setup / Animate) still has no undo
-  stack; the one added for Cinematic mode is scoped to the cinematic document.
 - **Localized text needs fonts + translations to exist first.** With no font in the
   project's catalog, or no keys in `/localization`, the Add-text panel has nothing to offer.
   Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string

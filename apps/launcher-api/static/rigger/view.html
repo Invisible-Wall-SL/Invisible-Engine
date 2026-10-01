@@ -276,6 +276,7 @@
   #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
   #modeBar .seg { background:rgba(20,23,28,.85); box-shadow:0 2px 10px rgba(0,0,0,.45); backdrop-filter:blur(3px); }
   #modeBar .seg button { padding:7px 14px; font-size:13px; }
+  #undoSeg { margin-left:8px; }
   /* tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) */
   #tweakBar { position:absolute; z-index:6; top:52px; left:50%; transform:translateX(-50%);
     display:flex; align-items:center; gap:9px; padding:6px 12px; border-radius:8px; font-size:12px;
@@ -519,6 +520,10 @@
           <button data-mode="setup" title="Edit the rest pose: bones, meshes, weights, attachments">✎ Setup</button>
           <button data-mode="animate" title="Animate: pose bones over time into keyframes">◆ Animate</button>
           <button data-mode="cinematic" title="Cinematic: stage several rigs on one timeline (Phase 1: cast, place, scrub)">🎬 Cinematic</button>
+        </span>
+        <span id="undoSeg" class="seg" style="display:none;">
+          <button id="undoBtn" disabled>↶</button>
+          <button id="redoBtn" disabled>↷</button>
         </span>
       </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
@@ -1258,6 +1263,7 @@ function beginTweak(info){
   tweak = { actorId: info.actorId, clip: info.clip, label: info.label || "", stripId: info.stripId, place: null };
   tweakMode = true;
   tweakInline = !!info.inline;
+  refreshUndoButtons();
   animMode = true; // every keying/posing guard in this file reads animMode — this IS the animator
   playing = false; $("#play").textContent = "▶ Play";
   curAnim = info.clip || null;
@@ -1296,6 +1302,7 @@ function endTweak(){
   if (!tweakMode) return null;
   const wasInline = tweakInline;
   tweakMode = false; tweakInline = false; animMode = false; tweak = null;
+  refreshUndoButtons();
   if (skeleton){
     skeleton.x = 0; skeleton.y = 0; skeleton.scaleX = 1; skeleton.scaleY = 1;
     if (skeleton.color) skeleton.color.a = 1;
@@ -1819,6 +1826,7 @@ function refreshRigFileButtons(){
 function closeRig(note){
   rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
+  historyReset();
   rigText = { elements: [], etag: null, loaded: false };
   saveToR2.confirmedFor = false;
   missingArt = [];
@@ -2115,6 +2123,7 @@ function buildSkeleton(entry){
 
   fitView();
   refreshArtWarn();
+  historyReset();
 }
 
 function setAnim(name){
@@ -2824,7 +2833,7 @@ async function saveRigToLibrary(){
   const nm = name.trim();
   if (!nm){ setRigStatus("enter a name"); return; }
   setRigStatus('saving "' + nm + '" to library…');
-  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
+  settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   // The library is studio-wide, so the first attempt only CREATES (`baseEtag: null`). A taken
   // name answers 409 with the entry's etag; overwriting is then an explicit choice, and the retry
   // is conditional on exactly the entry the author was shown.
@@ -3840,7 +3849,6 @@ function mergeRigInto(dst, src, attachBone){
 // D4 — import a saved rig into the OPEN rig, collision-safe via namespacing.
 async function importRig(id){
   if (!rawDoc){ alert("Load a rig first."); return; }
-  if (dirty && !confirm("Importing a rig modifies the open rig. Continue? (Reload from R2 to undo.)")) return;
   setRigStatus("importing rig…");
   let entry;
   try {
@@ -3889,11 +3897,12 @@ async function importRig(id){
       : 'The open rig would not load with "' + (entry.name || id) + '" merged in:\n\n' + problem + "\n\nNothing was imported; the open rig is unchanged.", "Import refused");
     return;
   }
-  mergeRigInto(rawDoc, src, attachBone);
-
-  markDirty();
-  closeRigLibrary();
-  rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  historyStep(() => {
+    mergeRigInto(rawDoc, src, attachBone);
+    markDirty();
+    closeRigLibrary();
+    rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  });
   renderAnimSection();
   const animCount = Object.keys(src.animations || {}).length;
   setRigStatus('imported "' + (entry.name || id) + '" as "' + prefix + '…" (' + animCount + ' anims)');
@@ -4100,6 +4109,215 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
+  historyNote();
+}
+
+// ---- rig undo / redo --------------------------------------------------------
+//
+// SNAPSHOTS of `rawDoc` (as JSON text) plus the selection, active skin and animation that went with
+// each — the same shape as cinematic.js's history and Flow's `undoHistory.ts`: no per-operation undo
+// to write or forget, and "did anything change" is a string compare. Steps are made from the edit
+// funnel that already exists: every edit calls `markDirty()`, which only notes that the open step has
+// changes; the step is closed (serialised and pushed) later, so a burst of edits is one step.
+//
+// What one step is:
+//   - everything ONE user action does — a click, a key press, a drop. The step closes at the start
+//     of the next action (in the capture phase, before its handler can touch `rawDoc`) or on a 0 ms
+//     timer, so a delete cascade's dozen `markDirty()`s are one step;
+//   - a whole pointer gesture, pointerdown → pointerup: a canvas drag, a dopesheet drag, a slider
+//     scrubbed with the mouse;
+//   - typing, or a slider stepped from the keyboard, in ONE field for ONE selection, with gaps of at
+//     most COALESCE_MS (as in Flow);
+//   - an operation wrapped in `historyStep` — delete cascades, convert to mesh, import, auto-weights,
+//     🩹 repair — whatever it calls, and whenever it is called (an import's edit runs after a fetch,
+//     outside any user action).
+//
+// TWO HISTORIES, ONE PER DOCUMENT. The cinematic keeps its own over its own document; this one is the
+// rig's. Neither can reach the other's document, and the keys go to whichever document the active
+// surface edits: cinematic.js takes Ctrl+Z only while 🎬 Cinematic is up and NOT tweaking; this one
+// takes it in every other mode with a rig open — tweaking included, because a tweak keys the rig.
+//
+// Undo is local to the tab: it never saves, the next 💾 Save is a normal conditional save of whatever
+// the document is then, and an undo leaves the rig unsaved. Opening a rig (any reload included) and a
+// failed open both start an empty history.
+const RIG_HISTORY_LIMIT = 100;
+// ~1 byte per char: a rig's JSON is ASCII, which V8 stores one byte per char. The biggest checked-in
+// rig, mm_bigwin, serialises to 1.07 MB in ~7 ms (tools/rigger-spike/rig-undo.mjs measures it), so
+// this keeps 59 of its steps; a rig of several MB keeps fewer, but never fewer than one.
+const RIG_HISTORY_MAX_BYTES = 64 * 1024 * 1024;
+const RIG_HISTORY_COALESCE_MS = 800;
+const rigHist = {
+  past: [], future: [], present: null, bytes: 0,
+  pending: false, pendingKey: null, pendingSel: null, timer: 0,
+  actionKey: null, actionSel: null, gesture: null, seq: 0, batch: 0, applying: false,
+};
+
+/** What an undo puts back besides the document: the selection, the skin on stage, the clip. */
+function historySel(){
+  return {
+    bone: selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null,
+    slot: selSlot, ik: selIk, tc: selTc, path: selPath, pc: selPc,
+    skin: skeleton ? activeSkinName() : null, anim: curAnim, time: animTime,
+  };
+}
+
+/** Start the history over at the open document (or none). */
+function historyReset(){
+  clearTimeout(rigHist.timer);
+  Object.assign(rigHist, {
+    past: [], future: [], bytes: 0, pending: false, pendingKey: null, pendingSel: null, timer: 0, batch: 0,
+    present: rawDoc ? { doc: JSON.stringify(rawDoc), sel: historySel() } : null,
+  });
+  refreshUndoButtons();
+}
+
+/** Called by every `markDirty()`: the open step has changes. */
+function historyNote(){
+  if (!rigHist.present || rigHist.applying) return;
+  if (!rigHist.pending){
+    rigHist.pending = true;
+    rigHist.pendingSel = rigHist.actionSel || rigHist.present.sel;
+    refreshUndoButtons();
+  }
+  rigHist.pendingKey = rigHist.batch ? "step" : rigHist.actionKey;
+  if (rigHist.batch || rigHist.gesture) return; // closed by the step's end / the pointerup
+  clearTimeout(rigHist.timer);
+  const typing = rigHist.pendingKey && rigHist.pendingKey.startsWith("field:");
+  rigHist.timer = setTimeout(historyFlush, typing ? RIG_HISTORY_COALESCE_MS : 0);
+}
+
+/** Close the open step: push the state before it, if the document really changed. */
+function historyFlush(){
+  clearTimeout(rigHist.timer);
+  if (!rigHist.pending || !rigHist.present || !rawDoc) return;
+  rigHist.pending = false;
+  const doc = JSON.stringify(rawDoc);
+  if (doc !== rigHist.present.doc){
+    rigHist.past.push({ doc: rigHist.present.doc, sel: rigHist.pendingSel });
+    rigHist.bytes += rigHist.present.doc.length;
+    for (const e of rigHist.future) rigHist.bytes -= e.doc.length;
+    rigHist.future = [];
+    rigHist.present = { doc, sel: historySel() };
+    while (rigHist.past.length > 1
+      && (rigHist.past.length > RIG_HISTORY_LIMIT || rigHist.bytes + doc.length > RIG_HISTORY_MAX_BYTES))
+      rigHist.bytes -= rigHist.past.shift().doc.length;
+  }
+  rigHist.pendingSel = null;
+  refreshUndoButtons();
+}
+
+/**
+ * Run `fn` as ONE undo step of its own, closing any open one first. For operations that are one
+ * thing to the author however many edits they make, and for edits made outside a user action.
+ */
+function historyStep(fn){
+  if (!rigHist.present || rigHist.batch || rigHist.applying) return fn();
+  historyFlush();
+  rigHist.actionSel = historySel();
+  rigHist.batch++;
+  try { return fn(); }
+  finally { rigHist.batch--; historyFlush(); }
+}
+
+// The key one user action's edits are filed under. Typing in a field is keyed by the field's place in
+// the page (inspectors re-render, so not the element) and by what is selected and when: the same
+// field for another bone, or at another playhead time, is another step.
+function historyFieldKey(el){
+  const path = [];
+  for (let n = el; n && n !== document.body; n = n.parentElement){
+    if (n.id){ path.push("#" + n.id); break; }
+    path.push(n.parentElement ? Array.prototype.indexOf.call(n.parentElement.children, n) : 0);
+  }
+  const s = historySel();
+  return "field:" + path.reverse().join(">") + "|" + [s.bone, s.slot, s.ik, s.tc, s.path, s.pc, s.skin, s.anim, s.time].join("|");
+}
+function historyAction(e){
+  if (!rigHist.present) return;
+  const t = e.target;
+  const field = t && t.nodeType === 1 && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
+  let key;
+  if (e.type === "pointerdown") key = rigHist.gesture = "gesture:" + (++rigHist.seq);
+  else if (rigHist.gesture) key = rigHist.gesture; // a slider scrubbed with the mouse
+  else if (field && (e.type === "input" || e.type === "change" || e.type === "keydown")) key = historyFieldKey(t);
+  else if (e.type === "keydown" && e.repeat && rigHist.actionKey && rigHist.actionKey.startsWith("key:")) key = rigHist.actionKey;
+  else key = (e.type === "keydown" ? "key:" : "action:") + (++rigHist.seq);
+  if (rigHist.pending && rigHist.pendingKey !== key) historyFlush();
+  rigHist.actionKey = key;
+  rigHist.actionSel = historySel();
+  setTimeout(() => { if (!rigHist.gesture && rigHist.actionKey === key) rigHist.actionKey = null; });
+}
+function historyGestureEnd(){
+  if (!rigHist.gesture) return;
+  const key = rigHist.gesture;
+  rigHist.gesture = null;
+  // After the task: the pointerup/mouseup handlers that commit a drag are still to run.
+  setTimeout(() => { if (rigHist.pending && rigHist.pendingKey === key) historyFlush(); if (rigHist.actionKey === key) rigHist.actionKey = null; });
+}
+
+/** Put a snapshot back: the document, then the selection, skin and clip that went with it. */
+function historyApply(entry){
+  rigHist.applying = true;
+  try {
+    rawDoc = JSON.parse(entry.doc);
+    const s = entry.sel || {};
+    const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
+    selSlot = s.slot != null && (rawDoc.slots || []).some((x) => x.name === s.slot) ? s.slot : null;
+    if (!selSlot){ meshCtx = null; pathCtx = null; pointCtx = null; polyCtx = null; } // their attachment is gone
+    selIk = has("ik", s.ik) ? s.ik : null;
+    selTc = has("transform", s.tc) ? s.tc : null;
+    selPath = has("path", s.path) ? s.path : null;
+    selPc = has("physics", s.pc) ? s.pc : null;
+    selEvent = null; selSeqKey = null; dopeSel = []; dopeAnchorT = null; dopeScale = null; graphSel = [];
+    // A clip the snapshot has not got (undoing its creation) cannot stay open. A tweak keeps the
+    // strip's clip whatever the snapshot says: the strip decides which clip is open.
+    if (!tweakMode){
+      curAnim = s.anim && animHasName(s.anim) ? s.anim : null;
+      if (animMode && !curAnim) curAnim = firstAnimName();
+      if (typeof s.time === "number") animTime = s.time;
+    } else if (curAnim && !animHasName(curAnim)) curAnim = null; // the next key makes it again
+    rebuildFromRawDoc(s.bone, s.skin);
+    animsDirty = false;
+    renderAnimSection();
+    if (selSlot) selectSlot(selSlot);
+    if (animMode){ $("#anim").value = curAnim || ""; syncPlayhead(); renderEventDetail(); renderSeqDetail(); }
+    else if (mode === "preview" && animState && skeletonData.findAnimation($("#anim").value)) setAnim($("#anim").value);
+    renderTimeline();
+    rigHist.present = { doc: entry.doc, sel: s };
+    dirty = true;
+  } finally { rigHist.applying = false; }
+  refreshUndoButtons();
+  saveRiggerState();
+}
+
+function rigUndo(){
+  historyFlush();
+  const entry = rigHist.past.pop();
+  if (!entry) return false;
+  rigHist.bytes += rigHist.present.doc.length - entry.doc.length;
+  rigHist.future.push(rigHist.present);
+  historyApply(entry);
+  return true;
+}
+function rigRedo(){
+  historyFlush();
+  const entry = rigHist.future.pop();
+  if (!entry) return false;
+  rigHist.bytes += rigHist.present.doc.length - entry.doc.length;
+  rigHist.past.push(rigHist.present);
+  historyApply(entry);
+  return true;
+}
+
+/** The rig's history owns the keys and buttons unless the cinematic's own document is being edited. */
+const rigHistoryActive = () => !!rawDoc && !!rigHist.present && !(cineMode && !tweakMode);
+function refreshUndoButtons(){
+  const seg = $("#undoSeg"); if (!seg) return;
+  seg.style.display = rigHistoryActive() ? "" : "none";
+  const u = $("#undoBtn"), r = $("#redoBtn");
+  const canUndo = rigHist.past.length > 0 || rigHist.pending;
+  u.disabled = !canUndo; r.disabled = !rigHist.future.length;
+  u.title = canUndo ? "Undo the last rig edit (Ctrl+Z)" : "Nothing to undo";
+  r.title = rigHist.future.length ? "Redo (Ctrl+Shift+Z / Ctrl+Y)" : "Nothing to redo";
 }
 
 // ---- IK constraints (§18 item 3) ------------------------------------------
@@ -5268,7 +5486,9 @@ function reportDroppedConstraints(what, removed){
 }
 
 function deleteConstraint(kind, name){
-  if (!rawDoc) return;
+  if (rawDoc) historyStep(() => deleteConstraintNow(kind, name));
+}
+function deleteConstraintNow(kind, name){
   const removed = dropConstraints(rawDoc, (k, c) => k === kind && c.name === name);
   if (!removed.length) return;
   if (kind === "ik" && selIk === name) selIk = null;
@@ -5299,21 +5519,25 @@ function posedSetupWorlds(doc){
 
 function deleteBone(name){
   if (!rawDoc) return;
-  const res = deleteBoneCore(rawDoc, name, posedSetupWorlds); if (!res) return;
-  if (collapsedBones.has(name)) collapsedBones.delete(name);
-  selBone = null;
-  reportDroppedConstraints('bone "' + name + '"', res.removed);
-  rebuildFromRawDoc(res.heir);
-  markDirty();
+  historyStep(() => {
+    const res = deleteBoneCore(rawDoc, name, posedSetupWorlds); if (!res) return;
+    if (collapsedBones.has(name)) collapsedBones.delete(name);
+    selBone = null;
+    reportDroppedConstraints('bone "' + name + '"', res.removed);
+    rebuildFromRawDoc(res.heir);
+    markDirty();
+  });
 }
 
 function deleteSlot(name){
   if (!rawDoc) return;
-  const removed = deleteSlotCore(rawDoc, name);
-  if (selSlot === name) selSlot = null;
-  reportDroppedConstraints('slot "' + name + '"', removed);
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  markDirty();
+  historyStep(() => {
+    const removed = deleteSlotCore(rawDoc, name);
+    if (selSlot === name) selSlot = null;
+    reportDroppedConstraints('slot "' + name + '"', removed);
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    markDirty();
+  });
 }
 
 // Duplicate a slot onto the SAME bone (bones are shared, NOT duplicated) with a copy of
@@ -9020,7 +9244,9 @@ function addMeshVertex(Px, Py){
 // 4. A sequence keeps its frames, over the ink of all of them. Afterwards the
 // mesh-edit tools apply.
 function convertRegionToMesh(){
-  if (selSlot == null || !rawDoc) return;
+  if (selSlot != null && rawDoc) historyStep(() => convertRegionToMeshNow());
+}
+function convertRegionToMeshNow(){
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   const sd = skeletonData.slots[slotIndex];
   const attName = sd && sd.attachmentName;
@@ -9153,10 +9379,12 @@ function inkMappedAsImage(att, slot){
 function repairMeshes(keys){
   const list = meshRepairs().filter((r) => (keys ? keys.includes(repairKey(r)) : !repairsKept.has(repairKey(r))));
   if (!list.length) return;
-  for (const r of list) r.apply();
-  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
-  if (selSlot) selectSlot(selSlot);
-  markDirty();
+  historyStep(() => {
+    for (const r of list) r.apply();
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    if (selSlot) selectSlot(selSlot);
+    markDirty();
+  });
   showNotice("Repaired " + list.length + " mesh" + (list.length === 1 ? "" : "es") + " — 💾 Save to keep it.", 6000);
 }
 
@@ -9284,7 +9512,9 @@ function distToSegment(px, py, s){
 // chain (top MAXINF influences, normalised). Re-binds from scratch, so it works on a
 // mesh that's unweighted OR already weighted — replacing the single-bone bind.
 function autoWeightMeshToChain(){
-  if (!meshCtx || !rawDoc || selBone == null) return;
+  if (meshCtx && rawDoc && selBone != null) historyStep(() => autoWeightMeshToChainNow());
+}
+function autoWeightMeshToChainNow(){
   const rd = rawDocMeshEntry(); if (!rd) return;
   const rootName = skeletonData.bones[selBone].name;
   const chain = chainBoneIndices(rootName);
@@ -9550,6 +9780,7 @@ function setMode(m){
   $("#timeNum").style.display = animMode ? "inline-block" : "none";
   $("#resTimeline").style.display = (animMode || cineMode) ? "block" : "none";
   refreshRigFileButtons();
+  refreshUndoButtons();
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
     : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
@@ -12441,7 +12672,7 @@ function positionPlayhead(){
 // extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
 function exportIrig(){
   if (!rawDoc) return;
-  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
+  settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = (selected && selected.skeleton_file ? selected.skeleton_file : "skeleton").replace(/\.[^.]+$/, "");
   const blob = new Blob([JSON.stringify(rawDoc)], { type: "application/json" });
   const a = document.createElement("a");
@@ -12494,7 +12725,7 @@ async function saveToR2(){
 // One attempt; resolves true when the author chose to overwrite and it should retry.
 async function saveToR2Once(confirmed){
   if (!rawDoc || !selected || saveToR2.busy) return false;
-  ensureRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
+  settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = irigStem(selected);
   clearErr();
   const problem = rigDocLoadProblem(rawDoc);
@@ -13007,6 +13238,13 @@ function bindingContentBounds(){
 // Write the computed bounds into `rawDoc.skeleton` (rounded). No-op if unmeasurable, so a
 // save never fails on this. Call right before any save/export of `rawDoc`. Skipped when the
 // author has LOCKED a custom frame via the Bounds box (`iwLockBounds`) — their size wins.
+// The frame save / export / showing the box write is DERIVED, not an edit: it joins the document the
+// author is on rather than becoming an undo step (or landing in the next one).
+function settleRigBounds(){
+  historyFlush();
+  ensureRigBounds();
+  if (rigHist.present && rawDoc) rigHist.present = { doc: JSON.stringify(rawDoc), sel: rigHist.present.sel };
+}
 function ensureRigBounds(){
   if (!rawDoc) return;
   if (rawDoc.skeleton && rawDoc.skeleton.iwLockBounds) return;
@@ -13481,7 +13719,7 @@ function wire(){
       return;
     }
     showBounds = !showBounds;
-    if (showBounds && !rigBoundsRect()) ensureRigBounds(); // compute a frame to show if none yet
+    if (showBounds && !rigBoundsRect()) settleRigBounds(); // compute a frame to show if none yet
     if (showBounds && !rigBoundsRect()){
       // Nothing measurable at all — a carrier rig whose bound clips declare no box. Hand the author
       // a frame to drag rather than a button that does nothing.
@@ -13497,6 +13735,24 @@ function wire(){
   $("#saveBtn").onclick = () => saveToR2();
   $("#histBtn").onclick = openRigHistory;
   $("#rigHistClose").onclick = closeRigHistory;
+  $("#undoBtn").onclick = rigUndo;
+  $("#redoBtn").onclick = rigRedo;
+  // Capture phase: the step boundary is drawn BEFORE the action's own handler touches `rawDoc`.
+  for (const type of ["pointerdown", "keydown", "input", "change", "click", "dblclick", "contextmenu", "drop"])
+    window.addEventListener(type, historyAction, true);
+  for (const type of ["pointerup", "pointercancel"]) window.addEventListener(type, historyGestureEnd, true);
+  // The window losing focus mid-drag never sends the pointerup. (Not capture: a FIELD's blur, which a
+  // pointerdown on the canvas causes, must not end the gesture it just started.)
+  window.addEventListener("blur", (e) => { if (e.target === window) historyGestureEnd(); });
+  // Never in a field: the browser's own text undo wins there.
+  window.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || !rigHistoryActive()) return;
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+    const key = e.key.toLowerCase();
+    if (key === "z" && !e.shiftKey){ e.preventDefault(); rigUndo(); }
+    else if ((key === "z" && e.shiftKey) || (key === "y" && !e.shiftKey)){ e.preventDefault(); rigRedo(); }
+  });
   $("#rigHistModal").onmousedown = (e) => { if (e.target === $("#rigHistModal")) closeRigHistory(); };
   // Closing or reloading the tab with unsaved rig or cinematic edits asks first. The cinematic
   // keeps a local crash draft, but that is not "saved" — neither is anything else.

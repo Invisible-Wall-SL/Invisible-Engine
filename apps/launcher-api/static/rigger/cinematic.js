@@ -614,8 +614,10 @@ window.RiggerCinematic = (function () {
 	 * the whole draw pass for the mode (its own renderer.begin/end).
 	 */
 	function frame(delta, playing) {
+		// The page draws from the moment this script loads; `init` sets the doc once its imports land.
+		if (!doc) return;
 		const prevTime = time;
-		if (playing && doc && doc.duration > 0) {
+		if (playing && doc.duration > 0) {
 			time += delta * (ctx.playSpeed ? ctx.playSpeed() : 1);
 			if (time >= doc.duration) time = ctx.looping && ctx.looping() ? time % doc.duration : doc.duration;
 		}
