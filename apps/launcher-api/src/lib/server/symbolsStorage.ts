@@ -1241,7 +1241,7 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
-	unknownValues: UnknownValues = 'reject',
+	{ unknownValues = 'reject' }: { unknownValues?: UnknownValues } = {},
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc, unknownValues);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
