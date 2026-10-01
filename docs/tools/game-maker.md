@@ -62,8 +62,9 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
-   `sheet_config.json`, `localization/strings.json`, and for Hold and Win its
-   `config/config.json`). A confirmation appears and
+   `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
+   also gets the preset you picked as its own [Game Config](/docs/game-config),
+   so its first publish already deals the feature). A confirmation appears and
    the project shows up under **Your projects** below.
 
 From here you author the game with the existing online tools — the Scene Editor,
@@ -221,7 +222,9 @@ without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it
 After a successful publish, notes under the card can also flag (never blocking): sounds with a
 non-commercial or missing licence, and **⚠ spine bundles that resolved to nothing** — a rig
 placed in a scene or bound to a symbol that will be missing in-game. Re-pick the rig in the
-Scene Editor or Invisible Symbols and publish again.
+Scene Editor or Invisible Symbols and publish again. A **Hold and Win** game whose Game Config has
+no Hold and Win block (a project created before its config was seeded) gets **⚠ dealt plain
+lines** — open Game Config, save, and publish again.
 
 When it finishes, the page reloads the row to show the new state: a **Play ↗**
 link that opens the game exactly as players get it (the published version), a
@@ -358,7 +361,7 @@ graduate later; its R2 authoring data carries over.
 
 - **A Hold and Win game plays plain lines (no coins, `PIC*` symbols).** — The project has no
   Game Config of its own, so the mock deals its base game as lines. Projects created before the
-  preset picker (2026-10-01) can be in this state. Open [Game Config](/docs/game-config), press
+  scaffold seeded it (2026-10-01) can be in this state; Publish warns **⚠ dealt plain lines**. Open [Game Config](/docs/game-config), press
   **Save** (or **Reset to preset**), then **Publish**.
 
 - **"My edit isn't in the game."** — **Play ↗**, **Copy URL** and every player link boot the

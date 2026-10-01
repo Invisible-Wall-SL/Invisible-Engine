@@ -88,16 +88,22 @@ export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDo
 }
 
 /**
- * The config a NEW project of this kind is scaffolded with, or `null` for a kind that inherits its
- * template. Only `holdAndWin` is seeded: the mock deals from the AUTHORED doc alone, so an
- * un-authored Hold and Win project would be dealt plain lines while every tool shows the preset.
+ * The config a NEW project of this kind is scaffolded with, or `null` to leave it un-authored.
+ *
+ * Only a kind whose defaults are presets is seeded: its mock and runtime need the kind's block, and
+ * an un-authored project falls through to the compiled LINES config, which has none — so a fresh
+ * `holdAndWin` project was dealt plain lines until someone saved `/config`. Every other kind stays
+ * un-authored, so what it plays is byte-identical to before (the compiled template, `null` bake).
  */
 export function gameConfigSeedFor(
 	gameType: string,
-	preset: HoldAndWinPresetId = DEFAULT_HOLD_AND_WIN_PRESET,
+	holdAndWinPreset?: HoldAndWinPresetId,
 ): GameConfigDoc | null {
-	if (gameType !== 'holdAndWin') return null;
-	return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(preset)] ?? null;
+	if (!(gameType in KIND_DEFAULT_KEY)) return null;
+	if (gameType === 'holdAndWin' && holdAndWinPreset) {
+		return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(holdAndWinPreset)] ?? null;
+	}
+	return gameConfigDefaultFor(gameType);
 }
 
 export type GameConfigSource = 'authored' | 'template';

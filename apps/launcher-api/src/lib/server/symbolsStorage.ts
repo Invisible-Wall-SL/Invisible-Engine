@@ -16,6 +16,8 @@ import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
+import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
+import { storedUnknownBlocks, unknownTopLevelBlocks } from './unknownBlocks';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -642,7 +644,7 @@ const arrivalReleaseSchema = z
 
 /**
  * The Hold and Win COIN VALUE LABEL (`engine-layout/coinLabel.ts` owns the shape, defaults and
- * prune). `.strip()` at every level, so an unknown key fails the save loudly; a number outside its
+ * prune). A number outside its
  * range is CLAMPED and a non-hex tint or blank font DROPPED by `pruneCoinLabel` rather than refused,
  * because those are slider/picker values a stale page can carry, not typos.
  */
@@ -652,7 +654,7 @@ const coinLabelStyleSchema = z
 		size: z.number().finite().optional(),
 		tint: z.string().optional(),
 	})
-	.strip();
+	.strict();
 
 const coinLabelPopSchema = z
 	.object({
@@ -660,7 +662,7 @@ const coinLabelPopSchema = z
 		scale: z.number().finite().optional(),
 		ms: z.number().finite().optional(),
 	})
-	.strip();
+	.strict();
 
 const coinLabelSchema = z
 	.object({
@@ -671,12 +673,12 @@ const coinLabelSchema = z
 				decimals: z.number().finite().optional(),
 				trimZeros: z.boolean().optional(),
 			})
-			.strip()
+			.strict()
 			.optional(),
 		jackpots: z
 			.record(
 				z.string(),
-				z.object({ text: z.string().optional(), style: coinLabelStyleSchema.optional() }).strip(),
+				z.object({ text: z.string().optional(), style: coinLabelStyleSchema.optional() }).strict(),
 			)
 			.optional(),
 		placement: z
@@ -686,7 +688,7 @@ const coinLabelSchema = z
 				scale: z.number().finite().optional(),
 				maxWidth: z.number().finite().optional(),
 			})
-			.strip()
+			.strict()
 			.optional(),
 		animation: z
 			.object({
@@ -694,10 +696,10 @@ const coinLabelSchema = z
 				countMs: z.number().finite().optional(),
 				boostPop: coinLabelPopSchema.optional(),
 			})
-			.strip()
+			.strict()
 			.optional(),
 	})
-	.strip();
+	.strict();
 
 /**
  * HOLD AND WIN FLIGHTS — the authored look and feel of each flight kind (design §4.4 of
@@ -705,8 +707,8 @@ const coinLabelSchema = z
  * impact, the route's shape and the timing. Keyed by flight kind (`toTotal` / `toCollector` /
  * `boostBeam` / `toMeter` / `toMeter:<id>`); every field sparse.
  *
- * Unknown FIELDS are stripped (a newer launcher's addition must not fail the whole doc on read); an
- * unknown head kind or ease is still a 400. The VALUES are lenient: a junk key, an out-of-range number or a head missing the field its kind needs are dropped or
+ * The SHAPE is strict (an unknown field or head kind is a 400, like every sibling), the VALUES are
+ * not: a junk key, an out-of-range number or a head missing the field its kind needs are dropped or
  * clamped by `engine-layout`'s `normalizeFlights` — the same function the page's setters run, so the
  * tool and the server agree on what "unchanged" looks like. Absent ⇒ every flight flies the coded
  * glow (`resolveFlightStyle`), byte-identical to before the block existed.
@@ -722,13 +724,13 @@ const flightStyleSchema = z
 				scale: z.number().optional(),
 				tint: z.string().optional(),
 			})
-			.strip()
+			.strict()
 			.optional(),
 		trail: z
 			.object({ effectId: z.string().optional(), off: z.boolean().optional() })
-			.strip()
+			.strict()
 			.optional(),
-		arrival: z.object({ effectId: z.string().optional() }).strip().optional(),
+		arrival: z.object({ effectId: z.string().optional() }).strict().optional(),
 		path: z
 			.object({
 				bend: z.number().optional(),
@@ -736,7 +738,7 @@ const flightStyleSchema = z
 				avoid: z.boolean().optional(),
 				padding: z.number().optional(),
 			})
-			.strip()
+			.strict()
 			.optional(),
 		speed: z.number().optional(),
 		minMs: z.number().optional(),
@@ -744,7 +746,7 @@ const flightStyleSchema = z
 		ease: z.enum(FLIGHT_EASES).optional(),
 		stagger: z.number().optional(),
 	})
-	.strip();
+	.strict();
 
 const flightsSchema = z.record(z.string(), flightStyleSchema);
 
@@ -857,10 +859,6 @@ const LEGACY_STATE_KEYS: ReadonlyArray<readonly [legacy: string, current: string
 	['tumbleExplosion', 'clearReel'],
 ];
 
-const KNOWN_STATES: ReadonlySet<string> = new Set(SYMBOL_STATES);
-
-/** Folds the legacy keys, then DROPS any state this launcher does not know — one a newer launcher
- *  added — so a rolled-back or older reader loses that one binding instead of the whole doc. */
 const foldLegacyStates = (states: unknown): unknown => {
 	if (!states || typeof states !== 'object' || Array.isArray(states)) return states;
 	const entries = { ...(states as Record<string, unknown>) };
@@ -872,17 +870,11 @@ const foldLegacyStates = (states: unknown): unknown => {
 		changed = true;
 		if (entries[current] === undefined && value !== undefined) entries[current] = value;
 	}
-	for (const key of Object.keys(entries)) {
-		if (KNOWN_STATES.has(key)) continue;
-		delete entries[key];
-		changed = true;
-	}
 	return changed ? entries : states;
 };
 
-/** Fold {@link LEGACY_STATE_KEYS} through both state-keyed maps of a raw symbols doc and drop unknown
- *  state keys. Returns the input untouched when it holds neither, so a current doc costs one shallow
- *  scan. */
+/** Fold {@link LEGACY_STATE_KEYS} through both state-keyed maps of a raw symbols doc. Returns the
+ *  input untouched when it holds no legacy key, so a current doc costs one shallow scan. */
 export function migrateLegacySymbolStates(input: unknown): unknown {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
 	const doc = input as Record<string, unknown>;
@@ -906,12 +898,6 @@ export function migrateLegacySymbolStates(input: unknown): unknown {
 }
 
 /**
- * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
- * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
- * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
- * PUT endpoint maps that to a 400.
- */
-/**
  * Drop an EMPTY `layers: []` from every cell of one symbol's state map — the last authored layer
  * removed has to round-trip to no key at all, or the cell keeps shipping an empty array that reads
  * as "this cell has layers" forever and, worse, signs differently from the untouched doc the page
@@ -933,8 +919,31 @@ function pruneEmptyCellLayers(
 	return next as SymbolsDoc['symbols'][string];
 }
 
-export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
-	const doc = symbolsDocSchema.parse(migrateLegacySymbolStates(input) ?? {});
+/**
+ * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
+ * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
+ * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
+ * PUT endpoint maps that to a 400.
+ *
+ * `unknownValues` (`docs/conventions/doc-readers.md`): a READ drops what holds an enum value a
+ * newer launcher wrote — the cell over its `type`, the layer over its `kind`, the `transition`,
+ * `highlight` or `boardGlow` over theirs — and ignores an unknown optional value (`blendMode`,
+ * `direction`, `placement`, `tintMode`, a tumble `pattern`, a flight `ease`, a cash `format`), so
+ * its default applies. A SAVE (`'reject'`) still refuses them all: the tool only writes values it
+ * offers, so there one is a typo.
+ */
+export function normalizeSymbolsDoc(
+	input: unknown,
+	unknownValues: UnknownValues = 'drop',
+): SymbolsDoc {
+	const doc = symbolsDocSchema.parse(
+		stripUnknownKeysWithWarning(
+			symbolsDocSchema,
+			migrateLegacySymbolStates(input) ?? {},
+			'symbols',
+			unknownValues,
+		),
+	);
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		if (!states || Object.keys(states).length === 0) continue;
@@ -1223,6 +1232,14 @@ export async function canonicalizeSymbolsDocForExport(
  *
  * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
  * `/api/editor/symbols/backups`); `backup: 'always'` is for a restore or a deliberate swap.
+ *
+ * `unknownValues` is `'reject'` for an author's save (the typo guard) and `'drop'` for a restore,
+ * whose bytes nobody typed: a backup a newer launcher wrote must still restore on an older one.
+ *
+ * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
+ * `If-Match` save ({@link storedUnknownBlocks}); the returned doc omits them. A backup restore
+ * passes `{ unknownFrom: 'doc' }` to keep the RESTORED bytes' unknown blocks instead — it
+ * replaces the live doc wholesale, so the live doc's blocks are not the author's to keep.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
@@ -1230,14 +1247,22 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
+	{
+		unknownValues = 'reject',
+		unknownFrom = 'stored',
+	}: { unknownValues?: UnknownValues; unknownFrom?: 'stored' | 'doc' } = {},
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
-	const next = normalizeSymbolsDoc(doc);
-	const stamped = { ...next, updatedAt: new Date().toISOString() };
+	const next = normalizeSymbolsDoc(doc, unknownValues);
+	const kept =
+		unknownFrom === 'doc'
+			? unknownTopLevelBlocks(symbolsDocSchema, doc)
+			: await storedUnknownBlocks(symbolsDocKey(clientKey, projectKey), symbolsDocSchema, baseEtag);
+	const updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
-		JSON.stringify(stamped, null, 2),
+		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
 		baseEtag,
 		backup,
 	);
-	return { doc: stamped, etag };
+	return { doc: { ...next, updatedAt }, etag };
 }

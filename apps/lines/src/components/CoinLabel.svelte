@@ -55,6 +55,9 @@
 		style={{
 			fontFamily: props.look.font,
 			fontSize: SYMBOL_SIZE * props.look.size,
+			// pixi's BitmapText makes the fill white only in its constructor; a style re-assigned
+			// without one (every re-render here) draws the glyphs black.
+			fill: 0xffffff,
 		}}
 	/>
 </Container>

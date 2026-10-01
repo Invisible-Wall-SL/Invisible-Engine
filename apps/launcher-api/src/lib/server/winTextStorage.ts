@@ -9,6 +9,8 @@ import {
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
+import { storedUnknownBlocks } from './unknownBlocks';
 
 /**
  * Invisible Win Text doc — the per-project TEMPLATES for every string the game says about a
@@ -193,9 +195,17 @@ function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
  * The rebuild below is an explicit WHITELIST: a field that passes Zod but isn't copied here is
  * still dropped on save. That is deliberate (it's the `normalizeSymbolsDoc` convention), but it
  * is also the silent round-trip trap — a NEW doc field must be added here too or it vanishes.
+ *
+ * The doc's only enum is `version`. A READ takes a newer one as this build's `1` and keeps every
+ * field it knows (`docs/conventions/doc-readers.md`); a SAVE (`'reject'`) refuses it.
  */
-export function normalizeWinTextDoc(input: unknown): WinTextDoc {
-	const doc = winTextDocSchema.parse(input ?? {});
+export function normalizeWinTextDoc(
+	input: unknown,
+	unknownValues: UnknownValues = 'drop',
+): WinTextDoc {
+	const doc = winTextDocSchema.parse(
+		stripUnknownKeysWithWarning(winTextDocSchema, input ?? {}, 'win-text', unknownValues),
+	);
 	const next: WinTextDoc = { version: 1 };
 	const lineMessage = pruneLineMessage(doc.lineMessage);
 	if (lineMessage) next.lineMessage = lineMessage;
@@ -258,6 +268,10 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  * Without this, two authors on one project silently clobber each other's ENTIRE doc: the page
  * loads the whole doc and PUTs the whole doc, so the second save erases the first's work, not
  * just the conflicting cell. `updatedAt` alone can't catch it — it's stamped, never compared.
+ *
+ * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
+ * `If-Match` save ({@link storedUnknownBlocks}) — win text has no backups, so dropping them would
+ * lose them for good. The returned doc omits them.
  */
 export async function saveWinTextDoc(
 	clientKey: string,
@@ -265,15 +279,17 @@ export async function saveWinTextDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
-	const next = normalizeWinTextDoc(doc);
-	const stamped = { ...next, updatedAt: new Date().toISOString() };
+	const next = normalizeWinTextDoc(doc, 'reject');
+	const key = winTextDocKey(clientKey, projectKey);
+	const kept = await storedUnknownBlocks(key, winTextDocSchema, baseEtag);
+	const updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
-		winTextDocKey(clientKey, projectKey),
-		JSON.stringify(stamped, null, 2),
+		key,
+		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
-	return { doc: stamped, etag };
+	return { doc: { ...next, updatedAt }, etag };
 }
 
 export { ConflictError };

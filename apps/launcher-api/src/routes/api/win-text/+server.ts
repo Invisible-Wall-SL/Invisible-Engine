@@ -52,7 +52,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Body: `{ doc, baseEtag?, force? }` — mirrors `/api/flow-v2/save`. `baseEtag` is the ETag the
  * client loaded; the write is conditional on it, so two authors on one project can't silently
  * clobber each other's whole doc. `force: true` drops the precondition ("overwrite with mine").
- * An absent `baseEtag` writes unconditionally, so an older client still saves rather than 409s.
+ * A body with neither `baseEtag` nor `force` is refused with a 400 (`writeBaseEtagJson`).
  */
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	const user = await gate(locals);

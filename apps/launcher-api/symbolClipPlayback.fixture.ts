@@ -71,10 +71,11 @@ check(
 );
 
 // --- the guards --------------------------------------------------------------
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, cell: Record<string, unknown>): void => {
 	let threw = false;
 	try {
-		normalizeSymbolsDoc(doc(cell));
+		normalizeSymbolsDoc(doc(cell), 'reject');
 	} catch {
 		threw = true;
 	}
@@ -92,12 +93,22 @@ rejects('a zero/negative fps is rejected', {
 	clipId: 'c',
 	fps: 0,
 });
-rejects('a typo\u2019d field is still rejected \u2014 the schema is strict', {
-	type: 'flipbook',
-	assetKey: 'a.json',
-	clipId: 'c',
-	flipx: true,
-});
+// An unknown KEY is ignored with a server warning, not refused (docs/conventions/doc-readers.md).
+{
+	const warn = console.warn;
+	console.warn = () => {};
+	try {
+		const typo = winCell(
+			normalizeSymbolsDoc(doc({ type: 'flipbook', assetKey: 'a.json', clipId: 'c', flipx: true })),
+		);
+		check(
+			'a typo\u2019d field is ignored, the cell kept',
+			!('flipx' in typo) && typo.clipId === 'c',
+		);
+	} finally {
+		console.warn = warn;
+	}
+}
 
 // A sprite cell carrying them is NOT rejected: the schema is one shape for three kinds (as it
 // already is for `animationName`/`clipId`), and the UI is what keeps them off a sprite. Pinned so

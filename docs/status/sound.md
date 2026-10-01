@@ -230,6 +230,16 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-10-01 — **A newer `kind`, `status` or `origin` no longer wipes the whole sound library.**
+  Each was a Zod enum, so one value a newer launcher wrote failed the parse.
+  `loadSoundsDocWithEtag` then fell back to the empty library and the export pruned
+  `deploy/sounds/`. Now a READ keeps the entry: an unknown `kind` reads as `sfx`, and an unknown
+  `status` / `origin` reads as `draft` / `library` (a reviewer on that draft is dropped). A newer
+  `version` reads as `1`. Each case logs one server warning. The entry is kept rather than dropped
+  because this doc has no backups: a dropped sound would be gone on the next save and silence every
+  binding that names it. A save (`PUT /api/sounds`) still answers 400. Rule:
+  `docs/conventions/doc-readers.md` §"Unknown enum values".
+
 - 2026-09-28 — **A removed or renamed sound no longer ships in desktop/delivery builds.** This file
   said twice that `pull-project-assets.mjs` had `sounds` in `GENERATED_SUBTREES`; `git log -S`
   shows it never did, so the pull mirrored `deploy/sounds/` but never converged the local copy on

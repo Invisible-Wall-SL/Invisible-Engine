@@ -9,7 +9,7 @@ import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { gameConfigSeedFor } from './gameConfigDefaults';
-import { saveGameConfigDoc } from './gameConfigStorage';
+import { ConflictError, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
 import {
@@ -17,11 +17,12 @@ import {
 	atlasConfigKey,
 	editorDocKey,
 	flowV2DocKey,
+	gameConfigDocKey,
 	localizationDocKey,
 	sheetConfigKey,
 } from './projectPaths';
 import { projectGameType } from './projects';
-import { ConflictError, objectExists, putObjectText } from './r2';
+import { objectExists, putObjectText } from './r2';
 
 interface Seed {
 	key: string;
@@ -110,22 +111,14 @@ export async function scaffoldProject(
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
 	}
-	await seedGameConfig(client, project, gameType, opts.holdAndWinPreset);
-}
-
-/** Create the kind's seeded Game Config when the project has none. Never overwrites: the save is
- *  `If-None-Match: *`, so an author who saved first wins the race. */
-async function seedGameConfig(
-	client: string,
-	project: string,
-	gameType: string,
-	preset: HoldAndWinPresetId | undefined,
-): Promise<void> {
-	const seed = gameConfigSeedFor(gameType, preset);
-	if (!seed) return;
-	try {
-		await saveGameConfigDoc(client, project, seed, null);
-	} catch (err) {
-		if (!(err instanceof ConflictError)) throw err;
+	// The kind's default Game Config, written through the config store (validated, backed up,
+	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
+	const config = gameConfigSeedFor(gameType, opts.holdAndWinPreset);
+	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
+		try {
+			await saveGameConfigDoc(client, project, config, null);
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 	}
 }

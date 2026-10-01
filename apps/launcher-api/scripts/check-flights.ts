@@ -6,8 +6,8 @@
  *   1. PARITY — `normalizeSymbolsDoc` writes NO `flights` for a project that never authored one
  *      (byte-identical to before the block existed), round-trips a real style sparsely, drops junk
  *      keys and invalid values, clamps numbers, and is a fixed point.
- *   2. REJECTION — an unknown head kind or ease is refused (the values the normalizer cannot repair);
- *      an unknown FIELD is stripped, so a newer launcher's addition cannot fail the whole doc on read.
+ *   2. REJECTION — the `.strict()` shape refuses an unknown field, an unknown head kind and an
+ *      unknown ease (the values the normalizer cannot repair).
  *   3. THE CLIENT HALF — `setFlightStyle` + `docSignature` mark and unmark dirty, and a draft signs
  *      the same as the doc the server hands back.
  *   4. SHIPPING — a sprite/spine head reaches the symbols asset refs, a flipbook head's clip the
@@ -48,10 +48,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, input: unknown): void => {
 	checks += 1;
 	try {
-		normalizeSymbolsDoc(input);
+		normalizeSymbolsDoc(input, 'reject');
 	} catch (e) {
 		if (e instanceof ZodError) return;
 		failures += 1;
@@ -60,6 +61,19 @@ const rejects = (label: string, input: unknown): void => {
 	}
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
+};
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
 };
 
 const AUTHORED = {
@@ -156,14 +170,17 @@ const AUTHORED = {
 }
 
 // 2. REJECTION
+ignores(
+	'an unknown style field',
+	{ flights: { toTotal: { speed: 2, colour: 'red' } } },
+	{ flights: { toTotal: { speed: 2 } } },
+);
 rejects('an unknown head kind', { flights: { toTotal: { head: { kind: 'laser' } } } });
 rejects('an unknown ease', { flights: { toTotal: { ease: 'bounce' } } });
-check(
-	'an unknown style or path field is stripped, the rest kept',
-	normalizeSymbolsDoc({
-		flights: { toTotal: { colour: 'red', speed: 0.8, path: { wobble: 2, bend: 0.3 } } },
-	}).flights,
-	{ toTotal: { path: { bend: 0.3 }, speed: 0.8 } },
+ignores(
+	'an unknown path field',
+	{ flights: { toTotal: { speed: 2, path: { wobble: 2 } } } },
+	{ flights: { toTotal: { speed: 2, path: {} } } },
 );
 rejects('a non-object block', { flights: 'toTotal' });
 

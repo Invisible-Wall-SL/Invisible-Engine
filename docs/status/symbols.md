@@ -145,6 +145,52 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Before an
+  `If-Match` save, `saveSymbolsDoc` reads the stored doc. If its ETag is the save's `baseEtag`, it
+  copies every top-level key `symbolsDocSchema` does not declare onto the PUT
+  (`storedUnknownBlocks`). An author saving from an older launcher after a rollback no longer
+  deletes a block a newer one wrote. A create, a forced overwrite or a stale ETag copies nothing.
+  Nested unknown keys are still dropped and are recoverable from backups. A backup restore keeps
+  the restored bytes' unknown blocks instead (`{ unknownFrom: 'doc' }`). A known-only doc saves
+  byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule: `docs/conventions/doc-readers.md`
+  "Round-tripping".
+
+- 2026-10-01 — **An unknown enum VALUE costs one entry, not the whole doc.** A newer launcher's
+  cell `type`, layer `kind`, blend mode, tumble pattern, flight head kind or ease, cash format,
+  `tintMode`, `placement`, non-spine `highlight`/`boardGlow` or `version: 2` failed the parse, so
+  `loadSymbolsDocWithEtag` fell back to the empty doc and the export pruned `deploy/editor-symbols/`
+  to match. Now a READ drops the optional field (its default applies) or the smallest entry that
+  cannot stand without it (the cell, the layer, the stacked symbol, the block), with one server
+  warning naming both. The SAVE (`PUT /api/editor/symbols`) still answers 400, as the typo guard. A
+  backup restore and the published-defaults publish drop instead of refusing. Known-only docs read
+  byte-identically. Proof is in section 15 of `check:doc-readers-unknown-fields`. The per-field
+  table and the save trade-off are in `docs/conventions/doc-readers.md` §"Unknown enum values".
+  What an older launcher drops is gone from R2 on its next save, so the backups have to hold it:
+  `putDocWithBackup`'s 5-minute `'auto'` window now coalesces only over bytes the same process
+  wrote. A doc another instance or build wrote is copied even inside the window
+  (`check:doc-backups`). This applies to every doc with backups.
+
+- 2026-10-01 — **An unknown field or symbol state no longer wipes the whole symbols doc.** Every
+  nested block was `.strict()` and the state records are keyed by `z.enum(SYMBOL_STATES)`, so one
+  field or state a newer launcher wrote failed the parse and `loadSymbolsDocWithEtag` fell back to
+  the empty doc — the tool, the export/bake and the runtime bundle all lost every binding (and the
+  next save overwrote the real one). `normalizeSymbolsDoc` and the published-defaults parse
+  (`parseSymbolDefaults`) now strip unknown keys first (`stripUnknownKeys`, a server warning names
+  each path); malformed KNOWN fields still 400. The six gates that asserted "an unknown key is
+  refused" now assert "ignored, with a warning". This supersedes #961's silent fix (`coinLabel`/`flights`
+  turned `.strip()`, unknown states deleted in `migrateLegacySymbolStates`): those blocks are
+  `.strict()` again and the strip pass drops the same keys, now with the warning. Real R2 docs normalize unchanged. Rule:
+  `docs/conventions/doc-readers.md`.
+
+- 2026-10-01 — **Live proof + two fixes (Hold and Win Phase 7).** On `hw-3pots-sample` (authoring
+  path, real clock) the authored coin label and every flight kind render as authored (numbers in
+  [status/hold-and-win](hold-and-win.md)). #963: held coin labels drew BLACK on the respin board —
+  pixi `BitmapText` defaults `fill` to white only in its constructor and `CoinLabel` re-assigns a
+  fill-less style every render; it now passes `fill: 0xffffff`. The tint hint says a tint multiplies
+  the font (gold turns cyan green); "Max bend" is now "Max detour" (it never arcs a route with
+  nothing in the way). #961: `coinLabel` / `flights` strip unknown fields and the state-keyed maps
+  drop an unknown state, so an older launcher loses one key, not the doc (`check:clear-reel` now
+  pins "dropped, siblings kept").
 - 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
   states with inheritance that replays Phase 4's coded beats (an unauthored project is
   unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`

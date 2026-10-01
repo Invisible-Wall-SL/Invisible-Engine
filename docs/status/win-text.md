@@ -289,6 +289,29 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Win text has no
+  backups, so a block a newer launcher wrote was gone for good once an author saved from an older
+  launcher. Before an `If-Match` save, `saveWinTextDoc` now reads the stored doc. If its ETag is the
+  save's `baseEtag`, it copies every top-level key `winTextDocSchema` does not declare onto the PUT
+  (`storedUnknownBlocks`). A create, a forced overwrite or a stale ETag copies nothing. A field a
+  newer launcher adds INSIDE a family (say `jackpots.x`) is still dropped and is NOT recoverable. A
+  known-only doc saves byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule:
+  `docs/conventions/doc-readers.md` "Round-tripping".
+
+- 2026-10-01 — **A newer `version` no longer wipes the whole win-text doc.** `version` is the
+  doc's only enum, and `z.literal(1)` failed a `version: 2` doc into `{ version: 1 }`. A read now
+  takes it as `1` and keeps every field it knows, with a server warning. A save still answers 400.
+  The rule that comes with it: a newer version must never change the meaning of an existing field
+  (`docs/conventions/doc-readers.md` §"Unknown enum values").
+
+- 2026-10-01 — **An unknown field no longer wipes the whole win-text doc.** The nested families
+  (`lineMessage`, `toast`, `jackpots`, `respins`, `feature`, `wheel`…) were `.strict()`, so a field a
+  newer launcher wrote (Phase 8's `potLabel` / `potNames` against a pre-#954 build) failed the parse
+  and `loadWinTextDocWithEtag` fell back to `{ version: 1 }` — the tool, the bake and the runtime
+  bundle all lost every authored template. `normalizeWinTextDoc` now strips unknown keys first
+  (`stripUnknownKeys`, a server warning names each path); a malformed KNOWN field still 400s. Real R2
+  docs normalize unchanged. Rule: `docs/conventions/doc-readers.md`.
+
 - 2026-10-01 — **The Hold and Win presentation reads its copy from Win Text (Hold and Win Phase 8,
   part 2).** Every English literal the respin presentation drew (counter, the counter's modifier
   line, jackpot / instant / wheel banners, Lucky Spin, the modifier toasts, pot labels, wheel
