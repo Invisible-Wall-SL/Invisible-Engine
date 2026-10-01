@@ -904,7 +904,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			else console.warn(line);
 		}
 
-		const missing = symbolsInPlay(config).filter((name) => !knownArt[name]);
+		// A Hold and Win `blank` draws nothing by design (the respin board leaves its cell empty).
+		const missing = symbolsInPlay(config).filter(
+			(name) => !knownArt[name] && !config.symbols[name]?.special_properties?.includes('blank'),
+		);
 		if (missing.length) {
 			const one = missing.length === 1;
 			console.error(

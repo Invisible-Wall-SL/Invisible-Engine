@@ -1252,6 +1252,23 @@
 	// the legacy `loading` id (parity). A renamed loading scene is still recognized as the splash,
 	// and reserved below so it doesn't ALSO mount as a generic overlay/extra scene.
 	const loadingScreenId = $derived(loadingSceneId(editorDoc.scenes));
+	// The player is IN: the boot has settled which path runs, and under a flow the board is on screen
+	// with no loading / tap-to-start screen over it. A resumed round plays only from here, so it never
+	// runs (and finishes) behind the splash. No flow ⇒ true once the boot settles, as before. "Over
+	// it" = stacked above the base game, so a loading screen a flow leaves mounted beneath the board
+	// (a non-`complete` v1 edge, a v2 container never hidden) cannot hold a resume forever.
+	let bootSettled = $state(false);
+	const isLoadingScreenUp = $derived.by(() => {
+		const v1Loading = activeScreenIds.indexOf(loadingScreenId);
+		if (v1Loading > activeScreenIds.indexOf(basegameScreenId)) return true;
+		const z = (sceneId: string) => flowV2Containers.find((c) => c.sceneId === sceneId)?.z;
+		const v2Loading = z(loadingScreenId);
+		const v2Base = z(basegameScreenId);
+		return v2Loading !== undefined && (v2Base === undefined || v2Loading > v2Base);
+	});
+	const isPlayerIn = $derived(
+		bootSettled && (!isFlowDriven || (isBasegameActive && !isLoadingScreenUp)),
+	);
 	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
 	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
 	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
@@ -2008,6 +2025,7 @@
 			// `flowV2Containers`). Ownership-gated ⇒ inert for the book-event-only reference flow and a
 			// normal (no-v2) boot (parity). The screen swaps then run off `complete:<top>` (the tap).
 			void dispatchFlowV2Event('load');
+			bootSettled = true;
 		});
 	});
 
@@ -2056,7 +2074,7 @@
 		</Container>
 	{/if}
 
-	<ResumeBet />
+	<ResumeBet ready={isPlayerIn} />
 	<!--
 			The reason why <Sound /> is rendered after clicking the loading screen:
 			"Autoplay with sound is allowed if: The user has interacted with the domain (click, tap, etc.)."

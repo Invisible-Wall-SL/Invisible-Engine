@@ -172,6 +172,15 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   `.strict()` again and the strip pass drops the same keys, now with the warning. Real R2 docs normalize unchanged. Rule:
   `docs/conventions/doc-readers.md`.
 
+- 2026-10-01 — **Live proof + two fixes (Hold and Win Phase 7).** On `hw-3pots-sample` (authoring
+  path, real clock) the authored coin label and every flight kind render as authored (numbers in
+  [status/hold-and-win](hold-and-win.md)). #963: held coin labels drew BLACK on the respin board —
+  pixi `BitmapText` defaults `fill` to white only in its constructor and `CoinLabel` re-assigns a
+  fill-less style every render; it now passes `fill: 0xffffff`. The tint hint says a tint multiplies
+  the font (gold turns cyan green); "Max bend" is now "Max detour" (it never arcs a route with
+  nothing in the way). #961: `coinLabel` / `flights` strip unknown fields and the state-keyed maps
+  drop an unknown state, so an older launcher loses one key, not the doc (`check:clear-reel` now
+  pins "dropped, siblings kept").
 - 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
   states with inheritance that replays Phase 4's coded beats (an unauthored project is
   unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`
