@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
+	import { updated } from '$app/state';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -10,6 +12,13 @@
 	// for every page INCLUDING an error page — the splash can never outlive a failed boot.
 	// Client-side navigation between tools is handled by `(app)/+layout.svelte` instead.
 	onMount(() => window.IWBoot?.done());
+
+	// A deploy replaces the hashed route chunks, so an open tab's next client-side navigation
+	// asks for a chunk that no longer exists ("Failed to fetch dynamically imported module").
+	// Once SvelteKit sees a newer build (`version.pollInterval`), navigate with a full load.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
 </script>
 
 {@render children()}
