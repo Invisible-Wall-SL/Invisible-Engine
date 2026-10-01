@@ -275,27 +275,36 @@ def test_an_overwrite_on_a_version_that_moved_again_is_refused() -> None:
 def test_two_threads_racing_the_same_version() -> None:
     reset(_base_doc())
     bases = open_page()
+    # The barrier sits between the read and the write, so neither writer can
+    # finish before the other has read: the overlap is by construction, never by
+    # scheduling. Bounded, so a writer that dies before it fails fast.
     gate = threading.Barrier(2)
     outcome: dict[str, object] = {}
+    errors: list[str] = []
 
     def writer(ident, text):
         as_page(ident, bases)
         try:
             m = u.load_manifest()          # both read the SAME version…
-            gate.wait(timeout=5)           # …and only then both write
+            gate.wait(timeout=10)          # …and only then both write
             m["regions"][0]["prompt"] = text
             u.save_manifest(m)
             outcome[ident.name] = "landed"
         except docsave.DocConflict as e:
             outcome[ident.name] = e
+        except Exception as e:
+            errors.append(f"{ident.name}: {e!r}")
         finally:
             doc_sync.end()
 
-    ts = [threading.Thread(target=writer, args=(i, f"from {i.name}")) for i in (ALICE, BOB)]
+    ts = [threading.Thread(target=writer, args=(i, f"from {i.name}"), name=i.name)
+          for i in (ALICE, BOB)]
     for t in ts:
         t.start()
     for t in ts:
-        t.join(10)
+        t.join(30)
+    errors += [f"{t.name}: still running" for t in ts if t.is_alive()]
+    check("both writers finished without an error", errors, [])
     landed = [k for k, v in outcome.items() if v == "landed"]
     lost = [v for v in outcome.values() if isinstance(v, docsave.DocConflict)]
     check("exactly one of two concurrent writers lands", len(landed), 1)
