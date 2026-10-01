@@ -4,21 +4,16 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 4c merged; 4d, flights and steps 6–8 (pots, Lucky Spin, full board + feature end) in review (2026-10-01) — the shared runtime presents the Hold and Win
-feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
-spins only the free cells onto what the server named, new coins stick with their value label, the
-counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
-Phase 4d (in review) adds the specials and mystery beats: a payer or multiplier lights
-and every coin's label counts up to its new value, a multiplier lands as a coin, a collector pulses
-each coin and climbs, a mystery opens into what it revealed (with an "UNLOCKED" toast), a streak's
-cells clear. Steps 6–8 (in review) add the pots (specials fly in, levels tick, a full pot buys the
-feature with its modifier), the Lucky Spin (intro banner, all-reel anticipation, no skip), the
-jackpot celebration and the feature end's per-coin count-up into the Total Win bar. Step 10 (built,
-not yet a PR) adds Grand and Hotfire: the G-R-A-N-D letters light as columns complete and a cleared
-column's coins fly into the Total Win bar, a base-game instant collect flies its coins into the
-special with an "INSTANT WIN" banner, a streak collector takes every coin by flight, and Hotfire's
-pre-feature wheel spins onto the server's prize. Only the random metre has no beat of its own yet. Production is blocked on the partner's Hold and Win wire format;
-authoring is not (mock-first).
+**One-line state:** Phase 4 (engine runtime) build COMPLETE, all merged and live (2026-10-01,
+`lines@e4bca6077db0`) — the shared runtime plays a whole Hold and Win feature with coded default
+presentations for all three presets: coin value labels; a per-cell respin board with sticky coins and
+a resetting counter; payer / multiplier (+ becomes-coin) / collector / mystery (+ unlock); persistent
+pots seeded from boot that specials fly into; Lucky Spin; full-board and banked jackpots; the
+feature-end count-up into the Total Win bar by coin flights; Grand's column letters and sweeps; a
+base-game instant collect; Hotfire's collector streak and pre-feature wheel; and a resume that
+rebuilds the board mid-feature. Phases 5–8 author on top of it (flow vocab, Scene Editor template,
+Symbols SM, Win Text). Production is blocked on the partner's Hold and Win wire format; authoring is
+not (mock-first).
 
 ## How sessions use this file (the hub)
 
@@ -44,7 +39,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d, flights merged; 4e (pots, Lucky Spin, feature end) in review (#943); Grand/Hotfire built on `engine/hold-win-4f-grand-hotfire` (no PR yet) | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 · flights: #942 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -426,14 +421,26 @@ Hold and Win beats prints copy.
   the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
   total?}`, `total` in credits.
 
-1. **Phase 4 (engine runtime), next beats:** the random metre (`randomMetreTrigger`), the last
-   event without a beat; open the step-10 PR once #943 merges. Force any beat with
-   `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
-   **Live check owed** on a published `holdAndWin` project (4c–4d and steps 6–8). Storybook DOES
-   render the board once its loading screen is completed (Decisions & findings, steps 6–8):
-   `MODE_HOLD_AND_WIN/pots` was checked that way; `MODE_HOLD_AND_WIN/book` can be re-checked the same.
-   Before boot meter levels can show on a live game, the published config must declare its meters
-   (the facade publishes only what the server's `config` carries).
+1. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
+   - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
+     feature total). Publish a Classic and a Collector sample project — save `/config` once on the
+     preset (the unauthored-config trap above), then Re-publish — and play their letters, instant
+     collect, streak flights and wheel live. Start their playbooks beside
+     [hw-3pots-sample.md](../playtest/hw-3pots-sample.md).
+   - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
+     (its coins already stick through the trigger).
+   - **From the live checks (not regressions):** the "RESPINS 3" counter shows ~0.7 s before the
+     board swaps; a ~100–130 ms frame hitch at the start of every respin (likely the per-cell strip
+     mount — profile it); the respin cells show half-cropped symbols while they roll; the base reels
+     come back on the trigger spin's board (or the boot board after a snapshot resume); the Total
+     Win bar lands in the same frame the respin board hides; a banked jackpot's 350 ms beat is hidden
+     while coins are still counting.
+   - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
+     so the end volley plays at full length even under turbo/autoplay.
+   - **Not covered:** stepped grids; perspective boards roll at the flat row pitch; the respin cells
+     use the coded spin profile, not the editor's `resolveReelSpinProfile`.
+   - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
+     drawn): its layout has no message host — Phase 6's template should carry one.
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
 3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
@@ -442,6 +449,17 @@ Hold and Win beats prints copy.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4 (engine runtime) build complete** (session "Hold and Win Phase 4 — engine
+  runtime"). Merged in order, each a runtime release verified by `X-Runtime-Release`: 4a contract
+  #928 · 4b facade + coin labels #931 · 4c respin board #934 · resume through the snapshot #938 · 4d
+  specials + mystery #939 · flights #942 · 4e pots, Lucky Spin, feature end #943 · 4f Grand + Hotfire
+  #945 (live `lines@e4bca6077db0`). Every PR had a code review and a real-clock live check: Borut
+  parity (balances = RGS, spin button live, no new console errors) plus forced beats on
+  `hw-3pots-sample`; #943 was merged on the owner's order before its live check finished, and the
+  check then passed on the merged code. Coordination: the Win Text literals are listed above for
+  Phase 8; Phase 7 owns the coin-label and flights authoring on top of the coded defaults (kind keys
+  `toTotal`, `toCollector`, `toMeter:<id>`).
 
 - 2026-10-01 — **Phase 4, step 10: Grand + Hotfire** (branch `engine/hold-win-4f-grand-hotfire`, on
   `engine/hold-win-4e-pots-lucky-end` / #943; no PR yet). One function per beat in
