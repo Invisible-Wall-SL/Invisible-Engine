@@ -401,9 +401,10 @@ export const syncHoldAndWin = async () => {
 };
 
 /**
- * `holdAndWinEnd` — the final board holds for a moment, then the reel board comes back. The tally
- * (`payload.cells`) and the total are the next PRs' beats (flights into the total, count-up); the
- * round's own `setWin` / `setTotalWin` that follow present the money as for any other win.
+ * `holdAndWinEnd` — the final board holds for a moment, every tallied coin flies into the Total Win
+ * bar (`flyCoinsToTotal`), then the reel board comes back. The per-coin count-up into the bar is a
+ * later beat; the round's own `setWin` / `setTotalWin` that follow present the money as for any
+ * other win.
  */
 export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	if (!stateRespinBoard.shown) return;
