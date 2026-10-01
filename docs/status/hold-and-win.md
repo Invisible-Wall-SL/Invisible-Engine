@@ -389,6 +389,30 @@ only has to register its own vocab + seed.
 - runtime: `apps/lines/src/game/{typesBookEvent,bookEventHandlerMap,flowEffects}.ts`, `engine-game/src/game/{types,bookEvents}.ts`
 - facade: `packages/rgs-translator-eagaming/src/{engineFacade,gameMappings,sessionState}.ts`
 
+## Win Text literals for Phase 8
+
+Every player-facing string the Phase 4 coded defaults print, for Phase 8 to move onto `formatWinText`
+(through `apps/lines/src/game/holdAndWinText.ts`). All are English literals today; nothing else in the
+Hold and Win beats prints copy.
+
+| Literal (as printed) | Where | Beat |
+|---|---|---|
+| `RESPINS {left}` | `components/RespinCounter.svelte` | the respin counter |
+| modifier line `MYSTERY · COLLECTOR · PAYER` (special names joined by ` · `) | `RespinCounter.svelte` | active modifiers |
+| `SINGLE` / `DOUBLE` / `TRIPLE` `COLLECTOR` (counter line) | `engine-game` `holdAndWinWheel.ts` `collectorLevelName` + `RespinCounter.svelte` | collector level |
+| special names `COLLECTOR`, `MULTIPLIER`, `PAYER`, `MYSTERY` | `game/holdAndWinPresentation.ts` `specialName` | toasts below |
+| `{SPECIALS} ACTIVE` (toast) | `holdAndWinPresentation.ts` `presentMeterConsume` | a full pot enters the feature |
+| `UNLOCKED: {SPECIALS}` (toast) | `holdAndWinPresentation.ts` `presentMysteryReveal` | a mystery unlocks a modifier |
+| `LUCKY SPIN` (banner) | `holdAndWinPresentation.ts` `presentLuckySpin` | Lucky Spin intro |
+| `{TIER} JACKPOT` + detail `{amount}` or `FULL BOARD  {amount}` (banner) | `holdAndWinPresentation.ts` `presentJackpotWin` | banked jackpot |
+| `{TIER}` + `{amount}` (small banner) | `holdAndWinPresentation.ts` `presentJackpotWin` | coin jackpot in the tally |
+| `INSTANT WIN` + `×{factor}` … `{amount}` (banner) | `holdAndWinPresentation.ts` `presentInstantCollect` | base-game instant collect |
+| wheel segment labels `COIN BOOST ×{n}`, `+{n} COLLECT`, `{TIER}` | `engine-game` `holdAndWinWheel.ts` `wheelPrizeLabel` | the wheel |
+| wheel prize detail `EVERY COIN ×{n}`, `{LEVEL} COLLECT`, `JACKPOT` | `holdAndWinPresentation.ts` `wheelPrizeDetail` | the wheel's prize banner |
+| pot labels `{METER ID} {level}/{max}` and the `activates` name | `components/HoldAndWinPot.svelte` | the pots |
+| letters row (the config's `boardEnd.letters`, not a literal) | `components/HoldAndWinLetters.svelte` | Grand letters |
+| coin labels `MINI`, `MINI ×{n}`, `×{n}`, `+{money}` (tier names come from the config) | `engine-game` `coinLabel.ts` | every coin |
+
 ## Open items / next
 
 - **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) once Phase 6 gives
