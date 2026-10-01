@@ -903,13 +903,18 @@ field over the coded `codedTierFx` ramp for that tier's rank among the config bi
 
 Shown for a **Hold and Win** project (and for any project that already authored flights, so they can
 be cleared). In Hold and Win things fly across the screen: a coin into the total win at the end of the
-feature, coins into a collector, a special into its meter (a pot), a boost beam. This section decides
-how each of those looks and moves. Leave everything alone and the game flies its built-in gold glow.
+feature, coins into a collector, a special into its meter (a pot). This section decides how each of
+those looks and moves. Leave everything alone and the game flies its built-in gold glow.
 
 On the left is the list of **flight kinds**:
 
-- **Into the total win** (`toTotal`), **Into a collector** (`toCollector`), **Boost beam**
-  (`boostBeam`), and **Into a meter (every meter)** (`toMeter`).
+- **Into the total win** (`toTotal`) — the feature-end tally and the Grand column sweep.
+- **Into a collector** (`toCollector`) — coins into a collector (the Hotfire streak, the collect
+  step), and the base game's instant win: each coin flies into its nearest special (Grand's BOOST
+  star, Hotfire's COLLECT diamond). Those flights are styled by this row too.
+- **Into a meter (every meter)** (`toMeter`) — specials into their pots.
+- **Boost beam** (`boostBeam`) is not listed: beams are not built yet, so nothing flies one. The doc
+  still accepts it, and a project that already authored it sees the row so it can reset it.
 - One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
   can give the gold pot its own head and keep the shared timing. A meter you authored that the Game

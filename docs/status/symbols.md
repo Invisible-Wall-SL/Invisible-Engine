@@ -115,8 +115,9 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 10. **Flights: the preview does not play the arrival effect** (shown as a thumbnail in the editor)
     and draws the CODED trail as a canvas approximation, not the `constants-shared` trail config the
     game emits (the launcher does not depend on `constants-shared`/`engine-game`). An authored trail
-    and every route are the real thing. A bone-placed layer in a trail effect rides nothing in the
-    game (`ownerPos` is free-layer only) while the preview treats it as free.
+    and every route are the real thing (a bone-placed trail layer is mounted FREE by `FlightView`,
+    as the preview draws it). `boostBeam` is authorable but hidden in the list until authored —
+    beams are not built.
 11. **Flights are not yet verified on a real board** — the authored head / trail / arrival in a
     running Hold and Win round (Storybook `MODE_HOLD_AND_WIN/flights` with a baked block) is owed.
 

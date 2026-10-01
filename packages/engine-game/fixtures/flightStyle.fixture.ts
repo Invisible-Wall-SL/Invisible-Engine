@@ -10,6 +10,7 @@ import {
 	FLIGHT_BEND_STRENGTHS,
 	flightBendStrengths,
 	flightEase,
+	flightDuration,
 	flightEaseOf,
 	flightPlanOptions,
 	planFlight,
@@ -188,6 +189,16 @@ it(
 	['a', 'b'],
 );
 
+{
+	const zero = resolveFlightStyle({ toTotal: { minMs: 0, maxMs: 0 } }, 'toTotal');
+	it('a 0 ms min / max is floored to one frame', [zero.minMs, zero.maxMs], [16, 16]);
+	const ms = flightDuration(0, zero);
+	it(
+		'…so even a zero-length flight lasts a frame and progress is never 0/0',
+		[ms, Number.isNaN(0 / ms)],
+		[16, false],
+	);
+}
 it('the coded ease is the coded curve', flightEaseOf('easeInOut'), flightEase);
 it(
 	'every ease runs 0 → 1 and clamps',

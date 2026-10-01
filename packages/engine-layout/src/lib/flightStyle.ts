@@ -120,7 +120,8 @@ export const FLIGHT_DEFAULTS = {
 /** The ranges a value is clamped into on save — out-of-range is a typo, not an intent. */
 export const FLIGHT_LIMITS = {
 	speed: { min: 0.05, max: 20 },
-	ms: { min: 0, max: 10_000 },
+	/** A frame at least: a 0 ms flight would land before it is drawn (and divide 0 by 0). */
+	ms: { min: 16, max: 10_000 },
 	stagger: { min: 0, max: 2_000 },
 	bend: { min: 0, max: 1 },
 	padding: { min: 0, max: 2 },

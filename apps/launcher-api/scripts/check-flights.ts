@@ -135,7 +135,7 @@ const AUTHORED = {
 			toTotal: {
 				head: { kind: 'glow' },
 				path: { bend: 1, padding: 2 },
-				minMs: 0,
+				minMs: 16,
 				maxMs: 10_000,
 				stagger: 13,
 			},

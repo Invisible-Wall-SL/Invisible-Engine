@@ -55,6 +55,23 @@
 		const { x, y } = props.position();
 		return { x: x / trailScale, y: y / trailScale };
 	};
+	/**
+	 * A trail has no rig to ride: a bone-placed layer would mount `SpineBoneAttach` with no
+	 * `SpineProvider` and sit at the container's origin. Every trail layer is mounted FREE instead
+	 * (offset kept), so `ownerPos` drives it — what the `/symbols` preview shows.
+	 */
+	const freeTrailDoc = $derived(
+		props.trailDoc
+			? {
+					...props.trailDoc,
+					layers: props.trailDoc.layers.map((layer) =>
+						layer.placement.space === 'bone'
+							? { ...layer, placement: { space: 'free' as const, offset: layer.placement.offset } }
+							: layer,
+					),
+				}
+			: props.trailDoc,
+	);
 	const effectOwnerPos = () => {
 		const { x, y } = props.position();
 		return { x: x / props.scale, y: y / props.scale };
@@ -71,10 +88,10 @@
 			{ownerPos}
 		/>
 	</Container>
-{:else if props.trailDoc}
+{:else if freeTrailDoc}
 	<Container scale={props.scale}>
 		<EffectPlayer
-			doc={props.trailDoc}
+			doc={freeTrailDoc}
 			forceEmit
 			emitFor={props.emit ? undefined : 0}
 			ownerPos={effectOwnerPos}
