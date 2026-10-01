@@ -4,11 +4,11 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 4c (2026-10-01, in review) — the shared runtime presents the Hold and Win
+**One-line state:** Phase 4c merged, 4d in review (2026-10-01) — the shared runtime presents the Hold and Win
 feature on its own per-cell respin board: the triggering coins stick where they landed, each respin
 spins only the free cells onto what the server named, new coins stick with their value label, the
 counter counts down and pulses on a reset, and a resume rebuilds the board from the last snapshot.
-Phase 4d (2026-10-01, on a branch) adds the specials and mystery beats: a payer or multiplier lights
+Phase 4d (in review) adds the specials and mystery beats: a payer or multiplier lights
 and every coin's label counts up to its new value, a multiplier lands as a coin, a collector pulses
 each coin and climbs, a mystery opens into what it revealed (with an "UNLOCKED" toast), a streak's
 cells clear, a jackpot coin lights and a banked jackpot gets a toast. Meters, letters, the wheel and
