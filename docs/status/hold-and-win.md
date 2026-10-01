@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | in progress (branch `flow/hold-win-5-vocabulary`) | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
+| 5 | Flow vocabulary + driven seed | in progress (branch `flow/hold-win-5-vocabulary`: vocab + seed + gates done; live play on hw-3pots-sample, Borut parity boot, docs, PR still owed) | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
