@@ -53,7 +53,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 			restored,
 			baseEtag,
 			'always',
-			'doc',
+			{ unknownFrom: 'doc' },
 		);
 		return json({ ok: true, id, etag, doc });
 	} catch (e) {

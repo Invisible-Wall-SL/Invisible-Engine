@@ -323,7 +323,7 @@ const edited = { ...SYMBOLS, names: { H1: { singular: 'Apple', plural: 'Apples' 
 	// Restore: the RESTORED bytes' unknown blocks are kept, not the live doc's.
 	const etag = seed(symbolsKey, { ...SYMBOLS, liveOnly: 1 });
 	gets.length = 0;
-	await saveSymbolsDoc('c', 'p', { ...SYMBOLS, ...FUTURE }, etag, 'always', 'doc');
+	await saveSymbolsDoc('c', 'p', { ...SYMBOLS, ...FUTURE }, etag, 'always', { unknownFrom: 'doc' });
 	const after = stored(symbolsKey);
 	check(
 		'symbols restore: keeps the backup’s unknown blocks',

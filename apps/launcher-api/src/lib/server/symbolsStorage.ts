@@ -1224,7 +1224,7 @@ export async function canonicalizeSymbolsDocForExport(
  *
  * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
  * `If-Match` save ({@link storedUnknownBlocks}); the returned doc omits them. A backup restore
- * passes `unknownFrom: 'doc'` to keep the RESTORED bytes' unknown blocks instead — it replaces the
+ * passes `{ unknownFrom: 'doc' }` to keep the RESTORED bytes' unknown blocks instead — it replaces the
  * live doc wholesale, so the live doc's blocks are not the author's to keep.
  */
 export async function saveSymbolsDoc(
@@ -1233,7 +1233,7 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
-	unknownFrom: 'stored' | 'doc' = 'stored',
+	{ unknownFrom = 'stored' }: { unknownFrom?: 'stored' | 'doc' } = {},
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc);
 	const kept =
