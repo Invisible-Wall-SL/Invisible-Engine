@@ -21,7 +21,7 @@ export const LINES_ENGINE_KEYS = [
 	'reels',
 	'respinsLeft',
 	'respinTotal',
-	'featureTotal',
+	'featureWorth',
 	'activeModifiers',
 	'jackpot.mini',
 	'jackpot.minor',

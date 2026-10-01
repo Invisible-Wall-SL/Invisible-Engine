@@ -160,6 +160,25 @@ only has to register its own vocab + seed.
   - **Jackpot tiers are the config's** (`holdAndWin.jackpots[].name`); the page lists one caption box
     per tier, and Localization lists each tier's caption (defaulting to the name) for a Hold and Win
     project only.
+- 2026-10-01 — **Phase 5 ↔ Phase 6: what the Hold and Win starter flow shows** (hub decisions).
+  - **Containers:** at start the seed shows `jackpotBar` + `pots` beside the base game and HUD; the
+    `holdAndWin` Mode trigger (enter) shows `respinBackground`, `respinBoard`, `respinCounter`,
+    `totalWinBar`, `letters`, and (exit) hides them — exit fires after `holdAndWinEnd` has presented,
+    so the tally still lands in `totalWinBar`. Wired once Phase 6's scene set is on `main` (the
+    publish gate validates the seed against the kind's scenes).
+  - **Step-aside, not an API:** a coded part steps aside while an AUTHORED screen for it is mounted
+    (in `activeScreenIds`), the rule the counter and pots already follow. Phase 6 adds it for
+    `HoldAndWinBanner` (`luckySpin`, `jackpotWin`) and for the coded wheel (`wheel`). Until then the
+    seed shows none of the three, so nothing draws twice; adding them is a small follow-up (Phase 9 if
+    Phase 5 has merged).
+  - **No `featureIntro` / `featureOutro` in the zero-authoring default** — the coded feature has no
+    tap at its start or end (parity). Authors wire them; Phase 9's sample games add them where the
+    references have popups.
+  - **Names and units:** the HUD source `featureTotal` is the Total Win bar (the win meter, counting
+    up); the flow value is `featureWorth` (`stateHoldAndWin.total`, the server's worth of the open
+    feature — final from the trigger's chain on, what a branch should test). `jackpot.<tier>` is the
+    prize in CURRENCY at the current bet as a HUD source, and in book-event units (like `win`) as a
+    flow value.
 
 - 2026-10-01 — **Step 10: Grand + Hotfire.** Things a later phase must know:
   - **A swept column reaches the Total Win bar DURING the feature.** `presentColumnComplete` counts
@@ -691,7 +710,7 @@ Hold and Win beats prints copy.
   Phase 5 — flow vocabulary + driven seed", branch `flow/hold-win-5-vocabulary`, stacked on #945 —
   merge after it). `engine-flow-v2` `HOLD_AND_WIN_VOCAB` (standard minus free spins and stacked
   pictures; the 20 events field-for-field, 18 backed beats + `flyTo`, 27 cues, the `$engine` values
-  `respinsLeft` / `respinTotal` / `featureTotal` / `activeModifiers` / `jackpot.<tier>`) and
+  `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` / `jackpot.<tier>`) and
   `HOLD_AND_WIN_DRIVEN_SEED_DOC`: the base game, Lucky Spin, pots, instant collect and base jackpots
   in the global graph; every respin-board beat (trigger, wheel, respins, specials, mystery, letters,
   jackpots, end) in `modes.holdAndWin`; Mode trigger (enter) starts the feature music and On all

@@ -150,7 +150,7 @@ const jackpotAmount = (tier: string): number => {
  *  - `reels` — the Flow v2 `reels` COLLECTION (`$engine.reels`): `[{ index }, …]`, one per board reel,
  *    so a v2 `forEach` (e.g. the `StaggerStop` per-reel stagger) can iterate the reels. Sourced from
  *    the live board length (falls back to the static reel count before the first spin lands).
- *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureTotal` / `activeModifiers` from
+ *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` from
  *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
  *
  * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a guard over an unknown key is simply false) — the
@@ -188,7 +188,7 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	// event is presented, so a guard in an event's chain already reads that event's outcome.
 	respinsLeft: () => stateHoldAndWin.left,
 	respinTotal: () => stateHoldAndWin.start,
-	featureTotal: () => stateHoldAndWin.total,
+	featureWorth: () => stateHoldAndWin.total,
 	activeModifiers: () => [...stateHoldAndWin.activeModifiers],
 	'jackpot.mini': () => jackpotAmount('mini'),
 	'jackpot.minor': () => jackpotAmount('minor'),

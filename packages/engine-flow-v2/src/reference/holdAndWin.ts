@@ -721,10 +721,10 @@ const VALUES: TemplateVocabulary['values'] = [
 		description: 'What the respin counter resets to when a coin lands.',
 	},
 	{
-		name: 'featureTotal',
+		name: 'featureWorth',
 		type: FLOAT,
 		description:
-			'What the open feature is worth so far (banked jackpots + every held cell), in the same units as `win`.',
+			"What the open feature is worth so far (banked jackpots + every held cell), as the server counts it — final from the trigger's chain on, unlike the Total Win bar (the HUD source `featureTotal`), which counts up. Same units as `win`.",
 	},
 	{
 		name: 'activeModifiers',
@@ -734,7 +734,7 @@ const VALUES: TemplateVocabulary['values'] = [
 	...JACKPOT_TIERS.map((tier) => ({
 		name: `jackpot.${tier}`,
 		type: FLOAT,
-		description: `The ${tier.toUpperCase()} jackpot at the current bet, in the same units as \`win\` (0 when the game has none).`,
+		description: `The ${tier.toUpperCase()} jackpot, in the same units as \`win\` (0 when the game has none). The HUD source \`jackpot.${tier}\` is the same prize in currency at the current bet.`,
 	})),
 ];
 
