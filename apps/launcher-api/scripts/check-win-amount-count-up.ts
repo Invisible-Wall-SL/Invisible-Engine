@@ -151,18 +151,31 @@ check(
 	true,
 );
 
-console.log('\n9. .strict() still rejects an unknown winLine.text key');
-checks += 1;
-try {
-	normalizeSymbolsDoc({
-		version: 1,
-		symbols: {},
-		winLine: { text: { countUp: true, countUpSpeed: 2 } },
-	});
-	failures += 1;
-	console.log('FAIL  an unknown winLine.text key was ACCEPTED');
-} catch {
-	/* expected — the schema is `.strict()` */
+console.log('\n9. an unknown winLine.text key is ignored, with a warning');
+{
+	const warned: string[] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
+	let withUnknown: unknown;
+	try {
+		withUnknown = normalizeSymbolsDoc({
+			version: 1,
+			symbols: {},
+			winLine: { text: { countUp: true, countUpSpeed: 2 } },
+		});
+	} finally {
+		console.warn = warn;
+	}
+	check(
+		'an unknown winLine.text key normalizes as if absent',
+		withUnknown,
+		normalizeSymbolsDoc({ version: 1, symbols: {}, winLine: { text: { countUp: true } } }),
+	);
+	check(
+		'…and the server warns naming it',
+		warned.some((w) => w.includes('winLine.text.countUpSpeed')),
+		true,
+	);
 }
 
 console.log(
