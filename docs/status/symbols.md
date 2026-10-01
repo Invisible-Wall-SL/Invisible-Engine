@@ -108,6 +108,10 @@ schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers
    whether the resting board should show the winners instead is an open product call.
 9. **The no-flow branch of `playBookEvents` bypasses `dispatchBookEvent`**, so on a game with no
    FlowDoc the win-cycle record (and therefore `winExplode`) stays inert.
+10. **Hold and Win presentation beats still request `land` / `win` / `explosion`** — the rename
+    onto the Phase 7a states waits for Phase 4f (#945), which edits the same file. Mapping in the
+    2026-10-01 entry below; until then an authored H&W cell (other than `coinIdle` / `coinLand`)
+    does not play.
 
 ## Blocked (owner / external)
 
@@ -122,10 +126,12 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   states with inheritance that replays Phase 4's coded beats (an unauthored project is
   unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`
   state. The respin board requests `coinLand` on a stopping cell (it plays the reel's `spin` while
-  rolling) and rests held cells on `coinIdle`; the presentation beats request `coinStick` (sticks,
-  mystery/multiplier landing as a coin), `coinBoost` (payer, multiplier booster), `coinCollect`
-  (collect pulse), `jackpotReveal` (coin jackpot, full-board light-up), `mysteryReveal` (mystery
-  opening) and `flyToMeter` (base-board special flying to its pot). Grid columns gated on
+  rolling) and rests held cells on `coinIdle`. The beats in `holdAndWinPresentation.ts` still
+  request the old names (byte-identical by inheritance) until a follow-up renames them on top of
+  Phase 4f (#945): `coinStick` (sticks, specialBecomesCoin, mystery landing), `coinBoost` (payer,
+  booster), `coinCollect` (collect step, column letters, instant collect on the base board),
+  `jackpotReveal` (coin jackpot, full board, a jackpot coin's factor step), `mysteryReveal`
+  (mystery opening), `flyToMeter` (a special flying to its pot). Grid columns gated on
   `kindCapabilities().holdAndWin`; three new capability flags hide four sections for Hold and Win;
   role chips on row heads; `symbolDefaultsFor('holdAndWin')`. New gate `check:symbols-kind-gating`.
   The Scene Editor's `symbolState` dropdown lists every state for every project, as it already did

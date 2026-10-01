@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SymbolState } from 'engine-game';
+	import { WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
 
 	import Symbol from './Symbol.svelte';
 	import SymbolWrap from './SymbolWrap.svelte';
@@ -53,12 +54,14 @@
 	 */
 	const ANIMATING_SYMBOL_STATES: readonly SymbolState[] = [
 		'land',
-		'win',
+		...WIN_HIGHLIGHT_SYMBOL_STATES,
 		'explosion',
 		'clearReel',
 		'intro',
-		'flyToMeter',
 	];
+	/** The Hold and Win beats that light a BASE-board cell (a special flying to its pot, an instant
+	 *  collect) played `win` before they had names, so they report as `win` does. */
+	const WIN_LIKE: readonly string[] = WIN_HIGHLIGHT_SYMBOL_STATES;
 
 	/** This cell's seat on the lattice — `x` and the row `scale` always come from here. */
 	const seat = $derived(getSymbolSeat(props.reelIndex, props.row + PADDING_ROW));
@@ -193,8 +196,7 @@
 				// reports nothing — the guard that keeps a settled win beat from being re-fired by a
 				// cell that has since moved on.
 				if (
-					state === 'win' ||
-					state === 'flyToMeter' ||
+					WIN_LIKE.includes(state) ||
 					state === 'explosion' ||
 					state === 'clearReel' ||
 					state === 'intro'
