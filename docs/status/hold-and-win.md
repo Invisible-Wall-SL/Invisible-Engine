@@ -46,7 +46,7 @@ titled **"Hold and win game pipeline"**.
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
-| 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
+| 7 | Symbols SM (coin roles/states, value label, kind gating) | in progress — 7a states/roles/gating/defaults, 7b coin label block, 7c flights block + preview | Hold and Win Phase 7 — Symbols SM | — |
 | 8 | Win Text (jackpot + respin copy, gating) | not started | — | — |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
