@@ -42,7 +42,7 @@ titled **"Hold and win game pipeline"**.
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
-| 6 | Scene Editor template + components | in progress | Hold and Win Phase 6 — Scene Editor template | — |
+| 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
 | 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 (contract, /win-text sections, harvest) in review; part 2 (runtime reads the templates, see "Win Text literals for Phase 8") next | Hold and Win Phase 8 — Win Text | part 1: #946 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
@@ -433,11 +433,14 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
-- **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) once Phase 6 gives
-  `Background.svelte` a `respin` branch. The respin board already rolls `paddingReels.respin`
-  (`getPaddingReels('respin')`, base strips only for a config without them); writing `gameType:
-  'respin'` before the background handles it would hide both backgrounds. A one-line flip + a parity
-  boot.
+- **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) — UNBLOCKED: since #951
+  `Background.svelte` shows the feature background for `respin`. A one-line flip + a parity boot
+  (owner: the Phase 4 session).
+- **Phase 6 owed (owner actions):** `hw-3pots-sample` lacks the message host — in `/editor` run
+  **＋ Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
+  write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
+  `holdAndWin` project, open `/editor`, screenshot the template; check the jackpot bar's portrait fit
+  (≈22 px each side at 0.75 scale).
 - **Facade `modeEnter` / `modeExit`** for a QUEUED mode: today's wire has no mode change other than
   the aliased `holdAndWinTrigger`/`End` (the wheel is part of the entry, not a mode). Map them when
   the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
@@ -472,17 +475,32 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
-- 2026-10-01 — **Phase 6 (in progress, branch `claude/hw-phase6-scene-template`, NOT merged):** the
-  `holdAndWin` scene set + template (one set for Grand / Hotfire 3×3 / 3 Pots), 7 kind-gated
-  components (`ComponentDef.capability`, palette filter `componentOfferedForKind`), the `infoBar`
-  message host in `basegame`, `featureTotal` / `jackpot.<name>` / banner sources, coded parts
-  PotMeter / LettersStrip / HoldAndWinWheel, mount-based step-aside of the coded counter + pots
-  (`isComponentMounted`), Background shows the feature backdrop for `respin`. Fixture
-  `packages/engine-layout/scripts/test-hold-and-win-template.mjs` pins existing kinds byte-identical.
-  Svelte-check + eslint green. **Owed before merge:** code review, Borut parity boot, hw-3pots-sample
-  toast check, PR. **Phase 5 must** showContainer `jackpotBar`/`pots` at start and the mode screens
-  from the Mode trigger, and step the coded banner aside when it shows `luckySpin`/`jackpotWin`.
-  Intro/outro/wheel/luckySpin are flow-held screens; `jackpotBar` is not mode-tagged (always shown).
+- 2026-10-01 — **Phase 6: Scene Editor template + components** (#951, runtime `lines@4f9c68b8a1f2`,
+  launcher deploy green). One `holdAndWin` scene set (`referenceLayouts/holdAndWin.ts`) + template for
+  Grand, Hotfire 3×3 and 3 Pots; no free-spin / `specialBook` screens.
+  - **Screens:** `jackpotBar`, `pots` always shown; `basegame` carries the `infoBar` **message host**
+    (it stays mounted under the respin board, so it serves the feature too). Mode screens (`mode` /
+    `holdAndWin`): `respinBackground`, `respinBoard`, `respinCounter` (+ modifiers), `totalWinBar`,
+    `letters`, `wheel`, `featureIntro`, `jackpotWin`, `featureOutro`; `luckySpin` is base game.
+    The five beat screens (intro, outro, wheel, Lucky Spin, jackpot win) are RESERVED in
+    `Game.svelte`: only a flow shows them. `jackpotBar` is deliberately NOT mode-tagged — every
+    reference shows it in the base game.
+  - **Components** (`capability: 'holdAndWin'`, palette-only gate `componentOfferedForKind`):
+    respinCounter, jackpotTile, jackpotBar, totalWinBar, potMeter, lettersStrip, wheel. Coded parts
+    `PotMeter` (reuses `HoldAndWinPot`), `LettersStrip` (reuses `HoldAndWinLetter`),
+    `HoldAndWinWheelPart` (shares `HoldAndWinWheelArt` with 4f's wheel, spin included).
+  - **Sources:** `featureTotal` (the HUD win meter; Phase 5's flow value is `featureWorth`),
+    `jackpot.<name>` (× bet), `holdAndWinBanner(+Detail)`; visibility `luckySpinShow` /
+    `jackpotWinShow` (banner `kind`).
+  - **Step-aside is MOUNT-driven** (`engine-layout` `isComponentMounted`, `sceneMountKey`): the coded
+    counter, pots (per meter), letters and wheel yield while an authored twin component is mounted; the
+    coded banner yields per beat while the authored `luckySpin` / `jackpotWin` SCREEN is mounted
+    (`HOLD_AND_WIN_BANNER_SCREENS`). Unmounted ⇒ coded defaults exactly as before — which is the
+    state today, until Phase 5's seed shows these screens.
+  - **Background:** `respin` shows the feature backdrop (inert until the flag flips).
+  - **Parity:** `packages/engine-layout/scripts/test-hold-and-win-template.mjs` hash-pins every other
+    kind's scene set, template and pre-existing builtin def; bookofborutremake played full free-spin
+    rounds locally on the branch (0 errors).
 
 - 2026-10-01 — **Phase 8 part 1: Win Text families + gating** (branch `claude/hw-phase8-win-text`).
   `WinTextDoc` gains `jackpots` / `respins` / `feature`, with defaults equal to the presentation's
