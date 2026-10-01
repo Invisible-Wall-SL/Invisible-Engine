@@ -22,6 +22,7 @@ of symbol.
 | `wild` | `W` | — | Substitutes for line symbols. |
 | `bonus` | reserved | — | Feature/bonus trigger symbol. Prefix set when first used. |
 | `multiplier` | reserved | — | Value-modifier symbol (e.g. ×2). Today `M` appears only as an *asset filename*, not a symbol id; an `M{n}` symbol prefix is not yet established. |
+| `coin` · `jackpot` · `collector` · `coinMultiplier` · `payer` · `mystery` · `meterSpecial` · `blank` | none — named per game (`BONUS`, `JACKPOT`, `BOOST`, `COLLECT`, …) | its value, never on a line | Hold and Win roles, imported from Game Config's `HOLD_AND_WIN_SYMBOL_ROLES` (`special_properties`). A Hold and Win MULTI is `coinMultiplier`, never `multiplier`. See `docs/design/hold-and-win.md`. |
 
 The prefix fixes the kind for `H`/`L`/`W`, but `S` is intentionally **not 1:1** —
 the special symbol is either a plain `scatter` or a Book-style `wildScatter`. So

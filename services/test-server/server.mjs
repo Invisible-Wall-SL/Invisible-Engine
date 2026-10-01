@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
+import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
 // Invisible Wall favicon — served for EVERY favicon request (the root page and every
@@ -253,19 +254,46 @@ const sellableGrid = (grid, runtime) => {
 	return board;
 };
 
-/**
- * Protocols the manifest may name that have no mock of their own yet, and the mock that deals them
- * meanwhile. `holdAndWin` is dealt by the lines mock until Hold and Win Phase 3 builds its mock
- * (docs/design/hold-and-win.md): its base game pays lines, so the project boots and plays as a lines
- * game, with no respin feature.
- */
-const MOCK_FALLBACKS = { holdAndWin: 'lines' };
+/** Games already told their Hold and Win contract could not be dealt, so it is said once. */
+const holdAndWinFallbackWarned = new Set();
 
-const makeMock = (declared, label, grid, gameKey, cascade, runtime) => {
-	const protocol = Object.hasOwn(MOCK_FALLBACKS, declared) ? MOCK_FALLBACKS[declared] : declared;
+/**
+ * A Hold and Win game's mock, built from the `holdAndWin` inputs its contract carries (the project's
+ * block, symbols and line pays — `holdAndWinMockInputs` in game-config). A contract without them (a
+ * project with no `holdAndWin` block, or an entry published before Phase 3) is dealt as the lines
+ * game its base game is, and says so once: a respin feature that never comes is otherwise
+ * indistinguishable from a broken one.
+ */
+const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin) => {
+	try {
+		if (grid?.holdAndWin) {
+			// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
+			// never get it, its authoring twin and a standalone build's one mock do.
+			const allowForce = twin || !runtime;
+			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, runtime) });
+		}
+		throw new Error('its contract carries no holdAndWin block');
+	} catch (e) {
+		if (!holdAndWinFallbackWarned.has(gameKey)) {
+			holdAndWinFallbackWarned.add(gameKey);
+			console.warn(
+				`[test-server] '${gameKey}' is a Hold and Win game but ${e.message} — dealing its base ` +
+					'game as lines, with no respin feature. Check its Game Config holdAndWin block.',
+			);
+		}
+		return null;
+	}
+};
+
+const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false) => {
+	if (protocol === 'holdAndWin') {
+		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin);
+		if (mock) return mock;
+	}
 	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
 	// authored line table, so it pays (and declares) what `/config` set rather than its captured one.
 	if (protocol === 'book') return createBookMock({ label, symbolPaytable: grid?.symbolPaytable });
+	// `holdAndWin` lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
@@ -418,6 +446,21 @@ const validGrid = (grid) => {
 	// declares a `betOptions` table from them and prices `bet [x, M]` by it. See `validBetModes`.
 	const betModes = validBetModes(grid.betModes);
 	if (grid.betModes !== undefined && !betModes) warnDroppedBetModes(grid.betModes);
+	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
+	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
+	const hw = grid.holdAndWin;
+	const holdAndWin =
+		hw &&
+		typeof hw === 'object' &&
+		hw.block &&
+		typeof hw.block === 'object' &&
+		Array.isArray(hw.lineSymbols) &&
+		hw.lineSymbols.every((s) => typeof s === 'string') &&
+		hw.symbols &&
+		typeof hw.symbols === 'object' &&
+		Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles))
+			? hw
+			: null;
 	return {
 		reels,
 		rows,
@@ -433,6 +476,7 @@ const validGrid = (grid) => {
 		...(symbolPaytable ? { symbolPaytable } : {}),
 		...(scatterPaytable ? { scatterPaytable } : {}),
 		...(betModes ? { betModes } : {}),
+		...(holdAndWin ? { holdAndWin } : {}),
 	};
 };
 
@@ -526,6 +570,7 @@ const swapMock = (key, contract, channel) => {
 		key,
 		contract.cascade,
 		runtime,
+		twin,
 	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
@@ -985,6 +1030,7 @@ async function hydrateOnce() {
 				key,
 				meta.cascade,
 				meta.runtime,
+				true,
 			);
 			carryPins(previous, next, meta.runtime);
 			meta.authoringFingerprint = meta.fingerprint;

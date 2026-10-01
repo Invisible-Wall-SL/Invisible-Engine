@@ -19,7 +19,8 @@
 	"dependencies": {
 		"zod": "3.23.8",
 		"config-lingui": "workspace:*",
-		"constants-shared": "workspace:*"
+		"constants-shared": "workspace:*",
+		"game-config": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/node": "22.13.5",

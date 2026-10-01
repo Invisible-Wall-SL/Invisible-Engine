@@ -1742,6 +1742,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../constants-shared
+      game-config:
+        specifier: workspace:*
+        version: link:../game-config
       zod:
         specifier: 3.23.8
         version: 3.23.8
