@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | in progress — stacked on #945 (branch `flow/hold-win-5-vocabulary`): vocab, seed, gates, live play on hw-3pots-sample and the Borut parity boot done; flow docs, review, PR owed; screen wiring waits for Phase 6 | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
+| 5 | Flow vocabulary + driven seed | in review — on main after #945 + #951 (branch `flow/hold-win-5-vocabulary`): vocab, seed with the Phase 6 screens, gates, live play and the Borut parity boot done; flow docs, review, PR owed | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
@@ -164,13 +164,14 @@ only has to register its own vocab + seed.
   - **Containers:** at start the seed shows `jackpotBar` + `pots` beside the base game and HUD; the
     `holdAndWin` Mode trigger (enter) shows `respinBackground`, `respinBoard`, `respinCounter`,
     `totalWinBar`, `letters`, and (exit) hides them — exit fires after `holdAndWinEnd` has presented,
-    so the tally still lands in `totalWinBar`. Wired once Phase 6's scene set is on `main` (the
-    publish gate validates the seed against the kind's scenes).
+    so the tally still lands in `totalWinBar`. Wired after #951 merged; the publish gate validates
+    the seed against the template's scenes.
   - **Step-aside, not an API:** a coded part steps aside while an AUTHORED screen for it is mounted
     (in `activeScreenIds`), the rule the counter and pots already follow. Phase 6 adds it for
     `HoldAndWinBanner` (`luckySpin`, `jackpotWin`) and for the coded wheel (`wheel`). Until then the
     seed shows none of the three, so nothing draws twice; adding them is a small follow-up (Phase 9 if
-    Phase 5 has merged).
+    Phase 5 has merged). **Superseded the same day:** #951 shipped the step-asides, so the seed now
+    shows `luckySpin`, `wheel` and `jackpotWin` for the length of their beat.
   - **No `featureIntro` / `featureOutro` in the zero-authoring default** — the coded feature has no
     tap at its start or end (parity). Authors wire them; Phase 9's sample games add them where the
     references have popups.
@@ -730,6 +731,13 @@ Hold and Win beats prints copy.
     seed (`templateId: 'bookOf'`), which owns only `reveal` / `setWin` / `setTotalWin`, so its Hold
     and Win events stay on the coded path (same presentation). Only a project scaffolded from now on
     gets the Hold and Win seed; re-seed the sample to author it in `/flow-v2`.
+  - **The Phase 6 screens** (after #951): `jackpotBar` + `pots` from boot, the five mode screens
+    from the Mode trigger (enter → exit), and `luckySpin` / `wheel` / `jackpotWin` framing their beat
+    — pinned by `v2holdandwin` (156 checks) and the publish gate against the template. Live on
+    `hw-3pots-sample` (4 more forced rounds): the trace shows exactly that sequence, 0 exceptions,
+    balances right. That project predates the template (no such scenes), so its coded banners still
+    draw — the step-aside only fires when an authored screen actually mounts. Not seen as pixels: a
+    project scaffolded on the template (none exists yet).
   - **Borut parity** (`bookofborutremake`'s published data and flow, local book mock forcing free
     spins, headless real clock, this branch vs its base = #945's head, same driver): three features
     each, every one basegame → freegame → basegame and back to idle; the same 18 flow actions used;
