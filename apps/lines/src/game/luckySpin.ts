@@ -19,6 +19,12 @@ export const armLuckySpinReveal = (): void => {
 	armed = true;
 };
 
+/** A new round starts clean: a round that threw between `luckySpin` and its `reveal`, or a flow whose
+ *  `reveal` never runs `revealBoard`, must not leave every later reveal unskippable. */
+export const resetLuckySpinReveal = (): void => {
+	armed = false;
+};
+
 /** Is the next `reveal` the Lucky Spin's? Read-only — the reveal itself takes it. */
 export const luckySpinRevealArmed = (): boolean => armed;
 

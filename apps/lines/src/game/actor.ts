@@ -8,6 +8,7 @@ import type { Bet } from './typesBookEvent';
 import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
 import { clearWinPresentation } from './winSymbolCycle';
+import { resetLuckySpinReveal } from './luckySpin';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
 
@@ -27,6 +28,7 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		// instant the spin starts. Runs BEFORE the continuous-bet guard below so autoplay/space-hold
 		// rounds clean up too.
 		clearWinPresentation();
+		resetLuckySpinReveal();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
 		// A swap-in-place board has no roll to pre-start, and this is the ONE place the roll begins

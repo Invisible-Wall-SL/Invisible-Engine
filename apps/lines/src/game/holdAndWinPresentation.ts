@@ -44,6 +44,7 @@ import {
 	stateRespinBoard,
 	syncHeldCells,
 } from './stateRespinBoard.svelte';
+import { meterLevelBefore } from './stateHoldAndWin.svelte';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { waitPresentation } from './unskippablePresentation';
 
@@ -203,7 +204,10 @@ const lightBaseCell = (cell: HoldAndWinCell) => {
  * compresses the flights (`flights.svelte.ts`) and never skips an arrival or the final level.
  */
 export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
-	const before = Math.max(0, event.level - event.from.length);
+	const before = Math.min(
+		event.level,
+		meterLevelBefore(event.meter) ?? Math.max(0, event.level - event.from.length),
+	);
 	const shown = holdMeterDisplay(event.meter, before);
 	eventEmitter.broadcast({
 		type: 'potFill',
@@ -587,7 +591,7 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	await flyCoinsToTotal(order, (index) => step(index, order[index].amount, tally.arrive(index)));
 	if (stateBet.winBookEventAmount !== tally.final) {
 		if (event.payload.banked > 0) await waitPresentation(BANKED_BEAT_MS);
-		step(order.length, event.payload.banked, tally.final);
+		step(order.length, tally.final - stateBet.winBookEventAmount, tally.final);
 	}
 	await waitPresentation(TALLY_SETTLE_MS);
 	hideRespinBoard();
