@@ -84,9 +84,12 @@ rejected `hw-3pots-sample`'s WHOLE `win-text.json`.
     not from `stripUnknownKeys`, because both roots are `.strip()` and that walk drops their
     extras silently. Nothing is copied for a create (`baseEtag: null`), a forced overwrite (no
     precondition: the author chose to replace bytes they never loaded) or a stored ETag that is
-    not `baseEtag` (the PUT 409s anyway). Neither is it copied from unparseable bytes. The API's
-    response omits the kept blocks. A doc with only known fields saves byte-identically. The
-    cost is one extra GET per `If-Match` save.
+    not `baseEtag` (the PUT 409s anyway). Neither is it copied from unparseable bytes, nor when
+    the stored object has no ETag (`etagDiffers` reads a missing ETag as "same", so that check is
+    explicit). The API's response omits the kept blocks. A doc with only known fields saves
+    byte-identically. The cost is one extra full-body GET per `If-Match` save. A storage error on
+    that GET fails the save (the tab keeps its edits and retries) rather than silently dropping
+    the blocks.
   - **A symbols backup restore keeps the BACKUP's unknown blocks**, not the live doc's: the
     restore replaces the live doc wholesale.
   - **Nested unknown keys are still dropped**, because grafting them could resurrect a parent

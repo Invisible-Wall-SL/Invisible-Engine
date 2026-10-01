@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { etagDiffers } from './docBackups';
 import { getObjectTextWithEtag } from './r2';
+import { isPlainObject, setKey } from './stripUnknownKeys';
 
 /**
  * The top-level blocks of `doc` that `schema` does not declare, as a fresh object (empty when
@@ -14,16 +15,9 @@ export function unknownTopLevelBlocks(
 	doc: unknown,
 ): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
-	if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return out;
-	const shape = schema.shape as Record<string, unknown>;
+	if (!isPlainObject(doc)) return out;
 	for (const [key, value] of Object.entries(doc)) {
-		if (Object.hasOwn(shape, key)) continue;
-		Object.defineProperty(out, key, {
-			value,
-			enumerable: true,
-			writable: true,
-			configurable: true,
-		});
+		if (!Object.hasOwn(schema.shape, key)) setKey(out, key, value);
 	}
 	return out;
 }

@@ -276,14 +276,14 @@ export async function saveWinTextDoc(
 	const next = normalizeWinTextDoc(doc);
 	const key = winTextDocKey(clientKey, projectKey);
 	const kept = await storedUnknownBlocks(key, winTextDocSchema, baseEtag);
-	const stamped = { ...next, updatedAt: new Date().toISOString() };
+	const updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
 		key,
-		JSON.stringify({ ...next, ...kept, updatedAt: stamped.updatedAt }, null, 2),
+		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
-	return { doc: stamped, etag };
+	return { doc: { ...next, updatedAt }, etag };
 }
 
 export { ConflictError };

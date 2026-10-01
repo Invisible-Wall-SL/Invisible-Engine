@@ -1240,12 +1240,12 @@ export async function saveSymbolsDoc(
 		unknownFrom === 'doc'
 			? unknownTopLevelBlocks(symbolsDocSchema, doc)
 			: await storedUnknownBlocks(symbolsDocKey(clientKey, projectKey), symbolsDocSchema, baseEtag);
-	const stamped = { ...next, updatedAt: new Date().toISOString() };
+	const updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
-		JSON.stringify({ ...next, ...kept, updatedAt: stamped.updatedAt }, null, 2),
+		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
 		baseEtag,
 		backup,
 	);
-	return { doc: stamped, etag };
+	return { doc: { ...next, updatedAt }, etag };
 }

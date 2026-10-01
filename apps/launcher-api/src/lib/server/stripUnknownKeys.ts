@@ -40,11 +40,11 @@ export function stripUnknownKeysWithWarning(
 	);
 }
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** An own data property even for `__proto__` (which `JSON.parse` yields as a plain key). */
-const setKey = (target: Record<string, unknown>, key: string, value: unknown): void => {
+export const setKey = (target: Record<string, unknown>, key: string, value: unknown): void => {
 	Object.defineProperty(target, key, {
 		value,
 		enumerable: true,

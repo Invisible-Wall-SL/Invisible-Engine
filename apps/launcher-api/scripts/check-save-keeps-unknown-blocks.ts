@@ -322,6 +322,7 @@ const edited = { ...SYMBOLS, names: { H1: { singular: 'Apple', plural: 'Apples' 
 {
 	// Restore: the RESTORED bytes' unknown blocks are kept, not the live doc's.
 	const etag = seed(symbolsKey, { ...SYMBOLS, liveOnly: 1 });
+	gets.length = 0;
 	await saveSymbolsDoc('c', 'p', { ...SYMBOLS, ...FUTURE }, etag, 'always', 'doc');
 	const after = stored(symbolsKey);
 	check(
@@ -333,6 +334,7 @@ const edited = { ...SYMBOLS, names: { H1: { singular: 'Apple', plural: 'Apples' 
 		FUTURE,
 	);
 	check('symbols restore: drops the live doc’s', 'liveOnly' in after, false);
+	check('symbols restore: reads nothing to graft', gets, []);
 }
 
 check(
