@@ -12,8 +12,9 @@
 	/**
 	 * THE CODED RESPIN COUNTER — "RESPINS 3" centred above the respin board, pulsing on every reset,
 	 * and under it the modifiers active in this feature ("PAYER · MULTIPLIER", from the entry and any
-	 * mystery unlock since; a collector the wheel raised reads "DOUBLE COLLECTOR"). The default for a project that authored none: Phase 6 gives it a Scene
-	 * Editor component, fed the same state through the `respinsLeft` / `activeModifiers` sources.
+	 * mystery unlock since; a collector the wheel raised reads "DOUBLE COLLECTOR"). The default for a
+	 * project that authored none: Phase 6 gives it a Scene Editor component, fed the same state through
+	 * the `respinsLeft` / `activeModifiers` sources.
 	 */
 	const PULSE_SCALE = 1.35;
 	const pulse = new Tween(1);

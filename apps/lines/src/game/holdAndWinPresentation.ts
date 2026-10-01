@@ -652,7 +652,7 @@ const wheelPrizeDetail = (prize: Beat<'holdAndWinWheel'>['prize']): string => {
 
 /**
  * `holdAndWinWheel` — Super Hotfire's pre-feature wheel. A segmented wheel of the configured prizes
- * pops up over the board, spins and lands EXACTLY on the server's `index` (a deterministic ease; the
+ * pops up over the board, spins and lands EXACTLY on the server's `segment` (a deterministic ease; the
  * geometry is `engine-game` `holdAndWinWheel.ts`), holds the landed segment, and goes. Then the
  * prize: `COIN BOOST ×2` and `+1 COLLECT` get a banner (the latter with the collector level the
  * server now holds: "DOUBLE COLLECT" — the counter's "DOUBLE COLLECTOR" line is held at the old
@@ -678,9 +678,10 @@ export const presentWheel = async (event: Beat<'holdAndWinWheel'>) => {
 	try {
 		eventEmitter.broadcast({ type: 'wheelShow', prizes });
 		await waitPresentation(WHEEL_INTRO_MS);
-		eventEmitter.broadcast({ type: 'wheelSpin', index: event.segment, prize: event.prize });
+		// The segment DRAWN — a drifted config falls back to a one-segment wheel, where that is 0.
+		eventEmitter.broadcast({ type: 'wheelSpin', segment: index, prize: event.prize });
 		await spinWheelTo(index);
-		eventEmitter.broadcast({ type: 'wheelLand', index: event.segment, prize: event.prize });
+		eventEmitter.broadcast({ type: 'wheelLand', segment: index, prize: event.prize });
 		await holdWheelResult(WHEEL_LANDED_MS);
 	} finally {
 		hideWheel(wheel);

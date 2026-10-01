@@ -95,14 +95,15 @@ only has to register its own vocab + seed.
   - **The wheel follows the free-spin intro's slam rule but is not unskippable:** re-armed before it
     (`startsCelebration`), a press while it turns lands it at once on the very rotation the spin was
     easing onto, and the landed segment and the prize banner each hold at least 700 ms on a bare
-    timer. Its segments are the config's prizes when the config's prize at `index` matches the
+    timer. Its segments are the config's prizes when the config's prize at `segment` matches the
     server's; otherwise a one-segment wheel of the server's prize (it never lands on something not
     awarded). A jackpot prize gets no banner: the `jackpotWin {source: 'wheel'}` that follows
     celebrates.
-  - **Contract wart (not fixed): `holdAndWinWheel.index` overwrites the book event's own `index`.**
-    The facade builds every event as `{index: ordinal, ...fields}`, so the wheel event's ordinal is
-    the segment index. Nothing reads a book event's `index` field today; rename the payload field
-    (e.g. `segment`) in the facade and the contract before anything does.
+  - **Contract fix: the wheel's prize position is `segment`, not `index`.** A book event's `index` is
+    its ordinal in the book, and the facade builds every event as `{index: ordinal, ...fields}`, so a
+    payload field named `index` overwrote it (4a's contract named it so). Renamed in the contract,
+    the facade, the presentation and the recorded books, and in the `wheelSpin` / `wheelLand` cues
+    (which carry the segment DRAWN). The facade fixture checks every event keeps its ordinal.
   - **New flight kind `toCollector`** (streak collect and instant collect); Phase 7's `flights` block
     should author it beside `toTotal` / `toMeter:<id>`.
   - **Value sources:** `collectorLevel`, `lettersLit` (value) and `letter.<reel>.lit` (visibility),

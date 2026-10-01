@@ -2,7 +2,7 @@ import type { HoldAndWinWheelPrize } from './holdAndWin';
 
 /**
  * THE PRE-FEATURE WHEEL'S GEOMETRY, without a renderer — design §1.2 (Super Hotfire's SUPER WHEEL)
- * and the `holdAndWinWheel {index, prize}` event. Pure, so `fixtures/holdAndWinWheel.fixture.ts`
+ * and the `holdAndWinWheel {segment, prize}` event. Pure, so `fixtures/holdAndWinWheel.fixture.ts`
  * pins it; `apps/lines` draws the wheel and only times and paints the answer.
  *
  * Angles are radians, clockwise on screen (Pixi's y axis points down). At rotation 0 the CENTRE of

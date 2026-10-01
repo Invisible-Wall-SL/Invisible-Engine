@@ -14,7 +14,7 @@ import { getActiveGameConfig } from './gameConfig';
  * THE PRE-FEATURE WHEEL as this game shows it (design §1.2 Super Hotfire's SUPER WHEEL) — the
  * coded default until Phase 6 authors a `wheel` scene: a segmented circle, one segment per prize the
  * Game Config lists (`holdAndWin.wheel.prizes`), that spins and lands EXACTLY on the server's
- * `index`. The geometry is `engine-game` `holdAndWinWheel.ts` (pure, fixture-pinned); this module
+ * `segment`. The geometry is `engine-game` `holdAndWinWheel.ts` (pure, fixture-pinned); this module
  * holds what `HoldAndWinWheel.svelte` draws and drives its one rotation.
  *
  * Nothing is mounted until a wheel is up, so a game that never receives `holdAndWinWheel` pays
@@ -54,8 +54,8 @@ const samePrize = (a: HoldAndWinWheelPrize, b: HoldAndWinWheelPrize): boolean =>
 	wheelPrizeLabel(a) === wheelPrizeLabel(b) && a.type === b.type;
 
 /**
- * The prizes the wheel shows and the segment the server's `index` names among them: the config's
- * list when its `index` holds the prize the server sent; otherwise (a config edited since the
+ * The prizes the wheel shows and the segment the server's `segment` names among them: the config's
+ * list when its `segment` holds the prize the server sent; otherwise (a config edited since the
  * server dealt, or none at all) a one-segment wheel of the server's prize — the wheel never lands
  * on a prize the round did not award.
  */

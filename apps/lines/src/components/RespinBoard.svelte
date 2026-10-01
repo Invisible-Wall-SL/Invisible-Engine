@@ -102,8 +102,8 @@
 		  }
 		| { type: 'respinColumnStep'; reel: number; index: number; total: number }
 		| { type: 'wheelShow'; prizes: HoldAndWinWheelPrize[] }
-		| { type: 'wheelSpin'; index: number; prize: HoldAndWinWheelPrize }
-		| { type: 'wheelLand'; index: number; prize: HoldAndWinWheelPrize }
+		| { type: 'wheelSpin'; segment: number; prize: HoldAndWinWheelPrize }
+		| { type: 'wheelLand'; segment: number; prize: HoldAndWinWheelPrize }
 		| {
 				type: 'instantCollectWin';
 				specials: HoldAndWinCell[];

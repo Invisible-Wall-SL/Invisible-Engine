@@ -837,7 +837,7 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Hold and Win',
 			fields: [
 				{
-					key: 'index',
+					key: 'segment',
 					kind: 'number',
 					required: true,
 				},
@@ -853,7 +853,7 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Hold and Win',
 			fields: [
 				{
-					key: 'index',
+					key: 'segment',
 					kind: 'number',
 					required: true,
 				},

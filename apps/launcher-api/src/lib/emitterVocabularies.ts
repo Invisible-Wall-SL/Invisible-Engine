@@ -841,7 +841,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -857,7 +857,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -2141,7 +2141,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -2157,7 +2157,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -3441,7 +3441,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -3457,7 +3457,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -4741,7 +4741,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
@@ -4757,7 +4757,7 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
-						key: 'index',
+						key: 'segment',
 						kind: 'number',
 						required: true,
 					},
