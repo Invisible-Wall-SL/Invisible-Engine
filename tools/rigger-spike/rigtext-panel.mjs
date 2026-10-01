@@ -17,11 +17,11 @@
 //
 // What it still does NOT cover: R2, auth, the ship chain into a game, and how the text LOOKS.
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { readFileSync, existsSync, readdirSync, mkdtempSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { readFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join, extname } from 'node:path';
+import { launchChrome } from './chrome.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -44,42 +44,6 @@ await esbuild.build({
 	logLevel: 'silent',
 });
 const { normalizeRigTextDoc, textAtlasBlock } = await import(pathToFileURL(outfile).href);
-
-// `CHROME_PATH` wins (a CI image's system Chrome needs no download); otherwise any Playwright
-// Chromium, in Playwright's own cache locations per platform.
-function findChromium() {
-	if (process.env.CHROME_PATH)
-		return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
-	const bases = [
-		process.env.PLAYWRIGHT_BROWSERS_PATH,
-		process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
-		join(homedir(), '.cache', 'ms-playwright'),
-		join(homedir(), 'Library', 'Caches', 'ms-playwright'),
-	].filter((b) => b && existsSync(b));
-	const rels = [
-		join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
-		join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
-		join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
-		join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
-		join('chrome-win', 'chrome.exe'),
-		join('chrome-linux64', 'chrome'),
-		join('chrome-linux', 'chrome'),
-	];
-	for (const base of bases)
-		for (const dir of readdirSync(base))
-			for (const rel of rels) {
-				const p = join(base, dir, rel);
-				if (existsSync(p)) return p;
-			}
-	return null;
-}
-const CHROME = findChromium();
-if (!CHROME) {
-	console.error(
-		'No Chromium found (set CHROME_PATH, or: npx playwright install chromium-headless-shell) — this gate needs a real browser.',
-	);
-	process.exit(1);
-}
 
 // ------------------------------------------------------------------ the fake bundle ----
 
@@ -272,94 +236,12 @@ const PORT = server.address().port;
 
 // ------------------------------------------------------------------ CDP ----
 
-const chrome = spawn(
-	CHROME,
-	[
-		'--headless',
-		'--remote-debugging-port=0',
-		`--user-data-dir=${mkdtempSync(join(tmpdir(), 'rigtext-cdp-'))}`,
-		'--no-sandbox',
-		'--disable-dev-shm-usage',
-		'--use-gl=angle',
-		'--use-angle=swiftshader',
-		'--enable-unsafe-swiftshader',
-		'--window-size=1600,1000',
-		`http://127.0.0.1:${PORT}/`,
-	],
-	{ stdio: ['ignore', 'pipe', 'pipe'] },
-);
-const wsUrl = await new Promise((resolve, reject) => {
-	const t = setTimeout(() => reject(new Error('no devtools endpoint')), 20000);
-	let buf = '';
-	chrome.stderr.on('data', (c) => {
-		buf += c;
-		const m = /ws:\/\/[^\s]+/.exec(buf);
-		if (m) {
-			clearTimeout(t);
-			resolve(m[0]);
-		}
-	});
+const browser = await launchChrome({
+	name: 'rigtext-panel',
+	url: `http://127.0.0.1:${PORT}/`,
+	args: ['--window-size=1600,1000'],
 });
-const ws = new WebSocket(wsUrl);
-await new Promise((r) => (ws.onopen = r));
-let msgId = 0;
-const pendingMsgs = new Map();
-const pageLog = [];
-ws.onmessage = (ev) => {
-	const msg = JSON.parse(ev.data);
-	if (msg.id && pendingMsgs.has(msg.id)) {
-		pendingMsgs.get(msg.id)(msg);
-		pendingMsgs.delete(msg.id);
-		return;
-	}
-	if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type !== 'log')
-		pageLog.push(
-			`[${msg.params.type}] ` +
-				msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '),
-		);
-	if (msg.method === 'Runtime.exceptionThrown')
-		pageLog.push(
-			`[uncaught] ${msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text}`,
-		);
-};
-const cdp = (method, params = {}, sessionId) =>
-	new Promise((resolve) => {
-		const id = ++msgId;
-		pendingMsgs.set(id, resolve);
-		ws.send(JSON.stringify({ id, method, params, sessionId }));
-	});
-
-const { result: targets } = await cdp('Target.getTargets');
-const target = targets.targetInfos.find((t) => t.type === 'page');
-const { result: attached } = await cdp('Target.attachToTarget', {
-	targetId: target.targetId,
-	flatten: true,
-});
-const session = attached.sessionId;
-await cdp('Runtime.enable', {}, session);
-
-async function evaluate(expression) {
-	const res = await cdp(
-		'Runtime.evaluate',
-		{ expression, awaitPromise: true, returnByValue: true },
-		session,
-	);
-	const r = res.result;
-	if (r.exceptionDetails)
-		throw new Error(
-			r.exceptionDetails.exception?.description ?? JSON.stringify(r.exceptionDetails),
-		);
-	return r.result.value;
-}
-const waitFor = async (expr, ms = 20000) => {
-	const t0 = Date.now();
-	for (;;) {
-		const v = await evaluate(expr).catch(() => false);
-		if (v) return v;
-		if (Date.now() - t0 > ms) throw new Error('timed out waiting for: ' + expr);
-		await new Promise((r) => setTimeout(r, 120));
-	}
-};
+const { evaluate, waitFor, pageLog } = browser;
 
 let pass = 0;
 let fail = 0;
@@ -689,9 +571,8 @@ try {
 	console.log(`  ✗ the harness threw — ${e.message}`);
 } finally {
 	if (pageLog.length) console.log('\npage console:\n  ' + pageLog.slice(0, 25).join('\n  '));
-	ws.close();
-	chrome.kill();
 	server.close();
+	await browser.close();
 }
 
 console.log(`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — ${pass}/${pass + fail}`);

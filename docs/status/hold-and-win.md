@@ -29,20 +29,21 @@ titled **"Hold and win game pipeline"**.
 
 ## Phase board
 
-| #   | Phase                                                                    | State              | Owner session                                      | PR   |
-| --- | ------------------------------------------------------------------------ | ------------------ | -------------------------------------------------- | ---- |
-| 0   | Hub + plan                                                               | merged             | Hold and win game pipeline                         | #900 |
-| 1   | Kind plumbing + `kindCapabilities()`                                     | merged             | Hold and Win Phase 1: register the kind everywhere | #917 |
-| 2   | Game Config `holdAndWin` block (full option space, 3 presets)            | merged             | Hold and Win Phase 2 — Game Config block           | #919 |
-| 3   | Mock RGS `holdAndWin` protocol + wire contract (swap seam)               | in review          | Hold and Win Phase 3 — mock RGS + wire             | —    |
-| 4   | Engine runtime (RespinBoard, coin labels, events, facade, resume)        | not started        | —                                                  | —    |
-| 5   | Flow vocabulary + driven seed                                            | not started        | —                                                  | —    |
-| 6   | Scene Editor template + components                                       | not started        | —                                                  | —    |
-| 7   | Symbols SM (coin roles/states, value label, kind gating)                 | not started        | —                                                  | —    |
-| 8   | Win Text (jackpot + respin copy, gating)                                 | not started        | —                                                  | —    |
-| 9   | Game Maker presets + docs + playtest, sample games (3 Pots first)        | not started        | —                                                  | —    |
-| 10  | Partner wire (facade + mock brought in line)                             | blocked on partner | —                                                  | —    |
-| 11  | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started        | —                                                  | —    |
+| # | Phase | State | Owner session | PR |
+|---|---|---|---|---|
+| 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
+| 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
+| 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
+| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | in review | Hold and Win Phase 3 — mock RGS + wire | — |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | not started | — | — |
+| 5 | Flow vocabulary + driven seed | not started | — | — |
+| 6 | Scene Editor template + components | not started | — | — |
+| 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
+| 8 | Win Text (jackpot + respin copy, gating) | not started | — | — |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
+| 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
+| 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
 ## Current state
 
@@ -51,15 +52,15 @@ titled **"Hold and win game pipeline"**.
 
 ## What each kind resolves to (Phase 1, pinned by `check:flow-publish-gate` §4)
 
-| Kind                 | Starter flow (`freshDrivenSeedDoc`)            | Flow vocabulary (`templateVocabulary`)                                                                         | Mock protocol → mock that deals it                                                                                                          | `/flow` emitter vocab |
-| -------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `lines`              | bookOf seed (`DRIVEN_SEED_FALLBACKS`)          | bookOf (`VOCABULARY_FALLBACKS`)                                                                                | `lines` → lines                                                                                                                             | lines                 |
-| `ways`               | ways seed                                      | ways                                                                                                           | `ways` → lines mock, ways evaluator                                                                                                         | lines                 |
-| `cluster`            | bookOf seed (fallback)                         | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster`                                                                                                                                   | default               |
-| `scatter`            | bookOf seed (fallback)                         | same as cluster: bookOf in practice                                                                            | `scatter`                                                                                                                                   | default               |
-| `bookOf`             | bookOf seed                                    | bookOf                                                                                                         | `book`                                                                                                                                      | lines                 |
-| `holdAndWin`         | → `lines` → bookOf seed                        | → `lines` → bookOf                                                                                             | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines                 |
-| custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf                                                                                                         | `lines`                                                                                                                                     | default               |
+| Kind | Starter flow (`freshDrivenSeedDoc`) | Flow vocabulary (`templateVocabulary`) | Mock protocol → mock that deals it | `/flow` emitter vocab |
+|---|---|---|---|---|
+| `lines` | bookOf seed (`DRIVEN_SEED_FALLBACKS`) | bookOf (`VOCABULARY_FALLBACKS`) | `lines` → lines | lines |
+| `ways` | ways seed | ways | `ways` → lines mock, ways evaluator | lines |
+| `cluster` | bookOf seed (fallback) | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster` | default |
+| `scatter` | bookOf seed (fallback) | same as cluster: bookOf in practice | `scatter` | default |
+| `bookOf` | bookOf seed | bookOf | `book` | lines |
+| `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
+| custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |
 
 Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` by alias, so Phase 5
 only has to register its own vocab + seed.
@@ -96,7 +97,8 @@ only has to register its own vocab + seed.
   must boot through an authoring link to force a beat.
 - 2026-09-30 — **Phase 3 pacing:** an empty respin cell lands something 6% of the time. At 10%, Grand
   (letters that sweep their column, so the board never fills) ran 25+ respin features.
-
+- 2026-09-30 — **Owner: a bonus is a different game mode, and modes must queue.** A bonus-game signal can switch to a completely different mode, and two modes can be queued up to play one after another. Measured: nothing like this exists today. There is only `gameType` = `basegame | freegame`, a flat FlowDoc, strictly ordered book events, no feature queue, and a free-spin-only resume. Planned as design §4.5 / **Phase 4M**: a mode registry, a mode stack with a nest-or-queue policy, `modeEnter`/`modeExit` with the free-spin events as aliases, per-mode flow graphs shown as tabs, a scene role `mode`, and a mode-aware resume. It is a shared-runtime change, so parity is the gate.
+- 2026-09-30 — **Flights (things that travel from a cell to a target, e.g. coins/specials into pots): one `flyTo` primitive, planned in design §4.4.** It computes a Bézier route at runtime that bends around the cells showing a win. The trail is an `/fx` emitter following the moving head (the moving-owner mechanism already exists for Rigger bones). A cue fires on arrival. Authoring is a `flights` block in the Symbols doc. Phase 4 builds the primitive, Phase 7 the authoring, Phase 5 the flow action.
 - 2026-09-30 — **Phase 2: the config shape Phase 3 generates from** is `doc.holdAndWin`
   (`packages/game-config/src/holdAndWin.ts`; detail in [game-config.md](game-config.md)). Roles are
   `special_properties` values: `coin`, `jackpot`, `collector`, **`coinMultiplier`** (not
@@ -178,7 +180,6 @@ only has to register its own vocab + seed.
     close rules. Eight planted mock bugs each fail it.
   - game-spec's `SymbolKindSchema` now imports the Hold and Win roles from game-config (`jackpot`,
     `coinMultiplier`), closing the Phase 1/2 naming mismatch.
-
 - 2026-09-30 — **Phase 2 merged (#919)** (session "Hold and Win Phase 2 — Game Config block").
   - `packages/game-config`: the `holdAndWin` block, its normalizer and validator, and the three presets
     `pots` / `classic` / `collector` (numbers per design §1.2).
@@ -191,7 +192,6 @@ only has to register its own vocab + seed.
     reuses `multiplier`, while the config's `special_properties` roles are `jackpot` and
     `coinMultiplier`. Phase 7 (Symbols) should align game-spec to the config names.
 - 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** — merged as #917, a runtime release (session "Hold and Win Phase 1: register the kind everywhere").
-
   - **One kind list.** `GAME_KINDS` lives in `packages/constants-shared/gameKinds.ts`. These now derive from it: roles.ts (its copy removed), `kindStorage`, `projects.ts`, the editor template picker, game-spec `GameTypeSchema`, the publish gate, `verify-launcher-profile` and `gen-flow-vocabulary.mjs`, which gives lines' emitter vocab to every kind except cluster/scatter.
   - **`kindCapabilities(gameType, config?)`** is in `engine-layout`.
   - **game-spec symbol roles:** `coin`, `jackpotCoin`, `collector`, `payer`, `mystery`, `meterSpecial` and `blank` (`multiplier` already existed).
@@ -203,7 +203,7 @@ only has to register its own vocab + seed.
 - 2026-09-30 — **Owner decisions recorded** (one template / three presets, 3 Pots first, mock-first with a swap seam). Build plan re-cut: Phase 10 is now the partner wire and Phase 11 covers what goes beyond the three references.
 
 - 2026-09-30 — **Plan and hub created** (session "Hold and win game pipeline").
-  - Researched 3 Oaks _Grand_, _Super Hotfire Diamonds_ and _3 Pots of Egypt_ from their server config and rules strings.
+  - Researched 3 Oaks *Grand*, *Super Hotfire Diamonds* and *3 Pots of Egypt* from their server config and rules strings.
   - Read the partner core's respin and jackpot handling.
   - Inventoried the engine: found the `apps/price` superspin loop.
   - Inventoried every tool's kind plumbing.
