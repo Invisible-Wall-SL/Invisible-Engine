@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { symbolDefaultsKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 import { migrateLegacySymbolStates, SYMBOL_STATES, type SymbolCell } from './symbolsStorage';
+import holdAndWinDefaults from '$lib/data/symbolDefaults/holdAndWin.json';
 import linesDefaults from '$lib/data/symbolDefaults/lines.json';
 
 /**
@@ -15,8 +16,11 @@ import linesDefaults from '$lib/data/symbolDefaults/lines.json';
  *     time (`publish-symbol-defaults.mjs` → `PUT /api/editor/symbol-defaults` →
  *     `savePublishedSymbolDefaults`), so a project's tool grid is driven by ITS
  *     coded map. Loaded per-project with `loadPublishedSymbolDefaults`.
- *  2. OFFLINE FALLBACK — the committed `$lib/data/symbolDefaults/lines.json`,
- *     used for `apps/lines` dev and any project that has not published yet.
+ *  2. OFFLINE FALLBACK — the committed `$lib/data/symbolDefaults/<kind>.json`,
+ *     used for `apps/lines` dev and any project that has not published yet:
+ *     `lines.json` for every kind, except `holdAndWin.json` — the 3 Pots preset's
+ *     symbol set (its line symbols plus BONUS / JACKPOT / BOOST / COLLECT / MULTI /
+ *     MYSTERY / BLANK) bound to placeholder art that ships with `apps/lines`.
  *
  * Mirrors how the editor's `defaultLayout('lines')` imports its basegame truth.
  * See `docs/design/invisible-symbols-state-machine.md`.
@@ -84,6 +88,7 @@ export type SymbolDefaults = z.infer<typeof symbolDefaultsSchema>;
 
 const DEFAULTS_BY_GAME: Record<string, SymbolDefaults> = {
 	lines: symbolDefaultsSchema.parse(linesDefaults),
+	holdAndWin: symbolDefaultsSchema.parse(holdAndWinDefaults),
 };
 
 const FALLBACK_GAME = 'lines';

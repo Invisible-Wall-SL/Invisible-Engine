@@ -62,7 +62,7 @@ from iw_common import imgcache  # noqa: E402  (disk thumb cache + ETag/304 helpe
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + the page precondition)
-from iw_common import lease  # noqa: E402  (the person-level "X is editing" soft lease)
+from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -370,7 +370,7 @@ BUILD = "v15-extra-prompts"  # shown in the startup banner so you can verify the
 # ({id, name, client, project}) so only they or an admin can stop it.
 _render_state = {"running": False, "log": "", "done": False, "cur": 0,
                  "total": 0, "diagnostics": [], "started": 0.0,
-                 "runpodJob": "", "owner": None}
+                 "runpodJob": "", "runpodEndpoint": "", "owner": None}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
 _stopped = False
@@ -2826,7 +2826,8 @@ def stop_render() -> str:
     done: list[str] = []
     with _render_lock:
         job_id = str(_render_state.get("runpodJob") or "")
-        _render_state["runpodJob"] = ""
+        endpoint = str(_render_state.get("runpodEndpoint") or "")
+        _render_state.update(runpodJob="", runpodEndpoint="")
     proc = _render_proc
     if proc and proc.poll() is None:
         proc.terminate()
@@ -2836,7 +2837,7 @@ def stop_render() -> str:
             proc.kill()
         done.append("render stopped")
     if job_id:
-        why = batch_atlas.runpod_cancel(job_id)
+        why = batch_atlas.runpod_cancel(job_id, endpoint)
         done.append(f"RunPod job {job_id[:8]} cancelled" if not why
                     else f"could not cancel RunPod job {job_id[:8]} ({why})")
     for path, body, label in (
@@ -2890,13 +2891,13 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
                 if d is not None:
                     _render_state["diagnostics"].append(d)
                     continue
-                # The in-flight RunPod job id, so Stop can cancel the REMOTE
-                # job. Kept out of the visible log — it is plumbing, and the
-                # readable "... serverless job <id> IN_QUEUE" line already
-                # tells the user what is running.
-                if line.startswith(batch_atlas.RUNPOD_JOB_MARK):
-                    _render_state["runpodJob"] = line[
-                        len(batch_atlas.RUNPOD_JOB_MARK):].strip()
+                # The in-flight RunPod job id and its endpoint, so Stop can
+                # cancel the REMOTE job where it runs. Kept out of the visible
+                # log — it is plumbing, and the readable "... serverless job
+                # <id> IN_QUEUE" line already tells the user what is running.
+                mark = batch_atlas.read_runpod_job_mark(line)
+                if mark:
+                    _render_state.update(runpodJob=mark[0], runpodEndpoint=mark[1])
                     continue
                 _render_state["log"] += line
                 mt = _PROG_RE.search(line)
@@ -3024,7 +3025,8 @@ def render_view(ident: launch.Identity | None, client: str, project: str) -> byt
         if owner:
             view["owner"] = {"name": owner.get("name") or "", "id": owner.get("id") or ""}
             if (owner.get("client"), owner.get("project")) != (client, project):
-                view.update(log="", diagnostics=[], runpodJob="", otherProject=True)
+                view.update(log="", diagnostics=[], runpodJob="", runpodEndpoint="",
+                            otherProject=True)
         return json.dumps(view).encode()
 
 
@@ -4573,19 +4575,21 @@ except OSError:
     COLOR_FIELD_JS = ""
 
 # The fetch wrapper that makes every save carry the version the page loaded and
-# answers a 409 with "reload theirs / overwrite with mine" (doc_sync.py), plus
-# the "X is editing this atlas" heartbeat. A separate file for the same reason as
-# color-field.js — no brace doubling, no Python eating its escapes — but NOT
-# optional: without it every save from the page goes unguarded, so a missing
-# file fails the import instead of degrading silently.
+# answers a 409 with "reload theirs / overwrite with mine" (doc_sync.py). A
+# separate file for the same reason as color-field.js — no brace doubling, no
+# Python eating its escapes — but NOT optional: without it every save from the
+# page goes unguarded, so a missing file fails the import instead of degrading
+# silently.
 DOC_GUARD_JS = (Path(__file__).resolve().parent / "doc-guard.js").read_text(
     encoding="utf-8")
 
 
 def doc_guard_js(docs: dict, me: dict, doc: str) -> str:
-    return (DOC_GUARD_JS.replace("__IW_DOCS__", _js_json(docs))
-            .replace("__IW_ME__", _js_json(me))
-            .replace("__IW_DOC__", _js_json(doc)))
+    """The fetch wrapper, preceded by the "X is editing this atlas" heartbeat on
+    `doc` (iw_common/presence.js) — first, so its beats use the unwrapped fetch."""
+    return presence.script("atlas", doc) + (
+        DOC_GUARD_JS.replace("__IW_DOCS__", _js_json(docs))
+        .replace("__IW_ME__", _js_json(me)))
 
 
 # Blueprint exposed-params panel (B43 Phase 8). A static container the client
@@ -11340,42 +11344,15 @@ class Handler(BaseHTTPRequestHandler):
         }
 
     def _presence(self, payload: dict) -> dict:
-        """The person-level soft lease (multi-user-concurrency.md Phase 3): one
-        heartbeat per open tab every 10 s, answering who ELSE holds the atlas it
-        shows, for the "X is editing this atlas" banner.
-
-        Advisory only. It blocks nothing — the compare-and-swap on every save is
-        what keeps work from being lost; this just makes the collision visible
-        before it happens. Fails open like every lease: an unreachable store
-        reports nobody. The holder is (user, tab), so the same person in two tabs
-        sees their own other tab named, not a stranger."""
+        """The "X is editing this atlas" heartbeat (iw_common/presence.py), keyed
+        `atlasMaker/<manifest stem>`. Only a manifest is tracked."""
         doc = str(payload.get("doc") or "")
-        tab = str(payload.get("tab") or "")[:64]
         stem = doc[len("manifests/"):] if doc.startswith("manifests/") else ""
-        prefix = str(R2_PREFIX)
-        if not stem or "/" in stem or not tab or "/" not in prefix:
+        if not stem or "/" in stem:
             return {"holder": None}
-        client, project = prefix.split("/", 1)
-        key = lease.LeaseKey("atlasMaker", client, project, Path(stem).stem)
-        ident = self._identity
-        holder = lease.LeaseHolder(str(ident.uid or ident.sub or "anonymous"), tab,
-                                   str(ident.name or ident.sub or ""))
-        if payload.get("release"):
-            lease.release(key, holder)
-            return {"holder": None}
-        if lease.acquire(key, holder):
-            return {"holder": None}
-        try:
-            row = lease.held_by(key)
-        except Exception:  # noqa: BLE001 — unreadable holds nobody
-            return {"holder": None}
-        if not row:
-            return {"holder": None}
-        return {"holder": {
-            "name": row.get("holderName") or "Someone",
-            "same_user": str(row.get("holderUserId") or "") == holder.user_id,
-            "since": int(row.get("acquiredAt") or 0),
-        }}
+        return presence.beat("atlasMaker", str(R2_PREFIX), Path(stem).stem,
+                             self._identity, payload.get("tab"),
+                             release=bool(payload.get("release")))
 
     def _taxonomy_save(self, payload: dict) -> dict:
         """Validate and store the shared taxonomy.

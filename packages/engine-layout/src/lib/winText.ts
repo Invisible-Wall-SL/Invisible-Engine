@@ -59,7 +59,69 @@ export type WinTextDoc = {
 	toast?: WinTextToast;
 	/** Free-spin feature copy. Localize-then-interpolate, one coherent sentence per field. */
 	freeSpins?: WinTextFreeSpins;
+	/** Hold and Win: the jackpot tiers' captions and the jackpot banners. */
+	jackpots?: WinTextJackpots;
+	/** Hold and Win: the respin counter and its moments. */
+	respins?: WinTextRespins;
+	/** Hold and Win: the feature's own lines (total, intro/outro, instant collect, Lucky Spin, pots). */
+	feature?: WinTextFeature;
 	updatedAt?: string;
+};
+
+/**
+ * Hold and Win jackpot copy. The TIERS are not a list this contract owns: they are the project's
+ * Game Config `holdAndWin.jackpots[].name` (MINI, MINOR, … or whatever the author named them), so
+ * `captions` is keyed by tier name and an unset tier speaks its own name ({@link jackpotCaption}).
+ * `{jackpot}` in the banner templates is that caption, localized at its source like `{symbolName}`.
+ */
+export type WinTextJackpots = {
+	/** Tier name → the word the player sees for it, e.g. `"GRAND"` → `"GRAND"`. */
+	captions?: Record<string, string>;
+	/** A banked jackpot's banner title — "{jackpot} JACKPOT". */
+	award?: string;
+	/** Under it, the amount — "{amount}". */
+	awardDetail?: string;
+	/** Under it when a FULL BOARD paid the jackpot — "FULL BOARD  {amount}". */
+	fullBoardDetail?: string;
+	/** The small banner over a jackpot COIN in the tally — "{jackpot}" (its amount sits under it). */
+	coin?: string;
+};
+
+/** Hold and Win respin copy. `{count}` is a number of respins. */
+export type WinTextRespins = {
+	/** The counter over the respin board — "RESPINS {count}" (`{count}` = respins left). */
+	counter?: string;
+	/** The award when the feature starts — "{count} RESPINS". */
+	award?: string;
+	/** A new coin put the counter back to its start — "RESPINS RESET". */
+	reset?: string;
+	/** One respin left — "LAST RESPIN". */
+	last?: string;
+};
+
+/**
+ * Hold and Win feature copy. `{modifiers}` is the special names ({@link WinTextFeature.specialNames})
+ * joined with ", "; `{meter}` is the name of the special a full pot activates.
+ */
+export type WinTextFeature = {
+	/** The feature's total as it ends — "BONUS WIN {amount}". */
+	total?: string;
+	/** A line as the feature opens. Empty by default: nothing is drawn until it is authored. */
+	intro?: string;
+	/** A line as the feature closes. Empty by default, like `intro`. */
+	outro?: string;
+	/** The base game's instant collect banner — "INSTANT WIN". */
+	instantCollect?: string;
+	/** The guaranteed-trigger spin's banner — "LUCKY SPIN". */
+	luckySpin?: string;
+	/** A pot filled — "{meter} ACTIVATED". */
+	meterFull?: string;
+	/** The modifiers a feature enters with (bought by full pots) — "{modifiers} ACTIVE". */
+	modifiersActive?: string;
+	/** A mystery unlocked modifiers mid-feature — "UNLOCKED: {modifiers}". */
+	modifiersUnlocked?: string;
+	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`) → its name in these lines. */
+	specialNames?: Record<string, string>;
 };
 
 /**
@@ -116,6 +178,9 @@ export type ResolvedWinText = {
 	winLevels: Record<string, string>;
 	toast: Required<WinTextToast>;
 	freeSpins: Required<WinTextFreeSpins>;
+	jackpots: Required<WinTextJackpots>;
+	respins: Required<WinTextRespins>;
+	feature: Required<WinTextFeature>;
 };
 
 /**
@@ -134,6 +199,13 @@ export type ResolvedWinText = {
  *   (`big_win_intro` …), and `Win.svelte` draws only the count-up amount. Seeding these with
  *   the coded literals would make every existing game suddenly draw a tier caption OVER art
  *   that already says it. Empty ⇒ nothing drawn ⇒ parity; authoring one opts that game in.
+ * - `jackpots` / `respins` / `feature` (Hold and Win) ⇒ where the respin presentation already draws
+ *   a line (the counter, the jackpot banners, Lucky Spin, the modifier toasts, the special names),
+ *   exactly that literal, so an unauthored Hold and Win game reads the same once it reads these.
+ *   `respins.award`/`reset`/`last`, `feature.total`/`instantCollect`/`meterFull` are NEW copy with
+ *   no draw site yet: adopting one adds a line to the screen.
+ *   `jackpots.captions` is empty because an unset tier speaks its own config name. `feature.intro`
+ *   and `feature.outro` are empty (no prior line, so nothing is drawn until authored).
  */
 export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 	lineMessage: { default: '', byCount: {}, bySymbol: {}, byCell: {} },
@@ -153,6 +225,79 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 	freeSpins: {
 		retrigger: 'You won +{count} Extra Free Spins',
 	},
+	jackpots: {
+		captions: {},
+		award: '{jackpot} JACKPOT',
+		awardDetail: '{amount}',
+		fullBoardDetail: 'FULL BOARD  {amount}',
+		coin: '{jackpot}',
+	},
+	respins: {
+		counter: 'RESPINS {count}',
+		award: '{count} RESPINS',
+		reset: 'RESPINS RESET',
+		last: 'LAST RESPIN',
+	},
+	feature: {
+		total: 'BONUS WIN {amount}',
+		intro: '',
+		outro: '',
+		instantCollect: 'INSTANT WIN',
+		luckySpin: 'LUCKY SPIN',
+		meterFull: '{meter} ACTIVATED',
+		modifiersActive: '{modifiers} ACTIVE',
+		modifiersUnlocked: 'UNLOCKED: {modifiers}',
+		specialNames: {
+			collector: 'COLLECTOR',
+			multiplier: 'MULTIPLIER',
+			payer: 'PAYER',
+			mystery: 'MYSTERY',
+		},
+	},
+};
+
+/** The Hold and Win template fields that are plain strings — what the tool lists, the storage
+ *  prunes and the harvest walks, in display order. One list, so a new field cannot reach one of
+ *  them and miss another. */
+export const WIN_TEXT_JACKPOT_FIELDS = ['award', 'awardDetail', 'fullBoardDetail', 'coin'] as const;
+export const WIN_TEXT_RESPIN_FIELDS = ['counter', 'award', 'reset', 'last'] as const;
+export const WIN_TEXT_FEATURE_FIELDS = [
+	'total',
+	'intro',
+	'outro',
+	'instantCollect',
+	'luckySpin',
+	'meterFull',
+	'modifiersActive',
+	'modifiersUnlocked',
+] as const;
+
+export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
+export type WinTextRespinField = (typeof WIN_TEXT_RESPIN_FIELDS)[number];
+export type WinTextFeatureField = (typeof WIN_TEXT_FEATURE_FIELDS)[number];
+
+/** Each field's label — the tool's row and the Localization hint say the same thing. */
+export const WIN_TEXT_JACKPOT_LABELS: Record<WinTextJackpotField, string> = {
+	award: 'Jackpot banner',
+	awardDetail: 'Jackpot banner — amount',
+	fullBoardDetail: 'Jackpot banner — full board',
+	coin: 'Jackpot coin',
+};
+export const WIN_TEXT_RESPIN_LABELS: Record<WinTextRespinField, string> = {
+	counter: 'Respin counter',
+	award: 'Respins awarded',
+	reset: 'Respins reset',
+	last: 'Last respin',
+};
+export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
+	total: 'Feature total',
+	intro: 'Feature intro',
+	outro: 'Feature outro',
+	instantCollect: 'Instant collect',
+	luckySpin: 'Lucky Spin',
+	meterFull: 'Pot full',
+	modifiersActive: 'Modifiers active',
+	modifiersUnlocked: 'Modifiers unlocked',
 };
 
 /** The key a `byCell` override is stored under. */
@@ -195,7 +340,45 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 		freeSpins: {
 			retrigger: doc?.freeSpins?.retrigger ?? WIN_TEXT_DEFAULTS.freeSpins.retrigger,
 		},
+		jackpots: {
+			captions: { ...WIN_TEXT_DEFAULTS.jackpots.captions, ...(doc?.jackpots?.captions ?? {}) },
+			...pick(WIN_TEXT_JACKPOT_FIELDS, WIN_TEXT_DEFAULTS.jackpots, doc?.jackpots),
+		},
+		respins: pick(WIN_TEXT_RESPIN_FIELDS, WIN_TEXT_DEFAULTS.respins, doc?.respins),
+		feature: {
+			...pick(WIN_TEXT_FEATURE_FIELDS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
+			specialNames: {
+				...WIN_TEXT_DEFAULTS.feature.specialNames,
+				...(doc?.feature?.specialNames ?? {}),
+			},
+		},
 	};
+}
+
+/** Each of `fields` from the sparse `authored` family, else its default. */
+function pick<F extends string>(
+	fields: readonly F[],
+	defaults: Record<F, string>,
+	authored: Partial<Record<F, string>> | undefined,
+): Record<F, string> {
+	const out = {} as Record<F, string>;
+	for (const field of fields) out[field] = authored?.[field] ?? defaults[field];
+	return out;
+}
+
+/**
+ * What the player reads for a jackpot tier: the authored caption, else the tier's own config name.
+ * Localized here, at its source (the `resolveSymbolName` rule), because it is interpolated as
+ * `{jackpot}` AFTER the banner template is localized and would otherwise never translate.
+ */
+export function jackpotCaption(resolved: ResolvedWinText, tier: string): string {
+	return resolveLocalizedText(resolved.jackpots.captions[tier] || tier);
+}
+
+/** A special kind's name in the Hold and Win lines (localized at its source, like a caption); an
+ *  unknown kind speaks its id in capitals. */
+export function specialDisplayName(resolved: ResolvedWinText, kind: string): string {
+	return resolveLocalizedText(resolved.feature.specialNames[kind] || kind.toUpperCase());
 }
 
 /**
@@ -273,6 +456,12 @@ export type WinTextVars = {
 	line?: number;
 	/** The resolved win-line message — toast template only. */
 	message?: string;
+	/** A jackpot tier's caption ({@link jackpotCaption}), already localized. */
+	jackpot?: string;
+	/** The special a full pot activates, already localized ({@link specialDisplayName}). */
+	meter?: string;
+	/** Special names joined with ", ", each already localized. */
+	modifiers?: string;
 };
 
 const TOKEN = /\{(\w+)\}/g;
@@ -307,10 +496,18 @@ export function formatWinText(template: string, vars: WinTextVars = {}): string 
  * through {@link resolveWinText} and are harvested even when the author never retyped them.
  * Otherwise the built-in win message could never be translated.
  *
+ * The Hold and Win families (`jackpots`/`respins`/`feature`) follow the toasts' rule — their
+ * defaults are player-facing — but only for a project whose kind has the feature
+ * (`options.holdAndWin`, from `kindCapabilities`), so every other project's harvest stays exactly
+ * what it was. What an author DID write in them is harvested regardless. `options.jackpots` is the
+ * config's tier names: each tier's caption (authored, else the name itself) is a string the player
+ * reads, so it is listed per tier.
+ *
  * `label` is the human hint shown in the tool's Win-text section.
  */
 export function collectWinTextTemplates(
 	doc: WinTextDoc | undefined,
+	options: { holdAndWin?: boolean; jackpots?: readonly string[] } = {},
 ): { key: string; source: string; label: string }[] {
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
@@ -341,5 +538,29 @@ export function collectWinTextTemplates(
 	// The retrigger sentence has a real coded default (a player-facing sentence), so — like the
 	// toasts — it is harvested from the RESOLVED doc so it can be translated even if never retyped.
 	add(resolved.freeSpins.retrigger, 'Free spins — retrigger (+N extra)');
+	const holdAndWin = options.holdAndWin === true;
+	const source = holdAndWin ? resolved : doc;
+	// A template that is only tokens ("{amount}", "{jackpot}") has nothing to translate.
+	const addWords = (template: string | undefined, label: string) => {
+		if (template?.replace(TOKEN, '').trim()) add(template, label);
+	};
+	for (const tier of options.jackpots ?? []) {
+		add(doc?.jackpots?.captions?.[tier] || (holdAndWin ? tier : undefined), `Jackpot — ${tier}`);
+	}
+	for (const [tier, caption] of Object.entries(doc?.jackpots?.captions ?? {})) {
+		add(caption, `Jackpot — ${tier}`);
+	}
+	for (const field of WIN_TEXT_JACKPOT_FIELDS) {
+		addWords(source?.jackpots?.[field], WIN_TEXT_JACKPOT_LABELS[field]);
+	}
+	for (const field of WIN_TEXT_RESPIN_FIELDS) {
+		addWords(source?.respins?.[field], WIN_TEXT_RESPIN_LABELS[field]);
+	}
+	for (const field of WIN_TEXT_FEATURE_FIELDS) {
+		addWords(source?.feature?.[field], WIN_TEXT_FEATURE_LABELS[field]);
+	}
+	for (const [kind, name] of Object.entries(source?.feature?.specialNames ?? {})) {
+		add(name, `Special — ${kind}`);
+	}
 	return out;
 }

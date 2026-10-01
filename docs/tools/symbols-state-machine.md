@@ -10,8 +10,9 @@ standard deploy chain.
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
-plus `Clear reel` on a game that cascades or clears its board, and `Intro` on one whose
-swap style is **Emerge**.
+plus `Clear reel` on a game that cascades or clears its board, `Intro` on one whose
+swap style is **Emerge**, and eight coin states on a **Hold and Win** game (see
+[Hold and Win projects](#hold-and-win-projects)).
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -63,7 +64,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
    (`Book reveal`, `Book idle`); a game that **cascades or clears its board** adds
    `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
-   [The Intro state](#the-intro-state) below). Stacked-picture tall art is **not** a grid column — it is
+   [The Intro state](#the-intro-state) below); a **Hold and Win** game adds eight coin states (see
+   [Hold and Win projects](#hold-and-win-projects)). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
@@ -75,7 +77,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
    Two states borrow another's binding when they have none of their own, and a cell showing
    borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
    the donor. `Clear reel` borrows `Explosion` (see [Two explosions](#two-explosions));
-   `Book reveal` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
+   `Book reveal` / `Book idle` borrow `Win`; `Intro` borrows `Land`; the Hold and Win states borrow
+   `Land`, `Win` or `Explosion` (see [Hold and Win projects](#hold-and-win-projects)). Binding the cell yourself
    replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
    Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost
@@ -1075,6 +1078,43 @@ same scale.
 One thing to expect: a multiplier cell also draws its **value** (`5X`) over the top as
 bitmap text. Gold text over a gold M is low contrast, so if the number is hard to read,
 that is the art to change rather than the text.
+
+### Hold and Win projects
+
+A project whose kind is **Hold and Win** sees the grid and the page a little differently.
+
+**Eight more columns** — the respin feature's beats. Each one, left empty, plays what the game
+played for that moment before the column existed, so a project that binds none of them looks
+exactly as it did:
+
+| Column             | When it plays                                                                                        | Empty ⇒   |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | --------- |
+| **Coin idle**      | a held coin (or jackpot, or special) at rest on the respin board                                     | Static    |
+| **Coin land**      | a respin cell's reel stops on the symbol, before anything sticks                                     | Static    |
+| **Coin stick**     | a landed coin sticks — also a mystery or multiplier landing as a coin                                | Land      |
+| **Coin collect**   | a coin pulses as a collector takes it, a lit column's coins, or an instant collect on the base board | Win       |
+| **Coin boost**     | a special raising other coins — a payer paying, a multiplier boosting                                | Win       |
+| **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board                               | Win       |
+| **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
+| **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
+
+Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
+inheritance, so those two read `unset` when empty (the tooltip says what plays). The win frame
+draws on Coin collect, Coin boost, Jackpot reveal and Fly to meter, as it did when they played
+`Win`. A rolling respin cell plays the symbol's own `Spin`.
+
+**Role chips** — each row head shows the symbol's Hold and Win role(s) as small gold chips
+(`coin`, `jackpot`, `payer`, `collector`, `coinMultiplier`, `mystery`, `meterSpecial`, `blank`),
+read live from the project's [Invisible Game Config](game-config.md) dictionary.
+
+**Sections that don't apply are hidden** — **Book symbol VFX**, **Stacked pictures**,
+**Explosion pattern** and **Transition** have nothing to act on in a Hold and Win game. Each one
+stays visible while the project already authors it, so you can always switch it back off.
+
+**Defaults** — an un-published Hold and Win project starts from its own set: the sample line
+symbols plus `W`, `BONUS`, `JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK` (the
+3 Pots preset's names), bound to placeholder art that ships with the engine. `BLANK` has no art —
+an empty respin cell draws nothing.
 
 ## Traps
 

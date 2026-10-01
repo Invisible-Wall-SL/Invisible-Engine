@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { WinTextDoc } from 'engine-layout';
+import {
+	WIN_TEXT_FEATURE_FIELDS,
+	WIN_TEXT_JACKPOT_FIELDS,
+	WIN_TEXT_RESPIN_FIELDS,
+	type WinTextDoc,
+} from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -53,14 +58,38 @@ const freeSpinsSchema = z
 	})
 	.strict();
 
+const templateMapSchema = z.record(z.string().min(1), templateSchema);
+
+/** A family of plain templates, one optional string per field in `fields`. */
+const familySchema = <F extends string>(fields: readonly F[]) =>
+	z.object(
+		Object.fromEntries(fields.map((field) => [field, templateSchema.optional()])) as Record<
+			F,
+			z.ZodOptional<typeof templateSchema>
+		>,
+	);
+
+const jackpotsSchema = familySchema(WIN_TEXT_JACKPOT_FIELDS)
+	.extend({ captions: templateMapSchema.optional() })
+	.strict();
+
+const respinsSchema = familySchema(WIN_TEXT_RESPIN_FIELDS).strict();
+
+const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
+	.extend({ specialNames: templateMapSchema.optional() })
+	.strict();
+
 export const winTextDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		lineMessage: lineMessageSchema.optional(),
 		amountFormat: templateSchema.optional(),
-		winLevels: z.record(z.string().min(1), templateSchema).optional(),
+		winLevels: templateMapSchema.optional(),
 		toast: toastSchema.optional(),
 		freeSpins: freeSpinsSchema.optional(),
+		jackpots: jackpotsSchema.optional(),
+		respins: respinsSchema.optional(),
+		feature: featureSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -113,6 +142,40 @@ function pruneFreeSpins(input: WinTextDoc['freeSpins']): WinTextDoc['freeSpins']
 	return Object.keys(next).length ? next : undefined;
 }
 
+/** Keep the non-blank `fields` of a template family; `undefined` when none is left. */
+function pruneFamily<F extends string>(
+	fields: readonly F[],
+	input: Partial<Record<F, string>> | undefined,
+): Partial<Record<F, string>> | undefined {
+	if (!input) return undefined;
+	const next: Partial<Record<F, string>> = {};
+	for (const field of fields) {
+		const value = input[field];
+		if (value?.trim()) next[field] = value;
+	}
+	return Object.keys(next).length ? next : undefined;
+}
+
+function pruneJackpots(input: WinTextDoc['jackpots']): WinTextDoc['jackpots'] {
+	if (!input) return undefined;
+	const captions = pruneMap(input.captions);
+	const next: NonNullable<WinTextDoc['jackpots']> = {
+		...(captions ? { captions } : {}),
+		...pruneFamily(WIN_TEXT_JACKPOT_FIELDS, input),
+	};
+	return Object.keys(next).length ? next : undefined;
+}
+
+function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
+	if (!input) return undefined;
+	const specialNames = pruneMap(input.specialNames);
+	const next: NonNullable<WinTextDoc['feature']> = {
+		...pruneFamily(WIN_TEXT_FEATURE_FIELDS, input),
+		...(specialNames ? { specialNames } : {}),
+	};
+	return Object.keys(next).length ? next : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link WinTextDoc}, pruning blanks
  * so a reset round-trips to "unset". Throws `ZodError` on invalid input — the PUT endpoint maps
@@ -134,6 +197,12 @@ export function normalizeWinTextDoc(input: unknown): WinTextDoc {
 	if (toast) next.toast = toast;
 	const freeSpins = pruneFreeSpins(doc.freeSpins);
 	if (freeSpins) next.freeSpins = freeSpins;
+	const jackpots = pruneJackpots(doc.jackpots);
+	if (jackpots) next.jackpots = jackpots;
+	const respins = pruneFamily(WIN_TEXT_RESPIN_FIELDS, doc.respins);
+	if (respins) next.respins = respins;
+	const feature = pruneFeature(doc.feature);
+	if (feature) next.feature = feature;
 	return next;
 }
 

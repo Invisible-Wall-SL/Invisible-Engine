@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { kindCapabilities } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadComponent } from '$lib/server/componentStorage';
@@ -89,7 +90,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const { doc, etag: docEtag } = loaded;
 	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
-		...harvestWinText(winTextDoc),
+		...harvestWinText(winTextDoc, {
+			holdAndWin: kindCapabilities(gameType).holdAndWin,
+			jackpots: (gameConfig.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+		}),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
 		...harvestBetModeText(gameConfig.doc),

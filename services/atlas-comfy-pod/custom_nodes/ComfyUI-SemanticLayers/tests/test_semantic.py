@@ -4,6 +4,7 @@ The headline test is `test_layer_order_does_not_change_routing`: the same layers
 different order must produce byte-identical role assignments. Everything else in this
 extension exists to make that true.
 """
+# check: requires torch — 16 of these tests import it
 
 from __future__ import annotations
 

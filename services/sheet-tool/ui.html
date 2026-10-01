@@ -161,7 +161,9 @@
   .filefield>label{display:block;font-size:12px;color:#ddd;margin-bottom:2px}
   .filefield .ffhint{font-size:11px;color:#777;line-height:1.35;margin-bottom:4px}
   .filefield input[type=file]{width:100%}
-</style></head>
+</style>
+<script>/*__IW_PRESENCE_JS__*/</script>
+</head>
 <body>
 <header class="iw-toolbar">
   <a class="iw-brand" id="iw-home" href="https://app.invisiblewall.org" title="Invisible Launcher">
@@ -603,6 +605,9 @@ function updateReadouts(){
   }else{
     $('identity').textContent='New sheet "'+name+'" (unsaved)';
   }
+  // "X is editing this sheet" follows the saved sheet on the canvas: every load,
+  // save, rename and delete passes through here. An unsaved sheet has nobody to meet.
+  iwPresence.track(isProject && loadedPath ? loadedName : '');
   const destDir=(isProject && loadedDir && name===loadedName) ? loadedDir : ('sheets/'+name);
   $('dest').textContent='Saves to: '+destDir+'/atlas_manifest_'+name+'.json';
 }

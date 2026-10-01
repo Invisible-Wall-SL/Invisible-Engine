@@ -23,7 +23,8 @@ SYMBOL_INFO_MAP['H1']['static'] = { type: 'sprite', assetKey: 'h1.webp', sizeRat
 ```
 
 Symbols: `H1…H5`, `L1…L5`, `W`, `S`. States: `static`, `spin`, `land`, `win`,
-`postWinStatic`, `explosion`, `clearReel`
+`postWinStatic`, `explosion`, `clearReel`, plus the gated ones (`intro`, the book states, and the
+Hold and Win states `coinIdle` … `flyToMeter`)
 (`packages/engine-layout/src/lib/symbolStates.ts#SYMBOL_STATES`). Each cell is
 either a **sprite** (`assetKey` = a sheet frame key, e.g. `h1.webp`) or a **spine**
 (`assetKey` = a registered spine bundle + `animationName`).
@@ -75,9 +76,7 @@ hardcodes a local spine named `payframe`, spine key `anticipation`).
 ```jsonc
 {
 	"version": 1,
-	"symbols": {
-		/* … */
-	},
+	"symbols": {/* … */},
 	"highlight": {
 		"type": "spine",
 		"assetKey": "<full R2 bundle prefix>",
@@ -112,9 +111,7 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
 ```jsonc
 {
 	"version": 1,
-	"symbols": {
-		/* … */
-	},
+	"symbols": {/* … */},
 	"winLine": {
 		"enabled": false, // present ONLY when turned OFF
 		"line": {
