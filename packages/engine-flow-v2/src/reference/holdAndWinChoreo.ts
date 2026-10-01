@@ -6,15 +6,15 @@
  * event (`bookEvent: $trigger`). The beat broadcasts its own cues, so a choreography adds none.
  *
  * Split by WHERE the event plays, because the starter flow puts each set in a different graph:
- *  - {@link HOLD_AND_WIN_BASE_CHOREO} rides on a base spin (Lucky Spin, the pots filling, a base
- *    jackpot) — the global graph.
+ *  - {@link HOLD_AND_WIN_BASE_CHOREO} rides on a base spin (Lucky Spin, the pots filling, the
+ *    instant collect, a base jackpot) — the global graph.
  *  - {@link HOLD_AND_WIN_FEATURE_CHOREO} plays while the `holdAndWin` mode is on screen — the mode's
  *    own section (`FlowDoc.modes.holdAndWin`). `holdAndWinTrigger` belongs here too: the play seam
  *    enters the mode BEFORE presenting the event that opens it, and closes it only after presenting
  *    the one that ends it.
  *
  * Absent on purpose (no beat yet, so they stay on their coded handler, which re-syncs the board):
- * `meterLevels`, `coinInstantCollect`, `randomMetreTrigger`, `holdAndWinWheel`, `columnComplete`.
+ * `meterLevels`, `randomMetreTrigger`.
  */
 
 import { trig, type ChoreoStep } from './bookOfChoreo';
@@ -24,11 +24,13 @@ const beat = (ref: string): ChoreoStep[] => [{ k: 'action', ref, inputs: { bookE
 export const HOLD_AND_WIN_BASE_CHOREO: Record<string, ChoreoStep[]> = {
 	luckySpin: [{ k: 'action', ref: 'playLuckySpinIntro' }],
 	meterUpdate: beat('fillMeter'),
+	coinInstantCollect: beat('instantCollect'),
 	jackpotWin: beat('showJackpotWin'),
 };
 
 export const HOLD_AND_WIN_FEATURE_CHOREO: Record<string, ChoreoStep[]> = {
 	holdAndWinTrigger: beat('showRespinBoard'),
+	holdAndWinWheel: beat('spinWheel'),
 	respinReveal: beat('spinRespin'),
 	coinsLand: beat('stickCoins'),
 	mysteryReveal: beat('revealMystery'),
@@ -37,6 +39,7 @@ export const HOLD_AND_WIN_FEATURE_CHOREO: Record<string, ChoreoStep[]> = {
 	specialBecomesCoin: beat('turnSpecialIntoCoin'),
 	coinCollect: beat('collectCoins'),
 	cellsCleared: beat('clearRespinCells'),
+	columnComplete: beat('lightLetter'),
 	jackpotWin: beat('showJackpotWin'),
 	respinUpdate: beat('setRespinCounter'),
 	holdAndWinState: beat('restoreRespinBoard'),

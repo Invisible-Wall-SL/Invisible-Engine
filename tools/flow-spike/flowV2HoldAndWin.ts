@@ -262,9 +262,9 @@ check(
 	same(
 		unbacked({
 			...vocab,
-			actions: [...vocab.actions, { name: 'lightLetter', params: [], category: 'command' }],
+			actions: [...vocab.actions, { name: 'noSuchBeat', params: [], category: 'command' }],
 		}),
-		['action lightLetter'],
+		['action noSuchBeat'],
 	),
 );
 const hwEmitter = LINES_EMITTER_VOCABULARY.events
@@ -321,10 +321,12 @@ check(
 const BASE_BEATS: Record<string, string> = {
 	luckySpin: 'playLuckySpinIntro',
 	meterUpdate: 'fillMeter',
+	coinInstantCollect: 'instantCollect',
 	jackpotWin: 'showJackpotWin',
 };
 const FEATURE_BEATS: Record<string, string> = {
 	holdAndWinTrigger: 'showRespinBoard',
+	holdAndWinWheel: 'spinWheel',
 	respinReveal: 'spinRespin',
 	coinsLand: 'stickCoins',
 	mysteryReveal: 'revealMystery',
@@ -333,18 +335,13 @@ const FEATURE_BEATS: Record<string, string> = {
 	specialBecomesCoin: 'turnSpecialIntoCoin',
 	coinCollect: 'collectCoins',
 	cellsCleared: 'clearRespinCells',
+	columnComplete: 'lightLetter',
 	jackpotWin: 'showJackpotWin',
 	respinUpdate: 'setRespinCounter',
 	holdAndWinState: 'restoreRespinBoard',
 	holdAndWinEnd: 'hideRespinBoard',
 };
-const CODED = [
-	'meterLevels',
-	'coinInstantCollect',
-	'randomMetreTrigger',
-	'holdAndWinWheel',
-	'columnComplete',
-];
+const CODED = ['meterLevels', 'randomMetreTrigger'];
 for (const t of Object.keys(FEATURE_BEATS)) {
 	check(`5. ${t} is owned by the mode`, flowOwnsSignal(doc, t, 'holdAndWin'));
 	if (!(t in BASE_BEATS))

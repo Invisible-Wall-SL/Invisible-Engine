@@ -591,7 +591,7 @@ const music = (name: string): ChoreoStep[] => [
  *
  * - **Global graph**: the shared lifecycle spine and base-game presentation (no free spins and no
  *   special book; the kind has neither), plus the base-game beats of the mechanic: the Lucky Spin
- *   intro, the pots filling, a base-game jackpot. **On all modes finished** brings the base music
+ *   intro, the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the base music
  *   back once the feature is over (a no-op while it already plays). The round's own return beats,
  *   the collect (`setTotalWin`) and the big win (`setWin`), are book events that follow the
  *   feature's end, so they keep their global chains.
@@ -600,8 +600,8 @@ const music = (name: string): ChoreoStep[] => [
  *   there while the mode is on screen; everything else falls back to the global graph. Its **Mode
  *   trigger (enter)** starts the feature music.
  *
- * Events with no beat of their own yet (the wheel, the column letters, the instant collect, the
- * random metre, the meter restatement) stay unwired, so their coded handler runs.
+ * Events with no beat of their own (the random metre, the meter restatement) stay unwired, so their
+ * coded handler runs.
  */
 const holdAndWinDrivenSeed = (): FlowDoc => {
 	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, NO_FREE_SPIN_SCREENS, {

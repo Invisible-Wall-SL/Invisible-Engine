@@ -21,13 +21,12 @@
  * (`stackedPictures: false`). The Book-of, cascade and multiplier-board entries were never part of
  * the standard vocabulary, so a kind built on it does not have them.
  *
- * NOT DECLARED until the runtime backs them (a declared action with no effect is a validator error
- * and blocks Publish): `lightLetter` / `clearColumn` (Grand's column letters, `columnComplete`) and
- * `spinWheel` (Hotfire's wheel, `holdAndWinWheel`). Their events ARE declared, and an unowned event
- * falls through to the coded path. The design's `activateMeter`, `countUpTotal` and `awardJackpot` are
- * parts of `showRespinBoard` (pots drain at a meter entry), `hideRespinBoard` (the Total Win bar
- * counts up per coin) and `showJackpotWin`; the per-meter `meter.<id>.level` is a HUD value source
- * (`registerComponentValues`), not a flow value, because a vocabulary cannot name a project's meters.
+ * Folded into other beats rather than declared on their own: the design's `clearColumn` is part of
+ * `lightLetter` (a cleared column's coins fly into the Total Win bar), `activateMeter` of
+ * `showRespinBoard` (pots drain at a meter entry), `countUpTotal` of `hideRespinBoard` (the Total
+ * Win bar counts up per coin) and `awardJackpot` of `showJackpotWin`. The per-meter
+ * `meter.<id>.level` is a HUD value source (`registerComponentValues`), not a flow value, because a
+ * vocabulary cannot name a project's meters.
  */
 
 import type { TemplateVocabulary, TypeRef } from '../types';
@@ -44,6 +43,7 @@ const CELL_AMOUNT: TypeRef = { t: 'struct', name: 'HoldAndWinCellAmount' };
 const COIN_CHANGE: TypeRef = { t: 'struct', name: 'HoldAndWinCoinChange' };
 const MYSTERY_CELL: TypeRef = { t: 'struct', name: 'HoldAndWinMysteryCell' };
 const METER_LEVEL: TypeRef = { t: 'struct', name: 'HoldAndWinMeterLevel' };
+const WHEEL_PRIZE: TypeRef = { t: 'struct', name: 'HoldAndWinWheelPrize' };
 const BOOK_EVENT: TypeRef = { t: 'struct', name: 'BookEvent' };
 const CAUSE: TypeRef = { t: 'enum', name: 'HoldAndWinCause' };
 const SPECIAL: TypeRef = { t: 'enum', name: 'HoldAndWinSpecial' };
@@ -292,7 +292,7 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	{
 		name: 'holdAndWinWheel',
 		payload: [
-			{ name: 'index', type: INT, description: 'The wheel segment it stopped on.' },
+			{ name: 'segment', type: INT, description: 'The wheel segment it stopped on.' },
 			{
 				name: 'prize',
 				type: { t: 'struct', name: 'HoldAndWinWheelPrize' },
@@ -507,6 +507,9 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('showJackpotWin'),
 	beat('hideRespinBoard'),
 	beat('fillMeter'),
+	beat('lightLetter'),
+	beat('instantCollect'),
+	beat('spinWheel'),
 	{ name: 'playLuckySpinIntro', params: [], category: 'command' },
 	{
 		name: 'flyTo',
@@ -654,6 +657,50 @@ const CUES: TemplateVocabulary['cues'] = [
 			{ name: 'index', type: INT },
 			{ name: 'amount', type: FLOAT },
 			{ name: 'total', type: FLOAT },
+		],
+	},
+	{
+		name: 'respinColumnComplete',
+		payload: [
+			{ name: 'reel', type: INT },
+			{ name: 'letter', type: STRING },
+			{ name: 'newlyLit', type: BOOL },
+			{ name: 'cleared', type: BOOL },
+			{ name: 'amount', type: FLOAT },
+			{ name: 'cells', type: list(POSITION) },
+		],
+	},
+	{
+		name: 'respinColumnStep',
+		payload: [
+			{ name: 'reel', type: INT },
+			{ name: 'index', type: INT },
+			{ name: 'total', type: FLOAT },
+		],
+	},
+	{ name: 'wheelShow', payload: [{ name: 'prizes', type: list(WHEEL_PRIZE) }] },
+	{
+		name: 'wheelSpin',
+		payload: [
+			{ name: 'segment', type: INT },
+			{ name: 'prize', type: WHEEL_PRIZE },
+		],
+	},
+	{
+		name: 'wheelLand',
+		payload: [
+			{ name: 'segment', type: INT },
+			{ name: 'prize', type: WHEEL_PRIZE },
+		],
+	},
+	{
+		name: 'instantCollectWin',
+		payload: [
+			{ name: 'specials', type: list(CELL) },
+			{ name: 'multiplier', type: FLOAT },
+			{ name: 'times', type: INT },
+			{ name: 'cells', type: list(CELL_AMOUNT) },
+			{ name: 'amount', type: FLOAT },
 		],
 	},
 	{
