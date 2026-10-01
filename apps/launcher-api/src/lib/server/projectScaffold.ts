@@ -9,7 +9,7 @@ import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { gameConfigSeedFor } from './gameConfigDefaults';
-import { ConflictError, saveGameConfigDoc } from './gameConfigStorage';
+import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
 import {
@@ -20,9 +20,12 @@ import {
 	gameConfigDocKey,
 	localizationDocKey,
 	sheetConfigKey,
+	symbolsDocKey,
 } from './projectPaths';
 import { projectGameType } from './projects';
 import { objectExists, putObjectText } from './r2';
+import { holdAndWinSymbolsSeed } from './symbolDefaults';
+import { saveSymbolsDoc } from './symbolsStorage';
 
 interface Seed {
 	key: string;
@@ -119,6 +122,19 @@ export async function scaffoldProject(
 			await saveGameConfigDoc(client, project, config, null);
 		} catch (e) {
 			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+	// Its symbols, from the STORED config — the preset just seeded, or what an older project authored
+	// (the /admin Re-scaffold backfill) — create-only, like the config.
+	if (gameType === 'holdAndWin' && !(await objectExists(symbolsDocKey(client, project)))) {
+		const { doc } = await loadGameConfigDocWithEtag(client, project);
+		const symbols = holdAndWinSymbolsSeed(doc);
+		if (symbols) {
+			try {
+				await saveSymbolsDoc(client, project, symbols, null);
+			} catch (e) {
+				if (!(e instanceof ConflictError)) throw e;
+			}
 		}
 	}
 }

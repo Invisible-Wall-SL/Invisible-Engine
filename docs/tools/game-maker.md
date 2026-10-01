@@ -56,15 +56,19 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
    - **Hold and Win** shows a **Preset** dropdown: **Pots (3 Pots of Egypt)**, **Classic
      sticky (Grand)** or **Collector streak (Super Hotfire Diamonds)**. The preset is saved as
      the project's own [Game Config](/docs/game-config), so the mock RGS deals the Hold and
-     Win feature from the first spin. Symbols and Win Text start on the kind's defaults. To
-     switch preset later, use **Reset to preset** in Game Config.
+     Win feature from the first spin. The preset's coin and special symbols are bound to
+     placeholder art in the project's own [Symbols](/docs/symbols-state-machine) doc, so they draw from the
+     first spin; replace that art in Symbols. Win Text starts on the engine's defaults. To
+     switch preset later, use **Reset to preset** in Game Config (the symbols doc is not
+     re-seeded — bind any new preset symbol in Symbols).
 4. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
-   also gets the preset you picked as its own [Game Config](/docs/game-config),
-   so its first publish already deals the feature). A confirmation appears and
+   also gets the preset you picked as its own [Game Config](/docs/game-config)
+   and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
+   already deals and draws the feature). A confirmation appears and
    the project shows up under **Your projects** below.
 
 From here you author the game with the existing online tools — the Scene Editor,
@@ -363,6 +367,11 @@ graduate later; its R2 authoring data carries over.
   Game Config of its own, so the mock deals its base game as lines. Projects created before the
   scaffold seeded it (2026-10-01) can be in this state; Publish warns **⚠ dealt plain lines**. Open [Game Config](/docs/game-config), press
   **Save** (or **Reset to preset**), then **Publish**.
+- **Hold and Win coins show only their value, no art (`[game-config] … no entry in the symbol
+  map`).** — The project's Symbols doc does not bind its coin and special symbols. Projects
+  created before the scaffold seeded them (2026-10-01) have no such doc: ask an admin to
+  **Rescaffold** the project in `/admin` (it writes the bindings only if the project has no
+  symbols doc yet), or bind each symbol in [Symbols](/docs/symbols-state-machine); then **Publish**.
 
 - **"My edit isn't in the game."** — **Play ↗**, **Copy URL** and every player link boot the
   _published_ version, so anything saved since the last Publish is missing there by design. Check

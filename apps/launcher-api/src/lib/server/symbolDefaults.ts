@@ -1,8 +1,14 @@
+import { HOLD_AND_WIN_SYMBOL_ROLES, type GameConfigDoc } from 'game-config';
 import { z } from 'zod';
 import { symbolDefaultsKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
-import { migrateLegacySymbolStates, SYMBOL_STATES, type SymbolCell } from './symbolsStorage';
+import {
+	migrateLegacySymbolStates,
+	SYMBOL_STATES,
+	type SymbolCell,
+	type SymbolsDoc,
+} from './symbolsStorage';
 import holdAndWinDefaults from '$lib/data/symbolDefaults/holdAndWin.json';
 import linesDefaults from '$lib/data/symbolDefaults/lines.json';
 
@@ -100,6 +106,47 @@ const FALLBACK_GAME = 'lines';
  */
 export function symbolDefaultsFor(gameType: string | undefined): SymbolDefaults {
 	return DEFAULTS_BY_GAME[gameType ?? FALLBACK_GAME] ?? DEFAULTS_BY_GAME[FALLBACK_GAME];
+}
+
+const SEEDED_HOLD_AND_WIN_ROLES = new Set<string>(
+	HOLD_AND_WIN_SYMBOL_ROLES.filter((role) => role !== 'blank'),
+);
+const hasSeededRole = (roles: string[] | undefined) =>
+	roles?.some((role) => SEEDED_HOLD_AND_WIN_ROLES.has(role)) ?? false;
+
+/**
+ * The symbols doc a `holdAndWin` project is scaffolded with, or `null` when nothing needs binding.
+ *
+ * The defaults above feed only the tools: the game's symbol map is the coded lines
+ * `SYMBOL_INFO_MAP` with the project's symbols doc merged over it, so a Hold and Win symbol nobody
+ * bound draws no art. Every symbol of `config` that carries a Hold and Win role (a `blank` draws
+ * nothing by design) gets its `holdAndWin.json` cells — type / assetKey / animationName only, since
+ * they bind coded game assets the exporter leaves alone.
+ */
+export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc | null {
+	if (!config) return null;
+	const defaults = DEFAULTS_BY_GAME.holdAndWin.symbols;
+	const symbols: SymbolsDoc['symbols'] = {};
+	for (const [name, symbol] of Object.entries(config.symbols)) {
+		if (!hasSeededRole(symbol.special_properties)) continue;
+		const cells = defaults[name];
+		if (!cells) {
+			console.warn(
+				`[symbols] ${name} has a Hold and Win role but no default art; bind it in /symbols`,
+			);
+			continue;
+		}
+		const states: SymbolsDoc['symbols'][string] = {};
+		for (const [state, cell] of Object.entries(cells) as [SymbolState, DefaultCell][]) {
+			states[state] = {
+				type: cell.type,
+				assetKey: cell.assetKey,
+				...(cell.animationName ? { animationName: cell.animationName } : {}),
+			};
+		}
+		if (Object.keys(states).length) symbols[name] = states;
+	}
+	return Object.keys(symbols).length ? { version: 1, symbols } : null;
 }
 
 /**

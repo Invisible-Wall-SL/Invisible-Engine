@@ -58,6 +58,11 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-10-01 — **A new Hold and Win project is scaffolded with its symbols doc** (H&W Phase 9b).
+  `scaffoldProject` binds every Hold and Win symbol of the project's stored Game Config to its
+  placeholder art in `symbols/symbols.json`, create-only; without it the game drew no coin art.
+  `/admin` Rescaffold backfills an older project that has no symbols doc. Detail:
+  [hold-and-win.md](hold-and-win.md).
 - 2026-10-01 — **A new Hold and Win project is scaffolded with its Game Config** (#956). `scaffoldProject` writes `gameConfigSeedFor(gameType)` — the kind's default preset (Pots) — through the config store (`If-None-Match: *`, so a concurrent first `/config` save wins and an authored config is never touched). **Only preset kinds are seeded**; lines/ways/scatter/cluster/bookOf stay un-authored, so they still play the compiled template byte-identically. Before this a fresh `holdAndWin` project was dealt plain lines until someone saved `/config` once. Publish also returns `holdAndWinConfigMissing` and the card notes **⚠ dealt plain lines** for an older project without the block. Pinned by `pnpm --filter launcher-api check:project-scaffold`. Re-scaffold (`/admin`) backfills an older project.
 - 2026-10-01 — **Hold and Win preset picker on Create** (H&W Phase 9a). Picking Hold and Win shows
   a **Preset** dropdown (Pots / Classic sticky / Collector streak); the scaffold seeds that preset
