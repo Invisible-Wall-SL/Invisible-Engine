@@ -11,14 +11,14 @@
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"@sveltejs/package": "2.3.10",
+		"@sveltejs/package": "2.5.8",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"config-svelte": "workspace:*",
 		"config-vite": "workspace:*"
 	},
 	"dependencies": {
-		"@types/lodash": "4.17.16",
-		"svelte": "5.35.1",
+		"@types/lodash": "4.17.25",
+		"svelte": "5.57.1",
 		"vite": "6.2.0"
 	}
 }
