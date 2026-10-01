@@ -11,6 +11,11 @@ import {
 } from 'engine-layout';
 import { soundsDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import {
+	readUnknownValueAs,
+	stripUnknownKeysWithWarning,
+	type UnknownValues,
+} from './stripUnknownKeys';
 
 /**
  * Invisible Sound library doc — which sounds a project owns, where their files live, who made them,
@@ -35,11 +40,18 @@ import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } fro
  * See `docs/design/invisible-sound.md` §4.
  */
 
+/**
+ * A `kind`, `status` or `origin` a newer launcher added must not cost the sound: dropping an entry
+ * here deletes it on the next save (this doc has no backups) and silences every binding naming it.
+ * So on a READ an unknown `kind` reads as `sfx` (it only sections the library; the call site picks
+ * the player), and an unknown `status` / `origin` as absent, i.e. `draft` / `library` — the values
+ * that claim nothing. See `docs/conventions/doc-readers.md`.
+ */
 const entrySchema = z
 	.object({
 		id: z.string(),
 		name: z.string(),
-		kind: z.enum(SOUND_KINDS),
+		kind: readUnknownValueAs(z.enum(SOUND_KINDS), 'sfx'),
 		section: z.string().optional(),
 		file: z.string(),
 		durationMs: z.number(),
@@ -175,7 +187,8 @@ function normalizeEntry(raw: z.infer<typeof entrySchema>): SoundEntry | undefine
 
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link SoundsDoc}. Throws `ZodError` on
- * invalid input — the PUT endpoint maps that to a 400.
+ * invalid input — the PUT endpoint maps that to a 400. A save passes `'reject'`, so an unknown
+ * `kind` / `status` / `origin` is refused there as a typo; a read degrades it (see `entrySchema`).
  *
  * DUPLICATES ARE COLLAPSED LAST-WINS, on both `name` and `id`, because that is the rule the player
  * already applies: `buildSoundBankIndex` resolves a name to the LAST bank declaring it, so a doc
@@ -186,8 +199,13 @@ function normalizeEntry(raw: z.infer<typeof entrySchema>): SoundEntry | undefine
  * Order is otherwise preserved (a collapsed duplicate keeps the LATER position), so the tool's list
  * does not reshuffle itself on save.
  */
-export function normalizeSoundsDoc(input: unknown): SoundsDoc {
-	const doc = soundsDocSchema.parse(input ?? {});
+export function normalizeSoundsDoc(
+	input: unknown,
+	unknownValues: UnknownValues = 'drop',
+): SoundsDoc {
+	const doc = soundsDocSchema.parse(
+		stripUnknownKeysWithWarning(soundsDocSchema, input ?? {}, 'sounds', unknownValues),
+	);
 
 	const normalized: SoundEntry[] = [];
 	for (const raw of doc.entries ?? []) {
@@ -325,7 +343,7 @@ export async function saveSoundsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 ): Promise<{ doc: SoundsDoc; etag: string | null }> {
-	const next = normalizeSoundsDoc(doc);
+	const next = normalizeSoundsDoc(doc, 'reject');
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
 	const etag = await putObjectText(
 		soundsDocKey(clientKey, projectKey),

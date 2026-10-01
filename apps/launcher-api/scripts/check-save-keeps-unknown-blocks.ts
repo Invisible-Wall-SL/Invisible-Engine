@@ -213,6 +213,23 @@ const edited = { ...SYMBOLS, names: { H1: { singular: 'Apple', plural: 'Apples' 
 }
 
 {
+	// A KNOWN block the read dropped over a newer enum value is not kept: it is not an unknown key,
+	// and keeping it would look exactly like a block the author cleared.
+	const etag = seed(symbolsKey, { ...SYMBOLS, tumblePattern: { pattern: 'spiral', stepMs: 40 } });
+	const loaded = normalizeSymbolsDoc(stored(symbolsKey));
+	check(
+		'symbols: an If-Match save after a read dropped a known block lands',
+		await outcome(() => saveSymbolsDoc('c', 'p', loaded, etag)),
+		'landed',
+	);
+	check(
+		'symbols: …and does not keep that known block',
+		'tumblePattern' in stored(symbolsKey),
+		false,
+	);
+}
+
+{
 	// Force (no precondition): the author chose to overwrite bytes they never loaded — no read, no graft.
 	seed(symbolsKey, { ...SYMBOLS, ...FUTURE });
 	gets.length = 0;

@@ -34,7 +34,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 /**
  * `?project=<key>`, body `{ id, baseEtag: string | null }` (or `force: true` in place of
  * `baseEtag`): restore a backup over the live doc through `saveSymbolsDoc` with `'always'`, which
- * re-validates it against today's schema and keeps its CAS — see `docBackupRoutes.ts`.
+ * re-validates it against today's schema and keeps its CAS — see `docBackupRoutes.ts`. A value a
+ * newer launcher wrote is dropped rather than refused, as on any read.
  */
 export const POST: RequestHandler = async ({ request, url, locals }) => {
 	const user = await requireSymbolsAccess(locals);
@@ -53,7 +54,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 			restored,
 			baseEtag,
 			'always',
-			{ unknownFrom: 'doc' },
+			{ unknownValues: 'drop', unknownFrom: 'doc' },
 		);
 		return json({ ok: true, id, etag, doc });
 	} catch (e) {

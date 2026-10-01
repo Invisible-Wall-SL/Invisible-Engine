@@ -155,6 +155,21 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule: `docs/conventions/doc-readers.md`
   "Round-tripping".
 
+- 2026-10-01 — **An unknown enum VALUE costs one entry, not the whole doc.** A newer launcher's
+  cell `type`, layer `kind`, blend mode, tumble pattern, flight head kind or ease, cash format,
+  `tintMode`, `placement`, non-spine `highlight`/`boardGlow` or `version: 2` failed the parse, so
+  `loadSymbolsDocWithEtag` fell back to the empty doc and the export pruned `deploy/editor-symbols/`
+  to match. Now a READ drops the optional field (its default applies) or the smallest entry that
+  cannot stand without it (the cell, the layer, the stacked symbol, the block), with one server
+  warning naming both. The SAVE (`PUT /api/editor/symbols`) still answers 400, as the typo guard. A
+  backup restore and the published-defaults publish drop instead of refusing. Known-only docs read
+  byte-identically. Proof is in section 15 of `check:doc-readers-unknown-fields`. The per-field
+  table and the save trade-off are in `docs/conventions/doc-readers.md` §"Unknown enum values".
+  What an older launcher drops is gone from R2 on its next save, so the backups have to hold it:
+  `putDocWithBackup`'s 5-minute `'auto'` window now coalesces only over bytes the same process
+  wrote. A doc another instance or build wrote is copied even inside the window
+  (`check:doc-backups`). This applies to every doc with backups.
+
 - 2026-10-01 — **An unknown field or symbol state no longer wipes the whole symbols doc.** Every
   nested block was `.strict()` and the state records are keyed by `z.enum(SYMBOL_STATES)`, so one
   field or state a newer launcher wrote failed the parse and `loadSymbolsDocWithEtag` fell back to
@@ -176,7 +191,6 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   nothing in the way). #961: `coinLabel` / `flights` strip unknown fields and the state-keyed maps
   drop an unknown state, so an older launcher loses one key, not the doc (`check:clear-reel` now
   pins "dropped, siblings kept").
-
 - 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
   states with inheritance that replays Phase 4's coded beats (an unauthored project is
   unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`

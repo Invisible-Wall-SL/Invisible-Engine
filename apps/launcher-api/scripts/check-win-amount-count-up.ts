@@ -151,31 +151,29 @@ check(
 	true,
 );
 
-console.log('\n9. an unknown winLine.text key is ignored, with a warning');
+console.log(
+	'\n9. an unknown winLine.text key is ignored, not refused (docs/conventions/doc-readers.md)',
+);
+checks += 1;
 {
-	const warned: string[] = [];
 	const warn = console.warn;
-	console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
-	let withUnknown: unknown;
+	console.warn = () => {};
 	try {
-		withUnknown = normalizeSymbolsDoc({
+		const read = normalizeSymbolsDoc({
 			version: 1,
 			symbols: {},
 			winLine: { text: { countUp: true, countUpSpeed: 2 } },
 		});
+		if (json(read.winLine) !== json({ text: { countUp: true } })) {
+			failures += 1;
+			console.log(`FAIL  the unknown key changed the known ones: ${json(read.winLine)}`);
+		}
+	} catch (e) {
+		failures += 1;
+		console.log(`FAIL  an unknown winLine.text key failed the doc: ${String(e)}`);
 	} finally {
 		console.warn = warn;
 	}
-	check(
-		'an unknown winLine.text key normalizes as if absent',
-		withUnknown,
-		normalizeSymbolsDoc({ version: 1, symbols: {}, winLine: { text: { countUp: true } } }),
-	);
-	check(
-		'…and the server warns naming it',
-		warned.some((w) => w.includes('winLine.text.countUpSpeed')),
-		true,
-	);
 }
 
 console.log(

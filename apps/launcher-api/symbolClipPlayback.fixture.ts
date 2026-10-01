@@ -14,10 +14,10 @@
  *
  * WHY this is worth a fixture rather than a type-check: `symbolCellSchema` is `.strict()`, and the
  * page's `applyDraft` is a hand-written whitelist that rebuilds the cell field by field. Those two
- * lists have to agree, and nothing makes them: a field added to the UI but not the schema is
- * dropped on save with only a server warning (`docs/conventions/doc-readers.md`), and a field added
- * to the schema but not the whitelist is silently dropped on save — drawn in the panel, gone after
- * a reload, with the launcher's `vite build` green either way (it is not a type-check).
+ * lists have to agree, and nothing makes them: a field added to the UI but not the schema is a 400
+ * on a save the author has every reason to think is valid, and a field added to the schema but not
+ * the whitelist is silently dropped on save — drawn in the panel, gone after a reload, with the
+ * launcher's `vite build` green either way (it is not a type-check).
  */
 
 import { normalizeSymbolsDoc } from './src/lib/server/symbolsStorage.ts';
@@ -71,10 +71,11 @@ check(
 );
 
 // --- the guards --------------------------------------------------------------
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, cell: Record<string, unknown>): void => {
 	let threw = false;
 	try {
-		normalizeSymbolsDoc(doc(cell));
+		normalizeSymbolsDoc(doc(cell), 'reject');
 	} catch {
 		threw = true;
 	}
@@ -92,30 +93,21 @@ rejects('a zero/negative fps is rejected', {
 	clipId: 'c',
 	fps: 0,
 });
-
-// An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the cell normalizes
-// as if it were absent, and the server warns naming it.
+// An unknown KEY is ignored with a server warning, not refused (docs/conventions/doc-readers.md).
 {
-	const warned: string[] = [];
 	const warn = console.warn;
-	console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
-	let typo: unknown;
+	console.warn = () => {};
 	try {
-		typo = normalizeSymbolsDoc(
-			doc({ type: 'flipbook', assetKey: 'a.json', clipId: 'c', flipx: true }),
+		const typo = winCell(
+			normalizeSymbolsDoc(doc({ type: 'flipbook', assetKey: 'a.json', clipId: 'c', flipx: true })),
+		);
+		check(
+			'a typo\u2019d field is ignored, the cell kept',
+			!('flipx' in typo) && typo.clipId === 'c',
 		);
 	} finally {
 		console.warn = warn;
 	}
-	const clean = normalizeSymbolsDoc(doc({ type: 'flipbook', assetKey: 'a.json', clipId: 'c' }));
-	check(
-		'a typo\u2019d field is dropped, not saved',
-		JSON.stringify(typo) === JSON.stringify(clean),
-	);
-	check(
-		'…with a server warning naming it',
-		warned.some((w) => w.includes('symbols.H1.win.flipx')),
-	);
 }
 
 // A sprite cell carrying them is NOT rejected: the schema is one shape for three kinds (as it
