@@ -331,7 +331,8 @@ def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
 
     real_cancel = ba.runpod_cancel
     real_urlopen = u.urllib.request.urlopen
-    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")  # type: ignore
+    ba.runpod_cancel = lambda jid, endpoint: (  # type: ignore
+        cancelled.append((jid, endpoint)) or "")
 
     def fake_urlopen(req, timeout=None):
         posted.append(req.full_url)
@@ -342,15 +343,16 @@ def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
     u.urllib.request.urlopen = fake_urlopen    # type: ignore[assignment]
     try:
         reset(running=True, proc=FakeProc(alive=False))
-        u._render_state["runpodJob"] = "c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2"
+        u._render_state.update(runpodJob="c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2",
+                               runpodEndpoint="ep-sub")
         msg = u.stop_render()
-        check("the remote job is cancelled",
-              cancelled, ["c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2"])
+        check("the remote job is cancelled, on the endpoint it was submitted to",
+              cancelled, [("c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2", "ep-sub")])
         check_in("and Stop says so", "cancelled", msg)
         check("ComfyUI is interrupted AND its queue cleared",
               [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
         check("the job id is consumed, so a second Stop cannot re-cancel it",
-              u._render_state["runpodJob"], "")
+              (u._render_state["runpodJob"], u._render_state["runpodEndpoint"]), ("", ""))
 
         # A local render has no RunPod job — Stop must not invent one.
         cancelled.clear(); posted.clear()
@@ -362,7 +364,7 @@ def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
 
         # A cancel that FAILS must not stop the rest of Stop.
         cancelled.clear(); posted.clear()
-        ba.runpod_cancel = lambda jid: "HTTPError: 500"   # type: ignore
+        ba.runpod_cancel = lambda jid, endpoint: "HTTPError: 500"   # type: ignore
         reset(running=True, proc=FakeProc(alive=False))
         u._render_state["runpodJob"] = "bad-job"
         msg = u.stop_render()
@@ -388,12 +390,12 @@ def test_an_unreadable_poll_does_not_fail_a_running_still_render() -> None:
     real_grace = ba.STATUS_GRACE_SECONDS
     cancelled: list = []
     ba.time.sleep = lambda _s: None
-    ba._runpod_post = lambda path, payload: {"id": "job-still-1"}
-    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")
+    ba._runpod_post = lambda path, payload, endpoint: {"id": "job-still-1"}
+    ba.runpod_cancel = lambda jid, endpoint: (cancelled.append(jid) or "")
     try:
         reads = {"n": 0}
 
-        def flaky(path):
+        def flaky(path, endpoint):
             reads["n"] += 1
             if reads["n"] == 1:
                 return {"status": "IN_PROGRESS"}
@@ -411,7 +413,7 @@ def test_an_unreadable_poll_does_not_fail_a_running_still_render() -> None:
         cancelled.clear()
         ba.STATUS_GRACE_SECONDS = 0.05
 
-        def always_500(path):
+        def always_500(path, endpoint):
             raise ba.RunPodHTTPError(500, "RunPod /status failed: HTTP 500")
 
         ba._runpod_get = always_500
@@ -429,8 +431,8 @@ def test_an_unreadable_poll_does_not_fail_a_running_still_render() -> None:
 
 def test_a_purged_still_job_is_rechecked_then_cancelled() -> None:
     """A 404 after a successful read is an ANSWER — usually that RunPod dropped a
-    finished job's record ~30 min after it ended — but a rotated endpoint id or a
-    RunPod incident gives the same answer for a job still rendering. So it is
+    finished job's record ~30 min after it ended — but a RunPod incident gives the
+    same answer for a job still rendering. So it is
     re-checked on a backoff (not re-read every tick), then CANCELLED anyway, since
     nothing on the still path would ever collect that render, and the give-up names
     the job and its endpoint. A 404 that clears on a re-check is no failure at all;
@@ -444,15 +446,15 @@ def test_a_purged_still_job_is_rechecked_then_cancelled() -> None:
     diags: list = []
     logged: list = []
     ba.time.sleep = lambda _s: None
-    ba._runpod_post = lambda path, payload: {"id": "job-still-2"}
-    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")
+    ba._runpod_post = lambda path, payload, endpoint: {"id": "job-still-2"}
+    ba.runpod_cancel = lambda jid, endpoint: (cancelled.append(jid) or "")
     ba.emit = lambda line: diags.append(str(line))
     ba.print = lambda *a, **k: logged.append(" ".join(str(x) for x in a))
     os.environ["RUNPOD_ENDPOINT_ID"] = "ep-still"
     try:
         reads = {"n": 0}
 
-        def read_then_gone(path):
+        def read_then_gone(path, endpoint):
             reads["n"] += 1
             if reads["n"] == 1:
                 return {"status": "IN_PROGRESS"}
@@ -484,7 +486,7 @@ def test_a_purged_still_job_is_rechecked_then_cancelled() -> None:
         cancelled.clear()
         reads["n"] = 0
 
-        def gone_then_back(path):
+        def gone_then_back(path, endpoint):
             reads["n"] += 1
             if reads["n"] == 1:
                 return {"status": "IN_PROGRESS"}
@@ -501,7 +503,7 @@ def test_a_purged_still_job_is_rechecked_then_cancelled() -> None:
         diags.clear()
         ba.STATUS_GRACE_SECONDS = 0.05
 
-        def always_404(path):
+        def always_404(path, endpoint):
             raise ba.RunPodHTTPError(404, "RunPod /status: HTTP 404 Not Found")
 
         ba._runpod_get = always_404
@@ -513,7 +515,7 @@ def test_a_purged_still_job_is_rechecked_then_cancelled() -> None:
         check("and IS stopped, because it may be live", cancelled, ["job-still-2"])
 
         cancelled.clear()
-        ba.runpod_cancel = lambda jid: (cancelled.append(jid)
+        ba.runpod_cancel = lambda jid, endpoint: (cancelled.append(jid)
                                         or "RunPodHTTPError: HTTP 500")
         ba._runpod_get = read_then_gone
         reads["n"] = 0
@@ -549,9 +551,9 @@ def test_a_still_job_past_the_cap_is_cancelled() -> None:
         return clock["t"]
 
     ba.time.sleep = lambda _s: None
-    ba._runpod_post = lambda path, payload: {"id": "job-still-3"}
-    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")
-    ba._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+    ba._runpod_post = lambda path, payload, endpoint: {"id": "job-still-3"}
+    ba.runpod_cancel = lambda jid, endpoint: (cancelled.append(jid) or "")
+    ba._runpod_get = lambda path, endpoint: {"status": "IN_PROGRESS"}
     ba.time.time = ticking
     try:
         try:
@@ -562,7 +564,7 @@ def test_a_still_job_past_the_cap_is_cancelled() -> None:
         check("and the job is cancelled, not left running", cancelled, ["job-still-3"])
 
         cancelled.clear()
-        ba._runpod_get = lambda path: {"status": "FAILED", "error": "boom"}
+        ba._runpod_get = lambda path, endpoint: {"status": "FAILED", "error": "boom"}
         try:
             ba._runpod_run_and_wait({"input": {}}, "H1")
         except RuntimeError as e:
@@ -587,14 +589,14 @@ def test_a_cancel_404_is_not_reported_as_a_job_still_billing() -> None:
     ba.NOT_FOUND_RECHECK_SECONDS = (0.01,)
     reads = {"n": 0}
 
-    def read_then_gone(path):
+    def read_then_gone(path, endpoint):
         reads["n"] += 1
         if reads["n"] == 1:
             return {"status": "IN_PROGRESS"}
         raise ba.RunPodHTTPError(404, "RunPod /status: HTTP 404 Not Found")
 
     def cancel_answers(code):
-        def post(path, payload):
+        def post(path, payload, endpoint):
             if path.startswith("/cancel/"):
                 raise ba.RunPodHTTPError(code, f"RunPod {path} failed: HTTP {code}")
             return {"id": "job-still-4"}
@@ -603,7 +605,8 @@ def test_a_cancel_404_is_not_reported_as_a_job_still_billing() -> None:
     try:
         ba._runpod_get = read_then_gone
         ba._runpod_post = cancel_answers(404)
-        check("a 404 cancel is not a failure to cancel", ba.runpod_cancel("job-still-4"), "")
+        check("a 404 cancel is not a failure to cancel",
+              ba.runpod_cancel("job-still-4", "ep-still"), "")
         try:
             ba._runpod_run_and_wait({"input": {}}, "H1")
         except RuntimeError as e:
@@ -623,47 +626,156 @@ def test_a_cancel_404_is_not_reported_as_a_job_still_billing() -> None:
 
     seen: list = []
     real_urlopen = ba.urlopen
-    saved = {k: os.environ.get(k) for k in ("RUNPOD_ENDPOINT_ID", "RUNPOD_API_KEY")}
-    os.environ.update(RUNPOD_ENDPOINT_ID="ep", RUNPOD_API_KEY="k")
-
-    class _Resp:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def read(self):
-            return b"{}"
-
+    saved = os.environ.get("RUNPOD_API_KEY")
+    os.environ["RUNPOD_API_KEY"] = "k"
     ba.urlopen = lambda req, timeout=None: (seen.append((req.full_url, timeout)), _Resp())[1]
     try:
-        ba._runpod_post("/cancel/job-x", {})
-        ba._runpod_post("/run", {})
+        ba._runpod_post("/cancel/job-x", {}, "ep")
+        ba._runpod_post("/run", {}, "ep")
     finally:
         ba.urlopen = real_urlopen
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        _restore_env("RUNPOD_API_KEY", saved)
     check("a cancel POST gets the short timeout, a submit keeps its two minutes",
           [t for _, t in seen], [ba.CANCEL_TIMEOUT_SECONDS, 120])
     check("which is short", ba.CANCEL_TIMEOUT_SECONDS <= 15, True)
 
 
+class _Resp:
+    """A RunPod answer of `{}` — enough for a transport call to return."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b"{}"
+
+
+def _restore_env(key: str, value: str | None) -> None:
+    if value is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = value
+
+
+def test_a_job_is_polled_and_cancelled_on_the_endpoint_it_was_submitted_to() -> None:
+    """flipbook.md open item 2. Status and cancel used to be built from the CURRENT
+    RUNPOD_ENDPOINT_ID, so after a rotation a job submitted to the old endpoint was
+    polled on the new one (404), cancelled on the new one (a miss) and billed on.
+    The endpoint is taken at submit and every later call for that job goes there."""
+    real_get, real_post = ba._runpod_get, ba._runpod_post
+    real_sleep, real_grace = ba.time.sleep, ba.STATUS_GRACE_SECONDS
+    real_emit, real_endpoint = ba.emit, os.environ.get("RUNPOD_ENDPOINT_ID")
+    calls: list = []
+    logged: list = []
+    ba.time.sleep = lambda _s: None
+    ba.emit = lambda line: None
+    ba.STATUS_GRACE_SECONDS = 0.05
+    ba.print = lambda *a, **k: logged.append(" ".join(str(x) for x in a))
+
+    def post(path, payload, endpoint):
+        calls.append((path.split("/")[1], endpoint))
+        return {"id": "job-rot"} if path == "/run" else {}
+
+    def rotate_then_fail(path, endpoint):
+        calls.append(("status", endpoint))
+        os.environ["RUNPOD_ENDPOINT_ID"] = "ep-new"    # rotated mid-render
+        raise ba.RunPodHTTPError(500, "RunPod /status failed: HTTP 500")
+
+    os.environ["RUNPOD_ENDPOINT_ID"] = "ep-old"
+    ba._runpod_post, ba._runpod_get = post, rotate_then_fail
+    try:
+        try:
+            ba._runpod_run_and_wait({"input": {}}, "H1")
+        except RuntimeError:
+            pass
+    finally:
+        ba._runpod_get, ba._runpod_post = real_get, real_post
+        ba.time.sleep, ba.STATUS_GRACE_SECONDS = real_sleep, real_grace
+        ba.emit = real_emit
+        del ba.print
+        _restore_env("RUNPOD_ENDPOINT_ID", real_endpoint)
+    check("the job is submitted to the endpoint the env named then",
+          calls[0], ("run", "ep-old"))
+    check("after the rotation every status read still goes to the original",
+          {ep for kind, ep in calls if kind == "status"}, {"ep-old"})
+    check("and so does the give-up cancel", calls[-1], ("cancel", "ep-old"))
+    check("the UI marker carries the job's endpoint with its id",
+          [ba.read_runpod_job_mark(line) for line in logged
+           if line.startswith(ba.RUNPOD_JOB_MARK)], [("job-rot", "ep-old")])
+
+    seen: list = []
+    saved = {k: os.environ.get(k) for k in ("RUNPOD_ENDPOINT_ID", "RUNPOD_API_KEY")}
+    os.environ.update(RUNPOD_ENDPOINT_ID="ep-new", RUNPOD_API_KEY="k")
+    real_urlopen = ba.urlopen
+    ba.urlopen = lambda req, timeout=None: (seen.append(req.full_url), _Resp())[1]
+    try:
+        ba._runpod_get("/status/job-rot", "ep-old")
+        ba.runpod_cancel("job-rot", "ep-old")
+    finally:
+        ba.urlopen = real_urlopen
+        for k, v in saved.items():
+            _restore_env(k, v)
+    check("the URLs are built from the job's endpoint, not the rotated env", seen,
+          ["https://api.runpod.ai/v2/ep-old/status/job-rot",
+           "https://api.runpod.ai/v2/ep-old/cancel/job-rot"])
+
+    real_cancel = ba.runpod_cancel
+    cancelled: list = []
+    ba.runpod_cancel = lambda jid, endpoint: (  # type: ignore
+        cancelled.append((jid, endpoint)) or "")
+    real_urlopen = u.urllib.request.urlopen
+    u.urllib.request.urlopen = lambda req, timeout=None: _Resp()  # type: ignore
+    os.environ["RUNPOD_ENDPOINT_ID"] = "ep-new"
+    try:
+        reset(running=True, proc=FakeProc(alive=False))
+        mark = ba.read_runpod_job_mark(f"{ba.RUNPOD_JOB_MARK}job-rot ep-old\n")
+        u._render_state.update(runpodJob=mark[0], runpodEndpoint=mark[1])
+        u.stop_render()
+    finally:
+        ba.runpod_cancel = real_cancel          # type: ignore[assignment]
+        u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+        _restore_env("RUNPOD_ENDPOINT_ID", real_endpoint)
+    check("Stop after a rotation cancels on the endpoint the job was submitted to",
+          cancelled, [("job-rot", "ep-old")])
+
+
+def test_a_job_with_no_recorded_endpoint_assumes_the_env_and_says_so() -> None:
+    """A record from before endpoints were recorded still has to be addressable, so it
+    falls back to the current RUNPOD_ENDPOINT_ID — out loud, naming the job, because
+    after a rotation that guess is wrong. A recorded endpoint is used silently."""
+    real_endpoint = os.environ.get("RUNPOD_ENDPOINT_ID")
+    logged: list = []
+    ba.print = lambda *a, **k: logged.append(" ".join(str(x) for x in a))
+    os.environ["RUNPOD_ENDPOINT_ID"] = "ep-env"
+    try:
+        check("a recorded endpoint wins over the env",
+              ba.job_endpoint("ep-recorded", "job-new"), "ep-recorded")
+        check("and is not logged as assumed", logged, [])
+        check("a legacy record falls back to the env",
+              ba.job_endpoint("", "job-legacy"), "ep-env")
+    finally:
+        del ba.print
+        _restore_env("RUNPOD_ENDPOINT_ID", real_endpoint)
+    check("with one log line", len(logged), 1)
+    check_in("naming the job", "job-legacy", logged[0] if logged else "")
+    check_in("and that the endpoint was assumed from the env",
+             "assuming ep-env from the current RUNPOD_ENDPOINT_ID", logged[0] if logged else "")
+
+
 def test_the_job_id_reaches_the_ui_without_polluting_the_log() -> None:
     """The UI process cannot know the job id any other way — it lives in the
-    subprocess. It rides a marker line, which must never show up as log noise."""
+    subprocess. It rides a marker line, with the endpoint the job was submitted to,
+    which must never show up as log noise."""
     check("the marker is distinctive", ba.RUNPOD_JOB_MARK.startswith("@@"), True)
-    line = f"{ba.RUNPOD_JOB_MARK}abc123-e2\n"
-    check("a marker line is recognised", line.startswith(ba.RUNPOD_JOB_MARK),
-          True)
-    check("and yields a clean id",
-          line[len(ba.RUNPOD_JOB_MARK):].strip(), "abc123-e2")
+    check("a marker line yields a clean id and endpoint",
+          ba.read_runpod_job_mark(f"{ba.RUNPOD_JOB_MARK}abc123-e2 ep-x\n"),
+          ("abc123-e2", "ep-x"))
     check("an ordinary log line is not mistaken for one",
-          "   ... serverless job abc123-e2 IN_QUEUE (16s elapsed)\n".startswith(
-              ba.RUNPOD_JOB_MARK), False)
+          ba.read_runpod_job_mark("   ... serverless job abc123-e2 IN_QUEUE (16s elapsed)\n"),
+          None)
 
 
 def test_stop_clears_the_slot_for_the_next_render() -> None:
@@ -693,6 +805,8 @@ if __name__ == "__main__":
                    test_a_purged_still_job_is_rechecked_then_cancelled,
                    test_a_still_job_past_the_cap_is_cancelled,
                    test_a_cancel_404_is_not_reported_as_a_job_still_billing,
+                   test_a_job_is_polled_and_cancelled_on_the_endpoint_it_was_submitted_to,
+                   test_a_job_with_no_recorded_endpoint_assumes_the_env_and_says_so,
                    test_the_job_id_reaches_the_ui_without_polluting_the_log,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")

@@ -217,6 +217,10 @@ somebody else created that your rail hasn't listed yet.
 
 ### When someone else saved the sheet first
 
+**"👤 X is editing this sheet"** appears at the top while someone else has the same saved sheet open
+(or *"You also have this sheet open in another tab"*). It is a heads-up, not a lock — the rules below
+are what keep either of you from losing work.
+
 Every **Save** says which version of the sheet it was made on. If somebody saved it in between — in
 the Sheet Maker, or in the Atlas Maker, which writes the same manifest — nothing is written and a
 dialog names who and when, with **Reload theirs** (discard your unsaved changes and load theirs),
