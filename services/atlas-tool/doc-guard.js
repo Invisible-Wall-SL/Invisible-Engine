@@ -13,14 +13,14 @@
      request re-sent on the version the dialog just showed (If-Match on it) —
      never a blind write. The caller gets the final response, as if nothing
      happened in between.
-   It also sends the "X is editing this atlas" heartbeat (/presence).
+   The "X is editing this atlas" heartbeat is iw_common/presence.js, loaded
+   just before this.
 
-   __IW_DOCS__ / __IW_ME__ / __IW_DOC__ are replaced by the server. */
-/* global __IW_DOCS__, __IW_ME__, __IW_DOC__ */
+   __IW_DOCS__ / __IW_ME__ are replaced by the server. */
+/* global __IW_DOCS__, __IW_ME__ */
 (function () {
 	var DOCS = __IW_DOCS__;
 	var ME = __IW_ME__;
-	var DOC = __IW_DOC__;
 	window.IW_DOCS = DOCS;
 	var nativeFetch = window.fetch.bind(window);
 
@@ -226,73 +226,4 @@
 			bases[c.doc] = { etag: c.etag || '', rev: c.rev || '' };
 		}
 	}
-
-	// --- "X is editing this atlas" (the person-level soft lease) -------------
-	if (!DOC) return;
-	// One id per browser TAB, kept across the reload that follows most edits: a
-	// fresh id per page load would make the reloaded page a stranger to the lease
-	// it held a second ago and show the author their own "other tab".
-	var TAB = '';
-	try {
-		TAB = sessionStorage.getItem('iwPresenceTab') || '';
-	} catch {
-		/* storage blocked: a per-load id still works, just less smoothly */
-	}
-	if (!TAB) {
-		TAB = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-		try {
-			sessionStorage.setItem('iwPresenceTab', TAB);
-		} catch {
-			/* see above */
-		}
-	}
-
-	function banner(holder) {
-		var bar = document.getElementById('iwPresence');
-		if (!holder) {
-			if (bar) bar.remove();
-			return;
-		}
-		if (!bar) {
-			bar = el(
-				'div',
-				'position:sticky;top:0;z-index:9999;background:#5a4418;color:#ffe2bd;' +
-					'border:1px solid #a4702f;border-radius:6px;padding:7px 12px;margin:6px 0;' +
-					'font:13px system-ui,Arial'
-			);
-			bar.id = 'iwPresence';
-			document.body.insertBefore(bar, document.body.firstChild);
-		}
-		var since = holder.since
-			? ' (since ' +
-				new Date(holder.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
-				')'
-			: '';
-		bar.textContent = holder.same_user
-			? '👤 You also have this atlas open in another tab' + since + '.'
-			: '👤 ' + holder.name + ' is editing this atlas' + since + '. Nothing is locked — if you both ' +
-				'change the same thing, whoever saves second is asked before anything is overwritten.';
-	}
-
-	function beat() {
-		nativeFetch('/presence', { method: 'POST', body: JSON.stringify({ doc: DOC, tab: TAB }) })
-			.then(function (r) {
-				return r.ok ? r.json() : null;
-			})
-			.then(function (j) {
-				banner(j && j.holder);
-			})
-			.catch(function () {});
-	}
-
-	if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', beat);
-	else beat();
-	setInterval(beat, 10000);
-	window.addEventListener('pagehide', function () {
-		if (!navigator.sendBeacon) return;
-		navigator.sendBeacon(
-			'/presence',
-			new Blob([JSON.stringify({ doc: DOC, tab: TAB, release: true })], { type: 'text/plain' })
-		);
-	});
 })();

@@ -22,6 +22,13 @@ Works today on `main` / live:
   retried server-side CAS that never hands the page a version it did not see. A per-sheet lock
   serialises one container's saves. `test_doc_conflicts.py` (97). ⏳ Not yet run live with two
   browsers.
+- **"👤 X is editing this sheet"** _(2026-10-01)_ — the Atlas Maker's advisory person-level lease,
+  shared rather than copied: `iw_common/presence.py` (server) + `iw_common/presence.js` (page,
+  inlined by `_page()`), lease key `sheetMaker/<sheet>`, holder = the SIGNED launch identity's
+  `uid` + a per-tab id. The page tracks the saved sheet on the canvas from `updateReadouts()` (every
+  load / save / rename / delete passes through it): switching releases the old sheet and claims the
+  new one, a 10 s heartbeat renews it, `pagehide` releases it. Blocks nothing. `test_presence.py`
+  (32). ⏳ Not yet run live with two browsers (folded into item 4).
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
   clears and verifies **every tree the sheet owns alone** — `sheets/`, `sheet_src/`, and the Atlas
@@ -67,14 +74,21 @@ Works today on `main` / live:
    B (not reloaded) saves → B is asked, naming A; **Overwrite with mine** lands. Then Save As onto
    a name only the other profile has → the "already exists" prompt. Also: the first in-place Save of
    a session restored from before this change asks "already exists … Replace it?" once (it has no
-   loaded version yet) — expected, not a bug.
-5. **Person-level "X is editing" banner — next.** The Atlas Maker has it (`/presence`); the Sheet
-   Maker would reuse the same lease key shape (`sheetMaker/<sheet>`), heartbeat from `ui.html`.
+   loaded version yet) — expected, not a bug. In the same run: B opening A's sheet sees "👤 A is
+   editing this sheet"; A loading another sheet (or closing the tab) clears it within one heartbeat.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-01 — **"👤 X is editing this sheet".** The Atlas Maker's `/presence` (#910) moved into
+  `iw_common/presence.py` (`beat()` — lease key, holder from the signed identity, who-else answer)
+  and `iw_common/presence.js` (`iwPresence.track(doc)` — tab id, heartbeat, banner, release); the
+  Atlas Maker now calls both and the Sheet Maker gained `POST /presence` keyed `sheetMaker/<sheet>`.
+  The page script serialises its requests so a beat in flight when a sheet is left cannot land after
+  the release and re-claim it. No Dockerfile change: both images already copy all of
+  `services/_shared/iw_common`. `test_presence.py`; the Atlas Maker's `test_doc_conflicts.py`
+  unchanged.
 - 2026-10-01 — **The per-sheet lock test no longer races the clock.** Its mutant ("without the
   lock both compose") failed on CI with 1 compose: the two exports overlapped only through a 0.2 s
   fake-R2 read delay, so a runner that let one thread finish before the other reached its pre-check

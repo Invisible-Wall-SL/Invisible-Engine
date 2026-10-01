@@ -753,9 +753,10 @@ What makes the tools usable for 2–3 people on a project.
 >   name `If-None-Match` before copying and re-reads the old manifest before deleting it (kept when it
 >   moved). Unlock hands the page a new version only if it was based on the page's own. A per-sheet
 >   in-process lock serialises one container's saves of one sheet.
-> - **The person-level lease** — `POST /presence` in the Atlas Maker: every open tab heartbeats every
->   10 s through `iw_common/lease.py` (key `atlasMaker/<manifest stem>`, holder `(users.id, tab)`,
->   `holderName` added to the row), and a second person sees "X is editing this atlas". **Advisory
+> - **The person-level lease** — `POST /presence` in both tools (`iw_common/presence.py` +
+>   `presence.js`): every open tab heartbeats every 10 s through `iw_common/lease.py` (key
+>   `atlasMaker/<manifest stem>` / `sheetMaker/<sheet>`, holder `(users.id, tab)`, `holderName` added
+>   to the row), and a second person sees "X is editing this atlas/sheet". **Advisory
 >   only** — it blocks nothing; the CAS is what keeps work from being lost. It stays on its own R2
 >   object rather than `doc_leases` for the same structural reasons as 3a.
 >
