@@ -1059,16 +1059,16 @@ A project whose kind is **Hold and Win** sees the grid and the page a little dif
 played for that moment before the column existed, so a project that binds none of them looks
 exactly as it did:
 
-| Column             | When it plays                                                          | Empty ⇒   |
-| ------------------ | ---------------------------------------------------------------------- | --------- |
-| **Coin idle**      | a held coin (or jackpot, or special) at rest on the respin board       | Static    |
-| **Coin land**      | a respin cell's reel stops on the symbol, before anything sticks       | Static    |
-| **Coin stick**     | a landed coin sticks — also a mystery or multiplier landing as a coin  | Land      |
-| **Coin collect**   | a coin pulses as a collector takes it                                  | Win       |
-| **Coin boost**     | a special raising other coins — a payer paying, a multiplier boosting  | Win       |
-| **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board | Win       |
-| **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)      | Explosion |
-| **Fly to meter**   | a special lit on the base board while it flies into its pot            | Win       |
+| Column             | When it plays                                                                                        | Empty ⇒   |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | --------- |
+| **Coin idle**      | a held coin (or jackpot, or special) at rest on the respin board                                     | Static    |
+| **Coin land**      | a respin cell's reel stops on the symbol, before anything sticks                                     | Static    |
+| **Coin stick**     | a landed coin sticks — also a mystery or multiplier landing as a coin                                | Land      |
+| **Coin collect**   | a coin pulses as a collector takes it, a lit column's coins, or an instant collect on the base board | Win       |
+| **Coin boost**     | a special raising other coins — a payer paying, a multiplier boosting                                | Win       |
+| **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board                               | Win       |
+| **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
+| **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). The win frame

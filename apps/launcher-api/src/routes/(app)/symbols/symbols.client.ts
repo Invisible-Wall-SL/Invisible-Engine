@@ -111,7 +111,7 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 	coinStick:
 		'A landed coin STICKING into the held layer — also a mystery or a multiplier landing as what it became. Leave a cell empty to reuse this symbol’s Land binding.',
 	coinCollect:
-		'A coin pulsing as a collector takes it. Leave a cell empty to reuse this symbol’s Win binding.',
+		'A coin pulsing as a collector takes it — also a lit column’s coins, and an instant collect on the base board. Leave a cell empty to reuse this symbol’s Win binding.',
 	coinBoost:
 		'A special raising other coins — a payer paying, a multiplier boosting. Leave a cell empty to reuse this symbol’s Win binding.',
 	jackpotReveal:
