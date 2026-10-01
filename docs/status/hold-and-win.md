@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | in progress (branch `flow/hold-win-5-vocabulary`: vocab + seed + gates done; live play on hw-3pots-sample, Borut parity boot, docs, PR still owed) | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
+| 5 | Flow vocabulary + driven seed | in progress — stacked on #945 (branch `flow/hold-win-5-vocabulary`): vocab, seed, gates and the live play on hw-3pots-sample done; Borut parity boot, flow docs, PR owed | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
@@ -687,6 +687,30 @@ Hold and Win beats prints copy.
   check then passed on the merged code. Coordination: the Win Text literals are listed above for
   Phase 8; Phase 7 owns the coin-label and flights authoring on top of the coded defaults (kind keys
   `toTotal`, `toCollector`, `toMeter:<id>`).
+- 2026-10-01 — **Phase 5: the Hold and Win flow vocabulary + driven seed** (session "Hold and Win
+  Phase 5 — flow vocabulary + driven seed", branch `flow/hold-win-5-vocabulary`, stacked on #945 —
+  merge after it). `engine-flow-v2` `HOLD_AND_WIN_VOCAB` (standard minus free spins and stacked
+  pictures; the 20 events field-for-field, 18 backed beats + `flyTo`, 27 cues, the `$engine` values
+  `respinsLeft` / `respinTotal` / `featureTotal` / `activeModifiers` / `jackpot.<tier>`) and
+  `HOLD_AND_WIN_DRIVEN_SEED_DOC`: the base game, Lucky Spin, pots, instant collect and base jackpots
+  in the global graph; every respin-board beat (trigger, wheel, respins, specials, mystery, letters,
+  jackpots, end) in `modes.holdAndWin`; Mode trigger (enter) starts the feature music and On all
+  modes finished brings the base music back. `holdAndWin` is no longer an alias of `lines`.
+  - **Proof:** flow-spike `v2holdandwin` (142 checks: payloads read off `HoldAndWinEventFields` by
+    the TS checker, every registered vocabulary backed by the game's effects / emitter / engine keys,
+    the seed played from the real mock through the facade across every preset's forced beats),
+    `check:flow-publish-gate`, existing vocabularies and seeds byte-identical to `main`.
+  - **Live play** (headless real clock, `apps/lines` of this branch on the local pots mock, the
+    project's published data, the seed injected as `__IE_FLOW_V2_DOC__`): 11 forced rounds —
+    `trigger`, `trigger,special:payer`, `special:multiplier`, `special:collector`,
+    `mystery:jackpot:MINI`, `unlock:payer`, `meter:red`, `lucky`, `fullBoard`, `chain`,
+    `jackpot:MINI` — all ran every Hold and Win beat through the flow (mode enter / exit / all
+    finished each round), ended idle, 0 exceptions, every balance = before − stake + win. The only
+    waits are the big-win count-up's taps, identical under the project's published flow.
+  - **Existing projects keep their stored flow.** `hw-3pots-sample` was scaffolded on the Book-of
+    seed (`templateId: 'bookOf'`), which owns only `reveal` / `setWin` / `setTotalWin`, so its Hold
+    and Win events stay on the coded path (same presentation). Only a project scaffolded from now on
+    gets the Hold and Win seed; re-seed the sample to author it in `/flow-v2`.
 
 - 2026-10-01 — **Phase 4, step 10: Grand + Hotfire** (branch `engine/hold-win-4f-grand-hotfire`, on
   `engine/hold-win-4e-pots-lucky-end` / #943; no PR yet). One function per beat in
