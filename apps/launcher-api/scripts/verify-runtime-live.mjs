@@ -133,6 +133,10 @@ if (!probe) {
 
 const refresh = () => refreshTestServer(ORIGIN);
 
+/** Does `html` load `file` with a `<script src>` (rather than carrying it inline)? */
+const loadsBySrc = (html, file) =>
+	new RegExp(`<script[^>]*\\ssrc=["'][^"']*${file.replace(/[.]/g, '\\.')}["']`).test(html);
+
 async function served() {
 	try {
 		const res = await fetch(`${ORIGIN}/${probe}/index.html?cb=${Date.now()}`, {
@@ -140,13 +144,17 @@ async function served() {
 			signal: AbortSignal.timeout(25_000),
 		});
 		if (!res.ok) return `HTTP ${res.status}`;
-		const name = MARKER_RE.exec(await res.text())?.[0] ?? 'no bundle marker';
+		const html = await res.text();
+		const name = MARKER_RE.exec(html)?.[0] ?? 'no bundle marker';
 		const release = res.headers.get('x-runtime-release');
 		if (wantRelease && release !== wantRelease)
 			return `${name} from ${release ?? 'the flat layout'}`;
 		if (name !== marker) return name;
-		// Only a served bundle counts, not an index.html that names it. `?cb=` keeps this off the
-		// bare immutable URL's cache key (see the header).
+		// An inline build carries the bundle IN this index.html, and SvelteKit ≥ 2.70 deletes the
+		// emitted file, so the hashed name here is the served bundle. Only a page that loads it by
+		// `src` (an embed build) needs the file served too. `?cb=` keeps the HEAD off the bare
+		// immutable URL's cache key (see the header).
+		if (!loadsBySrc(html, marker)) return name;
 		const bundle = await fetch(`${ORIGIN}/${probe}/_app/immutable/${marker}?cb=${Date.now()}`, {
 			method: 'HEAD',
 			cache: 'no-store',

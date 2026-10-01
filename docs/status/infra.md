@@ -87,6 +87,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    carries errors; the largest share in `apps/lines` is the tracked `static/assets/**/index.ts`
    asset indexes. Lower an entry with `pnpm check:svelte --only <pkg> --update` in the PR that fixes
    it — the job prints a notice when a package is below its baseline.
+7. **Runtime source maps stopped reaching Sentry with SvelteKit 2.70.** Under
+   `bundleStrategy: 'inline'`, kit now deletes the client bundle after inlining it, and with it
+   the map. `scripts/sentry-sourcemaps.mjs` finds no map, warns "nothing to upload" and stays green.
+   This is harmless while Sentry is dormant (owner setup, Blocked) but must be fixed before it goes
+   live. The likely fix is a Vite `generateBundle` hook in `config-vite` that writes the bundle's
+   map aside before kit deletes it.
 
 ## Blocked (owner / external)
 - **Dependabot security updates (owner, ~2 min, GitHub → Settings → Advanced Security):** switch on
@@ -117,6 +123,15 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-01 — **The runtime release verifier accepts an inlined bundle.** #936's release
+  (`lines@e81c0c21ce3f`) went red at "verify the served bundle" after 15 min and opened #940, though
+  every game was already serving it. SvelteKit 2.70 deletes the emitted `bundle.<hash>.js` once it
+  has inlined it into `index.html`, so the verifier's HEAD on `/_app/immutable/bundle.<hash>.js`
+  404'd forever. `verify-runtime-live.mjs` now HEADs that file only when the served page loads it
+  by `<script src>` (an embed build). For an inline build, the content-hashed name in the served
+  `index.html` plus `X-Runtime-Release` is the proof. Run against live, it reports LIVE after 11 s.
+  `publish-game-via-portal.mjs` and the desktop `verify_deploy_live()` only match the marker inside
+  `index.html`, so they were unaffected. Source maps: open item 7.
 - 2026-10-01 — **Dependabot's 34-package npm group (#929) and TypeScript 5.9.3 (#915) land in one
   PR.** This is a runtime release: pixi.js 8.8 → 8.21, svelte 5.35 → 5.57, spine-pixi-v8 4.2.74 →
   4.2.120, SvelteKit 2.17 → 2.70, xstate, tsx 4.23, esbuild 0.28 and more. #929 was red for four
