@@ -298,8 +298,19 @@ only has to register its own vocab + seed.
   loading screen.** `ResumeBet` broadcasts `resumeBet` on mount, and a flow-driven game mounts it
   under the flow's loading/tap-to-start screen, so a resumed feature runs (and can finish, big win
   included) before the player taps in. Seen on `hw-3pots-sample`; Borut's resume goes through the
-  same path. Owner of the fix: the flow / game-modes area (gate `resumeBet` on the loading screen
-  being dismissed).
+  same path. **FIXED (2026-10-01):** `ResumeBet` waits for `ready` — the base game in the active
+  set with no loading screen up (`Game.svelte` `isPlayerIn`). Verified on both games on the local
+  mocks, A/B against the ungated version; detail in `docs/status/engine.md`.
+  **Base-background layer left at alpha 1 under the feature background on a resume (#953 live
+  check) — gone with this fix, by timing.** The race: the coded `<Background>`'s base
+  `FadeContainer` mounts with `show` true and its `onMount` (`await set(0)`; `set(1)`) overrides the
+  effect's `set(0)` when `gameType` flips in the same tick, which the old resume-at-mount did.
+  The resume now flips it after the tap, long after mount. Measured on `hw-3pots-sample`, resumed
+  mid-feature, three samples over 7.5 s after the tap in `respin`: only the feature layers (z −1, idle
+  + dust) are mounted, alpha 1; the base layers (z −2) have faded out and unmounted. The remake has
+  no coded background layers at all (its authored background scene replaces `<Background>`), so
+  it can't show this. `FadeContainer`'s mount race itself is still latent for any other
+  same-tick flip.
 
 - 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
   step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
