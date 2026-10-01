@@ -5,8 +5,8 @@
 // not. Covers weighted (per-influence, bone-local) and unweighted (slot-bone local).
 //   node tools/rigger-spike/meshedit.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-const SPINE_CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;

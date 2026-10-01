@@ -40,11 +40,12 @@
 // Run it against another page with RIGGER_VIEW_HTML=<path> (the pre-fix view.html fails it).
 //   node tools/rigger-spike/trimmesh.mjs
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
 import { launchChrome } from './chrome.mjs';
+import { SPINE_CORE } from './spine.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -54,15 +55,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // ---- the two runtimes ------------------------------------------------------------------------
 const vendored = readFileSync(join(STATIC, 'spine/vendor/spine-webgl-4.2.js'), 'utf8');
-const SUB = 'node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js';
-const CORE = await (async () => {
-	for (let up = 2; up <= 8; up++) {
-		const u = new URL('../'.repeat(up) + SUB, import.meta.url);
-		if (existsSync(fileURLToPath(u))) return import(u.href);
-	}
-	console.error(`✗ spine-core 4.2.74 not found — run pnpm install (looked for ${SUB})`);
-	process.exit(2);
-})();
+const CORE = await import(SPINE_CORE);
 
 // ---- the synthetic atlas ---------------------------------------------------------------------
 const PAGE = 256, NOISE = 250;
@@ -399,7 +392,7 @@ for (const [label, run] of [['▸ Convert to mesh', convert], ['✎ Draw mesh', 
 			const want = [uv[2] + s * (uv[4] - uv[2]) + t * (uv[0] - uv[2]), uv[3] + s * (uv[5] - uv[3]) + t * (uv[1] - uv[3])];
 			worst = Math.max(worst, Math.abs(mesh.uvs[k * 2] - want[0]), Math.abs(mesh.uvs[k * 2 + 1] - want[1]));
 		}
-		log(worst < 1e-6, `${label} on ${c.slot}: through spine-core 4.2.74 the mesh samples up to ${(worst * PAGE).toFixed(2)} texels off the region's`);
+		log(worst < 1e-6, `${label} on ${c.slot}: through spine-core 4.2 the mesh samples up to ${(worst * PAGE).toFixed(2)} texels off the region's`);
 	}
 	console.log(`  ${label}: ${CASES.length} meshes drawn against their region (0/90°) and the untrimmed image (all four packs), UVs through spine-core`);
 }

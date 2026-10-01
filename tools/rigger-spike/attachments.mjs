@@ -62,17 +62,10 @@
 //   LinkedMesh) and post-load calls setParentMesh(parent), copying the parent's bones/vertices/
 //   worldVerticesLength/regionUVs/triangles/hullLength. parent must exist in the named (or default)
 //   skin at the SAME slot index, else loader THROWS "Parent mesh not found".
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-const SPINE = '.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js';
-// resolve spine-core from the nearest node_modules up the tree (worktrees may lack their own)
-let CORE = null;
-for (let up = 2; up <= 8; up++) {
-	const cand = new URL('../'.repeat(up) + 'node_modules/' + SPINE, import.meta.url);
-	if (existsSync(cand)) { CORE = cand; break; }
-}
-if (!CORE) throw new Error('spine-core@4.2.74 not found in any ancestor node_modules');
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(CORE.href);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) { console.log('usage: node tools/rigger-spike/attachments.mjs <skeleton.json> <skeleton.atlas>'); process.exit(1); }

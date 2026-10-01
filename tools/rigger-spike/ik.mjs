@@ -43,17 +43,9 @@
 //   • Authoring v1: we key MIX (the FK→IK reveal). bend/softness optional. Linear by default,
 //     bezier via the shared curve menu (one easing → mix channel).
 import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-import { existsSync } from 'node:fs';
-const SPINE = '.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js';
-// resolve spine-core from the nearest node_modules up the tree (worktrees may lack their own)
-let CORE = null;
-for (let up = 2; up <= 8; up++) {
-	const cand = new URL('../'.repeat(up) + 'node_modules/' + SPINE, import.meta.url);
-	if (existsSync(cand)) { CORE = cand; break; }
-}
-if (!CORE) throw new Error('spine-core@4.2.74 not found in any ancestor node_modules');
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(CORE.href);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

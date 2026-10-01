@@ -8,12 +8,13 @@
 // The permute helpers below MIRROR reorderDeform + the uvs/vertices/triangles gather in
 //   apps/launcher-api/static/rigger/view.html  (permuteMeshVertices) — keep in sync.
 
+import { SPINE_CORE } from './spine.mjs';
+
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 console.log('\n=== Phase 3.6c vertex permutation preserves posed deform ===');
 
-const CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
 
 const ATLAS = 'page.png\nsize: 64,64\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nimg\n  rotate: false\n  xy: 0, 0\n  size: 64, 64\n  orig: 64, 64\n  offset: 0, 0\n  index: -1\n';
 function loadData(raw){

@@ -41,13 +41,10 @@
 // ===========================================================================
 
 import { readFileSync } from 'node:fs';
+import { SPINE_CORE } from './spine.mjs';
 
-const CORE = new URL(
-	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
-	import.meta.url,
-).href;
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } =
-	await import(CORE);
+	await import(SPINE_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-const SPINE_CORE = new URL('../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js', import.meta.url).href;
+import { SPINE_CORE } from './spine.mjs';
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(SPINE_CORE);
 
 const raw = JSON.parse(readFileSync('apps/cluster/static/assets/spines/symbols/h1.json', 'utf8'));
