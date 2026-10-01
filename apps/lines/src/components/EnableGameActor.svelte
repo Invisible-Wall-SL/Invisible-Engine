@@ -5,7 +5,7 @@
 	import { stateBet } from 'state-shared';
 
 	import { gameActor } from '../game/actor';
-	import { clearWinPresentation } from '../game/winSymbolCycle';
+	import { clearWinPresentation, forgetWinCycleWins } from '../game/winSymbolCycle';
 	import { getContext } from '../game/context';
 
 	type Props = {
@@ -49,6 +49,10 @@
 		// clear the currently-drawn one instantly instead of one-win-later. A no-op when there is
 		// nothing on screen (a slam during the reel roll, before any win).
 		stopButtonClick: () => clearWinPresentation(),
+		winPresentationForget: () => {
+			clearWinPresentation();
+			forgetWinCycleWins();
+		},
 	});
 </script>
 

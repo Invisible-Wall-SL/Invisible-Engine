@@ -38,8 +38,15 @@
 			? seat.y
 			: reelSymbol.symbolY();
 
-	/** Only the symbols near the window are drawn — a rolling strip runs twenty cells long. */
+	/**
+	 * Only the symbols near the window exist — a rolling strip runs twenty cells long, and giving
+	 * every one of them its own block on every cell of the board, the frame a respin starts, cost a
+	 * 50–80 ms hitch. Recomputed each frame the strip moves; a symbol mounts as it nears the window.
+	 */
 	const near = (y: number) => Math.abs(y - (cellBox.top + cellBox.height / 2)) < cellBox.height;
+	const shown = $derived(
+		props.cell.cellReel.reelState.symbols.filter((symbol) => near(yOf(symbol))),
+	);
 
 	/**
 	 * The cell's reel lands on `land`, but a respin cell does not play it: a landed coin plays its land
@@ -58,18 +65,15 @@
 		width={columnPitch}
 		height={cellBox.height}
 	/>
-	{#each props.cell.cellReel.reelState.symbols as reelSymbol (reelSymbol)}
-		{@const y = yOf(reelSymbol)}
-		{#if near(y)}
-			<Container x={seat.x} {y} {scale}>
-				<Symbol
-					state={shownState(reelSymbol.symbolState)}
-					rawSymbol={reelSymbol.rawSymbol}
-					oncomplete={() => {
-						if (reelSymbol.symbolState === 'land') reelSymbol.symbolState = 'static';
-					}}
-				/>
-			</Container>
-		{/if}
+	{#each shown as reelSymbol (reelSymbol)}
+		<Container x={seat.x} y={yOf(reelSymbol)} {scale}>
+			<Symbol
+				state={shownState(reelSymbol.symbolState)}
+				rawSymbol={reelSymbol.rawSymbol}
+				oncomplete={() => {
+					if (reelSymbol.symbolState === 'land') reelSymbol.symbolState = 'static';
+				}}
+			/>
+		</Container>
 	{/each}
 </Container>

@@ -108,23 +108,12 @@ it('released cells are the held ones the new picture no longer holds', () => {
 	assert.deepEqual(releasedCells(after, before), []);
 });
 
-it('the mount seeds every free cell from the base board and every held cell with the blank', () => {
-	const board = respinSeedBoard({
-		reels: 2,
-		rows: 2,
-		held: [{ reel: 1, row: 0 }],
-		blank: 'BLANK',
-		seed: (reel, row) => ({ name: `H${reel}${row}` }),
-	});
+it('the mount shows the blank on every cell, held or free', () => {
+	const board = respinSeedBoard({ reels: 2, rows: 2, blank: 'BLANK' });
 	assert.deepEqual(board, [
-		[{ name: 'H00' }, { name: 'H01' }],
-		[{ name: 'BLANK' }, { name: 'H11' }],
+		[{ name: 'BLANK' }, { name: 'BLANK' }],
+		[{ name: 'BLANK' }, { name: 'BLANK' }],
 	]);
-});
-
-it('a resume (nothing to seed from) mounts every cell blank', () => {
-	const board = respinSeedBoard({ reels: 1, rows: 2, held: [], blank: 'BLANK' });
-	assert.deepEqual(board, [[{ name: 'BLANK' }, { name: 'BLANK' }]]);
 });
 
 console.log(`

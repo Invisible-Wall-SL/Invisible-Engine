@@ -114,6 +114,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Win',
 		},
 		{
+			type: 'winPresentationForget',
+			group: 'WinLine',
+		},
+		{
 			type: 'winLineShow',
 			group: 'WinLine',
 			fields: [

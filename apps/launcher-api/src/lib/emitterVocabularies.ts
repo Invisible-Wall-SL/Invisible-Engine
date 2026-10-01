@@ -118,6 +118,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Win',
 			},
 			{
+				type: 'winPresentationForget',
+				group: 'WinLine',
+			},
+			{
 				type: 'winLineShow',
 				group: 'WinLine',
 				fields: [
@@ -1416,6 +1420,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'winCountUpComplete',
 				group: 'Win',
+			},
+			{
+				type: 'winPresentationForget',
+				group: 'WinLine',
 			},
 			{
 				type: 'winLineShow',
@@ -2718,6 +2726,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Win',
 			},
 			{
+				type: 'winPresentationForget',
+				group: 'WinLine',
+			},
+			{
 				type: 'winLineShow',
 				group: 'WinLine',
 				fields: [
@@ -4016,6 +4028,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'winCountUpComplete',
 				group: 'Win',
+			},
+			{
+				type: 'winPresentationForget',
+				group: 'WinLine',
 			},
 			{
 				type: 'winLineShow',
