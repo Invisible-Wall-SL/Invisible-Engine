@@ -289,6 +289,15 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Win text has no
+  backups, so a block a newer launcher wrote was gone for good once an author saved from an older
+  launcher. Before an `If-Match` save, `saveWinTextDoc` now reads the stored doc. If its ETag is the
+  save's `baseEtag`, it copies every top-level key `winTextDocSchema` does not declare onto the PUT
+  (`storedUnknownBlocks`). A create, a forced overwrite or a stale ETag copies nothing. A field a
+  newer launcher adds INSIDE a family (say `jackpots.x`) is still dropped and is NOT recoverable. A
+  known-only doc saves byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule:
+  `docs/conventions/doc-readers.md` "Round-tripping".
+
 - 2026-10-01 — **A newer `version` no longer wipes the whole win-text doc.** `version` is the
   doc's only enum, and `z.literal(1)` failed a `version: 2` doc into `{ version: 1 }`. A read now
   takes it as `1` and keeps every field it knows, with a server warning. A save still answers 400.

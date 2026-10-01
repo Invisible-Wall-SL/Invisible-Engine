@@ -175,30 +175,49 @@ the save guard for every field in the table above.
 - **`game-spec`** (`packages/game-spec`) is a hand-authored CLI input, not a stored doc. Its
   top-level `.strict()` is deliberate typo protection.
 - **Round-tripping.** An older launcher that loads a newer doc drops the unknown field from what
-  it shows. If the author saves from that older launcher, the field is gone from the stored doc.
-  The concurrency check does not catch this, because it is a legitimate `If-Match` save.
-  - **Symbols:** the field can be recovered from `/api/editor/symbols/backups`, which keeps the
-    raw replaced bytes.
-  - **Win text:** it cannot be recovered, because win text has no backups.
+  it shows, so the doc the author saves from it lacks the field. The concurrency check cannot
+  catch this, because it is a legitimate `If-Match` save. What survives that save:
+  - **Unknown TOP-LEVEL blocks are kept.** Before an `If-Match` save, `saveSymbolsDoc` and
+    `saveWinTextDoc` read the stored object. If its ETag is the save's `baseEtag`, they copy every
+    top-level key the schema does not declare onto the doc they PUT (`storedUnknownBlocks` in
+    `apps/launcher-api/src/lib/server/unknownBlocks.ts`). The keys come from the schema's shape,
+    not from `stripUnknownKeys`, because both roots are `.strip()` and that walk drops their
+    extras silently. Nothing is copied for a create (`baseEtag: null`), a forced overwrite (no
+    precondition: the author chose to replace bytes they never loaded) or a stored ETag that is
+    not `baseEtag` (the PUT 409s anyway). Neither is it copied from unparseable bytes, nor when
+    the stored object has no ETag (`etagDiffers` reads a missing ETag as "same", so that check is
+    explicit). The API's response omits the kept blocks. A doc with only known fields saves
+    byte-identically. The cost is one extra full-body GET per `If-Match` save. A storage error on
+    that GET fails the save (the tab keeps its edits and retries) rather than silently dropping
+    the blocks.
+  - **A symbols backup restore keeps the BACKUP's unknown blocks**, not the live doc's: the
+    restore replaces the live doc wholesale.
+  - **Nested unknown keys are still dropped**, because grafting them could resurrect a parent
+    block the author deleted. Symbols can recover them from `/api/editor/symbols/backups`, which
+    keeps the raw replaced bytes. Win text cannot, because it has no backups. So a field a newer
+    launcher adds INSIDE a win-text family is lost on the first save from an older launcher.
+  - **A NEWER tab saving to an older server** keeps the stored copy of an unknown block, not the
+    tab's edit of it: the server drops the posted value and copies the stored one.
+  - **Retiring a top-level field** is now a deliberate act. A key removed from the schema reads as
+    unknown and is carried through every save, so the change that retires it must delete it from
+    the stored docs.
+  - **The graft is added after the save's `'reject'` normalize** and is never normalized itself,
+    so a newer enum value inside a kept block cannot make every save answer 400.
+  - The graft only helps after a rollback to a build that contains it.
 
-  The same goes for anything a read DROPPED over an unknown value: a cell, layer, stacked symbol or
-  override block. It goes from the stored doc on that older launcher's next save. Symbols backups
-  keep it, because an autosave inside the coalescing window still takes a copy when the stored
-  doc was written by another instance or build. A sound keeps its entry, with its `kind` /
-  `status` / `origin` reset to the defaults. Two gaps remain:
+  **A known block a read DROPPED over an unknown value is NOT kept.** That covers a cell, layer,
+  stacked symbol or override block (`transition`, `highlight`). It is not an unknown key, and
+  keeping it would look exactly like a block the author cleared. It goes from the stored doc on
+  that older launcher's next save. Symbols backups keep it, because an autosave inside the
+  coalescing window still takes a copy when the stored doc was written by another instance or
+  build. A sound keeps its entry, with its `kind` / `status` / `origin` reset to the defaults. Two
+  gaps remain:
   - **The older tool does not say what it dropped.** Only the server log names it. A banner would
     need the list returned by the GET.
   - **A lenient restore at the retention limit.** Restoring a newer backup on an older launcher
     writes the reduced doc, and the restore's prune can then delete the full backup it came from.
 
-  That is still far better than the previous behaviour, which lost the whole doc. Preserving
-  unknown TOP-LEVEL keys through a save is the planned next step. It covers unknown KEYS only, not
-  a known block a read dropped over an unknown value (`transition`, `highlight`): that would look
-  exactly like a block the author cleared. Graft onto the NORMALIZED output, never before a
-  `'reject'` normalize, or a grafted newer value would 400 every save. Graft them from the stored
-  object under the same ETag. Nested keys are left out, because grafting them could resurrect a
-  parent the author deleted. Both protections only cover a rollback to a build that already
-  contains them.
+  The gate is `apps/launcher-api/scripts/check-save-keeps-unknown-blocks.ts`.
 
 - **Save loses its typo guard for KEYS** (values keep theirs, see
   [Saves keep their typo guard](#saves-keep-their-typo-guard)). The normalizers run on save too, so a misspelt field from a

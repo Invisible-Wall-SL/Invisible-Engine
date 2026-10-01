@@ -72,6 +72,8 @@
 		"check:win-text-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-text-doc.ts",
 		"precheck:doc-readers-unknown-fields": "node scripts/ensure-svelte-kit.mjs",
 		"check:doc-readers-unknown-fields": "tsx --tsconfig tsconfig.scripts.json scripts/check-doc-readers-unknown-fields.ts",
+		"precheck:save-keeps-unknown-blocks": "node scripts/ensure-svelte-kit.mjs",
+		"check:save-keeps-unknown-blocks": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-save-keeps-unknown-blocks.ts",
 		"precheck:rig-fx-overrides": "node scripts/ensure-svelte-kit.mjs",
 		"check:rig-fx-overrides": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-fx-overrides.ts",
 		"precheck:rig-flipbook-overrides": "node scripts/ensure-svelte-kit.mjs",

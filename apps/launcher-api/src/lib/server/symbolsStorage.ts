@@ -17,6 +17,7 @@ import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
 import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
+import { storedUnknownBlocks, unknownTopLevelBlocks } from './unknownBlocks';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -1234,6 +1235,11 @@ export async function canonicalizeSymbolsDocForExport(
  *
  * `unknownValues` is `'reject'` for an author's save (the typo guard) and `'drop'` for a restore,
  * whose bytes nobody typed: a backup a newer launcher wrote must still restore on an older one.
+ *
+ * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
+ * `If-Match` save ({@link storedUnknownBlocks}); the returned doc omits them. A backup restore
+ * passes `{ unknownFrom: 'doc' }` to keep the RESTORED bytes' unknown blocks instead — it
+ * replaces the live doc wholesale, so the live doc's blocks are not the author's to keep.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
@@ -1241,15 +1247,22 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
-	{ unknownValues = 'reject' }: { unknownValues?: UnknownValues } = {},
+	{
+		unknownValues = 'reject',
+		unknownFrom = 'stored',
+	}: { unknownValues?: UnknownValues; unknownFrom?: 'stored' | 'doc' } = {},
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc, unknownValues);
-	const stamped = { ...next, updatedAt: new Date().toISOString() };
+	const kept =
+		unknownFrom === 'doc'
+			? unknownTopLevelBlocks(symbolsDocSchema, doc)
+			: await storedUnknownBlocks(symbolsDocKey(clientKey, projectKey), symbolsDocSchema, baseEtag);
+	const updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
-		JSON.stringify(stamped, null, 2),
+		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
 		baseEtag,
 		backup,
 	);
-	return { doc: stamped, etag };
+	return { doc: { ...next, updatedAt }, etag };
 }
