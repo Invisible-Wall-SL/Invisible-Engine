@@ -59,9 +59,6 @@
 		'clearReel',
 		'intro',
 	];
-	/** The Hold and Win beats that light a BASE-board cell (a special flying to its pot, an instant
-	 *  collect) played `win` before they had names, so they report as `win` does. */
-	const WIN_LIKE: readonly string[] = WIN_HIGHLIGHT_SYMBOL_STATES;
 
 	/** This cell's seat on the lattice — `x` and the row `scale` always come from here. */
 	const seat = $derived(getSymbolSeat(props.reelIndex, props.row + PADDING_ROW));
@@ -195,8 +192,13 @@
 				// `postWinStatic` and `spin` are nobody's beat, so a looping clip in one of them
 				// reports nothing — the guard that keeps a settled win beat from being re-fired by a
 				// cell that has since moved on.
+				// `flyToMeter` / `coinCollect` are the Hold and Win beats that light a BASE-board cell (a
+				// special flying to its pot, an instant collect); they played `win` before they had
+				// names, so they report as `win` does.
 				if (
-					WIN_LIKE.includes(state) ||
+					state === 'win' ||
+					state === 'flyToMeter' ||
+					state === 'coinCollect' ||
 					state === 'explosion' ||
 					state === 'clearReel' ||
 					state === 'intro'
