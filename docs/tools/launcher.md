@@ -26,6 +26,24 @@ keeps you signed in for longer (`REMEMBER_TTL_DAYS`); normal sessions last
 3. You arrive at the launcher home: your tools grouped into **Online tools**
    and **Local tools**.
 
+### Changing your password
+
+1. On the launcher home, click **Change password** in the header (next to
+   *Getting started* and *Sign out*) — it opens `/account/password`.
+2. Enter your **current password**, then the **new password** twice.
+3. Click **Change password**. You see *"Password changed. Other sessions were
+   signed out."* — this browser stays signed in; every other browser or device
+   you were signed in on is signed out and needs the new password.
+
+The new password must be **at least 12 characters**, must differ from the
+current one, and must not be your email address. There are no other
+composition rules — a long phrase is fine. A wrong current password counts as
+a failed sign-in: after several in a row you are briefly locked out with
+*"Too many attempts. Please wait and try again."*, exactly as on `/login`.
+
+Passwords set before the 12-character minimum (2026-10-01) **keep working** —
+nothing forces a change; the rule applies only when a password is set.
+
 ## Roles and the tool manifest
 
 Every account has one role, and each role sees a different set of tools. The
@@ -70,9 +88,13 @@ Spine Viewer and the Rigger it redirects to their static `view.html` documents
   your role: how the studio works, your online tools (each with a **Read the
   guide** link), your local tools (download, plus a box to save where you
   installed each one), and where to get help.
+- **`/account/password`** ("Change password" link in the header) — change your
+  own password; see [Changing your password](#changing-your-password).
 - **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
   Games, Sessions, **Costs**, Settings (deploy token, layout default, **engine
-  boot mark**, ComfyUI pod fleet, edge cache).
+  boot mark**, ComfyUI pod fleet, edge cache). **Create user**'s initial
+  password and a user's **Reset** password must be at least 12 characters (the
+  same rule as a self-service change); a reset signs that user out everywhere.
 - **Sign out** — header form posting to `/auth/logout`.
 
 ### Admin → Games

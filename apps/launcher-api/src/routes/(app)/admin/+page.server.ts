@@ -11,7 +11,13 @@ import {
 	type Role,
 } from '$lib/roles';
 import { adminAccountDenial } from '$lib/accessRules';
-import { hashPassword, SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import { passwordLengthProblem } from '$lib/passwordPolicy';
+import {
+	hashPassword,
+	revokeUserSessions,
+	SESSION_COOKIE,
+	sessionIdFromToken,
+} from '$lib/server/auth';
 import { getEngineBootSplash, setEngineBootSplash } from '$lib/server/bootSplash';
 import { loadSharedSkeletonIndex } from '$lib/server/spine';
 import { PromoteError, promoteSpineToShared } from '$lib/server/sharedSpinePromote';
@@ -24,7 +30,6 @@ import {
 	isValidRole,
 	listUsers,
 	normalizeEmail,
-	revokeUserSessions,
 	sessionOwner,
 	sessionsForUser,
 	userRole,
@@ -125,8 +130,6 @@ async function requireAdmin(locals: App.Locals) {
 	}
 	return locals.user;
 }
-
-const MIN_PASSWORD = 8;
 
 /**
  * The refusal for an action on `targetId`'s account (and, for a role change, `newRole`), or
@@ -309,12 +312,8 @@ export const actions: Actions = {
 		if (!isValidRole(role)) return fail(400, { action: 'createUser', error: 'Invalid role.' });
 		const refused = await adminAccountRefusal(admin, 'createUser', null, role);
 		if (refused) return refused;
-		if (password.length < MIN_PASSWORD) {
-			return fail(400, {
-				action: 'createUser',
-				error: `Password must be at least ${MIN_PASSWORD} characters.`,
-			});
-		}
+		const tooShort = passwordLengthProblem(password);
+		if (tooShort) return fail(400, { action: 'createUser', error: tooShort });
 
 		const db = getDb();
 		const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
@@ -398,12 +397,8 @@ export const actions: Actions = {
 		const refused = await adminAccountRefusal(admin, 'resetPassword', userId);
 		if (refused) return refused;
 
-		if (password.length < MIN_PASSWORD) {
-			return fail(400, {
-				action: 'resetPassword',
-				error: `Password must be at least ${MIN_PASSWORD} characters.`,
-			});
-		}
+		const tooShort = passwordLengthProblem(password);
+		if (tooShort) return fail(400, { action: 'resetPassword', error: tooShort });
 
 		await getDb()
 			.update(users)

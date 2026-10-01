@@ -33,6 +33,8 @@
 		"check:mock-contract": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-mock-contract.ts",
 		"precheck:deploy-read": "node scripts/ensure-svelte-kit.mjs",
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",
+		"precheck:change-password": "node scripts/ensure-svelte-kit.mjs",
+		"check:change-password": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-change-password.ts",
 		"precheck:lease-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:lease-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-lease-scope.ts",
 		"precheck:rigger-writes": "node scripts/ensure-svelte-kit.mjs",
