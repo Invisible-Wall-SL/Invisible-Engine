@@ -152,18 +152,22 @@ full control of the font, size, colour and position, exactly like any other text
 
 A **Hold and Win** game has no free spins, so it doesn't show this section.
 
-### Hold and Win (jackpots, respins, feature)
+### Hold and Win (jackpots, respins, feature, wheel)
 
-These three sections appear only for a **Hold and Win** game. They hold the lines the
-respin feature shows. Each row has a live preview on its right.
+These sections appear only for a **Hold and Win** game. They hold the lines the respin
+feature shows. Each row has a live preview on its right. The **Wheel** section appears only
+when the game's config has the pre-feature wheel.
 
-| Placeholder   | Becomes                                                        |
-| ------------- | -------------------------------------------------------------- |
-| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND"                       |
-| `{amount}`    | what the jackpot or the feature paid, in the player's currency |
-| `{count}`     | a number of respins — the respins left, or the respins awarded |
-| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"     |
-| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"     |
+| Placeholder   | Becomes                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND"                        |
+| `{amount}`    | what the jackpot or the feature paid, in the player's currency  |
+| `{count}`     | a number of respins — the respins left, or the respins awarded  |
+| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"      |
+| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"      |
+| `{pot}`       | a pot's name, e.g. "RED"                                        |
+| `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level |
+| `{max}`       | a pot's top level                                               |
 
 - **Jackpots.** There is one box per jackpot tier. The tiers are the game's own, from
   [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
@@ -179,16 +183,22 @@ respin feature shows. Each row has a live preview on its right.
   - the pot-full line (`{meter} ACTIVATED`);
   - the modifiers a feature starts with (`{modifiers} ACTIVE`) and the ones a mystery
     unlocks (`UNLOCKED: {modifiers}`);
-  - the special names that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
-    PAYER, MYSTERY).
+  - a collector the wheel raised, on the counter's second line (`{level} COLLECTOR`);
+  - each pot's label over its bar (`{pot} {level}/{max}`);
+  - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
+    PAYER, MYSTERY), the collector levels (SINGLE, DOUBLE, TRIPLE; an unnamed level reads
+    ×4) and one box per pot in the config (an unnamed pot reads its id in capitals).
+- **Wheel.** The segment labels (`COIN BOOST ×{count}`, `+{count} COLLECT`; a jackpot
+  segment reads its tier's caption) and the banner a prize shows (`EVERY COIN ×{count}`,
+  `{level} COLLECT`, `JACKPOT`).
 
-Where the game already shows a line (the counter, the jackpot banners, Lucky Spin, the
-modifier toasts), the default is exactly that line. Every one of these lines, and each
-tier's caption, is listed in Localization for translation.
+The defaults are exactly what the game draws when nothing is written, so an untouched game
+reads as it always has. Every one of these lines, each tier's caption and each pot's name is
+listed in Localization for translation.
 
-**Not on screen yet:** the game still draws its built-in Hold and Win lines. What you
-write here starts showing once the engine reads this page (Hold and Win Phase 8, second
-part); the page says so above these sections.
+**Not on screen yet:** the respins awarded, reset and last-respin lines, the feature total,
+the pot-full line and the intro / outro are saved and translated, but nothing draws them
+until a scene or a beat uses them. The page says so above these sections.
 
 ### Win-level captions
 
@@ -257,10 +267,9 @@ build/publish of the game.
 
 - **The grid stops at 5 matching.** The match-count columns are fixed at 2–5, which
   covers every current 5-reel board; a wider board needs the list widened.
-- **Hold and Win lines don't reach the game yet.** The game draws its built-in lines until
-  the engine reads this page (Hold and Win Phase 8, second part). Even then, the respin
-  award, reset and last-respin lines, the feature total, the instant collect and the pot-full
-  line have no place on screen until a beat or a scene adopts them.
+- **Some Hold and Win lines have no place on screen yet** — see "Not on screen yet" above.
+- **Coin labels** (`MINI`, `×2`, the money on a coin) are not here: they belong to
+  [Invisible Symbols](./symbols-state-machine.md).
 - **Letters on a bitmap win-line font.** The win line is drawn in a bitmap font. If
   that font was made with digits only, a letter in your template has no glyph — check
   the win line in the game after adding words.

@@ -602,9 +602,11 @@
 		{/if}
 
 		{#if data.capabilities.holdAndWin}
-			<p class="warn">
-				<strong>Not in the game yet.</strong> The game still draws its built-in Hold and Win lines; what
-				you write below is saved and translated, and shows on screen once the engine reads it.
+			<p class="hint">
+				A few lines have no place on screen yet: <em>Respins awarded</em>, <em>Respins reset</em>,
+				<em>Last respin</em>, <em>Feature total</em>, <em>Pot full</em> and the intro / outro are saved
+				and translated, and show once a scene or beat uses them. Every other line here is what the game
+				draws.
 			</p>
 			<section>
 				<h2>Jackpots</h2>
