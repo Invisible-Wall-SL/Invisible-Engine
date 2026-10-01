@@ -35,7 +35,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a merged; 4b (facade + coin labels) merging; 4c (respin board) in review | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -262,7 +262,7 @@ only has to register its own vocab + seed.
     `holdAndWin`); the facade/mock emit no `modeEnter` yet (nothing needs a queued mode until a game
     announces one).
 
-- 2026-10-01 — **Phase 4a: the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
+- 2026-10-01 — **Phase 4a merged (#928, runtime release `lines@f6b3207671a9`): the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
   engine runtime"). The §4.3 events as typed arms of the shared runtime's union (payloads in
   `engine-game` `holdAndWin.ts`), `RawSymbol` `value`/`jackpot`/`factor`, the `HoldAndWinSnapshot`
   resume shape, state-only default handlers into `stateHoldAndWin`, `flightArrive` cue, regenerated
