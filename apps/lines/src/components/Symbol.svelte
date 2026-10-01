@@ -10,9 +10,8 @@
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
-	import { ResponsiveBitmapText } from 'components-pixi';
-	import { SYMBOL_SIZE } from 'engine-game';
-	import { coinLabelFor } from '../game/coinLabel';
+	import CoinLabel from './CoinLabel.svelte';
+	import { coinLabelFor, coinLabelLookFor, type CoinLabelPopCue } from '../game/coinLabel';
 
 	type Props = {
 		x?: number;
@@ -62,6 +61,8 @@
 		 * every frame never re-resolves the art. Omitted everywhere else.
 		 */
 		labelOverride?: Pick<RawSymbol, 'value' | 'factor'>;
+		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
+		labelPop?: CoinLabelPopCue;
 	};
 
 	const props: Props = $props();
@@ -254,16 +255,12 @@
 
 <Container tint={props.tint}>
 	{#if coinLabel}
-		<ResponsiveBitmapText
-			anchor={0.5}
+		<CoinLabel
 			x={props.x}
 			y={props.y}
-			maxWidth={SYMBOL_SIZE * 0.9}
 			text={coinLabel}
-			style={{
-				fontFamily: 'gold',
-				fontSize: SYMBOL_SIZE * 0.3,
-			}}
+			look={coinLabelLookFor(props.rawSymbol)}
+			pop={props.labelPop}
 		/>
 	{/if}
 </Container>
