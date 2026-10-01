@@ -80,8 +80,7 @@ export function createModeController(deps: ModeControllerDeps) {
 		enter: (op: Omit<Extract<ModeOp, { op: 'enter' }>, 'op' | 'legacyGameType'>) =>
 			run({ ...op, op: 'enter', legacyGameType: false }),
 		/** Exit a mode on the engine's own initiative (the flow's Exit mode node). */
-		exit: (id?: string, total?: number) =>
-			apply(exitMode(state.current, id, { total }), undefined),
+		exit: (id?: string, total?: number) => apply(exitMode(state.current, id, { total }), undefined),
 		/** A round starts at the base game. Silent: the game type is the round's own business. */
 		reset: (): void => {
 			state.current = emptyModeStack();

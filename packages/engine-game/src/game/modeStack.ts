@@ -151,7 +151,13 @@ export function exitMode(
  */
 export function restoreModes(
 	entries: readonly (
-		| { op: 'enter'; id: string; policy?: ModePolicy; cause?: string; payload?: Record<string, unknown> }
+		| {
+				op: 'enter';
+				id: string;
+				policy?: ModePolicy;
+				cause?: string;
+				payload?: Record<string, unknown>;
+		  }
 		| { op: 'exit'; id: string }
 	)[],
 ): ModeStackState {

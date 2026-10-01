@@ -305,9 +305,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
-			await withModes(bookEvent, () =>
-				coded.playBookEvent(bookEvent, { ...context, bookEvents }),
-			);
+			await withModes(bookEvent, () => coded.playBookEvent(bookEvent, { ...context, bookEvents }));
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 	};

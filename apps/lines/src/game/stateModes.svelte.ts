@@ -1,5 +1,5 @@
 import { createModeController, type ModeTransition } from 'engine-game';
-import { gameModeById, gameTypeForMode } from 'game-config';
+import { gameModeById, gameTypeForMode, resolveGameModes } from 'game-config';
 
 import { eventEmitter } from './eventEmitter';
 import { getActiveGameConfig } from './gameConfig';
@@ -46,3 +46,19 @@ export const stateModes = createModeController({
 		presentCoded(transition);
 	},
 });
+
+/** The ids of every mode on the stack (reactive) — what a mode-tagged screen mounts against. */
+export const activeModeIds = (): ReadonlySet<string> =>
+	new Set(stateModes.state.stack.map((entry) => entry.id));
+
+/** Every HUD screen some mode names as its own (`GameModeDecl.hud`). */
+export const modeHudIds = (): ReadonlySet<string> =>
+	new Set(
+		resolveGameModes(getActiveGameConfig())
+			.map((mode) => mode.hud)
+			.filter((hud): hud is string => !!hud),
+	);
+
+/** The HUD screen the mode on screen replaces the HUD with, if it names one (reactive). */
+export const activeModeHud = (): string | undefined =>
+	gameModeById(getActiveGameConfig(), stateModes.active())?.hud;
