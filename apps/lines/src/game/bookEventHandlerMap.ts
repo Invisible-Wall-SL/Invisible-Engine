@@ -429,10 +429,15 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		if (lastSetTotalWinEvent) playBookEvent(lastSetTotalWinEvent, { bookEvents });
 		if (lastUpdateGlobalMultEvent) playBookEvent(lastUpdateGlobalMultEvent, { bookEvents });
 		// Hold and Win: the server's last picture of the open feature and of the meters — the board is
-		// rebuilt from it, so no intro replays.
+		// rebuilt from it, so no intro replays. A feature that already ENDED before the resume point
+		// stays closed: its last snapshot is older than its `holdAndWinEnd`.
 		const lastMeterLevelsEvent = findLastBookEvent('meterLevels' as const);
 		const lastHoldAndWinStateEvent = findLastBookEvent('holdAndWinState' as const);
+		const lastHoldAndWinEndEvent = findLastBookEvent('holdAndWinEnd' as const);
+		const endedAt = lastHoldAndWinEndEvent ? bookEvents.indexOf(lastHoldAndWinEndEvent) : -1;
 		if (lastMeterLevelsEvent) await playBookEvent(lastMeterLevelsEvent, { bookEvents });
-		if (lastHoldAndWinStateEvent) await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
+		if (lastHoldAndWinStateEvent && bookEvents.indexOf(lastHoldAndWinStateEvent) > endedAt) {
+			await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
+		}
 	},
 };

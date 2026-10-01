@@ -76,12 +76,15 @@ export type HoldAndWinSnapshot = {
 	coinBoost: number;
 	/** Reels whose column letter is lit. */
 	lettersLit: number[];
-	meters: HoldAndWinMeterLevel[];
 };
 
 /**
  * Every Hold and Win book event's fields, keyed by type. A game declares its union arms from this
  * (`{ index; type: K } & HoldAndWinEventFields[K]`), so the payloads have one home.
+ *
+ * Order matters where the wire's does: `holdAndWinTrigger` opens the feature (resetting its picture)
+ * before any `holdAndWinWheel` or entry effect, and a respin's `coinsLand` precedes the specials
+ * applying to it. The facade keeps the wire's order.
  */
 export type HoldAndWinEventFields = {
 	luckySpin: Record<never, never>;
@@ -153,11 +156,25 @@ export type HoldAndWinEvent = {
 	[K in HoldAndWinEventType]: { type: K } & HoldAndWinEventFields[K];
 }[HoldAndWinEventType];
 
-/** The book events a resume keeps by name: the last open-feature snapshot and the meter levels. */
-export const HOLD_AND_WIN_SNAPSHOT_EVENTS = ['holdAndWinState', 'meterLevels'] as const;
+/**
+ * The book events a resume keeps by name: the open-feature snapshots, the meter levels, and the
+ * feature's end — so a resume that lands after the end does not re-open a closed feature.
+ */
+export const HOLD_AND_WIN_SNAPSHOT_EVENTS = [
+	'holdAndWinState',
+	'meterLevels',
+	'holdAndWinEnd',
+] as const;
 
-/** The client's picture of the feature. `active` is false in the base game; meters live across both. */
-export type HoldAndWinState = HoldAndWinSnapshot & { active: boolean; luckySpin: boolean };
+/**
+ * The client's picture of the feature. `active` is false in the base game. `meters` live across both
+ * and have their own events (`meterUpdate`, `meterLevels`), so no snapshot carries or replaces them.
+ */
+export type HoldAndWinState = HoldAndWinSnapshot & {
+	active: boolean;
+	luckySpin: boolean;
+	meters: HoldAndWinMeterLevel[];
+};
 
 export const emptyHoldAndWinState = (): HoldAndWinState => ({
 	active: false,
@@ -274,14 +291,16 @@ export const applyHoldAndWinEvent = (
 				...state,
 				lettersLit: union(state.lettersLit, [event.reel]),
 				banked: state.banked + (event.cleared ? event.amount : 0),
-				cells: event.cleared ? state.cells.filter((cell) => cell.reel !== event.reel) : state.cells,
+				cells: event.cleared
+					? state.cells.filter((cell) => !event.cells.some(samePosition(cell)))
+					: state.cells,
 			};
 		case 'jackpotWin':
 			return event.banked ? { ...state, banked: state.banked + event.amount } : state;
 		case 'respinUpdate':
 			return { ...state, left: event.left, played: event.played, start: event.start };
 		case 'holdAndWinState':
-			return { ...event.snapshot, active: true, luckySpin: state.luckySpin };
+			return { ...event.snapshot, active: true, luckySpin: state.luckySpin, meters: state.meters };
 		case 'holdAndWinEnd':
 			return { ...emptyHoldAndWinState(), meters: state.meters, total: event.total };
 		case 'coinInstantCollect':

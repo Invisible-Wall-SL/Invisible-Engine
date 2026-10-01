@@ -81,10 +81,13 @@ only has to register its own vocab + seed.
   must show them: `meterLevels` (the server restating every meter after each `play`),
   `randomMetreTrigger`, `cellsCleared`, and `holdAndWinState` (the server's whole picture of an open
   feature after every respin — the resume snapshot).
-- 2026-10-01 — **Phase 4a: resume = the last `holdAndWinState` + the last `meterLevels`.** Both are
-  kept by name in the engine's resume snapshot (`HOLD_AND_WIN_SNAPSHOT_EVENTS`) and replayed by
-  `createBonusSnapshot`, so a reload rebuilds the board from the server's picture without replaying
-  the trigger's intro. The facade emits `holdAndWinState` from the wire's bonus snapshots (4b).
+- 2026-10-01 — **Phase 4a: resume = the last `holdAndWinState` + the last `meterLevels`.** Kept by
+  name in the engine's resume snapshot (`HOLD_AND_WIN_SNAPSHOT_EVENTS`, with `holdAndWinEnd`) and
+  replayed by `createBonusSnapshot`, so a reload rebuilds the board from the server's picture without
+  replaying the trigger's intro — unless a `holdAndWinEnd` follows that snapshot, when the feature
+  stays closed. Meters are NOT part of a feature snapshot: they have their own events and survive it.
+  The facade emits `holdAndWinState` from the wire's bonus snapshots (4b), computing `total` and
+  taking `stickiness` from the boot config (the wire snapshot carries neither).
 - 2026-10-01 — **Phase 4a: the client's picture is a pure reducer** (`applyHoldAndWinEvent`,
   pinned by `packages/engine-game/fixtures/holdAndWinState.fixture.ts` in `check:engine-game`), held
   in `apps/lines` `stateHoldAndWin`. Every Hold and Win handler records into it and presents nothing

@@ -130,12 +130,13 @@ it('a mystery replaces its cell and activates what it unlocks', () => {
 });
 
 it('the server snapshot replaces the picture wholesale', () => {
-	const snapshot = { ...respin, cells: [coin(0, 0, 9)], total: 900, left: 1 };
-	const resumed = applyHoldAndWinEvent(emptyHoldAndWinState(), {
+	const { active: _active, luckySpin: _luckySpin, meters: _meters, ...snapshot } = respin;
+	const resumed = applyHoldAndWinEvent(base, {
 		type: 'holdAndWinState',
-		snapshot,
+		snapshot: { ...snapshot, cells: [coin(0, 0, 9)], total: 900, left: 1 },
 	});
 	assert.equal(resumed.active, true);
+	assert.deepEqual(resumed.meters, base.meters);
 	assert.equal(resumed.cells.length, 1);
 	assert.equal(resumed.total, 900);
 	assert.equal(resumed.left, 1);
