@@ -11,9 +11,14 @@
 		onfocus,
 		duplicateCount = 0,
 		onfixduplicates,
+		modeLabel,
 	}: {
 		issues: FlowIssue[];
-		onfocus: (nodeId: string) => void;
+		// Focus the node; `mode` is the issue's game-mode section (absent ⇒ the global graph), so the
+		// page can switch to that tab first.
+		onfocus: (nodeId: string, mode?: string) => void;
+		// A mode id → its tab name, to tag an issue found in a mode section. Absent ⇒ no tags.
+		modeLabel?: (modeId: string) => string;
 		// Count of `duplicate-id` warnings + a one-click repair. When both are present the panel shows a
 		// "Fix" banner (the duplicate lives in a collapsed group body, so clicking a row can't reach it).
 		duplicateCount?: number;
@@ -37,6 +42,8 @@
 		'duplicate-id': '⧉',
 		'hold-without-release': '⏳',
 		'tap-without-hold': 'ℹ',
+		'mode-unset': '✗',
+		'mode-entry-scope': '⤫',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.
@@ -75,12 +82,16 @@
 							class="issue"
 							class:error={issue.severity === 'error'}
 							class:info={issue.severity === 'info'}
-							onclick={() => onfocus(node)}
+							onclick={() => onfocus(node, issue.mode)}
 							title={issue.message}
 						>
 							<span class="icon">{ICON[issue.code] ?? '⚠'}</span>
 							<span class="body">
-								<span class="code">{issue.code}</span>
+								<span class="code"
+									>{issue.code}{#if issue.mode && modeLabel}<span class="mode"
+											>{modeLabel(issue.mode)}</span
+										>{/if}</span
+								>
 								<span class="msg">{issue.message}</span>
 							</span>
 						</button>
@@ -93,7 +104,11 @@
 						>
 							<span class="icon">{ICON[issue.code] ?? '⚠'}</span>
 							<span class="body">
-								<span class="code">{issue.code}</span>
+								<span class="code"
+									>{issue.code}{#if issue.mode && modeLabel}<span class="mode"
+											>{modeLabel(issue.mode)}</span
+										>{/if}</span
+								>
 								<span class="msg">{issue.message}</span>
 							</span>
 						</div>
@@ -212,6 +227,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		opacity: 0.75;
+	}
+	.mode {
+		margin-left: 6px;
+		padding: 0 4px;
+		border-radius: 3px;
+		border: 1px solid currentColor;
+		text-transform: none;
 	}
 	.msg {
 		min-width: 0;

@@ -772,6 +772,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'holdAndWinEnd',
 			},
+			{
+				type: 'modeEnter',
+			},
+			{
+				type: 'modeExit',
+			},
 		],
 	},
 	ways: {
@@ -1529,6 +1535,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'holdAndWinEnd',
+			},
+			{
+				type: 'modeEnter',
+			},
+			{
+				type: 'modeExit',
 			},
 		],
 	},
@@ -2288,6 +2300,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'holdAndWinEnd',
 			},
+			{
+				type: 'modeEnter',
+			},
+			{
+				type: 'modeExit',
+			},
 		],
 	},
 	holdAndWin: {
@@ -3045,6 +3063,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'holdAndWinEnd',
+			},
+			{
+				type: 'modeEnter',
+			},
+			{
+				type: 'modeExit',
 			},
 		],
 	},

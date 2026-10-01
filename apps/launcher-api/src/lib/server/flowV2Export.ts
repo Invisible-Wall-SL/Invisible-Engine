@@ -35,13 +35,16 @@ export interface FlowV2ExportIndex {
 	flowV2Library?: FunctionLibraryDoc;
 }
 
-/** A v2 flow is "authored" once its graph has at least one node — an empty graph is the parity-safe
+/** A v2 flow is "authored" once any of its graphs (the global one or a game-mode section) has at
+ *  least one node — an empty graph is the parity-safe
  *  fall-through (nothing to drive), so it is never embedded. `isFlowV2Doc` (the load-time shape guard)
  *  only proves `graph` is an object, NOT that `graph.nodes` is a populated array, so a partially
  *  initialized doc can reach here with `nodes` missing; guard for it so an in-progress doc is treated
  *  as un-authored (pruned) instead of throwing and taking down the whole publish. */
 export const isAuthoredFlowV2 = (doc: FlowDocV2): boolean =>
-	Array.isArray(doc.graph?.nodes) && doc.graph.nodes.length > 0;
+	[doc.graph, ...Object.values(doc.modes ?? {}).map((scope) => scope?.graph)].some(
+		(graph) => Array.isArray(graph?.nodes) && graph.nodes.length > 0,
+	);
 
 export async function exportEditorFlowV2(
 	clientKey: string,

@@ -69,6 +69,10 @@
 		group: '#fb923c', // inline container fold — warm orange.
 		functionEntry: '#22d3ee', // function body start — cyan.
 		functionResult: '#22d3ee', // function body end — cyan.
+		modeTrigger: '#f43f5e', // game-mode entry points + stack moves — rose.
+		allModesFinished: '#f43f5e',
+		enterMode: '#f43f5e',
+		exitMode: '#f43f5e',
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -104,7 +108,8 @@
 				// how show/hideContainer surface their `ref` under the header. The derived Show/Hide/exec
 				// pins render below via the generic pin loop.
 				const preview = n.text.trim() || '(empty)';
-				const gate = n.visibleWhile && n.visibleWhile !== 'none' ? ` · while ${n.visibleWhile}` : '';
+				const gate =
+					n.visibleWhile && n.visibleWhile !== 'none' ? ` · while ${n.visibleWhile}` : '';
 				return `“${preview}”${gate}`;
 			}
 			case 'playCinematic': {
@@ -137,6 +142,14 @@
 				return 'inputs →';
 			case 'functionResult':
 				return '→ outputs';
+			case 'modeTrigger':
+				return `On ${n.on ?? 'enter'} · ${n.modeId || '(no mode)'}`;
+			case 'allModesFinished':
+				return 'back at the base game';
+			case 'enterMode':
+				return `Enter ${n.modeId || '(no mode)'} (${n.policy ?? 'nest'})`;
+			case 'exitMode':
+				return n.modeId ? `Exit ${n.modeId}` : 'Exit the mode on screen';
 			default:
 				return '';
 		}

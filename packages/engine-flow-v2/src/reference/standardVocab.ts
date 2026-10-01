@@ -44,6 +44,7 @@ import { MUSIC_NAMES, SOUND_EFFECT_NAMES, SOUND_NAMES } from './soundEnums.gener
 
 export const INT: TypeRef = { t: 'int' };
 const FLOAT: TypeRef = { t: 'float' };
+const STRING: TypeRef = { t: 'string' };
 export const SYMBOL: TypeRef = { t: 'enum', name: 'SymbolName' };
 const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // Sound-cue name enums — a dropdown of the game's REAL sound names in the inspector (vs a free-text
@@ -136,7 +137,9 @@ export const standardVocabulary = ({
 			name: 'SymbolName',
 			values: [...symbolNames],
 		},
-		{ name: 'GameType', values: ['basegame', 'freegame'] },
+		// Plus `respin`, the Hold and Win mode's game type (`game-config` `builtinGameModes`). A project's
+		// own mode sets its own game type, which a guard reads through `$engine.activeMode` instead.
+		{ name: 'GameType', values: ['basegame', 'freegame', 'respin'] },
 		// The full-screen camera effects the engine implements. Shared verbatim with the runtime
 		// (`constants-shared/camera` → `pixi-svelte`'s `cameraEffects`), so the dropdown can never
 		// offer a kind the game would silently no-op.
@@ -320,6 +323,33 @@ export const standardVocabulary = ({
 			category: 'book',
 			description:
 				'The free-spin session has finished. Use it to play the free-spin outro / total-win count-up, then hand back to the base game.',
+		},
+		// GAME MODES (docs/design/hold-and-win.md §4.5). The generic pair the engine's mode stack moves
+		// on; `freeSpinTrigger` / `freeSpinEnd` are its aliases. To react when a mode actually STARTS
+		// (a queued one starts later than its `modeEnter`), use a Mode trigger node instead.
+		{
+			name: 'modeEnter',
+			payload: [
+				{ name: 'mode', type: STRING, description: 'The mode id (freeSpins, holdAndWin, …).' },
+				{ name: 'cause', type: STRING, description: 'Why it was entered, as the book named it.' },
+				{
+					name: 'policy',
+					type: STRING,
+					description: '`nest` (plays now) or `queue` (plays after the current modes).',
+				},
+			],
+			category: 'book',
+			description:
+				'The book enters a game mode (or queues it). The engine moves its mode stack itself; wire this only to present the announcement.',
+		},
+		{
+			name: 'modeExit',
+			payload: [
+				{ name: 'mode', type: STRING, description: 'The mode id.' },
+				{ name: 'total', type: FLOAT, description: 'What the mode won.' },
+			],
+			category: 'book',
+			description: 'The book ends a game mode. The engine closes it once this event is presented.',
 		},
 	],
 
@@ -751,7 +781,27 @@ export const standardVocabulary = ({
 		{ name: 'win', type: FLOAT, description: "The current round's win." },
 		{ name: 'totalWin', type: FLOAT, description: 'Accumulated win for the round.' },
 		{ name: 'bet', type: FLOAT, description: 'The current total stake (bet × cost multiplier).' },
-		{ name: 'gameType', type: GAME_TYPE, description: 'basegame or freegame.' },
+		{
+			name: 'gameType',
+			type: GAME_TYPE,
+			description:
+				"The active mode's game type: basegame, freegame, respin, or a project mode's own.",
+		},
+		{
+			name: 'activeMode',
+			type: STRING,
+			description: 'The game mode on screen (basegame, freeSpins, holdAndWin, …).',
+		},
+		{
+			name: 'modeDepth',
+			type: INT,
+			description: 'How many modes are on the stack (0 at the base game).',
+		},
+		{
+			name: 'queuedModes',
+			type: INT,
+			description: 'How many modes are waiting to play after the current ones.',
+		},
 		{ name: 'isFreeGame', type: BOOL, description: 'True while the free-spin feature is running.' },
 		{ name: 'freeSpinsRemaining', type: INT, description: 'Free spins still to play.' },
 		{ name: 'freeSpinsTotal', type: INT, description: 'Free spins awarded this feature.' },

@@ -107,6 +107,16 @@ export interface FlowV2Env {
 	): Promise<void> | void;
 	/** A `playCinematic` node's `stop` exec — unmount/stop it. */
 	stopCinematic?(cinematicId: string): void;
+	/**
+	 * An `enterMode` node — enter game mode `modeId` now (`nest`) or after the current modes
+	 * (`queue`). Optional: a recorder env without it makes the node a no-op.
+	 */
+	enterMode?(
+		modeId: string,
+		opts: { policy: 'nest' | 'queue'; cause?: string },
+	): void | Promise<void>;
+	/** An `exitMode` node — close `modeId` (the mode on screen when undefined). Optional. */
+	exitMode?(modeId: string | undefined, total?: number): void | Promise<void>;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -115,6 +125,11 @@ export interface RunContext {
 	vocab: TemplateVocabulary;
 	library: FunctionLibraryDoc;
 	env: FlowV2Env;
+	/**
+	 * The game mode on screen (`docs/design/hold-and-win.md` §4.5) — a signal goes to that mode's graph
+	 * (`FlowDoc.modes`) first. Absent ⇒ only the global graph, as before modes existed.
+	 */
+	activeMode?: () => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +241,28 @@ class FlowInterpreter {
 		});
 	}
 
+	/**
+	 * Run every `modeTrigger` (or, for `allFinished`, every `allModesFinished`) entry in this graph
+	 * that matches the transition, one after another in graph order.
+	 */
+	async runModeTransition(transition: FlowModeTransition): Promise<void> {
+		const trigger: Record<string, unknown> = {
+			...(transition.payload ?? {}),
+			mode: transition.mode ?? '',
+			cause: transition.cause ?? '',
+			total: transition.total ?? 0,
+		};
+		for (const node of this.doc.graph.nodes) {
+			const matches =
+				transition.kind === 'allFinished'
+					? node.kind === 'allModesFinished'
+					: node.kind === 'modeTrigger' &&
+						node.modeId === transition.mode &&
+						(node.on ?? 'enter') === transition.kind;
+			if (matches) await this.execFrom(this.doc.graph, node.id, 'exec', { trigger, context: {} });
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// Exec walk. Run the node at `nodeId`, then follow its outgoing exec edge FROM
 	// `execPinId` (within `graph`) to the next node and continue. Some nodes drive their
@@ -282,8 +319,35 @@ class FlowInterpreter {
 		switch (node.kind) {
 			case 'event':
 			case 'functionEntry':
+			case 'modeTrigger':
+			case 'allModesFinished':
 				// Exec START points: their job is just to hand off to the exec-out.
 				return this.nextExec(graph, node.id, 'exec');
+
+			case 'enterMode': {
+				const cause = this.resolveDataIn(graph, node.id, 'cause', scope);
+				if (node.modeId) {
+					await this.ctx.env.enterMode?.(node.modeId, {
+						policy: node.policy ?? 'nest',
+						...(typeof cause === 'string' && cause ? { cause } : {}),
+					});
+				}
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'exitMode': {
+				const raw = this.resolveDataIn(graph, node.id, 'total', scope);
+				const total = raw === undefined ? NaN : Number(raw);
+				// Blank = the mode this chain is about (a Mode trigger's or a mode event's `mode`), else
+				// the mode on screen. So a blank Exit mode in a mode's own exit chain names the mode that
+				// just exited (a no-op), never the one underneath it.
+				const about = typeof scope.trigger.mode === 'string' ? scope.trigger.mode : undefined;
+				await this.ctx.env.exitMode?.(
+					node.modeId || about || undefined,
+					Number.isFinite(total) ? total : undefined,
+				);
+				return this.nextExec(graph, node.id, 'exec');
+			}
 
 			case 'gameSignals':
 				// An exec START point (a mechanic-signal SOURCE): `runEvent` walks FROM its per-event
@@ -511,6 +575,7 @@ class FlowInterpreter {
 		if (!src) return undefined;
 		switch (src.kind) {
 			case 'event':
+			case 'modeTrigger':
 				// An event data-out IS the payload field named by the pin id.
 				return scope.trigger[from.pin];
 			case 'gameSignals': {
@@ -721,9 +786,72 @@ export const runFlowEvent = async (
 	payload: Record<string, unknown>,
 	context: Record<string, unknown> = {},
 ): Promise<void> => {
-	const interpreter = new FlowInterpreter(doc, ctx);
+	const interpreter = new FlowInterpreter(scopeForSignal(doc, ctx.activeMode?.(), eventName), ctx);
 	await interpreter.runEvent(eventName, payload, context);
 };
+
+// ---------------------------------------------------------------------------
+// GAME MODES (`docs/design/hold-and-win.md` §4.5). A FlowDoc carries a global `graph` plus one graph
+// per mode (`modes`). Every entry point below picks ONE graph and runs the unchanged interpreter over
+// `{ ...doc, graph }`, so the walk itself knows nothing about modes.
+// ---------------------------------------------------------------------------
+
+/** One move of the engine's mode stack, as the flow sees it (`engine-game` `ModeTransition`). */
+export interface FlowModeTransition {
+	kind: 'enter' | 'exit' | 'resume' | 'allFinished';
+	mode?: string;
+	cause?: string;
+	total?: number;
+	payload?: Record<string, unknown>;
+}
+
+/** Mode `modeId`'s own graph, if the doc has one. */
+export const flowModeGraph = (doc: FlowDoc, modeId: string | undefined): Graph | undefined =>
+	modeId ? doc.modes?.[modeId]?.graph : undefined;
+
+/** Every graph of the doc — the global one (no `modeId`) first, then each mode's. */
+export const flowGraphs = (doc: FlowDoc): { modeId?: string; graph: Graph }[] => [
+	{ graph: doc.graph },
+	...Object.entries(doc.modes ?? {})
+		.filter(([, scope]) => scope?.graph)
+		.map(([modeId, scope]) => ({ modeId, graph: scope.graph })),
+];
+
+const withGraph = (doc: FlowDoc, graph: Graph): FlowDoc => ({ ...doc, graph });
+
+/** Does `graph` handle `eventName` — an `event` node for it, or a wired `gameSignals` pin? */
+const graphHandlesSignal = (graph: Graph, eventName: string): boolean =>
+	graph.nodes.some((n) => n.kind === 'event' && n.ref === eventName) ||
+	graphOwnsSignal(graph, eventName);
+
+/** The doc to run `eventName` on: the active mode's graph when it handles the signal, else global. */
+const scopeForSignal = (doc: FlowDoc, modeId: string | undefined, eventName: string): FlowDoc => {
+	const graph = flowModeGraph(doc, modeId);
+	return graph && graphHandlesSignal(graph, eventName) ? withGraph(doc, graph) : doc;
+};
+
+/**
+ * Present a mode-stack transition: the matching `modeTrigger` entries of the mode's OWN graph, then
+ * those of the global graph. An `allFinished` runs the `allModesFinished` entries of the `basegame`
+ * graph, then the global graph. A doc with no such entry is a no-op.
+ */
+export const runFlowModeTransition = async (
+	doc: FlowDoc,
+	ctx: RunContext,
+	transition: FlowModeTransition,
+): Promise<void> => {
+	const own = flowModeGraph(doc, transition.kind === 'allFinished' ? 'basegame' : transition.mode);
+	for (const graph of [own, doc.graph]) {
+		if (!graph) continue;
+		await new FlowInterpreter(withGraph(doc, graph), ctx).runModeTransition(transition);
+	}
+};
+
+/** Does the doc react to mode transitions at all (so a game can skip a run for each one)? */
+export const flowHandlesModeTransitions = (doc: FlowDoc): boolean =>
+	flowGraphs(doc).some(({ graph }) =>
+		graph.nodes.some((n) => n.kind === 'modeTrigger' || n.kind === 'allModesFinished'),
+	);
 
 /**
  * Run the authored handler for a container's component event (`<componentId>` firing `<event>`).
@@ -739,7 +867,12 @@ export const runFlowContainerEvent = async (
 	payload: Record<string, unknown> = {},
 	context: Record<string, unknown> = {},
 ): Promise<void> => {
-	const interpreter = new FlowInterpreter(doc, ctx);
+	const modeGraph = flowModeGraph(doc, ctx.activeMode?.());
+	const scoped =
+		modeGraph && graphOwnsContainerEvent(modeGraph, componentId, event)
+			? withGraph(doc, modeGraph)
+			: doc;
+	const interpreter = new FlowInterpreter(scoped, ctx);
 	await interpreter.runContainerEvent(componentId, event, payload, context);
 };
 
@@ -752,10 +885,19 @@ export const flowOwnsContainerEvent = (
 	doc: FlowDoc,
 	componentId: string,
 	event: string,
+	activeMode?: string,
 ): boolean => {
+	const modeGraph = flowModeGraph(doc, activeMode);
+	return (
+		graphOwnsContainerEvent(doc.graph, componentId, event) ||
+		(modeGraph !== undefined && graphOwnsContainerEvent(modeGraph, componentId, event))
+	);
+};
+
+const graphOwnsContainerEvent = (graph: Graph, componentId: string, event: string): boolean => {
 	const declId = containerEventDeclId(componentId, event);
-	const nodesById = new Map(doc.graph.nodes.map((n) => [n.id, n] as const));
-	return doc.graph.exec.some(
+	const nodesById = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	return graph.exec.some(
 		(e) => e.from.pin === declId && nodesById.get(e.from.node)?.kind === 'showContainer',
 	);
 };
@@ -768,12 +910,20 @@ export const flowOwnsContainerEvent = (
  * SUPPRESS the coded handler ONLY for wired signals, so the two never double-fire. Mirrors
  * `flowOwnsContainerEvent`'s shape — no env/ctx needed, a static graph read.
  */
-export const flowOwnsSignal = (doc: FlowDoc, eventName: string): boolean => {
-	const nodesById = new Map(doc.graph.nodes.map((n) => [n.id, n] as const));
-	return doc.graph.exec.some(
-		(e) => e.from.pin === eventName && nodesById.get(e.from.node)?.kind === 'gameSignals',
+export const flowOwnsSignal = (doc: FlowDoc, eventName: string, activeMode?: string): boolean => {
+	const modeGraph = flowModeGraph(doc, activeMode);
+	return (
+		graphOwnsSignal(doc.graph, eventName) ||
+		(modeGraph !== undefined && graphHandlesSignal(modeGraph, eventName))
 	);
 };
+
+function graphOwnsSignal(graph: Graph, eventName: string): boolean {
+	const nodesById = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	return graph.exec.some(
+		(e) => e.from.pin === eventName && nodesById.get(e.from.node)?.kind === 'gameSignals',
+	);
+}
 
 /**
  * Lifecycle signals that MOUNT SCREENS. They only take effect when the flow DRIVES SCREENS (i.e. it
@@ -826,8 +976,10 @@ export const flowScreenDrivingStatus = (doc: FlowDoc): FlowScreenDrivingStatus =
  */
 export const awaitCompleteContainerIds = (doc: FlowDoc): Set<ContainerId> => {
 	const ids = new Set<ContainerId>();
-	for (const node of doc.graph.nodes) {
-		if (node.kind === 'showContainer' && node.awaitComplete) ids.add(node.ref);
+	for (const { graph } of flowGraphs(doc)) {
+		for (const node of graph.nodes) {
+			if (node.kind === 'showContainer' && node.awaitComplete) ids.add(node.ref);
+		}
 	}
 	return ids;
 };
@@ -870,6 +1022,6 @@ export const hideContainerIds = (doc: FlowDoc): Set<ContainerId> => {
 			else if (node.kind === 'group' && node.body) scan(node.body);
 		}
 	};
-	scan(doc.graph);
+	for (const { graph } of flowGraphs(doc)) scan(graph);
 	return ids;
 };

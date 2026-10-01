@@ -21,6 +21,11 @@
  *    entry is keyed by its `templateId`, that id has a registered vocabulary (not a fallback), and
  *    `validateFlowDoc` finds no error. §1 reaches only the seeds a game kind resolves to; this
  *    reaches every seed.
+ * 6. **Game-mode sections go through the same gate** (hold-and-win §4.5). A starter flow with a
+ *    clean `modes` section still passes; an error inside a section (a Mode trigger naming no mode,
+ *    an unresolved action) is refused by Publish exactly like one in the global graph, and the issue
+ *    names its section. Without this a mode tab could ship anything, because only `doc.graph` was
+ *    validated before modes existed.
  */
 import { GAME_KINDS } from 'constants-shared/gameKinds';
 import {
@@ -148,6 +153,45 @@ for (const [id, seed] of Object.entries(DRIVEN_SEEDS)) {
 		errors.map((e) => `${e.code}: ${e.message}`).join(' | '),
 	);
 }
+
+const linesSeed: FlowDoc = freshDrivenSeedDoc('lines');
+const linesScenes = engineOwnedOnly(getFullSceneSet('lines')!).scenes;
+const withSection = (nodes: FlowDoc['graph']['nodes']): FlowDoc => ({
+	...linesSeed,
+	modes: { holdAndWin: { graph: { nodes, exec: [], data: [] } } },
+});
+const sectionErrors = (doc: FlowDoc) =>
+	validateFlowV2Against(doc, linesScenes, null, EMPTY_LIBRARY).filter(
+		(i) => i.severity === 'error',
+	);
+const at = { x: 0, y: 0 };
+const clean = sectionErrors(
+	withSection([
+		{ id: 'hw_enter', kind: 'modeTrigger', pos: at, modeId: 'holdAndWin' },
+		{ id: 'hw_done', kind: 'exitMode', pos: at },
+	]),
+);
+check(
+	'6. a starter flow with a clean mode section passes the gate',
+	clean.length === 0,
+	clean.map((e) => `${e.code}: ${e.message}`).join(' | '),
+);
+const unset = sectionErrors(
+	withSection([{ id: 'hw_x', kind: 'modeTrigger', pos: at, modeId: '' }]),
+);
+check(
+	'6. a Mode trigger naming no mode is refused, tagged with its section',
+	unset.some((i) => i.code === 'mode-unset' && i.mode === 'holdAndWin'),
+	JSON.stringify(unset),
+);
+const ghost = sectionErrors(
+	withSection([{ id: 'hw_ghost', kind: 'action', pos: at, ref: 'noSuchAction' }]),
+);
+check(
+	'6. an unresolved action inside a mode section is refused like one in the global graph',
+	ghost.some((i) => i.code === 'ref-unresolved' && i.mode === 'holdAndWin'),
+	JSON.stringify(ghost),
+);
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');
 if (fails) process.exitCode = 1;

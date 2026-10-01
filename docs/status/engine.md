@@ -246,6 +246,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, spine symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-10-01 — **Game modes: a mode stack + queue in the shared runtime** (Hold and Win Phase 4M;
+  design [hold-and-win §4.5](../design/hold-and-win.md)). `engine-game` `modeStack.ts` (pure rules,
+  `modeStack.fixture.ts`), `modeEvents.ts` (which events move it: `modeEnter`/`modeExit`, aliases
+  `freeSpinTrigger`/`freeSpinEnd` and `holdAndWinTrigger`/`holdAndWinEnd`), `modeController.svelte.ts`
+  (reactive holder), driven from `createPlayBook`'s new optional `modes` dep around every event on
+  every dispatch path, reset at `playBet`, rebuilt silently from a resume snapshot.
+  `apps/lines` `stateModes.svelte.ts` is the game's instance: game type per mode from Game Config,
+  a mode's `music` on enter/resume, the flow's Mode triggers as presenter. `GameType` widened to any
+  mode game type (the compiled `basegame`/`freegame` stay spelled out). `Game.svelte` mounts a
+  `role: 'mode'` screen only while its mode is on the stack (coded path) and swaps in a mode's own HUD.
+  **Parity:** the free-spin aliases keep their own game-type write; a book with no mode events moves
+  nothing. Verified with a real-clock `bookofborutremake` free-spin round on the book mock, `main` vs
+  branch (same holds, same flow actions in the same order, no exceptions). **A runtime release.**
 - 2026-10-01 — **Hold and Win event contract in the shared runtime (Phase 4a).** Twenty Hold and Win book events are typed arms of `apps/lines`' union, their payloads in `engine-game` `holdAndWin.ts`; `RawSymbol` gains `value`/`jackpot`/`factor`; each has a state-only default handler (`stateHoldAndWin`, a pure reducer) and the resume snapshot keeps `holdAndWinState` + `meterLevels` + `holdAndWinEnd`. Inert for every existing game — none receives these events. Detail: [status/hold-and-win](hold-and-win.md). A runtime release on merge.
 - 2026-09-30 — **Readable stack traces for the game, without publishing its source.** `packages/config-vite` writes a hidden map when `IE_SOURCEMAPS=hidden` (only the runtime release sets it); the release uploads it to Sentry re-based onto `index.html` under a debug ID, then strips every map before R2. The served page gains one inline debug-ID `<script>`; the bundle itself is unchanged. Detail + owner steps: [status/infra](infra.md), docs/INFRA.md "Readable stack traces — source maps".
 - 2026-09-30 — **`check-balance-flow` no longer goes red one `check:all` run in ten, and now pins the free-spin balance path; the facade was right every time.** The check took a round's win from its FIRST `setTotalWin`, but a free-spin round sends one per spin as a running total, starting with the trigger spin's own pay — so on a feature round it expected the trigger's 2× while `requestEndRound` rightly credited the whole feature (that day's red: 2× expected, 23× credited).

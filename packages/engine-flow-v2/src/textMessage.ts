@@ -45,7 +45,9 @@ export function collectTextMessages(
 	if (!doc) return [];
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
-	for (const node of textMessageNodes(doc.graph)) {
+	// Every section: the global graph and each game mode's (`FlowDoc.modes`).
+	const graphs = [doc.graph, ...Object.values(doc.modes ?? {}).map((scope) => scope.graph)];
+	for (const node of graphs.flatMap(textMessageNodes)) {
 		const source = node.text;
 		if (!source || !source.trim() || seen.has(source)) continue;
 		seen.add(source);

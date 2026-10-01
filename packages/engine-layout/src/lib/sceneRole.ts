@@ -53,6 +53,31 @@ export function isModeScene(scene: Scene): boolean {
 	return scene.role === 'mode';
 }
 
+/**
+ * Whether a screen may mount while the modes in `activeModeIds` are on the mode stack: every
+ * non-mode screen may, and a mode screen only while its own mode is there.
+ */
+export function sceneInActiveModes(scene: Scene, activeModeIds: ReadonlySet<string>): boolean {
+	return scene.role !== 'mode' || (scene.modeId !== undefined && activeModeIds.has(scene.modeId));
+}
+
+/**
+ * The HUD screens to show for the mode on screen. A mode that names its own HUD (`GameModeDecl.hud`,
+ * a `hud_*` screen id) REPLACES the HUD while it is on top; a screen some mode names as its HUD is
+ * that mode's alone and never shows in another. No override, or one naming a screen the doc lacks ⇒
+ * every other HUD screen, exactly as before modes existed.
+ */
+export function hudScenesForMode(
+	hudScenes: readonly Scene[],
+	modeHudIds: ReadonlySet<string>,
+	activeHudId: string | undefined,
+): Scene[] {
+	if (activeHudId && hudScenes.some((scene) => scene.id === activeHudId)) {
+		return hudScenes.filter((scene) => scene.id === activeHudId);
+	}
+	return hudScenes.filter((scene) => !modeHudIds.has(scene.id));
+}
+
 export function sceneByRole(scenes: readonly Scene[], role: SceneRole): Scene | undefined {
 	// Prefer the CANONICAL scene whose id AND role both equal the role name. This disambiguates a
 	// doc that erroneously tags SEVERAL scenes with the same role (a bulk-tag/migration artifact):

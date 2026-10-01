@@ -161,6 +161,14 @@ carries the **role** dropdown, which gained **bet menu** and **auto spin** besid
 screen, so you can rename it or give it any id you like — just keep exactly one screen per
 role.
 
+**Game mode screens.** The role **game mode** is the exception to "one screen per role": pick it
+and a **mode** field appears (suggestions: `freeSpins`, `holdAndWin`, or a mode the project declares
+in Game Config → Game modes). The game shows such a screen only while that mode is playing and
+removes it when the mode ends; tag as many as a mode needs (its board frame, counter, background).
+In a game driven by a Flow that mounts its own screens, show it from that mode's **Mode trigger**
+in `/flow-v2` instead. A mode screen whose id starts with `hud_` is that mode's HUD; name it as the
+mode's **HUD** in Game Config to make it replace the base HUD while the mode is on top.
+
 **The option grids are Repeaters.** A **Repeater** (click one in the Library's
 **Elements**) stamps one copy of a component per item of a live list the game supplies.
 Select it and Properties gives you:

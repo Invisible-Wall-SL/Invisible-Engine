@@ -24,10 +24,11 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import { withProjectSounds } from '$lib/soundOptions';
 	import { withSceneCues } from '$lib/sceneCues';
 	import { LIBRARY } from './sample';
-	import { typeColor } from './palette';
+	import { MODE_NODES, modeNodeRef, offeredInSection, typeColor } from './palette';
 	import {
 		addDataEdgeIn,
 		addExecEdgeIn,
@@ -36,7 +37,10 @@
 		freshNodeIdIn,
 		makeNode,
 		moveNodeIn,
+		seedModeGraph,
 		setGroupLabel,
+		withModeGraph,
+		withoutMode,
 	} from './graphOps';
 	import FlowV2Node from './FlowV2Node.svelte';
 	import CommentNode from './CommentNode.svelte';
@@ -127,8 +131,17 @@
 	// `FunctionDef.body`. `view` names which; `activeGraph` resolves it. Every editing handler
 	// reads/writes the active graph via `applyGraphEdit` (below), which routes the write back to
 	// the right target + arms the matching autosave. Default is the main flow (`{ kind: 'flow' }`).
-	type FlowView = { kind: 'flow' } | { kind: 'function'; functionId: string };
+	//
+	// GAME MODES (`docs/design/hold-and-win.md` §4.5): a `mode` view edits one section of
+	// `doc.modes` — a mode's own graph, which the runtime asks first while that mode is on screen
+	// before falling back to the global `doc.graph` (the "Global" tab, `{ kind: 'flow' }`).
+	type FlowView =
+		| { kind: 'flow' }
+		| { kind: 'function'; functionId: string }
+		| { kind: 'mode'; modeId: string };
 	let view = $state<FlowView>({ kind: 'flow' });
+	// The doc section (Global or a mode tab) the function crumb returns to.
+	let lastSection = $state<FlowView>({ kind: 'flow' });
 
 	// The FunctionDef currently open in function view (or null when in flow view / it vanished).
 	const activeFn = $derived<FunctionDef | null>(
@@ -141,20 +154,60 @@
 	// is the open function's `body`. Falls back to the flow graph if the function is gone (guarded
 	// by the effect below that snaps `view` back to flow when its function disappears).
 	const activeGraph = $derived<Graph>(
-		view.kind === 'function' ? (activeFn?.body ?? doc.graph) : doc.graph,
+		view.kind === 'function'
+			? (activeFn?.body ?? doc.graph)
+			: view.kind === 'mode'
+				? (doc.modes?.[view.modeId]?.graph ?? doc.graph)
+				: doc.graph,
 	);
 
-	// If the open function is deleted (or otherwise vanishes), return to the flow view so the
-	// canvas never edits a dangling graph.
+	// The open mode tab's id, or null on the Global tab / in a function body.
+	const activeModeId = $derived(view.kind === 'mode' ? view.modeId : null);
+
+	// If the open function or mode section is deleted (or otherwise vanishes), return to the flow
+	// view so the canvas never edits a dangling graph.
 	$effect(() => {
 		if (view.kind === 'function' && !activeFn) view = { kind: 'flow' };
+		if (view.kind === 'mode' && !doc.modes?.[view.modeId]) view = { kind: 'flow' };
 	});
+
+	// Every graph a node id must be unique across: the global graph, each mode section and each
+	// function body (the validator's cross-section `duplicate-id`).
+	const allGraphs = (): Graph[] => [
+		doc.graph,
+		...Object.values(doc.modes ?? {}).map((m) => m.graph),
+		...library.functions.map((f) => f.body),
+	];
+
+	// The project's game modes (its Game Config registry) plus any mode tab the doc already carries
+	// that the registry does not name — every id the "+ Mode" picker, the tabs and the mode nodes'
+	// inspector can offer.
+	const knownModes = $derived.by((): { id: string; label: string }[] => {
+		const out = [...(data.gameModes ?? [])];
+		for (const id of Object.keys(doc.modes ?? {})) {
+			if (!out.some((m) => m.id === id)) out.push({ id, label: id });
+		}
+		return out;
+	});
+	const modeLabel = (id: string): string => knownModes.find((m) => m.id === id)?.label ?? id;
+	const modeTabs = $derived(Object.keys(doc.modes ?? {}));
+
+	// The palette's Modes group for the open section (none inside a function body).
+	const paletteModeNodes = $derived(
+		view.kind === 'function'
+			? []
+			: MODE_NODES.filter((m) => offeredInSection(m.kind, activeModeId)).map((m) => ({
+					...m,
+					ref: modeNodeRef(m.kind, activeModeId),
+				})),
+	);
 
 	// A monotonically-bumped signal that tells the canvas to re-fit the view (on a target switch).
 	let fitSignal = $state(0);
 
 	// Write an edited `Graph` back to whichever target is active, and arm the matching autosave:
 	//  - flow view     → replace `doc.graph`,               `markDirty()`.
+	//  - mode view     → replace `doc.modes[id].graph`,      `markDirty()`.
 	//  - function view → replace `library.functions[i].body`, `markLibraryDirty()`.
 	// Then re-seed the canvas (derived pins / edge colors refresh). The single write-back path
 	// that keeps main-flow editing byte-for-byte unchanged while enabling body editing.
@@ -167,6 +220,10 @@
 			};
 			syncCanvas();
 			markLibraryDirty(historyKey);
+		} else if (view.kind === 'mode') {
+			doc = withModeGraph(doc, view.modeId, nextGraph);
+			syncCanvas();
+			markDirty(historyKey);
 		} else {
 			doc = { ...doc, graph: nextGraph };
 			syncCanvas();
@@ -217,6 +274,7 @@
 	}
 
 	function addComment(): void {
+		if (view.kind !== 'flow') return;
 		const id = `comment_${Date.now().toString(36)}_${(doc.comments ?? []).length}`;
 		const PAD = 40;
 		const HEAD = 46; // extra top room for the box's header bar
@@ -295,19 +353,38 @@
 				return 'Game Signals';
 			case 'group':
 				return n.label;
+			case 'modeTrigger':
+				return 'Mode trigger';
+			case 'allModesFinished':
+				return 'On all modes finished';
+			case 'enterMode':
+				return 'Enter mode';
+			case 'exitMode':
+				return 'Exit mode';
 			default:
 				return n.kind;
 		}
 	};
 
-	// Validation runs reactively over the ACTIVE graph: the main flow via `validateFlowDoc`, a
-	// function body via `validateFunctionDef` (entry/result are legal there). The panel shows the
-	// active graph's issues; the subbar count/valid pill follow suit.
+	// Validation runs reactively: the whole doc via `validateFlowDoc` on the Global and mode tabs
+	// (every section at once — an issue in a mode section carries its `mode`, and clicking it opens
+	// that tab), a function body via `validateFunctionDef` (entry/result are legal there).
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
 			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps),
 	);
+
+	// Issues per doc section, for the tab badges (`''` = the global graph).
+	const issuesBySection = $derived.by((): Record<string, number> => {
+		const counts: Record<string, number> = {};
+		if (view.kind === 'function') return counts;
+		for (const issue of issues) {
+			const key = issue.mode ?? '';
+			counts[key] = (counts[key] ?? 0) + 1;
+		}
+		return counts;
+	});
 
 	// The derived pins per node, indexed once — used to type-color data edges by the SOURCE pin's
 	// `TypeRef` (the wire reads the same color as the dot it leaves), by the canvas nodes, and by the
@@ -597,13 +674,14 @@
 		const [nextDoc, nextLibrary] = JSON.parse(snap) as [FlowDoc, FunctionLibraryDoc];
 		const docChanged = JSON.stringify(doc) !== JSON.stringify(nextDoc);
 		const libraryChanged = JSON.stringify(library) !== JSON.stringify(nextLibrary);
-		const landed = viewOfChange(docChanged, libraryChanged, nextLibrary);
+		const landed = viewOfChange(docChanged, libraryChanged, nextDoc, nextLibrary);
 		doc = nextDoc;
 		library = nextLibrary;
 		// Show the graph the step changed — an undo must never rewrite something off-screen, least
 		// of all the shared library from the main flow.
 		if (landed && JSON.stringify(landed) !== JSON.stringify(view)) {
 			view = landed;
+			if (landed.kind !== 'function') lastSection = landed;
 			selectedNodeId = null;
 			fitSignal += 1;
 		}
@@ -615,21 +693,40 @@
 		if (libraryChanged) markLibraryDirty();
 	}
 
-	// Where a step's change lives: the main flow when the doc changed (a collapse edits both, and
-	// its visible half is the flow), else the one function body it edited. `null` = stay put (e.g.
-	// only a function NAME changed, which the current view already shows).
+	// Where a step's change lives: the doc section it edited when the doc changed (a collapse edits
+	// both, and its visible half is the flow), else the one function body it edited. `null` = stay
+	// put (e.g. only a function NAME changed, which the current view already shows).
 	function viewOfChange(
 		docChanged: boolean,
 		libraryChanged: boolean,
+		nextDoc: FlowDoc,
 		nextLibrary: FunctionLibraryDoc,
 	): FlowView | null {
-		if (docChanged) return { kind: 'flow' };
+		if (docChanged) return sectionOfDocChange(nextDoc);
 		if (!libraryChanged) return null;
 		const before = new Map(library.functions.map((f) => [f.id, JSON.stringify(f.body)]));
 		const edited = nextLibrary.functions.filter((f) => before.get(f.id) !== JSON.stringify(f.body));
 		const openFn = view.kind === 'function' ? view.functionId : null;
 		if (edited.some((f) => f.id === openFn)) return null;
 		return edited.length ? { kind: 'function', functionId: edited[0].id } : null;
+	}
+
+	// The doc section a step changed: a mode tab when ONLY mode sections changed (the open one if it
+	// is among them, else the first that still exists), else the Global tab. A step that only
+	// removed mode tabs leaves the view alone unless it removed the open one.
+	function sectionOfDocChange(nextDoc: FlowDoc): FlowView | null {
+		const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+		const { modes: modesBefore, ...restBefore } = doc;
+		const { modes: modesAfter, ...restAfter } = nextDoc;
+		if (!same(restBefore, restAfter)) return { kind: 'flow' };
+		const ids = new Set([...Object.keys(modesBefore ?? {}), ...Object.keys(modesAfter ?? {})]);
+		const changed = [...ids].filter((id) => !same(modesBefore?.[id], modesAfter?.[id]));
+		const openMode = view.kind === 'mode' ? view.modeId : null;
+		if (openMode && changed.includes(openMode)) {
+			return modesAfter?.[openMode] ? null : { kind: 'flow' };
+		}
+		const shown = changed.find((id) => modesAfter?.[id]);
+		return shown ? { kind: 'mode', modeId: shown } : null;
 	}
 
 	const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'range', 'color']);
@@ -727,29 +824,114 @@
 		fitSignal += 1;
 		syncCanvas();
 	}
-	function backToFlow(): void {
-		view = { kind: 'flow' };
+	// Open a doc section: the Global tab (`flow`) or a mode tab.
+	function openSection(next: { kind: 'flow' } | { kind: 'mode'; modeId: string }): void {
+		view = next;
+		lastSection = next;
 		selectedNodeId = null;
 		lastClickId = null;
 		fitSignal += 1;
 		syncCanvas();
 	}
+	// Leave a function body for the section it was opened from (Global if that tab is gone).
+	function backToFlow(): void {
+		const back = lastSection;
+		openSection(back.kind === 'mode' && doc.modes?.[back.modeId] ? back : { kind: 'flow' });
+	}
 
-	// Issue click → select + re-seed so the node highlights (best-effort focus). If the id isn't a
-	// TOP-LEVEL canvas node it's buried in a collapsed group body (the `duplicate-id` case): fall back
-	// to selecting the containing group so the click still surfaces where the offending node lives.
-	function focusNode(nodeId: string): void {
+	// --- Game-mode tabs -------------------------------------------------------------
+	const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
+	let modeMenuOpen = $state(false);
+	let customModeId = $state('');
+	let modeError = $state<string | null>(null);
+	// The project's modes that have no tab yet.
+	const addableModes = $derived(knownModes.filter((m) => !doc.modes?.[m.id]));
+
+	// Add a mode tab seeded with an On Enter trigger for that mode, and open it.
+	function addMode(rawId: string): void {
+		const id = rawId.trim();
+		if (!MODE_ID.test(id)) {
+			modeError = 'A mode id is a letter, then letters, digits, _ or -.';
+			return;
+		}
+		if (doc.modes?.[id]) {
+			modeError = `'${id}' already has a tab.`;
+			return;
+		}
+		const triggerId = freshNodeIdIn(allGraphs(), 'modeTrigger');
+		doc = withModeGraph(doc, id, seedModeGraph(id, triggerId));
+		modeMenuOpen = false;
+		customModeId = '';
+		modeError = null;
+		markDirty();
+		openSection({ kind: 'mode', modeId: id });
+	}
+
+	// A tab still holding only its seed (one On Enter trigger, no wires) is removed without asking.
+	function isSeedOnly(g: Graph): boolean {
+		return (
+			g.exec.length === 0 &&
+			g.data.length === 0 &&
+			g.nodes.length <= 1 &&
+			g.nodes.every((n) => n.kind === 'modeTrigger')
+		);
+	}
+
+	async function removeMode(id: string): Promise<void> {
+		const section = doc.modes?.[id];
+		if (!section) return;
+		if (
+			!isSeedOnly(section.graph) &&
+			!(await askConfirm({
+				title: `Remove the '${modeLabel(id)}' tab?`,
+				message: `Its ${section.graph.nodes.length} node(s) go with it. Undo brings it back.`,
+				confirmLabel: 'Remove',
+				danger: true,
+			}))
+		) {
+			return;
+		}
+		const wasOpen = view.kind === 'mode' && view.modeId === id;
+		doc = withoutMode(doc, id);
+		markDirty();
+		if (wasOpen) openSection({ kind: 'flow' });
+		else syncCanvas();
+	}
+
+	// Issue click → open the issue's section, then select + re-seed so the node highlights
+	// (best-effort focus). An issue with no `mode` (the global graph, or a cross-section
+	// `duplicate-id`) opens the section that holds the node. If the id isn't a TOP-LEVEL canvas node
+	// it's buried in a collapsed group body (the `duplicate-id` case): fall back to selecting the
+	// containing group so the click still surfaces where the offending node lives.
+	function focusNode(nodeId: string, mode?: string): void {
+		if (view.kind !== 'function') {
+			const target = mode ?? sectionHolding(nodeId);
+			const want: { kind: 'flow' } | { kind: 'mode'; modeId: string } =
+				target && doc.modes?.[target] ? { kind: 'mode', modeId: target } : { kind: 'flow' };
+			if (JSON.stringify(want) !== JSON.stringify(view)) openSection(want);
+		}
 		const onCanvas = activeGraph.nodes.some((n) => n.id === nodeId);
 		selectedNodeId = onCanvas ? nodeId : (groupContaining(nodeId) ?? nodeId);
 		nodes = buildNodes();
 	}
 
+	// Whether `g` (or a group body in it, recursively) holds `nodeId`.
+	function graphHolds(g: Graph, nodeId: string): boolean {
+		return g.nodes.some(
+			(n) => n.id === nodeId || (n.kind === 'group' && graphHolds(n.body, nodeId)),
+		);
+	}
+
+	// The mode section holding `nodeId`, or undefined when the global graph does (or nothing does).
+	function sectionHolding(nodeId: string): string | undefined {
+		if (graphHolds(doc.graph, nodeId)) return undefined;
+		return Object.entries(doc.modes ?? {}).find(([, m]) => graphHolds(m.graph, nodeId))?.[0];
+	}
+
 	// The id of the top-level group whose body (recursively) holds `nodeId`, or null if not nested.
 	function groupContaining(nodeId: string): string | null {
-		const inGraph = (g: Graph): boolean =>
-			g.nodes.some((n) => n.id === nodeId || (n.kind === 'group' && inGraph(n.body)));
 		for (const n of activeGraph.nodes) {
-			if (n.kind === 'group' && inGraph(n.body)) return n.id;
+			if (n.kind === 'group' && graphHolds(n.body, nodeId)) return n.id;
 		}
 		return null;
 	}
@@ -884,6 +1066,7 @@
 		for (const kind of ['delay', 'branch', 'forEach', 'sequence', 'parallel', 'compute'] as const) {
 			specs.push({ kind, section: 'control' });
 		}
+		for (const m of paletteModeNodes) specs.push({ kind: m.kind, ref: m.ref, section: 'mode' });
 		return specs;
 	}
 
@@ -902,6 +1085,13 @@
 			case 'action':
 			case 'fireCue':
 				return spec.ref ?? spec.kind;
+			case 'modeTrigger':
+			case 'allModesFinished':
+			case 'enterMode':
+			case 'exitMode': {
+				const label = MODE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
+				return spec.ref ? `${label} · ${spec.ref}` : label;
+			}
 			default:
 				return spec.kind;
 		}
@@ -1093,7 +1283,8 @@
 			}
 		}
 
-		if (view.kind === 'function') {
+		// A function body or a mode section has no comment boxes: only its graph moved.
+		if (view.kind !== 'flow') {
 			if (graphChanged) applyGraphEdit(g);
 			return;
 		}
@@ -1113,7 +1304,7 @@
 		ref: string | undefined,
 		pos: { x: number; y: number },
 	): string {
-		const id = freshNodeIdIn(activeGraph, kind);
+		const id = freshNodeIdIn(allGraphs(), kind);
 		selectedNodeId = id;
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
 		return id;
@@ -1142,8 +1333,11 @@
 	// nodes are selected.
 	const selectedIds = $derived(nodes.filter((n) => n.selected).map((n) => n.id));
 	// Collapse operates on the top-level `doc.graph` (it mints a functionCall there), so it is
-	// only offered in the flow view — a nested body cannot itself be collapsed here.
+	// only offered in the flow view — a nested body cannot itself be collapsed here, and a mode tab
+	// cannot either: the pure collapse mints its call/group ids against `doc.graph` alone, which
+	// could collide with an id in another section.
 	const canCollapse = $derived(view.kind === 'flow' && selectedIds.length >= 2);
+	const MODE_TAB_ONLY_GLOBAL = 'Comments, Collapse and Group work on the Global tab only';
 
 	// The inline "name this function" prompt (shown by the toolbar button) + a non-blocking
 	// error surfaced when the pure `collapseToFunction` rejects a selection.
@@ -1220,7 +1414,8 @@
 	const groupCount = $derived(doc.graph.nodes.filter((n) => n.kind === 'group').length);
 	// Exactly-one-group selection enables "Expand group" (the un-collapse).
 	const selectedGroupId = $derived(
-		selectedIds.length === 1 &&
+		view.kind === 'flow' &&
+			selectedIds.length === 1 &&
 			doc.graph.nodes.find((n) => n.id === selectedIds[0])?.kind === 'group'
 			? selectedIds[0]
 			: null,
@@ -1294,8 +1489,8 @@
 		markLibraryDirty(`fnname:${fnId}`);
 	}
 
-	// How many call sites reference `functionId` — the top-level flow graph AND every OTHER
-	// function body (a function may call another). Used to guard delete.
+	// How many call sites reference `functionId` — the top-level flow graph, every game-mode section
+	// AND every OTHER function body (a function may call another). Used to guard delete.
 	function callSiteCount(functionId: string): number {
 		let n = 0;
 		const scan = (g: Graph): void => {
@@ -1304,6 +1499,7 @@
 			}
 		};
 		scan(doc.graph);
+		for (const m of Object.values(doc.modes ?? {})) scan(m.graph);
 		for (const f of library.functions) {
 			if (f.id === functionId) continue; // its own body's entry/result don't count as calls.
 			scan(f.body);
@@ -1346,20 +1542,19 @@
 	<div class="subbar">
 		<strong>Invisible Flow</strong>
 
-		<!-- Breadcrumb: `Flow` in flow view; `Flow ↳ <FunctionName>` with a back button + inline
-		     rename while editing a function body. The name field renames the OPEN function (id
-		     stays stable, so call sites keep resolving). -->
-		<span class="crumb">
-			<button
-				class="crumb-link"
-				type="button"
-				disabled={view.kind === 'flow'}
-				onclick={backToFlow}
-				title="Back to the main flow"
-			>
-				Flow
-			</button>
-			{#if view.kind === 'function' && activeFn}
+		{#if view.kind === 'function' && activeFn}
+			<!-- Breadcrumb while editing a function body: `<section> ↳ <FunctionName>` with a back
+			     button + inline rename. The name field renames the OPEN function (id stays stable, so
+			     call sites keep resolving). -->
+			<span class="crumb">
+				<button
+					class="crumb-link"
+					type="button"
+					onclick={backToFlow}
+					title="Back to the tab this function was opened from"
+				>
+					{lastSection.kind === 'mode' ? modeLabel(lastSection.modeId) : 'Global'}
+				</button>
 				<span class="crumb-sep">↳</span>
 				<input
 					class="fn-name"
@@ -1368,22 +1563,103 @@
 					title="Rename this function (its id stays stable)"
 					onchange={(e) => renameActiveFunction(e.currentTarget.value.trim() || activeFn.name)}
 				/>
-				<button class="back-btn" type="button" onclick={backToFlow} title="Return to the main flow"
+				<button class="back-btn" type="button" onclick={backToFlow} title="Return to the flow"
 					>← Back to flow</button
 				>
-			{/if}
-		</span>
+			</span>
+		{:else}
+			<!-- Doc sections: the Global graph plus one tab per game mode (`doc.modes`). The runtime
+			     hands a signal to the ON-SCREEN mode's graph first and falls back to Global. -->
+			<span class="mode-tabs" role="tablist" aria-label="Flow sections">
+				{#snippet badge(key: string)}
+					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span
+						>{/if}
+				{/snippet}
+				<button
+					class="mode-tab"
+					class:active={view.kind === 'flow'}
+					type="button"
+					role="tab"
+					aria-selected={view.kind === 'flow'}
+					onclick={() => openSection({ kind: 'flow' })}
+					title="The global graph — handles every signal a mode tab does not"
+					>Global{@render badge('')}</button
+				>
+				{#each modeTabs as id (id)}
+					<span class="mode-tab" class:active={activeModeId === id}>
+						<button
+							class="tab-name"
+							type="button"
+							role="tab"
+							aria-selected={activeModeId === id}
+							onclick={() => openSection({ kind: 'mode', modeId: id })}
+							title="Mode '{id}' — asked first while this mode is on screen"
+							>{modeLabel(id)}{@render badge(id)}</button
+						>
+						<button
+							class="tab-close"
+							type="button"
+							onclick={() => removeMode(id)}
+							title="Remove the {modeLabel(id)} tab"
+							aria-label="Remove the {modeLabel(id)} tab">✕</button
+						>
+					</span>
+				{/each}
+				<span class="mode-add">
+					<button
+						class="mode-tab add"
+						type="button"
+						aria-expanded={modeMenuOpen}
+						onclick={() => {
+							modeMenuOpen = !modeMenuOpen;
+							modeError = null;
+						}}
+						title="Add a tab for one of this project's game modes">＋ Mode</button
+					>
+					{#if modeMenuOpen}
+						<div class="mode-menu" role="dialog" aria-label="Add a game mode tab">
+							{#each addableModes as m (m.id)}
+								<button class="mode-pick" type="button" onclick={() => addMode(m.id)}>
+									{m.label}<code>{m.id}</code>
+								</button>
+							{:else}
+								<p class="mode-none">Every mode of this project has a tab.</p>
+							{/each}
+							<form
+								class="mode-custom"
+								onsubmit={(e) => {
+									e.preventDefault();
+									addMode(customModeId);
+								}}
+							>
+								<input
+									type="text"
+									placeholder="other mode id"
+									bind:value={customModeId}
+									title="A mode id the Game Config does not list yet"
+								/>
+								<button type="submit">Add</button>
+							</form>
+							{#if modeError}<p class="mode-error">{modeError}</p>{/if}
+						</div>
+					{/if}
+				</span>
+			</span>
+		{/if}
 
 		<span class="legend">
 			<span class="key exec">▷ exec</span>
 			<span class="key data">● data</span>
 		</span>
-		{#if view.kind === 'flow'}
+		{#if view.kind !== 'function'}
 			<button
 				class="collapse-btn"
 				type="button"
+				disabled={view.kind === 'mode'}
 				onclick={addComment}
-				title="Add a labelled comment box to group + annotate part of the flow"
+				title={view.kind === 'mode'
+					? MODE_TAB_ONLY_GLOBAL
+					: 'Add a labelled comment box to group + annotate part of the flow'}
 			>
 				＋ Comment
 			</button>
@@ -1392,9 +1668,11 @@
 				type="button"
 				disabled={!canCollapse}
 				onclick={beginCollapse}
-				title={canCollapse
-					? 'Collapse the selected nodes into a reusable function'
-					: 'Select 2 or more nodes (marquee-drag or shift-click) to collapse'}
+				title={view.kind === 'mode'
+					? MODE_TAB_ONLY_GLOBAL
+					: canCollapse
+						? 'Collapse the selected nodes into a reusable function'
+						: 'Select 2 or more nodes (marquee-drag or shift-click) to collapse'}
 			>
 				⤵ Collapse{canCollapse ? ` ${selectedIds.length} nodes` : ''}
 			</button>
@@ -1403,9 +1681,11 @@
 				type="button"
 				disabled={!canCollapse}
 				onclick={confirmCollapseToGroup}
-				title={canCollapse
-					? 'Collapse the selected nodes into an inline group'
-					: 'Select 2 or more nodes (marquee-drag or shift-click) to group'}
+				title={view.kind === 'mode'
+					? MODE_TAB_ONLY_GLOBAL
+					: canCollapse
+						? 'Collapse the selected nodes into an inline group'
+						: 'Select 2 or more nodes (marquee-drag or shift-click) to group'}
 			>
 				▣ Group{canCollapse ? ` ${selectedIds.length} nodes` : ''}
 			</button>
@@ -1530,6 +1810,7 @@
 					node={selectedNode}
 					{ctx}
 					scope={graphPins.scopes.get(selectedNode.id)}
+					modes={knownModes}
 					onchange={applyDocEdit}
 				/>
 			{:else if view.kind === 'function' && activeFn}
@@ -1542,13 +1823,23 @@
 				</p>
 				<AddNodePalette {vocab} {library} doc={paletteDoc} onadd={addNodeOfKind} {containerLabel} />
 			{:else}
-				<h3>Flow v2 · dev</h3>
-				<p class="hint">
-					Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
-					<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
-					wires won't drop. Select a node to edit its fields; Delete removes selection. Double-click
-					a <strong>function</strong> node to edit its body.
-				</p>
+				{#if activeModeId}
+					<h3>Mode · {modeLabel(activeModeId)}</h3>
+					<p class="hint">
+						This graph runs while <code>{activeModeId}</code> is on screen: a signal is handed here
+						first and falls back to the <strong>Global</strong> tab when nothing here handles it.
+						Its
+						<strong>Mode trigger</strong> fires when the mode starts, finishes or resumes.
+					</p>
+				{:else}
+					<h3>Flow v2 · dev</h3>
+					<p class="hint">
+						Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
+						<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
+						wires won't drop. Select a node to edit its fields; Delete removes selection.
+						Double-click a <strong>function</strong> node to edit its body.
+					</p>
+				{/if}
 				<AddNodePalette
 					{vocab}
 					{library}
@@ -1558,6 +1849,7 @@
 					onopen={openFunction}
 					ondelete={deleteFunction}
 					{deleteError}
+					modeNodes={paletteModeNodes}
 				/>
 			{/if}
 			<ValidationPanelV2
@@ -1565,6 +1857,7 @@
 				onfocus={focusNode}
 				duplicateCount={duplicateIdCount}
 				onfixduplicates={fixDuplicateIds}
+				{modeLabel}
 			/>
 			{#if view.kind === 'flow'}
 				<PreviewPanelV2 {doc} {library} {vocab} />
@@ -1683,6 +1976,132 @@
 	}
 	.crumb-sep {
 		color: #64748b;
+	}
+	.mode-tabs {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.mode-tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		padding: 3px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #cbd5e1;
+		cursor: pointer;
+	}
+	.mode-tab.active {
+		color: #93c5fd;
+		border-color: #2a4a6a;
+		background: #10233a;
+	}
+	.mode-tab:hover:not(.active) {
+		border-color: #3a4655;
+		color: #e2e8f0;
+	}
+	.mode-tab.add {
+		color: #94a3b8;
+		border-style: dashed;
+	}
+	.tab-name,
+	.tab-close {
+		background: none;
+		border: none;
+		padding: 0;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+	}
+	.tab-close {
+		font-size: 10px;
+		color: #64748b;
+	}
+	.tab-close:hover {
+		color: #fca5a5;
+	}
+	.tab-issues {
+		margin-left: 5px;
+		padding: 0 5px;
+		border-radius: 999px;
+		background: #4a3a1c;
+		color: #fdba74;
+		font-size: 10px;
+	}
+	.mode-add {
+		position: relative;
+	}
+	.mode-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 30;
+		width: 220px;
+		padding: 8px;
+		border-radius: 8px;
+		border: 1px solid #2a4a6a;
+		background: #0d1420;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.mode-pick {
+		display: flex;
+		justify-content: space-between;
+		gap: 6px;
+		text-align: left;
+		padding: 5px 8px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		border-left: 3px solid #f43f5e;
+		background: #14181f;
+		color: #cbd5e1;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.mode-pick:hover {
+		border-color: #3a4655;
+	}
+	.mode-pick code {
+		color: #64748b;
+		font-size: 10px;
+	}
+	.mode-none,
+	.mode-error {
+		margin: 0;
+		font-size: 11px;
+		color: #64748b;
+	}
+	.mode-error {
+		color: #fca5a5;
+	}
+	.mode-custom {
+		display: flex;
+		gap: 4px;
+		margin-top: 4px;
+	}
+	.mode-custom input {
+		flex: 1;
+		min-width: 0;
+		background: #11161d;
+		border: 1px solid #2a323d;
+		border-radius: 6px;
+		color: #e2e8f0;
+		font-size: 12px;
+		padding: 4px 6px;
+	}
+	.mode-custom button {
+		font-size: 12px;
+		padding: 4px 9px;
+		border-radius: 6px;
+		border: 1px solid #2563eb;
+		background: #1d4ed8;
+		color: #eff6ff;
+		cursor: pointer;
 	}
 	.fn-name {
 		box-sizing: border-box;

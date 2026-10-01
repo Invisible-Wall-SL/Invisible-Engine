@@ -1,4 +1,4 @@
-import { createPlayBook, createSymbolInfo } from 'engine-game';
+import { createPlayBook, createSymbolInfo, isHoldAndWinEvent } from 'engine-game';
 
 import { activeWinLevelData } from './gameConfig';
 import { symbolMap } from './symbolMap';
@@ -24,6 +24,8 @@ import {
 } from './winSymbolCycle';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
+import { stateModes } from './stateModes.svelte';
+import { recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 
 /**
  * THE SYMBOL RESOLVER, built on this game's symbol map. The resolution itself — the memo, the
@@ -63,4 +65,8 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	holdAfterBigWin,
 	clearSpinHold,
 	trackCascadeStep,
+	recordBookEvent: (bookEvent) => {
+		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
+	},
+	modes: stateModes,
 });

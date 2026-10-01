@@ -167,7 +167,11 @@ export type NodeKind =
 	| 'compute'
 	| 'group'
 	| 'functionEntry'
-	| 'functionResult';
+	| 'functionResult'
+	| 'modeTrigger'
+	| 'allModesFinished'
+	| 'enterMode'
+	| 'exitMode';
 
 /** Shared node fields. `inputs` maps each DATA-IN pin id → its `DataSource` (a `wire`
  *  source defers to the data edges); it is absent for nodes with no data-ins. */
@@ -418,6 +422,49 @@ export interface PlayCinematicNode extends NodeBase {
 	awaitComplete?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the engine keeps a stack of active modes plus a
+// queue of pending ones; these four nodes are how a flow reacts to it and moves it.
+// ---------------------------------------------------------------------------
+
+/** When a {@link ModeTriggerNode} fires: its mode came on screen, left it, or came back to it. */
+export type ModeTriggerOn = 'enter' | 'exit' | 'resume';
+
+/**
+ * Mode trigger (entry point, NO exec-in): fires when the engine's mode stack moves `modeId` — on
+ * `enter` (it starts playing: entered now, or popped from the queue), `exit` (it finished), or
+ * `resume` (a mode nested on top of it finished). Data-outs: `mode`, `cause`, `total`.
+ * In a mode's own tab this is that mode's On Enter / On Exit.
+ */
+export interface ModeTriggerNode extends NodeBase {
+	kind: 'modeTrigger';
+	modeId: string;
+	/** Absent ⇒ `enter`. */
+	on?: ModeTriggerOn;
+}
+
+/** On all modes finished (entry point, NO exec-in): the stack AND the queue are empty — back at base. */
+export interface AllModesFinishedNode extends NodeBase {
+	kind: 'allModesFinished';
+}
+
+/**
+ * Enter mode: ask the engine to enter `modeId` — now on top of the current mode (`nest`) or once the
+ * current modes finish (`queue`). A mode already active or queued merges. Data-in `cause` (optional).
+ */
+export interface EnterModeNode extends NodeBase {
+	kind: 'enterMode';
+	modeId: string;
+	/** Absent ⇒ `nest`. */
+	policy?: 'nest' | 'queue';
+}
+
+/** Exit mode: close `modeId` (the mode on screen when blank). Data-in `total` (optional). */
+export interface ExitModeNode extends NodeBase {
+	kind: 'exitMode';
+	modeId?: string;
+}
+
 export type Node =
 	| EventNode
 	| GameSignalsNode
@@ -436,7 +483,11 @@ export type Node =
 	| ComputeNode
 	| GroupNode
 	| FunctionEntryNode
-	| FunctionResultNode;
+	| FunctionResultNode
+	| ModeTriggerNode
+	| AllModesFinishedNode
+	| EnterModeNode
+	| ExitModeNode;
 
 // ---------------------------------------------------------------------------
 // §5 — functions (the reuse model). A function is authored once and dropped as a
@@ -636,4 +687,17 @@ export interface FlowDoc {
 	containers: ContainerRef[]; // the containers this flow shows/hides, each with a z-order.
 	/** Editor-only labelled group boxes (see {@link FlowComment}). Ignored by runtime + validation. */
 	comments?: FlowComment[];
+	/**
+	 * Per-GAME-MODE graphs (`docs/design/hold-and-win.md` §4.5), keyed by mode id (`freeSpins`,
+	 * `holdAndWin`, …). A signal goes to the ACTIVE mode's graph first and falls back to `graph` (the
+	 * global one) when that mode's graph has no handler for it, so `reveal` can mean something else on
+	 * the respin board without a branch on the game type. Absent (every doc authored before modes) ⇒
+	 * `graph` handles everything, exactly as before.
+	 */
+	modes?: Record<string, FlowModeScope>;
+}
+
+/** One game mode's section of a {@link FlowDoc}. */
+export interface FlowModeScope {
+	graph: Graph;
 }

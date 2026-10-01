@@ -21,6 +21,27 @@ export const PRESENTATION_NODES: { kind: NodeKind; label: string }[] = [
 	{ kind: 'playCinematic', label: 'Play Cinematic' },
 ];
 
+/** The game-mode node kinds (`docs/design/hold-and-win.md` §4.5), the palette's Modes group. */
+export const MODE_NODES: { kind: NodeKind; label: string }[] = [
+	{ kind: 'modeTrigger', label: 'Mode trigger' },
+	{ kind: 'allModesFinished', label: 'On all modes finished' },
+	{ kind: 'enterMode', label: 'Enter mode' },
+	{ kind: 'exitMode', label: 'Exit mode' },
+];
+
+/**
+ * The mode id a mode node dropped into a section starts with: a Mode trigger and an Exit mode name
+ * the open mode tab's own mode; Enter mode starts blank (entering the mode already playing merges
+ * into it, so the author picks the next one).
+ */
+export const modeNodeRef = (kind: NodeKind, modeId: string | null): string | undefined =>
+	modeId && (kind === 'modeTrigger' || kind === 'exitMode') ? modeId : undefined;
+
+/** Whether `kind` may be offered in a section: `allModesFinished` never fires in a mode tab but the
+ *  base game's (the validator's `mode-entry-scope`), so it is not offered there. */
+export const offeredInSection = (kind: NodeKind, modeId: string | null): boolean =>
+	kind !== 'allModesFinished' || modeId === null || modeId === 'basegame';
+
 const SCALAR_COLOR: Record<string, string> = {
 	int: '#38bdf8', // sky — a plain integer.
 	ms: '#22d3ee', // cyan — milliseconds (kin to int, distinct so timing reads).

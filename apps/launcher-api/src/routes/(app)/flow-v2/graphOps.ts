@@ -45,10 +45,13 @@ const collectNodeIdsDeep = (graph: Graph, into: Set<string> = new Set<string>())
 	return into;
 };
 
-/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …), scoped to a graph —
- *  unique against the whole graph AND every group body inlined into it at flatten (see above). */
-export const freshNodeIdIn = (graph: Graph, kind: NodeKind): string => {
-	const used = collectNodeIdsDeep(graph);
+/** A fresh, collision-free node id keyed by kind (`event-1`, `delay-3`, …), unique against every
+ *  graph passed AND every group body inlined into them at flatten (see above). The editor passes
+ *  the global graph, every game-mode graph and every function body: node ids are unique across all
+ *  sections of a doc (the validator's `duplicate-id`), so jump-to-node is never ambiguous. */
+export const freshNodeIdIn = (graphs: readonly Graph[], kind: NodeKind): string => {
+	const used = new Set<string>();
+	for (const graph of graphs) collectNodeIdsDeep(graph, used);
 	let i = 1;
 	let id = `${kind}-${i}`;
 	while (used.has(id)) {
@@ -147,8 +150,9 @@ export const deleteFromGraphIn = (
 // working exactly as before.
 // ---------------------------------------------------------------------------
 
-/** A fresh, collision-free node id keyed by kind, scoped to the doc's graph. */
-export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string => freshNodeIdIn(doc.graph, kind);
+/** A fresh, collision-free node id keyed by kind, unique across the doc's global and mode graphs. */
+export const freshNodeId = (doc: FlowDoc, kind: NodeKind): string =>
+	freshNodeIdIn([doc.graph, ...Object.values(doc.modes ?? {}).map((m) => m.graph)], kind);
 
 /** Append an exec edge (source exec-out → target exec-in). */
 export const addExecEdge = (
@@ -229,7 +233,36 @@ export const makeNode = (
 			return { id, kind, pos, count: 2 };
 		case 'compute':
 			return { id, kind, pos, compute: defaultComputeOp() };
+		// Game-mode nodes: `ref` carries the mode id (the open mode tab's, from the palette).
+		case 'modeTrigger':
+			return { id, kind, pos, modeId: ref ?? '', on: 'enter' };
+		case 'allModesFinished':
+			return { id, kind, pos };
+		case 'enterMode':
+			return { id, kind, pos, modeId: ref ?? '' };
+		case 'exitMode':
+			return ref ? { id, kind, pos, modeId: ref } : { id, kind, pos };
 	}
+};
+
+/** A game mode's section graph as a new mode tab seeds it: one On Enter trigger for that mode. */
+export const seedModeGraph = (modeId: string, triggerId: string): Graph => ({
+	nodes: [makeNode('modeTrigger', triggerId, { x: 200, y: 160 }, modeId)],
+	exec: [],
+	data: [],
+});
+
+/** Write `graph` as the section graph of mode `modeId`, creating the section when absent. */
+export const withModeGraph = (doc: FlowDoc, modeId: string, graph: Graph): FlowDoc => ({
+	...doc,
+	modes: { ...(doc.modes ?? {}), [modeId]: { ...doc.modes?.[modeId], graph } },
+});
+
+/** Drop mode `modeId`'s section; the last one removes `modes` so the doc reads as before modes. */
+export const withoutMode = (doc: FlowDoc, modeId: string): FlowDoc => {
+	const { [modeId]: _drop, ...rest } = doc.modes ?? {};
+	const { modes: _modes, ...base } = doc;
+	return Object.keys(rest).length ? { ...base, modes: rest } : base;
 };
 
 /** Append a node to the graph. */
@@ -358,6 +391,44 @@ export const setGroupLabel = (doc: FlowDoc, nodeId: string, label: string): Flow
 	replaceNode(doc, nodeId, (n) =>
 		n.kind === 'group' ? { ...n, label: label.trim() || n.label } : n,
 	);
+
+/** The game-mode node fields the inspector edits. */
+export type ModeNodePatch = {
+	modeId?: string;
+	on?: 'enter' | 'exit' | 'resume';
+	policy?: 'nest' | 'queue';
+};
+
+/**
+ * Patch a game-mode node. `modeId` applies to the three that name a mode (a blank one is DROPPED on
+ * `exitMode`, where absent means "the mode on screen"); `on` only to a Mode trigger, `policy` only
+ * to Enter mode, whose default `nest` is stored as absent.
+ */
+export const setModeNodeFields = (doc: FlowDoc, nodeId: string, patch: ModeNodePatch): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		const modeId = patch.modeId?.trim();
+		switch (n.kind) {
+			case 'modeTrigger':
+				return {
+					...n,
+					...(modeId !== undefined ? { modeId } : {}),
+					...(patch.on ? { on: patch.on } : {}),
+				};
+			case 'enterMode': {
+				const next = { ...n, ...(modeId !== undefined ? { modeId } : {}) };
+				if (patch.policy === 'queue') next.policy = 'queue';
+				else if (patch.policy === 'nest') delete next.policy;
+				return next;
+			}
+			case 'exitMode': {
+				if (modeId === undefined) return n;
+				const { modeId: _drop, ...rest } = n;
+				return modeId ? { ...rest, modeId } : rest;
+			}
+			default:
+				return n;
+		}
+	});
 
 /** The `textMessage` content fields the inspector edits. `text`/`place`/`visibleWhile` are always
  *  present on the node; `autoHideMs`/`style` are optional — passing `undefined` for either CLEARS it

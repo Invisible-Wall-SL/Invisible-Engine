@@ -131,6 +131,8 @@
 		autoSpinSceneId,
 		formatWinText,
 		registerSceneCameraTransform,
+		sceneInActiveModes,
+		hudScenesForMode,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -145,6 +147,12 @@
 		warnOnServerPaytableMismatch,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
+	import {
+		activeModeHud,
+		activeModeIds,
+		modeHudIds,
+		setModeTransitionPresenter,
+	} from '../game/stateModes.svelte';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
@@ -1023,7 +1031,20 @@
 	// switches off the coded `<UI>` (the only path that mounts `hudBar`). Empty ⇒ not suppressed ⇒
 	// the coded `<UI>` renders the HUD itself (byte-identical parity for `apps/lines`' fallback).
 	const suppressCodedHud = $derived(hasAuthoredHud(editorDoc.scenes));
-	const authoredHud = $derived(suppressCodedHud ? fullReplaceHudScenes(editorDoc.scenes) : []);
+	// GAME MODES (hold-and-win §4.5): a mode-tagged screen mounts only while its mode is on the stack,
+	// and a mode that names its own HUD replaces the HUD while it is on top. No mode screens and no
+	// mode HUDs (every doc authored before modes) ⇒ both filters keep every screen (parity).
+	const modeIds = $derived(activeModeIds());
+	const inActiveModes = (scene: Scene) => sceneInActiveModes(scene, modeIds);
+	const authoredHud = $derived(
+		suppressCodedHud
+			? hudScenesForMode(
+					fullReplaceHudScenes(editorDoc.scenes).filter(inActiveModes),
+					modeHudIds(),
+					activeModeHud(),
+				)
+			: [],
+	);
 
 	const context = getContext();
 
@@ -1061,7 +1082,9 @@
 	// container that `<FlowV2Mount>` shows/hides exactly as authored (owner direction 2026-09-02 —
 	// a splash on a background-space screen kept painting behind the game after its
 	// `hideContainer`, because this always-on layer drew a second copy the flow couldn't touch).
-	const bgScenes = $derived(flowV2DrivesScreens ? [] : backgroundScenes(editorDoc.scenes));
+	const bgScenes = $derived(
+		flowV2DrivesScreens ? [] : backgroundScenes(editorDoc.scenes).filter(inActiveModes),
+	);
 	// Design doc §14 (win-overlay twin) — whether the v2 flow OWNS the `setWin` event (the ownership
 	// trigger for the headless win driver — an authored win container of ANY name), and the static set
 	// of `showContainer{awaitComplete}` target container ids (the name-agnostic celebration-lock
@@ -1286,7 +1309,7 @@
 	// (`authoredHud` below), so leaving them in `extraScenes` would double-mount them.
 	const extraScenes = $derived(
 		extraMountScenes(editorDoc.scenes, reservedSceneIds).filter(
-			(scene) => !scene.id.startsWith('hud_'),
+			(scene) => !scene.id.startsWith('hud_') && inActiveModes(scene),
 		),
 	);
 
@@ -1845,6 +1868,8 @@
 				(intent) => invokeHostIntent(intent),
 			);
 			setFlowV2(flowV2);
+			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
+			setModeTransitionPresenter(flowV2?.presentModeTransition);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A
 			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;

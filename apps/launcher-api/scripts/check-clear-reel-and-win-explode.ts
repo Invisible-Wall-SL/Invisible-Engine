@@ -447,7 +447,8 @@ check(
 );
 for (const dispatch of [
 	'await playBookEvent(bookEvent, { ...context, bookEvents });',
-	'await coded.playBookEvent(bookEvent, { ...context, bookEvents });',
+	// Wrapped in `aroundPresentation` (game modes), so the call is no longer the awaited statement itself.
+	'coded.playBookEvent(bookEvent, { ...context, bookEvents })',
 ]) {
 	check(
 		'…before that branch presents the event',

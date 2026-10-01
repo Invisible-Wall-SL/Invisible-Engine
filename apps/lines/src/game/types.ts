@@ -17,14 +17,15 @@ export {
 } from 'engine-game';
 
 /**
- * Bet mode / game type stay bound to the COMPILED config, unlike `SymbolName`, and so stay in the
- * APP rather than moving to `engine-game`.
- *
- * Not an oversight: these two are shared vocabulary with the RGS — the server names the game type
- * on every `reveal` and prices the bet mode — so they cannot be freely invented per project the way
- * a symbol id can, and widening them would erase real checking across the bet selector and the
- * state machine for no gain. An authored config that adds a mode is a coordinated RGS change, and
- * the day one appears this is the line to revisit.
+ * Bet mode stays bound to the COMPILED config, unlike `SymbolName`, and so stays in the APP rather
+ * than moving to `engine-game`: it is shared vocabulary with the RGS, which prices it, so it cannot be
+ * freely invented per project, and widening it would erase real checking across the bet selector.
  */
 export type BetMode = keyof typeof config.betModes;
-export type GameType = keyof typeof config.paddingReels;
+/**
+ * The game type is the active GAME MODE's (`game-config` `gameTypeForMode`, design hold-and-win
+ * §4.5): the compiled config's `basegame` / `freegame`, or the game type of a mode the project's
+ * Game Config declares (`respin` for Hold and Win, a mode's own id by default). Widened on purpose —
+ * modes are authored per project — while the compiled keys stay spelled out for completion.
+ */
+export type GameType = keyof typeof config.paddingReels | (string & {});

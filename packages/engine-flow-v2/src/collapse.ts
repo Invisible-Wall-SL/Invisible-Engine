@@ -249,7 +249,7 @@ export const collapseToFunction = (params: CollapseParams, ctx: PinContext): Col
 	};
 
 	// --- NEW MAIN GRAPH: drop S + internal/crossIn/crossOut edges; add the call node; re-attach ---
-	const callId = uniqueId('call', new Set<string>(), nodeById);
+	const callId = uniqueId('call', modeSectionIds(doc), nodeById);
 	const callNode: Node = {
 		id: callId,
 		kind: 'functionCall',
@@ -443,7 +443,7 @@ export const collapseToGroup = (
 	};
 
 	// --- the group node ---
-	const groupId = uniqueId('group', new Set<string>(), nodeById);
+	const groupId = uniqueId('group', modeSectionIds(doc), nodeById);
 	const groupNode: GroupNode = {
 		id: groupId,
 		kind: 'group',
@@ -674,6 +674,23 @@ const collectNodeIdsDeep = (graph: Graph, into: Set<string> = new Set<string>())
 };
 
 /** A body/graph-unique node id built from `base` (suffixing until free). */
+/**
+ * Every node id in the doc's game-mode sections (`FlowDoc.modes`, group bodies included). A collapse
+ * works on the global graph, but node ids are unique across ALL sections (`validateFlowDoc`), so a
+ * minted id must avoid these too.
+ */
+const modeSectionIds = (doc: FlowDoc): Set<string> => {
+	const ids = new Set<string>();
+	const scan = (graph: Graph): void => {
+		for (const node of graph.nodes) {
+			ids.add(node.id);
+			if (node.kind === 'group') scan(node.body);
+		}
+	};
+	for (const scope of Object.values(doc.modes ?? {})) if (scope?.graph) scan(scope.graph);
+	return ids;
+};
+
 const uniqueId = (base: string, taken: Set<string>, nodeById: Map<string, Node>): string => {
 	let id = base;
 	let i = 0;

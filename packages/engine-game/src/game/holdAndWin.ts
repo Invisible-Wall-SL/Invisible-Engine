@@ -152,6 +152,37 @@ export type HoldAndWinEventFields = {
 
 export type HoldAndWinEventType = keyof HoldAndWinEventFields;
 
+/**
+ * Every Hold and Win book-event type, at runtime — typed against {@link HoldAndWinEventFields}, so a
+ * new arm is a compile error here until it is listed.
+ */
+const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
+	luckySpin: true,
+	meterUpdate: true,
+	meterLevels: true,
+	coinInstantCollect: true,
+	randomMetreTrigger: true,
+	holdAndWinTrigger: true,
+	holdAndWinWheel: true,
+	respinReveal: true,
+	coinsLand: true,
+	mysteryReveal: true,
+	coinPay: true,
+	coinBoost: true,
+	specialBecomesCoin: true,
+	coinCollect: true,
+	cellsCleared: true,
+	columnComplete: true,
+	jackpotWin: true,
+	respinUpdate: true,
+	holdAndWinState: true,
+	holdAndWinEnd: true,
+};
+
+/** Is this book event one of the Hold and Win family (what {@link applyHoldAndWinEvent} reads)? */
+export const isHoldAndWinEvent = (event: { type: string }): event is HoldAndWinEvent =>
+	Object.hasOwn(HOLD_AND_WIN_EVENT_TYPES, event.type);
+
 export type HoldAndWinEvent = {
 	[K in HoldAndWinEventType]: { type: K } & HoldAndWinEventFields[K];
 }[HoldAndWinEventType];

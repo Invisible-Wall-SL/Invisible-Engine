@@ -34,6 +34,8 @@
 		setShowContainerAwaitComplete,
 		setTextMessageFields,
 		setPlayCinematicFields,
+		setModeNodeFields,
+		type ModeNodePatch,
 	} from './graphOps';
 	import { typeLabel } from './palette';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
@@ -44,6 +46,7 @@
 		node,
 		ctx,
 		scope,
+		modes = [],
 		onchange,
 	}: {
 		doc: FlowDoc;
@@ -52,8 +55,20 @@
 		/** The node's graph-resolved scope (`deriveGraphPins`) — so a `forEach.item` fed by wire reads
 		 *  its real element type here too, not an untyped pin. */
 		scope?: PinScope;
+		/** The game modes a mode node can name (the project's registry + the doc's mode tabs). */
+		modes?: { id: string; label: string }[];
 		onchange: (next: FlowDoc) => void;
 	} = $props();
+
+	// --- game-mode nodes --------------------------------------------------------
+	function onModeFieldChange(patch: ModeNodePatch): void {
+		onchange(setModeNodeFields(doc, node.id, patch));
+	}
+	const MODE_TRIGGER_ON: { value: 'enter' | 'exit' | 'resume'; label: string }[] = [
+		{ value: 'enter', label: 'Enter — the mode starts playing' },
+		{ value: 'exit', label: 'Exit — the mode finished' },
+		{ value: 'resume', label: 'Resume — a mode on top of it finished' },
+	];
 
 	const vocab = $derived(ctx.vocab);
 
@@ -523,6 +538,75 @@
 					onchange={(e) => onGroupLabelChange(e.currentTarget.value)}
 				/>
 			</label>
+		{/if}
+
+		{#if node.kind === 'modeTrigger' || node.kind === 'enterMode' || node.kind === 'exitMode'}
+			<datalist id="flow-v2-mode-ids">
+				{#each modes as m (m.id)}
+					<option value={m.id}>{m.label}</option>
+				{/each}
+			</datalist>
+			<label class="field">
+				<span class="flabel">Mode</span>
+				<input
+					type="text"
+					list="flow-v2-mode-ids"
+					value={node.modeId ?? ''}
+					placeholder={node.kind === 'exitMode' ? 'the mode on screen' : 'e.g. holdAndWin'}
+					onchange={(e) => onModeFieldChange({ modeId: e.currentTarget.value })}
+				/>
+			</label>
+		{/if}
+
+		{#if node.kind === 'modeTrigger'}
+			<label class="field">
+				<span class="flabel">Fires on</span>
+				<select
+					value={node.on ?? 'enter'}
+					onchange={(e) =>
+						onModeFieldChange({ on: e.currentTarget.value as 'enter' | 'exit' | 'resume' })}
+				>
+					{#each MODE_TRIGGER_ON as o (o.value)}
+						<option value={o.value}>{o.label}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				Starts a chain when the engine's mode stack moves this mode. <strong>Enter</strong> fires
+				when the mode actually starts — a queued mode starts later than the book's
+				<code>modeEnter</code>. Its <code>total</code> output carries what the mode won on
+				<strong>Exit</strong>.
+			</p>
+		{/if}
+
+		{#if node.kind === 'enterMode'}
+			<label class="field">
+				<span class="flabel">Policy</span>
+				<select
+					value={node.policy ?? 'nest'}
+					onchange={(e) => onModeFieldChange({ policy: e.currentTarget.value as 'nest' | 'queue' })}
+				>
+					<option value="nest">Nest — play it now, on top of the current mode</option>
+					<option value="queue">Queue — play it after the current modes finish</option>
+				</select>
+			</label>
+			<p class="hint">
+				A mode already playing or queued merges instead of starting twice. The book stays the source
+				of truth: this orders the presentation, it never invents a feature.
+			</p>
+		{/if}
+
+		{#if node.kind === 'exitMode'}
+			<p class="hint">
+				Blank closes the mode on screen. Feed <code>total</code> to tell its exit trigger what it won.
+			</p>
+		{/if}
+
+		{#if node.kind === 'allModesFinished'}
+			<p class="hint">
+				Fires when no mode is playing or queued — back at the base game. Collect, big win and idle
+				hang off this. It only fires from the Global tab or the Base game tab.
+			</p>
 		{/if}
 
 		{#if node.kind === 'playCinematic'}
