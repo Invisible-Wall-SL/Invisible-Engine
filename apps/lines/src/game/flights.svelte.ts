@@ -78,7 +78,8 @@ export type ActiveFlight = {
 	delayMs: number;
 	durationMs: number;
 	elapsedMs: number;
-	settleAtMs: number;
+	/** WALL time since the head landed — the trail's particles live on the real clock. */
+	trailMs: number;
 	phase: FlightPhase;
 	head: FlightPoint;
 };
@@ -235,7 +236,7 @@ export const flyTo = (
 			delayMs: flightStagger(index, options.stagger ?? FLIGHT_STAGGER_MS),
 			durationMs,
 			elapsedMs: 0,
-			settleAtMs: 0,
+			trailMs: 0,
 			phase: 'waiting',
 			head: { ...route.curve.p0 },
 		});
@@ -249,12 +250,16 @@ export const tickFlights = (deltaMs: number) => {
 	if (stateFlights.list.length === 0) return;
 	const step = deltaMs * (slammed() ? SLAM_SPEEDUP : 1);
 	let finished = false;
-	for (const flight of stateFlights.list) {
-		flight.elapsedMs += step;
+	// A snapshot: an arrival cue may start another flight, which must not get a step this frame.
+	for (const flight of [...stateFlights.list]) {
 		if (flight.phase === 'trailing') {
-			if (flight.elapsedMs >= flight.settleAtMs) finished = true;
+			// Counted in raw frame time, so a slam that starts or ends after the landing neither cuts
+			// the trail short nor keeps a spent emitter mounted.
+			flight.trailMs += deltaMs;
+			if (flight.trailMs >= TRAIL_SETTLE_MS) finished = true;
 			continue;
 		}
+		flight.elapsedMs += step;
 		if (flight.elapsedMs < flight.delayMs) continue;
 		const t = Math.min(1, (flight.elapsedMs - flight.delayMs) / flight.durationMs);
 		const point = pointOnCurve(flight.curve, flightEase(t));
@@ -263,14 +268,12 @@ export const tickFlights = (deltaMs: number) => {
 		if (flight.phase === 'waiting') flight.phase = 'flying';
 		if (t >= 1) {
 			flight.phase = 'trailing';
-			// The trail lives out in WALL time whatever the slam: the emitter runs on the real clock.
-			flight.settleAtMs = flight.elapsedMs + TRAIL_SETTLE_MS * (slammed() ? SLAM_SPEEDUP : 1);
 			arrive(flight);
 		}
 	}
 	if (finished) {
 		stateFlights.list = stateFlights.list.filter(
-			(flight) => flight.phase !== 'trailing' || flight.elapsedMs < flight.settleAtMs,
+			(flight) => flight.phase !== 'trailing' || flight.trailMs < TRAIL_SETTLE_MS,
 		);
 	}
 };
