@@ -337,6 +337,26 @@ export const translateHoldAndWinEvent = (
 					banked: t.toAmount((ctx.banked as number) ?? 0),
 				},
 			};
+		// A second game mode the server announces (queued behind the feature, or nested). The Hold
+		// and Win feature itself only ever arrives as holdAndWinTrigger / holdAndWinEnd.
+		case 'modeEnter':
+			return typeof ctx.mode === 'string' && ctx.mode
+				? {
+						type: 'modeEnter',
+						mode: ctx.mode,
+						...(typeof ctx.cause === 'string' ? { cause: ctx.cause } : {}),
+						...(ctx.policy === 'queue' || ctx.policy === 'nest' ? { policy: ctx.policy } : {}),
+						...(ctx.payload && typeof ctx.payload === 'object' ? { payload: ctx.payload } : {}),
+					}
+				: null;
+		case 'modeExit':
+			return typeof ctx.mode === 'string' && ctx.mode
+				? {
+						type: 'modeExit',
+						mode: ctx.mode,
+						...(typeof ctx.total === 'number' ? { total: t.toAmount(ctx.total) } : {}),
+					}
+				: null;
 		default:
 			return null;
 	}
