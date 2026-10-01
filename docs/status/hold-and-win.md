@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | not started | — | — |
+| 5 | Flow vocabulary + driven seed | in review — PR #960 (deploy on merge): vocab, seed with the Phase 6 screens, gates, review fixes, live play and the Borut parity boot done | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
@@ -63,11 +63,11 @@ titled **"Hold and win game pipeline"**.
 | `cluster` | cluster seed (since 2026-10-01; a project scaffolded before keeps its stored `bookOf` flow) | cluster | `cluster` | default |
 | `scatter` | scatter seed (since 2026-10-01; same caveat) | scatter | `scatter` | default |
 | `bookOf` | bookOf seed | bookOf | `book` | lines |
-| `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
+| `holdAndWin` | holdAndWin seed (Phase 5; a project scaffolded before keeps its stored `bookOf` flow) | holdAndWin | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
 | custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |
 
-Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` by alias, so Phase 5
-only has to register its own vocab + seed.
+Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` by alias until Phase
+5 registered its own vocab + seed.
 
 ## Decisions & findings
 
@@ -160,6 +160,26 @@ only has to register its own vocab + seed.
   - **Jackpot tiers are the config's** (`holdAndWin.jackpots[].name`); the page lists one caption box
     per tier, and Localization lists each tier's caption (defaulting to the name) for a Hold and Win
     project only.
+- 2026-10-01 — **Phase 5 ↔ Phase 6: what the Hold and Win starter flow shows** (hub decisions).
+  - **Containers:** at start the seed shows `jackpotBar` + `pots` beside the base game and HUD; the
+    `holdAndWin` Mode trigger (enter) shows `respinBackground`, `respinBoard`, `respinCounter`,
+    `totalWinBar`, `letters`, and (exit) hides them — exit fires after `holdAndWinEnd` has presented,
+    so the tally still lands in `totalWinBar`. Wired after #951 merged; the publish gate validates
+    the seed against the template's scenes.
+  - **Step-aside, not an API:** a coded part steps aside while an AUTHORED screen for it is mounted
+    (in `activeScreenIds`), the rule the counter and pots already follow. Phase 6 adds it for
+    `HoldAndWinBanner` (`luckySpin`, `jackpotWin`) and for the coded wheel (`wheel`). Until then the
+    seed shows none of the three, so nothing draws twice; adding them is a small follow-up (Phase 9 if
+    Phase 5 has merged). **Superseded the same day:** #951 shipped the step-asides, so the seed now
+    shows `luckySpin`, `wheel` and `jackpotWin` for the length of their beat.
+  - **No `featureIntro` / `featureOutro` in the zero-authoring default** — the coded feature has no
+    tap at its start or end (parity). Authors wire them; Phase 9's sample games add them where the
+    references have popups.
+  - **Names and units:** the HUD source `featureTotal` is the Total Win bar (the win meter, counting
+    up); the flow value is `featureWorth` (`stateHoldAndWin.total`, the server's worth of the open
+    feature — final from the trigger's chain on, what a branch should test). `jackpot.<tier>` is the
+    prize in CURRENCY at the current bet as a HUD source, and in book-event units (like `win`) as a
+    flow value.
 
 - 2026-10-01 — **Step 10: Grand + Hotfire.** Things a later phase must know:
   - **A swept column reaches the Total Win bar DURING the feature.** `presentColumnComplete` counts
@@ -687,6 +707,42 @@ Hold and Win beats prints copy.
   check then passed on the merged code. Coordination: the Win Text literals are listed above for
   Phase 8; Phase 7 owns the coin-label and flights authoring on top of the coded defaults (kind keys
   `toTotal`, `toCollector`, `toMeter:<id>`).
+- 2026-10-01 — **Phase 5: the Hold and Win flow vocabulary + driven seed** (session "Hold and Win
+  Phase 5 — flow vocabulary + driven seed", branch `flow/hold-win-5-vocabulary`, stacked on #945 —
+  merge after it). `engine-flow-v2` `HOLD_AND_WIN_VOCAB` (standard minus free spins and stacked
+  pictures; the 20 events field-for-field, 18 backed beats + `flyTo`, 27 cues, the `$engine` values
+  `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` / `jackpot.<tier>`) and
+  `HOLD_AND_WIN_DRIVEN_SEED_DOC`: the base game, Lucky Spin, pots, instant collect and base jackpots
+  in the global graph; every respin-board beat (trigger, wheel, respins, specials, mystery, letters,
+  jackpots, end) in `modes.holdAndWin`; Mode trigger (enter) starts the feature music and On all
+  modes finished brings the base music back. `holdAndWin` is no longer an alias of `lines`.
+  - **Proof:** flow-spike `v2holdandwin` (142 checks: payloads read off `HoldAndWinEventFields` by
+    the TS checker, every registered vocabulary backed by the game's effects / emitter / engine keys,
+    the seed played from the real mock through the facade across every preset's forced beats),
+    `check:flow-publish-gate`, existing vocabularies and seeds byte-identical to `main`.
+  - **Live play** (headless real clock, `apps/lines` of this branch on the local pots mock, the
+    project's published data, the seed injected as `__IE_FLOW_V2_DOC__`): 11 forced rounds —
+    `trigger`, `trigger,special:payer`, `special:multiplier`, `special:collector`,
+    `mystery:jackpot:MINI`, `unlock:payer`, `meter:red`, `lucky`, `fullBoard`, `chain`,
+    `jackpot:MINI` — all ran every Hold and Win beat through the flow (mode enter / exit / all
+    finished each round), ended idle, 0 exceptions, every balance = before − stake + win. The only
+    waits are the big-win count-up's taps, identical under the project's published flow.
+  - **Existing projects keep their stored flow.** `hw-3pots-sample` was scaffolded on the Book-of
+    seed (`templateId: 'bookOf'`), which owns only `reveal` / `setWin` / `setTotalWin`, so its Hold
+    and Win events stay on the coded path (same presentation). Only a project scaffolded from now on
+    gets the Hold and Win seed; re-seed the sample to author it in `/flow-v2`.
+  - **The Phase 6 screens** (after #951): `jackpotBar` + `pots` from boot, the five mode screens
+    from the Mode trigger (enter → exit), and `luckySpin` / `wheel` / `jackpotWin` framing their beat
+    — pinned by `v2holdandwin` (156 checks) and the publish gate against the template. Live on
+    `hw-3pots-sample` (4 more forced rounds): the trace shows exactly that sequence, 0 exceptions,
+    balances right. That project predates the template (no such scenes), so its coded banners still
+    draw — the step-aside only fires when an authored screen actually mounts. Not seen as pixels: a
+    project scaffolded on the template (none exists yet).
+  - **Borut parity** (`bookofborutremake`'s published data and flow, local book mock forcing free
+    spins, headless real clock, this branch vs its base = #945's head, same driver): three features
+    each, every one basegame → freegame → basegame and back to idle; the same 18 flow actions used;
+    every intro / outro / big-win hold released; 0 exceptions; every balance = before − stake + win
+    on both. RNG differs per run, so the comparison is structural.
 
 - 2026-10-01 — **Phase 4, step 10: Grand + Hotfire** (branch `engine/hold-win-4f-grand-hotfire`, on
   `engine/hold-win-4e-pots-lucky-end` / #943; no PR yet). One function per beat in

@@ -302,13 +302,14 @@ const parseEffectNames = (flowEffectsRel) => {
 	if (!blockMatch) throw new Error(`could not find the "effects" map in ${flowEffectsRel}`);
 	const block = blockMatch[1];
 	const names = [];
-	// Top-level keys only: a key sits at brace-depth 0 of the map body and is followed by `:`.
+	// Top-level keys only: a key sits at brace-depth 0 of the map body and is followed by `:`. Its
+	// value may be a function literal or a factory call (`stickCoins: beat('coinsLand', …)`).
 	let depth = 0;
 	const lines = block.split('\n');
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (depth === 0) {
-			const keyMatch = trimmed.match(/^(\w+)\s*:\s*(async\s*)?\(/);
+			const keyMatch = trimmed.match(/^(\w+)\s*:/);
 			if (keyMatch) names.push(keyMatch[1]);
 		}
 		for (const c of line) {

@@ -6,7 +6,7 @@
 
 ## Current state
 
-- **Editor — `/flow-v2` only.** Unreal-style Blueprint graph (exec + typed data pins) over one game, at `apps/launcher-api/routes/(app)/flow-v2/`, backed by `packages/engine-flow-v2`. Palette projected from the template vocabulary (`BOOK_OF_VOCAB`), pins derived from node refs, connect-time type checking, live Validation panel, deterministic headless Preview (ordered effect/cue/delay/show/hide timeline, 1×/2× speed), Collapse-to-Function (global shared library) and Collapse-to-Group, drag-off-pin contextual spawner. Auto-saves (no Save button) to R2 `editor/flow-v2.json` via `POST /api/flow-v2/save` (flow-gated). **v1 `/flow` editor retired 2026-07-13** (route + `/api/flow/save` + v1-editor-only helpers deleted).
+- **Editor — `/flow-v2` only.** Unreal-style Blueprint graph (exec + typed data pins) over one game, at `apps/launcher-api/routes/(app)/flow-v2/`, backed by `packages/engine-flow-v2`. Palette projected from the template vocabulary (`bookOf`, `ways`, `cluster`, `scatter`, `holdAndWin` — `templateVocabulary(doc.templateId)`), pins derived from node refs, connect-time type checking, live Validation panel, deterministic headless Preview (ordered effect/cue/delay/show/hide timeline, 1×/2× speed), Collapse-to-Function (global shared library) and Collapse-to-Group, drag-off-pin contextual spawner. Auto-saves (no Save button) to R2 `editor/flow-v2.json` via `POST /api/flow-v2/save` (flow-gated). **v1 `/flow` editor retired 2026-07-13** (route + `/api/flow/save` + v1-editor-only helpers deleted).
 - **v1 runtime + doc format + bake still LIVE (load-bearing).** `engine-flow`, `flowExport.ts`/`exportEditorFlow` + `/api/editor/export-flow`, `flowVocabularies.ts` (the `/fx` tool derives its emitter vocab from it), and the `apps/lines/src/game/flow*` interpreter were deliberately KEPT — v2 storage/export, the FX tool, and the live runtime layer on these shared `flow*` primitives. The runtime dispatches a screen/event through the interpreter when a FlowDoc declares it, else falls through to coded mounting + `bookEventHandlerMap` (byte-identical to `main`).
 - **Full ship chain exists.** `/flow-v2` author → R2 → `flowV2Export.ts` (`deploy/flow-v2.json`) → bake → bundle slot → game `bakedFlowV2Doc()`. v1 doc bake path also intact.
 - **flow-driven-game engine — Phases 1–4 + 6.1–6.3 + 8 on `main`** (merged 2026-06-30, `bdc849f`; see [design](../design/flow-driven-game.md)):
@@ -38,7 +38,7 @@
 7. **Phase 7** — open catalog (the long tail). ✅ The **timeline half is settled**: Flow does NOT grow its own timeline — it PLAYS an [Invisible Cinematic](cinematic.md) via the `playCinematic` node (shipped 2026-08-17). Authoring a sequence belongs in /rigger's Cinematic mode; Flow triggers it and can await it.
 8. Author the `showMessage` action node into the live `winInfo` forEach + ship the runtime bundle.
 9. Editor gaps: `templateId` is data-only (not UI-editable); a function's Entry/Result signature is fixed once created. (Containers are synced from Scene Editor screens by `syncFlowContainers`, by design; a `fireCue`'s "wait for it to finish" flag IS authorable in the inspector.)
-   **Decision (2026-10-01): close the `templateId` gap with a `/flow-v2` template picker, not a migration. Nothing was migrated.** Since 2026-10-01 a NEW cluster/scatter project starts on its own seed, but a project scaffolded before that keeps its stored `templateId: 'bookOf'` flow and the Book-of palette. At runtime that costs nothing: the cascade events fall through to the coded handlers under either vocabulary, and the seeds own the same events. What the project lacks is palette access to the cascade surfaces. A one-shot rewrite would have to change `templateId` AND cut the Book-of-only chains (`setExpandingSymbol`, `expandBookColumns`, `specialBookHide`, the `specialBook` show) out of graphs authors may have edited. It could not tell a seeded beat from an authored one, and changing `templateId` alone makes those chains `ref-unresolved` errors, so Publish would refuse the project. The picker leaves the choice with the author, per project. It should list `TEMPLATE_VOCABULARIES`, preview how many nodes stop resolving under the target vocabulary (`validateFlowDoc`), and commit as ONE undoable edit through `undoHistory`. The Validation panel and the publish gate then catch whatever is left. It is not built yet because it needs undo and autosave wiring in `+page.svelte`. Before building it, run the read-only `apps/launcher-api/scripts/audit-flow-v2.ts` to count the cluster/scatter projects that still carry `bookOf`.
+   **Decision (2026-10-01): close the `templateId` gap with a `/flow-v2` template picker, not a migration. Nothing was migrated.** Since 2026-10-01 a NEW cluster/scatter/holdAndWin project starts on its own seed, but a project scaffolded before that (e.g. `hw-3pots-sample`) keeps its stored `templateId: 'bookOf'` flow and the Book-of palette. At runtime that costs nothing: the cascade events fall through to the coded handlers under either vocabulary, and the seeds own the same events. What the project lacks is palette access to the cascade surfaces. A one-shot rewrite would have to change `templateId` AND cut the Book-of-only chains (`setExpandingSymbol`, `expandBookColumns`, `specialBookHide`, the `specialBook` show) out of graphs authors may have edited. It could not tell a seeded beat from an authored one, and changing `templateId` alone makes those chains `ref-unresolved` errors, so Publish would refuse the project. The picker leaves the choice with the author, per project. It should list `TEMPLATE_VOCABULARIES`, preview how many nodes stop resolving under the target vocabulary (`validateFlowDoc`), and commit as ONE undoable edit through `undoHistory`. The Validation panel and the publish gate then catch whatever is left. It is not built yet because it needs undo and autosave wiring in `+page.svelte`. Before building it, run the read-only `apps/launcher-api/scripts/audit-flow-v2.ts` to count the cluster/scatter projects that still carry `bookOf`.
 10. **Flow gate follow-ups (2026-09-28).** (a) ✅ **Closed 2026-09-29 by published snapshots** — players now boot the snapshot Publish froze, and Publish re-validates the flow that snapshot actually ships (`checkShippedFlowV2`), so an invalid autosave reaches only authoring boots (`ie_authoring=1`), never players. See [game-maker.md](game-maker.md). (b) The desktop launcher (separate `invisible-launcher` repo) has no UI for the bake's `--allow-invalid-flow`; only `ALLOW_INVALID_FLOW=1` in its environment gets an invalid project through. (c) Library function bodies are not validated at publish (the editor does, in function view). (d) Admin **Rescaffold** of a flow-less legacy project stores the starter flow, which may not fit its older scenes — it can turn an `absent` (publishes with a note) into an `invalid` (refused); custom kinds are not covered by `check:flow-publish-gate`.
 
 11. **Undo/History follow-ups (2026-09-29).** The shared function LIBRARY
@@ -52,6 +52,51 @@
   authored FlowDoc end-to-end. Phase 5 is closed.
 
 ## Recent changes
+
+- 2026-10-01 — **The `holdAndWin` vocabulary + starter flow** (Hold and Win Phase 5; branch
+  `flow/hold-win-5-vocabulary`; hub [hold-and-win.md](hold-and-win.md)). `holdAndWin` no longer
+  borrows `lines` → `bookOf`: it has its own vocabulary and seed.
+  - **Vocabulary** (`engine-flow-v2` `reference/holdAndWin.ts`): the standard one minus free spins
+    and stacked pictures (what `kindCapabilities('holdAndWin')` turns off; `v2holdandwin` pins the
+    two together, since this package cannot import engine-layout), plus the 20 Hold and Win events
+    field-for-field, 18 per-beat actions + `flyTo`, 27 cues, and `$engine` values `respinsLeft` /
+    `respinTotal` / `featureWorth` / `activeModifiers` / `jackpot.<tier>`. Each beat action takes
+    the whole event on a REQUIRED `bookEvent` pin (struct `BookEvent`, fed `$trigger`), so an
+    author who drops one in unfed gets `unfilled-data-in` rather than a beat that crashes on
+    `undefined`. (`revealBoard` keeps its opaque, param-less shape.)
+  - **Seed** (`HOLD_AND_WIN_DRIVEN_SEED_DOC`, choreography in `holdAndWinChoreo.ts`): base game +
+    Lucky Spin / pots / instant collect / base jackpots in the global graph; every respin-board
+    beat in `modes.holdAndWin`. Mode trigger (enter) shows the template's mode screens and starts
+    the feature music, (exit) hides them; On all modes finished restores `bgm_main`. `luckySpin`,
+    `wheel`, `jackpotWin` are shown only around their beat (Phase 6's mount-based step-aside retires
+    the coded banner / wheel then); `featureIntro` / `featureOutro` are left for authors.
+  - **Builder changes** (`drivenSeed.ts`): `buildDrivenSeed(vocab, screens, {choreo, around,
+    declared})`, `lifecycleContainers(vocab)` (the free-spin hold screens only for a vocab with
+    `freeSpinTrigger`), `aroundBeat`, and `buildEntryGraph` (prefixed ids for a mode section). Every
+    other kind's vocabulary and seed hash byte-identical to `main`.
+  - **Runtime** (`apps/lines`): `linesEngineReader` is a typed record over `LINES_ENGINE_KEYS`
+    (now `flowEngineKeys.ts`), so a listed key without a read is a compile error; `INTENT_COMMANDS`
+    moved to `flowIntentCommands.ts`. Both are plain modules so the headless gate can read them.
+    Every Hold and Win beat effect is built by `beat(type, present)` in `flowEffects.ts`: it presents
+    only an event of its own type and refuses (console error) any other — the validator does not
+    type a whole `$trigger` read, so a beat on the wrong chain would otherwise misread a payload.
+    `scripts/gen-flow-vocabulary.mjs` now takes any top-level key of the `effects` map as an effect
+    (it matched only `name: (`, and would have dropped every `beat(...)` silently; output unchanged).
+  - **Resume:** a resume rebuilds the mode stack with no enter, so the seed's `holdAndWinState`
+    chain re-asserts the mode screens and the feature music (idempotent on every other snapshot).
+  - **`flyTo`** takes its sources on `cells` / `cellAmounts` / `positions` — struct types are
+    nominal, so one pin could not accept every cell list a book event carries.
+  - **Proof:** flow-spike `v2holdandwin` (event payloads read off
+    `HoldAndWinEventFields` by the TypeScript checker; EVERY registered vocabulary's actions, cues,
+    values backed by the generated emitter vocabulary / `flowEffects` / engine keys; the seed played
+    from the real Hold and Win mock through the facade across every preset's forced beats, with the
+    mode stack moved as the play seam moves it); `check:flow-publish-gate` (holdAndWin → its own seed
+    and vocab, validated against the Phase 6 template scenes; a code review's resume and
+    wrong-chain findings are fixed and pinned, 160 checks). Live on `hw-3pots-sample` and a
+    `bookofborutremake` parity boot — details in the hub's Recent changes.
+  - **Existing projects keep their stored flow** (the open `templateId` gap, item 9):
+    `hw-3pots-sample` runs the `bookOf` seed, whose unowned Hold and Win events fall through to the
+    same coded beats.
 
 - 2026-10-01 — **Game modes in the FlowDoc** (Hold and Win Phase 4M; design
   [hold-and-win §4.5](../design/hold-and-win.md)). `FlowDoc.modes?: {[modeId]: {graph}}` beside the

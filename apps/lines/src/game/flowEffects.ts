@@ -710,6 +710,25 @@ const toReelOverrides = (value: unknown): number[] | null => {
 const toConfidence = (value: unknown): 'possible' | 'guaranteed' | undefined =>
 	value === 'possible' || value === 'guaranteed' ? value : undefined;
 
+/**
+ * A Hold and Win beat effect: `present` runs only when the flow fed it a `type` event. The beat's
+ * `bookEvent` pin takes a whole event (`$trigger`) and the validator cannot tell which event's chain
+ * the node sits on, so a beat wired onto another event would misread that payload; it is refused
+ * with a console error instead.
+ */
+const beat =
+	<T extends BookEvent['type']>(
+		type: T,
+		present: (event: BookEventOfType<T>) => Promise<void>,
+	): FlowEffect =>
+	(payload) => {
+		const event = payload.bookEvent as BookEvent | undefined;
+		if (event?.type === type) return present(event as BookEventOfType<T>);
+		console.error(
+			`[flow] the ${type} beat was fed ${event?.type ?? 'no event'}: put it on the ${type} chain, bookEvent = $trigger`,
+		);
+	};
+
 /** A Flow payload boolean, or `fallback` when the pin is unwired/junk (only a real boolean counts). */
 const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
@@ -1260,46 +1279,40 @@ const effects: Record<string, FlowEffect> = {
 	 * `showRespinBoard` also drains the meters a `meter` trigger consumed ("<KIND> ACTIVE"), and
 	 * `hideRespinBoard` counts the Total Win bar up coin by coin as the tally lands in it.
 	 */
-	showRespinBoard: (payload) =>
-		presentHoldAndWinTrigger(payload.bookEvent as BookEventOfType<'holdAndWinTrigger'>),
-	spinRespin: (payload) =>
-		presentRespinReveal(payload.bookEvent as BookEventOfType<'respinReveal'>),
-	stickCoins: (payload) => presentCoinsLand(payload.bookEvent as BookEventOfType<'coinsLand'>),
-	setRespinCounter: (payload) =>
-		presentRespinUpdate(payload.bookEvent as BookEventOfType<'respinUpdate'>),
-	restoreRespinBoard: (payload) =>
-		presentHoldAndWinState(payload.bookEvent as BookEventOfType<'holdAndWinState'>),
-	hideRespinBoard: (payload) =>
-		presentHoldAndWinEnd(payload.bookEvent as BookEventOfType<'holdAndWinEnd'>),
-	payCoins: (payload) => presentCoinPay(payload.bookEvent as BookEventOfType<'coinPay'>),
-	boostCoins: (payload) => presentCoinBoost(payload.bookEvent as BookEventOfType<'coinBoost'>),
-	turnSpecialIntoCoin: (payload) =>
-		presentSpecialBecomesCoin(payload.bookEvent as BookEventOfType<'specialBecomesCoin'>),
-	collectCoins: (payload) =>
-		presentCoinCollect(payload.bookEvent as BookEventOfType<'coinCollect'>),
-	revealMystery: (payload) =>
-		presentMysteryReveal(payload.bookEvent as BookEventOfType<'mysteryReveal'>),
-	clearRespinCells: (payload) =>
-		presentCellsCleared(payload.bookEvent as BookEventOfType<'cellsCleared'>),
-	showJackpotWin: (payload) =>
-		presentJackpotWin(payload.bookEvent as BookEventOfType<'jackpotWin'>),
-	fillMeter: (payload) => presentMeterUpdate(payload.bookEvent as BookEventOfType<'meterUpdate'>),
+	showRespinBoard: beat('holdAndWinTrigger', presentHoldAndWinTrigger),
+	spinRespin: beat('respinReveal', presentRespinReveal),
+	stickCoins: beat('coinsLand', presentCoinsLand),
+	setRespinCounter: beat('respinUpdate', presentRespinUpdate),
+	restoreRespinBoard: beat('holdAndWinState', presentHoldAndWinState),
+	hideRespinBoard: beat('holdAndWinEnd', presentHoldAndWinEnd),
+	payCoins: beat('coinPay', presentCoinPay),
+	boostCoins: beat('coinBoost', presentCoinBoost),
+	turnSpecialIntoCoin: beat('specialBecomesCoin', presentSpecialBecomesCoin),
+	collectCoins: beat('coinCollect', presentCoinCollect),
+	revealMystery: beat('mysteryReveal', presentMysteryReveal),
+	clearRespinCells: beat('cellsCleared', presentCellsCleared),
+	showJackpotWin: beat('jackpotWin', presentJackpotWin),
+	fillMeter: beat('meterUpdate', presentMeterUpdate),
 	playLuckySpinIntro: () => presentLuckySpin(),
-	lightLetter: (payload) =>
-		presentColumnComplete(payload.bookEvent as BookEventOfType<'columnComplete'>),
-	instantCollect: (payload) =>
-		presentInstantCollect(payload.bookEvent as BookEventOfType<'coinInstantCollect'>),
-	spinWheel: (payload) => presentWheel(payload.bookEvent as BookEventOfType<'holdAndWinWheel'>),
+	lightLetter: beat('columnComplete', presentColumnComplete),
+	instantCollect: beat('coinInstantCollect', presentInstantCollect),
+	spinWheel: beat('holdAndWinWheel', presentWheel),
 
 	/**
 	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`
-	 * `{flight, target, index}` as each lands. `cells` (or one `reel` + `row`) are the sources; `target`
+	 * `{flight, target, index}` as each lands. `cells`, `cellAmounts` or `positions` (three pins, one
+	 * per cell type a book event carries) or one `reel` + `row` are the sources; `target`
 	 * is a layout node id, or `'total'` (the win meter; the default); `flight` is the kind reported in
 	 * the cue (default `toTotal`); `avoid` lists cells the routes bend around; `stagger` is the ms
 	 * between two flights. `await` (default true) holds the flow until the last head lands.
 	 */
 	flyTo: async (payload) => {
-		const cells = toCells(payload.cells ?? (payload.reel !== undefined ? payload : undefined));
+		const cells = toCells(
+			payload.cells ??
+				payload.cellAmounts ??
+				payload.positions ??
+				(payload.reel !== undefined ? payload : undefined),
+		);
 		const target = typeof payload.target === 'string' && payload.target ? payload.target : null;
 		const flight = typeof payload.flight === 'string' && payload.flight ? payload.flight : null;
 		const volley = Promise.all(
