@@ -36,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
-| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | in progress | Hold and Win Phase 4M — Game modes | #930 (registry) |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #MODES_PR |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
@@ -189,6 +189,30 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4M: game modes** (session "Hold and Win Phase 4M — Game modes"; PRs #930
+  registry, #MODES_PR engine + flow).
+  - **Registry** (`packages/game-config/src/modes.ts`): sparse `doc.modes`; built-ins `basegame`,
+    `freeSpins` (game type `freegame`), `holdAndWin` (respin board, game type `respin`, only with a
+    `holdAndWin` block). `/config` Game modes section; Scene Editor role **game mode** + `modeId`.
+  - **Engine stack + queue** (`engine-game` `modeStack.ts` / `modeEvents.ts` /
+    `modeController.svelte.ts`, `apps/lines` `stateModes.svelte.ts`): nest / queue / same-mode merge,
+    the queue drains only at base, `allFinished` only when both are empty. `modeEnter`/`modeExit` book
+    events; `freeSpinTrigger`/`freeSpinEnd` and 4a's `holdAndWinTrigger`/`holdAndWinEnd` are aliases
+    (4a's `{mode, cause, payload}` shape is read as is). `GameType` widened to any mode game type.
+  - **Flow:** `FlowDoc.modes: {[id]: {graph}}`, active-mode-first dispatch, nodes Mode trigger
+    (enter/exit/resume), On all modes finished, Enter mode (nest/queue), Exit mode; validator codes
+    `mode-unset` / `mode-entry-scope`, ids unique across sections; `check:flow-publish-gate` §6;
+    `/flow-v2` mode tabs. `$engine.activeMode` / `modeDepth` / `queuedModes`.
+  - **Resume:** stack + queue rebuilt silently from the snapshot; Hold and Win's own state comes back
+    through 4a's `holdAndWinState` replay.
+  - **Parity:** a real-clock free-spin round of `bookofborutremake`'s live authored data on the local
+    book mock, `main` vs branch: same 10 spins' structure, same intro/outro holds, same
+    `setFreeGameType` → `enterFreeSpinOutro` → `exitFreeSpinOutro` order and game-type moments, no
+    exceptions; the stack goes `freeSpins` at the trigger and back to base after `freeSpinEnd`.
+  - **Left for Phase 5/6:** the Hold and Win mode's graph and its respin screens (tag them `mode` +
+    `holdAndWin`); the facade/mock emit no `modeEnter` yet (nothing needs a queued mode until a game
+    announces one); the respin board reads the `respin` game type.
 
 - 2026-10-01 — **Phase 4a: the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
   engine runtime"). The §4.3 events as typed arms of the shared runtime's union (payloads in

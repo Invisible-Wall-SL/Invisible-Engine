@@ -24,6 +24,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import { withProjectSounds } from '$lib/soundOptions';
 	import { withSceneCues } from '$lib/sceneCues';
 	import { LIBRARY } from './sample';
@@ -876,14 +877,17 @@
 		);
 	}
 
-	function removeMode(id: string): void {
+	async function removeMode(id: string): Promise<void> {
 		const section = doc.modes?.[id];
 		if (!section) return;
 		if (
 			!isSeedOnly(section.graph) &&
-			!confirm(
-				`Remove the '${modeLabel(id)}' tab and its ${section.graph.nodes.length} node(s)? Undo brings it back.`,
-			)
+			!(await askConfirm({
+				title: `Remove the '${modeLabel(id)}' tab?`,
+				message: `Its ${section.graph.nodes.length} node(s) go with it. Undo brings it back.`,
+				confirmLabel: 'Remove',
+				danger: true,
+			}))
 		) {
 			return;
 		}

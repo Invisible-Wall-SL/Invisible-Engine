@@ -280,6 +280,30 @@ A spin can trigger **more than one** mode, and they must play one after another 
     - an **On all modes finished** event (back to base: collect, big-win, idle).
   - The `/flow-v2` editor shows modes as tabs (Base game · Free spins · Hold and Win · Wheel …). Adding a mode tab offers that mode's vocabulary, the §4.3 events for Hold and Win.
 - **Resume.** The snapshot carries the mode stack and queue plus each active mode's own state (for Hold and Win: held board, counter, running total, active modifiers, meter levels). A reload re-enters every mode on the stack in order without replaying intros.
+- **As built (Phase 4M, 2026-10-01) — the rules the build settled:**
+  - **Where it moves.** The stack moves at the play seam (`playBook.ts` `withModes`), on every
+    dispatch path (coded, v1, v2): an event that ENTERS a mode opens it before it is presented (the
+    event belongs to the mode it opens), an event that EXITS one closes it after. Rules:
+    `engine-game` `modeStack.ts`; aliases: `modeEvents.ts`; reactive holder:
+    `modeController.svelte.ts`; the game's instance: `apps/lines` `stateModes.svelte.ts`.
+  - **`nest` is the default policy**, because it is the only one that matches book order without
+    buffering events: the events after a trigger ARE the nested mode's. `queue` is for a book that
+    announces a mode which plays later; its Mode trigger fires when it actually starts.
+  - **The free-spin aliases keep their own game-type write.** `freeSpinTrigger`/`freeSpinEnd` write
+    `stateGame.gameType` at their own moment (the coded handler, or the flow's `setFreeGameType`
+    after the intro), so the mode layer skips exactly those two writes; every other transition sets
+    the game type of the mode now on top (`GameModeDecl.gameType`, `respin` for Hold and Win).
+  - **A mode section OVERRIDES the global graph** for the signals it handles (it does not run before
+    it): `reveal` in the `holdAndWin` section replaces the global `reveal` while Hold and Win is on
+    top, and an unhandled signal falls back to global. Mode triggers run the mode's own section then
+    the global graph; `allModesFinished` runs the `basegame` section then global.
+  - **Mode screens:** on the coded path the engine mounts a `role: 'mode'` screen while its mode is
+    on the stack. Under a screen-driving v2 flow the flow mounts every screen, mode screens included
+    (Mode trigger → Show), which is the 2026-09-02 owner rule for background screens. A mode's `hud`
+    replaces the authored HUD while it is on top.
+  - **Resume:** the snapshot keeps every stack-moving event, and `createBonusSnapshot` rebuilds the
+    stack and queue silently (`restoreModes`, no transitions, no intro) before 4a's
+    `holdAndWinState` replay redraws the board.
 - **XState stays as it is.** Modes live inside `playGame`, because a Hold and Win feature is still one round (several `play`s, one `collect`). `getBetType` keeps deciding end-of-round and balance.
 
 This is a **shared-runtime change for every game**, so it is its own phase (**Phase 4M**, below). Parity is the gate: every existing Book-of / lines / ways game must play byte-for-byte the same with `freeSpins` as a registered mode.

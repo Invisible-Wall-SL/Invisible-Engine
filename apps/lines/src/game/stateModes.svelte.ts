@@ -48,11 +48,14 @@ export const stateModes = createModeController({
 });
 
 /** The ids of every mode on the stack (reactive) — what a mode-tagged screen mounts against. */
+// A fresh, read-only snapshot per read: the reactivity is the stack's, so a SvelteSet would add none.
 export const activeModeIds = (): ReadonlySet<string> =>
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	new Set(stateModes.state.stack.map((entry) => entry.id));
 
 /** Every HUD screen some mode names as its own (`GameModeDecl.hud`). */
 export const modeHudIds = (): ReadonlySet<string> =>
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	new Set(
 		resolveGameModes(getActiveGameConfig())
 			.map((mode) => mode.hud)
