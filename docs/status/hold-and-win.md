@@ -42,7 +42,7 @@ titled **"Hold and win game pipeline"**.
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
-| 6 | Scene Editor template + components | not started | — | — |
+| 6 | Scene Editor template + components | in progress | Hold and Win Phase 6 — Scene Editor template | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
 | 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 (contract, /win-text sections, harvest) in review; part 2 (runtime reads the templates, see "Win Text literals for Phase 8") next | Hold and Win Phase 8 — Win Text | part 1: #946 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
