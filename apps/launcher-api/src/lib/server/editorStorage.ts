@@ -286,6 +286,11 @@ function normalizeScene(input: unknown): Scene | null {
 	if (isSceneRole(input.role)) {
 		scene.role = input.role;
 	}
+	// A mode screen names its game mode (`Scene.modeId`); kept only on that role, so retagging a
+	// screen away from `mode` does not leave a stale mode id behind.
+	if (scene.role === 'mode' && typeof input.modeId === 'string' && input.modeId.trim()) {
+		scene.modeId = input.modeId.trim();
+	}
 	const align = normalizeAlign(input.align);
 	if (align) scene.align = align;
 	// Preserve the screen's game-lifecycle gate (`Scene.visibleSource`) — a key into the

@@ -29,6 +29,7 @@ export const SCENE_ROLE_LABELS: Record<SceneRole, string> = {
 	buyConfirm: 'buy confirm',
 	betMenu: 'bet menu',
 	autoSpin: 'auto spin',
+	mode: 'game mode',
 };
 
 /** Every scene role, in the order the editor lists them. Derived from {@link SCENE_ROLE_LABELS}. */
@@ -37,6 +38,19 @@ export const SCENE_ROLES = Object.keys(SCENE_ROLE_LABELS) as SceneRole[];
 /** Whether `value` is a known scene role — the guard the editor writer and the save whitelist share. */
 export function isSceneRole(value: unknown): value is SceneRole {
 	return typeof value === 'string' && (SCENE_ROLES as string[]).includes(value);
+}
+
+/**
+ * The screens that belong to game mode `modeId` (`role: 'mode'`), in doc order. Unlike the other
+ * roles there are many per doc and several per mode, so there is no legacy-id fallback.
+ */
+export function modeScenes(scenes: readonly Scene[], modeId: string): Scene[] {
+	return scenes.filter((scene) => scene.role === 'mode' && scene.modeId === modeId);
+}
+
+/** Whether a screen is a mode screen — mounted by the mode stack, never as an always-on overlay. */
+export function isModeScene(scene: Scene): boolean {
+	return scene.role === 'mode';
 }
 
 export function sceneByRole(scenes: readonly Scene[], role: SceneRole): Scene | undefined {

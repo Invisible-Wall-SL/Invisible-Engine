@@ -688,6 +688,21 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-01 — **Game modes registry** (Hold and Win Phase 4M, part 1; design
+  [hold-and-win §4.5](../design/hold-and-win.md)). New optional `doc.modes` (`packages/game-config/src/modes.ts`):
+  a mode is `{ id, board: reels|respinBoard|wheel|none, gameType?, hud?, music?, counter?, values?, label? }`.
+  The built-ins come from `builtinGameModes`: `basegame`, `freeSpins` (game type `freegame`, so every
+  mock, facade and padding strip keeps its name), and `holdAndWin` (respin board, game type `respin`)
+  when the config has a `holdAndWin` block. `doc.modes` stores only overrides of a built-in and the
+  project's own modes; `normalizeGameModes` drops restatements, so every committed default normalizes
+  with no block. Read through `resolveGameModes` / `gameModeById` / `gameTypeForMode` /
+  `modeIdForGameType`. The validator refuses a base game off the reels and warns on a project reels mode
+  with no padding strips. `/config` gains a **Game modes** section (`GameModesSection.svelte`: built-in rows
+  with greyed defaults and a Reset, own modes added by id). The Scene Editor gains the screen role
+  **game mode** + a mode id (`Scene.modeId`, kept by `normalizeScene` only on that role). Nothing in the
+  game reads either yet; the engine mode stack (part 2) mounts mode screens and uses the game types.
+  Verified: `packages/game-config/modes.fixture.ts` and `pnpm --filter launcher-api check:scene-mode-role`.
+
 - 2026-09-30 — **Hold and Win block + three presets** (Hold and Win Phase 2). New `doc.holdAndWin`
   (the full option space of the three reference games), `pots` / `classic` / `collector` committed
   defaults generated from `packages/game-config/src/holdAndWinPresets.ts`, `/config` Hold and Win

@@ -16,6 +16,7 @@
  */
 
 import { validateHoldAndWin } from './holdAndWin';
+import { validateGameModes } from './modes';
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
@@ -299,6 +300,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	}
 
 	issues.push(...validateHoldAndWin(doc));
+	issues.push(...validateGameModes(doc));
 
 	return issues;
 };

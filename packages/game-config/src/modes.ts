@@ -1,0 +1,223 @@
+import type { GameConfigDoc } from './types';
+
+/**
+ * GAME MODES — the registry a bonus switches into (`docs/design/hold-and-win.md` §4.5).
+ *
+ * A mode is a different game with its own board, screens, HUD, counter, music and rules: the base
+ * game, free spins, a Hold and Win respin feature, a wheel, a pick game. The engine keeps a stack of
+ * active modes plus a queue of pending ones; this file only says which modes a project HAS and what
+ * each one is made of.
+ *
+ * SPARSE and departure-only, like every other Invisible-Engine block in this config. The modes every
+ * game already has are BUILT IN ({@link builtinGameModes}) — `basegame`, `freeSpins`, and
+ * `holdAndWin` when the project carries a `holdAndWin` block — so a config that never mentions modes
+ * resolves to exactly the two-value world the engine ran before this file existed. `doc.modes` stores
+ * an override of a built-in mode or a mode of the project's own, never a restatement of a default.
+ */
+
+/** What a mode plays on. `reels` is the shared column-strip board; the rest are their own surfaces. */
+export const GAME_MODE_BOARDS = ['reels', 'respinBoard', 'wheel', 'none'] as const;
+export type GameModeBoard = (typeof GAME_MODE_BOARDS)[number];
+
+/** The base game's id — the bottom of every mode stack, and the mode a round returns to. */
+export const BASE_GAME_MODE = 'basegame';
+
+export type GameModeDecl = {
+	/** The mode id the engine, the flow and the scenes name it by (`freeSpins`, `holdAndWin`, …). */
+	id: string;
+	/** What it plays on. */
+	board: GameModeBoard;
+	/**
+	 * The value `stateGame.gameType` takes while the mode is on top — the `paddingReels` key a `reels`
+	 * mode fills its padding from, and the value a book's `reveal.gameType` names. Absent ⇒ the id.
+	 *
+	 * It is a separate field because the two names already differ on the oldest mode: free spins are
+	 * the mode `freeSpins` but the game type `freegame`, which every math export, every mock and the
+	 * Play4Fun facade write. Renaming the game type would change the board every live free spin pads
+	 * from, so the id is the new name and the game type keeps the old one.
+	 */
+	gameType?: string;
+	/** The HUD variant the mode shows — a Scene Editor `hud_*` screen id. Absent ⇒ the base HUD. */
+	hud?: string;
+	/** The music cue the mode plays on enter. Absent ⇒ the music does not change. */
+	music?: string;
+	/** Where the mode's counter reads from (`freeSpins`, `respins`, …). Absent ⇒ no counter. */
+	counter?: string;
+	/** The values the mode exposes to the flow and the HUD (`total`, `respinsLeft`, …). */
+	values?: string[];
+	/** The name the authoring tools show. Absent ⇒ the id. */
+	label?: string;
+};
+
+/**
+ * The modes every project has without authoring any. Free spins are built in for every kind that can
+ * trigger them; a project whose config carries a `holdAndWin` block also has the respin feature.
+ */
+export function builtinGameModes(
+	doc: Pick<GameConfigDoc, 'holdAndWin'> | undefined,
+): GameModeDecl[] {
+	const modes: GameModeDecl[] = [
+		{ id: BASE_GAME_MODE, board: 'reels', label: 'Base game' },
+		{
+			id: 'freeSpins',
+			board: 'reels',
+			gameType: 'freegame',
+			counter: 'freeSpins',
+			label: 'Free spins',
+		},
+	];
+	if (doc?.holdAndWin) {
+		modes.push({
+			id: 'holdAndWin',
+			board: 'respinBoard',
+			gameType: 'respin',
+			counter: 'respins',
+			values: ['total', 'respinsLeft'],
+			label: 'Hold and Win',
+		});
+	}
+	return modes;
+}
+
+/**
+ * Every mode this project has: the built-ins with the authored overrides applied field by field, then
+ * the project's own modes in the order they were authored. Read modes through here, never through
+ * `doc.modes`, so "absent means the built-in" lives in one place.
+ */
+export function resolveGameModes(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+): GameModeDecl[] {
+	const resolved = builtinGameModes(doc);
+	for (const authored of doc?.modes ?? []) {
+		const at = resolved.findIndex((mode) => mode.id === authored.id);
+		if (at >= 0) resolved[at] = { ...resolved[at], ...authored };
+		else resolved.push(authored);
+	}
+	return resolved;
+}
+
+/** The one mode named `id`, or `undefined` when the project has no such mode. */
+export function gameModeById(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	id: string,
+): GameModeDecl | undefined {
+	return resolveGameModes(doc).find((mode) => mode.id === id);
+}
+
+/** The `stateGame.gameType` value a mode sets while it is on top (its `gameType`, else its id). */
+export function gameTypeForMode(mode: Pick<GameModeDecl, 'id' | 'gameType'>): string {
+	return mode.gameType ?? mode.id;
+}
+
+/**
+ * The mode a `gameType` value belongs to — the inverse of {@link gameTypeForMode}, so a book's
+ * `reveal.gameType: 'freegame'` reads as the `freeSpins` mode. An unknown game type is its own id.
+ */
+export function modeIdForGameType(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	gameType: string,
+): string {
+	const modes = resolveGameModes(doc);
+	return (
+		modes.find((mode) => mode.gameType === gameType)?.id ??
+		modes.find((mode) => mode.id === gameType)?.id ??
+		gameType
+	);
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const text = (v: unknown): string | undefined =>
+	typeof v === 'string' && v.trim() ? v.trim() : undefined;
+
+const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+/**
+ * Normalize authored modes, or `undefined` when nothing departs from the built-ins.
+ *
+ * A half-typed entry (no id, a malformed id, an unknown board) is dropped, as the rest of this config
+ * drops what cannot be interpreted. A field that merely RESTATES the built-in is dropped too, and an
+ * override left with nothing in it disappears, so a config that agrees with the defaults stores no
+ * `modes` at all and normalizes byte-identically to one authored before modes existed.
+ */
+export function normalizeGameModes(
+	raw: unknown,
+	doc: Pick<GameConfigDoc, 'holdAndWin'> | undefined,
+): GameModeDecl[] | undefined {
+	if (!Array.isArray(raw)) return undefined;
+	const builtins = builtinGameModes(doc);
+	const out: GameModeDecl[] = [];
+	const seen = new Set<string>();
+	for (const entry of raw) {
+		if (!isObject(entry)) continue;
+		const id = text(entry.id);
+		if (!id || !MODE_ID.test(id) || seen.has(id)) continue;
+		const builtin = builtins.find((mode) => mode.id === id);
+		const board = GAME_MODE_BOARDS.find((b) => b === entry.board) ?? builtin?.board;
+		if (!board) continue;
+		seen.add(id);
+		const mode: GameModeDecl = { id, board };
+		for (const key of ['gameType', 'hud', 'music', 'counter', 'label'] as const) {
+			const value = text(entry[key]);
+			if (value) mode[key] = value;
+		}
+		if (Array.isArray(entry.values)) {
+			const values = [...new Set(entry.values.map(text).filter((v): v is string => !!v))];
+			if (values.length) mode.values = values;
+		}
+		if (builtin) {
+			const departure = departureFrom(builtin, mode);
+			if (departure) out.push(departure);
+		} else {
+			out.push(mode);
+		}
+	}
+	return out.length ? out : undefined;
+}
+
+/** The fields of `mode` that differ from `builtin`, plus the id; `undefined` when none differ. */
+function departureFrom(builtin: GameModeDecl, mode: GameModeDecl): GameModeDecl | undefined {
+	const out: Partial<GameModeDecl> = {};
+	let departs = false;
+	for (const key of Object.keys(mode) as (keyof GameModeDecl)[]) {
+		if (key === 'id') continue;
+		if (JSON.stringify(mode[key]) === JSON.stringify(builtin[key])) continue;
+		(out as Record<string, unknown>)[key] = mode[key];
+		departs = true;
+	}
+	return departs ? ({ id: builtin.id, board: builtin.board, ...out } as GameModeDecl) : undefined;
+}
+
+export type GameModeIssue = { path: string; message: string; severity: 'error' | 'warning' };
+
+/**
+ * What is wrong with the resolved modes. A `reels` mode must pad from a strip set the config deals;
+ * the base game must stay on the reels, because every round starts and ends there.
+ */
+export function validateGameModes(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes' | 'paddingReels'>,
+): GameModeIssue[] {
+	const issues: GameModeIssue[] = [];
+	for (const mode of resolveGameModes(doc)) {
+		const path = `modes.${mode.id}`;
+		if (mode.id === BASE_GAME_MODE && mode.board !== 'reels') {
+			issues.push({
+				path: `${path}.board`,
+				severity: 'error',
+				message: 'The base game plays on the reels: every round starts and ends there.',
+			});
+		}
+		const gameType = gameTypeForMode(mode);
+		const ownsStrips =
+			(doc.modes ?? []).some((m) => m.id === mode.id) || mode.id === BASE_GAME_MODE;
+		if (mode.board === 'reels' && ownsStrips && !doc.paddingReels[gameType]?.length) {
+			issues.push({
+				path: `${path}.gameType`,
+				severity: 'warning',
+				message: `No padding strips for game type "${gameType}"; the reels pad from nothing in this mode.`,
+			});
+		}
+	}
+	return issues;
+}

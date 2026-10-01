@@ -48,6 +48,7 @@
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
+	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -2048,6 +2049,8 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		<GameModesSection bind:doc {issuesFor} readOnly={lease.readOnly} />
 
 		<!-- Sounds ----------------------------------------------------------------->
 		<section>

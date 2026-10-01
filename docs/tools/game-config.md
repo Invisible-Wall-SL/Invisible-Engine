@@ -79,6 +79,8 @@ before — an un-authored project still runs the compiled template.
   tumble** — see _Tumbling (cascade)_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
+- **Game modes** — the modes a bonus switches into (base game, free spins, Hold and
+  Win, your own). See _Game modes_ below.
 - **Sounds** — moved to [Invisible Sound](sound.md). The panel here is a pointer.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
@@ -228,6 +230,39 @@ drain-and-refill, cascade pop-and-refill, emerge-in-place, and sink-then-surface
 Settings you switch off are **kept**, not deleted: tick the clear step, switch to a
 column cascade to compare, and switching back restores it. The panel and the
 warnings tell you when a saved setting is currently inert.
+
+## Game modes
+
+A mode is a different game a bonus switches into — its own board, screens, HUD and
+music. The **Game modes** panel (below Reel behaviour) lists every mode the project
+has, one row each:
+
+- **Built-in** rows (chip `built-in`) are the modes every game has without authoring:
+  `basegame`, `freeSpins` (game type `freegame`), and `holdAndWin` when the config has
+  a Hold and Win block. Their values show greyed as placeholders; type into a field
+  to override just that field, clear it to go back. An edited row shows
+  `built-in · edited` and a **Reset** button.
+- **Your own modes:** type an id under the table and click **+ mode** (or Enter). The
+  id must start with a letter and use only letters, digits, `_` and `-`, and must not
+  already exist. **×** removes it.
+
+The columns (in brackets, what a blank field means on your own mode):
+
+- **Board** — what it plays on: reels, respin board, wheel, none.
+- **Label** — the name the tools show (the id).
+- **Game type** — the `gameType` the game runs while the mode is on; a reels mode
+  pads from the padding strips of that key (the id).
+- **HUD** — a Scene Editor `hud_*` screen id (the base HUD).
+- **Music** — the cue played on entering (music unchanged).
+- **Counter** — where the mode's counter reads from (no counter).
+- **Values** — comma list of the values the mode exposes to the flow and HUD.
+
+To show screens only while a mode plays, tag them in the Scene Editor with the role
+**game mode** and this id. Only departures are saved: a field that restates a
+built-in is dropped on save, so a project that never touches the panel stores no
+`modes` at all. Issues appear under the panel with a `modes.<id>` path — the base
+game must stay on the reels (error), and a reels mode whose game type has no padding
+strips warns.
 
 ## Sounds
 
