@@ -62,6 +62,17 @@ always draw on top. For each screen you can:
 - Toggle the **eye** to show/hide a screen in the canvas, **duplicate** it, or
   **delete** it (✕, with confirm).
 
+**🎮 In-game view** (canvas toolbar, on by default) makes the canvas draw what the idle game
+shows: the background, the base game, the HUD and any always-on screen (a Hold and Win
+project's Jackpot bar and Pots), plus the screen you are editing. Menus, takeovers (buy
+feature, buy confirm, bet menu, auto spin), the loading screen, free-spin and Hold and Win
+feature screens, and screens gated by a visibility source stay off the canvas until you
+click them in the list. Their names show in italics. Selecting a feature screen also draws
+the rest of that feature, without its intro, outro, wheel or jackpot popups. In-game view
+also hides the labelled boxes for component parts that have no art picked (a Feature
+Card's empty panel or spine slot), because the game draws nothing there either. Turn it
+off to draw every screen at once with those boxes. The eye toggles still apply on top.
+
 Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
 (positioned against the window edges), or `background` (cover-fit, full-bleed).
@@ -118,7 +129,10 @@ To start from something:
 - **＋ New bet menu screen** and **＋ New auto spin screen** seed the two player
   menus — see [the section below](#the-bet-menu-and-the-auto-spin-screens).
 - **＋ Add missing screens** appears when the game defines screens the current
-  layout lacks.
+  layout lacks. Each added screen goes in at its place in the game's own screen order,
+  not at the end of the list. A project created before its kind's template existed (for
+  example a Hold and Win project scaffolded before the Jackpot bar and Pots screens) gets
+  them here.
 
 **Hold and Win screens.** A Hold and Win project starts with one screen set for all three
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
@@ -130,8 +144,13 @@ the game (a pot whose meter the Game Config lacks, letters without a column-lett
 wheel without prizes), so leave it or delete its screen. The base game's **Messages** info bar is
 where the game's toasts ("UNLOCKED: PAYER", jackpot amounts) appear — keep one. There are no
 free-spin screens; the Free-Spin Counter and free-spin intro/outro components stay in the
-Components list, so a hybrid game places them on screens of its own. Until Hold and Win's own starter flow ships (Phase 5), the starter flow shows only the
-base game and HUD, and the game keeps drawing its built-in respin counter and pots.
+Components list, so a hybrid game places them on screens of its own. Each pot is a **Pot
+Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter.
+Move and scale it here. Its look (bar, label) is coded, so there is no art to pick yet. While no
+Pot Meter for a meter is on screen, the game draws its built-in pot for that meter. A screen
+reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
+and **Pots** from the start. A project whose flow is older (scaffolded on the Book-of starter)
+also needs a **Show container** for each at load in `/flow-v2`.
 
 ### The bet menu and the auto spin screens
 

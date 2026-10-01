@@ -30,6 +30,7 @@
 		SCENE_ROLE_LABELS,
 		defaultBetMenuScene,
 		defaultAutoSpinScene,
+		inGameViewSceneIds,
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
@@ -97,6 +98,10 @@
 		else next.add(id);
 		hiddenScenes = next; // reassign so the canvas $effect re-runs
 	}
+	/** Editor-only "In-game view": the canvas draws the idle base game plus the screen being
+	 * edited (`inGameViewSceneIds`), as the game shows them, instead of every menu, takeover and
+	 * feature screen at once. Persisted with the rest of the UI layout. */
+	let gameView = $state(true);
 	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
 	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
@@ -346,6 +351,7 @@
 			const s = JSON.parse(raw) as {
 				rightTab?: string;
 				hiddenScenes?: string[];
+				gameView?: boolean;
 				libExpanded?: string[];
 			};
 			// Only the always-available right tabs — `template` is mode-gated.
@@ -353,6 +359,7 @@
 			if (Array.isArray(s.hiddenScenes)) {
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
 			}
+			if (typeof s.gameView === 'boolean') gameView = s.gameView;
 			// Restore the expanded Library atlases — <EditorAssetLibrary> hydrates each
 			// open key's regions on mount.
 			if (Array.isArray(s.libExpanded)) {
@@ -369,6 +376,7 @@
 		const snapshot = JSON.stringify({
 			rightTab,
 			hiddenScenes: [...hiddenScenes],
+			gameView,
 			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
 		});
 		if (!uiLoaded || typeof localStorage === 'undefined') return;
@@ -871,6 +879,16 @@
 	}
 
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
+	/** Screens In-game view leaves off the canvas right now (not on screen at rest, not edited). */
+	const offInGameView = $derived.by(() => {
+		if (!gameView) return new Set<string>();
+		const shown = inGameViewSceneIds(scenes, activeScene);
+		return new Set(scenes.filter((s) => !shown.has(s.id)).map((s) => s.id));
+	});
+	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off. */
+	const canvasHiddenScenes = $derived(
+		offInGameView.size === 0 ? hiddenScenes : new Set([...hiddenScenes, ...offInGameView]),
+	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
 	/** All scenes the canvas may composite. */
@@ -1422,10 +1440,11 @@
 	const missingScreens = $derived.by(() => {
 		const full = getFullSceneSet(projectGameType);
 		if (!full) return [] as Scene[];
+		// `mode` is the one role with many screens per doc, so a mode screen is matched by id only.
 		return full.scenes.filter(
 			(ref) =>
 				!scenes.some((cur) => cur.id === ref.id) &&
-				!(ref.role && scenes.some((cur) => cur.role === ref.role)),
+				!(ref.role && ref.role !== 'mode' && scenes.some((cur) => cur.role === ref.role)),
 		);
 	});
 
@@ -1434,9 +1453,25 @@
 	 * the author tops up the screen list without re-running the console seed. */
 	function addMissingScreens(): void {
 		const toAdd = missingScreens;
-		if (toAdd.length === 0) return;
-		scenes = [...scenes, ...structuredClone(toAdd)];
-		activeSceneIdx = scenes.length - toAdd.length; // focus the first added screen
+		const full = getFullSceneSet(projectGameType);
+		if (toAdd.length === 0 || !full) return;
+		// Each lands right after the screen that precedes it in the game's own set (the list order is
+		// the layer order), so a pot goes under the HUD rather than on top of every other screen.
+		const next = [...scenes];
+		for (const ref of structuredClone(toAdd)) {
+			const refIdx = full.scenes.findIndex((s) => s.id === ref.id);
+			let at = 0;
+			for (let i = refIdx - 1; i >= 0; i--) {
+				const prev = next.findIndex((s) => s.id === full.scenes[i].id);
+				if (prev !== -1) {
+					at = prev + 1;
+					break;
+				}
+			}
+			next.splice(at, 0, ref);
+		}
+		scenes = next;
+		activeSceneIdx = next.findIndex((s) => s.id === toAdd[0].id); // focus the first added screen
 		clearSelection();
 		markDirty();
 	}
@@ -2761,6 +2796,7 @@
 			<div class="left-body">
 				{#snippet sceneRow(s: (typeof scenes)[number], i: number)}
 					{@const hidden = hiddenScenes.has(s.id)}
+					{@const offView = offInGameView.has(s.id)}
 					<li
 						class="screen-li"
 						class:dragging={dragSceneIdx === i}
@@ -2793,7 +2829,10 @@
 								class="screen"
 								class:active={i === activeSceneIdx}
 								class:dimmed={hidden}
-								title="Click to edit · double-click to rename"
+								class:off-view={offView && !hidden}
+								title={offView
+									? 'Not on screen in the idle game — In-game view draws it while you edit it. Click to edit · double-click to rename'
+									: 'Click to edit · double-click to rename'}
 								onclick={() => selectScene(i)}
 								ondblclick={() => startRenameScene(i)}
 							>
@@ -3038,7 +3077,8 @@
 					onDeleteMany={onDeleteNodes}
 					redrawNonce={canvasRedrawNonce}
 					{fillRequest}
-					hiddenSceneIds={hiddenScenes}
+					hiddenSceneIds={canvasHiddenScenes}
+					bind:gameView
 					projectGameName={data.gameName}
 					onSpineMeta={(meta) => (spineMeta = meta)}
 					{canUndo}
@@ -4222,6 +4262,10 @@
 	}
 	.screen.dimmed .screen-name {
 		opacity: 0.5;
+	}
+	.screen.off-view .screen-name {
+		opacity: 0.6;
+		font-style: italic;
 	}
 	.eye {
 		display: inline-flex;

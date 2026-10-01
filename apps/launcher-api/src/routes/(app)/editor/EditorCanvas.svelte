@@ -230,6 +230,10 @@
 		 * draws (you're editing it); other non-hidden scenes draw as a dimmed,
 		 * non-interactive backdrop so you can see all screens at once. */
 		hiddenSceneIds?: Set<string>;
+		/** The Scene Editor's "In-game view" (bindable; the page picks the screens). While on, a
+		 * component part with no art bound draws nothing, as in the game, instead of its labelled
+		 * placeholder. Absent (the Component Editor) ⇒ no toggle and placeholders always draw. */
+		gameView?: boolean;
 		/** The project's display name — the default HUD game-name shown on the canvas
 		 * when the author hasn't typed an override (not written to the doc). */
 		projectGameName?: string | null;
@@ -294,6 +298,7 @@
 		redrawNonce = 0,
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
+		gameView = $bindable(),
 		projectGameName = null,
 		componentParams = {},
 		componentDefaults = {},
@@ -2517,6 +2522,8 @@
 			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
 			if (region) {
 				drawRegionSprite(ctx, node, t, region, assetKey, tint);
+			} else if (!assetKey && nested && gameView) {
+				// An art slot nothing is bound to: the game draws nothing there.
 			} else {
 				const img = ensureImage(assetKey);
 				if (img && img.complete && img.naturalWidth > 0) {
@@ -2549,8 +2556,14 @@
 			}
 		} else if (node.kind === 'spine') {
 			// The WebGL overlay draws the real skeleton once loaded; until then (or on
-			// load error) the placeholder box stands in.
-			if (!readySpineKeys.has(node.assetKey)) {
+			// load error) the placeholder box stands in. A nested slot with no rig bound draws
+			// nothing in the game, so In-game view draws nothing either.
+			const rig =
+				boundString(node.paramBindings, 'assetKey', instanceParams ?? componentParams) ??
+				node.assetKey;
+			if (!rig && nested && gameView) {
+				// nothing bound
+			} else if (!readySpineKeys.has(node.assetKey)) {
 				drawPlaceholder(
 					ctx,
 					t.anchor?.x ?? 0.5,
@@ -4175,6 +4188,7 @@
 	// new scene self-heals on the next frame even if this effect's RAF wins first.
 	$effect(() => {
 		void hiddenSceneIds;
+		void gameView;
 		void scenes;
 		void scene;
 		void layoutType;
@@ -4786,6 +4800,20 @@
 			>
 				⛶ Bounds
 			</button>
+			{#if gameView !== undefined}
+				<button
+					class="fit"
+					class:on={gameView}
+					onclick={() => (gameView = !gameView)}
+					type="button"
+					aria-pressed={gameView}
+					title={gameView
+						? 'In-game view: only the screens the idle game shows, plus the one you are editing. Click to draw every screen.'
+						: 'Drawing every screen at once. Click for In-game view: the idle game plus the screen you are editing.'}
+				>
+					🎮 In-game view
+				</button>
+			{/if}
 		</div>
 	</div>
 </div>
