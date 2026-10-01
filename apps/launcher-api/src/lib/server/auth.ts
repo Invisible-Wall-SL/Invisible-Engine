@@ -1,6 +1,6 @@
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { getDb } from './db';
 import { projects, sessions, users } from './db/schema';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -186,6 +186,20 @@ export async function clearActiveProjectKey(
 		.update(sessions)
 		.set({ activeProjectKey: null })
 		.where(and(eq(sessions.id, await sha256(raw)), eq(sessions.activeProjectKey, expected)));
+}
+
+/**
+ * Sign a user out everywhere, except `keepSessionId` — the caller's own session when they changed
+ * or reset their own password.
+ */
+export async function revokeUserSessions(
+	userId: string,
+	keepSessionId?: string | null,
+): Promise<void> {
+	const own = eq(sessions.userId, userId);
+	await getDb()
+		.delete(sessions)
+		.where(keepSessionId ? and(own, ne(sessions.id, keepSessionId)) : own);
 }
 
 export async function invalidateSession(raw: string | undefined): Promise<void> {

@@ -11,9 +11,9 @@ published snapshots.
 The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, with Postgres
 (`docs/INFRA.md`):
 
-- **Auth / sessions** — invite-only email+password (scrypt), server-side sessions in Postgres/Drizzle, "remember me" (`REMEMBER_TTL_DAYS` vs `SESSION_TTL_HOURS`). Not signed in → `/login`.
+- **Auth / sessions** — invite-only email+password (scrypt), server-side sessions in Postgres/Drizzle, "remember me" (`REMEMBER_TTL_DAYS` vs `SESSION_TTL_HOURS`). Not signed in → `/login`. Users change their own password at `/account/password` (header link); a new password — self-service or admin create/reset — needs 12+ characters (`$lib/passwordPolicy.ts`), never checked at sign-in.
 - **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for every publish path, `fontPublish`/`blueprintPublish` for shared-library writes, `adminPanel`).
-- **Access scoping** — ONE gate for tool APIs, `$lib/server/toolScope.ts`: `gate()` (auth + tool + the session's project, re-checked every request), `requireProjectScope` for APIs that name a project, and the single `allowedPrefixes()`. Desktop-facing routes go through `$lib/server/launcherAuth.ts`. Pinned in CI by `check:launcher-gates`, `check:project-scope`, `check:lease-scope`, `check:deploy-read`.
+- **Access scoping** — ONE gate for tool APIs, `$lib/server/toolScope.ts`: `gate()` (auth + tool + the session's project, re-checked every request), `requireProjectScope` for APIs that name a project, and the single `allowedPrefixes()`. Desktop-facing routes go through `$lib/server/launcherAuth.ts`. Pinned in CI by `check:launcher-gates`, `check:project-scope`, `check:lease-scope`, `check:change-password`, `check:deploy-read`.
 - **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
 - **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
 - **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
@@ -55,7 +55,30 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+
 - 2026-09-30 — **Build uploads client source maps to Sentry when `SENTRY_AUTH_TOKEN` is set** (`vite.config.js` hidden maps → `build` script runs `scripts/sentry-sourcemaps.mjs launcher build`: inject debug IDs, upload for `RAILWAY_GIT_COMMIT_SHA`, delete every `.map`, fail if one is left in `client/_app`). Without the token the build is unchanged. Owner steps: docs/INFRA.md "Readable stack traces — source maps".
+
+### 2026-10-01 — self-service password change; 12-character minimum
+- **`/account/password`** (an `(app)` page, not a tool — no registry entry; linked as *Change
+  password* in the home header beside *Getting started* / *Sign out*). Current + new + confirm,
+  plain form action. The new password is validated first (`passwordChangeProblem` in
+  `$lib/passwordPolicy.ts`: confirm matches, 12+ characters, not the current one, not the email),
+  so a typo costs no throttle attempt. Then the login throttle (`checkLoginThrottle` on the IP +
+  email → 429), `verifyCredentials` (uniform timing) with ONE message for every failure, recorded
+  with `recordLoginFailure`. On success: `recordLoginSuccess`, re-hash, and every OTHER session of
+  the user is revoked; the caller's stays. Core in `$lib/server/changePassword.ts`.
+- **`revokeUserSessions` moved from `$lib/server/admin.ts` to `$lib/server/auth.ts`** — the admin
+  reset and the self-service change share it.
+- **Admin create + reset use `MIN_PASSWORD_LENGTH` (12)** instead of a local 8, with `minlength` and
+  a hint on both inputs. Existing shorter passwords keep working — sign-in never checks length, and
+  nothing forces a reset.
+- **`check:change-password`** (51 checks, in CI's launcher-gates step) runs the real route action
+  over an in-memory users + sessions store that evaluates the shipped Drizzle conditions through
+  Drizzle's own Postgres dialect: signed-out redirect, policy (11 refused / 12 accepted, mismatch,
+  equals-current, equals-email) with no throttle attempt consumed, lockout → 429 with no verify,
+  wrong/expired current → the same message + a recorded failure, success → other sessions gone,
+  this one and another user's kept. 14 planted mutants all killed. `check:launcher-gates` also pins
+  that admin create/reset call `passwordLengthProblem` and that sign-in never imports the policy.
 
 ### 2026-09-30 — FX, Flipbook and Symbols ask before discarding unsaved work
 - **The last three manual-Save tools now call `guardUnsavedWork`.** `/fx` and `/flipbook` dropped

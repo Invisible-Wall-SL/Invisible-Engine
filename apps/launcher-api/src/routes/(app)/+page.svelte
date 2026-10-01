@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOL_STAGES, roleLabel, type ToolDef, type ToolStage } from '$lib/roles';
@@ -342,6 +343,7 @@
 				<a class="ghost" href="/admin">Admin</a>
 			{/if}
 			<a class="ghost" href="/onboarding">Getting started</a>
+			<a class="ghost" href={resolve('/account/password')}>Change password</a>
 			<form method="POST" action="/auth/logout">
 				<button class="ghost" type="submit">Sign out</button>
 			</form>

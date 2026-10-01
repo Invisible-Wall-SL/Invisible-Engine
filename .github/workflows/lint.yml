@@ -140,12 +140,15 @@ jobs:
       # asserts the decisions over the real role matrix and scans every `src/routes/api` handler
       # for the two shapes that caused those; `project-scope` runs the real `requireProjectScope`
       # and `lease-scope` the real `POST /api/lease`, each with only the database stubbed;
+      # `change-password` runs the real `/account/password` action over an in-memory users+sessions
+      # store that evaluates the shipped Drizzle conditions (throttle, uniform failure, other
+      # sessions revoked, this one kept, the 12-character minimum);
       # `deploy-read` runs the real path-form asset route, which every online game loads through, and
-      # pins that it serves the project's OWN client tree. All four need `svelte-kit sync`, which
+      # pins that it serves the project's OWN client tree. All five need `svelte-kit sync`, which
       # their `pre` scripts run. `event-bound-flags` fails on `onclick={save}` where `save(force = false)`
       # — the click event arrives as `force`, and every manual Save skips the conflict check.
       # `toolbar-icons` fails when an online tool is missing from one of the four hand-copied
       # tool-bar icon maps (rigger/spine view.html, atlas/sheet tool) — it renders iconless there.
       - name: launcher gates hold
         if: steps.changes.outputs.code == 'true'
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm check:toolbar-icons
+        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:change-password && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm check:toolbar-icons

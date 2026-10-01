@@ -449,7 +449,23 @@ check(
 		actionBlock('resetPassword').includes('revokeUserSessions('),
 		true,
 	);
+	for (const action of ['createUser', 'resetPassword']) {
+		check(
+			`admin ?/${action} applies the shared password minimum`,
+			actionBlock(action).includes('passwordLengthProblem('),
+			true,
+		);
+	}
 }
+check(
+	'sign-in never applies the new-password minimum (older, shorter passwords keep working)',
+	[
+		'routes/login/+page.server.ts',
+		'routes/api/launcher/login/+server.ts',
+		'lib/server/auth.ts',
+	].some((path) => readFileSync(`${srcRoot}${path}`, 'utf8').includes('passwordPolicy')),
+	false,
+);
 check(
 	'the DB browser redacts by row as well as by column',
 	readFileSync(`${srcRoot}lib/server/dbBrowser.ts`, 'utf8').includes('settingValueVisible('),

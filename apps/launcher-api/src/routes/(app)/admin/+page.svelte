@@ -6,6 +6,7 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import type { ProjectFootprint } from '$lib/projectFootprint';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
+	import { MIN_PASSWORD_LENGTH } from '$lib/passwordPolicy';
 	import { roleLabel } from '$lib/roles';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
@@ -549,8 +550,14 @@
 						</select>
 					</label>
 					<label>
-						Initial password
-						<input name="password" type="password" autocomplete="new-password" required />
+						Initial password (at least {MIN_PASSWORD_LENGTH} characters)
+						<input
+							name="password"
+							type="password"
+							autocomplete="new-password"
+							minlength={MIN_PASSWORD_LENGTH}
+							required
+						/>
 					</label>
 					<button type="submit">Create</button>
 				</form>
@@ -595,8 +602,14 @@
 					<form method="POST" action="?/resetPassword" use:enhance class="inline">
 						<input type="hidden" name="userId" value={selected.id} />
 						<label class="grow">
-							New password
-							<input name="password" type="password" autocomplete="new-password" />
+							New password (at least {MIN_PASSWORD_LENGTH} characters)
+							<input
+								name="password"
+								type="password"
+								autocomplete="new-password"
+								minlength={MIN_PASSWORD_LENGTH}
+								required
+							/>
 						</label>
 						<button type="submit">Reset</button>
 					</form>
