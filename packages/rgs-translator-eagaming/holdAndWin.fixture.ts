@@ -343,6 +343,64 @@ for (const type of HW_TYPES) {
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
+// RESUME, the two edges: a break right after the feature opened (no respin stored yet) resumes at
+// the first respin; a break after the feature ENDED (only the collect missing) resumes at 0 — the
+// whole book plays again, as every other round's resume does.
+for (const edge of ['entry', 'ended'] as const) {
+	const { server, rgsUrl } = await hush(() => startMock('pots', 'trigger'));
+	const sid = `fx-resume-${edge}`;
+	const post = async (seq: number, gid: string | null, body: unknown) => {
+		const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+		const res = await fetch(`http://${rgsUrl}/rgs/engine?${query}`, {
+			method: 'POST',
+			body: JSON.stringify(body),
+		});
+		return (await res.json()) as {
+			platform: { gameRound?: { id?: string } };
+			events: { event: string }[];
+		};
+	};
+	await post(0, null, [{ action: 'config' }]);
+	const opened = await post(0, null, [
+		{ action: 'bet', context: [25, 4] },
+		{ action: 'play', context: null },
+	]);
+	const gid = opened.platform.gameRound?.id ?? null;
+	if (edge === 'ended') {
+		let seq = 2;
+		let ended = false;
+		while (!ended && seq < 60) {
+			const r = await post(seq++, gid, [{ action: 'play' }]);
+			ended = r.events.some((e) => e.event === 'gameEnd');
+		}
+		check(`resume ${edge}: the feature ended before the break`, ended, true);
+	}
+	const facade = await openTab();
+	const resumed = await hush(
+		async () =>
+			(await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' })) as Answer,
+	);
+	const book = resumed.round?.state ?? [];
+	const at = Number(resumed.round?.event);
+	if (edge === 'entry') {
+		check('resume entry: it picks up past the trigger', at > 0, true);
+		check('resume entry: the first event presented is respin 1', book[at]?.type, 'respinReveal');
+		check(
+			'resume entry: the snapshot before it is the entry picture',
+			book.slice(0, at).some((e) => e.type === 'holdAndWinState'),
+			true,
+		);
+	} else {
+		check('resume ended: an ended feature replays from 0', resumed.round?.event, '0');
+		check(
+			'resume ended: and the book still carries the feature',
+			book.some((e) => e.type === 'holdAndWinEnd'),
+			true,
+		);
+	}
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
 realLog(`\n${passes} Hold and Win facade checks passed, ${failures} failed.`);
 if (failures) {
 	realLog(report.join('\n'));

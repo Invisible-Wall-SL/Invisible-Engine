@@ -1320,23 +1320,6 @@ const abandonResume = (sid: string, open: OpenRound, why: string) => {
 };
 
 /**
- * Finish a round a previous session left open, and hand it to the engine as the round to present.
- *
- * The protocol's resume is REPLAY: re-post the round's stored actions at the positions they were
- * stored at, under its `gid`, and the server answers each with the result it already dealt — that is
- * what an occupied `seq` means. Then the round continues live exactly as `requestBet` would have
- * carried it, so a feature interrupted between two free spins is played out and collected here.
- *
- * The engine already knows what to do with the answer: an `active` round from `authenticate` is
- * Stake's resumed bet, which the game presents from its first event and then ends through
- * `requestEndRound` — which is where a base win's `collect` happens, as for any spin. So the player
- * sees the outcome they paid for, and the balance they are left with is the one the server holds.
- *
- * Always resumed as the BASE mode. The stake was debited when the round began, so presenting it needs
- * no mode, and the resume machine — unlike a fresh bet — never drops a bought mode back to base: a
- * resumed buy would leave the NEXT spin buying again at the buy price.
- */
-/**
  * Where the engine picks a resumed round up (`round.event`, the index of the first book event it
  * PRESENTS; everything before it is folded into `createBonusSnapshot`).
  *
@@ -1354,6 +1337,23 @@ const holdAndWinResumePoint = (sid: string, replayed: Play4FunBookEvent[]): numb
 	return adaptEventsForEngine(sid, replayed).length;
 };
 
+/**
+ * Finish a round a previous session left open, and hand it to the engine as the round to present.
+ *
+ * The protocol's resume is REPLAY: re-post the round's stored actions at the positions they were
+ * stored at, under its `gid`, and the server answers each with the result it already dealt — that is
+ * what an occupied `seq` means. Then the round continues live exactly as `requestBet` would have
+ * carried it, so a feature interrupted between two free spins is played out and collected here.
+ *
+ * The engine already knows what to do with the answer: an `active` round from `authenticate` is
+ * Stake's resumed bet, which the game presents from its first event and then ends through
+ * `requestEndRound` — which is where a base win's `collect` happens, as for any spin. So the player
+ * sees the outcome they paid for, and the balance they are left with is the one the server holds.
+ *
+ * Always resumed as the BASE mode. The stake was debited when the round began, so presenting it needs
+ * no mode, and the resume machine — unlike a fresh bet — never drops a bought mode back to base: a
+ * resumed buy would leave the NEXT spin buying again at the buy price.
+ */
 const resumeOpenRound = async (
 	sid: string,
 	fetcher: ReturnType<typeof fetcherFor>,

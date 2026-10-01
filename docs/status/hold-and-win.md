@@ -83,6 +83,12 @@ only has to register its own vocab + seed.
   used. Fixed in the facade: a mid-feature Hold and Win round now resumes at the end of what the
   server had stored (`holdAndWinResumePoint`), so the engine folds the trigger and the last snapshot
   into `createBonusSnapshot` and presents only the respins still to come. Other kinds keep `0`.
+  What a snapshot resume does NOT carry, on purpose: the trigger spin's `reveal`/`winInfo` are
+  folded away, so after the feature the reels come back on the boot board and that spin's line wins
+  are not drawn (the money is right — `gameEnd`'s `setTotalWin` carries the full total); a
+  `meterUpdate` from the trigger spin is not replayed (meter beats would re-present), but the server
+  restates every meter in `meterLevels` after each `play`, and the snapshot keeps the last one. A
+  feature that had already ended before the break resumes at 0 (the whole book plays again).
 - 2026-10-01 — **Pre-existing, every flow-driven game: a resumed book starts playing BEHIND the
   loading screen.** `ResumeBet` broadcasts `resumeBet` on mount, and a flow-driven game mounts it
   under the flow's loading/tap-to-start screen, so a resumed feature runs (and can finish, big win
