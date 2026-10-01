@@ -32,7 +32,7 @@
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
-	import { createSpinButtonHold } from 'utils-shared/spinHold';
+	import { spinButtonHold } from 'utils-shared/spinHold';
 
 	import {
 		UI,
@@ -1918,7 +1918,7 @@
 			},
 			// Holding the button is holding Space: the press fires at the hold threshold, then rounds
 			// chain in turbo until release (`utils-shared/spinHold`, shared with `<EnableSpaceHold>`).
-			hold: createSpinButtonHold(),
+			hold: spinButtonHold,
 			disabled: boolSource(() => isSpinButtonDisabled(getSpinKey())),
 			spinning: boolSource(isSpinning),
 			label: textSource(() =>

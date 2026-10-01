@@ -102,6 +102,12 @@
 		// to prevent that you can't scroll the page with touch on the canvas. https://github.com/pixijs/pixijs/issues/4824
 		context.stateApp.pixiApplication.renderer.events.autoPreventDefault = false;
 		context.stateApp.pixiApplication.renderer.canvas.style.touchAction = 'auto';
+		// A long press on the canvas is a game gesture (hold the spin button), never the browser's
+		// callout or a text selection.
+		const canvasStyle = context.stateApp.pixiApplication.renderer.canvas.style;
+		canvasStyle.setProperty('-webkit-touch-callout', 'none');
+		canvasStyle.setProperty('-webkit-user-select', 'none');
+		canvasStyle.setProperty('user-select', 'none');
 	};
 
 	onMount(async () => {

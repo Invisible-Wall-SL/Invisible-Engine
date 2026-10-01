@@ -969,11 +969,14 @@
 		if (liveDisabled) return;
 		firePress();
 	};
-	const pressHold = createPressHold({ hold: () => actionSource?.hold, press: onpress });
+	// Only the art-button path presses here (`ButtonFrame` owns a bound part's press).
+	const pressHold = interactive
+		? createPressHold({ hold: () => actionSource?.hold, press: onpress })
+		: undefined;
 	$effect(() => {
-		if (liveDisabled) pressHold.disarm();
+		if (liveDisabled) pressHold?.disarm();
 	});
-	onDestroy(pressHold.cancel);
+	onDestroy(() => pressHold?.cancel());
 
 	// Hoist the tap-to-continue surface to the CANVAS frame. The surface is conceptually
 	// full-window (dim + hit area + prompt), so it must escape BOTH this instance's
@@ -1067,11 +1070,11 @@
 			onpointerdown={(e) => {
 				if (liveDisabled) return;
 				pressed = true;
-				pressHold.down(e.pointerId);
+				pressHold?.down(e);
 			}}
 			onpointerup={(e) => {
 				pressed = false;
-				pressHold.up(e.pointerId);
+				pressHold?.up(e.pointerId);
 			}}
 		>
 			<LayoutNodeView node={root} space={childSpace} />

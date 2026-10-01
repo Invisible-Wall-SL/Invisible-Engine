@@ -40,17 +40,14 @@ export const endSpinHold = (holder: symbol): void => {
 
 /**
  * A spin BUTTON's hold (the `PressHold` shape `pixi-svelte`'s `createPressHold` takes): a press held
- * past `HOLD_TO_SPIN_MS` joins the hold, then fires the button's own press — the bet, or the slam of
- * a round already rolling — exactly as Space does on its key-down. One per button instance.
+ * past `HOLD_TO_SPIN_MS` joins the hold as its own holder, then fires the button's own press — the
+ * bet, or the slam of a round already rolling — exactly as Space does on its key-down.
  */
-export const createSpinButtonHold = () => {
-	const holder = Symbol('spinButton');
-	return {
-		holdMs: HOLD_TO_SPIN_MS,
-		enabled: isHoldToSpinEnabled,
-		start: () => {
-			startSpinHold(holder);
-		},
-		end: () => endSpinHold(holder),
-	};
+export const spinButtonHold = {
+	holdMs: HOLD_TO_SPIN_MS,
+	enabled: isHoldToSpinEnabled,
+	start: (owner: symbol) => {
+		startSpinHold(owner);
+	},
+	end: endSpinHold,
 };

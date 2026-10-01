@@ -158,7 +158,7 @@
 	onpointerdown={(e) => {
 		if (disabled) return;
 		pressed = true;
-		pressHold.down(e.pointerId);
+		pressHold.down(e);
 	}}
 	onpointerup={(e) => {
 		pressed = false;
