@@ -264,7 +264,10 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 			void shown.set(reached, { duration: roundSkip.isSkipped() ? 0 : METER_TICK_MS });
 		}),
 	);
-	void shown.set(event.level, { duration: 0 });
+	// Let the last tick play out before the display hands back to the recorded level — releasing at
+	// once snapped the pot on the final arrival. Bounded: a tick a later one interrupted never settles.
+	const tickMs = roundSkip.isSkipped() ? 0 : METER_TICK_MS;
+	await Promise.race([shown.set(event.level, { duration: tickMs }), waitPresentation(tickMs + 50)]);
 	releaseMeterDisplay(event.meter, shown);
 	if (!event.full) return;
 	pulseMeter(event.meter);
