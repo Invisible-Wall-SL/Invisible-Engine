@@ -13,6 +13,13 @@
 	export type WinAmountFormatter = (value: number) => string;
 
 	export type EmitterEventWinLine =
+		/**
+		 * The round's earlier wins were drawn on a board that has since been replaced (a Hold and Win
+		 * feature ending on its own board): clear their presentation and forget them, so the resting
+		 * cycle and pop do not replay them (`EnableGameActor`). An event rather than an import: the
+		 * win cycle imports the flow effects, which import the Hold and Win beats.
+		 */
+		| { type: 'winPresentationForget' }
 		| {
 				type: 'winLineShow';
 				points: WinLinePoint[];

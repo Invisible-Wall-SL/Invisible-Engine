@@ -55,6 +55,7 @@ import {
 	holdHeldDisplay,
 	releaseHeldDisplay,
 	settleHeldBeats,
+	settleReelsOnHeldCells,
 	showRespinBoard,
 	spinRespinCells,
 	startHeldBeat,
@@ -123,8 +124,14 @@ const JACKPOT_HOLD_MS = 2_600;
 const COIN_JACKPOT_MS = 900;
 /** The beat between the last coin landing and the banked jackpots joining the Total Win bar. */
 const BANKED_BEAT_MS = 350;
-/** The Total Win bar settling on its last value before the respin board goes. */
-const TALLY_SETTLE_MS = 500;
+/**
+ * The Total Win bar's last step landing, then holding, before the respin board goes. The bar COUNTS
+ * to each value it is handed (the win readout's 500 ms count-up), so the board waits that out and
+ * then lets the player read the landed total — hiding it any sooner swapped the board in the frame
+ * the total arrived.
+ */
+const TALLY_LAND_MS = 500;
+const TALLY_HOLD_MS = 700;
 /** The base-game "INSTANT WIN" banner, once every coin has reached its special. */
 const INSTANT_BANNER_MS = 1_300;
 /** The wheel popping up before it turns. */
@@ -328,7 +335,7 @@ export const presentLuckySpin = async () => {
 export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>) => {
 	if (event.cause === 'meter') await presentMeterConsume(event);
 	featureCountedIntoBar = 0;
-	showRespinBoard({ seedFromBaseBoard: true });
+	showRespinBoard();
 	syncLetters();
 	updateCounter({ left: event.payload.respins, start: event.payload.respins });
 	stateRespinBoard.counter.show = true;
@@ -339,7 +346,7 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 /** `respinReveal` — every free cell spins and lands on the symbol the server names for it. */
 export const presentRespinReveal = async (event: Beat<'respinReveal'>) => {
 	// A respin with no board up (a book that skipped its trigger) still has to land somewhere.
-	if (!stateRespinBoard.shown) showRespinBoard({ seedFromBaseBoard: false });
+	if (!stateRespinBoard.shown) showRespinBoard();
 	eventEmitter.broadcast({ type: 'respinBoardSpin', cells: event.cells });
 	await spinRespinCells(event.cells);
 };
@@ -778,7 +785,7 @@ export const presentRespinUpdate = async (event: Beat<'respinUpdate'>) => {
 export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => {
 	const opening = !stateRespinBoard.shown;
 	if (opening) featureCountedIntoBar = 0;
-	showRespinBoard({ seedFromBaseBoard: false });
+	showRespinBoard();
 	syncLetters();
 	updateCounter(event.snapshot);
 	stateRespinBoard.counter.show = true;
@@ -800,8 +807,11 @@ export const syncHoldAndWin = async () => {
  * `flightArrive`, whatever order the flights finish in (`tallyCountUp`). What was banked on the way
  * (jackpots; swept columns, unless their own beat already counted them into the bar) is added once
  * the last coin is in, and the bar settles on what it read before the feature plus `total` —
- * exactly, whatever the rounded per-coin amounts sum to. Then the reel
- * board comes back; the round's own `setWin` (big-win tier) / `setTotalWin` follow unchanged.
+ * exactly, whatever the rounded per-coin amounts sum to. Once the bar has landed and held, the reel
+ * board comes back on the feature's final board, the trigger spin's wins cleared AND forgotten
+ * (`winPresentationForget`) so the round's resting cycle and pop cannot replay them over the coins.
+ * The round's own `setWin` (big-win tier) / `setTotalWin`, which follow unchanged, play over what
+ * it ended on.
  *
  * A celebration (`startsCelebration`): the slam is re-armed before it and the button is inert
  * through it. Should a slam reach it anyway, the flights compress and every landing value is still
@@ -830,6 +840,8 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		if (banked > 0) await waitPresentation(BANKED_BEAT_MS);
 		step(order.length, tally.final - stateBet.winBookEventAmount, tally.final);
 	}
-	await waitPresentation(TALLY_SETTLE_MS);
+	await waitPresentation(TALLY_LAND_MS + TALLY_HOLD_MS);
+	eventEmitter.broadcast({ type: 'winPresentationForget' });
+	settleReelsOnHeldCells();
 	hideRespinBoard();
 };

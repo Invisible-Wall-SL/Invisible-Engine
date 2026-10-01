@@ -40,6 +40,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
+| 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | in progress — part 1 (items 1–5) in review | Hold and Win Phase 4 — polish | — |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | merged, live (`lines@ef2ca06bed2a`) | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
@@ -559,12 +560,12 @@ Hold and Win beats prints copy.
      letters, instant collect, streak flights and wheel live through their playbooks.
    - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
      (its coins already stick through the trigger).
-   - **From the live checks (not regressions):** the "RESPINS 3" counter shows ~0.7 s before the
-     board swaps; a ~100–130 ms frame hitch at the start of every respin (likely the per-cell strip
-     mount — profile it); the respin cells show half-cropped symbols while they roll; the base reels
-     come back on the trigger spin's board (or the boot board after a snapshot resume); the Total
-     Win bar lands in the same frame the respin board hides; a banked jackpot's 350 ms beat is hidden
-     while coins are still counting.
+   - **From the live checks (not regressions):** a banked jackpot's 350 ms beat is hidden while
+     coins are still counting. (Counter timing, the per-respin hitch, the cropped rolling cells, the
+     end board and the tally/hide order were fixed by Phase 4 polish — Recent changes.) Also seen:
+     on `hw-3pots-sample`'s layout the coded counter sits above the top of the screen (only the
+     modifiers line shows) — the authored `respinCounter` (Phase 6) is the fix; and a ~170 ms idle
+     (non-JS) frame at the feature's entry, before the board shows.
    - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
      so the end volley plays at full length even under turbo/autoplay.
    - **Not covered:** stepped grids; perspective boards roll at the flat row pitch; the respin cells
@@ -610,6 +611,37 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4 polish, part 1: the respin board's timing, hitch, strips and end state**
+  (session "Hold and Win Phase 4 — polish"; branch `engine/hw-phase4-polish`). Measured on a real
+  clock (headless GPU shell, 61 fps, local Hold and Win mock, `hw-3pots-sample`), before → after:
+  - **Counter with the board.** The counter and the board already flipped in the same frame, but the
+    board was SEEDED from the trigger board, so it only looked swapped when the first respin rolled
+    (+516 ms `TRIGGER_HOLD_MS` + the first-roll hitch ≈ 0.6–0.7 s). The board now mounts blank under
+    the held coins (`respinSeedBoard` lost its `seed`/`held`), so coins-on-empty shows with the
+    counter.
+  - **Per-respin hitch.** CPU profile: every hitch frame was Svelte creating an `{#each}` block per
+    symbol of every cell's ~20-long strip (`RespinCell`). Only the symbols near the window are
+    mounted now. Before: 83 ms on the first respin, 50 ms on the next two (every respin start);
+    after: no JS hitch — the 0–2 frames > 40 ms left per feature profile as main-thread IDLE (GPU-side
+    first uploads / compositor), not script.
+  - **Cropped rolling cells.** The cell geometry was right (each rests on its window centre); the
+    cells rolled the RGS's GENERATED in-play strip — every base picture once — sliced by the one-row
+    window at every row edge. They now roll the config's authored `respin` strips (blanks, coins,
+    specials), as the design intended. Decision: no tile frames / cell gaps / blur in the coded
+    default; a coin rolling past still shows partly, as in the references.
+  - **End board.** The feature-end beat settles the (hidden) reel board on the feature's final board
+    — each held coin on its seat, blanks elsewhere (`settleReelsOnHeldCells`, a `boardSettle`) — and
+    clears AND forgets the trigger spin's wins before the swap back (a `winPresentationForget`
+    emitter event handled by `EnableGameActor` — importing the win cycle from the beats closes an
+    import cycle that threw a TDZ error at boot), so the big win plays over the board the feature
+    ended on, after a snapshot resume too, and the resting cycle cannot replay the trigger's lines.
+    Per-reel row counts (`rowsForReel`).
+  - **Tally, then hide.** The bar counts 500 ms to each value it is handed (`HudReadout`), and the
+    board hid 500 ms after the last write. It now waits `TALLY_LAND_MS` 500 + `TALLY_HOLD_MS` 700:
+    the bar read $20.00 ≈ 600 ms before the board hid (screencast).
+  - Parity: `bookofborutremake` free-spin round on the local book mock, branch vs `main`, real clock:
+    same screen order, holds and gameType moments, 0 exceptions / errors on both. A runtime release.
 
 - 2026-10-01 — **Phase 5 merged (#960), live as `lines@ef2ca06bed2a`.** Rebased onto `main` after
   #959/#963/#966–#968 and re-verified before the merge: `v2holdandwin` 160, `check:all` 336/336,

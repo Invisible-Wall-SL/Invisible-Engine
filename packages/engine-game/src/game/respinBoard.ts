@@ -66,31 +66,18 @@ export const releasedCells = (before: Position[], after: Position[]): Position[]
 };
 
 /**
- * What every one-cell reel shows when the board mounts. A held cell's reel shows the blank — the
- * held layer draws over it, and the blank is what it must show if it is ever let go. Every other
- * cell shows `seed`: at the trigger that is the base board's own symbol, so the swap is invisible
- * and only the first respin spins it away; on a resume there is nothing to seed from, and it shows
- * the blank.
+ * What every one-cell reel shows when the board mounts: the blank. A held cell's reel is covered by
+ * the held layer and must show the blank if it is ever let go; every other cell is empty, so the
+ * board visibly becomes the respin board — coins on empty cells — in the frame the counter appears,
+ * not when the first respin spins the trigger's symbols away.
  */
 export const respinSeedBoard = ({
 	reels,
 	rows,
-	held,
 	blank,
-	seed,
 }: {
 	reels: number;
 	rows: number;
-	held: Position[];
 	blank: string;
-	seed?: (reel: number, row: number) => RawSymbol | undefined;
-}): RawSymbol[][] => {
-	const heldKeys = keysOf(held);
-	return Array.from({ length: reels }, (_r, reel) =>
-		Array.from({ length: rows }, (_c, row) =>
-			heldKeys.has(respinCellKey(reel, row))
-				? { name: blank }
-				: (seed?.(reel, row) ?? { name: blank }),
-		),
-	);
-};
+}): RawSymbol[][] =>
+	Array.from({ length: reels }, () => Array.from({ length: rows }, () => ({ name: blank })));

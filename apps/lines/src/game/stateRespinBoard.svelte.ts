@@ -16,7 +16,7 @@ import { symbolsWithRole } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { eventEmitter } from './eventEmitter';
-import { boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
+import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
 import { playReelStopSound } from './soundBindings';
 import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
@@ -70,12 +70,14 @@ export const respinBlank = (): string =>
 	symbolsWithRole(getActiveGameConfig(), 'blank')[0] ?? 'BLANK';
 
 /**
- * The strip a cell of column `reel` rolls through — the config's `respin` strips (every Hold and Win
- * preset authors them), else the base game's, so a config without them still visibly spins. An
- * RGS-authoritative game gets its generated in-play strip either way (`getPaddingReels`).
+ * The strip a cell of column `reel` rolls through — the config's AUTHORED `respin` strips (every
+ * Hold and Win preset authors them: coins, specials and blanks), else the base game's, so a config
+ * without them still visibly spins. Read from the config even when the RGS is authoritative: the
+ * generated in-play strip (`getPaddingReels`) is every symbol once, so the cells rolled the base
+ * game's pictures — art a respin can never land, sliced at every cell edge by the one-row window.
  */
 const respinStrip = (reel: number): RawSymbol[] => {
-	const respin = getPaddingReels('respin');
+	const respin = getActiveGameConfig().paddingReels.respin ?? [];
 	const strips = respin.length > 0 ? respin : getPaddingReels('basegame');
 	return (strips[reel] ?? strips[0] ?? []) as RawSymbol[];
 };
@@ -98,7 +100,7 @@ const ensureBoard = (): RespinBoard => {
 		rows,
 		symbolHeight: () => stateGameDerived.boardGeometry().rowPitchLocal,
 		symbolLead: cellSymbolLead,
-		initial: respinSeedBoard({ reels, rows, held: [], blank: respinBlank() }),
+		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),
 	});
@@ -121,12 +123,11 @@ export const syncHeldCells = () => {
 };
 
 /**
- * Swap the reel board out and the respin board in, held cells and all. `seedFromBaseBoard`: every
- * free cell starts on the symbol the base board shows there, so the swap is invisible and the
- * triggering coins stay exactly where they landed. Without it (a resume) every free cell is blank.
+ * Swap the reel board out and the respin board in, held cells and all: the coins stay exactly where
+ * they landed and every other cell is blank, so the swap shows in the same frame as the counter.
  * Idempotent: on a board that is already up it only re-syncs the held layer.
  */
-export const showRespinBoard = ({ seedFromBaseBoard }: { seedFromBaseBoard: boolean }) => {
+export const showRespinBoard = () => {
 	if (stateRespinBoard.shown) {
 		syncHeldCells();
 		return;
@@ -135,18 +136,35 @@ export const showRespinBoard = ({ seedFromBaseBoard }: { seedFromBaseBoard: bool
 	stateRespinBoard.held = $state.snapshot(stateHoldAndWin.cells);
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
-	const baseBoard = seedFromBaseBoard ? stateGameDerived.boardRaw() : undefined;
 	respinBoard.settle(
-		respinSeedBoard({
-			reels: respinBoard.reels,
-			rows: respinBoard.rows,
-			held: stateRespinBoard.held,
-			blank: respinBlank(),
-			// `boardRaw` is the PADDED strip: visible row 0 is index 1.
-			seed: baseBoard ? (reel, row) => baseBoard[reel]?.[row + 1] : undefined,
-		}),
+		respinSeedBoard({ reels: respinBoard.reels, rows: respinBoard.rows, blank: respinBlank() }),
 	);
 	stateRespinBoard.shown = true;
+};
+
+/**
+ * Put the reel board, still hidden under the respin board, at rest on the feature's FINAL board: each
+ * held coin on its seat, every other cell blank. Without it the reels come back on the trigger spin's
+ * board (or the boot board after a resume), so the big win that follows plays over a board the
+ * feature had long replaced. The reels' strips are padded — one row above and below the window.
+ */
+export const settleReelsOnHeldCells = () => {
+	const grid = activeGrid();
+	const held = Object.fromEntries(
+		$state
+			.snapshot(stateRespinBoard.held)
+			.map((cell) => [respinCellKey(cell.reel, cell.row), cell.symbol]),
+	);
+	const blank = (): RawSymbol => ({ name: respinBlank() });
+	const board = Array.from({ length: grid.reels }, (_r, reel) => [
+		blank(),
+		...Array.from(
+			{ length: grid.rowsForReel(reel) },
+			(_c, row) => held[respinCellKey(reel, row)] ?? blank(),
+		),
+		blank(),
+	]);
+	eventEmitter.broadcast({ type: 'boardSettle', board });
 };
 
 /** Swap back to the reel board. The held layer empties with it. Announced here rather than by the
