@@ -436,9 +436,6 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
-- **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) — UNBLOCKED: since #951
-  `Background.svelte` shows the feature background for `respin`. A one-line flip + a parity boot
-  (owner: the Phase 4 session).
 - **Phase 6 owed (owner actions):** `hw-3pots-sample` lacks the message host — in `/editor` run
   **＋ Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
@@ -478,6 +475,16 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
+- 2026-10-01 — **Hold and Win writes `gameType: 'respin'`** (session "Hold and Win Phase 4 — engine
+  runtime"). `HOLD_AND_WIN_KEEPS_GAME_TYPE` is gone (`engine-game` `modeEvents.ts`): the mode layer
+  writes the Hold and Win mode's declared game type, `respin`, when the feature enters (before the
+  trigger beat) and the one underneath when it exits (after the end beat), like any non-alias mode.
+  What reads it during the feature: `Background.svelte` shows the feature background (#951), the
+  `baseGameShow` / `freeGameShow` bool sources both read false, and the flow's `gameType` value reads
+  `respin`; the free-spin paths (`'freegame'` checks) and the base reveal (whose `gameType` comes from
+  the book) are unchanged, and the respin board already rolls `paddingReels.respin`. Pinned by
+  `modeStack.fixture.ts` (fails against the old flag). Known edge, same as free spins: `playBet`'s
+  stack reset is silent, so a round that throws mid-feature leaves `respin` until the next reveal.
 - 2026-10-01 — **Phase 8 merged (#946 + #954).** Live: `lines@6755b46c233e`, launcher deployed; prod
   `/api/editor/runtime` now carries `hw-3pots-sample`'s authored `winText` (before #954 the strict schema dropped
   it). Checked live on the sample (authored strings + a defaults control) and Borut parity, both on the final HEAD.
@@ -747,10 +754,9 @@ Hold and Win beats prints copy.
     book mock, `main` vs branch: same 10 spins' structure, same intro/outro holds, same
     `setFreeGameType` → `enterFreeSpinOutro` → `exitFreeSpinOutro` order and game-type moments, no
     exceptions; the stack goes `freeSpins` at the trigger and back to base after `freeSpinEnd`.
-  - **Hold and Win keeps `gameType` unchanged for now** (`HOLD_AND_WIN_KEEPS_GAME_TYPE`,
-    `modeEvents.ts`): its mode is declared with game type `respin`, but writing it today would hide both
-    backgrounds (`Background.svelte` keys on basegame/freegame) and pad the reels from no strips.
-    Flip the flag when the respin board and the background read `respin` (Phase 4 / 6).
+  - **Hold and Win keeps `gameType` unchanged for now** — SUPERSEDED 2026-10-01: once Phase 6 (#951)
+    gave `Background.svelte` a `respin` branch, the flag was removed and the mode layer writes
+    `gameType: 'respin'` for the feature (see Recent changes).
   - **Known gaps (code review, not parity):** (1) `playBet` resets the stack silently — a mode a FLOW
     entered must be exited within its round (book-driven modes always are). (2) Two ownership probes
     run once and see only the global graph + base: `Game.svelte` `flowOwnsSetWin` (boot) and

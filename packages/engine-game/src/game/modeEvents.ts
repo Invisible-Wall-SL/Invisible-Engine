@@ -59,14 +59,6 @@ const modePayloadOf = (event: LooseEvent): Record<string, unknown> => {
 		: payloadOf(event, ['mode', 'cause', 'policy']);
 };
 
-/**
- * Hold and Win's trigger / end leave `stateGame.gameType` alone for now, as they did before modes
- * (Phase 4a): nothing reads the `respin` game type yet, and writing it would hide the base and
- * feature backgrounds (`Background.svelte`) and pad the reels from an empty strip set. Flip this when
- * the respin board (Phase 4) and the background read it.
- */
-const HOLD_AND_WIN_KEEPS_GAME_TYPE = true;
-
 /** The book-event types that can move the stack — the snapshot keeps these for a resume. */
 export const MODE_EVENT_TYPES = [
 	'modeEnter',
@@ -114,14 +106,14 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 				policy: policyOf(event.policy),
 				cause: text(event.cause),
 				payload: modePayloadOf(event),
-				legacyGameType: HOLD_AND_WIN_KEEPS_GAME_TYPE,
+				legacyGameType: false,
 			};
 		case 'holdAndWinEnd':
 			return {
 				op: 'exit',
 				id: text(event.mode) ?? 'holdAndWin',
 				total: finite(event.total),
-				legacyGameType: HOLD_AND_WIN_KEEPS_GAME_TYPE,
+				legacyGameType: false,
 			};
 		default:
 			return undefined;
