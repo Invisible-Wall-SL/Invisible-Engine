@@ -289,6 +289,14 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-01 — **An unknown field no longer wipes the whole win-text doc.** The nested families
+  (`lineMessage`, `toast`, `jackpots`, `respins`, `feature`, `wheel`…) were `.strict()`, so a field a
+  newer launcher wrote (Phase 8's `potLabel` / `potNames` against a pre-#954 build) failed the parse
+  and `loadWinTextDocWithEtag` fell back to `{ version: 1 }` — the tool, the bake and the runtime
+  bundle all lost every authored template. `normalizeWinTextDoc` now strips unknown keys first
+  (`stripUnknownKeys`, a server warning names each path); a malformed KNOWN field still 400s. Real R2
+  docs normalize unchanged. Rule: `docs/conventions/doc-readers.md`.
+
 - 2026-10-01 — **The Hold and Win presentation reads its copy from Win Text (Hold and Win Phase 8,
   part 2).** Every English literal the respin presentation drew (counter, the counter's modifier
   line, jackpot / instant / wheel banners, Lucky Spin, the modifier toasts, pot labels, wheel

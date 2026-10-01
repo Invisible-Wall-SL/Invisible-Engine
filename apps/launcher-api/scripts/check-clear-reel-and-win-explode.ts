@@ -114,6 +114,19 @@ const rejects = (label: string, input: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
 };
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
+};
 
 const BOOM = { type: 'spine', assetKey: 'acme/game/spines/boom/', animationName: 'boom' } as const;
 const MORPH = {
@@ -178,7 +191,7 @@ const both = normalizeSymbolsDoc({
 check('the binding keeps the new one', both.symbols.H1?.clearReel, BOOM);
 check('the cue keeps the new one', both.symbolSounds?.H1?.clearReel, 'new_cue');
 
-console.log('\n4. a current doc is untouched, and an unknown state is dropped, not the doc');
+console.log('\n4. a current doc is untouched, and an unknown state is ignored');
 const current = normalizeSymbolsDoc({ version: 1, symbols: { H1: { clearReel: BOOM } } });
 check('a `clearReel` binding round-trips verbatim', current.symbols.H1?.clearReel, BOOM);
 check(
@@ -186,12 +199,11 @@ check(
 	migrateLegacySymbolStates(current) === current,
 	true,
 );
-// A state this launcher does not know (a newer launcher's, read after a rollback) loses only that
-// binding; rejecting it would read the whole doc as never authored.
-check(
-	'a state name nothing renders is dropped, its siblings kept',
-	normalizeSymbolsDoc({ symbols: { H1: { madeUpState: BOOM, clearReel: BOOM } } }).symbols.H1,
-	{ clearReel: BOOM },
+// A state a NEWER launcher added must not fail the whole doc on an older reader.
+ignores(
+	'a state name this build does not know is ignored',
+	{ symbols: { H1: { clearReel: BOOM, madeUpState: BOOM } } },
+	{ symbols: { H1: { clearReel: BOOM } } },
 );
 
 console.log('\n5. the win-explosion pop is sparse and OFF by default');
@@ -206,9 +218,11 @@ check(
 check('ON round-trips', normalizeSymbolsDoc({ winExplode: { enabled: true } }).winExplode, {
 	enabled: true,
 });
-rejects('an unknown key inside it is refused (`.strict`)', {
-	winExplode: { enabled: true, mode: 'loud' },
-});
+ignores(
+	'an unknown key inside it is ignored',
+	{ winExplode: { enabled: true, mode: 'loud' } },
+	{ winExplode: { enabled: true } },
+);
 rejects('a non-boolean is refused', { winExplode: { enabled: 'yes' } });
 
 console.log('\n   …and the client half agrees with the server');
@@ -586,7 +600,11 @@ rejects('under the floor is refused', { winBeat: { maxMs: WIN_BEAT_MAX_MS_MIN - 
 rejects('over the ceiling is refused', { winBeat: { maxMs: WIN_BEAT_MAX_MS_MAX + 1 } });
 rejects('a fractional millisecond is refused', { winBeat: { maxMs: 250.5 } });
 rejects('a numeric STRING is refused', { winBeat: { maxMs: '900' } });
-rejects('an unknown key inside it is refused (`.strict`)', { winBeat: { maxMs: 900, minMs: 100 } });
+ignores(
+	'an unknown key inside it is ignored',
+	{ winBeat: { maxMs: 900, minMs: 100 } },
+	{ winBeat: { maxMs: 900 } },
+);
 
 console.log('\n   …and the client half agrees with the server');
 check('the setter writes the ceiling', winBeatMaxMs(setWinBeatMaxMs(base, 900)), 900);
@@ -650,9 +668,11 @@ check(
 check('ON round-trips', normalizeSymbolsDoc({ arrivalRelease: { enabled: true } }).arrivalRelease, {
 	enabled: true,
 });
-rejects('an unknown key inside it is refused (`.strict`)', {
-	arrivalRelease: { enabled: true, mode: 'instant' },
-});
+ignores(
+	'an unknown key inside it is ignored',
+	{ arrivalRelease: { enabled: true, mode: 'instant' } },
+	{ arrivalRelease: { enabled: true } },
+);
 rejects('a non-boolean is refused', { arrivalRelease: { enabled: 'yes' } });
 // The doc and the project's reel behaviour are two independently edited documents, so the save must
 // NOT second-guess the swap style: a flag dropped because `/config` said `emerge` was off would come

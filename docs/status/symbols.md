@@ -145,6 +145,16 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-10-01 — **An unknown field or symbol state no longer wipes the whole symbols doc.** Every
+  nested block was `.strict()` and the state records are keyed by `z.enum(SYMBOL_STATES)`, so one
+  field or state a newer launcher wrote failed the parse and `loadSymbolsDocWithEtag` fell back to
+  the empty doc — the tool, the export/bake and the runtime bundle all lost every binding (and the
+  next save overwrote the real one). `normalizeSymbolsDoc` and the published-defaults parse
+  (`parseSymbolDefaults`) now strip unknown keys first (`stripUnknownKeys`, a server warning names
+  each path); malformed KNOWN fields still 400. The six gates that asserted "an unknown key is
+  refused" now assert "ignored, with a warning". Real R2 docs normalize unchanged. Rule:
+  `docs/conventions/doc-readers.md`.
+
 - 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
   states with inheritance that replays Phase 4's coded beats (an unauthored project is
   unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`

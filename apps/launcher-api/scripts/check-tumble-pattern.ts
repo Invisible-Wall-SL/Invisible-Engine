@@ -8,7 +8,7 @@
  *      real pick, and prunes the default step, so the page's dirty signature and the server agree on
  *      what "unchanged" looks like.
  *   2. REJECTION — the `.strict()` schema refuses an unknown pattern name, a fractional/negative/
- *      over-ceiling step and an unknown key: the shapes that would otherwise 400 a save silently.
+ *      over-ceiling step: the shapes that would otherwise 400 a save silently.
  *   3. BOTH BUNDLE PATHS — the field is carried by the runtime exporter AND by the bake whitelist
  *      (`scripts/bake-editor-doc.mjs`) AND forwarded by `/api/editor/export-symbols`, which the bake
  *      reads it off. This repo has shipped the same bug three times (`winCycle`, `holdAfterBigWin`,
@@ -74,6 +74,19 @@ const rejects = (label: string, input: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
 };
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
+};
 
 // 1. PARITY
 const empty = normalizeSymbolsDoc({});
@@ -135,7 +148,11 @@ rejects('a negative step', { tumblePattern: { pattern: 'rowsTop', stepMs: -1 } }
 rejects('a step over the shared ceiling, which could stall a round', {
 	tumblePattern: { pattern: 'rowsTop', stepMs: TUMBLE_STEP_MS_MAX + 1 },
 });
-rejects('an unknown key', { tumblePattern: { pattern: 'rowsTop', easing: 'backOut' } });
+ignores(
+	'an unknown key',
+	{ tumblePattern: { pattern: 'rowsTop', easing: 'backOut' } },
+	{ tumblePattern: { pattern: 'rowsTop' } },
+);
 rejects('a non-object', { tumblePattern: 'rowsTop' });
 
 // 3. BOTH BUNDLE PATHS

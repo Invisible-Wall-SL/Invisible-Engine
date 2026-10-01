@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { symbolDefaultsKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
+import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
 import { migrateLegacySymbolStates, SYMBOL_STATES, type SymbolCell } from './symbolsStorage';
 import holdAndWinDefaults from '$lib/data/symbolDefaults/holdAndWin.json';
 import linesDefaults from '$lib/data/symbolDefaults/lines.json';
@@ -118,10 +119,20 @@ export async function loadPublishedSymbolDefaults(
 		// `tumbleExplosion`. The state records are keyed by `z.enum(SYMBOL_STATES)`, which REJECTS
 		// an unlisted key — un-folded, that project's whole published grid would read as `null` and
 		// silently fall back to the committed `lines` defaults.
-		return symbolDefaultsSchema.parse(migrateLegacySymbolStates(JSON.parse(raw)));
+		return parseSymbolDefaults(JSON.parse(raw));
 	} catch {
 		return null;
 	}
+}
+
+export function parseSymbolDefaults(input: unknown): SymbolDefaults {
+	return symbolDefaultsSchema.parse(
+		stripUnknownKeysWithWarning(
+			symbolDefaultsSchema,
+			migrateLegacySymbolStates(input),
+			'symbol-defaults',
+		),
+	);
 }
 
 /** Persist a project's published symbol defaults to R2 (validates first). */
@@ -133,7 +144,7 @@ export async function savePublishedSymbolDefaults(
 	// Folded on the WRITE too: an un-bumped game's `publish:symbols` would otherwise 400, and the
 	// build swallows that under `--optional` — the silent double-fail this pipeline has been bitten
 	// by before. See `migrateLegacySymbolStates`.
-	const next = symbolDefaultsSchema.parse(migrateLegacySymbolStates(data));
+	const next = parseSymbolDefaults(data);
 	await putObjectText(
 		symbolDefaultsKey(clientKey, projectKey),
 		JSON.stringify(next, null, 2),

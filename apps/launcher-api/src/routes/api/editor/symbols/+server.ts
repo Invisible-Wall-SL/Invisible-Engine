@@ -40,8 +40,19 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * (`/api/editor/symbols/backups`); `backup: 'always'` exempts a save from the coalescing window.
  *
  * Body: the doc fields, plus `baseEtag?: string | null`, `force?: boolean` and
- * `backup?: 'always'` (none of which the doc schema keeps).
+ * `backup?: 'always'`, split off here so the reader never sees them as unknown doc fields.
  */
+function withoutEnvelope(body: unknown): unknown {
+	if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+	const {
+		baseEtag: _baseEtag,
+		force: _force,
+		backup: _backup,
+		...doc
+	} = body as Record<string, unknown>;
+	return doc;
+}
+
 export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	const user = await requireSymbolsAccess(locals);
 	const { clientKey, projectKey } = await requireProjectScope(
@@ -56,8 +67,9 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	}
 	const baseEtag = writeBaseEtagJson(body);
 	const backup = requestedBackupMode(body);
+	const docFields = withoutEnvelope(body);
 	try {
-		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, body, baseEtag, backup);
+		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, docFields, baseEtag, backup);
 		return json({ clientKey, projectKey, doc, etag });
 	} catch (e) {
 		// ORDER IS LOAD-BEARING: this branch must precede the catch-all 502 below, which

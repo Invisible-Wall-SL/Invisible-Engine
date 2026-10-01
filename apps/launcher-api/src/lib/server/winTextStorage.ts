@@ -9,6 +9,7 @@ import {
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
 
 /**
  * Invisible Win Text doc — the per-project TEMPLATES for every string the game says about a
@@ -195,7 +196,9 @@ function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
  * is also the silent round-trip trap — a NEW doc field must be added here too or it vanishes.
  */
 export function normalizeWinTextDoc(input: unknown): WinTextDoc {
-	const doc = winTextDocSchema.parse(input ?? {});
+	const doc = winTextDocSchema.parse(
+		stripUnknownKeysWithWarning(winTextDocSchema, input ?? {}, 'win-text'),
+	);
 	const next: WinTextDoc = { version: 1 };
 	const lineMessage = pruneLineMessage(doc.lineMessage);
 	if (lineMessage) next.lineMessage = lineMessage;

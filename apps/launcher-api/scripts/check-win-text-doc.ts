@@ -32,6 +32,16 @@ const throws = (fn: () => unknown): boolean => {
 		return true;
 	}
 };
+/** Run `fn` with the unknown-field warning silenced. */
+const quiet = <T>(fn: () => T): T => {
+	const warn = console.warn;
+	console.warn = () => {};
+	try {
+		return fn();
+	} finally {
+		console.warn = warn;
+	}
+};
 /** What the bake and the runtime bundle both test before shipping a doc at all. */
 const authorsSomething = (doc: WinTextDoc) =>
 	Object.keys(doc).some((k) => k !== 'version' && k !== 'updatedAt');
@@ -103,16 +113,18 @@ const pruned = normalizeWinTextDoc({
 check(JSON.stringify(pruned) === '{"version":1}', 'a cleared family disappears, not saved as ""');
 check(!authorsSomething(pruned), '…so the bundles carry no win-text key for it (byte-identical)');
 check(
-	throws(() => normalizeWinTextDoc({ respins: { countr: 'x' } })),
-	'a misspelt respin field is a 400',
+	JSON.stringify(quiet(() => normalizeWinTextDoc({ respins: { countr: 'x' } }))) ===
+		JSON.stringify(normalizeWinTextDoc({})),
+	'an unknown respin field is ignored (docs/conventions/doc-readers.md)',
 );
 check(
 	throws(() => normalizeWinTextDoc({ jackpots: { award: 3 } })),
 	'a non-string template is a 400',
 );
 check(
-	throws(() => normalizeWinTextDoc({ feature: { bonus: 'x' } })),
-	'an unknown feature field is a 400',
+	JSON.stringify(quiet(() => normalizeWinTextDoc({ feature: { bonus: 'x' } }))) ===
+		JSON.stringify(normalizeWinTextDoc({})),
+	'an unknown feature field is ignored',
 );
 
 console.info('§3 a doc that authors nothing new normalizes exactly as before');
