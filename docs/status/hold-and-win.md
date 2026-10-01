@@ -233,6 +233,16 @@ only has to register its own vocab + seed.
 
 ## Open items / next
 
+- **Flip `HOLD_AND_WIN_KEEPS_GAME_TYPE`** (`engine-game` `modeEvents.ts`) once Phase 6 gives
+  `Background.svelte` a `respin` branch. The respin board already rolls `paddingReels.respin`
+  (`getPaddingReels('respin')`, base strips only for a config without them); writing `gameType:
+  'respin'` before the background handles it would hide both backgrounds. A one-line flip + a parity
+  boot.
+- **Facade `modeEnter` / `modeExit`** for a QUEUED mode: today's wire has no mode change other than
+  the aliased `holdAndWinTrigger`/`End` (the wheel is part of the entry, not a mode). Map them when
+  the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
+  total?}`, `total` in credits.
+
 1. **Phase 4 (engine runtime), next beats** on the respin board: specials (payer, multiplier,
    collector, mystery), jackpot wins, the end tally into the total (with `flyTo`, design §4.4),
    column letters, the wheel and the meters. Force any beat with
