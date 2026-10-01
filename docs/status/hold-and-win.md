@@ -35,7 +35,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | not started | — | — |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -66,6 +66,33 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Phase 4a: the engine's Hold and Win event contract is code, not a table.** One home:
+  `HoldAndWinEventFields` in `packages/engine-game/src/game/holdAndWin.ts`; `apps/lines`
+  `typesBookEvent.ts` spells each arm out from it. Where it differs from the design's §4.3 sketch
+  (the design table now points here): **positions are VISIBLE 0-based** (no padding row — the respin
+  board has none; a base-board consumer adds it); a coin's value / jackpot label / factor ride on the
+  cell's `RawSymbol` (`value`, `jackpot`, `factor`), so every event carries cells as
+  `{reel, row, symbol}`; `holdAndWinTrigger` is `{mode: 'holdAndWin', cause, payload: {cells,
+  respins, stickiness, activeModifiers, meters?}}` and `holdAndWinEnd` is `{mode: 'holdAndWin',
+  total, payload: {cells, banked}}` — the §4.5 `modeEnter`/`modeExit` shape, so Phase 4M aliases
+  them without a payload change; `cause` is `count|pattern|meter|luckySpin|randomMetre|buy` with the
+  meter ids in `payload.meters`. Added beyond §4.3, because the wire carries them and the client
+  must show them: `meterLevels` (the server restating every meter after each `play`),
+  `randomMetreTrigger`, `cellsCleared`, and `holdAndWinState` (the server's whole picture of an open
+  feature after every respin — the resume snapshot).
+- 2026-10-01 — **Phase 4a: resume = the last `holdAndWinState` + the last `meterLevels`.** Both are
+  kept by name in the engine's resume snapshot (`HOLD_AND_WIN_SNAPSHOT_EVENTS`) and replayed by
+  `createBonusSnapshot`, so a reload rebuilds the board from the server's picture without replaying
+  the trigger's intro. The facade emits `holdAndWinState` from the wire's bonus snapshots (4b).
+- 2026-10-01 — **Phase 4a: the client's picture is a pure reducer** (`applyHoldAndWinEvent`,
+  pinned by `packages/engine-game/fixtures/holdAndWinState.fixture.ts` in `check:engine-game`), held
+  in `apps/lines` `stateHoldAndWin`. Every Hold and Win handler records into it and presents nothing
+  until its beat ships; the server's `holdAndWinState` replaces it wholesale after each respin, so a
+  misread step self-corrects. `total` is never summed client-side.
+- 2026-10-01 — **`flightArrive` is an emitter cue, not a book event** (`EmitterEventFlight` in
+  `engine-game/src/game/flight.ts`, `{flight, target, index}`), in the `/flow` palette under
+  "Flights". Nothing broadcasts it until `flyTo` ships.
 
 - 2026-09-30 — **Phase 3: the wire is ours and documented as the swap seam**
   ([hold-and-win-wire.md](../reference/hold-and-win-wire.md)). The respin scaffolding is the
@@ -159,6 +186,14 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4a: the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
+  engine runtime"). The §4.3 events as typed arms of the shared runtime's union (payloads in
+  `engine-game` `holdAndWin.ts`), `RawSymbol` `value`/`jackpot`/`factor`, the `HoldAndWinSnapshot`
+  resume shape, state-only default handlers into `stateHoldAndWin`, `flightArrive` cue, regenerated
+  flow vocabulary (20 book events + `flightArrive`; the codegen now resolves a `.ts` re-export from a
+  package). No game changes: no RGS sends these events yet — the facade still passes the wire's
+  Hold and Win events through as `_name` until 4b maps them. A runtime release on merge.
 
 - 2026-09-30 — **Phase 3 merged (#924): mock RGS `holdAndWin` protocol + wire contract** (session "Hold and Win
   Phase 3 — mock RGS + wire").

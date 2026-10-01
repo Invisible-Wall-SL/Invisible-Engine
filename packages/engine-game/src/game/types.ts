@@ -19,6 +19,13 @@ export type SymbolName = string;
 export type RawSymbol = {
 	name: SymbolName;
 	multiplier?: number;
+	/** Hold and Win: a coin's cash value (× the base total bet, decimals allowed), a payer's or a
+	 *  collector's value in the same unit. */
+	value?: number;
+	/** Hold and Win: the jackpot tier a jackpot coin shows (`MINI`…`GRAND`). */
+	jackpot?: string;
+	/** Hold and Win: what a multiplier did to a jackpot coin (absent ⇒ 1). */
+	factor?: number;
 	scatter?: boolean;
 	wild?: boolean;
 };

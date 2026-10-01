@@ -1,6 +1,7 @@
 import _ from 'lodash';
 
 import { type BookEventHandlerMap } from 'utils-book';
+import type { HoldAndWinEvent } from 'engine-game';
 import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -14,6 +15,7 @@ import { playBookEvent } from './utils';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
+import { recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import {
 	presentReveal,
 	winLevelSoundsPlay,
@@ -31,6 +33,13 @@ import {
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
 import { bakedWinLineConfig } from '../editor-scenes';
+
+/**
+ * The Hold and Win events' DEFAULT handler: state only (`stateHoldAndWin`), nothing presented. The
+ * presentation arrives beat by beat (design §6 Phase 4); until a beat has one, its event updates the
+ * picture the respin board will read and the round carries on exactly as before.
+ */
+const recordHoldAndWin = async (bookEvent: HoldAndWinEvent) => recordHoldAndWinEvent(bookEvent);
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	/**
@@ -376,6 +385,27 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 	},
 
+	luckySpin: recordHoldAndWin,
+	meterUpdate: recordHoldAndWin,
+	meterLevels: recordHoldAndWin,
+	coinInstantCollect: recordHoldAndWin,
+	randomMetreTrigger: recordHoldAndWin,
+	holdAndWinTrigger: recordHoldAndWin,
+	holdAndWinWheel: recordHoldAndWin,
+	respinReveal: recordHoldAndWin,
+	coinsLand: recordHoldAndWin,
+	mysteryReveal: recordHoldAndWin,
+	coinPay: recordHoldAndWin,
+	coinBoost: recordHoldAndWin,
+	specialBecomesCoin: recordHoldAndWin,
+	coinCollect: recordHoldAndWin,
+	cellsCleared: recordHoldAndWin,
+	columnComplete: recordHoldAndWin,
+	jackpotWin: recordHoldAndWin,
+	respinUpdate: recordHoldAndWin,
+	holdAndWinState: recordHoldAndWin,
+	holdAndWinEnd: recordHoldAndWin,
+
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing
 	},
@@ -398,5 +428,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		if (lastUpdateFreeSpinEvent) playBookEvent(lastUpdateFreeSpinEvent, { bookEvents });
 		if (lastSetTotalWinEvent) playBookEvent(lastSetTotalWinEvent, { bookEvents });
 		if (lastUpdateGlobalMultEvent) playBookEvent(lastUpdateGlobalMultEvent, { bookEvents });
+		// Hold and Win: the server's last picture of the open feature and of the meters — the board is
+		// rebuilt from it, so no intro replays.
+		const lastMeterLevelsEvent = findLastBookEvent('meterLevels' as const);
+		const lastHoldAndWinStateEvent = findLastBookEvent('holdAndWinState' as const);
+		if (lastMeterLevelsEvent) await playBookEvent(lastMeterLevelsEvent, { bookEvents });
+		if (lastHoldAndWinStateEvent) await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
 	},
 };
