@@ -36,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
-| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | in review | Hold and Win Phase 4M — Game modes | #930, #MODES_PR |
+| 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | in review | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
@@ -191,7 +191,7 @@ only has to register its own vocab + seed.
 ## Recent changes
 
 - 2026-10-01 — **Phase 4M: game modes** (session "Hold and Win Phase 4M — Game modes"; PRs #930
-  registry, #MODES_PR engine + flow).
+  registry, #933 engine + flow).
   - **Registry** (`packages/game-config/src/modes.ts`): sparse `doc.modes`; built-ins `basegame`,
     `freeSpins` (game type `freegame`), `holdAndWin` (respin board, game type `respin`, only with a
     `holdAndWin` block). `/config` Game modes section; Scene Editor role **game mode** + `modeId`.
