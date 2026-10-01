@@ -43,7 +43,7 @@ titled **"Hold and win game pipeline"**.
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
-| 7 | Symbols SM (coin roles/states, value label, kind gating) | in progress — 7a states/roles/gating/defaults, 7b coin label block, 7c flights block + preview | Hold and Win Phase 7 — Symbols SM | — |
+| 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
@@ -70,6 +70,74 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Phase 7 (Symbols SM): things a later phase must know.**
+  - **The holdAndWin symbol defaults are TOOL-SIDE only.** `symbolDefaults/holdAndWin.json` feeds the
+    `/symbols`, `/editor` and `/win-text` previews; no publish, bake or runtime path reads it. The game's
+    symbol map is the coded lines `SYMBOL_INFO_MAP` with the project's symbols doc merged over it, so a
+    `holdAndWin` project draws NO art for its coins/specials (and boots with `[game-config] … no entry in
+    the symbol map`) until its symbols doc binds them. **Phase 9 must seed the doc at scaffold**: copy the
+    Hold and Win symbols' cells from `holdAndWin.json` into `<client>/<project>/symbols/symbols.json`
+    (type / assetKey / animationName only; they bind coded game assets, which the exporter leaves alone
+    and the game registers itself). `hw-3pots-sample` was seeded that way on 2026-10-01 (BONUS = scatter
+    art, JACKPOT = wild, BOOST/COLLECT/MULTI = the M multiplier spine, MYSTERY = exploded wild —
+    placeholders). A `blank`-tagged symbol is no longer reported missing (#963): it draws nothing by
+    design.
+  - **The new states and what plays them** (fallback when unbound in brackets): a respin cell stopping →
+    `coinLand` (static); a held coin at rest → `coinIdle` (static); a coin sticking, a special becoming a
+    coin, a mystery landing as what it became → `coinStick` (land); payer / multiplier booster →
+    `coinBoost` (win); the per-coin collect step, Grand's column-letter coins, an instant collect →
+    `coinCollect` (win); a coin jackpot, a full board, a jackpot factor step → `jackpotReveal` (win); a
+    mystery opening → `mysteryReveal` (explosion, one-shot); a base-board special flying to its pot →
+    `flyToMeter` (win). Streak / column clears stay `clearReel`; the wheel plays no symbol state. The win
+    frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES` state.
+  - **Coin label colour is a MULTIPLY over the font.** Over the gold builtin an authored cyan reads
+    green and pink reads orange; an exact colour needs a white Font Maker font (the `/symbols` hint says
+    so). `countMs` drives the payer/boost count; the collect step scales with it (350/600).
+  - **A flight's "bend" is the largest DETOUR around win cells, not a curve.** With avoidance off or
+    nothing to avoid (the feature-end volley) every route flies straight — measured live: an authored
+    0.5 left the volley < 1 px off the chord. The field is now labelled "Max detour". A real "arc" knob
+    (a preferred curve even with nothing in the way) would be a `planFlight` change — not built.
+  - **Flight heads are additive glows**, so the authored tint shows as the halo around a white core;
+    a strongly coloured head needs a sprite/spine/flipbook head. No `/fx` trail was authored on the
+    sample (it has no effects), so an authored trail is proven only by the fixtures and the `/symbols`
+    preview (`FxStage` `ownerPos`), not live.
+  - **pixi-svelte `<BitmapText>` trap (any caller):** pixi's `BitmapText` defaults `fill` to white
+    only in its constructor. A `style` re-assigned without `fill` (every re-render of an inline
+    `style={{…}}`) draws a fill-as-tint bitmap font BLACK. That blackened every held coin label on the
+    respin board (coded and authored alike) until #963 passed `fill: 0xffffff`. Other `BitmapText`
+    callers that re-render a fill-less style are exposed the same way.
+  - **Forward compatibility of the symbols doc (#961):** the new blocks strip unknown fields and the
+    state-keyed maps drop a state the launcher does not know, so a rolled-back or older launcher loses
+    that one key instead of reading the whole doc as never authored. Unknown head kinds / eases / cash
+    formats and wrong types still 400. Launchers older than #961 still reject a doc holding a Phase 7a
+    state key whole — do not roll the launcher back past #950 once a project binds one.
+  - **Players boot the PUBLISHED snapshot.** `hw-3pots-sample`'s authored coin label, flights and
+    seeded symbols show with `authoring=1` / `ie_authoring=1`; a plain player URL shows them only after a
+    Re-publish from Game Maker (owner).
+  - **Parallel playtests: never share a mock port.** A seeded local book mock on the default 7788 was
+    hit by another session's game mid-run, which consumed its seeded RNG and diverged the outcomes. Give
+    every run its own port.
+- 2026-10-01 — **A new `holdAndWin` project is scaffolded WITH its Game Config; other kinds are not**
+  (#956). The scaffold seed was chosen over a publish/mock fallback to the kind default: a fallback
+  would make the mock deal Pots while `/config` and the runtime bundle still had no config (the bundle
+  bakes only an AUTHORED config, so the client would boot the compiled lines template against a Hold
+  and Win server). Seeding is limited to kinds whose defaults are presets (`gameConfigSeedFor`, keyed
+  on the same `KIND_DEFAULT_KEY` map as `gameConfigDefaultFor`), so lines/ways/scatter/cluster/bookOf
+  stay un-authored and play byte-identically. Older projects: Publish flags a missing block
+  (`holdAndWinConfigMissing`, card note "dealt plain lines"); `/admin` Re-scaffold backfills it.
+- 2026-10-01 — **Wire: a second mode in one round is announced with `modeEnter` / `modeExit`**
+  (#956, [hold-and-win-wire.md](../reference/hold-and-win-wire.md) "Modes"). `modeEnter {mode,
+  cause, policy?, payload?}` (`policy` `nest` default | `queue`, the engine's `ModePolicy`) and
+  `modeExit {mode, total?}` with `total` in CREDITS. The Hold and Win feature itself keeps
+  `holdAndWinTrigger`/`End` (never doubled as `modeEnter`/`Exit`); the wheel is part of its entry. No
+  preset produces a second mode, so the mock sends the pair only on the forced `queuedMode[:<id>]`
+  beat: `modeEnter {mode: "queuedFixture", cause: "forced", policy: "queue"}` right after
+  `holdAndWinTrigger`, `modeExit {mode, total: 0}` right after `holdAndWinEnd`, before `gameEnd`. The
+  facade drops both today (its `default` branch); the "Hold and Win engine runtime" session maps them.
+- 2026-10-01 — **Mock quirk fixed** (#956): the respin that ends the feature (full board, last
+  letter, cap) now sends `respinUpdate {left: 0, reset: false}`, matching its closing snapshot.
+  `check:holdandwin` re-derives it on every round and plants the old shape to prove it is caught.
 
 - 2026-10-01 — **Phase 8 (Win Text): what the presentation must call.** The copy lives in
   `bakedWinText()` (`resolveWinText`); render with `formatWinText(template, vars)` and NEVER build the
@@ -230,8 +298,19 @@ only has to register its own vocab + seed.
   loading screen.** `ResumeBet` broadcasts `resumeBet` on mount, and a flow-driven game mounts it
   under the flow's loading/tap-to-start screen, so a resumed feature runs (and can finish, big win
   included) before the player taps in. Seen on `hw-3pots-sample`; Borut's resume goes through the
-  same path. Owner of the fix: the flow / game-modes area (gate `resumeBet` on the loading screen
-  being dismissed).
+  same path. **FIXED (2026-10-01):** `ResumeBet` waits for `ready` — the base game in the active
+  set with no loading screen up (`Game.svelte` `isPlayerIn`). Verified on both games on the local
+  mocks, A/B against the ungated version; detail in `docs/status/engine.md`.
+  **Base-background layer left at alpha 1 under the feature background on a resume (#953 live
+  check) — gone with this fix, by timing.** The race: the coded `<Background>`'s base
+  `FadeContainer` mounts with `show` true and its `onMount` (`await set(0)`; `set(1)`) overrides the
+  effect's `set(0)` when `gameType` flips in the same tick, which the old resume-at-mount did.
+  The resume now flips it after the tap, long after mount. Measured on `hw-3pots-sample`, resumed
+  mid-feature, three samples over 7.5 s after the tap in `respin`: only the feature layers (z −1, idle
+  + dust) are mounted, alpha 1; the base layers (z −2) have faded out and unmounted. The remake has
+  no coded background layers at all (its authored background scene replaces `<Background>`), so
+  it can't show this. `FadeContainer`'s mount race itself is still latent for any other
+  same-tick flip.
 
 - 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
   step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
@@ -281,7 +360,7 @@ only has to register its own vocab + seed.
   no `holdAndWin` block and the test server deals it plain LINES (5 paylines, `PIC*`) even though the
   Game Maker card shows the Pots defaults. Saving the config once in `/config` (then Re-publish)
   fixed it; both mocks then report `protocol: "holdAndWin"`. Phase 9's config seeding should close
-  this for good.
+  this for good. **Fixed 2026-10-01 (#956): the scaffold seeds the Pots config.**
 
 - 2026-10-01 — **Phase 4b: the facade maps the Hold and Win wire** (`packages/rgs-translator-eagaming/src/holdAndWin.ts`,
   the swap seam; gated on the boot config's `holdAndWin.wire === 1`, any other wire is refused with
@@ -295,8 +374,8 @@ only has to register its own vocab + seed.
   pays the right total at the end. No Hold and Win project is published, so no player sees it.
 - 2026-10-01 — **Mock quirk (wire, not facade):** when a full board or the last letter ends the
   feature, that respin's `respinUpdate` reports a reset (`left` back to the start) while its closing
-  `playedBonusSpin` snapshot says `left: 0`. The engine takes the snapshot. Harmless; fix in the
-  mock + wire doc together if anyone needs the counter to read 0 on that beat.
+  `playedBonusSpin` snapshot says `left: 0`. The engine takes the snapshot. **Fixed 2026-10-01
+  (#956).**
 
 - 2026-10-01 — **Phase 4a: the engine's Hold and Win event contract is code, not a table.** One home:
   `HoldAndWinEventFields` in `packages/engine-game/src/game/holdAndWin.ts`; `apps/lines`
@@ -441,15 +520,24 @@ Hold and Win beats prints copy.
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
   `holdAndWin` project, open `/editor`, screenshot the template; check the jackpot bar's portrait fit
   (≈22 px each side at 0.75 scale).
-- **Facade `modeEnter` / `modeExit`** for a QUEUED mode: today's wire has no mode change other than
-  the aliased `holdAndWinTrigger`/`End` (the wheel is part of the entry, not a mode). Map them when
-  the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
-  total?}`, `total` in credits.
+- **Facade `modeEnter` / `modeExit`** for a QUEUED mode (owner: "Hold and Win engine runtime"): the
+  mock now announces one on the forced `queuedMode` beat (see Decisions, 2026-10-01). Pass both
+  through generically, converting `modeExit.total` from credits to book units, and add a fixture
+  case from that beat.
 
-1. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
+1. **Phase 7 follow-ups** (none blocks authoring):
+   - **Owner: Re-publish `hw-3pots-sample`** so players (not just `authoring=1`) see the authored coin
+     label, flights and seeded symbol art — and replace the seeded placeholder art with real 3 Pots art
+     in `/symbols`.
+   - **Phase 9:** seed the Hold and Win symbols into a new project's symbols doc at scaffold (finding
+     above), or every new `holdAndWin` project boots with coins that draw only their label.
+   - Prove an authored `/fx` trail and arrival effect live (author one in the sample); measure
+     `countMs` live; an optional "arc" knob for flights; beams (`boostBeam`) are authorable but nothing
+     flies them yet.
+2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
-     feature total). Publish a Classic and a Collector sample project — save `/config` once on the
-     preset (the unauthored-config trap above), then Re-publish — and play their letters, instant
+     feature total). Publish a Classic and a Collector sample project — a new project is seeded
+     with Pots, so pick the preset in `/config` ("Reset to preset") and save, then Re-publish — and play their letters, instant
      collect, streak flights and wheel live. Start their playbooks beside
      [hw-3pots-sample.md](../playtest/hw-3pots-sample.md).
    - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
@@ -466,14 +554,53 @@ Hold and Win beats prints copy.
      use the coded spin profile, not the editor's `resolveReelSpinProfile`.
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
-2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
-3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
+3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
+4. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 7 merged: Symbols SM for Hold and Win** (session "Hold and Win Phase 7 —
+  Symbols SM"; #950, #955, #957, #961, #963 — each a runtime release; live as `lines@bf0e5932ac30`,
+  launcher deployed). What landed (detail in [status/symbols](symbols.md)):
+  - **7a #950** — eight Hold and Win symbol states with fallbacks that replay Phase 4's coded beats;
+    the respin board and every beat (incl. 4f's) request them; grid columns, Book VFX / Stacked /
+    Explosion pattern / Transition sections and the Scene Editor state pickers gated through new
+    `kindCapabilities` flags (`bookSymbolVfx`, `tumblePattern`, `symbolTransition`) and
+    `symbolStatesForKind`; role chips from `special_properties`; `symbolDefaults/holdAndWin.json`;
+    `check:symbols-kind-gating`.
+  - **7b #955** — the `coinLabel` doc block (style, cash format, per-tier jackpot text/style,
+    placement, land/boost pops, count-up length) through export → both bake paths →
+    `bakedCoinLabel()` → `CoinLabel.svelte`; `check:coin-label`.
+  - **7c #957** — the `flights` doc block per flight kind (`toTotal`, `toCollector`, `toMeter`,
+    `toMeter:<id>`, `boostBeam`): head, `/fx` trail as a moving emitter, arrival effect, path, timing;
+    every `flyTo` call resolves `bakedFlights()` field by field; head art and effects ship; a flight
+    preview in `/symbols`; `flightPath.ts` moved to `engine-layout`; `check:flights`.
+  - **#961** — forward-compatible symbols doc (finding above). **#963** — held coin labels no longer
+    draw black; a `blank` is not reported missing; two `/symbols` hints corrected.
+  - **Verified:** every PR's gates (`check-all` 332/332, svelte-check at baseline, eslint) and a code
+    review per part. `bookofborutremake` parity on a real clock, seeded local mocks, branch vs main,
+    twice (Phase 7 combined, then #963): flow trace (32 base + 243 free-spin lines), RGS exchanges,
+    holds, gameType moments, win frames and balances identical, 0 errors. Live on `hw-3pots-sample`
+    (authoring path, real clock): the authored label renders (size 0.36, +0.18 offset, ×1.1, the 1.5×
+    land pop, "MINI!" in its tier tint); toMeter heads pink ×1.4 and ~1.6× slower, toTotal heads ×1.6,
+    stagger 146–167 ms (coded 70), durations matching speed 0.6 / max 1600 to within 25 ms; toCollector
+    heads green; balances = the mock. Re-checked on the served `lines@bf0e5932ac30`: every held label's
+    glyph fill white in all 66 samples of a `trigger,jackpot:MINI` feature (rolls, sticks, the count-up),
+    the seeded symbol art under the labels on both boards, no `[game-config]` error (only a
+    `[symbols]` warning that BLANK has no art, by design), 0 exceptions, balances = the mock. The
+    placeholder scatter art has "SCATTER" baked in and sits under the coin value — real art is the
+    owner's.
+- 2026-10-01 — **Scaffold config seed, mock end-of-feature counter, `modeEnter`/`modeExit` on the
+  wire** (#956). (1) `scaffoldProject` seeds a `holdAndWin` project with `gameConfigSeedFor` = the
+  Pots preset (other kinds untouched); Publish warns on a Hold and Win project without the block;
+  `pnpm --filter launcher-api check:project-scaffold` (4 cases, mutant-tested). (2) The mock's
+  feature-ending respin says `left: 0, reset: false`; `check:holdandwin` checks it on every round, on
+  the `fullBoard`/`letters` beats, and with a planted old-shape round. (3) Forced `queuedMode[:<id>]`
+  beat emits the generic mode pair; wire doc "Modes" section.
 
 - 2026-10-01 — **Hold and Win writes `gameType: 'respin'`** (session "Hold and Win Phase 4 — engine
   runtime"). `HOLD_AND_WIN_KEEPS_GAME_TYPE` is gone (`engine-game` `modeEvents.ts`): the mode layer

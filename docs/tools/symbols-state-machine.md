@@ -963,9 +963,10 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
   free-placed effects (a bone-placed layer does not follow the head).
 - **On arrival** — an Invisible FX effect played once where the head lands.
-- **Avoid win cells** / **Over-route** / **Max bend** / **Padding** — the route. The game picks a
-  curve that bends around the cells showing a win; **Max bend** is the strongest bend it may try
-  (0 = never bend; blank = the built-in ladder), **Over-route** lets it climb over the obstacles when
+- **Avoid win cells** / **Over-route** / **Max detour** / **Padding** — the route. The game picks a
+  curve that bends around the cells showing a win; **Max detour** is the strongest bend it may try
+  (0 = never bend; blank = the built-in ladder). It only bends a route that would cross a win cell:
+  with nothing in the way (the feature-end volley) every flight flies straight. **Over-route** lets it climb over the obstacles when
   no bend is clean, **Padding** grows each win cell (in cells), and **Avoid win cells: Off** flies
   straight through them.
 - **Speed** (cells per second), **Min ms** / **Max ms** (the flight time is the distance over the
