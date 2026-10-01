@@ -18,6 +18,8 @@
 		/** With `forceEmit`, stop every layer emitting this many ms after mount — the rig binding's
 		 * `duration` override. See `<EffectLayer>`'s `emitFor`. */
 		emitFor?: number;
+		/** A moving owner for a trail, forwarded to every FREE layer. See `<EffectLayer>`'s `ownerPos`. */
+		ownerPos?: () => { x: number; y: number };
 	};
 </script>
 
@@ -52,5 +54,6 @@
 		emitSpeed={props.emitSpeed}
 		forceEmit={props.forceEmit}
 		emitFor={props.emitFor}
+		ownerPos={props.ownerPos}
 	/>
 {/each}

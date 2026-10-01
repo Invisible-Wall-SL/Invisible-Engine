@@ -24,6 +24,12 @@
 		 * binding, two behaviours — this is the knob that lets the author say which one they meant.
 		 */
 		emitFor?: number;
+		/**
+		 * A moving owner for a TRAIL — forwarded to `<ParticleEmitter>`'s `ownerPos`, in this layer's
+		 * own local space (offset already applied by the wrapping container). FREE placement only: a
+		 * bone layer rides its bone by moving the container, so it ignores this.
+		 */
+		ownerPos?: () => { x: number; y: number };
 	};
 </script>
 
@@ -241,6 +247,7 @@
 				{spineParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
+				ownerPos={props.ownerPos}
 			/>
 		</Container>
 	{/if}

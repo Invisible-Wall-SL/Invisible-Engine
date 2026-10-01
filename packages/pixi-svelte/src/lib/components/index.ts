@@ -1,4 +1,5 @@
 import App from './App.svelte';
+import Anchor, { type Props as AnchorProps } from './Anchor.svelte';
 import Text, { type Props as TextProps } from './Text.svelte';
 import Container, { type Props as ContainerProps } from './Container.svelte';
 import Rectangle, { type Props as RectangleProps } from './Rectangle.svelte';
@@ -32,6 +33,7 @@ import RiggedFlipbook, { type Props as RiggedFlipbookProps } from './RiggedFlipb
 
 export {
 	App,
+	Anchor,
 	Text,
 	Container,
 	Rectangle,
@@ -59,6 +61,7 @@ export {
 };
 
 export type {
+	AnchorProps,
 	TextProps,
 	ContainerProps,
 	RectangleProps,

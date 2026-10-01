@@ -69,6 +69,15 @@
 		 * across the particle's lifetime, the original and still-default behaviour.
 		 */
 		flipbook?: { framerate?: number; loop?: boolean };
+		/**
+		 * A MOVING OWNER, for a trail. Read every tick and handed to `emitter.updateOwnerPos` before
+		 * `update`, in the emitter parent's local space: new particles spawn along the path (the
+		 * library lerps the spawns within a frame) while the ones already out stay where they were
+		 * born. The parent must stay still — moving the container instead carries every particle
+		 * along rigidly, which is what every other mount does. Absent ⇒ the owner stays at the origin,
+		 * exactly as before.
+		 */
+		ownerPos?: () => { x: number; y: number };
 	};
 
 	/**
@@ -119,7 +128,7 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { getContextApp, getContextParent } from '../context.svelte';
 	import { propsSyncEffect } from '../utils.svelte';
 	import { registerSpineParticleBehavior, SpineParticleBehavior } from '../spineParticleBehavior';
@@ -162,31 +171,53 @@
 	propsSyncEffect({
 		props,
 		target: emitter,
-		ignore: ['emit', 'animated', 'spineParticle', 'textures', 'weights'],
+		// `ownerPos` is a getter, not a field: the emitter's own `ownerPos` is a Point the library
+		// owns, and assigning the function over it would break every spawn.
+		ignore: ['emit', 'animated', 'spineParticle', 'textures', 'weights', 'ownerPos'],
 	});
+
+	/** Hand the owner's position to the emitter. `init` resets it to the origin, so this runs after. */
+	let ownerTracked = false;
+	const syncOwner = () => {
+		const read = props.ownerPos;
+		if (!read) return;
+		const { x, y } = read();
+		emitter.updateOwnerPos(x, y);
+		// The first position is a placement, not a move: no lerp from wherever the owner was before.
+		if (!ownerTracked) {
+			emitter.resetPositionTracking();
+			ownerTracked = true;
+		}
+	};
 
 	$effect(() => {
 		// `emit` true ⇒ (re)start the emitter from the bound config; false ⇒ stop spawning so
 		// an event-triggered layer that has run its `duration` actually ceases (existing
 		// particles still fade out via their lifetime). Ambient layers keep `emit` true, so
 		// they take the same `init` branch as before — byte-identical to the prior behaviour.
-		if (props.emit) emitter.init(updatedConfig);
-		else emitter.emit = false;
+		if (props.emit) {
+			emitter.init(updatedConfig);
+			ownerTracked = false;
+			// Untracked: the getter reads live position state, which must not re-run this `init`.
+			untrack(syncOwner);
+		} else emitter.emit = false;
 	});
 
-	if (context.stateApp.pixiApplication) {
-		context.stateApp.pixiApplication.ticker.add(() => {
-			if (context.stateApp.pixiApplication) {
-				const deltaUpdate = emitterDeltaSeconds(
-					context.stateApp.pixiApplication.ticker.deltaMS,
-					props.emitSpeed,
-				);
-				emitter.update(deltaUpdate);
-			}
-		});
-	}
+	const tick = () => {
+		if (context.stateApp.pixiApplication) {
+			syncOwner();
+			const deltaUpdate = emitterDeltaSeconds(
+				context.stateApp.pixiApplication.ticker.deltaMS,
+				props.emitSpeed,
+			);
+			emitter.update(deltaUpdate);
+		}
+	};
+	const ticker = context.stateApp.pixiApplication?.ticker;
+	ticker?.add(tick);
 
 	onDestroy(() => {
+		ticker?.remove(tick);
 		emitter.emit = false;
 		// Free the pooled `Spine` instances (pool + live) before the emitter tears down — the
 		// behavior owns skeletons the emitter's own `destroy` never sees.

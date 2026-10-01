@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
+	import { Anchor } from 'pixi-svelte';
 
 	import { stateBet } from 'state-shared';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -18,4 +19,6 @@
 	});
 </script>
 
+<!-- The win meter is where a flight into the total lands (`hud-win`, the reference node's id). -->
+<Anchor name="hud-win" />
 <UiLabel tiled {label} {value} stacked={props.stacked} style={props.style} text={props.text} />

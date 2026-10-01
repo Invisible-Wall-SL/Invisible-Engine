@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 
-	import { Container } from 'pixi-svelte';
+	import { Anchor, Container } from 'pixi-svelte';
 	import { WHITE } from 'constants-shared/colors';
 	import { stateModal } from 'state-shared';
 	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
@@ -123,6 +123,10 @@
 	};
 </script>
 
+{#if source === 'win'}
+	<!-- The win meter is where a flight into the total lands — whatever id the author gave it. -->
+	<Anchor name="hud-win" />
+{/if}
 {#if pressable}
 	<!-- `none` while DISABLED so an inert surface does not SWALLOW the pointer — see the note in
 		 `components-pixi/Button.svelte`. -->

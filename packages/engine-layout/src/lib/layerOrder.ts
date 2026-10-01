@@ -52,6 +52,11 @@ export const LAYER_BAND_BASE = 100;
  *  under the whole {@link LAYER_BAND_BASE} band. Still BELOW the pinned band, so a takeover
  *  celebration and the engine's top layer continue to cover it. */
 export const LAYER_BAND_WIN_PRESENTATION = 8_000;
+/** Fixed z for FLIGHTS (Hold and Win §4.4) — a coin's glow travelling from the board into the win
+ *  meter or a pot. Above the board, the HUD and the win line, because the head has to land ON the
+ *  meter rather than slide under it; below the pinned band, so a celebration still covers it. One
+ *  stage-level container, empty until a flight runs. */
+export const LAYER_BAND_FLIGHTS = 8_500;
 /** Base zIndex of the PINNED band — where a screen the author ticked "Always on top"
  *  ({@link Scene.alwaysOnTop}) mounts, above every list-ordered screen and below the engine
  *  top band. For a transient overlay that must never be buried (the loading splash at boot,

@@ -808,6 +808,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'flyTo',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -1846,6 +1850,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'showJackpotWin',
+				group: 'Effect',
+			},
+			{
+				name: 'flyTo',
 				group: 'Effect',
 			},
 			{
@@ -2890,6 +2898,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'flyTo',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -3928,6 +3940,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'showJackpotWin',
+				group: 'Effect',
+			},
+			{
+				name: 'flyTo',
 				group: 'Effect',
 			},
 			{

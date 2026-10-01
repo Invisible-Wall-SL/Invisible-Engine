@@ -6,7 +6,7 @@
 	import { BLACK } from 'constants-shared/colors';
 	import { FadeContainer } from 'components-pixi';
 	import { MainContainer } from 'components-layout';
-	import { Container, Rectangle } from 'pixi-svelte';
+	import { Anchor, Container, Rectangle } from 'pixi-svelte';
 	import { waitForResolve } from 'utils-shared/wait';
 	import { ComponentInstance, LayoutNodeView } from 'engine-layout/svelte';
 	import { STANDARD_MAIN_SIZES_MAP } from 'engine-layout';
@@ -361,6 +361,7 @@
 			scale={{ x: instance.pos.scaleX, y: instance.pos.scaleY }}
 			rotation={instance.pos.rotation}
 		>
+			<Anchor name={instance.node.id} />
 			<ComponentInstance node={instance.node} space="standard" />
 		</Container>
 	{/if}

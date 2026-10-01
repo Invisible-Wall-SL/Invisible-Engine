@@ -17,3 +17,5 @@ export * from './spineLocale';
 // Full-screen camera effects (shake / flash / zoom punch / chromatic wobble) — they drive the
 // `Application.stage`, the one transform above every layer band, so they live with the app itself.
 export * from './cameraEffects';
+// Named anchors: where a mounted container is on screen, for code aiming at it (flights).
+export * from './anchors';
