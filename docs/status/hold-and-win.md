@@ -56,8 +56,8 @@ titled **"Hold and win game pipeline"**.
 |---|---|---|---|---|
 | `lines` | bookOf seed (`DRIVEN_SEED_FALLBACKS`) | bookOf (`VOCABULARY_FALLBACKS`) | `lines` → lines | lines |
 | `ways` | ways seed | ways | `ways` → lines mock, ways evaluator | lines |
-| `cluster` | bookOf seed (fallback) | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster` | default |
-| `scatter` | bookOf seed (fallback) | same as cluster: bookOf in practice | `scatter` | default |
+| `cluster` | cluster seed (since 2026-10-01; a project scaffolded before keeps its stored `bookOf` flow) | cluster | `cluster` | default |
+| `scatter` | scatter seed (since 2026-10-01; same caveat) | scatter | `scatter` | default |
 | `bookOf` | bookOf seed | bookOf | `book` | lines |
 | `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
 | custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |

@@ -693,8 +693,10 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **Containers and the template are data-only.** The set of containers (scene id + z) and
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. `book-of`, `ways`,
-  `cluster` and `scatter` vocabularies are registered (only `book-of` and `ways` ship a starter
-  flow); an unknown template id falls back to `book-of`.
+  `cluster` and `scatter` vocabularies are registered, and each ships its own starter flow (a
+  `lines` project starts on the `book-of` one); an unknown template id falls back to `book-of`.
+  A cluster or scatter project created before 2026-10-01 keeps the `book-of` flow it was
+  scaffolded with, because nothing in the editor changes a flow's template.
 - **Cues inside a component instance aren't offered.** The **Cues** section collects signal
   names from spines and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own
