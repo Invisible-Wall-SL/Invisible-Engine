@@ -61,13 +61,15 @@ const spines = (dir, name, atlas = name) => [
 const RIG = spines('anticipation', 'anticipation');
 /**
  * What RIG lacks: a sequence timeline and a weighted first mesh (W); an interior fan and 180 linked
- * meshes (S).
+ * meshes (S). Every bone of both is deleted too, each delete keeping the setup pose.
  */
 const RIG_EXTRA = {
 	'tools/rigger-spike/sequence.mjs @W': spines('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/meshremove.mjs @W': spines('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/retriangulate.mjs @S': spines('symbols2', 'S', 'symbols2'),
 	'tools/rigger-spike/linkedmesh.mjs @S': spines('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/delete.mjs @W': spines('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/delete.mjs @S': spines('symbols2', 'S', 'symbols2'),
 };
 
 /** Extra arguments for a check that needs an input to have anything to check. */

@@ -271,7 +271,8 @@ a rival answer to the same question. Move the box, or bind a different bone.
   drag on the canvas to move the selected bone (Shift+drag still pans); a
   rotate-ring + move-centre gizmo on the bone origin; a **parent** dropdown to
   reparent (cycles are prevented); **rename**; **🗑 Delete bone** (root can't be
-  deleted). Add a bone with **＋ Add bone** in the Bone hierarchy section.
+  deleted — see **What a delete takes with it** below). Add a bone with
+  **＋ Add bone** in the Bone hierarchy section.
 - **Slots:** reorder draw order with ↑/↓; place a region attachment
   (x/y/rotation/scale); pick a **shows / image** attachment; rename; delete.
   **＋ Add slot** adds one. **⧉ Duplicate slot** copies a slot — its image(s) and
@@ -284,8 +285,10 @@ a rival answer to the same question. Move the box, or bind a different bone.
   duplicates the base slot (reusing its mesh **and** all animation) and repoints
   the copy to the FX region. Shadows are placed behind the base, other FX in
   front. It's idempotent — FX slots that already exist are skipped — so it's safe
-  to click again after adding sprites. This is the Rigger end of the Sheet Maker →
-  Atlas Maker FX pipeline (same `_shine`/`_glow`/… naming convention).
+  to click again after adding sprites. A slot that shows an **image sequence** is
+  skipped, and the report says why: one FX image can't stand in for a flipbook's
+  frames, and per-frame FX layers (`<frame>_glow`) can't play as a sequence.
+  This is the Rigger end of the Sheet Maker → Atlas Maker FX pipeline (same `_shine`/`_glow`/… naming convention).
 - **Skins:** the **Skins** section lists skins; click one to make it the **active**
   skin (what determines which images/meshes/weights you see and paint) — or pick it
   in the bottom bar's **Skin** picker, which always lists the rig's current skins. A
@@ -302,6 +305,17 @@ a rival answer to the same question. Move the box, or bind a different bone.
   click it to work in it). The skin named `default` can't be renamed or deleted, and the
   last skin can't be deleted: a game draws `default` whenever no skin is chosen, and
   falls back to it for any slot another skin leaves empty.
+- **Deleting a bone** moves its child bones, its slots and the vertices weighted to
+  it onto its parent, and they **stay where they are in the setup pose**: the
+  deleted bone's position, rotation, scale and shear are folded into each of them
+  (as the stage draws the pose, constraints included). One exception: an image on
+  a bone whose transform would shear it (a non-uniform scale or shear) can't take
+  that shear, so it keeps its centre, direction and size instead; and a bone at
+  scale 0 (which flattens everything under it) can't be undone, so its children
+  and slots move over with their own values unchanged. The bone's own
+  animation keys are deleted with it, so in an animation its children and slots
+  no longer follow its motion, and a child's own translate keys now move it along
+  the parent's axes.
 - **What a delete takes with it:** deleting a bone, slot, attachment or skin also
   removes every IK / transform / path / physics constraint that can no longer work
   without it (an IK or transform constraint whose target bone went, one left with

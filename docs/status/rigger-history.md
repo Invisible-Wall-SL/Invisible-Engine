@@ -5,6 +5,89 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-01 — **A bone delete is compensated** (open item 8).
+  - **The jump.** `deleteBoneCore` re-parented the bone's children and slots onto its parent and
+    moved its weighted influences there, all keeping their LOCAL values, which were relative to
+    the deleted bone. On `anticipation`, `W` and `S` that moved 47, 57 and 21 of the bones and
+    attachments checked; deleting the synthetic rig's `spine` moved its whole arm by 140 units.
+  - **What is composed in.** The world transforms of the deleted bone D and its heir G (the
+    parent) give the map `M = G⁻¹ · D` from D's space into G's. A child bone gets the local
+    values that put it at the world it had (`boneLocalAt`), in its own inherit mode: `normal`
+    and `noRotationOrReflection` solve the 2×2 against the frame the mode builds from the parent,
+    and `onlyTranslation` only moves. The no-scale modes build their frame from the bone's OWN
+    rotation, so the rotation is solved first, turning the bone until the frame's x axis points
+    where it did, and then shear and scale are re-solved under that frame. The solve keeps the
+    authored shearX and the signs of both scales, so under a parent that only turned and scaled
+    a child just turns and scales. A mirrored child stays mirrored rather than becoming a
+    180°-turned one with a flipped shear. A slot's image, point, unweighted mesh / path / box /
+    clip vertices and their deform keys go through `M` (`rehomeAttachment`,
+    `rehomeSlotDeform`), and a path's `lengths` scale with it. An influence on D becomes one on G
+    at `M·p`. If the vertex already has an influence on G, the two merge, because
+    w₁·G·p₁ + w₂·G·p₂ = (w₁+w₂)·G·(their weighted mean). The merged influence's deform offset is
+    the same weighted mean, with D's offset turned by M's 2×2 (`remapWeightedDeform` now takes a
+    list of weighted, transformed source entries per new entry).
+  - **Which pose.** The one the stage draws: `posedSetupWorlds` loads the doc through the
+    runtime in the skin on stage, with constraints applied and physics off. `setupWorlds` (a pure
+    mirror of spine-core 4.2's `updateWorldTransformWith`) fills in any bone the skin leaves
+    inactive. Two traps decide which doc is posed. First, the constraints the delete removes
+    must already be gone, or the dependants keep a pose that vanishes with them. Second, D must
+    still be in the constraints that stay: the cascade's predicate filters D out of their `bones`
+    lists, and posing after that left D unconstrained, which threw its dependants off by up to 59
+    units. So the delete poses a copy with only the broken constraints dropped.
+  - **Not exact.** An image has no shear, so on a bone whose transform would shear it (a
+    non-uniform scale or shear between D and G) it keeps its centre, axis and area. Animation:
+    D's own keys go with it (the cascade since #880 drops `animations.*.bones[D]`), so its
+    dependants no longer follow its motion. A child's own keys are offsets in its parent's
+    space, so a translate key now moves it along G's axes. Mapping those through `M` would need
+    the x and y curves of a split or Bézier-eased translate to be combined, which Spine cannot
+    express, so the confirm says it instead. A local-space transform constraint reading a
+    re-solved child's local values sees the new ones. A two-bone IK `[G, D]` survives as a
+    one-bone IK on G, which poses G differently.
+  - **Degenerate scales.** A deleted bone at scale 0 has flattened its dependants in the setup
+    pose. Composing that in would zero their own values for good, so that delete stays
+    uncompensated, as before. A CHILD at scale 0 hides the axis it scales, so the solve would
+    keep its old rotation and lose the turn. It is solved at scale 1 and the zero is put back.
+  - **Code review** (the `code-reviewer` agent) found both scale cases. It also found that
+    merging two heir influences on a vertex the bone never touched shrank the influence count
+    without remapping its deform keys, so merges now happen only on a vertex that had an
+    influence moved. The pose load no longer writes into the open rig's `missingArt`.
+  - **Proof.** `delete.mjs` snapshots what the runtime draws, in every skin: each active bone's
+    world and each attachment's world geometry (image corners, point position and direction,
+    vertex attachments' vertices). After every bone delete, everything left must match the
+    reference within 1e-3: the rig with only the removed constraints deleted. This covers every
+    bone of the given rig (CI: `anticipation`, plus `W` and `S`, newly in CI) and the synthetic
+    rigs. A new one has deleted bones with a child in every inherit mode, a mirror, non-uniform
+    scale and shear, a sheared heir, every attachment kind, merged weights and deform keys
+    (checked under the animation too), and two transform constraints: one survives the delete,
+    one goes with it. Run over all 153 checked-in rigs, the check found one more bug: an image with
+    a NEGATIVE `scaleX` (`symbols2/M`, `multiplier_pick_glow`, 859 units off). Its axis had been
+    given the scale's sign twice, because the bone solver's sign handling was copied, and an
+    image's rotation axis carries no scale. The synthetic image now mirrors `scaleX`. 19 mutants
+    are each caught, that bug and the three review findings among them. Two of them, "no-scale rotation not solved" and
+    "mirror sign dropped", leave the world exact, so the rig also asserts the clean values:
+    deleting `g` turns its mirrored child by 15° and scales it by 0.9, still mirrored, and turns
+    its no-scale child by 15° with shear and scale untouched.
+
+- 2026-10-01 — **✨ Auto FX slots on a slot showing an image sequence.**
+  - **The break.** `autoCreateFxSlots` maps each slot to the region its setup attachment samples
+    (`path`, or the attachment name). For a sequence that is the frames' prefix (`symbexpl_`).
+    When the atlas also held a region of that name with an FX layer beside it
+    (`symbexpl__glow`), Auto FX duplicated the slot and `repointSlotSetupImage` set the copy's
+    `path`. That re-aimed all 13 frames at `symbexpl__glow01`…, which do not exist, and stock
+    Spine refused the rig ("Region not found in atlas: symbexpl__glow01").
+  - **Refuse, not carry.** Carrying the sequence would need the FX frames as their own numbered
+    run (`<path>_glow` + number). The Sheet Maker writes FX per image (`<frame>_glow`), and Spine
+    names a sequence's frames `<path><number>`, so no declaration can name them.
+    `fxRepointRefusal` is checked BEFORE the duplicate, so a refused layer leaves no orphan
+    slot. `repointSlotSetupImage` refuses on its own too and returns why. A per-frame layer
+    (`symbexpl_01_glow`) was reported as "base not slotted". `sequenceFrameSlots` now names it as
+    one frame of the sequence on its slot.
+  - **Proof.** `sequence.mjs` §F (CI, on `W`): the W atlas plus the trigger regions, through the
+    shipped `autoCreateFxSlots`. The rig still opens in stock Spine, there is no FX slot from the
+    sequence slot, both skips are explained, and a plain image beside them (`wild_exp_w`) still
+    gets its `_glow` slot (the control). With the refusal planted out, 4 checks go red, the load
+    with "Region not found".
+
 - 2026-09-30 — **A create that died after its claim no longer holds the name** (the residual the
   entry below left open).
   - **The window.** `rigger/new` and `rigger/upload` claim `<spines>/<name>/<name>.irig` with
