@@ -118,6 +118,13 @@ const canon = (state: HoldAndWinState) =>
 /** One forced round through the facade; every invariant of the translated book. */
 const verifyRound = (label: string, events: BookEvent[]) => {
 	const types = events.map((e) => e.type);
+	// Every event's `index` is its ordinal in the book; a payload field of that name would overwrite it
+	// (the wheel's segment once did).
+	check(
+		`${label}: every event keeps its ordinal index`,
+		events.every((e, i) => e.index === i),
+		true,
+	);
 	check(
 		`${label}: no wire event leaks through untranslated`,
 		types.filter((t) => t.startsWith('_')),
@@ -129,8 +136,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 		[],
 	);
 	const reveal = events.find((e) => e.type === 'reveal') as
-		| { board: { name: string; value?: number; jackpot?: string }[][] }
-		| undefined;
+		{ board: { name: string; value?: number; jackpot?: string }[][] } | undefined;
 	check(`${label}: the base board is revealed once`, types.filter((t) => t === 'reveal').length, 1);
 	const names = (reveal?.board ?? []).flat().map((s) => s.name);
 	check(
@@ -175,8 +181,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 	check(`${label}: one respin board per respin played`, reveals, snapshots - 1);
 
 	const end = events.find((e) => e.type === 'holdAndWinEnd') as
-		| { total: number; payload: { cells: { amount: number }[]; banked: number } }
-		| undefined;
+		{ total: number; payload: { cells: { amount: number }[]; banked: number } } | undefined;
 	check(`${label}: the feature ends`, Boolean(end), true);
 	if (end) {
 		const sum = end.payload.cells.reduce((s, c) => s + c.amount, 0) + end.payload.banked;
@@ -193,8 +198,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 			true,
 		);
 		const close = events.filter((e) => e.type === 'setTotalWin').pop() as
-			| { amount: number }
-			| undefined;
+			{ amount: number } | undefined;
 		check(
 			`${label}: the round closes on at least the feature total`,
 			(close?.amount ?? 0) >= end.total,
@@ -279,8 +283,7 @@ for (const type of HW_TYPES) {
 		return bet.round?.state ?? [];
 	});
 	const instant = events.find((e) => e.type === 'coinInstantCollect') as
-		| { amount: number; cells: { amount: number }[] }
-		| undefined;
+		{ amount: number; cells: { amount: number }[] } | undefined;
 	check('instant collect: translated', Boolean(instant), true);
 	check('instant collect: amounts in book units', (instant?.amount ?? 0) > 0, true);
 	await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -334,8 +337,7 @@ for (const type of HW_TYPES) {
 	const at = Number(resumed.round?.event);
 	const before = book.slice(0, at);
 	const lastState = before.filter((e) => e.type === 'holdAndWinState').pop() as unknown as
-		| { snapshot: { cells: unknown[] } }
-		| undefined;
+		{ snapshot: { cells: unknown[] } } | undefined;
 	check('resume: it picks up past the replayed respins, not at 0', at > 0, true);
 	check(
 		'resume: the snapshot before the resume point is the board held at the break',

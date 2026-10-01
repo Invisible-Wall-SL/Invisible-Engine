@@ -3010,8 +3010,9 @@ export default [
 				},
 			},
 			{
-				index: 0,
+				index: 2,
 				type: 'holdAndWinWheel',
+				segment: 0,
 				prize: {
 					type: 'coinBoost',
 					multiplier: 2,
@@ -4162,8 +4163,9 @@ export default [
 				},
 			},
 			{
-				index: 1,
+				index: 2,
 				type: 'holdAndWinWheel',
+				segment: 1,
 				prize: {
 					type: 'extraCollect',
 					count: 1,
@@ -6250,8 +6252,9 @@ export default [
 				},
 			},
 			{
-				index: 1,
+				index: 2,
 				type: 'holdAndWinWheel',
+				segment: 1,
 				prize: {
 					type: 'extraCollect',
 					count: 1,
@@ -6788,8 +6791,9 @@ export default [
 				},
 			},
 			{
-				index: 0,
+				index: 2,
 				type: 'holdAndWinWheel',
+				segment: 0,
 				prize: {
 					type: 'coinBoost',
 					multiplier: 2,
@@ -7346,8 +7350,9 @@ export default [
 				},
 			},
 			{
-				index: 6,
+				index: 2,
 				type: 'holdAndWinWheel',
+				segment: 6,
 				prize: {
 					type: 'jackpot',
 					jackpot: 'GRAND',

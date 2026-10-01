@@ -666,7 +666,7 @@ const wheelPrizeDetail = (prize: Beat<'holdAndWinWheel'>['prize']): string => {
  * landed segment and the prize each hold at least {@link WHEEL_RESULT_MIN_MS} on a bare timer.
  */
 export const presentWheel = async (event: Beat<'holdAndWinWheel'>) => {
-	const { prizes, index } = wheelSegments(event.index, event.prize);
+	const { prizes, index } = wheelSegments(event.segment, event.prize);
 	// The play seam has already raised the level; the counter shows the old one until the wheel lands.
 	if (event.prize.type === 'extraCollect') {
 		stateHoldAndWinShown.collectorLevel = Math.max(
@@ -678,9 +678,9 @@ export const presentWheel = async (event: Beat<'holdAndWinWheel'>) => {
 	try {
 		eventEmitter.broadcast({ type: 'wheelShow', prizes });
 		await waitPresentation(WHEEL_INTRO_MS);
-		eventEmitter.broadcast({ type: 'wheelSpin', index: event.index, prize: event.prize });
+		eventEmitter.broadcast({ type: 'wheelSpin', index: event.segment, prize: event.prize });
 		await spinWheelTo(index);
-		eventEmitter.broadcast({ type: 'wheelLand', index: event.index, prize: event.prize });
+		eventEmitter.broadcast({ type: 'wheelLand', index: event.segment, prize: event.prize });
 		await holdWheelResult(WHEEL_LANDED_MS);
 	} finally {
 		hideWheel(wheel);
