@@ -39,7 +39,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume merged; 4d (specials, mystery) merging; flights in review; pots, Lucky Spin, feature end building; then Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume, 4d merged; flights in review; pots, Lucky Spin, feature end built; then Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -71,6 +71,22 @@ only has to register its own vocab + seed.
 
 ## Decisions & findings
 
+- 2026-10-01 — **Flights are built (step 9).** Things a later phase must know:
+  - **A trail needs a STILL emitter parent plus `ownerPos`.** Moving the container (what every other
+    mount does) carries the particles rigidly. Any `/fx` flight preview or authored trail must go
+    through `<ParticleEmitter ownerPos>` / `<EffectPlayer ownerPos>` (free layers only).
+  - **There was no "scene node registry".** A layout node's on-screen position is now resolved through
+    `pixi-svelte` named anchors registered by the node mounts (id = the node id). Ids are per scene, so
+    two mounted scenes with the same id resolve to the most recently mounted one that is visible.
+  - **`'total'` = the `hud-win` anchor** (the reference win meter id, also registered by every win
+    readout whatever its id). A game whose win meter is something else names its node id instead.
+  - **The flight layer sits ABOVE the HUD** (8500) so a head lands on the meter; it would also draw
+    over an un-pinned celebration overlay in the list band. Celebrations follow the volley today, so
+    nothing overlaps; revisit if a beat flies during a celebration.
+  - **The feature-end volley uses no avoidance**: every coin leaves at once, so there is nothing to
+    bend around. The specials beats (pots, collectors) pass the win cells as `avoid`.
+  - **Not built**: Phase 7's `flights` authoring block (head art, `/fx` trail, arrival effect, path
+    style per kind), beams, a re-aimed target that moves mid-flight (the route is fixed at launch).
 - 2026-10-01 — **Phase 4d: the specials and mystery beats.** Decisions a later phase must know:
   - **A count-up is a display override, never a write.** The play seam has already recorded the
     final value when a `coinPay` / `coinBoost` / `coinCollect` beat starts, so the beat pins each
@@ -322,6 +338,53 @@ only has to register its own vocab + seed.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4, step 9: flights** (branch `engine/hold-win-flights`, off
+  `engine/hold-win-4c-respin-board`). A head that travels from a cell to a target, leaves a trail and
+  fires `flightArrive {flight, target, index}` on impact (design §4.4).
+  - **Route** (`engine-game` `flightPath.ts`, pure): one cubic Bézier; candidates are straight, bend
+    left/right at 0.2/0.35/0.55 of the distance, then an over-route whose apex clears the highest
+    obstacle. The FIRST candidate whose 48 samples miss every padded obstacle wins (the order is the
+    order of growing detour); none clean ⇒ fewest hit samples, then shorter, then earlier. An
+    obstacle around the source or the target is ignored. `flightDuration` (distance / speed, clamped),
+    `flightStagger`, `flightEase`. Pinned by `fixtures/flightPath.fixture.ts` (14 checks).
+  - **Runtime** (`apps/lines` `flights.svelte.ts`): `flyTo(from, to, flight, {avoid, index, stagger,
+    padding})` → a Promise resolved when the HEAD lands, after the cue. Ends: a global point, a cell
+    `{reel,row}` (the board's seats), a layout node id, or `'total'` (the win meter, falling back to the
+    board's bottom centre). Routes are planned in the flight layer's local space; speed is in BOARD
+    units (1.1/ms, 350–900 ms), stagger 70 ms. A slam runs the flight clock 4× (stagger included) and
+    never skips an arrival; an unskippable presentation keeps the pace. No layer mounted / no board ⇒
+    the flight lands at once and still fires its cue.
+  - **Layer**: `FlightLayer.svelte`, one unconditional container at `LAYER_BAND_FLIGHTS` (8500, new in
+    `engine-layout` `layerOrder.ts`) — above the board, the HUD and the win line (a head lands ON the
+    meter), below the pinned celebrations. Idle it holds two transform-only containers (the board's
+    space, so a cell resolves while the reel board is hidden) and draws nothing.
+  - **Look** (`engine-game` `flightGlow.ts` + `FlightView.svelte`): a radial-gradient glow generated
+    once on a canvas (head, gold tint, additive) and the shared `constants-shared` `trail` config in
+    gold as the trail, cell-sized from the board's scale. On arrival the head goes, `emit` turns off,
+    and the flight unmounts after the trail's max particle lifetime (`emitterSecondsToWallMs`).
+  - **Trail mechanism**: `pixi-svelte` `ParticleEmitter` gained an `ownerPos` getter (details in
+    [status/engine](engine.md)); `EffectPlayer`/`EffectLayer` forward it to FREE layers for Phase 7's
+    authored trails.
+  - **Targets**: new `pixi-svelte` named anchors (`<Anchor name>` / `resolveAnchor` /
+    `resolveAnchorPoint`). `LayoutNodeView` anchors every bind / container / componentInstance node by
+    its id, the coded HUD's `LayoutEditable` anchors its component instances, and the win readouts
+    (`LabelWin`, `HudValue`/`HudReadout` with source `win`) anchor `hud-win` — what `'total'` resolves.
+  - **Uses**: the feature end (`holdAndWinFlights.ts` `flyCoinsToTotal`, called from
+    `presentHoldAndWinEnd` after the final-board hold and before the swap back): every tallied coin, in
+    column order, staggered, awaited. A flow effect `flyTo` (`cells` or `reel`+`row`, `target`
+    default `'total'`, `flight` default `toTotal`, `avoid`, `stagger`, `await` default true);
+    vocabulary regenerated (48 effects).
+  - **Verified**: `check:engine-game` 7/7, `gen:flow-vocab:check`, `pnpm lint`, `check-all` 319/319,
+    svelte-check at baseline and completed (apps/lines 166, engine-game 38, pixi-svelte 14,
+    engine-layout 296, components-ui-pixi 23). Storybook from `C:\IW-4f`
+    (`MODE_HOLD_AND_WIN/flights`: a 5×3 volley into the win meter, avoidance, over-route, with the
+    obstacles and routes drawn): heads land on the Win meter above the HUD, routes miss every red
+    cell, the layer goes back to its 4 idle nodes after each volley, no console errors. The recorded
+    `MODE_HOLD_AND_WIN/book` trigger round, probed through the real bus: 5 `flightArrive` (indices
+    0–4, target `total`, flight `toTotal`), the board swaps back 2 ms after the last; slammed at the
+    last counter update, the same 5 cues fire and counter-zero → last landing drops from 1834 ms to
+    201 ms.
 
 - 2026-10-01 — **Phase 4d: specials and mystery beats** (session "Hold and Win Phase 4 — engine
   runtime", branch `engine/hold-win-4d-specials`, stacked on 4c). Each beat is one function in
