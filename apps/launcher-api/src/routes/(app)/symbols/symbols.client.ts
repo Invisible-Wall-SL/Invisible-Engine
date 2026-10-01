@@ -13,7 +13,11 @@ import {
 	BOOK_SYMBOL_STATES,
 	canBlendLayerKind,
 	CASCADE_SYMBOL_STATES,
+	COIN_LABEL_BOUNDS,
+	COIN_LABEL_DEFAULTS,
+	COIN_LABEL_FALLBACK_JACKPOTS,
 	HOLD_AND_WIN_SYMBOL_STATES,
+	pruneCoinLabel,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
@@ -27,6 +31,7 @@ import {
 	kindCapabilities,
 	tumbleExplosionDelays,
 	type BlendMode,
+	type CoinLabelConfig,
 	type SymbolNameEntry,
 	type SymbolStateName,
 	type TumblePatternConfig,
@@ -59,6 +64,11 @@ export {
 	tumbleExplosionDelays,
 };
 export type { TumblePatternConfig, TumblePatternName };
+
+/** The coin value label vocabulary, re-exported from its ONE home in `engine-layout` — the module the
+ *  server prunes with and the game draws from, so the three cannot disagree on a default. */
+export { COIN_LABEL_BOUNDS, COIN_LABEL_DEFAULTS, COIN_LABEL_FALLBACK_JACKPOTS };
+export type { CoinLabelConfig };
 
 /** The book-only states. They mirror new engine states and are valid in the doc for
  *  every game (the schema accepts them), but the grid only SHOWS their columns for a
@@ -621,6 +631,10 @@ export interface SymbolsDoc {
 	 *  one frame, nothing ships, byte-identical. Passed through verbatim to
 	 *  `bundle.symbols.tumblePattern`. */
 	tumblePattern?: TumblePatternConfig;
+	/** The Hold and Win COIN VALUE LABEL — style, cash format, per-tier jackpot text, placement and
+	 *  pops. Sparse: absent ⇒ the coded label, nothing ships. Passed through verbatim to
+	 *  `bundle.symbols.coinLabel`. */
+	coinLabel?: CoinLabelConfig;
 	updatedAt?: string;
 }
 
@@ -980,6 +994,32 @@ export function clearTumblePattern(doc: SymbolsDoc): SymbolsDoc {
 	const next = { ...doc };
 	delete next.tumblePattern;
 	return next;
+}
+
+/**
+ * Replace the coin value label with `next`, pruned by the SAME `pruneCoinLabel` the server applies on
+ * save — so a value dragged back to its default, or a section emptied, signs exactly like the doc the
+ * server hands back and the page never sits dirty after a save. New doc.
+ */
+export function setCoinLabel(doc: SymbolsDoc, next: CoinLabelConfig): SymbolsDoc {
+	const coinLabel = pruneCoinLabel(next);
+	const out = { ...doc };
+	if (coinLabel) out.coinLabel = coinLabel;
+	else delete out.coinLabel;
+	return out;
+}
+
+/** Back to the coded label — no key at all. New doc (the same one when there was nothing). */
+export function clearCoinLabel(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.coinLabel) return doc;
+	const out = { ...doc };
+	delete out.coinLabel;
+	return out;
+}
+
+/** The jackpot tiers the label section lists: the Game Config's, else the four the presets use. */
+export function coinLabelTiers(configured: readonly string[]): string[] {
+	return configured.length ? [...configured] : [...COIN_LABEL_FALLBACK_JACKPOTS];
 }
 
 /** The effective "draw the win LINE" flag = the doc's value ?? `true` (game default). Governs the
@@ -1634,6 +1674,17 @@ export function docSignature(doc: SymbolsDoc): string {
 				stepMs: doc.tumblePattern.stepMs ?? null,
 			}
 		: null;
+	// Listed here or a coin-label edit never marks the page dirty and Save stays disabled — the same
+	// trap every sibling above carries a warning about. Keys sorted at every level (tiers included), so
+	// the order a field was set in cannot move the signature.
+	const sortDeep = (value: unknown): unknown => {
+		if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+		const out: Record<string, unknown> = {};
+		for (const k of Object.keys(value).sort())
+			out[k] = sortDeep((value as Record<string, unknown>)[k]);
+		return out;
+	};
+	const coinLabel = doc.coinLabel ? sortDeep(doc.coinLabel) : null;
 	return JSON.stringify({
 		symbols,
 		names,
@@ -1656,6 +1707,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		transition,
 		tumblePattern,
 		anticipation,
+		coinLabel,
 	});
 }
 

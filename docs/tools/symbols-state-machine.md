@@ -642,6 +642,34 @@ The win-line renderer lives in the **shared engine** (ported 2026-07-14), so eve
 `bakedWinLineConfig()`. (Historically the renderer was per-game in Book of Borut only; that
 is no longer the case.)
 
+### Coin value label
+
+Shown only on a **Hold and Win** project (a kind with coin symbols), or anywhere a label is
+already authored so it can be seen and reset. It styles the value a coin prints on itself — a
+cash coin's amount, a collector's total, a payer's `+$4.00`, a multiplier's `×3` and a jackpot
+coin's tier. There is no on/off switch: every field you leave alone keeps the game's coded label
+(`gold`, 0.3 × the symbol, centred, no pops), and **Reset coin label** puts all of it back.
+
+- **Style** — **Font** (the engine builtins plus the project's Font Maker bitmap fonts, the same
+  list as Win amount text), **Size** (× the symbol) and **Colour** (a tint over the bitmap font).
+  Used for every label that is not a jackpot.
+- **Cash format** — **Show cash as** *Money* (the player's currency, the default) or *× bet*
+  (`1.5×`); **Decimals** — the fewest printed (a non-zero digit is never cut, so a label can never
+  read as a different amount); **Trim trailing zeros** (`$3.00` → `$3`, `$1.50` → `$1.5`).
+- **Jackpots** — one row per jackpot tier in the project's Game Config (MINI / MINOR / MAJOR /
+  GRAND when it declares none): the **text** the tier prints instead of its name (a multiplied
+  jackpot keeps its `×2`), and its own font / size / colour (blank ⇒ the cash style).
+- **Placement** — **Offset X / Y** from the cell centre (in symbol sizes, Y down), **Scale**, and
+  **Max width** — a label wider than that shrinks to fit (coded 0.9).
+- **Animation** — **Pop as the coin sticks** (the label pops when the coin lands and sticks on the
+  respin board), **Pop when a count lands** (each time a payer, a multiplier or a collect finishes
+  counting a label up), each with a pop scale and length; **Count-up length** (ms) replaces the
+  coded 600 ms payer / multiplier count, and each collect step scales with it (350/600 of it, the
+  coded proportion). Both pops are off by default.
+
+Assetless: it travels to the game as `bundle.symbols.coinLabel`, and a Font Maker font it names
+ships with the project's font catalog.
+
 ### Winning symbols after the spin
 
 A separate section with its own on/off toggle (**on by default**) plus a **Gap between

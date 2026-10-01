@@ -71,6 +71,10 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   - `anticipation` — overlay spine + animation set, activation / loop sounds, per-big-tier FX.
   - `bookVfx` (layers behind / in front of the book symbol during free spins), `symbolSounds` (the
     cue one symbol plays entering `land` / `clearReel`), `names`.
+  - `coinLabel` (Hold and Win, gated on `kindCapabilities().coinSymbols`) — the value a coin prints:
+    style, cash format, per-tier jackpot text + style, placement, land / count pops, count length.
+    Shape, defaults and prune live once in `engine-layout/coinLabel.ts`; the bake's rebuild is
+    `scripts/lib/bakeCoinLabel.mjs`.
 - **Ship chain** — `symbolExport.ts` → `deploy/editor-symbols/` → bake → pull →
   `bakedSymbolMap()` / `bakedSymbolAssets()`. Symbol sheets go through the shared `PageStore` with
   KTX2 twins, and the game picks the compressed tier like editor art. A bound spine that resolves
@@ -83,7 +87,7 @@ rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** 
 enables), the `/api/editor/export-symbols` response, and the **`bake-editor-doc.mjs` whitelist**
 (else only the runtime-bundle path carries it). `check:win-cycle` derives its field list from the
 schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
-`check:symbol-transition`, `check:tumble-pattern` and `check:sound-bindings`.
+`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:coin-label`.
 
 ## Open items / next
 
@@ -133,6 +137,18 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   role chips on row heads; `symbolDefaultsFor('holdAndWin')`. New gate `check:symbols-kind-gating`.
   The Scene Editor's two symbol-state pickers offer the eight Hold and Win states only to a
   `holdAndWin` project (`symbolStatesForKind`, pinned in the same gate).
+- 2026-10-01 — **Coin value label** (Hold and Win Phase 7b): a new `coinLabel` doc global and a
+  "Coin value label" section, shown for a coin-symbol kind. It styles the label a coin prints
+  (font / size / tint, per jackpot tier too), its cash format (money or × bet, fewest decimals,
+  trimmed zeros), each tier's text (the ` ×N` suffix kept), its placement, and two pops (as the
+  coin sticks; as a count lands) plus the count-up length. One home for the shape, defaults and
+  prune (`engine-layout/coinLabel.ts`), shared by the page, `normalizeSymbolsDoc` and the game, so a
+  draft signs exactly like the saved doc. Full chain: export → endpoint → bake
+  (`scripts/lib/bakeCoinLabel.mjs`, run by the fixture) → `bakedCoinLabel()` → `coinLabelFor` /
+  `components/CoinLabel.svelte` / `RespinHeldSymbol` pops. Fonts need no new wiring: the font
+  export ships the whole catalog. Absent ⇒ the coded label byte-for-byte (`coinLabelText` with no
+  format, the same `bookEventAmountToCurrencyString`). Pinned by `check:coin-label` (39) and the
+  engine-game `coinLabel` fixture. ⏳ owner visual-verify on a Hold and Win board.
 
 - 2026-09-30 — **Leaving with unsaved edits asks first**: the page tracked `dirty` but registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded edits silently. It now calls the shared `guardUnsavedWork` (app confirm in-app, browser prompt on unload). A History… restore marks the doc settled before its reload, so the author is not asked a second time over a restore already applied. (No history entry — see the launcher status of the same date.)
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).

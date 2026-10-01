@@ -140,6 +140,12 @@
 		type SymbolCellType,
 		type SymbolState,
 		type SymbolsDoc,
+		COIN_LABEL_BOUNDS,
+		COIN_LABEL_DEFAULTS,
+		clearCoinLabel,
+		coinLabelTiers,
+		setCoinLabel,
+		type CoinLabelConfig,
 	} from './symbols.client';
 	import type { PageData } from './$types';
 
@@ -1427,6 +1433,57 @@
 		for (const f of data.fonts) names.add(f.name);
 		return [...names];
 	});
+
+	// ── Coin value label ───────────────────────────────────────────────────────
+	// How a Hold and Win coin prints its value or jackpot tier on itself. Shown for a kind with coin
+	// symbols (`kindCapabilities().coinSymbols`) — or wherever a label is already authored, so a
+	// project whose kind changed can still see and clear what it ships.
+	const coinLabelShown = $derived(kindCapabilities(data.gameType).coinSymbols || !!doc.coinLabel);
+	const cl = $derived(doc.coinLabel ?? {});
+	const clTiers = $derived(coinLabelTiers(data.jackpotTiers));
+	const CL_POPS = [
+		{ key: 'landPop', label: 'Pop as the coin sticks' },
+		{ key: 'boostPop', label: 'Pop when a count lands' },
+	] as const;
+	const CL_AXES = [
+		{ key: 'x', label: 'Offset X' },
+		{ key: 'y', label: 'Offset Y' },
+	] as const;
+
+	/** Edit a COPY of the label and hand it to `setCoinLabel`, which prunes it the way the server
+	 *  will — so a field dragged back to its default leaves no key behind. */
+	function patchCoinLabel(mutate: (draft: CoinLabelConfig) => void): void {
+		const draft: CoinLabelConfig = $state.snapshot(doc.coinLabel) ?? {};
+		mutate(draft);
+		doc = setCoinLabel(doc, draft);
+	}
+	function patchCoinLabelStyle(patch: NonNullable<CoinLabelConfig['style']>): void {
+		patchCoinLabel((d) => (d.style = { ...d.style, ...patch }));
+	}
+	function patchCoinLabelTier(
+		tier: string,
+		patch: { text?: string; style?: NonNullable<CoinLabelConfig['style']> },
+	): void {
+		patchCoinLabel((d) => {
+			const entry = d.jackpots?.[tier] ?? {};
+			d.jackpots = {
+				...d.jackpots,
+				[tier]: {
+					...entry,
+					...(patch.text !== undefined ? { text: patch.text } : {}),
+					...(patch.style ? { style: { ...entry.style, ...patch.style } } : {}),
+				},
+			};
+		});
+	}
+	function patchCoinLabelPop(
+		key: 'landPop' | 'boostPop',
+		patch: { enabled?: boolean; scale?: number; ms?: number },
+	): void {
+		patchCoinLabel((d) => {
+			d.animation = { ...d.animation, [key]: { ...d.animation?.[key], ...patch } };
+		});
+	}
 
 	const wlLine = $derived(doc.winLine?.line ?? {});
 	const wlText = $derived(doc.winLine?.text ?? {});
@@ -3445,6 +3502,329 @@
 						</div>
 					{/if}
 				</section>
+
+				{#if coinLabelShown}
+					<section class="winline" class:expanded={true}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Coin value label</h2>
+								<p class="wl-sub">
+									The value a Hold and Win coin prints on itself — its cash, a payer's "+", a
+									multiplier's "×", or its jackpot tier. Every field left alone keeps the game's
+									coded label.
+								</p>
+							</div>
+						</div>
+						<div class="wl-config">
+							<div class="wl-group">
+								<h3>Style</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Font</span>
+										<select
+											value={cl.style?.font ?? COIN_LABEL_DEFAULTS.font}
+											onchange={(e) => patchCoinLabelStyle({ font: e.currentTarget.value })}
+										>
+											{#each fontOptions as name (name)}
+												<option value={name}>{name}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="field">
+										<span class="label"
+											>Size {(cl.style?.size ?? COIN_LABEL_DEFAULTS.size).toFixed(2)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.size[0]}
+											max={COIN_LABEL_BOUNDS.size[1]}
+											step="0.01"
+											value={cl.style?.size ?? COIN_LABEL_DEFAULTS.size}
+											oninput={(e) => patchCoinLabelStyle({ size: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<label class="field">
+										<span class="label">Colour (tint)</span>
+										<ColorField
+											value={cl.style?.tint ?? '#ffffff'}
+											oninput={(hex) => patchCoinLabelStyle({ tint: hex })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Cash coins, collectors, payers and multipliers. The size is a multiple of the
+									symbol. The label is bitmap text, so the colour tints the font (see Win amount
+									text).
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Cash format</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Show cash as</span>
+										<select
+											value={cl.cash?.format ?? 'money'}
+											onchange={(e) => {
+												const format = e.currentTarget.value as 'money' | 'betMultiple';
+												patchCoinLabel((d) => (d.cash = { ...d.cash, format }));
+											}}
+										>
+											<option value="money">Money ($1.50)</option>
+											<option value="betMultiple">× bet (1.5×)</option>
+										</select>
+									</label>
+									<label class="field">
+										<span class="label">Decimals</span>
+										<select
+											value={cl.cash?.decimals === undefined ? '' : String(cl.cash.decimals)}
+											onchange={(e) => {
+												const v = e.currentTarget.value;
+												const decimals = v === '' ? undefined : Number(v);
+												patchCoinLabel((d) => (d.cash = { ...d.cash, decimals }));
+											}}
+										>
+											<option value="">Default</option>
+											{#each [0, 1, 2, 3, 4] as n (n)}
+												<option value={String(n)}>At least {n}</option>
+											{/each}
+										</select>
+									</label>
+									<div class="field">
+										<span class="label">Trim trailing zeros</span>
+										<label class="switch sm" class:on={cl.cash?.trimZeros === true}>
+											<input
+												type="checkbox"
+												checked={cl.cash?.trimZeros === true}
+												onchange={(e) => {
+													const trimZeros = e.currentTarget.checked;
+													patchCoinLabel((d) => (d.cash = { ...d.cash, trimZeros }));
+												}}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{cl.cash?.trimZeros === true ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+								</div>
+								<p class="wl-note">
+									<strong>Decimals</strong> is the fewest printed; a digit that is not zero is never
+									cut, so the label can never read as a different amount. <strong>Trim</strong> drops
+									every trailing zero ($3.00 → $3, $1.50 → $1.5).
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Jackpots</h3>
+								{#each clTiers as tier (tier)}
+									{@const entry = cl.jackpots?.[tier]}
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">{tier} text</span>
+											<input
+												type="text"
+												placeholder={tier}
+												value={entry?.text ?? ''}
+												onchange={(e) => patchCoinLabelTier(tier, { text: e.currentTarget.value })}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">Font</span>
+											<select
+												value={entry?.style?.font ?? ''}
+												onchange={(e) =>
+													patchCoinLabelTier(tier, { style: { font: e.currentTarget.value } })}
+											>
+												<option value="">Same as cash</option>
+												{#each fontOptions as name (name)}
+													<option value={name}>{name}</option>
+												{/each}
+											</select>
+										</label>
+										<label class="field">
+											<span class="label"
+												>Size {(
+													entry?.style?.size ??
+													cl.style?.size ??
+													COIN_LABEL_DEFAULTS.size
+												).toFixed(2)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.size[0]}
+												max={COIN_LABEL_BOUNDS.size[1]}
+												step="0.01"
+												value={entry?.style?.size ?? cl.style?.size ?? COIN_LABEL_DEFAULTS.size}
+												oninput={(e) =>
+													patchCoinLabelTier(tier, {
+														style: { size: Number(e.currentTarget.value) },
+													})}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">Colour (tint)</span>
+											<ColorField
+												value={entry?.style?.tint ?? cl.style?.tint ?? '#ffffff'}
+												oninput={(hex) => patchCoinLabelTier(tier, { style: { tint: hex } })}
+											/>
+										</label>
+									</div>
+								{/each}
+								<p class="wl-note">
+									One row per jackpot tier in the Game Config (MINI, MINOR, MAJOR and GRAND when it
+									declares none). Blank text prints the tier's name; a multiplied jackpot keeps its
+									"×2". An unset style uses the cash style above.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Placement</h3>
+								<div class="wl-fields">
+									{#each CL_AXES as axis (axis.key)}
+										<label class="field">
+											<span class="label"
+												>{axis.label}
+												{(cl.placement?.[axis.key] ?? COIN_LABEL_DEFAULTS[axis.key]).toFixed(
+													2,
+												)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.offset[0]}
+												max={COIN_LABEL_BOUNDS.offset[1]}
+												step="0.01"
+												value={cl.placement?.[axis.key] ?? COIN_LABEL_DEFAULTS[axis.key]}
+												oninput={(e) => {
+													const v = Number(e.currentTarget.value);
+													patchCoinLabel((d) => (d.placement = { ...d.placement, [axis.key]: v }));
+												}}
+											/>
+										</label>
+									{/each}
+									<label class="field">
+										<span class="label"
+											>Scale {(cl.placement?.scale ?? COIN_LABEL_DEFAULTS.scale).toFixed(2)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.scale[0]}
+											max="2"
+											step="0.05"
+											value={cl.placement?.scale ?? COIN_LABEL_DEFAULTS.scale}
+											oninput={(e) => {
+												const scale = Number(e.currentTarget.value);
+												patchCoinLabel((d) => (d.placement = { ...d.placement, scale }));
+											}}
+										/>
+									</label>
+									<label class="field">
+										<span class="label"
+											>Max width {(cl.placement?.maxWidth ?? COIN_LABEL_DEFAULTS.maxWidth).toFixed(
+												2,
+											)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.maxWidth[0]}
+											max={COIN_LABEL_BOUNDS.maxWidth[1]}
+											step="0.05"
+											value={cl.placement?.maxWidth ?? COIN_LABEL_DEFAULTS.maxWidth}
+											oninput={(e) => {
+												const maxWidth = Number(e.currentTarget.value);
+												patchCoinLabel((d) => (d.placement = { ...d.placement, maxWidth }));
+											}}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Offsets move the label from the centre of the cell, in symbol sizes (Y down). A
+									label wider than <strong>Max width</strong> shrinks to fit it.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Animation</h3>
+								<div class="wl-fields">
+									{#each CL_POPS as popRow (popRow.key)}
+										{@const pop = cl.animation?.[popRow.key]}
+										<div class="field">
+											<span class="label">{popRow.label}</span>
+											<label class="switch sm" class:on={pop?.enabled === true}>
+												<input
+													type="checkbox"
+													checked={pop?.enabled === true}
+													onchange={(e) =>
+														patchCoinLabelPop(popRow.key, { enabled: e.currentTarget.checked })}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{pop?.enabled === true ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<label class="field" class:disabled={pop?.enabled !== true}>
+											<span class="label"
+												>Pop scale {(pop?.scale ?? COIN_LABEL_DEFAULTS.popScale).toFixed(2)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.popScale[0]}
+												max="2"
+												step="0.05"
+												disabled={pop?.enabled !== true}
+												value={pop?.scale ?? COIN_LABEL_DEFAULTS.popScale}
+												oninput={(e) =>
+													patchCoinLabelPop(popRow.key, { scale: Number(e.currentTarget.value) })}
+											/>
+										</label>
+										<label class="field" class:disabled={pop?.enabled !== true}>
+											<span class="label">Pop length {pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}ms</span>
+											<input
+												type="range"
+												min="60"
+												max="1000"
+												step="20"
+												disabled={pop?.enabled !== true}
+												value={pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}
+												oninput={(e) =>
+													patchCoinLabelPop(popRow.key, { ms: Number(e.currentTarget.value) })}
+											/>
+										</label>
+									{/each}
+									<label class="field">
+										<span class="label">Count-up length (ms)</span>
+										<input
+											type="number"
+											min={COIN_LABEL_BOUNDS.countMs[0]}
+											max={COIN_LABEL_BOUNDS.countMs[1]}
+											step="10"
+											placeholder="Coded"
+											value={cl.animation?.countMs ?? ''}
+											onchange={(e) => {
+												const v = e.currentTarget.value;
+												const countMs = v === '' ? undefined : Number(v);
+												patchCoinLabel((d) => (d.animation = { ...d.animation, countMs }));
+											}}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Both pops are off by default. <strong>Count-up length</strong> is how long a label takes
+									to count to its new value when a payer pays it or a multiplier boosts it (coded 600 ms).
+									Each step of a collector's collect scales with it — 350/600 of the length, as coded
+									(350 ms) — so the collect stays quicker. Blank keeps the coded lengths.
+								</p>
+							</div>
+
+							{#if doc.coinLabel}
+								<button
+									type="button"
+									class="ghost wl-reset"
+									onclick={() => (doc = clearCoinLabel(doc))}
+								>
+									Reset coin label
+								</button>
+							{/if}
+						</div>
+					</section>
+				{/if}
 
 				<section class="winline" class:expanded={wcOn}>
 					<div class="wl-head">

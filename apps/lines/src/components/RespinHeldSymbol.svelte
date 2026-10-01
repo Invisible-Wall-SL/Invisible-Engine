@@ -3,6 +3,7 @@
 	import { respinCellKey, type HoldAndWinCell } from 'engine-game';
 
 	import Symbol from './Symbol.svelte';
+	import { coinLabelPops, type CoinLabelPopCue } from '../game/coinLabel';
 	import { boardDimensions } from '../game/gameConfig';
 	import { getSymbolSeat } from '../game/stateGame.svelte';
 	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
@@ -28,13 +29,32 @@
 	/** A count-up in flight on this cell's label (a payer, a multiplier, a collector collecting). */
 	const display = $derived(stateRespinBoard.heldDisplay[key]);
 	const labelOverride = $derived(display ? { [display.field]: display.tween.current } : undefined);
+	const cellState = $derived(stateRespinBoard.heldState[key] ?? HELD_REST);
+
+	/**
+	 * The authored label pops (`coinLabel.animation`): one as the coin sticks (`coinStick`), one each
+	 * time a count-up lands on its new value. Off unless authored, so an unauthored label never pops.
+	 */
+	const pops = coinLabelPops();
+	let labelPop = $state<CoinLabelPopCue>();
+	let cues = 0;
+	let counting = false;
+	$effect(() => {
+		if (pops.land && cellState === 'coinStick') labelPop = { id: ++cues, ...pops.land };
+	});
+	$effect(() => {
+		const now = display !== undefined;
+		if (counting && !now && pops.boost) labelPop = { id: ++cues, ...pops.boost };
+		counting = now;
+	});
 </script>
 
 <Container x={seat.x} y={seat.y} {scale} {zIndex}>
 	<Symbol
-		state={stateRespinBoard.heldState[key] ?? HELD_REST}
+		state={cellState}
 		rawSymbol={props.cell.symbol}
 		{labelOverride}
+		{labelPop}
 		oncomplete={() => completeHeldBeat(key)}
 	/>
 </Container>

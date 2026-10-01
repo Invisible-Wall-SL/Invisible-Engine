@@ -244,6 +244,10 @@ export interface SymbolExportResult {
 	 *  `art.assetKey` with no rewriting, exactly like the grid `map`. Present ONLY when the master toggle is
 	 *  ON and ≥1 symbol is authored, so a disabled/un-authored project bakes NO `stacked` field (byte-parity). */
 	stacked?: SymbolExportStacked;
+	/** The Hold and Win coin value label, passed through VERBATIM. Assetless: a Font Maker font it
+	 *  names ships with the whole font catalog (`fontExport.ts`), a builtin with the game. Absent →
+	 *  the coded label. */
+	coinLabel?: SymbolsDoc['coinLabel'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -880,5 +884,6 @@ export async function exportEditorSymbols(
 		...(tumblePattern ? { tumblePattern } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
+		...(doc.coinLabel ? { coinLabel: doc.coinLabel } : {}),
 	};
 }

@@ -545,6 +545,41 @@ type/`arrivalReleaseEnabled`/`setArrivalReleaseEnabled`/`docSignature` → the s
 AND the runtime bundle → `BakedBundle.symbols.arrivalRelease` → `bakedArrivalReleaseEnabled()` →
 `TumbleBoard.svelte`. A `gameProfile` chip reports it. Absent ⇒ byte-identical.
 
+## Coin value label — added 2026-10-01
+
+The Hold and Win label a coin prints on itself (design `hold-and-win.md` §5, Symbols SM row). One
+sparse doc global, gated in the tool on `kindCapabilities(gameType).coinSymbols`:
+
+```ts
+coinLabel?: {
+	style?: { font?: string; size?: number /* × SYMBOL_SIZE */; tint?: string /* #rrggbb */ };
+	cash?: { format?: 'money' | 'betMultiple'; decimals?: number /* 0..4, the fewest */; trimZeros?: boolean };
+	jackpots?: Record<string /* config tier name */, { text?: string; style?: CoinLabelStyle }>;
+	placement?: { x?: number; y?: number /* × SYMBOL_SIZE */; scale?: number; maxWidth?: number };
+	animation?: {
+		landPop?: { enabled?: boolean; scale?: number; ms?: number };
+		countMs?: number;
+		boostPop?: { enabled?: boolean; scale?: number; ms?: number };
+	};
+};
+```
+
+**One home** — `packages/engine-layout/src/lib/coinLabel.ts` holds the type, the coded defaults
+(`gold`, 0.3, centred, max width 0.9, no pops) and `pruneCoinLabel`, which the server's
+`normalizeSymbolsDoc`, the page's `setCoinLabel` and therefore `docSignature` all share: numbers are
+clamped into `COIN_LABEL_BOUNDS`, a non-hex tint or blank font is dropped, a value equal to its
+default is pruned, an empty section is removed. The Zod schema is `.strict()`, so an unknown key or
+a wrong type still fails the save.
+
+**Runtime** — `coinLabelText` (engine-game) takes the block as an optional format: absent ⇒ the
+coded text exactly. Decimals never cut a non-zero digit (`trimFractionZeros` trims only trailing
+zeros, after the separator read off the money formatter's own output — `moneyDecimalSeparator`,
+since a currency rendering's separator can differ from the locale's plain numbers, e.g. `en-DE`).
+`components/CoinLabel.svelte` draws the look
+(`resolveCoinLabelLook`: tier style over shared style over coded); `RespinHeldSymbol` cues the pops
+(on `land` / `coinStick`, and when a held count-up is released); `countMs` replaces the coded 600 ms
+payer / boost count in `holdAndWinPresentation.ts`, and a collect step scales with it (×350/600).
+
 ## "Spine export" demystified
 
 A spine asset is a **bundle of sibling files that travel together**, e.g. for `H1`

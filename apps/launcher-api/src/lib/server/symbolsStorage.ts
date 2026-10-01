@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
 	BLEND_MODES,
+	COIN_LABEL_CASH_FORMATS,
 	isManifestAssetKey,
+	pruneCoinLabel,
 	SYMBOL_STATES,
 	TUMBLE_PATTERNS,
 	TUMBLE_STEP_MS_DEFAULT,
@@ -635,6 +637,65 @@ const arrivalReleaseSchema = z
 	})
 	.strict();
 
+/**
+ * The Hold and Win COIN VALUE LABEL (`engine-layout/coinLabel.ts` owns the shape, defaults and
+ * prune). `.strict()` at every level, so an unknown key fails the save loudly; a number outside its
+ * range is CLAMPED and a non-hex tint or blank font DROPPED by `pruneCoinLabel` rather than refused,
+ * because those are slider/picker values a stale page can carry, not typos.
+ */
+const coinLabelStyleSchema = z
+	.object({
+		font: z.string().optional(),
+		size: z.number().finite().optional(),
+		tint: z.string().optional(),
+	})
+	.strict();
+
+const coinLabelPopSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+		scale: z.number().finite().optional(),
+		ms: z.number().finite().optional(),
+	})
+	.strict();
+
+const coinLabelSchema = z
+	.object({
+		style: coinLabelStyleSchema.optional(),
+		cash: z
+			.object({
+				format: z.enum(COIN_LABEL_CASH_FORMATS).optional(),
+				decimals: z.number().finite().optional(),
+				trimZeros: z.boolean().optional(),
+			})
+			.strict()
+			.optional(),
+		jackpots: z
+			.record(
+				z.string(),
+				z.object({ text: z.string().optional(), style: coinLabelStyleSchema.optional() }).strict(),
+			)
+			.optional(),
+		placement: z
+			.object({
+				x: z.number().finite().optional(),
+				y: z.number().finite().optional(),
+				scale: z.number().finite().optional(),
+				maxWidth: z.number().finite().optional(),
+			})
+			.strict()
+			.optional(),
+		animation: z
+			.object({
+				landPop: coinLabelPopSchema.optional(),
+				countMs: z.number().finite().optional(),
+				boostPop: coinLabelPopSchema.optional(),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -653,6 +714,7 @@ export const symbolsDocSchema = z
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
 		anticipation: anticipationSchema.optional(),
+		coinLabel: coinLabelSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -900,6 +962,10 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// `anticipation`, so a reset round-trips to no key and an un-authored project stays byte-identical.
 	const anticipation = pruneAnticipation(doc.anticipation);
 	if (anticipation) next.anticipation = anticipation;
+	// Sparse + clamped by the one prune the tool and the game share, so an untouched project persists
+	// no key and keeps the coded coin label byte-for-byte.
+	const coinLabel = pruneCoinLabel(doc.coinLabel);
+	if (coinLabel) next.coinLabel = coinLabel;
 	return next;
 }
 
