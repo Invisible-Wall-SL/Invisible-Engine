@@ -150,7 +150,7 @@ export {
 	type FlightRect,
 	type FlightRoute,
 	type PlanFlightOptions,
-} from './src/game/flightPath';
+} from 'engine-layout';
 export {
 	FLIGHT_HEAD_TINT,
 	FLIGHT_TRAIL_CONFIG,

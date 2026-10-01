@@ -1,7 +1,6 @@
 import {
 	curveLength,
 	flightDuration,
-	flightEase,
 	flightStagger,
 	FLIGHT_TRAIL_LIFETIME_S,
 	planFlight,
@@ -11,10 +10,19 @@ import {
 	type FlightPoint,
 	type FlightRect,
 } from 'engine-game';
-import { emitterSecondsToWallMs } from 'engine-fx';
+import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
+import {
+	flightEaseOf,
+	flightPlanOptions,
+	resolveFlightStyle,
+	type FlightEase,
+	type FlightHead,
+	type ResolvedFlightStyle,
+} from 'engine-layout';
 import { resolveAnchor, resolveAnchorPoint } from 'pixi-svelte';
 import { roundSkip } from 'utils-shared/skipToken';
 
+import { bakedEffects, bakedFlights } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { getSymbolSeat, stateGameDerived } from './stateGame.svelte';
 import { inUnskippablePresentation } from './unskippablePresentation';
@@ -33,6 +41,12 @@ import { inUnskippablePresentation } from './unskippablePresentation';
  *
  * SLAM: a slam runs the flight clock {@link SLAM_SPEEDUP}× faster (stagger included); it never
  * skips an arrival or its cue. An unskippable presentation keeps the normal pace.
+ *
+ * STYLE: each flight resolves its kind's authored style (the Invisible Symbols `flights` block,
+ * `bakedFlights()`) through `engine-layout`'s `resolveFlightStyle` — exact kind, then the `toMeter`
+ * family for a `toMeter:<id>`, then the coded default, field by field. An absent block resolves to
+ * the coded flight (1.1 board units/ms, 350–900 ms, 70 ms stagger, cubic ease in-out, the coded glow
+ * and gold trail), so an unauthored game flies exactly as it did.
  */
 
 /** Where a flight starts or ends: a global point, a board cell, or a layout node id / `'total'`. */
@@ -43,9 +57,10 @@ export type FlyToOptions = {
 	avoid?: ({ reel: number; row: number } | FlightRect)[];
 	/** Its place in a volley — staggers the start and is reported in `flightArrive`. */
 	index?: number;
-	/** Ms between two flights of a volley (default {@link FLIGHT_STAGGER_MS}). */
+	/** Ms between two flights of a volley (default: the kind's authored stagger, coded 70). */
 	stagger?: number;
-	/** Grows every obstacle by this many BOARD units (default a tenth of a cell). */
+	/** Grows every obstacle by this many BOARD units (default: the kind's authored padding, coded a
+	 *  tenth of a cell). */
 	padding?: number;
 };
 
@@ -56,14 +71,11 @@ const TOTAL_ANCHOR = 'hud-win';
 /** The board's own space, anchored inside the flight layer (`FlightLayer.svelte`). */
 export const FLIGHT_BOARD_ANCHOR = 'flights:board';
 
-/** Board units per ms. A five-reel board is ~600 units across. */
-const FLIGHT_SPEED = 1.1;
-const FLIGHT_MIN_MS = 350;
-const FLIGHT_MAX_MS = 900;
-export const FLIGHT_STAGGER_MS = 70;
 const SLAM_SPEEDUP = 4;
-/** The last trail particle's life, wall ms, plus a frame of slack. */
-const TRAIL_SETTLE_MS = emitterSecondsToWallMs(FLIGHT_TRAIL_LIFETIME_S) + 50;
+/** A frame of slack after the last trail particle's life. */
+const TRAIL_SLACK_MS = 50;
+/** The coded trail's last particle, wall ms. */
+const CODED_TRAIL_SETTLE_MS = emitterSecondsToWallMs(FLIGHT_TRAIL_LIFETIME_S) + TRAIL_SLACK_MS;
 
 export type FlightPhase = 'waiting' | 'flying' | 'trailing';
 
@@ -82,6 +94,19 @@ export type ActiveFlight = {
 	trailMs: number;
 	phase: FlightPhase;
 	head: FlightPoint;
+	ease: FlightEase;
+	/** The authored head; absent ⇒ the coded glow. */
+	headStyle?: FlightHead;
+	/** The trail: `'coded'` (the gold glow), the id of an authored effect the bundle carries, or
+	 *  `null` (none). An id, not the doc: this list is deep `$state`, and an emitter config must not
+	 *  be proxied. */
+	trail: 'coded' | { effectId: string } | null;
+	/** The effect played at the target on impact, if one is authored. */
+	arrivalEffectId?: string;
+	/** WALL ms the flight stays mounted after landing — its trail's last particle. */
+	settleMs: number;
+	/** The arrival effect has played out (true when there is none). */
+	arrivalDone: boolean;
 };
 
 export const stateFlights = $state({ list: [] as ActiveFlight[] });
@@ -100,6 +125,29 @@ export const attachFlightLayer = (container: Layer): (() => void) => {
 		stateFlights.list.forEach(arrive);
 		stateFlights.list = [];
 	};
+};
+
+/** The longest particle an effect spawns, wall ms — what its trail waits out after landing. */
+const effectSettleMs = (doc: EffectDoc): number =>
+	Math.max(0, ...doc.layers.map((item) => emitterSecondsToWallMs(item.config.lifetime?.max ?? 0))) +
+	TRAIL_SLACK_MS;
+
+/** The trail and how long it outlives the head. An authored effect the bundle does not carry draws
+ *  nothing rather than the coded glow: the author asked for something else, and the
+ *  reachable-effects set is what guarantees it ships. */
+const trailOf = (style: ResolvedFlightStyle): Pick<ActiveFlight, 'trail' | 'settleMs'> => {
+	if (!style.trail) return { trail: 'coded', settleMs: CODED_TRAIL_SETTLE_MS };
+	const effectId = 'effectId' in style.trail ? style.trail.effectId : undefined;
+	const doc = effectId ? bakedEffects().find((item) => item.id === effectId) : undefined;
+	return doc
+		? { trail: { effectId: doc.id }, settleMs: effectSettleMs(doc) }
+		: { trail: null, settleMs: 0 };
+};
+
+/** Called by `FlightLayer` when a flight's arrival effect has played out. */
+export const arrivalPlayed = (id: number) => {
+	const flight = stateFlights.list.find((item) => item.id === id);
+	if (flight) flight.arrivalDone = true;
 };
 
 const isCell = (end: unknown): end is { reel: number; row: number } =>
@@ -214,34 +262,37 @@ export const flyTo = (
 			arrive(record);
 			return;
 		}
+		const style = resolveFlightStyle(bakedFlights(), flight);
 		const scale = boardScaleIn(current);
 		const avoid = (options.avoid ?? [])
 			.map((item) => (isCell(item) ? cellRectGlobal(item.reel, item.row) : item))
 			.filter((rect): rect is FlightRect => !!rect)
 			.map((rect) => toLocalRect(current, rect));
-		const route = planFlight(current.toLocal(start), current.toLocal(end), {
-			avoid,
-			padding: (options.padding ?? SYMBOL_SIZE * 0.1) * scale,
-			overMargin: SYMBOL_SIZE * 0.35 * scale,
-		});
-		const durationMs = flightDuration(curveLength(route.curve) / scale, {
-			speed: FLIGHT_SPEED,
-			minMs: FLIGHT_MIN_MS,
-			maxMs: FLIGHT_MAX_MS,
-		});
+		const plan = flightPlanOptions(style, SYMBOL_SIZE * scale, avoid);
+		if (options.padding !== undefined) plan.padding = options.padding * scale;
+		const route = planFlight(current.toLocal(start), current.toLocal(end), plan);
+		const durationMs = flightDuration(curveLength(route.curve) / scale, style);
 		stateFlights.list.push({
 			...record,
 			curve: route.curve,
 			scale,
-			delayMs: flightStagger(index, options.stagger ?? FLIGHT_STAGGER_MS),
+			delayMs: flightStagger(index, options.stagger ?? style.stagger),
 			durationMs,
 			elapsedMs: 0,
 			trailMs: 0,
 			phase: 'waiting',
 			head: { ...route.curve.p0 },
+			ease: style.ease,
+			...(style.head ? { headStyle: style.head } : {}),
+			...trailOf(style),
+			...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
+			arrivalDone: !style.arrival,
 		});
 	});
 };
+
+/** Landed, its trail has died out and its arrival effect has played. */
+const settled = (flight: ActiveFlight) => flight.trailMs >= flight.settleMs && flight.arrivalDone;
 
 const slammed = () => roundSkip.isSkipped() && !inUnskippablePresentation();
 
@@ -256,13 +307,13 @@ export const tickFlights = (deltaMs: number) => {
 			// Counted in raw frame time, so a slam that starts or ends after the landing neither cuts
 			// the trail short nor keeps a spent emitter mounted.
 			flight.trailMs += deltaMs;
-			if (flight.trailMs >= TRAIL_SETTLE_MS) finished = true;
+			if (settled(flight)) finished = true;
 			continue;
 		}
 		flight.elapsedMs += step;
 		if (flight.elapsedMs < flight.delayMs) continue;
 		const t = Math.min(1, (flight.elapsedMs - flight.delayMs) / flight.durationMs);
-		const point = pointOnCurve(flight.curve, flightEase(t));
+		const point = pointOnCurve(flight.curve, flightEaseOf(flight.ease)(t));
 		flight.head.x = point.x;
 		flight.head.y = point.y;
 		if (flight.phase === 'waiting') flight.phase = 'flying';
@@ -273,7 +324,7 @@ export const tickFlights = (deltaMs: number) => {
 	}
 	if (finished) {
 		stateFlights.list = stateFlights.list.filter(
-			(flight) => flight.phase !== 'trailing' || flight.trailMs < TRAIL_SETTLE_MS,
+			(flight) => flight.phase !== 'trailing' || !settled(flight),
 		);
 	}
 };

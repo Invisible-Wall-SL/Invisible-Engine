@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { BaseSprite, Container, ParticleEmitter } from 'pixi-svelte';
+	import type { EffectDoc } from 'engine-fx';
+	import { BaseSprite, Container, EffectPlayer, ParticleEmitter } from 'pixi-svelte';
 
 	import { SYMBOL_SIZE } from '../game/constants';
 	import {
@@ -16,14 +17,26 @@
 		scale: number;
 		/** Spawn trail particles (false once the head has landed: the trail dies out on its own). */
 		emit: boolean;
+		/** Draw the glow head. */
 		headShown: boolean;
+		/** The glow head's tint (default the coin gold). */
+		headTint?: number;
+		/** Multiplies the glow head's size (default 1 = {@link HEAD_CELLS} of a cell). */
+		headScale?: number;
+		/**
+		 * An authored Invisible FX trail, in BOARD units (the effect is drawn at the board's scale),
+		 * or `null` for no trail. Absent ⇒ the coded gold glow trail.
+		 */
+		trailDoc?: EffectDoc | null;
 	};
 
 	/**
-	 * ONE CODED FLIGHT (design §4.4): a glow head and the trail it leaves. The trail's container
-	 * never moves — the emitter's OWNER does (`ownerPos`), which is what makes particles stay where
-	 * they were born. The container's scale is fixed for the flight, so the owner position is the
-	 * head's divided by it.
+	 * ONE FLIGHT'S HEAD GLOW AND TRAIL (design §4.4): the coded glow head and the trail it leaves.
+	 * The trail's container never moves — the emitter's OWNER does (`ownerPos`), which is what makes
+	 * particles stay where they were born. The container's scale is fixed for the flight, so the owner
+	 * position is the head's divided by it. An authored trail goes through the same mechanism, via
+	 * `<EffectPlayer ownerPos>` (free layers only); it emits from mount until the head lands, then
+	 * `emitFor = 0` stops it and its particles live out their lives.
 	 */
 	const props: Props = $props();
 
@@ -34,23 +47,40 @@
 	const texture = flightGlowTexture();
 	const textures = [texture];
 	const trailScale = $derived((props.scale * TRAIL_CELLS * SYMBOL_SIZE) / FLIGHT_GLOW_SIZE);
-	const headScale = $derived((props.scale * HEAD_CELLS * SYMBOL_SIZE) / FLIGHT_GLOW_SIZE);
+	const headScale = $derived(
+		(props.scale * HEAD_CELLS * SYMBOL_SIZE * (props.headScale ?? 1)) / FLIGHT_GLOW_SIZE,
+	);
 	const head = $derived(props.position());
 	const ownerPos = () => {
 		const { x, y } = props.position();
 		return { x: x / trailScale, y: y / trailScale };
 	};
+	const effectOwnerPos = () => {
+		const { x, y } = props.position();
+		return { x: x / props.scale, y: y / props.scale };
+	};
 </script>
 
-<Container scale={trailScale}>
-	<ParticleEmitter
-		key="flightGlow"
-		config={FLIGHT_TRAIL_CONFIG}
-		{textures}
-		emit={props.emit}
-		{ownerPos}
-	/>
-</Container>
+{#if props.trailDoc === undefined}
+	<Container scale={trailScale}>
+		<ParticleEmitter
+			key="flightGlow"
+			config={FLIGHT_TRAIL_CONFIG}
+			{textures}
+			emit={props.emit}
+			{ownerPos}
+		/>
+	</Container>
+{:else if props.trailDoc}
+	<Container scale={props.scale}>
+		<EffectPlayer
+			doc={props.trailDoc}
+			forceEmit
+			emitFor={props.emit ? undefined : 0}
+			ownerPos={effectOwnerPos}
+		/>
+	</Container>
+{/if}
 {#if props.headShown}
 	<BaseSprite
 		{texture}
@@ -58,7 +88,7 @@
 		x={head.x}
 		y={head.y}
 		scale={headScale}
-		tint={FLIGHT_HEAD_TINT}
+		tint={props.headTint ?? FLIGHT_HEAD_TINT}
 		blendMode="add"
 	/>
 {/if}

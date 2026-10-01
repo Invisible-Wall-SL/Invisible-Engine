@@ -1,5 +1,5 @@
 /**
- * A flight's route (`flightPath.ts`): straight when nothing is in the way, a bend that misses a
+ * A flight's route (`engine-layout` `flightPath.ts`): straight when nothing is in the way, a bend that misses a
  * blocking obstacle, the fewest hits when every route is blocked, the same route for the same
  * inputs, and a duration that clamps.
  *
@@ -14,7 +14,7 @@ import {
 	pointOnCurve,
 	type FlightRect,
 	type FlightRoute,
-} from '../src/game/flightPath.ts';
+} from '../../engine-layout/src/lib/flightPath.ts';
 
 // No `node:assert` — the package has no Node types, and svelte-check reads this file too.
 const assert = {

@@ -1,7 +1,8 @@
 /**
  * THE ROUTE A FLIGHT TAKES (design §4.4 of `docs/design/hold-and-win.md`) — pure, so a replay or a
  * resume of the same board draws the same route, and so the rules are pinned by
- * `fixtures/flightPath.fixture.ts` rather than only observed on screen.
+ * `packages/engine-game/fixtures/flightPath.fixture.ts` rather than only observed on screen. It lives
+ * in `engine-layout` so the `/symbols` flight preview plans with the same code the game flies with.
  *
  * A route is one cubic Bézier from the source to the target. The candidates, in order: the straight
  * line, then a bend to the left and to the right of the direction of travel at each strength, then
@@ -16,6 +17,8 @@
  * Coordinates are any one 2D space (y down), as long as the source, the target and the obstacles
  * share it.
  */
+
+import type { FlightEase, ResolvedFlightStyle } from './flightStyle';
 
 export type FlightPoint = { x: number; y: number };
 export type FlightRect = { x: number; y: number; width: number; height: number };
@@ -217,3 +220,47 @@ export const flightEase = (t: number): number => {
 	const c = Math.min(1, Math.max(0, t));
 	return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
 };
+
+const unit = (t: number): number => Math.min(1, Math.max(0, t));
+
+const EASES: Record<FlightEase, (t: number) => number> = {
+	linear: unit,
+	easeIn: (t) => unit(t) ** 3,
+	easeOut: (t) => 1 - (1 - unit(t)) ** 3,
+	easeInOut: flightEase,
+};
+
+/** The progress curve an authored `ease` names (all cubic); the coded one is {@link flightEase}. */
+export const flightEaseOf = (ease: FlightEase): ((t: number) => number) =>
+	EASES[ease] ?? flightEase;
+
+/** How far above the highest obstacle the over-route rides, in cells. */
+export const FLIGHT_OVER_MARGIN_CELLS = 0.35;
+
+/**
+ * The bend ladder for an authored `bend` (the largest bend tried): the coded ladder scaled so its
+ * top rung equals it. Absent ⇒ the coded ladder itself; 0 ⇒ no bends at all.
+ */
+export const flightBendStrengths = (bend: number | undefined): readonly number[] => {
+	if (bend === undefined) return FLIGHT_BEND_STRENGTHS;
+	if (bend <= 0) return [];
+	const top = FLIGHT_BEND_STRENGTHS[FLIGHT_BEND_STRENGTHS.length - 1];
+	return FLIGHT_BEND_STRENGTHS.map((strength) => (strength / top) * bend);
+};
+
+/**
+ * {@link planFlight}'s options for a resolved style — the ONE mapping the game and the `/symbols`
+ * preview both call, so they draw the same route by construction. `cell` is one board cell in the
+ * route's units; `avoid` is the caller's obstacle set, dropped when the style turns avoidance off.
+ */
+export const flightPlanOptions = (
+	style: Pick<ResolvedFlightStyle, 'bend' | 'overRoute' | 'avoid' | 'padding'>,
+	cell: number,
+	avoid: readonly FlightRect[],
+): PlanFlightOptions => ({
+	avoid: style.avoid ? avoid : [],
+	padding: style.padding * cell,
+	overMargin: FLIGHT_OVER_MARGIN_CELLS * cell,
+	bendStrengths: flightBendStrengths(style.bend),
+	overRoute: style.overRoute,
+});
