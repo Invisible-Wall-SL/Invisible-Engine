@@ -18,13 +18,16 @@
  *      `linesEngineReader` key — and each Hold and Win cue carries the emitter member's fields. A
  *      planted unbacked action is caught.
  *   5. The starter flow validates with no error, keeps the feature in `modes.holdAndWin` and the base
- *      game in the global graph, and owns exactly the beats the runtime backs.
+ *      game in the global graph, owns exactly the beats the runtime backs, and declares the Hold and
+ *      Win template's screens it shows and none of the free-spin ones or the tap-held intro/outro.
  *   6. PLAYED: the real Hold and Win mock (all three presets, a forced beat of every kind) through the
  *      real facade, every book event replayed through the seed with the mode stack moved the way the
  *      play seam moves it. Each owned event runs its beat with the event itself as `bookEvent`, in the
  *      graph it belongs to; the mode's enter starts the feature music and "all modes finished" brings
  *      the base music back; nothing the chains fire is outside the vocabulary; every event payload
- *      carries its declared fields.
+ *      carries its declared fields. The screens: the jackpot bar and pots from boot, the mode's
+ *      screens exactly while the mode is on screen, and each beat screen (`luckySpin`, `wheel`,
+ *      `jackpotWin`) shown for its beat and hidden after it.
  *
  * Prints PASS/FAIL per assertion + a final `V2 HOLD AND WIN: PASSED`.
  */
@@ -311,9 +314,25 @@ check(
 	'5. the feature lives in modes.holdAndWin',
 	Object.keys(doc.modes ?? {}).join() === 'holdAndWin',
 );
+const MODE_SCREENS = ['respinBackground', 'respinBoard', 'respinCounter', 'totalWinBar', 'letters'];
+const BEAT_SCREENS: Record<string, string> = {
+	luckySpin: 'luckySpin',
+	holdAndWinWheel: 'wheel',
+	jackpotWin: 'jackpotWin',
+};
 check(
-	'5. no free-spin screen is declared',
-	!doc.containers.some((c) => /freeSpin|specialBook/.test(c.id)),
+	'5. declares exactly the screens it shows',
+	same(
+		doc.containers.map((c) => c.id).sort(),
+		[
+			...['basegame', 'hudBar', 'hudCorners', 'jackpotBar', 'pots'],
+			...['loading', 'buyFeature', 'buyConfirm'],
+			...MODE_SCREENS,
+			'luckySpin',
+			'wheel',
+			'jackpotWin',
+		].sort(),
+	),
 	doc.containers.map((c) => c.id).join(),
 );
 
@@ -365,8 +384,20 @@ const mount = createContainerMountModel(
 	doc.containers.map((c) => ({ id: c.id, sceneId: c.sceneId, z: c.z })),
 );
 let active = 'basegame';
+const screens: string[] = [];
 const env = createFlowV2Env({
-	mount: { ...mount, awaitComplete: async () => {} },
+	mount: {
+		...mount,
+		show: (id) => {
+			screens.push(`show ${id}`);
+			mount.show(id);
+		},
+		hide: (id) => {
+			screens.push(`hide ${id}`);
+			mount.hide(id);
+		},
+		awaitComplete: async () => {},
+	},
 	effect: (name) => (payload) => {
 		fired.push({ kind: 'effect', name, payload });
 	},
@@ -387,8 +418,10 @@ const take = () => fired.splice(0, fired.length);
 
 await runFlowEvent(doc, ctx, 'load', {});
 await runFlowEvent(doc, ctx, 'complete:loading', {});
-for (const id of ['basegame', 'hudBar', 'hudCorners'])
+for (const id of ['basegame', 'hudBar', 'hudCorners', 'jackpotBar', 'pots'])
 	check(`6. after boot, ${id} is shown`, mount.isShown(id));
+for (const id of [...MODE_SCREENS, ...Object.values(BEAT_SCREENS)])
+	check(`6. after boot, ${id} is not shown`, !mount.isShown(id));
 check('6. after boot, loading is hidden', !mount.isShown('loading'));
 take();
 
@@ -437,6 +470,8 @@ const outside: string[] = [];
 let enters = 0;
 let finishes = 0;
 let musicOk = true;
+const screenIssues: string[] = [];
+const beatScreens = new Set<string>();
 
 const transition = async (t: FlowModeTransition): Promise<Fired[]> => {
 	await runFlowModeTransition(doc, ctx, t);
@@ -472,6 +507,8 @@ for (const [index, [preset, force]] of CASES.entries()) {
 				mode: 'holdAndWin',
 				cause: String(event.cause),
 			});
+			const off = MODE_SCREENS.filter((id) => !mount.isShown(id));
+			if (off.length) screenIssues.push(`after enter, not shown: ${off}`);
 			enters += 1;
 			musicOk &&= same(
 				music.map((f) => [f.name, f.payload.name]),
@@ -479,12 +516,19 @@ for (const [index, [preset, force]] of CASES.entries()) {
 			);
 		}
 		if (flowOwnsSignal(doc, event.type, active)) {
+			screens.length = 0;
 			try {
 				await runFlowEvent(doc, ctx, event.type, event, { bookEvents: events });
 			} catch (err) {
 				thrown.push(`${event.type}: ${(err as Error).message}`);
 			}
 			const out = take();
+			const screen = BEAT_SCREENS[event.type];
+			const expected = screen ? [`show ${screen}`, `hide ${screen}`] : [];
+			const beatScreen = event.type === 'jackpotWin' && active !== 'holdAndWin' ? [] : expected;
+			if (!same(screens, beatScreen))
+				screenIssues.push(`${event.type} (${active}): ${screens.join(', ') || 'no screen'}`);
+			if (beatScreen.length) beatScreens.add(screen);
 			for (const f of out) if (!surfaceNames.has(f.name)) outside.push(`${f.kind} ${f.name}`);
 			const beat = (active === 'holdAndWin' ? FEATURE_BEATS : BASE_BEATS)[event.type];
 			if (beat) {
@@ -508,6 +552,8 @@ for (const [index, [preset, force]] of CASES.entries()) {
 		if (event.type === 'holdAndWinEnd') {
 			active = 'basegame';
 			await transition({ kind: 'exit', mode: 'holdAndWin', total: Number(event.total) });
+			const on = MODE_SCREENS.filter((id) => mount.isShown(id));
+			if (on.length) screenIssues.push(`after exit, still shown: ${on}`);
 			const back = await transition({ kind: 'allFinished' });
 			finishes += 1;
 			musicOk &&= same(
@@ -525,6 +571,13 @@ check(
 );
 check('6. the mode starts the feature music and the return brings the base music back', musicOk);
 check('6. no owned chain threw', !thrown.length, thrown.join(' | '));
+check(
+	'6. the mode screens follow the mode, each beat screen frames exactly its beat',
+	!screenIssues.length,
+	[...new Set(screenIssues)].join(' | '),
+);
+for (const id of Object.values(BEAT_SCREENS))
+	check(`6. the ${id} screen was shown around its beat`, beatScreens.has(id));
 check(
 	'6. each owned event ran exactly its beat, fed the event itself',
 	!wrongBeat.length,

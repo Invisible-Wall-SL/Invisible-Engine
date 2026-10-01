@@ -101,6 +101,18 @@ const FS_COUNTER = 'freeSpinCounter';
 const FS_INTRO = 'freeSpinIntro';
 const FS_OUTRO = 'freeSpinOutro';
 
+// The Hold and Win template's screens (`engine-layout` `referenceLayouts/holdAndWin.ts`).
+const JACKPOT_BAR = 'jackpotBar';
+const POTS = 'pots';
+const RESPIN_BACKGROUND = 'respinBackground';
+const RESPIN_BOARD = 'respinBoard';
+const RESPIN_COUNTER = 'respinCounter';
+const TOTAL_WIN_BAR = 'totalWinBar';
+const LETTERS = 'letters';
+const LUCKY_SPIN = 'luckySpin';
+const WHEEL = 'wheel';
+const JACKPOT_WIN = 'jackpotWin';
+
 /** Every screen the driven game shows once play begins (mounted; cue-driven internal visibility). */
 const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] as const;
 
@@ -108,8 +120,22 @@ const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] 
  *  `specialBook` scene. */
 const NO_SPECIAL_BOOK_SCREENS = GAME_SCREENS.filter((id) => id !== SPECIAL_BOOK);
 
-/** The screen set of a kind without free spins (Hold and Win): no counter, no special book. */
-const NO_FREE_SPIN_SCREENS = NO_SPECIAL_BOOK_SCREENS.filter((id) => id !== FS_COUNTER);
+/** The Hold and Win screen set: no free-spin counter, no special book; the jackpot bar and the pots
+ *  are on screen in the base game and the feature alike. */
+const HOLD_AND_WIN_SCREENS = [
+	...NO_SPECIAL_BOOK_SCREENS.filter((id) => id !== FS_COUNTER),
+	JACKPOT_BAR,
+	POTS,
+];
+
+/** The `holdAndWin` mode's own screens (`role: 'mode'`) — shown while the mode is on screen. */
+const HOLD_AND_WIN_MODE_SCREENS = [
+	RESPIN_BACKGROUND,
+	RESPIN_BOARD,
+	RESPIN_COUNTER,
+	TOTAL_WIN_BAR,
+	LETTERS,
+];
 
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
 const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
@@ -191,6 +217,15 @@ const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => 
 	return [{ k: 'steps', steps }];
 };
 
+/**
+ * Show `screen` for the length of a beat and hide it after — for a screen that DRAWS the beat (the
+ * Lucky Spin banner, the wheel, a jackpot) rather than holding the round on a tap. Mounting it is
+ * what steps the beat's coded drawing aside (Phase 6's mount-based step-aside), so the two never draw
+ * at once. No screen ⇒ the beats unchanged.
+ */
+const aroundBeat = (screen: string | undefined, beats: Beat[]): Beat[] =>
+	screen ? [{ k: 'show', id: screen }, ...beats, { k: 'hide', id: screen }] : beats;
+
 const BUY_FEATURE = 'buyFeature';
 const BUY_CONFIRM = 'buyConfirm';
 // The scene-node ids of the two takeovers' interactive components (the DEFAULT `buyFeatureScene` /
@@ -214,9 +249,12 @@ const CONFIRM_DIALOG = 'confirm-dialog';
 const buildDrivenSeedGraph = ({
 	choreo,
 	gameScreens,
+	around = {},
 }: {
 	choreo: Record<string, ChoreoStep[]>;
 	gameScreens: readonly string[];
+	/** Event → the screen shown for the length of its beat (see {@link aroundBeat}). */
+	around?: Readonly<Record<string, string>>;
 }): { nodes: Node[]; exec: ExecEdge[]; data: DataEdge[] } => {
 	const GS_NODE = 'game_signals';
 	const uid = makeChoreoUid();
@@ -315,7 +353,12 @@ const buildDrivenSeedGraph = ({
 	// so the message show + the choreo cannot both hang off `gameSignals.reveal` directly.
 	Object.entries(choreo).forEach(([event, steps], i) => {
 		if (event === 'reveal') return;
-		wireChain(GS_NODE, event, withFreeSpinScreenHolds(event, steps), 4 + i);
+		wireChain(
+			GS_NODE,
+			event,
+			aroundBeat(around[event], withFreeSpinScreenHolds(event, steps)),
+			4 + i,
+		);
 	});
 
 	// --- §6.3 In-game Text Messages (the two editable, auto-localized defaults) -----------------------
@@ -469,11 +512,21 @@ export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEvent
  * round-holding free-spin screens for every template that has free spins.
  */
 const SEED_CONTAINERS: { id: string; z: number }[] = [
+	{ id: RESPIN_BACKGROUND, z: -10 },
 	{ id: BASEGAME, z: 0 },
+	{ id: JACKPOT_BAR, z: 10 },
+	{ id: POTS, z: 10 },
+	{ id: RESPIN_BOARD, z: 20 },
+	{ id: RESPIN_COUNTER, z: 25 },
+	{ id: TOTAL_WIN_BAR, z: 25 },
+	{ id: LETTERS, z: 25 },
 	{ id: FS_COUNTER, z: 30 },
 	{ id: SPECIAL_BOOK, z: 40 },
 	{ id: FS_INTRO, z: 50 },
 	{ id: FS_OUTRO, z: 50 },
+	{ id: LUCKY_SPIN, z: 50 },
+	{ id: WHEEL, z: 50 },
+	{ id: JACKPOT_WIN, z: 55 },
 	{ id: HUD_BAR, z: 60 },
 	{ id: HUD_CORNERS, z: 60 },
 	{ id: BUY_FEATURE, z: 90 },
@@ -501,28 +554,41 @@ const lifecycleContainers = (vocab: TemplateVocabulary): string[] => [
 const buildDrivenSeed = (
 	vocab: TemplateVocabulary,
 	gameScreens: readonly string[],
-	choreo: Record<string, ChoreoStep[]> = choreoForVocabulary(BOOK_OF_CHOREO, vocab),
+	{
+		choreo = choreoForVocabulary(BOOK_OF_CHOREO, vocab),
+		around,
+		declared = [],
+	}: {
+		choreo?: Record<string, ChoreoStep[]>;
+		around?: Readonly<Record<string, string>>;
+		/** Screens the doc shows from chains of its own (a mode's), beyond the game and spine. */
+		declared?: readonly string[];
+	} = {},
 ): FlowDoc => {
-	const lifecycle = lifecycleContainers(vocab);
+	const shown = [...gameScreens, ...lifecycleContainers(vocab), ...declared];
 	return {
 		version: 2,
 		templateId: vocab.templateId,
-		graph: buildDrivenSeedGraph({ choreo, gameScreens }),
-		containers: SEED_CONTAINERS.filter(
-			({ id }) => gameScreens.includes(id) || lifecycle.includes(id),
-		).map(({ id, z }) => ({ id, sceneId: id, z })),
+		graph: buildDrivenSeedGraph({ choreo, gameScreens, around }),
+		containers: SEED_CONTAINERS.filter(({ id }) => shown.includes(id)).map(({ id, z }) => ({
+			id,
+			sceneId: id,
+			z,
+		})),
 	};
 };
 
 /**
- * A graph of entry chains: each choreography wired off its event's pin on one `gameSignals` node, and
- * each `entries` node followed by its steps. Every id carries `prefix`, so a mode section built here
- * never collides with the global graph (ids are unique across all sections of a doc).
+ * A graph of entry chains: each choreography wired off its event's pin on one `gameSignals` node
+ * (inside its `around` screen, if it has one), and each `entries` node followed by its beats. Every id
+ * carries `prefix`, so a mode section built here never collides with the global graph (ids are unique
+ * across all sections of a doc).
  */
 const buildEntryGraph = (
 	prefix: string,
 	choreo: Record<string, ChoreoStep[]>,
-	entries: { node: Node; steps: ChoreoStep[] }[],
+	entries: { node: Node; beats: Beat[] }[],
+	around: Readonly<Record<string, string>> = {},
 ): Graph => {
 	const next = makeChoreoUid();
 	const uid = (kind: string) => next(`${prefix}_${kind}`);
@@ -530,22 +596,44 @@ const buildEntryGraph = (
 	const nodes: Node[] = [];
 	const exec: ExecEdge[] = [];
 	const data: DataEdge[] = [];
-	const chain = (from: PinPath, steps: ChoreoStep[], row: number): void => {
-		const sub = buildChoreo(steps, uid);
-		sub.nodes.forEach((n, i) => (n.pos = { x: 0, y: row * 40 + i * 20 }));
-		nodes.push(...sub.nodes);
-		exec.push(...sub.exec);
-		data.push(...sub.data);
-		if (sub.entry) exec.push({ from, to: { node: sub.entry, pin: 'exec' } });
+	const chain = (from: PinPath, beats: Beat[], row: number): void => {
+		let tail = from;
+		let i = 0;
+		const link = (entry: string) => exec.push({ from: tail, to: { node: entry, pin: 'exec' } });
+		for (const beat of beats) {
+			const pos = { x: 0, y: row * 40 + i++ * 20 };
+			if (beat.k !== 'steps') {
+				const id = uid(beat.k);
+				nodes.push({
+					id,
+					kind: beat.k === 'show' ? 'showContainer' : 'hideContainer',
+					pos,
+					ref: beat.id,
+				});
+				link(id);
+				tail = { node: id, pin: 'exec' };
+				continue;
+			}
+			const sub = buildChoreo(beat.steps, uid);
+			if (!sub.entry) continue;
+			sub.nodes.forEach((n) => (n.pos = { x: 0, y: row * 40 + i++ * 20 }));
+			nodes.push(...sub.nodes);
+			exec.push(...sub.exec);
+			data.push(...sub.data);
+			link(sub.entry);
+			tail = sub.tails[0];
+		}
 	};
 	const events = Object.entries(choreo);
 	if (events.length) {
 		nodes.push({ id: signals, kind: 'gameSignals', pos: { x: 0, y: -200 } });
-		events.forEach(([event, steps], row) => chain({ node: signals, pin: event }, steps, row));
+		events.forEach(([event, steps], row) =>
+			chain({ node: signals, pin: event }, aroundBeat(around[event], [{ k: 'steps', steps }]), row),
+		);
 	}
-	entries.forEach(({ node, steps }, i) => {
+	entries.forEach(({ node, beats }, i) => {
 		nodes.push(node);
-		chain({ node: node.id, pin: 'exec' }, steps, events.length + i);
+		chain({ node: node.id, pin: 'exec' }, beats, events.length + i);
 	});
 	return { nodes, exec, data };
 };
@@ -590,30 +678,49 @@ const music = (name: string): ChoreoStep[] => [
  * presentation and zero authoring.
  *
  * - **Global graph**: the shared lifecycle spine and base-game presentation (no free spins and no
- *   special book; the kind has neither), plus the base-game beats of the mechanic: the Lucky Spin
- *   intro, the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the base music
- *   back once the feature is over (a no-op while it already plays). The round's own return beats,
- *   the collect (`setTotalWin`) and the big win (`setWin`), are book events that follow the
- *   feature's end, so they keep their global chains.
+ *   special book; the kind has neither) with the jackpot bar and the pots on screen from the start,
+ *   plus the base-game beats of the mechanic: the Lucky Spin intro (inside the `luckySpin` screen),
+ *   the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the
+ *   base music back once the feature is over (a no-op while it already plays). The round's own
+ *   return beats, the collect (`setTotalWin`) and the big win (`setWin`), are book events that follow
+ *   the feature's end, so they keep their global chains.
  * - **`modes.holdAndWin`**: every respin-board beat, from the trigger that swaps the board in to the
- *   end that flies the tally into the Total Win bar and swaps back. A signal the section handles goes
- *   there while the mode is on screen; everything else falls back to the global graph. Its **Mode
- *   trigger (enter)** starts the feature music.
+ *   end that flies the tally into the Total Win bar and swaps back; the wheel and a jackpot play
+ *   inside their `wheel` / `jackpotWin` screens. A signal the section handles goes there while the
+ *   mode is on screen; everything else falls back to the global graph. Its **Mode trigger (enter)**
+ *   shows the mode's screens (backdrop, board frame, counter, Total Win bar, letters) and starts the
+ *   feature music; **(exit)** — after `holdAndWinEnd` has presented, so the tally has landed in the
+ *   Total Win bar — hides them.
+ *
+ * Each beat screen is mounted only for its beat, and while it is mounted the beat's coded drawing
+ * steps aside (Phase 6), so nothing draws twice. The feature intro / outro (tap screens) are left
+ * for authors: the coded feature has no tap at its start or end.
  *
  * Events with no beat of their own (the random metre, the meter restatement) stay unwired, so their
  * coded handler runs.
  */
 const holdAndWinDrivenSeed = (): FlowDoc => {
-	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, NO_FREE_SPIN_SCREENS, {
-		...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
-		...HOLD_AND_WIN_BASE_CHOREO,
+	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, HOLD_AND_WIN_SCREENS, {
+		choreo: {
+			...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
+			...HOLD_AND_WIN_BASE_CHOREO,
+		},
+		around: { luckySpin: LUCKY_SPIN },
+		declared: [...HOLD_AND_WIN_MODE_SCREENS, LUCKY_SPIN, WHEEL, JACKPOT_WIN],
 	});
 	const backToBase = buildEntryGraph('base', {}, [
 		{
 			node: { id: 'all_modes_finished', kind: 'allModesFinished', pos: { x: 900, y: 0 } },
-			steps: music('bgm_main'),
+			beats: [{ k: 'steps', steps: music('bgm_main') }],
 		},
 	]);
+	const modeTrigger = (id: string, on: 'enter' | 'exit', y: number): Node => ({
+		id,
+		kind: 'modeTrigger',
+		pos: { x: 900, y },
+		modeId: HOLD_AND_WIN_MODE,
+		on,
+	});
 	return {
 		...base,
 		graph: {
@@ -623,18 +730,24 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 		},
 		modes: {
 			[HOLD_AND_WIN_MODE]: {
-				graph: buildEntryGraph('hw', HOLD_AND_WIN_FEATURE_CHOREO, [
-					{
-						node: {
-							id: 'hw_enter',
-							kind: 'modeTrigger',
-							pos: { x: 900, y: 0 },
-							modeId: HOLD_AND_WIN_MODE,
-							on: 'enter',
+				graph: buildEntryGraph(
+					'hw',
+					HOLD_AND_WIN_FEATURE_CHOREO,
+					[
+						{
+							node: modeTrigger('hw_enter', 'enter', 0),
+							beats: [
+								...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
+								{ k: 'steps', steps: music('bgm_freespin') },
+							],
 						},
-						steps: music('bgm_freespin'),
-					},
-				]),
+						{
+							node: modeTrigger('hw_exit', 'exit', 200),
+							beats: HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'hide', id })),
+						},
+					],
+					{ holdAndWinWheel: WHEEL, jackpotWin: JACKPOT_WIN },
+				),
 			},
 		},
 	};
