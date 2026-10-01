@@ -789,8 +789,12 @@ const calls = [];
 const queue = JSON.parse(process.env.QUEUE).map(r =>
   new Response(r.body, {status: r.status, headers: r.headers || {}}));
 global.window = global;
+let markReloaded;
+const reloadedP = new Promise(res => { markReloaded = res; });
 global.location = {href: 'http://tool.test/', origin: 'http://tool.test',
-  reload() { results.reloaded = true; }};
+  reload() { results.reloaded = true; markReloaded(); }};
+// doc-guard leaves a 15s queue-bound timer per POST; exit once the answer is out.
+const report = () => process.stdout.write(JSON.stringify(results) + '\n', () => process.exit(0));
 global.fetch = async (input, init) => {
   const h = init && init.headers ? new Headers(init.headers) : new Headers();
   calls.push({url: String(input), bases: h.get('X-IW-Doc-Bases'), body: init && init.body});
@@ -825,16 +829,25 @@ __SCRIPT__
     results.status = both.map(r => r.status);
     results.sent = calls.slice(1).map(c => ({bases: JSON.parse(c.bases), body: c.body}));
     results.docs = window.IW_DOCS;
-    console.log(JSON.stringify(results));
+    report();
     return;
   }
-  const r = await Promise.race([
-    fetch('/save', {method: 'POST', body: '{"edit":1}'}),
-    new Promise(res => setTimeout(() => res(null), 500))]);
-  results.status = r ? r.status : null;
+  // Wait on the outcome, not the clock: the caller's answer, or the page reloading. A reload
+  // must leave the caller pending, so once it fires, let the event loop drain a few turns and
+  // report whatever the save settled to; null means it is still pending.
+  const save = fetch('/save', {method: 'POST', body: '{"edit":1}'});
+  const outcome = {settled: false};
+  save.then(r => Object.assign(outcome, {settled: true, status: r.status}),
+            e => Object.assign(outcome, {settled: true, status: 'rejected: ' + e}));
+  const r = await Promise.race([save, reloadedP.then(() => null)]);
+  if (r) results.status = r.status;
+  else {
+    for (let i = 0; i < 20; i++) await new Promise(res => setImmediate(res));
+    results.status = outcome.settled ? outcome.status : null;
+  }
   results.sent = calls.slice(1).map(c => ({bases: JSON.parse(c.bases), body: c.body}));
   results.docs = window.IW_DOCS;
-  console.log(JSON.stringify(results));
+  report();
 })();
 """
 
@@ -858,6 +871,10 @@ def _run_guard(queue: list, choice: str, scenario: str = "", docs: dict | None =
         os.unlink(f.name)
     if out.returncode != 0:
         check("doc-guard harness ran", out.stderr.strip()[-400:], "")
+        return None
+    if not out.stdout.strip():
+        check("doc-guard harness answered (the save neither settled nor reloaded the page)",
+              out.stdout, "<a JSON result>")
         return None
     return json.loads(out.stdout.strip().splitlines()[-1])
 
