@@ -26,6 +26,8 @@ interface Cond {
 
 const bucket = new Map<string, Stored>();
 const gets: string[] = [];
+/** Runs just after the next GET answers: another author's save landing mid-request. */
+let afterGet: (() => void) | null = null;
 
 class ConflictError extends Error {
 	constructor(readonly key: string) {
@@ -67,6 +69,9 @@ mock.module(server('r2.ts'), {
 		getObjectTextWithEtag: async (key: string) => {
 			gets.push(key);
 			const o = bucket.get(key);
+			const race = afterGet;
+			afterGet = null;
+			race?.();
 			return o ? { text: o.text, etag: o.etag } : null;
 		},
 		listAllObjects: async (prefix: string) =>
@@ -131,6 +136,14 @@ const FUTURE = {
 	futureBlock: { mode: 'swirl', layers: [{ id: 'a', alpha: 0.5 }] },
 	futureFlag: true,
 };
+
+const WIN_TEXT = {
+	version: 1,
+	lineMessage: { default: '{count} {symbolName}' },
+	toast: { full: 'You win {amount}' },
+	amountFormat: '{amount}',
+};
+const winTextKey = winTextDocKey('c', 'p');
 
 // ── Symbols ─────────────────────────────────────────────────────────────────────────────────
 const SYMBOLS = {
@@ -264,6 +277,26 @@ const edited = { ...SYMBOLS, names: { H1: { singular: 'Apple', plural: 'Apples' 
 }
 
 {
+	// Another author saves between the graft's read and the PUT: the PUT's If-Match refuses it.
+	const etag = seed(symbolsKey, { ...SYMBOLS, ...FUTURE });
+	afterGet = () => void seed(symbolsKey, { ...SYMBOLS, theirs: 1 });
+	check(
+		'symbols: a save landing after the graft read still conflicts',
+		await outcome(() => saveSymbolsDoc('c', 'p', SYMBOLS, etag)),
+		'ConflictError',
+	);
+	check('symbols: …and the other author’s doc stands', stored(symbolsKey).theirs, 1);
+	const wtEtag = seed(winTextKey, { ...WIN_TEXT, ...FUTURE });
+	afterGet = () => void seed(winTextKey, { ...WIN_TEXT, theirs: 1 });
+	check(
+		'win text: a save landing after the graft read still conflicts',
+		await outcome(() => saveWinTextDoc('c', 'p', WIN_TEXT, wtEtag)),
+		'ConflictError',
+	);
+	check('win text: …and the other author’s doc stands', stored(winTextKey).theirs, 1);
+}
+
+{
 	// Byte-identical for a known-only doc: exactly the bytes a save wrote before the graft existed.
 	const etag = seed(symbolsKey, { ...SYMBOLS, updatedAt: 'then' });
 	const result = await saveSymbolsDoc('c', 'p', edited, etag);
@@ -314,13 +347,6 @@ check(
 );
 
 // ── Win text (no backups: a dropped block was gone for good) ─────────────────────────────────
-const WIN_TEXT = {
-	version: 1,
-	lineMessage: { default: '{count} {symbolName}' },
-	toast: { full: 'You win {amount}' },
-	amountFormat: '{amount}',
-};
-const winTextKey = winTextDocKey('c', 'p');
 
 {
 	const etag = seed(winTextKey, { ...WIN_TEXT, ...FUTURE, updatedAt: 'then' });
