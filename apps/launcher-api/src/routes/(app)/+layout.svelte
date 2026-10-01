@@ -38,7 +38,10 @@
 	// the top. The destination owns the one loading screen.
 	const SPLASH_DELAY_MS = 200;
 
-	let boot = $state<{ id: string; name: string } | null>(null);
+	// Never null while the splash can still read it: <BootSplash> reads its props after
+	// `onfinished` clears the flag, so a nulled `boot` threw "reading 'id'" on teardown.
+	let boot = $state({ id: '', name: '' });
+	let booting = $state(false);
 	let navDone = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -52,6 +55,7 @@
 				timer = setTimeout(() => {
 					timer = undefined;
 					boot = { id: target.id, name: target.name };
+					booting = true;
 				}, SPLASH_DELAY_MS);
 			}
 		} else {
@@ -75,12 +79,12 @@
 -->
 <DialogHost />
 
-{#if boot}
+{#if booting}
 	<BootSplash
 		tool={boot.name}
 		phrases={bootPhrases(boot.id)}
 		ready={navDone}
-		onfinished={() => (boot = null)}
+		onfinished={() => (booting = false)}
 	/>
 {/if}
 

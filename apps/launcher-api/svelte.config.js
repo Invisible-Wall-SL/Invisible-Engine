@@ -6,5 +6,6 @@ export default {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter(),
+		version: { pollInterval: 60_000 },
 	},
 };
