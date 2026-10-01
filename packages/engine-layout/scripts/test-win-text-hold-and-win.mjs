@@ -29,6 +29,8 @@ const bundled = await esbuild.build({
 			formatWinText,
 			jackpotCaption,
 			specialDisplayName,
+			collectorLevelCaption,
+			potCaption,
 			collectWinTextTemplates,
 			registerTextResolver,
 			clearTextResolver,
@@ -176,6 +178,56 @@ assert(
 );
 mod.clearTextResolver();
 
+// --- the 4f lines: collector levels, wheel, pots ---------------------------------
+// Each reproduces the literal the coded presentation drew before it read these templates.
+console.info('collector levels, wheel, pots');
+const r0 = mod.resolveWinText(undefined);
+assert(
+	same(
+		[2, 3, 4].map((l) => mod.collectorLevelCaption(r0, l)),
+		['DOUBLE', 'TRIPLE', '×4'],
+	),
+	'collector level names: DOUBLE / TRIPLE, an unnamed level ×n',
+);
+assert(
+	mod.formatWinText(r0.feature.collectorLevel, { level: mod.collectorLevelCaption(r0, 2) }) ===
+		'DOUBLE COLLECTOR',
+	'"DOUBLE COLLECTOR" — the counter line for a raised collector',
+);
+assert(
+	mod.formatWinText(r0.wheel.coinBoost, { count: 2 }) === 'COIN BOOST ×2' &&
+		mod.formatWinText(r0.wheel.extraCollect, { count: 1 }) === '+1 COLLECT',
+	'wheel segments: "COIN BOOST ×2", "+1 COLLECT"',
+);
+assert(
+	mod.formatWinText(r0.wheel.coinBoostDetail, { count: 3 }) === 'EVERY COIN ×3' &&
+		mod.formatWinText(r0.wheel.extraCollectDetail, {
+			level: mod.collectorLevelCaption(r0, 3),
+		}) === 'TRIPLE COLLECT',
+	'wheel prize banners: "EVERY COIN ×3", "TRIPLE COLLECT"',
+);
+assert(
+	mod.formatWinText(r0.feature.potLabel, { pot: mod.potCaption(r0, 'red'), level: 5, max: 12 }) ===
+		'RED 5/12',
+	'"RED 5/12" — an unnamed pot reads its id in capitals',
+);
+const r1 = mod.resolveWinText({
+	feature: { potNames: { red: 'Rubí' }, collectorLevelNames: { 2: 'DOBLE' } },
+	wheel: { extraCollect: '+{count} RECOGIDA' },
+});
+assert(
+	mod.potCaption(r1, 'red') === 'Rubí' && mod.potCaption(r1, 'blue') === 'BLUE',
+	'pot names merge per pot',
+);
+assert(
+	mod.collectorLevelCaption(r1, 2) === 'DOBLE' && mod.collectorLevelCaption(r1, 3) === 'TRIPLE',
+	'collector level names merge per level',
+);
+assert(
+	r1.wheel.extraCollect === '+{count} RECOGIDA' && r1.wheel.coinBoost === 'COIN BOOST ×{count}',
+	'wheel fields merge per field',
+);
+
 // --- harvest -----------------------------------------------------------------
 console.info('harvest');
 const keys = (items) => items.map((i) => i.key);
@@ -229,6 +281,14 @@ for (const expected of [
 	'MULTIPLIER',
 	'PAYER',
 	'MYSTERY',
+	'{level} COLLECTOR',
+	'{pot} {level}/{max}',
+	'DOUBLE',
+	'TRIPLE',
+	'COIN BOOST ×{count}',
+	'+{count} COLLECT',
+	'EVERY COIN ×{count}',
+	'{level} COLLECT',
 ]) {
 	assert(hw.includes(expected), `a Hold and Win project harvests "${expected}"`);
 }
@@ -237,6 +297,19 @@ assert(
 	'token-only templates are not harvested',
 );
 assert(!hw.includes(''), 'the empty intro / outro are not harvested');
+const hwPots = keys(
+	mod.collectWinTextTemplates(
+		{ feature: { potNames: { red: 'Rubí' } } },
+		{
+			holdAndWin: true,
+			meters: ['red', 'blue'],
+		},
+	),
+);
+assert(
+	hwPots.includes('Rubí') && hwPots.includes('BLUE') && !hwPots.includes('RED'),
+	'each pot harvests its name (authored, else its id)',
+);
 const hwAuthored = keys(
 	mod.collectWinTextTemplates(
 		{

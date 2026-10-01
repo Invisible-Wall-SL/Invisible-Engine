@@ -13,6 +13,10 @@
 		WIN_TEXT_JACKPOT_LABELS,
 		WIN_TEXT_RESPIN_FIELDS,
 		WIN_TEXT_RESPIN_LABELS,
+		WIN_TEXT_WHEEL_FIELDS,
+		WIN_TEXT_WHEEL_LABELS,
+		collectorLevelCaption,
+		potCaption,
 		formatWinText,
 		jackpotCaption,
 		resolveSymbolName,
@@ -27,7 +31,9 @@
 		WinTextDoc,
 		WinTextFeatureField,
 		WinTextJackpotField,
+		WinTextFeatureMap,
 		WinTextRespinField,
+		WinTextWheelField,
 	} from 'engine-layout';
 	import type { PageData } from './$types';
 
@@ -179,11 +185,40 @@
 		else delete feature[field];
 	}
 
-	function setSpecialName(kind: string, value: string) {
-		const names = ((doc.feature ??= {}).specialNames ??= {});
-		if (value.trim()) names[kind] = value;
-		else delete names[kind];
+	function setFeatureName(map: WinTextFeatureMap, key: string, value: string) {
+		const names = ((doc.feature ??= {})[map] ??= {});
+		if (value.trim()) names[key] = value;
+		else delete names[key];
 	}
+
+	function setWheel(field: WinTextWheelField, value: string) {
+		const wheel = (doc.wheel ??= {});
+		if (value.trim()) wheel[field] = value;
+		else delete wheel[field];
+	}
+
+	/** The name rows under the feature lines: one per special kind, per named collector level, and
+	 *  per pot the config declares (its id is the key). */
+	const nameRows = $derived([
+		...Object.keys(resolved.feature.specialNames).map((key) => ({
+			map: 'specialNames' as const,
+			key,
+			label: key,
+			placeholder: specialDisplayName(resolved, key),
+		})),
+		...Object.keys(resolved.feature.collectorLevelNames).map((key) => ({
+			map: 'collectorLevelNames' as const,
+			key,
+			label: `collector level ${key}`,
+			placeholder: collectorLevelCaption(resolved, Number(key)),
+		})),
+		...data.meterIds.map((key) => ({
+			map: 'potNames' as const,
+			key,
+			label: `pot ${key}`,
+			placeholder: potCaption(resolved, key),
+		})),
+	]);
 
 	/**
 	 * The Hold and Win preview values: the config's first jackpot tier, three respins, and the
@@ -196,8 +231,17 @@
 		jackpot: jackpotCaption(resolved, data.jackpotTiers[0] ?? 'MINI'),
 		meter: specialDisplayName(resolved, 'payer'),
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
+		level: collectorLevelCaption(resolved, 2),
 	});
 	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
+	/** A pot's `{level}` is its fill, not a collector name, so its row previews with pot values. */
+	const potPreview = $derived(
+		formatWinText(resolved.feature.potLabel, {
+			pot: potCaption(resolved, data.meterIds[0] ?? 'red'),
+			level: 5,
+			max: 12,
+		}),
+	);
 
 	function setAmountFormat(value: string) {
 		if (value.trim()) doc.amountFormat = value;
@@ -558,9 +602,11 @@
 		{/if}
 
 		{#if data.capabilities.holdAndWin}
-			<p class="warn">
-				<strong>Not in the game yet.</strong> The game still draws its built-in Hold and Win lines; what
-				you write below is saved and translated, and shows on screen once the engine reads it.
+			<p class="hint">
+				A few lines have no place on screen yet: <em>Respins awarded</em>, <em>Respins reset</em>,
+				<em>Last respin</em>, <em>Feature total</em>, <em>Pot full</em> and the intro / outro are saved
+				and translated, and show once a scene or beat uses them. Every other line here is what the game
+				draws.
 			</p>
 			<section>
 				<h2>Jackpots</h2>
@@ -633,23 +679,51 @@
 							placeholder={resolved.feature[field] || 'not drawn'}
 							oninput={(e) => setFeature(field, e.currentTarget.value)}
 						/>
-						<em class="row-preview">{holdAndWinPreview(resolved.feature[field]) || '—'}</em>
+						<em class="row-preview"
+							>{(field === 'potLabel' ? potPreview : holdAndWinPreview(resolved.feature[field])) ||
+								'—'}</em
+						>
 					</label>
 				{/each}
 				<p class="hint">
-					Special names, as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write them:
+					Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
+					them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
+					reads ×4) and this game's pots (<code>{'{pot}'}</code>):
 				</p>
-				{#each Object.keys(resolved.feature.specialNames) as kind (kind)}
+				{#each nameRows as row (`${row.map}:${row.key}`)}
 					<label class="single">
-						<span>{kind}</span>
+						<span>{row.label}</span>
 						<input
-							value={doc.feature?.specialNames?.[kind] ?? ''}
-							placeholder={resolved.feature.specialNames[kind]}
-							oninput={(e) => setSpecialName(kind, e.currentTarget.value)}
+							value={doc.feature?.[row.map]?.[row.key] ?? ''}
+							placeholder={row.placeholder}
+							oninput={(e) => setFeatureName(row.map, row.key, e.currentTarget.value)}
 						/>
 					</label>
 				{/each}
 			</section>
+
+			{#if data.hasWheel}
+				<section>
+					<h2>Wheel</h2>
+					<p class="hint">
+						The pre-feature wheel: its segment labels and the banner its prize shows.
+						<code>{'{count}'}</code> is the boost multiplier or the number of extra collects,
+						<code>{'{level}'}</code> the collector's new level. A jackpot segment reads its tier's caption
+						from above.
+					</p>
+					{#each WIN_TEXT_WHEEL_FIELDS as field (field)}
+						<label class="single">
+							<span>{WIN_TEXT_WHEEL_LABELS[field]}</span>
+							<input
+								value={doc.wheel?.[field] ?? ''}
+								placeholder={resolved.wheel[field]}
+								oninput={(e) => setWheel(field, e.currentTarget.value)}
+							/>
+							<em class="row-preview">{holdAndWinPreview(resolved.wheel[field]) || '—'}</em>
+						</label>
+					{/each}
+				</section>
+			{/if}
 		{/if}
 
 		<section>

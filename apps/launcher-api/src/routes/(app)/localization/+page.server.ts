@@ -93,6 +93,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		...harvestWinText(winTextDoc, {
 			holdAndWin: kindCapabilities(gameType).holdAndWin,
 			jackpots: (gameConfig.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+			meters: (gameConfig.doc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
 		}),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),

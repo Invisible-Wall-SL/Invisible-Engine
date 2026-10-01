@@ -44,7 +44,7 @@ titled **"Hold and win game pipeline"**.
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | in progress — 7a states/roles/gating/defaults, 7b coin label block, 7c flights block + preview | Hold and Win Phase 7 — Symbols SM | — |
-| 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 (contract, /win-text sections, harvest) in review; part 2 (runtime reads the templates, see "Win Text literals for Phase 8") next | Hold and Win Phase 8 — Win Text | part 1: #946 |
+| 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 merged; part 2 (the presentation reads the templates) in review | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: _PR pending_ |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
@@ -409,6 +409,9 @@ only has to register its own vocab + seed.
 
 ## Win Text literals for Phase 8
 
+**Moved onto Win Text by Phase 8 part 2** (`holdAndWinText.ts`) — every row below except the coin
+labels (Phase 7) and the letters row (config, not a literal). Kept as the map of where each line is drawn.
+
 Every player-facing string the Phase 4 coded defaults print, for Phase 8 to move onto `formatWinText`
 (through `apps/lines/src/game/holdAndWinText.ts`). All are English literals today; nothing else in the
 Hold and Win beats prints copy.
@@ -474,6 +477,12 @@ Hold and Win beats prints copy.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 8 part 2: the presentation reads Win Text** (branch
+  `claude/hw-phase8-win-text-runtime`). Every row of "Win Text literals for Phase 8" but the coin labels
+  renders through `apps/lines/src/game/holdAndWinText.ts`; new templates for the 4f lines (raised
+  collector, pot label, wheel) and name maps (collector levels, pots). Defaults = the old literals.
+  `hw-3pots-sample` has an authored `win-text.json` for the live check. Details: [win-text](win-text.md).
 
 - 2026-10-01 — **Phase 6: Scene Editor template + components** (#951, runtime `lines@4f9c68b8a1f2`,
   launcher deploy green). One `holdAndWin` scene set (`referenceLayouts/holdAndWin.ts`) + template for

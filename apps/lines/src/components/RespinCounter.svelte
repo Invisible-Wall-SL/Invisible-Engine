@@ -7,6 +7,7 @@
 
 	import { boardDimensions } from '../game/gameConfig';
 	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
+	import { respinCounterText } from '../game/holdAndWinText';
 	import { activeModifiersText } from '../game/stateHoldAndWin.svelte';
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
@@ -39,7 +40,7 @@
 	<Container {x} {y} scale={pulse.current}>
 		<Text
 			anchor={0.5}
-			text={`RESPINS ${stateRespinBoard.counter.left}`}
+			text={respinCounterText(stateRespinBoard.counter.left)}
 			style={{
 				fontFamily: 'Arial',
 				fontWeight: 'bold',
