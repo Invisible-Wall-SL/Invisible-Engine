@@ -4073,8 +4073,13 @@ function renderBoneDetail(){
   del.textContent = "🗑 Delete bone";
   del.style.cssText = "margin-top:8px;width:100%;color:var(--bad,#e66);border-color:var(--bad,#e66);";
   del.disabled = selBone === 0 || !bd.parent; // never the root
-  del.title = del.disabled ? "the root bone can't be deleted" : "children + slots reparent to " + (bd.parent ? bd.parent.name : "—");
-  del.onclick = () => { if (confirm('Delete bone "' + bd.name + '"? Its children and slots move to ' + (bd.parent ? bd.parent.name : "root") + ".")) deleteBone(bd.name); };
+  del.title = del.disabled ? "the root bone can't be deleted" : "children, slots and weights move to " + (bd.parent ? bd.parent.name : "—") + ", staying where they are in the setup pose";
+  del.onclick = () => {
+    const heir = bd.parent ? bd.parent.name : "root";
+    if (confirm('Delete bone "' + bd.name + '"?\n\nIts children, its slots and the vertices weighted to it move to "' + heir
+      + '" and stay where they are in the setup pose. Its own animation keys are deleted, so in an animation '
+      + "they no longer follow its motion, and its children's own move keys now run along " + heir + "'s axes.")) deleteBone(bd.name);
+  };
   det.appendChild(del);
 }
 
@@ -4821,8 +4826,9 @@ function weightedVertexCount(att){
 }
 
 // Rewrite every deform frame of one weighted attachment after its influences changed. A weighted
-// deform holds one (x, y) pair per INFLUENCE, so `src[i]` names the OLD influence entry that new
-// entry i came from; `oldEntries` is the old influence count.
+// deform holds one (x, y) offset per INFLUENCE, in that influence's bone space, so `src[i]` lists
+// the OLD entries new entry i is made of: { e, k, m } adds k × (the 2×2 `m`, or identity) × entry
+// e. `oldEntries` is the old influence count.
 function remapWeightedDeform(doc, skinName, slotName, attName, src, oldEntries){
   for (const an of Object.values(doc.animations || {})){
     const tl = an.attachments && an.attachments[skinName] && an.attachments[skinName][slotName] && an.attachments[skinName][slotName][attName];
@@ -4832,30 +4838,231 @@ function remapWeightedDeform(doc, skinName, slotName, attName, src, oldEntries){
       const off = frame.offset || 0, full = new Array(oldEntries * 2).fill(0);
       for (let i = 0; i < frame.vertices.length; i++) if (off + i < full.length) full[off + i] = frame.vertices[i];
       const nv = [];
-      for (const e of src) nv.push(full[e * 2] || 0, full[e * 2 + 1] || 0);
+      for (const terms of src){
+        let x = 0, y = 0;
+        for (const { e, k, m } of terms){
+          const dx = full[e * 2] || 0, dy = full[e * 2 + 1] || 0;
+          x += k * (m ? m[0] * dx + m[1] * dy : dx); y += k * (m ? m[2] * dx + m[3] * dy : dy);
+        }
+        nv.push(x, y);
+      }
       frame.offset = 0; frame.vertices = nv;
     }
   }
 }
 
-// Delete a bone (not root) from `doc`. Children + slots move to its parent. A constraint loses it
-// from its bones list and is removed once it has no bone left or it was the IK/transform target
-// (a path constraint's target is a SLOT, never a bone). Every weighted attachment's bone INDICES
-// are remapped by name, the bone's influences dropped and the vertex renormalised, and its deform
-// keys follow. Returns { heir, removed }, or null when there is nothing to delete.
-function deleteBoneCore(doc, name){
+// ---- setup-pose world transforms -------------------------------------------------------------
+// Spine 4.2's Bone.updateWorldTransformWith without the runtime (skeleton at the origin, scale 1),
+// so a structural edit can leave everything where the setup pose had it. A world (or any affine
+// map) is { a, b, c, d, x, y }: x' = a·x + b·y + x0, y' = c·x + d·y + y0.
+const DEG = Math.PI / 180;
+const wrapDeg = (v) => v - 360 * Math.round(v / 360);
+const tidy = (v) => Math.round(v * 1e6) / 1e6;
+const affMul = (A, B) => ({ a: A.a * B.a + A.b * B.c, b: A.a * B.b + A.b * B.d, c: A.c * B.a + A.d * B.c, d: A.c * B.b + A.d * B.d, x: A.a * B.x + A.b * B.y + A.x, y: A.c * B.x + A.d * B.y + A.y });
+function affInv(A){
+  const det = A.a * A.d - A.b * A.c;
+  if (Math.abs(det) < 1e-12) return null;
+  const a = A.d / det, b = -A.b / det, c = -A.c / det, d = A.a / det;
+  return { a, b, c, d, x: -(a * A.x + b * A.y), y: -(c * A.x + d * A.y) };
+}
+// A bone's setup values with the format's defaults filled in.
+function boneSetup(b){
+  return { x: b.x || 0, y: b.y || 0, rotation: b.rotation || 0, scaleX: b.scaleX == null ? 1 : b.scaleX,
+    scaleY: b.scaleY == null ? 1 : b.scaleY, shearX: b.shearX || 0, shearY: b.shearY || 0, inherit: b.inherit || "normal" };
+}
+// [a, b, c, d] of a rotation / scale / shear on its own.
+function localLinear(rotation, scaleX, scaleY, shearX, shearY){
+  const rx = (rotation + shearX) * DEG, ry = (rotation + 90 + shearY) * DEG;
+  return [Math.cos(rx) * scaleX, Math.cos(ry) * scaleY, Math.sin(rx) * scaleX, Math.sin(ry) * scaleY];
+}
+// The frame a bone's local rotation / scale / shear is applied in under a parent at world P, by
+// inherit mode, and the angle taken off its rotation first: world = E · localLinear(rotation − off, …).
+// The no-scale modes build their frame from the bone's OWN rotation, then apply only shear + scale.
+function inheritFrame(P, inherit, rotation){
+  switch (inherit){
+    case "onlyTranslation": return { E: [1, 0, 0, 1], off: 0 };
+    case "noRotationOrReflection": {
+      const s0 = P.a * P.a + P.c * P.c;
+      if (s0 > 0.0001){
+        const s = Math.abs(P.a * P.d - P.b * P.c) / s0;
+        return { E: [P.a, -P.c * s, P.c, P.a * s], off: Math.atan2(P.c, P.a) / DEG };
+      }
+      return { E: [0, -P.b, 0, P.d], off: 90 - Math.atan2(P.d, P.b) / DEG };
+    }
+    case "noScale": case "noScaleOrReflection": {
+      const cos = Math.cos(rotation * DEG), sin = Math.sin(rotation * DEG);
+      let za = P.a * cos + P.b * sin, zc = P.c * cos + P.d * sin, s = Math.hypot(za, zc);
+      if (s > 0.00001) s = 1 / s;
+      za *= s; zc *= s; s = Math.hypot(za, zc);
+      if (inherit === "noScale" && P.a * P.d - P.b * P.c < 0) s = -s;
+      const q = Math.PI / 2 + Math.atan2(zc, za);
+      return { E: [za, Math.cos(q) * s, zc, Math.sin(q) * s], off: rotation };
+    }
+    default: return { E: [P.a, P.b, P.c, P.d], off: 0 };
+  }
+}
+// World of a bone with setup `l` (boneSetup) under a parent at world P (null for the root).
+function boneWorld(P, l){
+  if (!P){ const [a, b, c, d] = localLinear(l.rotation, l.scaleX, l.scaleY, l.shearX, l.shearY); return { a, b, c, d, x: l.x, y: l.y }; }
+  const { E, off } = inheritFrame(P, l.inherit, l.rotation);
+  const [la, lb, lc, ld] = localLinear(l.rotation - off, l.scaleX, l.scaleY, l.shearX, l.shearY);
+  return { a: E[0] * la + E[1] * lc, b: E[0] * lb + E[1] * ld, c: E[2] * la + E[3] * lc, d: E[2] * lb + E[3] * ld,
+    x: P.a * l.x + P.b * l.y + P.x, y: P.c * l.x + P.d * l.y + P.y };
+}
+// Setup world of every bone by name. `posed` (name → world) overrides a bone with the pose the
+// runtime draws — constraints applied — and its children are built on that.
+function setupWorlds(doc, posed){
+  const out = new Map();
+  for (const b of doc.bones){
+    const w = posed && posed.get(b.name);
+    out.set(b.name, w || boneWorld(b.parent ? out.get(b.parent) || null : null, boneSetup(b)));
+  }
+  return out;
+}
+// The local transform that puts a bone with setup `l` at world W under a parent at world P, in its
+// own inherit mode. It keeps the authored shearX and the signs of both scales, so under a parent
+// that only turned, the bone only turns. Null when P is degenerate (a zero scale).
+function boneLocalAt(P, W, l){
+  const Pi = affInv(P); if (!Pi) return null;
+  const out = Object.assign({}, l, { x: Pi.a * W.x + Pi.b * W.y + Pi.x, y: Pi.c * W.x + Pi.d * W.y + Pi.y });
+  if (l.inherit === "onlyTranslation") return out;
+  const noScale = l.inherit === "noScale" || l.inherit === "noScaleOrReflection";
+  let rotation = l.rotation;
+  if (noScale){
+    // turn the bone so its frame's x axis points where it did: that axis is W · shear/scale⁻¹
+    const S = localLinear(0, l.scaleX, l.scaleY, l.shearX, l.shearY), Si = affInv({ a: S[0], b: S[1], c: S[2], d: S[3], x: 0, y: 0 });
+    if (Si){
+      const zx = W.a * Si.a + W.b * Si.c, zy = W.c * Si.a + W.d * Si.c;
+      rotation = l.rotation + wrapDeg(Math.atan2(Pi.c * zx + Pi.d * zy, Pi.a * zx + Pi.b * zy) / DEG - l.rotation);
+    }
+  }
+  const { E, off } = inheritFrame(P, l.inherit, rotation);
+  const Ei = affInv({ a: E[0], b: E[1], c: E[2], d: E[3], x: 0, y: 0 }); if (!Ei) return null;
+  const M = [Ei.a * W.a + Ei.b * W.c, Ei.a * W.b + Ei.b * W.d, Ei.c * W.a + Ei.d * W.c, Ei.c * W.b + Ei.d * W.d];
+  const sx = l.scaleX < 0 ? -1 : 1, sy = l.scaleY < 0 ? -1 : 1;
+  const lenX = Math.hypot(M[0], M[2]), lenY = Math.hypot(M[1], M[3]);
+  const angX = lenX > 1e-9 ? Math.atan2(M[2] * sx, M[0] * sx) / DEG : null, angY = lenY > 1e-9 ? Math.atan2(M[3] * sy, M[1] * sy) / DEG : null;
+  // localLinear(rot0, …): x axis at rot0 + shearX, y axis at rot0 + 90 + shearY
+  let rot0;
+  if (noScale){ rot0 = 0; if (angX != null) out.shearX = l.shearX + wrapDeg(angX - l.shearX); }
+  else { rot0 = angX != null ? angX - l.shearX : l.rotation - off; rotation = l.rotation + wrapDeg(rot0 + off - l.rotation); }
+  if (angY != null) out.shearY = l.shearY + wrapDeg(angY - rot0 - 90 - l.shearY);
+  out.rotation = rotation; out.scaleX = sx * lenX; out.scaleY = sy * lenY;
+  return out;
+}
+// Write a boneSetup-shaped transform back onto a doc bone, leaving out every default.
+function writeBoneSetup(b, l){
+  for (const [k, def] of [["x", 0], ["y", 0], ["rotation", 0], ["scaleX", 1], ["scaleY", 1], ["shearX", 0], ["shearY", 0]]){
+    const v = tidy(l[k]);
+    if (v === def) delete b[k]; else b[k] = v;
+  }
+}
+
+// Move one attachment from a slot's bone to another by the affine map M from the old bone's space
+// to the new one's, so it shows where it did. Exact for points, unweighted vertices and an image
+// under a turn / uniform scale; an image (no shear of its own) keeps its centre, axis and area
+// under a non-uniform one. Weighted vertices name their bones themselves and are left alone.
+function rehomeAttachment(att, M){
+  const pt = (x, y) => [tidy(M.a * x + M.b * y + M.x), tidy(M.c * x + M.d * y + M.y)];
+  const type = att.type || "region";
+  if (type === "region" || type === "point"){
+    [att.x, att.y] = pt(att.x || 0, att.y || 0);
+    const r = (att.rotation || 0) * DEG;
+    const sx = type === "region" ? (att.scaleX == null ? 1 : att.scaleX) : 1, sy = type === "region" ? (att.scaleY == null ? 1 : att.scaleY) : 1;
+    const ax = M.a * Math.cos(r) + M.b * Math.sin(r), ay = M.c * Math.cos(r) + M.d * Math.sin(r);
+    // (ax, ay) is the rotation's own axis, before the image's scale (and its sign) applies
+    att.rotation = tidy((att.rotation || 0) + wrapDeg(Math.atan2(ay, ax) / DEG - (att.rotation || 0)));
+    if (type === "region"){
+      const nsx = sx * Math.hypot(ax, ay);
+      att.scaleX = tidy(nsx); att.scaleY = tidy(nsx ? sx * sy * (M.a * M.d - M.b * M.c) / nsx : sy);
+      for (const [k, def] of [["x", 0], ["y", 0], ["rotation", 0], ["scaleX", 1], ["scaleY", 1]]) if (att[k] === def) delete att[k];
+    } else for (const k of ["x", "y", "rotation"]) if (att[k] === 0) delete att[k];
+    return;
+  }
+  if (isRawLinkedMeshDef(att) || !Array.isArray(att.vertices) || weightedVertexCount(att)) return;
+  if (type !== "mesh" && type !== "path" && type !== "boundingbox" && type !== "clipping") return;
+  for (let i = 0; i + 1 < att.vertices.length; i += 2) [att.vertices[i], att.vertices[i + 1]] = pt(att.vertices[i], att.vertices[i + 1]);
+  if (type === "path" && Array.isArray(att.lengths)){
+    const s = Math.sqrt(Math.abs(M.a * M.d - M.b * M.c));
+    att.lengths = att.lengths.map((v) => tidy(v * s));
+  }
+}
+// The deform keys of every attachment on `slotName` whose geometry is UNWEIGHTED hold offsets in
+// the slot bone's space: turn them by the 2×2 part of M along with the vertices.
+function rehomeSlotDeform(doc, slotName, M){
+  const geometryOf = (skinName, attName) => {
+    const sk = (doc.skins || []).find((s) => s.name === skinName);
+    const def = sk && sk.attachments && sk.attachments[slotName] && sk.attachments[slotName][attName];
+    if (!isRawLinkedMeshDef(def)) return def;
+    const ps = (doc.skins || []).find((s) => s.name === linkedMeshParentSkin(def));
+    return ps && ps.attachments && ps.attachments[slotName] && ps.attachments[slotName][def.parent];
+  };
+  for (const an of Object.values(doc.animations || {})) for (const [skinName, slots] of Object.entries(an.attachments || {})){
+    for (const [attName, tl] of Object.entries((slots && slots[slotName]) || {})){
+      const geo = geometryOf(skinName, attName);
+      if (!tl || !Array.isArray(tl.deform) || !geo || !Array.isArray(geo.vertices) || weightedVertexCount(geo)) continue;
+      for (const frame of tl.deform){
+        if (!Array.isArray(frame.vertices)) continue;
+        const off = frame.offset || 0, full = new Array(Math.max(geo.vertices.length, off + frame.vertices.length)).fill(0);
+        for (let i = 0; i < frame.vertices.length; i++) full[off + i] = frame.vertices[i];
+        for (let i = 0; i + 1 < full.length; i += 2){
+          const dx = full[i], dy = full[i + 1];
+          full[i] = tidy(M.a * dx + M.b * dy); full[i + 1] = tidy(M.c * dx + M.d * dy);
+        }
+        frame.offset = 0; frame.vertices = full;
+      }
+    }
+  }
+}
+
+// Delete a bone (not root) from `doc`. Its children, its slots and every weighted influence on it
+// move to its parent (the heir) with the deleted bone's setup-pose transform composed in, so they
+// stay where the setup pose had them: `posed(doc)` may give the worlds the runtime draws
+// (constraints applied, name → world); without it the bare setup pose is used. A constraint loses
+// the bone from its bones list and is removed once it has no bone left or it was the IK/transform
+// target (a path constraint's target is a SLOT, never a bone). The bone's own animation keys go
+// with it. Every weighted attachment's bone INDICES are remapped by name, and its deform keys
+// follow. Returns { heir, removed }, or null when there is nothing to delete.
+function deleteBoneCore(doc, name, posed){
   const idx = doc.bones.findIndex((b) => b.name === name);
   if (idx <= 0) return null; // root (index 0) or not found
   const parentName = doc.bones[idx].parent;
   const heir = parentName || doc.bones[0].name;
   const oldNames = doc.bones.map((b) => b.name); // index→name BEFORE removal
-  for (const b of doc.bones) if (b.parent === name){ if (parentName) b.parent = parentName; else delete b.parent; }
-  for (const s of doc.slots || []) if (s.bone === name) s.bone = heir;
+  const breaks = (kind, c) => kind === "physics" ? c.bone === name
+    : !Array.isArray(c.bones) || !c.bones.some((n) => n !== name) || (kind !== "path" && c.target === name);
+  // The pose to keep is the one without the constraints that go — but with the bone still in the
+  // ones that stay, which still pose it (and so its dependants) until it is gone.
+  const kept = JSON.parse(JSON.stringify(doc));
+  dropConstraints(kept, breaks);
+  const worlds = setupWorlds(kept, posed ? posed(kept) : null);
   const removed = dropConstraints(doc, (kind, c) => {
-    if (kind === "physics") return c.bone === name;
-    if (Array.isArray(c.bones)) c.bones = c.bones.filter((n) => n !== name);
-    return !Array.isArray(c.bones) || !c.bones.length || (kind !== "path" && c.target === name);
+    if (breaks(kind, c)) return true;
+    if (kind !== "physics") c.bones = c.bones.filter((n) => n !== name);
+    return false;
   });
+  const D = worlds.get(name), G = worlds.get(heir), Gi = affInv(G);
+  // A bone scaled to nothing has flattened its dependants; folding that in would flatten their
+  // own values for good, so they move uncompensated, as they always did.
+  const M = Gi && affInv(D) ? affMul(Gi, D) : null; // the deleted bone's space → the heir's
+  const Ml = M && [M.a, M.b, M.c, M.d];
+  for (const b of doc.bones) if (b.parent === name){
+    // a zero scale hides the axis it scales: solve at 1 so the axis still turns, then zero it
+    const ls = boneSetup(b), unit = Object.assign({}, ls, { scaleX: ls.scaleX || 1, scaleY: ls.scaleY || 1 });
+    const l = M && boneLocalAt(G, boneWorld(D, unit), unit);
+    if (l){
+      if (!ls.scaleX) l.scaleX = 0;
+      if (!ls.scaleY) l.scaleY = 0;
+      writeBoneSetup(b, l);
+    }
+    if (parentName) b.parent = parentName; else delete b.parent;
+  }
+  for (const s of doc.slots || []) if (s.bone === name){
+    s.bone = heir;
+    if (!M) continue;
+    for (const sk of doc.skins || []) for (const att of Object.values((sk.attachments || {})[s.name] || {})) if (att) rehomeAttachment(att, M);
+    rehomeSlotDeform(doc, s.name, M);
+  }
   doc.bones.splice(idx, 1);
   for (const sk of doc.skins || []) if (Array.isArray(sk.bones)){
     sk.bones = sk.bones.filter((n) => n !== name);
@@ -4865,30 +5072,49 @@ function deleteBoneCore(doc, name){
 
   const newIndexByName = new Map(doc.bones.map((b, i) => [b.name, i]));
   const heirIdx = newIndexByName.get(heir);
+  // An influence on the deleted bone becomes one on the heir at the same world point (M maps it),
+  // merged into the heir's own influence on that vertex if it has one: w₁·G·p₁ + w₂·G·p₂ is
+  // (w₁ + w₂)·G·(the weighted mean of p₁ and p₂), so the vertex does not move.
+  const toHeir = M || { a: 1, b: 0, c: 0, d: 1, x: 0, y: 0 }, toHeirL = Ml || null;
   for (const sk of doc.skins || []) for (const [slotName, slot] of Object.entries(sk.attachments || {})) for (const [attName, att] of Object.entries(slot)){
     const vc = weightedVertexCount(att); if (!vc) continue;
     const out = [], src = [];
-    let ri = 0, entry = 0, anyDropped = false;
+    let ri = 0, entry = 0, changed = false;
     for (let v = 0; v < vc; v++){
       const n = att.vertices[ri++], infl = [];
       for (let j = 0; j < n; j++, entry++){ const bi = att.vertices[ri++], x = att.vertices[ri++], y = att.vertices[ri++], w = att.vertices[ri++]; infl.push({ bi, x, y, w, entry }); }
       let dropped = false;
-      let kept = infl
-        .filter((f) => { const keep = oldNames[f.bi] !== name; if (!keep) dropped = true; return keep; })
-        .map((f) => ({ bone: newIndexByName.get(oldNames[f.bi]), x: f.x, y: f.y, w: f.w, entry: f.entry }))
-        .filter((f) => { if (f.bone === undefined){ dropped = true; return false; } return true; });
-      if (!kept.length){ const r = infl[0] || { x: 0, y: 0, entry: 0 }; kept = [{ bone: heirIdx, x: r.x, y: r.y, w: 1, entry: r.entry }]; dropped = true; }
+      const kept = [], hasMoved = infl.some((f) => oldNames[f.bi] === name);
+      for (const f of infl){
+        const moved = oldNames[f.bi] === name;
+        const bone = moved ? heirIdx : newIndexByName.get(oldNames[f.bi]);
+        if (bone === undefined){ dropped = true; continue; }
+        const x = moved ? toHeir.a * f.x + toHeir.b * f.y + toHeir.x : f.x, y = moved ? toHeir.c * f.x + toHeir.d * f.y + toHeir.y : f.y;
+        const term = { e: f.entry, w: f.w, m: moved ? toHeirL : null };
+        const same = hasMoved && bone === heirIdx ? kept.find((k) => k.bone === bone) : null;
+        if (moved) changed = true;
+        if (!same){ kept.push({ bone, x, y, w: f.w, terms: [term] }); continue; }
+        const w = same.w + f.w;
+        if (w > 1e-12){ same.x = (same.x * same.w + x * f.w) / w; same.y = (same.y * same.w + y * f.w) / w; }
+        same.w = w; same.terms.push(term);
+      }
+      if (!kept.length){ const r = infl[0] || { x: 0, y: 0, entry: 0 }; kept.push({ bone: heirIdx, x: r.x, y: r.y, w: 1, terms: [{ e: r.entry, w: 1, m: null }] }); dropped = true; }
       // only renormalise vertices that actually lost an influence — leave the rest
       // bit-identical (the source weights may not sum to exactly 1; don't disturb them)
       if (dropped){
-        anyDropped = true;
+        changed = true;
         let sum = 0; for (const k of kept) sum += k.w;
         if (sum > 1e-9) for (const k of kept) k.w /= sum; else { const eq = 1 / kept.length; for (const k of kept) k.w = eq; }
       }
-      out.push(kept.length); for (const k of kept){ out.push(k.bone, k.x, k.y, k.w); src.push(k.entry); }
+      out.push(kept.length);
+      for (const k of kept){
+        out.push(k.bone, k.terms.some((t) => t.m) ? tidy(k.x) : k.x, k.terms.some((t) => t.m) ? tidy(k.y) : k.y, k.w);
+        const tw = k.terms.reduce((s, t) => s + t.w, 0);
+        src.push(k.terms.map((t) => ({ e: t.e, k: tw > 1e-12 ? t.w / tw : 1 / k.terms.length, m: t.m })));
+      }
     }
     att.vertices = out;
-    if (!anyDropped) continue;
+    if (!changed) continue;
     remapWeightedDeform(doc, sk.name, slotName, attName, src, entry);
     for (const other of doc.skins || []) for (const [childName, child] of Object.entries((other.attachments || {})[slotName] || {}))
       if (isRawLinkedMeshDef(child) && child.parent === attName && child.timelines === false && linkedMeshParentSkin(child) === sk.name)
@@ -5053,9 +5279,27 @@ function deleteConstraint(kind, name){
   markDirty(); animsDirty = true;
 }
 
+// The setup pose the stage draws for `doc` — constraints applied, in the skin on stage — as world
+// transforms by bone name, relative to the skeleton's origin. A bone the skin leaves inactive is
+// left out (the runtime never poses it), and so is everything when the doc does not load.
+function posedSetupWorlds(doc){
+  const out = new Map(), keep = missingArt; // the loader's gaps are the rebuild's to report
+  missingArt = [];
+  try {
+    const sd = new SPINE.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    const sk = new SPINE.Skeleton(sd);
+    const skin = sd.findSkin(activeSkinName()) || sd.defaultSkin;
+    if (skin) sk.setSkin(skin);
+    sk.setToSetupPose();
+    sk.updateWorldTransform(SPINE.Physics ? SPINE.Physics.none : undefined);
+    for (const b of sk.bones) if (b.active) out.set(b.data.name, { a: b.a, b: b.b, c: b.c, d: b.d, x: b.worldX - sk.x, y: b.worldY - sk.y });
+  } catch (e) { out.clear(); } finally { missingArt = keep; }
+  return out;
+}
+
 function deleteBone(name){
   if (!rawDoc) return;
-  const res = deleteBoneCore(rawDoc, name); if (!res) return;
+  const res = deleteBoneCore(rawDoc, name, posedSetupWorlds); if (!res) return;
   if (collapsedBones.has(name)) collapsedBones.delete(name);
   selBone = null;
   reportDroppedConstraints('bone "' + name + '"', res.removed);
@@ -5147,16 +5391,51 @@ function slotSetupRegion(slotName){
   return slot.attachment;
 }
 
-// Repoint a slot's SETUP attachment image to `regionName` in every skin that holds
-// it — keeps the mesh/UVs/weights/deform, only the sampled region changes (same as
-// replaceAttachmentImage, but non-interactive / no rebuild).
-function repointSlotSetupImage(slotName, regionName){
+// The definitions of a slot's SETUP attachment that sample their own image, in every skin.
+function slotSetupImageDefs(slotName){
   const slot = (rawDoc.slots || []).find((s) => s.name === slotName);
-  if (!slot || !slot.attachment) return;
+  if (!slot || !slot.attachment) return [];
+  const out = [];
   for (const sk of rawDoc.skins || []){
     const def = sk.attachments && sk.attachments[slotName] && sk.attachments[slotName][slot.attachment];
-    if (def && def.type !== "linkedmesh") def.path = regionName;
+    if (def && def.type !== "linkedmesh") out.push(def);
   }
+  return out;
+}
+
+// Why a slot's setup image cannot be re-pointed at one FX region, or null. A sequence names its
+// frames `<path><number>` off `path`, so re-pointing it re-aims every frame at a region that does
+// not exist and the rig no longer opens ("Region not found"). Carrying the sequence would need the
+// FX frames as their own numbered run, and the Sheet Maker writes one `<frame>_glow` per frame,
+// which no Spine sequence can name.
+function fxRepointRefusal(slotName){
+  const def = slotSetupImageDefs(slotName).find((d) => d.sequence);
+  return def ? "its image is a " + (def.sequence.count || 0) + "-frame sequence, and one FX image can't stand in for its frames" : null;
+}
+
+// Repoint a slot's SETUP attachment image to `regionName` in every skin that holds
+// it — keeps the mesh/UVs/weights/deform, only the sampled region changes (same as
+// replaceAttachmentImage, but non-interactive / no rebuild). Returns why it refused, or null.
+function repointSlotSetupImage(slotName, regionName){
+  const why = fxRepointRefusal(slotName); if (why) return why;
+  for (const def of slotSetupImageDefs(slotName)) def.path = regionName;
+  return null;
+}
+
+// Every frame region of a slot's setup sequence → that slot, so an FX layer drawn for ONE frame
+// (`symbexpl_01_glow`) is reported as a sequence's rather than as an image no slot shows.
+function sequenceFrameSlots(){
+  const out = new Map();
+  for (const s of rawDoc.slots || []){
+    const def = slotSetupImageDefs(s.name).find((d) => d.sequence);
+    if (!def) continue;
+    const seq = def.sequence, start = seq.start == null ? 1 : seq.start;
+    for (let i = 0; i < (seq.count || 0); i++){
+      const frame = (def.path || s.attachment) + seqPad(start + i, seq.digits);
+      if (!out.has(frame)) out.set(frame, s.name);
+    }
+  }
+  return out;
 }
 
 // Auto-author FX layers: for every `<base>_<mode>` region in this rig's atlas whose
@@ -5178,13 +5457,23 @@ function autoCreateFxSlots(){
     if (rn && !slotForRegion.has(rn)) slotForRegion.set(rn, s.name);
   }
   const existing = new Set(rawDoc.slots.map((s) => s.name));
+  const frameSlots = sequenceFrameSlots();
   const created = [], skipped = [];
   for (const rn of regionNames){
     const info = fxInfo(rn);
     if (!info || !regionSet.has(info.base)) continue;   // not FX, or base region absent
     if (existing.has(rn)){ skipped.push(rn + " (slot exists)"); continue; }
     const baseSlot = slotForRegion.get(info.base);
-    if (!baseSlot){ skipped.push(rn + " (base “" + info.base + "” not slotted)"); continue; }
+    if (!baseSlot){
+      const seqSlot = frameSlots.get(info.base);
+      skipped.push(rn + (seqSlot
+        ? " (“" + info.base + "” is one frame of the sequence on slot “" + seqSlot + "”, and a sequence can't take a per-frame FX layer)"
+        : " (base “" + info.base + "” not slotted)"));
+      continue;
+    }
+    // checked before the duplicate, so a refused layer leaves no slot behind
+    const why = fxRepointRefusal(baseSlot);
+    if (why){ skipped.push(rn + " (slot “" + baseSlot + "”: " + why + ")"); continue; }
     duplicateSlotCore(baseSlot, rn, info.mode === "shadow" ? "before" : "after");
     repointSlotSetupImage(rn, rn);
     existing.add(rn);

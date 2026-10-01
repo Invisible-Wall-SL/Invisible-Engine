@@ -93,11 +93,13 @@ const shipped = [
 		'sequenceFrames', 'detectSequence', 'keySequenceAtPlayhead', 'setSeqKeyField',
 		'sequenceSkinFor', 'attachmentDefFor', 'slotAttachmentList', 'ensureCurAnim',
 		'animsWithSequenceKeys', 'dropSequenceKeysFor', 'makeAttachmentLoader', 'placeholderRegion',
-		'animHasName'].map(pullFn),
+		'animHasName', 'autoCreateFxSlots', 'duplicateSlotCore', 'fxInfo', 'slotSetupRegion',
+		'slotSetupImageDefs', 'fxRepointRefusal', 'repointSlotSetupImage', 'sequenceFrameSlots'].map(pullFn),
+	pullConst('FX_SUFFIX_MODE'),
 ].join('\n');
 // A `const` binding lives in the script's declarative scope, NOT on the sandbox object, so a spike
 // can only reach `function` declarations unless the consts are published onto it explicitly.
-const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName, SEQ_MODES, seqPad });';
+const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName, SEQ_MODES, seqPad, FX_SUFFIX_MODE });';
 // One real TextureAtlas, so the authoring helpers resolve frame names against actual regions.
 const sandboxAtlas = (() => {
 	const a = new TextureAtlas(atlasText);
@@ -109,6 +111,9 @@ const sandbox = {
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
 	$: () => null,
 	markDirty() {}, refreshAnimCounts() {}, renderSeqDetail() {},
+	// ✨ Auto FX ends by rebuilding and alerting; F records both.
+	rebuildFromRawDoc() {}, selectSlot() {}, alert(msg) { sandbox.__alerts.push(String(msg)); }, __alerts: [],
+	selBone: null, selSlot: null, skeletonData: null,
 	selSeqKey: null,
 	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false, animMode: true, animTime: 0,
 	// trackKeyArrays reaches these for other track kinds; a sequence track never uses them.
@@ -459,6 +464,56 @@ if (withSeq.length) {
 	log(loadsWith(broken, (at) => sandbox.makeAttachmentLoader(at)) !== true,
 		'control: and the tolerant loader cannot rescue that one — the throw is in readAnimation');
 	sandbox.skeleton = null;
+}
+
+// ---- F. ✨ AUTO FX on a slot that shows a sequence -----------------------------------------
+// Auto FX duplicates the slot showing `<base>` and re-points the copy at `<base>_glow`. A sequence
+// names its frames `<path><number>`, so re-pointing one re-aims every frame at a region that does
+// not exist, and Spine refuses the rig ("Region not found"). The trigger is a region named like
+// the sequence's `path` with an FX layer beside it; the Sheet Maker's natural output, one
+// `<frame>_glow` per frame, must be reported as the sequence's too. A plain image beside it must
+// still get its FX slot, or the refusal could pass by refusing everything.
+{
+	const decl = (() => {
+		for (const sk of doc0.skins || []) for (const [slot, atts] of Object.entries(sk.attachments || {}))
+			for (const [att, d] of Object.entries(atts)) if (d.sequence && (doc0.slots || []).some((s) => s.name === slot && s.attachment === att)) return { slot, att, def: d };
+		return null;
+	})();
+	const plain = (doc0.slots || []).find((s) => {
+		const def = s.attachment && doc0.skins[0].attachments?.[s.name]?.[s.attachment];
+		return def && !def.sequence && !def.type && !def.path && !sandbox.fxInfo(s.attachment) && sandboxAtlas.findRegion(s.attachment);
+	});
+	if (!decl || !plain) console.log('  — no slot showing a sequence (or no plain image) here; Auto FX is checked on a rig that has both');
+	else {
+		const seqPath = decl.def.path || decl.att, seq = decl.def.sequence;
+		const frame1 = seqPath + sandbox.seqPad(seq.start == null ? 1 : seq.start, seq.digits);
+		const boundsOf = (name) => new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\r?\\n\\s*bounds:([^\\r\\n]+)', 'm').exec(atlasText)[1];
+		const extra = [[seqPath, frame1], [seqPath + '_glow', frame1], [frame1 + '_glow', frame1], [plain.attachment + '_glow', plain.attachment]];
+		const fxAtlasText = atlasText.replace(/\s*$/, '\n') + extra.map(([n, from]) => `${n}\nbounds:${boundsOf(from)}\n`).join('');
+		const fxAtlas = new TextureAtlas(fxAtlasText);
+		const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
+		for (const p of fxAtlas.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
+		const loadsStock = (obj) => { try { new SkeletonJson(new AtlasAttachmentLoader(fxAtlas)).readSkeletonData(clone(obj)); return true; } catch (e) { return e.message; } };
+
+		const held = sandbox.assetMgr;
+		sandbox.assetMgr = { require: () => fxAtlas };
+		sandbox.rawDoc = clone(doc0);
+		sandbox.__alerts = [];
+		sandbox.autoCreateFxSlots();
+		sandbox.assetMgr = held;
+		const doc = sandbox.rawDoc, told = sandbox.__alerts.join('\n'), slotNames = new Set(doc.slots.map((s) => s.name));
+		console.log(`\n  Auto FX: "${decl.slot}" shows the ${seq.count}-frame sequence ${seqPath}…; the atlas also has ${extra.map(([n]) => n).join(', ')}`);
+		const opened = loadsStock(doc);
+		log(opened === true, `the rig still opens in stock Spine after ✨ Auto FX slots (${opened === true ? 'ok' : opened})`);
+		log(!slotNames.has(seqPath + '_glow'), `no "${seqPath}_glow" slot was made from the sequence slot`);
+		log(/sequence/.test(told) && told.includes(seqPath + '_glow') && told.includes(decl.slot), 'the author is told that FX layer was skipped because its slot shows a sequence');
+		log(told.includes(frame1 + '_glow') && told.includes('one frame of the sequence on slot'), `and that "${frame1}_glow" is one frame's, not an image no slot shows`);
+		log(doc.slots.length === doc0.slots.length + 1 && slotNames.has(plain.attachment + '_glow'), `control: the plain image "${plain.attachment}" still gets its "${plain.attachment}_glow" slot`);
+		const fx = doc.skins[0].attachments?.[plain.attachment + '_glow']?.[plain.attachment];
+		log(fx && fx.path === plain.attachment + '_glow', `control: that slot shows ${fx && fx.path}`);
+		log(sandbox.repointSlotSetupImage(decl.slot, seqPath + '_glow') !== null && (doc.skins.find((s) => s.attachments?.[decl.slot]?.[decl.att])?.attachments[decl.slot][decl.att].path ?? decl.att) === seqPath,
+			'repointSlotSetupImage itself refuses a sequence and leaves its path alone');
+	}
 }
 
 console.log(pass ? `\nPASS (${checks} checks)\n` : `\nFAIL (${checks} checks)\n`);

@@ -20,15 +20,17 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { SPINE_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment } = await import(SPINE_CORE);
+const SPINE = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = SPINE;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
-function loadData(obj, atlasText) {
+function atlasOf(atlasText) {
 	const atlas = new TextureAtlas(atlasText);
 	const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
 	for (const p of atlas.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
-	return new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(clone(obj));
+	return atlas;
 }
+const loadData = (obj, atlasText) => new SkeletonJson(new AtlasAttachmentLoader(atlasOf(atlasText))).readSkeletonData(clone(obj));
 
 // ---- pull the SHIPPED delete actions (and everything they call) out of view.html ------------
 const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
@@ -42,9 +44,11 @@ function pull(name) {
 	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
 	return html.slice(at, end + (kind === 'const' ? 3 : 2));
 }
-// The UI around a delete: the rebuild is where the real tool would throw, so it LOADS the doc.
+// The UI around a delete: the rebuild is where the real tool would throw, so it LOADS the doc. The
+// bone delete's pose (`posedSetupWorlds`) is the shipped one, on spine-core and the rig's atlas.
 const STUBS = new Set(['rebuildFromRawDoc', 'markDirty', 'selectSlot', 'showNotice', 'renderSlotDetail']);
-const ENTRY = ['deleteBone', 'deleteSlot', 'deleteAttachment', 'deleteSkin', 'deleteIkConstraint', 'deleteTransformConstraint', 'deletePathConstraint', 'deletePhysicsConstraint'];
+// (`posedSetupWorlds` is handed to the bone delete, not called by name, so it is listed here.)
+const ENTRY = ['deleteBone', 'deleteSlot', 'deleteAttachment', 'deleteSkin', 'deleteIkConstraint', 'deleteTransformConstraint', 'deletePathConstraint', 'deletePhysicsConstraint', 'posedSetupWorlds'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
 	const name = q.shift();
@@ -61,6 +65,7 @@ for (const q = [...ENTRY]; q.length; ) {
 }
 const sandbox = {
 	rawDoc: null, skeletonData: null, meshCtx: null, collapsedBones: new Set(),
+	SPINE, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
 	selBone: null, selSlot: null, selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
 	markDirty() {}, selectSlot() {}, renderSlotDetail() {},
 	showNotice(msg) { sandbox.__notices.push(String(msg)); },
@@ -69,7 +74,6 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#delete' });
-
 // ---- one delete through the shipped UI action ----------------------------------------------
 const SEL_KIND = { selIk: 'ik', selTc: 'transform', selPath: 'path', selPc: 'physics' };
 function run(doc, atlasText, action, sel = {}) {
@@ -137,12 +141,43 @@ function drawOrderAt(doc, atlasText, anim, time) {
 	return sk.drawOrder.map((sl) => (sl ? sl.data.name : '∅'));
 }
 
+// What the runtime draws, per skin: every active bone's world (x, y, a, b, c, d) and every
+// attachment's world geometry (an image's four corners, a point's position and direction, a vertex
+// attachment's vertices), keyed "skin|bone name" / "skin|slot/attachment". Setup pose, or under
+// `anim`@`time` (deform keys).
+function snapshot(doc, atlasText, anim, time) {
+	const sd = loadData(doc, atlasText), sk = new Skeleton(sd), out = new Map();
+	const pose = () => { sk.setToSetupPose(); if (anim) sd.findAnimation(anim).apply(sk, 0, time, false, null, 1, 0, 0); sk.updateWorldTransform(Physics.none); };
+	for (const skin of sd.skins) {
+		sk.setSkin(skin); pose();
+		for (const b of sk.bones) if (b.active) out.set(`${skin.name}|${b.data.name}`, { pts: [b.worldX, b.worldY, b.a, b.b, b.c, b.d] });
+		for (const e of skin.getAttachments()) {
+			const slot = sk.slots[e.slotIndex], att = e.attachment;
+			if (!slot.bone.active) continue;
+			slot.setAttachment(att);
+			if (anim) pose();
+			let pts = null;
+			if (att instanceof RegionAttachment) { pts = new Array(8).fill(0); att.computeWorldVertices(slot, pts, 0, 2); }
+			else if (att instanceof PointAttachment) {
+				const p = att.computeWorldPosition(slot.bone, { x: 0, y: 0 }), r = att.computeWorldRotation(slot.bone) * Math.PI / 180;
+				pts = [p.x, p.y, p.x + 10 * Math.cos(r), p.y + 10 * Math.sin(r)];
+			} else if (att instanceof VertexAttachment) { pts = new Array(att.worldVerticesLength).fill(0); att.computeWorldVertices(slot, 0, att.worldVerticesLength, pts, 0, 2); }
+			if (pts) out.set(`${skin.name}|${sd.slots[e.slotIndex].name}/${e.name}`, { pts, region: att instanceof RegionAttachment, bone: slot.bone.data.name });
+		}
+	}
+	return out;
+}
+// Is `M` (2×2) a turn and a uniform scale, possibly mirrored? Only then can an image, which has no
+// shear of its own, be carried exactly.
+const similar = ([a, b, c, d]) => { const s = Math.hypot(a, c) || 1; return (Math.abs(a - d) < 1e-6 * s && Math.abs(b + c) < 1e-6 * s) || (Math.abs(a + d) < 1e-6 * s && Math.abs(b - c) < 1e-6 * s); };
+const corners = (p) => ({ cx: (p[0] + p[2] + p[4] + p[6]) / 4, cy: (p[1] + p[3] + p[5] + p[7]) / 4, area: Math.abs((p[4] - p[0]) * (p[7] - p[3]) - (p[6] - p[2]) * (p[5] - p[1])) / 2 });
+
 let pass = true, checks = 0;
 const log = (ok, msg) => { checks++; if (!ok) { console.log('  ✗ ' + msg); pass = false; } return ok; };
 
 // Every invariant a delete must keep; `what` names the delete, `expect` the removed set (or null
 // to take whatever went). Returns the resulting doc (null when it did not load).
-function checkDelete(what, doc, atlasText, action, { expect = null, asked = null, leaf = null, anim = null, time = 0, sel = {}, keep = [] } = {}) {
+function checkDelete(what, doc, atlasText, action, { expect = null, asked = null, leaf = null, still = null, anim = null, time = 0, sel = {}, keep = [] } = {}) {
 	const before = constraintsOf(doc);
 	const r = run(doc, atlasText, action, sel);
 	if (!log(!r.loadError, `${what}: the rig still loads — ${r.loadError}`)) return null;
@@ -187,8 +222,40 @@ function checkDelete(what, doc, atlasText, action, { expect = null, asked = null
 		const max = Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 		log(a.length === b.length && max < 1e-3, `${what}: ${key} shows the same geometry under ${kAnim}@${kTime} (max ${max.toFixed(4)})`);
 	}
-	// A deleted LEAF bone moves nothing it did not influence: compare against the same rig with only
-	// the removed constraints deleted (its children would otherwise be re-parented, uncompensated).
+	// A deleted bone moves NOTHING in the setup pose (or under `anim`, whose keys here are deform
+	// only): every remaining bone and every attachment of every skin is where it was, compared with
+	// the same rig with only the removed constraints deleted. An image on a bone whose transform
+	// would shear it (it has no shear of its own) is held to its centre and area instead.
+	if (still) {
+		const ref = dropSame(doc, atlasText, removed);
+		for (const [a, t] of anim ? [[null, 0], [anim, time]] : [[null, 0]]) {
+			const want = snapshot(ref, atlasText, a, t), got = snapshot(r.doc, atlasText, a, t);
+			let moved = 0, max = 0, worst = '', approx = 0;
+			for (const [key, w] of want) {
+				const [skin, item] = key.split('|');
+				if (item === still) continue;
+				const g = got.get(key);
+				if (!g) { moved++; worst = key + ' is gone'; continue; }
+				let d = Math.max(...w.pts.map((v, i) => Math.abs(v - g.pts[i])));
+				if (w.region && w.bone === still && d > 1e-3) {
+					const D = want.get(skin + '|' + still).pts, H = want.get(skin + '|' + g.bone).pts;
+					const det = H[2] * H[5] - H[3] * H[4], Hi = [H[5] / det, -H[3] / det, -H[4] / det, H[2] / det];
+					if (!similar([Hi[0] * D[2] + Hi[1] * D[4], Hi[0] * D[3] + Hi[1] * D[5], Hi[2] * D[2] + Hi[3] * D[4], Hi[2] * D[3] + Hi[3] * D[5]])) {
+						const cw = corners(w.pts), cg = corners(g.pts);
+						d = Math.max(Math.abs(cw.cx - cg.cx), Math.abs(cw.cy - cg.cy), Math.abs(cw.area - cg.area) / Math.max(cw.area, 1));
+						approx++;
+					}
+				}
+				if (g.pts.length !== w.pts.length) d = Infinity;
+				if (d > max) { max = d; worst = key; }
+				if (d > 1e-3) moved++;
+			}
+			log(moved === 0, `${what}: ${moved} bones / attachments moved${a ? ' under ' + a + '@' + t : ''} (of ${want.size}; max ${max.toFixed(4)} at ${worst || '—'}${approx ? '; ' + approx + ' sheared images held to centre + area' : ''})`);
+		}
+	}
+	// A deleted LEAF bone moves nothing it did not influence, under an animation too: compare against
+	// the same rig with only the removed constraints deleted. (The bone's own keys go with it, so what
+	// it influenced may move there.)
 	if (leaf) {
 		const ref = dropSame(doc, atlasText, removed);
 		const untouched = new Map();
@@ -270,16 +337,16 @@ const SYNTH = {
 console.log('\n=== delete cascade — synthetic rig (ik · transform · path · physics · skin lists · weighted mesh/path/clip/box · linked meshes · draw order) ===');
 log(!!loadData(SYNTH, SYNTH_ATLAS), 'the synthetic rig loads before any delete');
 const del = (fn, ...a) => (s) => s[fn](...a);
-checkDelete('bone ctrl (IK target, in a skin bone list, weights the box)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'ctrl'), { expect: ['ik arm_ik'], leaf: 'ctrl' });
-checkDelete('bone spine (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { expect: ['transform follow_tc'] });
-checkDelete('bone jiggle (physics bone)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'jiggle'), { expect: ['physics jiggle_phys'], leaf: 'jiggle' });
-const afterP1 = checkDelete('bone p1 (one of two path bones)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'p1'), { expect: [], leaf: 'p1' });
-if (afterP1) checkDelete('bone p2 (the path\'s last bone)', afterP1, SYNTH_ATLAS, del('deleteBone', 'p2'), { expect: ['path tail_path'], leaf: 'p2' });
-checkDelete('bone curve (named like the path\'s target SLOT)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'curve'), { expect: [], leaf: 'curve' });
-checkDelete('bone tip (weights the clipping polygon)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'tip'), { expect: [], leaf: 'tip' });
-checkDelete('bone leaf (weights the body; one vertex only on it)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'leaf'), { expect: [], leaf: 'leaf' });
+checkDelete('bone ctrl (IK target, in a skin bone list, weights the box)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'ctrl'), { still: 'ctrl', expect: ['ik arm_ik'] });
+checkDelete('bone spine (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { still: 'spine', expect: ['transform follow_tc'] });
+checkDelete('bone jiggle (physics bone)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'jiggle'), { still: 'jiggle', expect: ['physics jiggle_phys'] });
+const afterP1 = checkDelete('bone p1 (one of two path bones)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'p1'), { still: 'p1', expect: [] });
+if (afterP1) checkDelete('bone p2 (the path\'s last bone)', afterP1, SYNTH_ATLAS, del('deleteBone', 'p2'), { still: 'p2', expect: ['path tail_path'] });
+checkDelete('bone curve (named like the path\'s target SLOT)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'curve'), { still: 'curve', expect: [] });
+checkDelete('bone tip (weights the clipping polygon)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'tip'), { still: 'tip', expect: [] });
+checkDelete('bone leaf (weights the body; one vertex only on it)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'leaf'), { still: 'leaf', expect: [] });
 checkDelete('bone leaf, under the body\'s deform key', SYNTH, SYNTH_ATLAS, del('deleteBone', 'leaf'), { expect: [], leaf: 'leaf', anim: 'anim', time: 1 });
-checkDelete('bone tail (weights the path and the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'tail'), { expect: [] });
+checkDelete('bone tail (weights the path and the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'tail'), { still: 'tail', expect: [] });
 checkDelete('slot curve (the path constraint\'s target)', SYNTH, SYNTH_ATLAS, del('deleteSlot', 'curve'), { expect: ['path tail_path'], sel: { selPath: 'tail_path', selIk: 'arm_ik' } });
 checkDelete('slot clip (a draw-order key moves a slot across it)', SYNTH, SYNTH_ATLAS, del('deleteSlot', 'clip'), { expect: [] });
 checkDelete('path attachment curve/curve', SYNTH, SYNTH_ATLAS, del('deleteAttachment', 'curve', 'curve'), { expect: ['path tail_path'] });
@@ -292,18 +359,108 @@ checkDelete('physics constraint jiggle_phys', SYNTH, SYNTH_ATLAS, del('deletePhy
 checkDelete('mesh attachment body/body (parent of two linked meshes)', SYNTH, SYNTH_ATLAS, del('deleteAttachment', 'body', 'body'), { expect: [], keep: [['default/body/body_de', 'anim', 1], ['default/body/body_own', 'anim', 1]] });
 checkDelete('skin alt (deform keys; parent skin of a linked mesh)', SYNTH, SYNTH_ATLAS, del('deleteSkin', 'alt'), { expect: [], keep: [['default/body/body_alt_link', 'anim', 1]] });
 
+// ---- (1b) a bone delete keeps everything where it was ---------------------------------------
+// The deleted bone's transform is composed into its dependants. Each deleted bone below has one
+// child in every inherit mode (plus a grandchild), carries a slot of every attachment kind, and is
+// posed by a transform constraint that survives the delete, so the pose to keep is the RUNTIME's.
+//   dsim — turned, uniformly scaled and mirrored: even its image is carried exactly.
+//   dgen — non-uniform scale and shear under `noRotationOrReflection`; weights on it alone, shared
+//          with its heir (merged into one influence) and with its own child, all with deform keys.
+//   dh   — under a sheared, non-uniformly scaled parent, so the heir's inverse is a general one.
+const MODES = ['normal', 'onlyTranslation', 'noRotationOrReflection', 'noScale', 'noScaleOrReflection'];
+const kids = (parent, pre) => MODES.flatMap((inherit, i) => [{ name: `${pre}_${i}`, parent, inherit, x: 12 + 5 * i, y: 7 - 3 * i, rotation: 17 * i - 20, scaleX: 1 + 0.15 * i, scaleY: 1.2 - 0.1 * i, shearX: 3 * i, shearY: -4 * i, length: 20 }]);
+const CB = [
+	{ name: 'root' },
+	{ name: 'g', parent: 'root', x: 30, y: -20, rotation: 15, scaleX: 0.9, scaleY: 0.9 },
+	{ name: 'tgt', parent: 'root', x: -50, y: 60, rotation: -30 },
+	{ name: 'g_ns', parent: 'g', x: 8, y: 3, rotation: 20, scaleX: 1.2, shearX: 5, shearY: -7, inherit: 'noScale' },
+	{ name: 'g_z', parent: 'g', x: -6, rotation: 10, scaleX: 0 },
+	{ name: 'dz', parent: 'g', x: 9, y: 9, rotation: 50, scaleX: 0, scaleY: 0 }, { name: 'dz_c', parent: 'dz', x: 5, y: 2, rotation: 7 },
+	{ name: 'dsim', parent: 'g', x: 40, y: 10, rotation: 40, scaleX: -1.5, scaleY: 1.5, length: 30 },
+	...kids('dsim', 's'), { name: 's_gc', parent: 's_3', x: 10, rotation: 5 },
+	{ name: 'dgen', parent: 'g', x: -20, y: 30, rotation: 25, scaleX: 1.4, scaleY: 0.7, shearX: 10, shearY: -15, inherit: 'noRotationOrReflection' },
+	...kids('dgen', 'e'),
+	{ name: 'h', parent: 'root', x: 5, y: 80, rotation: -20, scaleX: 1.3, scaleY: 0.6, shearX: 8 },
+	{ name: 'dh', parent: 'h', x: 15, y: -5, rotation: 30, length: 25 },
+	...kids('dh', 'f'),
+];
+const ci = (n) => CB.findIndex((b) => b.name === n);
+const square = { type: 'mesh', path: 'body', width: 32, height: 32, hull: 4, uvs: [0, 0, 1, 0, 1, 1, 0, 1], triangles: [0, 1, 2, 2, 3, 0], vertices: [-10, -10, 10, -10, 10, 10, -10, 10] };
+const onBone = (pre) => ({
+	[pre + 'img']: { [pre + 'img']: { path: 'body', x: 3, y: 4, rotation: 20, scaleX: -1.2, scaleY: 0.9, width: 32, height: 32 } },
+	[pre + 'pt']: { [pre + 'pt']: { type: 'point', x: 5, y: 6, rotation: 30 } },
+	[pre + 'mesh']: { [pre + 'mesh']: clone(square), [pre + 'link']: { type: 'linkedmesh', parent: pre + 'mesh', path: 'body', timelines: false } },
+	[pre + 'box']: { [pre + 'box']: { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 20, 0, 0, 20] } },
+	[pre + 'path']: { [pre + 'path']: { type: 'path', vertexCount: 6, lengths: [30, 60], vertices: [0, 0, 5, 5, 10, 10, 20, 10, 25, 5, 30, 0] } },
+	[pre + 'clip']: { [pre + 'clip']: { type: 'clipping', end: pre + 'img', vertexCount: 3, vertices: [-5, -5, 30, 0, 0, 30] } },
+});
+const SLOTS = ['dsim', 'dgen', 'dh'].flatMap((b) => Object.keys(onBone(b + '_')).map((name) => ({ name, bone: b, attachment: name })));
+const MESH_KEYS = (pre) => ({ [pre + 'mesh']: { [pre + 'mesh']: { deform: [{ time: 1, vertices: [1, 2, 3, -1, 0, 4, -2, 1] }] }, [pre + 'link']: { deform: [{ time: 1, offset: 2, vertices: [2, 2, -1, 3] }] } } });
+const COMP = {
+	skeleton: { spine: '4.2.00' },
+	bones: CB,
+	slots: [...SLOTS, { name: 'wm', bone: 'root', attachment: 'wm' }, { name: 'dz_mesh', bone: 'dz', attachment: 'dz_mesh' }],
+	// pose_tc outlives any one delete; solo_tc goes with dsim, so dsim's pose to keep is pose_tc's alone
+	transform: [
+		{ name: 'pose_tc', order: 0, bones: ['dsim', 'dgen', 'dh'], target: 'tgt', mixRotate: 0.5, mixX: 0.3, mixY: 0.3, mixScaleX: 0, mixScaleY: 0, mixShearY: 0, rotation: 10 },
+		{ name: 'solo_tc', order: 1, bones: ['dsim'], target: 'tgt', mixRotate: 0.4, mixX: 0.2, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 },
+	],
+	skins: [{
+		name: 'default', attachments: {
+			...onBone('dsim_'), ...onBone('dgen_'), ...onBone('dh_'),
+			// vertex 4 has two influences on the heir g and none on dgen: deleting dgen leaves it alone
+			wm: { wm: { type: 'mesh', path: 'body', width: 32, height: 32, hull: 4, uvs: [0, 0, 1, 0, 1, 1, 0, 1, 0.5, 0.5], triangles: [0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4],
+				vertices: [1, ci('dgen'), 10, 10, 1, 2, ci('dgen'), 20, 0, 0.6, ci('g'), 5, 5, 0.4, 2, ci('e_0'), 3, 3, 0.5, ci('dgen'), -4, 8, 0.5, 2, ci('g'), 0, 4, 0.3, ci('dgen'), 7, -2, 0.7, 2, ci('g'), 1, 1, 0.5, ci('g'), 6, 2, 0.5] } },
+			dz_mesh: { dz_mesh: clone(square) },
+		},
+	}],
+	animations: {
+		anim: { attachments: { default: {
+			...MESH_KEYS('dsim_'), ...MESH_KEYS('dgen_'), ...MESH_KEYS('dh_'),
+			wm: { wm: { deform: [{ time: 1, vertices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -16, -17, 18] }] } },
+		} } },
+	},
+};
+console.log('\n=== bone delete keeps the setup pose — synthetic rig (5 inherit modes · mirror · shear · constraint pose · every attachment kind · merged weights) ===');
+log(!!loadData(COMP, SYNTH_ATLAS), 'the compensation rig loads before any delete');
+for (const b of ['dsim', 'dgen', 'dh', 'g', 'h', 's_3', 'e_2']) checkDelete(`bone ${b}`, COMP, SYNTH_ATLAS, del('deleteBone', b), { still: b, anim: 'anim', time: 1, expect: b === 'dsim' ? ['transform solo_tc'] : null });
+{
+	// Under a parent that only turned and scaled, a child just turns and scales: its authored shear,
+	// mirror and (for a no-scale child, whose frame turns with it) scale stay as they were.
+	const r = run(COMP, SYNTH_ATLAS, del('deleteBone', 'g'));
+	const bone = (n) => r.doc.bones.find((b) => b.name === n);
+	const near = (b, want) => Object.entries(want).every(([k, v]) => Math.abs((b[k] ?? (k.startsWith('scale') ? 1 : 0)) - v) < 1e-4);
+	log(near(bone('dsim'), { rotation: 55, scaleX: -1.35, scaleY: 1.35, shearX: 0, shearY: 0 }), `bone g: its mirrored child dsim turns by 15° and scales by 0.9, still mirrored (${JSON.stringify(bone('dsim'))})`);
+	log(near(bone('g_ns'), { rotation: 35, scaleX: 1.2, scaleY: 1, shearX: 5, shearY: -7 }), `bone g: its no-scale child g_ns turns by 15°, shear and scale untouched (${JSON.stringify(bone('g_ns'))})`);
+	log(near(bone('g_z'), { rotation: 25, scaleX: 0, scaleY: 0.9, shearY: 0 }), `bone g: a child at scaleX 0 still turns by 15° (the axis it hides is still its axis) (${JSON.stringify(bone('g_z'))})`);
+}
+{
+	const r = run(COMP, SYNTH_ATLAS, del('deleteBone', 'dgen'));
+	const wm = readVerts(r.doc.skins[0].attachments.wm.wm, 5);
+	const g = r.doc.bones.findIndex((b) => b.name === 'g');
+	log(wm[1].length === 1 && wm[1][0].bone === g && Math.abs(wm[1][0].w - 1) < 1e-9 && wm[3].length === 1 && wm[3][0].bone === g,
+		`bone dgen: an influence on it joins the heir's own on that vertex rather than sitting beside it (${JSON.stringify(wm[1])})`);
+	log(wm[4].length === 2, `bone dgen: a vertex it never influenced keeps both its influences on the heir (${JSON.stringify(wm[4])})`);
+}
+{
+	// A bone scaled to nothing has flattened its dependants in the setup pose; folding that in would
+	// zero their own values for good, so they move to the heir as authored instead.
+	const r = run(COMP, SYNTH_ATLAS, del('deleteBone', 'dz'));
+	const c = r.doc.bones.find((b) => b.name === 'dz_c');
+	log(!r.loadError && c.parent === 'g' && c.x === 5 && c.y === 2 && c.rotation === 7 && !('scaleX' in c),
+		`bone dz (scale 0): its child keeps its own values (${JSON.stringify(c)})`);
+	log(JSON.stringify(r.doc.skins[0].attachments.dz_mesh.dz_mesh.vertices) === JSON.stringify(square.vertices),
+		`bone dz (scale 0): its slot's mesh keeps its vertices (${JSON.stringify(r.doc.skins[0].attachments.dz_mesh.dz_mesh.vertices)})`);
+}
+
 // ---- (2) the given rig: every bone, slot and path attachment --------------------------------
 const [, , jsonPath, atlasPath] = process.argv;
 if (jsonPath && atlasPath) {
 	const raw = JSON.parse(readFileSync(jsonPath, 'utf8')), atlasText = readFileSync(atlasPath, 'utf8');
-	const parents = new Set(raw.bones.map((b) => b.parent));
 	const paths = [];
 	for (const sk of raw.skins || []) for (const [slot, m] of Object.entries(sk.attachments || {})) for (const [name, att] of Object.entries(m)) if (att && att.type === 'path') paths.push([slot, name]);
 	console.log(`\n=== delete cascade — ${jsonPath}: ${raw.bones.length - 1} bones, ${(raw.slots || []).length} slots, ${paths.length} path attachments, ${linkedAtts(raw).length} linked meshes ===`);
-	// A deleted bone's slots re-home to its parent uncompensated, so one carrying a path
-	// constraint's target slot moves that path, and everything the constraint drives follows.
-	const pathHome = new Set((raw.path || []).map((c) => (raw.slots || []).find((sl) => sl.name === c.target)?.bone));
-	for (const b of raw.bones.slice(1)) checkDelete(`bone ${b.name}`, raw, atlasText, del('deleteBone', b.name), { leaf: parents.has(b.name) || pathHome.has(b.name) ? null : b.name });
+	for (const b of raw.bones.slice(1)) checkDelete(`bone ${b.name}`, raw, atlasText, del('deleteBone', b.name), { still: b.name });
 	for (const s of raw.slots || []) checkDelete(`slot ${s.name}`, raw, atlasText, del('deleteSlot', s.name));
 	for (const [slot, name] of paths) checkDelete(`path attachment ${slot}/${name}`, raw, atlasText, del('deleteAttachment', slot, name));
 	const parentsOf = new Map(); // "slot/parent" → the children that must keep their art

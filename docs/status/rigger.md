@@ -11,7 +11,7 @@ tool still owes owner live-verify against real R2; rig editing has no undo.
 
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is on `main` except the optional Phase 6 license-free renderer (the tool and the games still use the Esoteric runtime):
 
-- **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete; **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
+- **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
 - **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a Spine `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because Spine's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
@@ -39,10 +39,8 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
    not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
    `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`, `fs_total_number`, `S`, `W`; the
    mesh spikes throw on `apps/price/.../symbolsSpecial`. (`delete` is green on all 153 rigs.)
-8. **Bone delete is uncompensated.** Its children, its slots and any vertex weighted only to it
-   move to the parent keeping their LOCAL values, so they jump by the deleted bone's own
-   transform (the confirm says they move; it does not say they jump). Composing that transform
-   in would keep them in place.
+8. ~~Bone delete is uncompensated~~ — fixed 2026-10-01 (Recent changes); kept so the numbers after
+   it stay put.
 9. ~~Skins in the editor: ＋ add image… in a non-default skin, deleting the default skin~~ — fixed
    2026-09-30 (Recent changes); kept so the numbers after it stay put.
 10. ~~＋ Linked mesh / ▸ Convert to mesh drop a sequence~~ — fixed 2026-09-30 (Recent changes); kept
@@ -69,6 +67,31 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
+
+- 2026-10-01 — **Deleting a bone keeps everything where it was in the setup pose** (was open item
+  8). Its children, its slots and the vertices weighted to it moved to its parent keeping their
+  LOCAL values, so they jumped by the deleted bone's transform. The delete now composes that
+  transform in: child bones get new local values in their own inherit mode (all five), images,
+  points and unweighted vertices (and their deform keys) are carried into the parent's space, and
+  an influence on the bone becomes one on the parent at the same world point, merged with the
+  parent's own influence on that vertex. The pose kept is the one the stage draws, constraints
+  applied, so a bone a surviving constraint moves keeps its dependants there too. An image under a
+  non-uniform scale or shear can't take the shear (an image has none): it keeps its centre, axis
+  and area. The bone's own animation keys go with it (as since #880), so in an animation its
+  dependants no longer follow its motion (the confirm says so), and a child's own translate keys
+  now move it along the parent's axes rather than the deleted bone's. `delete.mjs` checks every remaining bone and every attachment of
+  every skin against the setup pose (1e-3) for every bone of `anticipation`, `W` and `S` (both now
+  in CI) and a new synthetic rig. The old code fails it on all of them, 19 planted mutants are
+  each caught, and it is green on all 153 checked-in rigs. A bone at scale 0 (which flattens
+  everything under it) is the one delete left uncompensated.
+- 2026-10-01 — **✨ Auto FX slots no longer breaks a slot that shows an image sequence.**
+  It duplicated the slot and re-pointed the copy's `path` at the FX region, which re-aims every
+  frame of a sequence at a region that does not exist (`symbexpl__glow01`), and the rig no longer
+  opened ("Region not found"). Carrying the sequence is not possible: the Sheet Maker writes one
+  `<frame>_glow` per frame, which no Spine sequence can name. So Auto FX now skips such a layer
+  and says why, before it duplicates anything, and names a per-frame layer (`symbexpl_01_glow`)
+  as a sequence frame's rather than "not slotted". `repointSlotSetupImage` refuses a sequence
+  itself. `sequence.mjs` (CI, on `W`) fails on the old behaviour.
 
 - 2026-10-01 — **The spikes get Spine from one helper, `tools/rigger-spike/spine.mjs`.** 48 spikes
   hard-coded `node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/…` (and `cinematic-pixi` the
