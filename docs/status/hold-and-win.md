@@ -45,7 +45,7 @@ titled **"Hold and win game pipeline"**.
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | in progress — 7a states/roles/gating/defaults, 7b coin label block, 7c flights block + preview | Hold and Win Phase 7 — Symbols SM | — |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
-| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + Classic/Collector playbooks done; owed: create, publish and play the Classic + Collector samples live | H&W Phase 9 — Game Maker presets, 3 samples, docs | 9a: this branch (`claude/cool-ramanujan-dsnupa`) |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
@@ -448,10 +448,9 @@ Hold and Win beats prints copy.
 
 1. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
-     feature total). Publish a Classic and a Collector sample project — save `/config` once on the
-     preset (the unauthored-config trap above), then Re-publish — and play their letters, instant
-     collect, streak flights and wheel live. Start their playbooks beside
-     [hw-3pots-sample.md](../playtest/hw-3pots-sample.md).
+     feature total). Create a Classic and a Collector sample project with the Game Maker preset
+     picker (Phase 9a seeds their config; no `/config` save needed), publish, and play their
+     letters, instant collect, streak flights and wheel live through their playbooks.
    - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
      (its coins already stick through the trigger).
    - **From the live checks (not regressions):** the "RESPINS 3" counter shows ~0.7 s before the
@@ -467,13 +466,36 @@ Hold and Win beats prints copy.
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
-3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
+3. **Phase 9 owed (owner / a session with a launcher login):** create `hw-classic-sample` and
+   `hw-collector-sample` in Game Maker with their presets, publish, and run their playbooks
+   ([classic](../playtest/hw-classic-sample.md), [collector](../playtest/hw-collector-sample.md))
+   end to end on the authoring mock. Then run `hw-3pots-sample`'s S1–S7 again on the current
+   runtime.
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 9a: the Game Maker preset picker seeds the Game Config.** **Create a game**
+  shows a **Preset** dropdown for Hold and Win (Pots / Classic sticky / Collector streak). The
+  scaffold saves that preset as the project's own `config/config.json`
+  (`gameConfigSeedFor` in `gameConfigDefaults.ts` → `projectScaffold.ts`). The write is
+  create-only (`If-None-Match: *`), so it never overwrites an authored config. This closes the
+  `hw-3pots-sample` trap: a new project's mock reports `protocol: "holdAndWin"` from its first
+  publish. It also covers `/admin` create, Duplicate of an un-authored source, and re-scaffolding
+  an older un-authored project; those get the default Pots. **Symbols and Win Text are deliberately
+  NOT seeded:** both already resolve by kind when unauthored (`symbolDefaultsFor('holdAndWin')`
+  covers every preset's symbol names; Win Text's empty doc means the engine defaults). Seeding them
+  would only freeze today's defaults into every project. No other kind is seeded either: they keep
+  inheriting their template. Guides: [game-maker](../tools/game-maker.md) (Create step + trap),
+  [game-config](../tools/game-config.md). Playbooks:
+  [hw-classic-sample](../playtest/hw-classic-sample.md),
+  [hw-collector-sample](../playtest/hw-collector-sample.md). Both projects are **not created yet**:
+  this session ran in a cloud container with no launcher login. Verified offline: each preset's
+  seed passes `prepareGameConfigDoc` with 0 warnings and carries its `holdAndWin` block; `lines`
+  seeds nothing.
 
 - 2026-10-01 — **Hold and Win writes `gameType: 'respin'`** (session "Hold and Win Phase 4 — engine
   runtime"). `HOLD_AND_WIN_KEEPS_GAME_TYPE` is gone (`engine-game` `modeEvents.ts`): the mode layer

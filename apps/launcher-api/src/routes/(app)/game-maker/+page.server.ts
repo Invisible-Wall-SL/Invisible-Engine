@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { HOLD_AND_WIN_PRESET_IDS } from 'game-config';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
 import { OWNER_ROLE } from '$lib/launcherGates';
@@ -186,6 +187,7 @@ export const actions: Actions = {
 		const rawClient = String(data.get('clientKey') ?? '').trim();
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
+		const rawPreset = String(data.get('holdAndWinPreset') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, { action: 'create', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
@@ -194,6 +196,10 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'create', error: 'Unknown game kind.' });
+		}
+		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
+		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
+			return fail(400, { action: 'create', error: 'Unknown Hold and Win preset.' });
 		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'create', error: 'A project with that key exists.' });
@@ -213,7 +219,9 @@ export const actions: Actions = {
 		}
 
 		await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
-		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
+		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
+			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
+		});
 		return { action: 'create', ok: `Created project ${key}.`, createdKey: key };
 	},
 };

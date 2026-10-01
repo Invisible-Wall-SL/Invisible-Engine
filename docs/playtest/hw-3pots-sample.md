@@ -62,5 +62,5 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
 
 - Until Phase 4c the respins show NOTHING moving: the base board stays on screen while the round
   plays out, then the total pays. Expected, not a bug.
-- The project's Game Config was saved once from `/config` (Pots preset) — a freshly scaffolded
-  `holdAndWin` project has no authored config, and its mock then deals plain lines.
+- The project's Game Config was saved once from `/config` (Pots preset). It predates the Game
+  Maker preset picker; a project created since starts with its preset saved as its own config.

@@ -98,11 +98,15 @@ in the banner's preset menu and press **Reset to preset** (it asks first — the
 config is replaced):
 
 - **Pots (3 Pots of Egypt)** — 5×3, 25 lines, decimal coin values, four specials, three
-  pots, Lucky Spin, a full board pays GRAND. A new Hold and Win project starts here.
+  pots, Lucky Spin, a full board pays GRAND. The default for a new Hold and Win project.
 - **Classic sticky (Grand)** — 5×3, 5 lines, a BOOST multiplier, G-R-A-N-D column
   letters, Buy and Super Buy.
 - **Collector streak (Super Hotfire Diamonds)** — 3×3, coins on reels 1 and 3 only, a
   COLLECT on reel 2, only collectors stick, a pre-feature wheel.
+
+A new Hold and Win project already has its own config: Game Maker saves the preset picked
+at **Create** (Pots unless you chose another), so the page opens on an authored doc, not the
+template.
 
 **Symbols get their role in the Symbols panel**, through their special properties:
 `coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `meterSpecial`,

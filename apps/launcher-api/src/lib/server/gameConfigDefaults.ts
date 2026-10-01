@@ -6,6 +6,7 @@ import {
 	normalizeGameConfigDoc,
 	resolveWinLevels,
 	type GameConfigDoc,
+	type HoldAndWinPresetId,
 } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
@@ -84,6 +85,19 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
 export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDoc | null {
 	const key = gameType ? (KIND_DEFAULT_KEY[gameType] ?? gameType) : FALLBACK_GAME_TYPE;
 	return DEFAULTS_BY_GAME_TYPE[key] ?? DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE] ?? null;
+}
+
+/**
+ * The config a NEW project of this kind is scaffolded with, or `null` for a kind that inherits its
+ * template. Only `holdAndWin` is seeded: the mock deals from the AUTHORED doc alone, so an
+ * un-authored Hold and Win project would be dealt plain lines while every tool shows the preset.
+ */
+export function gameConfigSeedFor(
+	gameType: string,
+	preset: HoldAndWinPresetId = DEFAULT_HOLD_AND_WIN_PRESET,
+): GameConfigDoc | null {
+	if (gameType !== 'holdAndWin') return null;
+	return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(preset)] ?? null;
 }
 
 export type GameConfigSource = 'authored' | 'template';

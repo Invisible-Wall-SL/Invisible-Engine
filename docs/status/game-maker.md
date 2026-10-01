@@ -58,6 +58,10 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-10-01 — **Hold and Win preset picker on Create.** Picking Hold and Win shows a **Preset**
+  dropdown, and the scaffold saves that preset as the project's Game Config (create-only, never
+  overwrites). This is the first kind whose scaffold writes a config: the mock deals from the
+  authored doc alone. Detail: [hold-and-win.md](hold-and-win.md) Phase 9a.
 - 2026-09-30 — **Ten Hold and Win detectors** in `gameProfile.ts` (`respin`, `jackpots`, `collector`, `boost`, `payer`, `mystery`, `pots`, `luckySpin`, `columnLetters`, `wheel`), each reading `config.holdAndWin` — they fire only for a Hold and Win project. Shipped with the block itself (Hold and Win Phase 2); detail in [game-config.md](game-config.md).
 - 2026-09-29 — **The mock RGS deals from the version players boot (#870).** Players' mock follows `/api/game-config/mock?source=published` (the snapshot, so **Make live** rolls the math back too); Live ↗ and the home game cards are routed to a per-game authoring mock (`/api/<key>/authoring`, `source=live`) by `asAuthoringLaunch`. The "republish after any math change" trap in [publish-and-deliver](../guides/publish-and-deliver.md) is rewritten accordingly. Full write-up in [game-config.md](game-config.md).
 - 2026-09-29 — **Publish refuses a paytable that drifts from a stored partner reference** (`paytable-drift`, admin-only override, bulk skips it). Detail in [game-config.md](game-config.md).

@@ -5,8 +5,11 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
+import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { gameConfigSeedFor } from './gameConfigDefaults';
+import { saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
 import {
@@ -18,7 +21,7 @@ import {
 	sheetConfigKey,
 } from './projectPaths';
 import { projectGameType } from './projects';
-import { objectExists, putObjectText } from './r2';
+import { ConflictError, objectExists, putObjectText } from './r2';
 
 interface Seed {
 	key: string;
@@ -89,8 +92,15 @@ function buildSeeds(
 	];
 }
 
-/** Write any missing seed files for `(client, project)` into R2. */
-export async function scaffoldProject(client: string, project: string): Promise<void> {
+/**
+ * Write any missing seed files for `(client, project)` into R2. `holdAndWinPreset` picks which
+ * preset a `holdAndWin` project's Game Config is seeded from (default: Pots).
+ */
+export async function scaffoldProject(
+	client: string,
+	project: string,
+	opts: { holdAndWinPreset?: HoldAndWinPresetId } = {},
+): Promise<void> {
 	const gameType = await projectGameType(project);
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
@@ -99,5 +109,23 @@ export async function scaffoldProject(client: string, project: string): Promise<
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
+	}
+	await seedGameConfig(client, project, gameType, opts.holdAndWinPreset);
+}
+
+/** Create the kind's seeded Game Config when the project has none. Never overwrites: the save is
+ *  `If-None-Match: *`, so an author who saved first wins the race. */
+async function seedGameConfig(
+	client: string,
+	project: string,
+	gameType: string,
+	preset: HoldAndWinPresetId | undefined,
+): Promise<void> {
+	const seed = gameConfigSeedFor(gameType, preset);
+	if (!seed) return;
+	try {
+		await saveGameConfigDoc(client, project, seed, null);
+	} catch (err) {
+		if (!(err instanceof ConflictError)) throw err;
 	}
 }

@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import {
+		DEFAULT_HOLD_AND_WIN_PRESET,
+		HOLD_AND_WIN_PRESET_IDS,
+		HOLD_AND_WIN_PRESET_LABELS,
+		type HoldAndWinPresetId,
+	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -38,6 +44,7 @@
 	let name = $state('');
 	let clientKey = $state('');
 	let gameType = $state(data.gameKinds[0]?.id ?? 'lines');
+	let holdAndWinPreset = $state<HoldAndWinPresetId>(DEFAULT_HOLD_AND_WIN_PRESET);
 	let creating = $state(false);
 	let createMsg = $state('');
 	let createErr = $state('');
@@ -707,11 +714,24 @@
 							{/each}
 						</select>
 					</label>
+					{#if gameType === 'holdAndWin'}
+						<label>
+							Preset
+							<select bind:value={holdAndWinPreset}>
+								{#each HOLD_AND_WIN_PRESET_IDS as id (id)}
+									<option value={id}>{HOLD_AND_WIN_PRESET_LABELS[id]}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
 				</div>
 				<input type="hidden" name="key" value={key} />
 				<input type="hidden" name="name" value={name} />
 				<input type="hidden" name="clientKey" value={clientKey} />
 				<input type="hidden" name="gameType" value={gameType} />
+				{#if gameType === 'holdAndWin'}
+					<input type="hidden" name="holdAndWinPreset" value={holdAndWinPreset} />
+				{/if}
 				<div class="actions">
 					<button class="primary" type="submit" disabled={creating}>
 						{creating ? 'Creating…' : 'Create project'}
