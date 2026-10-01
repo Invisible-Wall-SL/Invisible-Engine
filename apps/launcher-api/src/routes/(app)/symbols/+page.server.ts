@@ -146,5 +146,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clips,
 		// id + name only — the Book-VFX FX picker is a plain select; the effect's layers live in /fx.
 		effects: effects.map((e) => ({ id: e.id, name: e.name })),
+		// The Hold and Win meters the Game Config declares — one `toMeter:<id>` row each in the
+		// Flights section, so a single pot can fly differently from the rest.
+		meterIds: (configDoc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
 	};
 };

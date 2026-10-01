@@ -40,6 +40,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 // submodule's own node_modules, so `import 'config-svelte'` would not resolve there. `appSrc.js`
 // is a node-builtins-only leaf for exactly this reason.
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
+import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -433,6 +434,7 @@ async function main() {
 		tumblePattern: undefined,
 		anticipation: undefined,
 		stacked: undefined,
+		flights: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -709,6 +711,10 @@ async function main() {
 				tumblePattern,
 				anticipation,
 				stacked,
+				// The Hold and Win flight styles. MUST reach BOTH bundle paths (this + the runtime
+				// `SymbolExportResult`): omit it and a baked game would fly the coded glow while the live
+				// one flew the authored heads and trails. See `lib/bakeFlights.mjs`.
+				flights: bakeFlights(s?.flights),
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
@@ -1211,6 +1217,9 @@ async function main() {
 				}
 			}
 		}
+		// …and a Hold and Win flight's trail / arrival effect, the fourth source — mirrors
+		// `flightEffectIds` in runtimeBundle.ts (`check:flights` proves the two keep the same ids).
+		for (const id of bakedFlightEffectIds(symbols.flights)) symbolDocBound.add(id);
 		const isEventReachable = (d) =>
 			Array.isArray(d.layers) &&
 			d.layers.some((l) => l.trigger?.on === 'event' && !!l.trigger?.eventType);

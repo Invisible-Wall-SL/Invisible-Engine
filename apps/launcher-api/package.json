@@ -54,6 +54,8 @@
 		"check:symbol-transition": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbol-transition.ts",
 		"precheck:tumble-pattern": "node scripts/ensure-svelte-kit.mjs",
 		"check:tumble-pattern": "tsx --tsconfig tsconfig.scripts.json scripts/check-tumble-pattern.ts",
+		"precheck:flights": "node scripts/ensure-svelte-kit.mjs",
+		"check:flights": "tsx --tsconfig tsconfig.scripts.json scripts/check-flights.ts",
 		"precheck:win-cycle": "node scripts/ensure-svelte-kit.mjs",
 		"check:win-cycle": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-cycle.ts",
 		"precheck:sound-bindings": "node scripts/ensure-svelte-kit.mjs",

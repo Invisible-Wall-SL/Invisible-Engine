@@ -61,6 +61,17 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   - `anticipation` — overlay spine + animation set, activation / loop sounds, per-big-tier FX.
   - `bookVfx` (layers behind / in front of the book symbol during free spins), `symbolSounds` (the
     cue one symbol plays entering `land` / `clearReel`), `names`.
+  - `flights` (Hold and Win only, or once authored) — per flight kind (`toTotal`, `toCollector`,
+    `boostBeam`, `toMeter`, `toMeter:<id>` for each Game Config meter): the head (built-in glow,
+    re-tinted glow, sprite / spine / flipbook, none), the trail (an Invisible FX effect played as a
+    moving emitter, or off), the arrival effect, the route (max bend, over-route, avoid win cells,
+    padding) and the timing (speed, min / max ms, ease, stagger). One definition for the tool, the
+    server and the game: `engine-layout/flightStyle.ts` (`normalizeFlights`, `resolveFlightStyle`:
+    exact kind → `toMeter` family → coded, field by field) and `flightPath.ts`
+    (`flightPlanOptions`, `flightEaseOf`). The section's **flight preview** plans the route with the
+    game's `planFlight` over a mock 5×3 board with draggable ends and clickable win cells; an
+    authored trail plays on `FxStage` through its `ownerPos` hook (still container, moving owner —
+    the game's mechanism); the coded trail is a canvas approximation.
 - **Ship chain** — `symbolExport.ts` → `deploy/editor-symbols/` → bake → pull →
   `bakedSymbolMap()` / `bakedSymbolAssets()`. Symbol sheets go through the shared `PageStore` with
   KTX2 twins, and the game picks the compressed tier like editor art. A bound spine that resolves
@@ -73,7 +84,10 @@ rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** 
 enables), the `/api/editor/export-symbols` response, and the **`bake-editor-doc.mjs` whitelist**
 (else only the runtime-bundle path carries it). `check:win-cycle` derives its field list from the
 schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
-`check:symbol-transition`, `check:tumble-pattern` and `check:sound-bindings`.
+`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:flights`
+(which also RUNS the bake's `scripts/lib/bakeFlights.mjs` rather than grepping for it). A global
+that names an Invisible FX effect must also join the reachable-effects set in `runtimeBundle.ts`
+AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Open items / next
 
@@ -98,6 +112,13 @@ schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers
    whether the resting board should show the winners instead is an open product call.
 9. **The no-flow branch of `playBookEvents` bypasses `dispatchBookEvent`**, so on a game with no
    FlowDoc the win-cycle record (and therefore `winExplode`) stays inert.
+10. **Flights: the preview does not play the arrival effect** (shown as a thumbnail in the editor)
+    and draws the CODED trail as a canvas approximation, not the `constants-shared` trail config the
+    game emits (the launcher does not depend on `constants-shared`/`engine-game`). An authored trail
+    and every route are the real thing. A bone-placed layer in a trail effect rides nothing in the
+    game (`ownerPos` is free-layer only) while the preview treats it as free.
+11. **Flights are not yet verified on a real board** — the authored head / trail / arrival in a
+    running Hold and Win round (Storybook `MODE_HOLD_AND_WIN/flights` with a baked block) is owed.
 
 ## Blocked (owner / external)
 
@@ -107,6 +128,22 @@ schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers
 ## Recent changes
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
+
+- 2026-10-01 — **Flights** (Hold and Win Phase 7c): the `flights` doc global and its section. The
+  block is strict in shape and forgiving in value — junk keys and invalid values are dropped and
+  numbers clamped by `engine-layout`'s `normalizeFlights`, which the page's `setFlightStyle`, the
+  server's `normalizeSymbolsDoc` and `docSignature` all run, so the page never signs a doc the save
+  changes. Ship chain: sprite / spine heads through `collectSymbolRefs` (`bakedFlightAssets()`),
+  flipbook heads through the clip walk, trail / arrival effects added to BOTH reachable-effects
+  sets (`flightEffectIds` / `bakedFlightEffectIds`), the block through the exporter, the export
+  endpoint, the bake (`scripts/lib/bakeFlights.mjs`) and `bakedFlights()`. The game's `flyTo`
+  resolves each flight's style (speed, min / max, stagger, ease, padding, bend, over-route,
+  avoidance) and `FlightLayer` draws an art head through `SymbolLayer`, an authored trail through
+  `FlightView`'s `<EffectPlayer ownerPos>` and the arrival once at the target; an absent block
+  resolves to exactly the coded flight (pinned by `engine-game/fixtures/flightStyle.fixture.ts`).
+  `flightPath.ts` moved from `engine-game` to `engine-layout` so the tool and the game plan with
+  one copy (engine-game re-exports it). `FxStage` gained `ownerPos` / `emitting` /
+  `showReference`; `SymbolFxPreview`'s doc + art reads moved to `fxPreview.client.ts`.
 
 - 2026-09-30 — **Leaving with unsaved edits asks first**: the page tracked `dirty` but registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded edits silently. It now calls the shared `guardUnsavedWork` (app confirm in-app, browser prompt on unload). A History… restore marks the doc settled before its reload, so the author is not asked a second time over a restore already applied. (No history entry — see the launcher status of the same date.)
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).

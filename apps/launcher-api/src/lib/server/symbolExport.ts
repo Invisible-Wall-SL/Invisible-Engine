@@ -244,6 +244,11 @@ export interface SymbolExportResult {
 	 *  `art.assetKey` with no rewriting, exactly like the grid `map`. Present ONLY when the master toggle is
 	 *  ON and ≥1 symbol is authored, so a disabled/un-authored project bakes NO `stacked` field (byte-parity). */
 	stacked?: SymbolExportStacked;
+	/** Hold and Win flights (head / trail / arrival / path / timing per flight kind), passed through
+	 *  VERBATIM. A sprite/spine head ships via `refs` into `index.sheets`/`index.spines` under its own
+	 *  key, a flipbook head's clip via the editor-art clip walk, a trail/arrival effect via the effects
+	 *  export (kept reachable). Absent → every flight flies the coded glow. */
+	flights?: SymbolsDoc['flights'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -340,6 +345,15 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 		for (const s of doc.stackedPictures.symbols ?? []) {
 			addCellRefs(s.art, refs);
 			addCellRefs(s.winArt, refs);
+		}
+	}
+	// A flight's sprite/spine HEAD is the same kind of asset as a layer's — route it through the same
+	// refs or the head shows in the tool and loads nothing in the game (rule 8). A glow / none head
+	// has no asset; a flipbook head's clip rides the editor-art clip walk.
+	for (const style of Object.values(doc.flights ?? {})) {
+		const head = style.head;
+		if (head?.kind === 'sprite' || head?.kind === 'spine') {
+			addLayerRefs({ kind: head.kind, assetKey: head.assetKey }, refs);
 		}
 	}
 	return refs;
@@ -830,6 +844,13 @@ export async function exportEditorSymbols(
 	// the coded `codedTierFx` ramp.
 	const anticipation = doc.anticipation;
 
+	// Hold and Win flights. A sprite/spine head already shipped via `refs` above, a flipbook head's
+	// clip via the editor-art clip walk (`collectPlayedClipIds` reads every `clipId` in this doc), and
+	// a trail/arrival effect via the effects export, kept reachable by `flightEffectIds` in the
+	// runtime bundle and the bake. So this is a verbatim pass-through of the normalized block; absent
+	// → every flight flies the coded glow.
+	const flights = doc.flights;
+
 	// Display names — another assetless pass-through, omitted when nothing is named so an
 	// un-authored project's bundle stays byte-identical.
 	const names = doc.names && Object.keys(doc.names).length ? doc.names : undefined;
@@ -880,5 +901,6 @@ export async function exportEditorSymbols(
 		...(tumblePattern ? { tumblePattern } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
+		...(flights ? { flights } : {}),
 	};
 }

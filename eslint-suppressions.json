@@ -250,11 +250,6 @@
       "count": 4
     }
   },
-  "apps/launcher-api/src/routes/(app)/symbols/SymbolFxPreview.svelte": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 1
-    }
-  },
   "apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 3

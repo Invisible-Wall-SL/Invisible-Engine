@@ -5,9 +5,23 @@
 		BUILTIN_SHEETS,
 		builtinSheetKey,
 		builtinSpineMeta,
+		FLIGHT_EASE_LABELS,
+		FLIGHT_EASES,
+		FLIGHT_KIND_LABELS,
+		FLIGHT_KINDS,
+		FLIGHT_LIMITS,
+		FLIGHT_METER_PREFIX,
+		kindCapabilities,
+		meterFlightKey,
+		normalizeFlightHead,
 		parseScopedFrameRef,
+		resolveFlightStyle,
 		SYMBOL_STATE_LABELS,
 		scopedFrameRef,
+		type FlightEase,
+		type FlightHead,
+		type FlightHeadKind,
+		type FlightStyle,
 	} from 'engine-layout';
 	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { invalidateAll } from '$app/navigation';
@@ -28,6 +42,7 @@
 	} from '../editor/editorRegions.client';
 	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
+	import FlightPreview from './FlightPreview.svelte';
 	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
@@ -55,6 +70,7 @@
 		setAnticipationTierFx,
 		setBoardGlow,
 		setBookVfxLayer,
+		setFlightStyle,
 		setHighlight,
 		setOverride,
 		setSymbolName,
@@ -1187,6 +1203,193 @@
 	/** The project's Invisible FX effects, for the fx-kind picker. */
 	const effects = $derived(data.effects);
 
+	// ── Hold and Win FLIGHTS ────────────────────────────────────────────────────────────────────
+	// One style per flight kind, edited in place (every change goes straight through
+	// `setFlightStyle`, which runs the server's own `normalizeFlights`). Shown for a Hold and Win
+	// project, or for any project that already authored the block — hiding authored data would make
+	// it impossible to clear.
+	const flightsShown = $derived(kindCapabilities(data.gameType).holdAndWin || !!doc.flights);
+
+	const FLIGHT_HEAD_LABELS: Record<FlightHeadKind, string> = {
+		glow: 'Glow',
+		sprite: 'Sprite',
+		spine: 'Spine',
+		flipbook: 'Flipbook',
+		none: 'None',
+	};
+	const FLIGHT_HEAD_CHOICES: (FlightHeadKind | 'coded')[] = [
+		'coded',
+		'glow',
+		'sprite',
+		'spine',
+		'flipbook',
+		'none',
+	];
+
+	/** The kinds, then one row per Game Config meter, then any authored meter the config no longer
+	 *  declares (kept visible so it can be cleared). */
+	const flightRows = $derived.by(() => {
+		const rows: { key: string; label: string; orphan: boolean }[] = FLIGHT_KINDS.map((kind) => ({
+			key: kind,
+			label: FLIGHT_KIND_LABELS[kind],
+			orphan: false,
+		}));
+		const meters = new Set(data.meterIds);
+		for (const id of data.meterIds) {
+			rows.push({ key: meterFlightKey(id), label: `Into meter “${id}”`, orphan: false });
+		}
+		for (const key of Object.keys(doc.flights ?? {})) {
+			const id = key.startsWith(FLIGHT_METER_PREFIX) ? key.slice(FLIGHT_METER_PREFIX.length) : '';
+			if (id && !meters.has(id)) rows.push({ key, label: `Into meter “${id}”`, orphan: true });
+		}
+		return rows;
+	});
+
+	let flightKey = $state<string>('toTotal');
+	/** A head whose kind needs an asset that is not picked yet — held here until it is complete,
+	 *  because the normalizer drops an incomplete head and the choice would vanish. */
+	let flightHeadDraft = $state<FlightHead | null>(null);
+	let flightHeadAnimations = $state<string[]>([]);
+
+	const flightOwn = $derived<FlightStyle>(doc.flights?.[flightKey] ?? {});
+	const flightResolved = $derived(resolveFlightStyle(doc.flights, flightKey));
+	/** What each field falls back to when this kind leaves it unset (the family, then coded). */
+	const flightInherited = $derived.by(() => {
+		const rest = { ...doc.flights };
+		delete rest[flightKey];
+		return resolveFlightStyle(rest, flightKey);
+	});
+	const flightHead = $derived<FlightHead | undefined>(flightHeadDraft ?? flightOwn.head);
+	const flightInheritLabel = $derived(
+		flightKey.startsWith(FLIGHT_METER_PREFIX) && doc.flights?.toMeter
+			? FLIGHT_KIND_LABELS.toMeter
+			: 'coded',
+	);
+
+	function selectFlight(key: string): void {
+		flightKey = key;
+		flightHeadDraft = null;
+		flightHeadAnimations = [];
+	}
+
+	function patchFlight(edit: (style: FlightStyle) => void): void {
+		const next = $state.snapshot(flightOwn) as FlightStyle;
+		edit(next);
+		doc = setFlightStyle(doc, flightKey, next);
+	}
+
+	function resetFlight(): void {
+		flightHeadDraft = null;
+		doc = setFlightStyle(doc, flightKey, undefined);
+	}
+
+	/** Writes a complete head to the doc; holds an incomplete one as the draft. */
+	function setFlightHead(head: FlightHead | undefined): void {
+		const valid = head ? normalizeFlightHead(head) : undefined;
+		if (head && !valid) {
+			flightHeadDraft = head;
+			return;
+		}
+		flightHeadDraft = null;
+		patchFlight((style) => {
+			if (valid) style.head = valid;
+			else delete style.head;
+		});
+	}
+
+	function pickFlightHeadKind(kind: FlightHeadKind | 'coded'): void {
+		flightHeadAnimations = [];
+		if (kind === 'coded') {
+			setFlightHead(undefined);
+			return;
+		}
+		const current = flightHead ? ($state.snapshot(flightHead) as FlightHead) : undefined;
+		setFlightHead({ kind, scale: current?.scale, tint: current?.tint });
+	}
+
+	function patchFlightHead(fields: Partial<FlightHead>): void {
+		if (!flightHead) return;
+		setFlightHead({ ...($state.snapshot(flightHead) as FlightHead), ...fields });
+	}
+
+	const numberOrUndefined = (value: string): number | undefined => {
+		const trimmed = value.trim();
+		if (!trimmed) return undefined;
+		const n = Number(trimmed);
+		return Number.isFinite(n) ? n : undefined;
+	};
+
+	function setFlightNumber(
+		field: 'speed' | 'minMs' | 'maxMs' | 'stagger',
+		value: number | undefined,
+	): void {
+		patchFlight((style) => {
+			if (value === undefined) delete style[field];
+			else style[field] = value;
+		});
+	}
+
+	/** Board units in one cell (`SYMBOL_SIZE`). The doc stores speed in board units per ms; the
+	 *  page shows cells per second, which an author can picture. */
+	const FLIGHT_CELL = 120;
+	const cellsPerSecond = (speed: number): number =>
+		Math.round(((speed * 1000) / FLIGHT_CELL) * 100) / 100;
+
+	function setFlightPathNumber(field: 'bend' | 'padding', value: string): void {
+		patchFlight((style) => {
+			const n = numberOrUndefined(value);
+			const path = { ...style.path };
+			if (n === undefined) delete path[field];
+			else path[field] = n;
+			style.path = path;
+		});
+	}
+
+	function setFlightPathFlag(field: 'overRoute' | 'avoid', value: string): void {
+		patchFlight((style) => {
+			const path = { ...style.path };
+			if (value === 'on') path[field] = true;
+			else if (value === 'off') path[field] = false;
+			else delete path[field];
+			style.path = path;
+		});
+	}
+
+	function setFlightEase(value: string): void {
+		patchFlight((style) => {
+			if ((FLIGHT_EASES as readonly string[]).includes(value)) style.ease = value as FlightEase;
+			else delete style.ease;
+		});
+	}
+
+	const FLIGHT_TRAIL_OFF = '__off';
+	const flightTrailValue = $derived(
+		flightOwn.trail ? ('off' in flightOwn.trail ? FLIGHT_TRAIL_OFF : flightOwn.trail.effectId) : '',
+	);
+	function setFlightTrail(value: string): void {
+		patchFlight((style) => {
+			if (value === FLIGHT_TRAIL_OFF) style.trail = { off: true };
+			else if (value) style.trail = { effectId: value };
+			else delete style.trail;
+		});
+	}
+	function setFlightArrival(value: string): void {
+		patchFlight((style) => {
+			if (value) style.arrival = { effectId: value };
+			else delete style.arrival;
+		});
+	}
+
+	const flagValue = (flag: boolean | undefined): string =>
+		flag === undefined ? '' : flag ? 'on' : 'off';
+	const effectName = (id: string): string => effects.find((e) => e.id === id)?.name ?? id;
+	const trailLabel = (style: { trail?: FlightStyle['trail'] }): string =>
+		!style.trail
+			? 'coded gold glow'
+			: 'off' in style.trail
+				? 'no trail'
+				: effectName(style.trail.effectId);
+
 	/** A short chip label for an authored Book-VFX layer. */
 	function bookVfxLabel(layer: BookVfxLayer): string {
 		switch (layer.kind) {
@@ -1861,8 +2064,8 @@
 											<code>{w.bundle}</code> has no animations at all, so the cell draws its setup
 											pose — a <strong>blank</strong> symbol in-game.
 										{:else}
-											<code>{w.bundle}</code> has {w.count} animations; the cell plays whichever the
-											export listed <strong>first</strong>.
+											<code>{w.bundle}</code> has {w.count} animations; the cell plays whichever the export
+											listed <strong>first</strong>.
 										{/if}
 									</span>
 								</li>
@@ -2743,8 +2946,8 @@
 												<p class="hint">
 													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a>
 													to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
-													on the effect's authored size (1 = as authored), not a cell fit — so 10 is
-													10× (huge); dial it down (e.g. 0.5) to fit the cell.
+													on the effect's authored size (1 = as authored), not a cell fit — so 10 is 10×
+													(huge); dial it down (e.g. 0.5) to fit the cell.
 												</p>
 											</div>
 											{#if bookVfxDraft.effectId}
@@ -2814,6 +3017,397 @@
 						{/each}
 					</div>
 				</section>
+
+				{#if flightsShown}
+					{#snippet flightHeadArt(size: number)}
+						{#if flightResolved.head && flightResolved.head.kind !== 'glow' && flightResolved.head.kind !== 'none'}
+							{@render layerThumb(
+								{
+									kind: flightResolved.head.kind,
+									assetKey: flightResolved.head.assetKey,
+									animationName: flightResolved.head.animationName,
+									clipId: flightResolved.head.clipId,
+								},
+								size,
+							)}
+						{/if}
+					{/snippet}
+					<section class="bookvfx flights">
+						<div class="hl-head">
+							<div class="hl-title">
+								<h2>Flights</h2>
+								<p class="hl-sub">
+									How things fly in Hold and Win — a coin into the total win, a coin into a
+									collector, a special into its meter, a boost beam. Per kind: the head that
+									travels, the trail it leaves (an Invisible FX effect), the effect on impact, the
+									shape of the route around the winning cells, and the timing. Anything left unset
+									flies the built-in gold glow; a single meter falls back to “every meter” first.
+								</p>
+							</div>
+						</div>
+
+						<div class="fl-body">
+							<div class="fl-kinds" role="listbox" aria-label="Flight kinds">
+								{#each flightRows as row (row.key)}
+									<button
+										type="button"
+										role="option"
+										aria-selected={flightKey === row.key}
+										class="fl-kind"
+										class:active={flightKey === row.key}
+										onclick={() => selectFlight(row.key)}
+									>
+										<span>{row.label}</span>
+										{#if doc.flights?.[row.key]}<span class="badge">set</span>{/if}
+										{#if row.orphan}<span class="fl-orphan">not in Game Config</span>{/if}
+									</button>
+								{/each}
+							</div>
+
+							<div class="fl-editor">
+								<div class="bv-slot-head">
+									<div class="bv-slot-title">
+										<h3>{flightRows.find((r) => r.key === flightKey)?.label ?? flightKey}</h3>
+										<p class="bv-sub">
+											Flight kind <code>{flightKey}</code> · unset fields use the {flightInheritLabel}
+											value.
+										</p>
+									</div>
+									{#if doc.flights?.[flightKey]}
+										<button type="button" class="ghost" onclick={resetFlight}>↺ Reset</button>
+									{/if}
+								</div>
+
+								<div class="field">
+									<span class="label">Head</span>
+									<div class="seg">
+										{#each FLIGHT_HEAD_CHOICES as choice (choice)}
+											{@const active =
+												choice === 'coded' ? !flightHead : flightHead?.kind === choice}
+											{@const noClips = choice === 'flipbook' && clips.length === 0}
+											<button
+												type="button"
+												class:active
+												disabled={noClips}
+												title={noClips ? 'This project has no Flipbook clips yet' : ''}
+												onclick={() => pickFlightHeadKind(choice)}
+												>{choice === 'coded'
+													? flightInheritLabel === 'coded'
+														? 'Built-in'
+														: 'Inherit'
+													: FLIGHT_HEAD_LABELS[choice]}</button
+											>
+										{/each}
+									</div>
+									{#if flightHeadDraft}
+										<p class="hint">Pick the asset below to apply this head.</p>
+									{/if}
+								</div>
+
+								{#if flightHead?.kind === 'sprite'}
+									<div class="field">
+										<span class="label">Frame</span>
+										<RegionPicker
+											scoped
+											sheets={pickSheets}
+											value={flightHead.assetKey ?? ''}
+											onSelect={(region) => patchFlightHead({ assetKey: region })}
+										/>
+									</div>
+								{:else if flightHead?.kind === 'spine'}
+									<div class="field">
+										<span class="label">Spine bundle</span>
+										<select
+											value={flightHead.assetKey ?? ''}
+											onchange={(e) => {
+												flightHeadAnimations = [];
+												patchFlightHead({
+													assetKey: e.currentTarget.value || undefined,
+													animationName: undefined,
+												});
+											}}
+										>
+											<option value="">Pick a bundle…</option>
+											{#each spineBundles as b (b.key)}
+												<option value={b.key}>{b.name}</option>
+											{/each}
+										</select>
+									</div>
+									{#if flightHead.assetKey}
+										<div class="field">
+											<span class="label">Animation (loops while it flies)</span>
+											{#if flightHeadAnimations.length}
+												<select
+													value={flightHead.animationName ?? ''}
+													onchange={(e) =>
+														patchFlightHead({ animationName: e.currentTarget.value || undefined })}
+												>
+													<option value="">Pick an animation…</option>
+													{#each flightHeadAnimations as anim (anim)}
+														<option value={anim}>{anim}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													type="text"
+													placeholder="animation name"
+													value={flightHead.animationName ?? ''}
+													onchange={(e) =>
+														patchFlightHead({ animationName: e.currentTarget.value || undefined })}
+												/>
+											{/if}
+											<div class="panel-preview">
+												<SymbolSpinePreview
+													assetKey={flightHead.assetKey}
+													animationName={flightHead.animationName}
+													size={90}
+													{reloadToken}
+													onAnimations={(names) => (flightHeadAnimations = names)}
+												/>
+											</div>
+										</div>
+									{/if}
+								{:else if flightHead?.kind === 'flipbook'}
+									<div class="field">
+										<span class="label">Clip</span>
+										<select
+											value={flightHead.clipId ?? ''}
+											onchange={(e) => {
+												const id = e.currentTarget.value;
+												patchFlightHead({
+													clipId: id || undefined,
+													assetKey: clipsById.get(id)?.assetKey ?? undefined,
+												});
+											}}
+										>
+											<option value="">Pick a clip…</option>
+											{#each clips as c (c.id)}
+												<option value={c.id}>{clipLabel(c.id)}</option>
+											{/each}
+										</select>
+									</div>
+								{/if}
+
+								{#if flightHead && flightHead.kind !== 'none'}
+									<div class="bv-fit">
+										<div class="field">
+											<span class="label"
+												>Size ({flightHead.kind === 'glow' ? '× the glow' : '× a cell'})</span
+											>
+											<input
+												class="fl-num"
+												type="number"
+												step="0.05"
+												min={FLIGHT_LIMITS.headScale.min}
+												max={FLIGHT_LIMITS.headScale.max}
+												placeholder="1"
+												value={flightHead.scale ?? ''}
+												onchange={(e) =>
+													patchFlightHead({ scale: numberOrUndefined(e.currentTarget.value) })}
+											/>
+										</div>
+										<div class="field">
+											<span class="label">Tint</span>
+											<div class="bv-pair">
+												<ColorField
+													value={flightHead.tint ??
+														(flightHead.kind === 'glow' ? '#ffd45a' : '#ffffff')}
+													oninput={(hex) => patchFlightHead({ tint: hex })}
+												/>
+												{#if flightHead.tint}
+													<button
+														type="button"
+														class="ghost"
+														onclick={() => patchFlightHead({ tint: undefined })}>↺</button
+													>
+												{/if}
+											</div>
+										</div>
+									</div>
+								{/if}
+
+								<div class="bv-fit">
+									<div class="field fl-grow">
+										<span class="label">Trail</span>
+										<select
+											value={flightTrailValue}
+											onchange={(e) => setFlightTrail(e.currentTarget.value)}
+										>
+											<option value="">Inherit ({trailLabel(flightInherited)})</option>
+											<option value={FLIGHT_TRAIL_OFF}>No trail</option>
+											{#each effects as fx (fx.id)}
+												<option value={fx.id}>{fx.name}</option>
+											{/each}
+										</select>
+									</div>
+									<div class="field fl-grow">
+										<span class="label">On arrival</span>
+										<select
+											value={flightOwn.arrival?.effectId ?? ''}
+											onchange={(e) => setFlightArrival(e.currentTarget.value)}
+										>
+											<option value=""
+												>Inherit ({flightInherited.arrival
+													? effectName(flightInherited.arrival.effectId)
+													: 'nothing'})</option
+											>
+											{#each effects as fx (fx.id)}
+												<option value={fx.id}>{fx.name}</option>
+											{/each}
+										</select>
+									</div>
+								</div>
+								{#if flightOwn.arrival?.effectId}
+									<div class="field">
+										<span class="label">Arrival effect</span>
+										<div class="panel-preview">
+											<SymbolFxPreview effectId={flightOwn.arrival.effectId} size={110} />
+										</div>
+									</div>
+								{/if}
+
+								<div class="bv-fit">
+									<div class="field">
+										<span class="label">Avoid win cells</span>
+										<select
+											value={flagValue(flightOwn.path?.avoid)}
+											onchange={(e) => setFlightPathFlag('avoid', e.currentTarget.value)}
+										>
+											<option value="">Inherit ({flightInherited.avoid ? 'on' : 'off'})</option>
+											<option value="on">On</option>
+											<option value="off">Off</option>
+										</select>
+									</div>
+									<div class="field">
+										<span class="label">Over-route</span>
+										<select
+											value={flagValue(flightOwn.path?.overRoute)}
+											onchange={(e) => setFlightPathFlag('overRoute', e.currentTarget.value)}
+										>
+											<option value=""
+												>Inherit ({flightInherited.overRoute ? 'allowed' : 'never'})</option
+											>
+											<option value="on">Allowed</option>
+											<option value="off">Never</option>
+										</select>
+									</div>
+									<div class="field">
+										<span class="label">Max bend (0–1)</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.05"
+											min={FLIGHT_LIMITS.bend.min}
+											max={FLIGHT_LIMITS.bend.max}
+											placeholder={flightInherited.bend === undefined
+												? '0.55'
+												: String(flightInherited.bend)}
+											value={flightOwn.path?.bend ?? ''}
+											onchange={(e) => setFlightPathNumber('bend', e.currentTarget.value)}
+										/>
+									</div>
+									<div class="field">
+										<span class="label">Padding (cells)</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.05"
+											min={FLIGHT_LIMITS.padding.min}
+											max={FLIGHT_LIMITS.padding.max}
+											placeholder={String(flightInherited.padding)}
+											value={flightOwn.path?.padding ?? ''}
+											onchange={(e) => setFlightPathNumber('padding', e.currentTarget.value)}
+										/>
+									</div>
+								</div>
+
+								<div class="bv-fit">
+									<div class="field">
+										<span class="label">Speed (cells / s)</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.5"
+											min="0"
+											placeholder={String(cellsPerSecond(flightInherited.speed))}
+											value={flightOwn.speed === undefined ? '' : cellsPerSecond(flightOwn.speed)}
+											onchange={(e) => {
+												const cellsPerSecond = numberOrUndefined(e.currentTarget.value);
+												setFlightNumber(
+													'speed',
+													cellsPerSecond === undefined
+														? undefined
+														: (cellsPerSecond * FLIGHT_CELL) / 1000,
+												);
+											}}
+										/>
+									</div>
+									<div class="field">
+										<span class="label">Min ms</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="10"
+											min="0"
+											placeholder={String(flightInherited.minMs)}
+											value={flightOwn.minMs ?? ''}
+											onchange={(e) =>
+												setFlightNumber('minMs', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
+									<div class="field">
+										<span class="label">Max ms</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="10"
+											min="0"
+											placeholder={String(flightInherited.maxMs)}
+											value={flightOwn.maxMs ?? ''}
+											onchange={(e) =>
+												setFlightNumber('maxMs', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
+									<div class="field">
+										<span class="label">Stagger ms</span>
+										<input
+											class="fl-num"
+											type="number"
+											step="10"
+											min="0"
+											placeholder={String(flightInherited.stagger)}
+											value={flightOwn.stagger ?? ''}
+											onchange={(e) =>
+												setFlightNumber('stagger', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
+									<div class="field">
+										<span class="label">Ease</span>
+										<select
+											value={flightOwn.ease ?? ''}
+											onchange={(e) => setFlightEase(e.currentTarget.value)}
+										>
+											<option value="">Inherit ({FLIGHT_EASE_LABELS[flightInherited.ease]})</option>
+											{#each FLIGHT_EASES as ease (ease)}
+												<option value={ease}>{FLIGHT_EASE_LABELS[ease]}</option>
+											{/each}
+										</select>
+									</div>
+								</div>
+							</div>
+
+							<div class="fl-preview">
+								<span class="label">Preview</span>
+								<FlightPreview style={flightResolved} headArt={flightHeadArt} />
+								<p class="hint">
+									The route is planned by the same code the game flies with. An arrival effect is
+									shown by its thumbnail in the editor; the coded trail is drawn as an approximation
+									of the in-game gold glow.
+								</p>
+							</div>
+						</div>
+					</section>
+				{/if}
 
 				{#snippet stackedArtPreview(art: SymbolCell | undefined, size: number)}
 					{#if !art?.assetKey}
@@ -3413,9 +4007,9 @@
 									and only on a round that actually reaches a big-win tier — every other spin keeps the
 									ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not one
 									payline's payout), centred on the reels, counting from zero up to the big-win threshold;
-									at that number it hides and the big-win overlay comes up and carries the count the
-									rest of the way to the total. A project with no big-win tiers in the Game Config has
-									nothing to cue, so nothing changes.
+									at that number it hides and the big-win overlay comes up and carries the count the rest
+									of the way to the total. A project with no big-win tiers in the Game Config has nothing
+									to cue, so nothing changes.
 								</p>
 								<p class="wl-note">
 									<strong>Fade the amount in</strong> brings the stamp up from transparent over the fade
@@ -3637,10 +4231,10 @@
 								<p class="wl-note">
 									Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
 									plays whatever is there, and a symbol with nothing bound falls back the way it always
-									does. The pop happens once, on the spin's own win presentation: the resting replay
-									above re-lights the same symbols until the next spin and deliberately does not pop
-									them again. A symbol hidden underneath a stacked picture is skipped too, since the
-									tall picture is what is drawn there.
+									does. The pop happens once, on the spin's own win presentation: the resting replay above
+									re-lights the same symbols until the next spin and deliberately does not pop them again.
+									A symbol hidden underneath a stacked picture is skipped too, since the tall picture
+									is what is drawn there.
 								</p>
 							</div>
 						</div>
@@ -4192,8 +4786,8 @@
 							</div>
 						</div>
 						<p class="hint">
-							Sheet: <code>{draft.assetKey || '—'}</code> — the clip's primary sheet, stored as this
-							cell's asset key.
+							Sheet: <code>{draft.assetKey || '—'}</code> — the clip's primary sheet, stored as this cell's
+							asset key.
 						</p>
 					{/if}
 				{:else}
@@ -5283,6 +5877,66 @@
 	}
 	.bv-pair input {
 		width: 72px;
+	}
+
+	/* ── Hold and Win FLIGHTS ── */
+	.fl-body {
+		display: flex;
+		gap: 16px;
+		margin-top: 14px;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+	.fl-kinds {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		flex: 0 0 200px;
+	}
+	.fl-kind {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		padding: 7px 10px;
+		border: 1px solid #1d1d26;
+		border-radius: 6px;
+		background: #0d0d14;
+		color: #c8c8d2;
+		font-size: 12px;
+		text-align: left;
+		cursor: pointer;
+	}
+	.fl-kind.active {
+		border-color: #4d6bd8;
+		background: #141a2e;
+	}
+	.fl-orphan {
+		font-size: 10px;
+		color: #d8a05a;
+	}
+	.fl-editor {
+		flex: 1 1 340px;
+		min-width: 300px;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 12px 14px;
+		background: #0d0d14;
+		border: 1px solid #1d1d26;
+		border-radius: 8px;
+	}
+	.fl-grow {
+		flex: 1 1 160px;
+	}
+	.fl-num {
+		width: 84px;
+	}
+	.fl-preview {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		max-width: 100%;
 	}
 
 	/* ── Cell LAYERS ──────────────────────────────────────────────────────────────────────── */
