@@ -39,7 +39,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c merged; resume fix + 4d (specials, mystery) in review; flights building; then pots, Lucky Spin, feature end, Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c, resume merged; 4d (specials, mystery) merging; flights in review; pots, Lucky Spin, feature end building; then Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 · resume: #938 · 4d: #939 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
