@@ -3358,7 +3358,9 @@
 										</select>
 									</div>
 									<div class="field">
-										<span class="label">Max bend (0–1)</span>
+										<span class="label" title="The largest detour a route may take to miss the cells showing a win. It bends a route only when something is in the way — with avoidance off, or nothing to avoid (the feature-end volley), every route flies straight."
+											>Max detour (0–1)</span
+										>
 										<input
 											class="fl-num"
 											type="number"
@@ -4145,8 +4147,9 @@
 								</div>
 								<p class="wl-note">
 									Cash coins, collectors, payers and multipliers. The size is a multiple of the
-									symbol. The label is bitmap text, so the colour tints the font (see Win amount
-									text).
+									symbol. The label is bitmap text, so the colour MULTIPLIES the font's own colours:
+									over the gold builtin, cyan reads green and pink reads orange. For an exact colour,
+									pick a white Font Maker font.
 								</p>
 							</div>
 
