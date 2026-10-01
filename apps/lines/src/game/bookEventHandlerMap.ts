@@ -1,7 +1,6 @@
 import _ from 'lodash';
 
 import { type BookEventHandlerMap } from 'utils-book';
-import type { HoldAndWinEvent } from 'engine-game';
 import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -15,7 +14,6 @@ import { playBookEvent } from './utils';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
-import { recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import {
 	presentReveal,
 	winLevelSoundsPlay,
@@ -35,11 +33,12 @@ import { activeWinLevelData, boardDimensions } from './gameConfig';
 import { bakedWinLineConfig } from '../editor-scenes';
 
 /**
- * The Hold and Win events' DEFAULT handler: state only (`stateHoldAndWin`), nothing presented. The
- * presentation arrives beat by beat (design §6 Phase 4); until a beat has one, its event updates the
- * picture the respin board will read and the round carries on exactly as before.
+ * The Hold and Win events' DEFAULT handler: nothing presented. Their state (`stateHoldAndWin`) is
+ * recorded at the play seam (`createPlayBook`'s `recordBookEvent`, `utils.ts`) for every path, so a
+ * flow that owns one reads the same picture. The presentation arrives beat by beat (design §6
+ * Phase 4); until a beat has one, the round carries on exactly as before.
  */
-const recordHoldAndWin = async (bookEvent: HoldAndWinEvent) => recordHoldAndWinEvent(bookEvent);
+const recordHoldAndWin = async () => {};
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	/**

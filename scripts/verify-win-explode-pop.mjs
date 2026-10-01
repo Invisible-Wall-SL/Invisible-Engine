@@ -499,9 +499,9 @@ const buildRound = ({
 		// (it still leaves the board), which is the unbound-`explosion` stall driven in part 3.
 		hasAuthoredSymbolState: (name, state) => symbolStateAuthored(name, state),
 		// GAME MODES (`playBook.ts`): no mode controller, which is every game whose book never moves a
-		// mode — `withModes` is then exactly the presentation, the path these claims were written on.
+		// mode — `aroundPresentation` is then exactly the presentation, the path these claims were written on.
 		modes: undefined,
-		withModes: (_bookEvent, present) => present(),
+		aroundPresentation: (_bookEvent, present) => present(),
 	};
 
 	// Once per run, before the first round: does this set still cover everything the slices call?
@@ -872,7 +872,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 			'coded',
 			'holdAfterBigWin',
 			'modes',
-			'withModes',
+			'aroundPresentation',
 		],
 		body: `${stripTypes('the playBet seam', `${sliceBetween(playBookSource, 'playBookEvents', '\tconst playBookEvents = async (', '\n\t};\n')}\n${playBetBody}`)}\nreturn playBet;`,
 	})(
@@ -903,7 +903,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 		(bookEvent) => present('flow', bookEvent),
 		{ playBookEvent: (bookEvent) => present('coded', bookEvent) },
 		async () => {},
-		// No mode controller: `withModes` is then exactly the presentation (see the stub set above).
+		// No mode controller: `aroundPresentation` is then exactly the presentation (see the stub set above).
 		undefined,
 		(_bookEvent, present) => present(),
 	);

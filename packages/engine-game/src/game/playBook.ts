@@ -75,6 +75,14 @@ export type PlayBookDeps<TWins> = {
 	trackCascadeStep: (bookEvent: BookEvent) => void;
 
 	/**
+	 * Record the round state an event carries (the Hold and Win picture, `stateHoldAndWin`) BEFORE any
+	 * path presents it. Here, not in the coded handlers, because a flow that owns the event never
+	 * reaches those, and the respin board, counter and pots must read the same state either way.
+	 * Optional: a game without it plays exactly as before.
+	 */
+	recordBookEvent?: (bookEvent: BookEvent) => void;
+
+	/**
 	 * The game's MODE STACK (`modeController.svelte.ts`). Optional: a game without one plays exactly
 	 * as before. Moved here, at the seam, so a flow-owned `freeSpinTrigger` enters free spins exactly
 	 * as the coded one does.
@@ -112,19 +120,26 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		holdAfterBigWin,
 		clearSpinHold,
 		trackCascadeStep,
+		recordBookEvent,
 		modes,
 	} = deps;
 
 	const coded = createPlayBookUtils({ bookEventHandlerMap });
 
 	/**
-	 * GAME MODES around one event's presentation, on every path. A resume snapshot rebuilds the stack
-	 * silently (no intro replays). An event that ENTERS a mode opens it first — the event belongs to
-	 * the mode it opens, so the active-mode-first flow dispatch already sees that mode — and an event
-	 * that EXITS one is that mode's last beat, so the mode closes once the event has been presented.
-	 * No mode controller, or an event that moves no mode ⇒ just the presentation.
+	 * What every event crosses around its presentation, on EVERY path (coded, v1 flow, v2 flow):
+	 *  1. its round state is recorded (`recordBookEvent`), so an owning flow reads the same picture;
+	 *  2. GAME MODES: a resume snapshot rebuilds the stack silently (no intro replays); an event that
+	 *     ENTERS a mode opens it first — the event belongs to the mode it opens, so the
+	 *     active-mode-first flow dispatch already sees that mode — and an event that EXITS one is
+	 *     that mode's last beat, so the mode closes once the event has been presented.
+	 * Neither hook, or an event that records nothing and moves no mode ⇒ just the presentation.
 	 */
-	const withModes = async (bookEvent: BookEvent, present: () => Promise<void>): Promise<void> => {
+	const aroundPresentation = async (
+		bookEvent: BookEvent,
+		present: () => Promise<void>,
+	): Promise<void> => {
+		recordBookEvent?.(bookEvent);
 		if (!modes) return present();
 		if (bookEvent.type === 'createBonusSnapshot') {
 			modes.restore((bookEvent as BookEventOfType<'createBonusSnapshot'>).bookEvents);
@@ -152,7 +167,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		// (the same three paths) — celebrations are never fast-forwarded.
 		runBookEventPresentation(
 			bookEvent.type,
-			() => withModes(bookEvent, () => dispatchBookEvent(bookEvent, context)),
+			() => aroundPresentation(bookEvent, () => dispatchBookEvent(bookEvent, context)),
 			startsCelebration(bookEvent),
 		);
 
@@ -305,7 +320,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
-			await withModes(bookEvent, () => coded.playBookEvent(bookEvent, { ...context, bookEvents }));
+			await aroundPresentation(bookEvent, () => coded.playBookEvent(bookEvent, { ...context, bookEvents }));
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 	};

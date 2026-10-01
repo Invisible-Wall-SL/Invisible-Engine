@@ -102,6 +102,7 @@ export {
 	type HoldAndWinState,
 	type HoldAndWinTally,
 	type HoldAndWinWheelPrize,
+	isHoldAndWinEvent,
 } from './src/game/holdAndWin';
 export { type EmitterEventFlight } from './src/game/flight';
 

@@ -206,6 +206,10 @@ only has to register its own vocab + seed.
     `/flow-v2` mode tabs. `$engine.activeMode` / `modeDepth` / `queuedModes`.
   - **Resume:** stack + queue rebuilt silently from the snapshot; Hold and Win's own state comes back
     through 4a's `holdAndWinState` replay.
+  - **Hold and Win state is recorded at the play seam** (taken over from Phase 5 at the hub's request):
+    `createPlayBook`'s new `recordBookEvent` runs `recordHoldAndWinEvent` for every Hold and Win
+    event BEFORE any path presents it (`isHoldAndWinEvent`, `engine-game` `holdAndWin.ts`), so a flow
+    that owns one no longer leaves `stateHoldAndWin` stale. The coded handlers present nothing.
   - **Parity:** a real-clock free-spin round of `bookofborutremake`'s live authored data on the local
     book mock, `main` vs branch: same 10 spins' structure, same intro/outro holds, same
     `setFreeGameType` → `enterFreeSpinOutro` → `exitFreeSpinOutro` order and game-type moments, no

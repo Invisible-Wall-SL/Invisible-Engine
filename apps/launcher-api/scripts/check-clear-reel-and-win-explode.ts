@@ -447,7 +447,7 @@ check(
 );
 for (const dispatch of [
 	'await playBookEvent(bookEvent, { ...context, bookEvents });',
-	// Wrapped in `withModes` (game modes), so the call is no longer the awaited statement itself.
+	// Wrapped in `aroundPresentation` (game modes), so the call is no longer the awaited statement itself.
 	'coded.playBookEvent(bookEvent, { ...context, bookEvents })',
 ]) {
 	check(
