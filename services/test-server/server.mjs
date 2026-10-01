@@ -264,10 +264,13 @@ const holdAndWinFallbackWarned = new Set();
  * game its base game is, and says so once: a respin feature that never comes is otherwise
  * indistinguishable from a broken one.
  */
-const makeHoldAndWinMock = (label, grid, gameKey, runtime) => {
+const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin) => {
 	try {
 		if (grid?.holdAndWin) {
-			return createHoldAndWinMock({ label, ...sellableGrid(grid, runtime) });
+			// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
+			// never get it, its authoring twin and a standalone build's one mock do.
+			const allowForce = twin || !runtime;
+			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, runtime) });
 		}
 		throw new Error('its contract carries no holdAndWin block');
 	} catch (e) {
@@ -282,9 +285,9 @@ const makeHoldAndWinMock = (label, grid, gameKey, runtime) => {
 	}
 };
 
-const makeMock = (protocol, label, grid, gameKey, cascade, runtime) => {
+const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false) => {
 	if (protocol === 'holdAndWin') {
-		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime);
+		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin);
 		if (mock) return mock;
 	}
 	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
@@ -567,6 +570,7 @@ const swapMock = (key, contract, channel) => {
 		key,
 		contract.cascade,
 		runtime,
+		twin,
 	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
@@ -1026,6 +1030,7 @@ async function hydrateOnce() {
 				key,
 				meta.cascade,
 				meta.runtime,
+				true,
 			);
 			carryPins(previous, next, meta.runtime);
 			meta.authoringFingerprint = meta.fingerprint;

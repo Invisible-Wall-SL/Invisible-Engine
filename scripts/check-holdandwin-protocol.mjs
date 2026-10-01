@@ -10,6 +10,7 @@
 // Why re-derive rather than trust the snapshot: the wire is a swap seam the engine will be built
 // against, so an event that does not tell the whole story of its respin is a bug the client inherits.
 
+import { readFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 
 import {
@@ -317,7 +318,8 @@ const verifyRound = (g, round, label, meters) => {
 				}
 				case 'mysteryReveal':
 					for (const cell of c.cells) {
-						const { becomes: _b, ...info } = cell;
+						const info = { ...cell };
+						delete info.becomes;
 						tracked.set(key(cell), info);
 					}
 					break;
@@ -989,6 +991,205 @@ const jackpotsWon = (r, source) =>
 	if (!failed)
 		pass('losing rounds close, winning ones wait for collect, an abandoned feature is settled');
 	await g.close();
+}
+
+// ---------- 6. a refusal stores nothing; positions and rounds are policed ----------
+
+{
+	const g = await boot('classic');
+	console.log('classic: refusals are atomic, seq/gid are policed');
+	const sid = 'atomic';
+	await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	const balance = async () => (await g.post(`/rgs/engine?sid=${sid}&seq=0`, [])).platform;
+	const start = (await balance()).balance;
+
+	let resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [0, 4] },
+		{ action: 'play', context: 'force:bogus' },
+	]);
+	let after = await balance();
+	check(
+		Boolean(resp.error) && after.balance === start && !after.gameRound,
+		'a refused play takes no stake and opens no round',
+	);
+
+	await g.get(`/force?sid=${sid}&beat=instant`);
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [1, 1] },
+		{ action: 'play', context: null },
+	]);
+	after = await balance();
+	check(
+		Boolean(resp.error) && after.balance === start,
+		'an instant force on a buy is refused without a charge',
+	);
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [0, 4] },
+		{ action: 'play', context: null },
+	]);
+	check(
+		Boolean(first({ responses: [resp] }, 'coinInstantCollect')),
+		'…and the held force survives the refusal',
+	);
+	if (resp.platform.gameRound) {
+		await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=${resp.platform.gameRound.id}`, [
+			{ action: 'collect' },
+		]);
+	}
+
+	// An open feature, then a bet the wallet cannot cover: the open round is untouched.
+	const open = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [0, 4] },
+		{ action: 'play', context: 'force:chain' },
+	]);
+	const gid = open.platform.gameRound.id;
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [2, 100_000] },
+		{ action: 'play', context: null },
+	]);
+	after = await balance();
+	check(
+		Boolean(resp.error) && after.gameRound?.id === gid && after.balance === open.platform.balance,
+		'a refused bet over an open feature leaves it open and unsettled',
+	);
+
+	// `config` inside a replayed batch takes no position.
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0&gid=${gid}`, [
+		{ action: 'config' },
+		{ action: 'bet', context: [0, 4] },
+		{ action: 'play', context: null },
+	]);
+	check(
+		!resp.error &&
+			resp.events.some((e) => e.event === 'config') &&
+			resp.events.some((e) => e.event === 'enterBonus'),
+		'[config, bet, play] under the gid replays the dealt spin',
+	);
+
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=7&gid=${gid}`, [{ action: 'play' }]);
+	check(Boolean(resp.error), 'a respin past the next free position is refused');
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=2`, [{ action: 'play' }]);
+	check(Boolean(resp.error), 'a respin with no gid is refused');
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=Gstale`, [{ action: 'play' }]);
+	check(Boolean(resp.error), "a respin under another round's gid is refused");
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=${gid}`, [{ action: 'play' }]);
+	check(
+		!resp.error && resp.events.some((e) => e.event === 'respinUpdate'),
+		'the right position under the right gid plays',
+	);
+
+	// A bet table pinned by the LINES mock (a contract swap) names no modes; a buy still prices and
+	// finds its tier by option index.
+	const session = g.mock.sessions.get(sid);
+	session.round = null;
+	session.betTable = {
+		options: session.betTable.options,
+		names: session.betTable.names,
+		buys: session.betTable.buys,
+	};
+	const buy = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [2, 1] },
+		{ action: 'play', context: null },
+	]);
+	check(
+		!buy.error && first({ responses: [buy] }, 'holdAndWinTrigger')?.cause === 'buy',
+		'a buy under a pinned table without mode names still enters as a buy',
+		buy.error,
+	);
+	if (!failed)
+		pass('refusals store nothing; config takes no position; gaps and stale gids are refused');
+	await g.close();
+}
+
+{
+	console.log('forcing can be switched off, and a malformed block never throws mid-spin');
+	const g = await boot('pots', { allowForce: false });
+	const resp = await g.post('/rgs/engine?sid=off&seq=0', [
+		{ action: 'bet', context: [25, 1] },
+		{ action: 'play', context: 'force:trigger' },
+	]);
+	const held = await g.get('/force?sid=off&beat=trigger');
+	check(Boolean(resp.error) && held?.ok === false, 'a mock with forcing off refuses both routes');
+	await g.close();
+
+	const { opts } = contractFor('classic');
+	const broken = structuredClone(opts.holdAndWin);
+	broken.block.trigger = { count: { min: 6 }, pattern: 'nope' };
+	broken.block.boardEnd = {
+		type: 'columnLetters',
+		letters: 7,
+		jackpot: 'GRAND',
+		clearOnComplete: true,
+	};
+	const mock = createMockRgs({ quiet: true, seed: 'broken', ...opts, holdAndWin: broken });
+	let threw = null;
+	for (let i = 0; i < 40 && !threw; i++) {
+		const res = await new Promise((resolve) => {
+			const body = JSON.stringify([
+				{ action: 'bet', context: [5, 1] },
+				{ action: 'play', context: i % 2 ? 'force:trigger' : null },
+			]);
+			const req = {
+				method: 'POST',
+				headers: {},
+				on(ev, fn) {
+					if (ev === 'data') fn(Buffer.from(body));
+					if (ev === 'end') fn();
+				},
+			};
+			const out = {
+				status: 0,
+				writeHead: (s) => (out.status = s),
+				end: (t) => resolve({ status: out.status, body: JSON.parse(t) }),
+			};
+			mock.sessions.set(`b${i}`, {
+				balance: 10_000,
+				round: null,
+				configSent: true,
+				betTable: null,
+			});
+			mock.handle(req, out, new URL(`http://x/rgs/engine?sid=b${i}&seq=0`));
+		});
+		if (res.status === 500) threw = res.body.error?.message;
+	}
+	check(!threw, 'a malformed trigger and letters deal without a 500', threw);
+	if (!failed) pass('forcing off is refused on both routes; a malformed block still deals');
+}
+
+// ---------- 7. the test-server image ships what it imports ----------
+
+{
+	console.log('the test-server image carries this mock');
+	// No other check builds the Docker image, and every check runs from the repo tree — so a module
+	// server.mjs imports but the Dockerfile does not COPY crash-loops the deployed server and nothing
+	// local notices. The static imports of the mocks it ships must all be in the image.
+	const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+	const copied = new Set(
+		read('services/test-server/Dockerfile')
+			.split('\n')
+			.filter((line) => line.startsWith('COPY scripts/'))
+			.flatMap((line) => line.split(/\s+/).slice(1, -1)),
+	);
+	const shipped = [
+		...read('services/test-server/server.mjs').matchAll(/from '\.\.\/\.\.\/(scripts\/[^']+)'/g),
+	].map((m) => m[1]);
+	const mockImports = [
+		...read('scripts/mock-rgs-server-holdandwin.mjs').matchAll(/^import .* from '\.\/([^']+)'/gm),
+	].map((m) => `scripts/${m[1]}`);
+	const missing = [...shipped, ...mockImports].filter((rel) => !copied.has(rel));
+	check(
+		shipped.includes('scripts/mock-rgs-server-holdandwin.mjs'),
+		'server.mjs imports the Hold and Win mock',
+	);
+	if (
+		check(
+			!missing.length,
+			'every scripts/ module the server and the mock import is COPY’d',
+			missing.join(', '),
+		)
+	) {
+		pass('the Dockerfile copies every mock module the test server imports');
+	}
 }
 
 console.log(

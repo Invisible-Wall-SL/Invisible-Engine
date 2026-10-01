@@ -146,6 +146,9 @@ const refuse = (req, res, session, error, errorCode = 110) =>
  */
 export function createMockRgs(opts = {}) {
 	const label = opts.label ?? 'mock-hnw';
+	/** Whether a client may force outcomes (`play.context` / `…/force`). The test server allows it on
+	 *  a runtime game's AUTHORING mock only, never on the one its players use. */
+	const allowForce = opts.allowForce !== false;
 	const quiet = opts.quiet === true;
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
 	const seed = opts.seed ?? process.env.SEED;
@@ -157,14 +160,31 @@ export function createMockRgs(opts = {}) {
 	const block = inputs.block;
 	const symbols = inputs.symbols;
 	const list = (v) => (Array.isArray(v) ? v : []);
-	const trigger = block.trigger ?? {};
+	// The launcher hands over a NORMALIZED block, but the manifest copy is external: every field a
+	// spin reads is re-read here into the shape the code assumes, so a malformed one deals nothing
+	// rather than throwing mid-round.
+	const rawTrigger = block.trigger ?? {};
+	const trigger = {
+		...rawTrigger,
+		count: rawTrigger.count
+			? { min: Number(rawTrigger.count.min) || 1, roles: list(rawTrigger.count.roles) }
+			: undefined,
+		pattern: list(rawTrigger.pattern).map((req) => ({
+			reel: Number(req?.reel) || 0,
+			roles: list(req?.roles),
+			min: Number(req?.min) || 1,
+		})),
+		buy: list(rawTrigger.buy),
+	};
 	const respinRules = {
 		start: block.respins?.start ?? 3,
 		reset: block.respins?.reset ?? 'anyCoin',
 		cap: block.respins?.cap,
 	};
 	const stickiness = block.stickiness ?? 'allCoins';
-	const boardEnd = block.boardEnd ?? { type: 'none' };
+	const boardEnd = { ...(block.boardEnd ?? { type: 'none' }) };
+	if (boardEnd.type === 'columnLetters') boardEnd.letters = String(boardEnd.letters ?? '');
+	if (boardEnd.type === 'fullBoardJackpot') boardEnd.roles = list(boardEnd.roles);
 	const specialsCfg = block.specials ?? {};
 	const applyOrder = list(block.applyOrder);
 	const meters = list(block.meters);
@@ -867,21 +887,21 @@ export function createMockRgs(opts = {}) {
 			const collectors = cellsWhere(f.board, (cell) => cell?.kind === 'collector');
 			if (collectors.length) collect(events, round, collectors);
 		}
-		const tally = cellsWhere(f.board, (cell) => worth(cell) > 0).map(({ reel, row, cell }) => ({
+		const held = cellsWhere(f.board, (cell) => worth(cell) > 0);
+		const tally = held.map(({ reel, row, cell }) => ({
 			...cellInfo(reel, row, cell),
 			amount: credits(worth(cell), round),
-			cell,
 		}));
-		for (const t of tally) {
-			if (t.cell.kind === 'jackpot') {
-				jackpotWin(events, round, t.cell.jackpot, 'coin', false, t, t.cell.factor ?? 1);
+		for (const { reel, row, cell } of held) {
+			if (cell.kind === 'jackpot') {
+				jackpotWin(events, round, cell.jackpot, 'coin', false, { reel, row }, cell.factor ?? 1);
 			}
 		}
 		const total = f.banked + tally.reduce((sum, t) => sum + t.amount, 0);
 		events.push({
 			event: 'holdAndWinEnd',
 			context: {
-				cells: tally.map(({ cell: _cell, ...info }) => info),
+				cells: tally,
 				banked: f.banked,
 				total,
 			},
@@ -1253,13 +1273,18 @@ export function createMockRgs(opts = {}) {
 		const multipliesJackpots = specialsCfg.multiplier?.multipliesJackpots === true;
 		const level = specialsCfg.collector?.level ?? 1;
 		const times = collectors.length ? collectors.length * level : 1;
-		const cells = coins.map(({ reel, row, cell }) => {
-			const scaled =
+		const scaled = coins.map(({ reel, row, cell }) => ({
+			reel,
+			row,
+			cell:
 				cell.kind === 'coin'
 					? { ...cell, value: tidy(cell.value * factor) }
-					: { ...cell, factor: tidy((cell.factor ?? 1) * (multipliesJackpots ? factor : 1)) };
-			return { ...cellInfo(reel, row, scaled), amount: credits(worth(scaled), round), scaled };
-		});
+					: { ...cell, factor: tidy((cell.factor ?? 1) * (multipliesJackpots ? factor : 1)) },
+		}));
+		const cells = scaled.map(({ reel, row, cell }) => ({
+			...cellInfo(reel, row, cell),
+			amount: credits(worth(cell), round),
+		}));
 		const amount = times * cells.reduce((sum, c) => sum + c.amount, 0);
 		events.push({
 			event: 'coinInstantCollect',
@@ -1267,20 +1292,20 @@ export function createMockRgs(opts = {}) {
 				specials: specials.map(({ reel, row, cell }) => cellInfo(reel, row, cell)),
 				multiplier: tidy(factor),
 				times,
-				cells: cells.map(({ scaled: _s, ...info }) => info),
+				cells,
 				amount,
 			},
 		});
-		for (const c of cells) {
-			if (c.scaled.kind === 'jackpot') {
+		for (const { reel, row, cell } of scaled) {
+			if (cell.kind === 'jackpot') {
 				jackpotWin(
 					events,
 					round,
-					c.scaled.jackpot,
+					cell.jackpot,
 					'instantCollect',
 					false,
-					c,
-					(c.scaled.factor ?? 1) * times,
+					{ reel, row },
+					(cell.factor ?? 1) * times,
 				);
 			}
 		}
@@ -1439,6 +1464,7 @@ export function createMockRgs(opts = {}) {
 		session.balance += round.win;
 		round.closed = true;
 		settle(sid, round);
+		session.round = null;
 	};
 
 	// ---- the engine endpoint ----
@@ -1490,155 +1516,172 @@ export function createMockRgs(opts = {}) {
 			return sendJson(req, res, 200, { events, platform });
 		}
 
+		// A batch is ATOMIC: a refusal (or a throw) anywhere in it stores nothing, charges nothing and
+		// consumes nothing — the partner's rule, and the only one under which a resend is safe.
+		const saved = {
+			balance: session.balance,
+			meters: { ...session.meters },
+			force: session.force,
+			round: session.round ? structuredClone(session.round) : session.round,
+		};
+		const settledBefore = new Set(settledRounds.keys());
+		const rollback = () => {
+			session.balance = saved.balance;
+			session.meters = saved.meters;
+			session.force = saved.force;
+			session.round = saved.round;
+			for (const k of settledRounds.keys()) if (!settledBefore.has(k)) settledRounds.delete(k);
+		};
+		const fail = (error, code = 110) => {
+			rollback();
+			return refuse(req, res, session, error, code);
+		};
+
 		let round = session.round;
 		// `config` is never stored, so it takes no position — only stored actions advance this.
 		let position = seq;
-		for (const a of actions) {
-			const target = !gid
-				? undefined
-				: round?.id === gid
-					? round
-					: settledRounds.get(`${sid}:${gid}`);
-			const stored = target?.stored[position];
-			if (stored) {
-				if (stored.action.action !== a.action) {
-					return refuse(
-						req,
-						res,
-						null,
-						`replay mismatch at ${position}: stored ${stored.action.action}, got ${a.action}`,
-					);
-				}
-				events.push(...stored.events);
-				position += 1;
-				continue;
-			}
-			const dealtFrom = events.length;
-			switch (a.action) {
-				case 'config':
+		try {
+			for (const a of actions) {
+				if (a.action === 'config') {
 					if (!events.some((e) => e.event === 'config')) sendConfig();
 					continue;
-				case 'bet': {
-					if (round && !round.closed) settleAbandoned(sid, session, round);
-					if (betTable && !('betTable' in session)) {
-						return refuse(
-							req,
-							res,
-							session,
-							'this session never asked for the game config — reload the game',
+				}
+				const target = !gid
+					? undefined
+					: round?.id === gid
+						? round
+						: settledRounds.get(`${sid}:${gid}`);
+				const stored = target?.stored[position];
+				if (stored) {
+					if (stored.action.action !== a.action) {
+						return fail(
+							`replay mismatch at ${position}: stored ${stored.action.action}, got ${a.action}`,
 						);
 					}
-					const table = tableFor(session);
-					const ctx = Array.isArray(a.context) ? a.context : table ? [0, 1] : [paylines.length, 1];
-					const option = table ? Number(ctx[0] ?? 0) : 0;
-					const multiplier = Number(ctx[1] ?? 1);
-					if (
-						table &&
-						(!Number.isInteger(option) ||
-							option < 0 ||
-							option >= table.options.length ||
-							!(multiplier > 0))
-					) {
-						return refuse(req, res, session, `invalid bet [${ctx[0]}, ${ctx[1]}]`, 101);
-					}
-					const betPerLine = table ? multiplier : Number(ctx[1]) || 1;
-					const baseTotal = table
-						? table.options[0] * betPerLine
-						: (Number(ctx[0]) || paylines.length) * betPerLine;
-					const total = table
-						? Math.max(1, Math.round(table.options[option] * betPerLine))
-						: baseTotal;
-					if (session.balance < total)
-						return refuse(req, res, session, 'insufficient balance', 200);
-					session.balance -= total;
-					const isBuy = table ? table.buys[option] : false;
-					round = {
-						id: makeRoundId(),
-						betPerLine,
-						total,
-						baseTotal,
-						isBuy,
-						buyTier: isBuy
-							? list(trigger.buy).find((t) => t.mode === table.modes[option])
-							: undefined,
-						win: 0,
-						feature: null,
-						closed: false,
-						stored: [],
-					};
-					events.push({ event: 'bet', context: { total, betPerLine, paylines, maxWinCap: 0 } });
-					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
-					break;
+					events.push(...stored.events);
+					position += 1;
+					continue;
 				}
-				case 'play': {
-					if (!round || round.closed)
-						return refuse(req, res, null, 'error executing requested actions: play without bet');
-					if (round.feature) {
-						if (round.feature.ended) {
-							return refuse(req, res, null, 'unexpected action: play (was expecting: collect)');
+				// A fresh action goes to the NEXT free position of its round, and nowhere else: a gap
+				// would put holes in the resume list, and a stale position is another client's.
+				const next = a.action === 'bet' ? 0 : (round?.stored.length ?? 0);
+				if (position !== next) return fail(`seq ${position} is not the next position (${next})`);
+				if (a.action !== 'bet' && round?.played && gid !== round.id) {
+					return fail(`${a.action} under gid ${gid ?? '-'}, but the open round is ${round.id}`);
+				}
+				const dealtFrom = events.length;
+				switch (a.action) {
+					case 'bet': {
+						if (betTable && !('betTable' in session)) {
+							return fail('this session never asked for the game config — reload the game');
 						}
-						playRespin(events, round);
+						const table = tableFor(session);
+						const ctx = Array.isArray(a.context)
+							? a.context
+							: table
+								? [0, 1]
+								: [paylines.length, 1];
+						const option = table ? Number(ctx[0] ?? 0) : 0;
+						const multiplier = Number(ctx[1] ?? 1);
+						const lines = table ? 1 : Number(ctx[0] ?? paylines.length);
+						if (
+							!(multiplier > 0) ||
+							!(lines > 0) ||
+							(table && (!Number.isInteger(option) || option < 0 || option >= table.options.length))
+						) {
+							return fail(`invalid bet [${ctx[0]}, ${ctx[1]}]`, 101);
+						}
+						const betPerLine = multiplier;
+						const baseTotal = table ? table.options[0] * betPerLine : lines * betPerLine;
+						const total = table
+							? Math.max(1, Math.round(table.options[option] * betPerLine))
+							: baseTotal;
+						const isBuy = table ? Boolean(table.buys[option]) : false;
+						// A table pinned by another mock (a contract swap) may not name its modes; the
+						// option index means the same mode in both.
+						const modeName = (table?.modes ?? betTable?.modes)?.[option];
+						if (round && !round.closed) settleAbandoned(sid, session, round);
+						if (session.balance < total) return fail('insufficient balance', 200);
+						session.balance -= total;
+						round = {
+							id: makeRoundId(),
+							betPerLine,
+							total,
+							baseTotal,
+							isBuy,
+							buyTier: isBuy ? list(trigger.buy).find((t) => t.mode === modeName) : undefined,
+							win: 0,
+							feature: null,
+							closed: false,
+							stored: [],
+						};
+						events.push({ event: 'bet', context: { total, betPerLine, paylines, maxWinCap: 0 } });
+						events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
 						break;
 					}
-					if (round.played)
-						return refuse(req, res, null, 'unexpected action: play (was expecting: collect)');
-					let context = a.context;
-					if (typeof context === 'string' && context.startsWith('force:')) {
-						const parsed = parseForce(context.slice('force:'.length));
-						if (parsed.errors)
-							return refuse(req, res, session, `force: ${parsed.errors.join('; ')}`, 101);
-						round.force = parsed.force;
-						context = null;
-					} else if (session.force) {
-						round.force = session.force;
-						session.force = null;
-					} else if (defaultForce) {
-						round.force = defaultForce;
+					case 'play': {
+						if (!round || round.closed) {
+							return fail('error executing requested actions: play without bet');
+						}
+						if (round.feature) {
+							if (round.feature.ended) {
+								return fail('unexpected action: play (was expecting: collect)');
+							}
+							playRespin(events, round);
+							break;
+						}
+						if (round.played) return fail('unexpected action: play (was expecting: collect)');
+						let context = a.context;
+						if (typeof context === 'string' && context.startsWith('force:')) {
+							if (!allowForce) return fail('forcing is off on this mock', 101);
+							const parsed = parseForce(context.slice('force:'.length));
+							if (parsed.errors) return fail(`force: ${parsed.errors.join('; ')}`, 101);
+							round.force = parsed.force;
+							context = null;
+						} else if (session.force) {
+							round.force = session.force;
+							session.force = null;
+						} else if (defaultForce) {
+							round.force = defaultForce;
+						}
+						if (round.force?.instant && round.isBuy) {
+							return fail('force: instant cannot ride a bought feature', 101);
+						}
+						round.played = true;
+						playBase(events, round, session, context);
+						break;
 					}
-					if (round.force?.instant && round.isBuy) {
-						return refuse(req, res, session, 'force: instant cannot ride a bought feature', 101);
+					case 'collect': {
+						if (
+							!round ||
+							round.id !== gid ||
+							(round.feature && !round.feature.ended) ||
+							!round.played
+						) {
+							return fail('error executing requested actions: unexpected action: collect');
+						}
+						if (!round.closed) {
+							session.balance += round.win;
+							round.closed = true;
+						}
+						events.push({ event: 'gameRoundOver', context: { win: round.win } });
+						break;
 					}
-					round.played = true;
-					playBase(events, round, session, context);
-					break;
+					default:
+						return fail(`error executing requested actions: unknown action: ${a.action}`);
 				}
-				case 'collect': {
-					if (
-						!round ||
-						round.id !== gid ||
-						(round.feature && !round.feature.ended) ||
-						!round.played
-					) {
-						return refuse(
-							req,
-							res,
-							null,
-							'error executing requested actions: unexpected action: collect',
-						);
-					}
-					if (!round.closed) {
-						session.balance += round.win;
-						round.closed = true;
-					}
-					events.push({ event: 'gameRoundOver', context: { win: round.win } });
-					break;
+				round.stored[position] = { action: a, events: events.slice(dealtFrom) };
+				if (a.action === 'play' && meters.length) {
+					// Every play answer reports the meters as they stand — the client never computes one.
+					const levels = { event: 'meterLevels', context: { meters: meterList(session) } };
+					events.push(levels);
+					round.stored[position].events.push(levels);
 				}
-				default:
-					return refuse(
-						req,
-						res,
-						null,
-						`error executing requested actions: unknown action: ${a.action}`,
-					);
+				position += 1;
 			}
-			round.stored[position] = { action: a, events: events.slice(dealtFrom) };
-			if (a.action === 'play' && meters.length) {
-				// Every play answer reports the meters as they stand — the client never computes one.
-				const levels = { event: 'meterLevels', context: { meters: meterList(session) } };
-				events.push(levels);
-				round.stored[position].events.push(levels);
-			}
-			position += 1;
+		} catch (err) {
+			rollback();
+			throw err;
 		}
 
 		if (round?.closed) settle(sid, round);
@@ -1652,6 +1695,9 @@ export function createMockRgs(opts = {}) {
 	const handleForce = (req, res, url) => {
 		const sid = url.searchParams.get('sid');
 		if (!sid) return sendJson(req, res, 400, { error: 'missing sid' });
+		if (!allowForce) {
+			return sendJson(req, res, 403, { ok: false, errors: ['forcing is off on this mock'] });
+		}
 		const spec = url.searchParams.get('beat') ?? '';
 		const session = getSession(sid);
 		if (!spec) {

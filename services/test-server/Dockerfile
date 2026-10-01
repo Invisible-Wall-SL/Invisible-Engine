@@ -7,7 +7,7 @@ WORKDIR /app
 
 # App code + the shared mock modules (imported as ../../scripts/...).
 COPY services/test-server/ ./services/test-server/
-COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs ./scripts/
+COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs scripts/mock-rgs-server-holdandwin.mjs ./scripts/
 
 # Install the service's own deps (not a pnpm workspace member — standalone).
 RUN cd services/test-server && npm install --omit=dev --no-audit --no-fund

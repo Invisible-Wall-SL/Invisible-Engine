@@ -223,6 +223,8 @@ Against our facade's vocabulary:
   evidence yet that they are not real, since a client covering gamble and pickups covers no cascade
   vocabulary at all.
 - `gameStart` / `spinStart` appear in our captures but their client ignores them.
+- The Hold and Win mock adds a whole family of its own on top of the partner's respin model — see
+  [hold-and-win-wire.md](hold-and-win-wire.md), which is ours and marked as the swap seam.
 
 ## The boot `config` event
 

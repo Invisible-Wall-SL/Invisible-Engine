@@ -4,10 +4,12 @@
 > guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
 > build plan.
 
-**One-line state:** Phase 2 merged (2026-09-30) — the Game Config `holdAndWin` block and the
-three presets exist; nothing plays the feature yet. Mechanics researched, engine + tooling inventoried, plan
-written. Nothing built yet. Production is blocked on the partner's Hold and Win wire format;
-authoring is not (mock-first).
+**One-line state:** Phase 3 (2026-09-30) — the mock RGS deals the whole Hold and Win feature
+for all three presets from the project's Game Config, on our own documented wire
+([hold-and-win-wire.md](../reference/hold-and-win-wire.md)), with every beat forceable. The engine
+does not render it yet (Phase 4): today's runtime plays a Hold and Win round to its end as
+partner-shaped free spins and settles the right balance, but shows no coins. Production is blocked
+on the partner's Hold and Win wire format; authoring is not (mock-first).
 
 ## How sessions use this file (the hub)
 
@@ -27,20 +29,20 @@ titled **"Hold and win game pipeline"**.
 
 ## Phase board
 
-| # | Phase | State | Owner session | PR |
-|---|---|---|---|---|
-| 0 | Hub + plan | merged | Hold and win game pipeline | #900 |
-| 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
-| 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
-| 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | in progress | Hold and Win Phase 3 — mock RGS + wire | — |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | not started | — | — |
-| 5 | Flow vocabulary + driven seed | not started | — | — |
-| 6 | Scene Editor template + components | not started | — | — |
-| 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
-| 8 | Win Text (jackpot + respin copy, gating) | not started | — | — |
-| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
-| 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
-| 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
+| #   | Phase                                                                    | State              | Owner session                                      | PR   |
+| --- | ------------------------------------------------------------------------ | ------------------ | -------------------------------------------------- | ---- |
+| 0   | Hub + plan                                                               | merged             | Hold and win game pipeline                         | #900 |
+| 1   | Kind plumbing + `kindCapabilities()`                                     | merged             | Hold and Win Phase 1: register the kind everywhere | #917 |
+| 2   | Game Config `holdAndWin` block (full option space, 3 presets)            | merged             | Hold and Win Phase 2 — Game Config block           | #919 |
+| 3   | Mock RGS `holdAndWin` protocol + wire contract (swap seam)               | in review          | Hold and Win Phase 3 — mock RGS + wire             | —    |
+| 4   | Engine runtime (RespinBoard, coin labels, events, facade, resume)        | not started        | —                                                  | —    |
+| 5   | Flow vocabulary + driven seed                                            | not started        | —                                                  | —    |
+| 6   | Scene Editor template + components                                       | not started        | —                                                  | —    |
+| 7   | Symbols SM (coin roles/states, value label, kind gating)                 | not started        | —                                                  | —    |
+| 8   | Win Text (jackpot + respin copy, gating)                                 | not started        | —                                                  | —    |
+| 9   | Game Maker presets + docs + playtest, sample games (3 Pots first)        | not started        | —                                                  | —    |
+| 10  | Partner wire (facade + mock brought in line)                             | blocked on partner | —                                                  | —    |
+| 11  | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started        | —                                                  | —    |
 
 ## Current state
 
@@ -49,20 +51,51 @@ titled **"Hold and win game pipeline"**.
 
 ## What each kind resolves to (Phase 1, pinned by `check:flow-publish-gate` §4)
 
-| Kind | Starter flow (`freshDrivenSeedDoc`) | Flow vocabulary (`templateVocabulary`) | Mock protocol → mock that deals it | `/flow` emitter vocab |
-|---|---|---|---|---|
-| `lines` | bookOf seed (`DRIVEN_SEED_FALLBACKS`) | bookOf (`VOCABULARY_FALLBACKS`) | `lines` → lines | lines |
-| `ways` | ways seed | ways | `ways` → lines mock, ways evaluator | lines |
-| `cluster` | bookOf seed (fallback) | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster` | default |
-| `scatter` | bookOf seed (fallback) | same as cluster: bookOf in practice | `scatter` | default |
-| `bookOf` | bookOf seed | bookOf | `book` | lines |
-| `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **lines mock** (`MOCK_FALLBACKS` in `services/test-server/server.mjs`) | lines |
-| custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |
+| Kind                 | Starter flow (`freshDrivenSeedDoc`)            | Flow vocabulary (`templateVocabulary`)                                                                         | Mock protocol → mock that deals it                                                                                                          | `/flow` emitter vocab |
+| -------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `lines`              | bookOf seed (`DRIVEN_SEED_FALLBACKS`)          | bookOf (`VOCABULARY_FALLBACKS`)                                                                                | `lines` → lines                                                                                                                             | lines                 |
+| `ways`               | ways seed                                      | ways                                                                                                           | `ways` → lines mock, ways evaluator                                                                                                         | lines                 |
+| `cluster`            | bookOf seed (fallback)                         | — the seed's `templateId` is `bookOf`, so bookOf in practice (`CLUSTER_VOCAB` is registered but never reached) | `cluster`                                                                                                                                   | default               |
+| `scatter`            | bookOf seed (fallback)                         | same as cluster: bookOf in practice                                                                            | `scatter`                                                                                                                                   | default               |
+| `bookOf`             | bookOf seed                                    | bookOf                                                                                                         | `book`                                                                                                                                      | lines                 |
+| `holdAndWin`         | → `lines` → bookOf seed                        | → `lines` → bookOf                                                                                             | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines                 |
+| custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf                                                                                                         | `lines`                                                                                                                                     | default               |
 
 Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` by alias, so Phase 5
-only has to register its own vocab + seed, and Phase 3 only has to drop the `MOCK_FALLBACKS` entry.
+only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-09-30 — **Phase 3: the wire is ours and documented as the swap seam**
+  ([hold-and-win-wire.md](../reference/hold-and-win-wire.md)). The respin scaffolding is the
+  partner's own model (`spinTrigger bonus: "respin"`, `enterBonus`, one context-less `play` per
+  respin, `playedBonusSpin {played, left}`, `gameEnd`, `collect`); only the Hold and Win events are
+  invented. Consequence worth knowing for Phase 4: the CURRENT facade already drives a whole round and
+  settles the balance, so the engine work is presentation, not round plumbing.
+- 2026-09-30 — **Phase 3: symbols travel in the project's OWN names** (`BONUS`, `BOOST`, …), not the
+  lines `PIC*` vocabulary, and a value rides on its cell (`BONUS:1.5`, `JACKPOT:MINI*2`). Phase 4's
+  facade needs an identity mapping for this protocol and a `parseCell` that reads a jackpot label.
+- 2026-09-30 — **Phase 3 rules the design left open**, now fixed in the mock (change them in the wire
+  doc + mock together): triggering specials do not stick (they activate their kind when
+  `fromTriggeringSpecials`); payers/multipliers stay on the board inert after applying (they count
+  for a full board and for column letters); a sticky-coins collector collects the cash coins once when
+  it lands and keeps that value; a streak collector takes coins AND jackpot coins every respin; a
+  mystery that reveals a coin counts as a new coin for the reset; the wheel's coin boost applies to the
+  held coins and every later coin; all letters lit ends the feature; meters fill in the base game only.
+- 2026-09-30 — **Phase 3: `jackpotWin` never adds money.** Banked jackpots (wheel, letters, full
+  board) are in `holdAndWinEnd.banked`; every other `jackpotWin` is presentation of an amount already
+  inside a tally cell, a collector, a column or an instant collect.
+- 2026-09-30 — **Phase 3: a forced full meter says `forced: true`** on its `meterUpdate` — the force
+  sets the level one short first, so the level is not the last one plus `from`.
+- 2026-09-30 — **Phase 3: a `bet` over an open round opens a new round** (the partner's behaviour);
+  the mock plays the abandoned feature out and credits it. Every batch is atomic (a refusal stores
+  and charges nothing), fresh actions must go to the next free `seq`, and a played round's
+  `play`/`collect` must carry its `gid` — found in review, pinned by the gate.
+- 2026-09-30 — **Phase 3: forcing is an authoring tool.** On the test server a runtime game's PLAYER
+  mock refuses forces; its authoring twin (`/api/<key>/authoring/force?…`) allows them. A playtest
+  must boot through an authoring link to force a beat.
+- 2026-09-30 — **Phase 3 pacing:** an empty respin cell lands something 6% of the time. At 10%, Grand
+  (letters that sweep their column, so the board never fills) ran 25+ respin features.
 
 - 2026-09-30 — **Phase 2: the config shape Phase 3 generates from** is `doc.holdAndWin`
   (`packages/game-config/src/holdAndWin.ts`; detail in [game-config.md](game-config.md)). Roles are
@@ -113,14 +146,38 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 
 ## Open items / next
 
-1. **Phases 1 and 2 start now, in parallel sessions.** Phase 3 (mock) follows Phase 2.
+1. **Phase 4 (engine runtime)** builds on the wire doc: facade identity mapping + `parseCell`
+   jackpots, `gameType: 'respin'`, the §4.3 events. Force any beat with
+   `/api/<key>/authoring/force?sid=<sid>&beat=<spec>` (wire doc, "Forcing a beat").
 2. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
+3. **A playtest playbook** per preset (Phase 9) can drive every beat through the force endpoint.
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-09-30 — **Phase 3: mock RGS `holdAndWin` protocol + wire contract** (session "Hold and Win
+  Phase 3 — mock RGS + wire").
+
+  - `scripts/mock-rgs-server-holdandwin.mjs`: deals from `doc.holdAndWin` + symbols + paylines only
+    (base game through the lines evaluator), all three presets — count / pattern / meter / Lucky Spin /
+    random metre / buy triggers, `allCoins` and `collectorsOnly`, both reset rules and the cap, full
+    board, column letters with clear, payer / multiplier (+ leave-behind, + jackpots) / collector /
+    mystery (+ unlock) in `applyOrder`, active modifiers, the wheel, base-game instant collect,
+    persistent meters per session (at boot, on every `play`, across a contract swap), resume + replay.
+  - Forced outcomes for every beat: `play.context = "force:<spec>"`, the test server's
+    `/api/<key>/force?sid=&beat=`, or `FORCE=`.
+  - Test server: `holdAndWin` gets its own mock from the contract (`MOCK_FALLBACKS` removed); the
+    launcher's mock contract carries `holdAndWinMockInputs(doc)` (new in game-config) for both the
+    published and the authoring mock (`check:mock-contract` pins the split).
+  - `pnpm check:holdandwin` (in `check:rgs` and `check:all`): 240 rounds per preset rebuilt cell by cell
+    from the events and compared with the server's snapshot after every respin — counter, stickiness,
+    special order, payout sums, meters, `seq`/`gid` — plus every forced beat, meters, resume/replay and
+    close rules. Eight planted mock bugs each fail it.
+  - game-spec's `SymbolKindSchema` now imports the Hold and Win roles from game-config (`jackpot`,
+    `coinMultiplier`), closing the Phase 1/2 naming mismatch.
 
 - 2026-09-30 — **Phase 2 merged (#919)** (session "Hold and Win Phase 2 — Game Config block").
   - `packages/game-config`: the `holdAndWin` block, its normalizer and validator, and the three presets
@@ -134,6 +191,7 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
     reuses `multiplier`, while the config's `special_properties` roles are `jackpot` and
     `coinMultiplier`. Phase 7 (Symbols) should align game-spec to the config names.
 - 2026-09-30 — **Phase 1: kind plumbing + `kindCapabilities()`** — merged as #917, a runtime release (session "Hold and Win Phase 1: register the kind everywhere").
+
   - **One kind list.** `GAME_KINDS` lives in `packages/constants-shared/gameKinds.ts`. These now derive from it: roles.ts (its copy removed), `kindStorage`, `projects.ts`, the editor template picker, game-spec `GameTypeSchema`, the publish gate, `verify-launcher-profile` and `gen-flow-vocabulary.mjs`, which gives lines' emitter vocab to every kind except cluster/scatter.
   - **`kindCapabilities(gameType, config?)`** is in `engine-layout`.
   - **game-spec symbol roles:** `coin`, `jackpotCoin`, `collector`, `payer`, `mystery`, `meterSpecial` and `blank` (`multiplier` already existed).
@@ -145,7 +203,7 @@ only has to register its own vocab + seed, and Phase 3 only has to drop the `MOC
 - 2026-09-30 — **Owner decisions recorded** (one template / three presets, 3 Pots first, mock-first with a swap seam). Build plan re-cut: Phase 10 is now the partner wire and Phase 11 covers what goes beyond the three references.
 
 - 2026-09-30 — **Plan and hub created** (session "Hold and win game pipeline").
-  - Researched 3 Oaks *Grand*, *Super Hotfire Diamonds* and *3 Pots of Egypt* from their server config and rules strings.
+  - Researched 3 Oaks _Grand_, _Super Hotfire Diamonds_ and _3 Pots of Egypt_ from their server config and rules strings.
   - Read the partner core's respin and jackpot handling.
   - Inventoried the engine: found the `apps/price` superspin loop.
   - Inventoried every tool's kind plumbing.
