@@ -20,9 +20,11 @@ import {
 	presentCoinCollect,
 	presentCoinPay,
 	presentCoinsLand,
+	presentColumnComplete,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
+	presentInstantCollect,
 	presentJackpotWin,
 	presentLuckySpin,
 	presentMeterUpdate,
@@ -30,6 +32,7 @@ import {
 	presentRespinReveal,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
+	presentWheel,
 	syncHoldAndWin,
 } from './holdAndWinPresentation';
 import {
@@ -400,10 +403,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	luckySpin: presentLuckySpin,
 	meterUpdate: presentMeterUpdate,
 	meterLevels: syncHoldAndWin,
-	coinInstantCollect: syncHoldAndWin,
+	coinInstantCollect: presentInstantCollect,
 	randomMetreTrigger: syncHoldAndWin,
 	holdAndWinTrigger: presentHoldAndWinTrigger,
-	holdAndWinWheel: syncHoldAndWin,
+	holdAndWinWheel: presentWheel,
 	respinReveal: presentRespinReveal,
 	coinsLand: presentCoinsLand,
 	mysteryReveal: presentMysteryReveal,
@@ -412,7 +415,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	specialBecomesCoin: presentSpecialBecomesCoin,
 	coinCollect: presentCoinCollect,
 	cellsCleared: presentCellsCleared,
-	columnComplete: syncHoldAndWin,
+	columnComplete: presentColumnComplete,
 	jackpotWin: presentJackpotWin,
 	respinUpdate: presentRespinUpdate,
 	holdAndWinState: presentHoldAndWinState,
@@ -431,8 +434,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 
 		function findLastBookEvent<T>(type: T) {
 			return _.findLast(bookEvents, (bookEvent) => bookEvent.type === type) as
-				| BookEventOfType<T>
-				| undefined;
+				BookEventOfType<T> | undefined;
 		}
 
 		const lastFreeSpinTriggerEvent = findLastBookEvent('freeSpinTrigger' as const);

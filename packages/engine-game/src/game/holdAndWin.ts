@@ -30,13 +30,7 @@ export type HoldAndWinCause = 'count' | 'pattern' | 'meter' | 'luckySpin' | 'ran
 
 /** Where a jackpot came from. `banked` sources add money; the rest present money already counted. */
 export type HoldAndWinJackpotSource =
-	| 'coin'
-	| 'collect'
-	| 'column'
-	| 'instantCollect'
-	| 'wheel'
-	| 'letters'
-	| 'fullBoard';
+	'coin' | 'collect' | 'column' | 'instantCollect' | 'wheel' | 'letters' | 'fullBoard';
 
 export type HoldAndWinWheelPrize =
 	| { type: 'coinBoost'; multiplier: number }
@@ -106,7 +100,9 @@ export type HoldAndWinEventFields = {
 	};
 	randomMetreTrigger: { name: string; cells: HoldAndWinCell[] };
 	holdAndWinTrigger: { mode: 'holdAndWin'; cause: HoldAndWinCause; payload: HoldAndWinEntry };
-	holdAndWinWheel: { index: number; prize: HoldAndWinWheelPrize };
+	/** `segment` — the prize's place on the wheel. Not `index`: every book event's own `index` is its
+	 *  ordinal in the book, and a payload field of that name would overwrite it. */
+	holdAndWinWheel: { segment: number; prize: HoldAndWinWheelPrize };
 	respinReveal: { cells: HoldAndWinCell[] };
 	coinsLand: { cells: HoldAndWinCell[] };
 	mysteryReveal: {

@@ -118,12 +118,22 @@ export {
 	type RespinBoardDeps,
 } from './src/game/respinBoard.svelte';
 export {
+	cellWorth,
 	countSteps,
 	staggerDelays,
 	tallyCountUp,
 	type CountStep,
 	type TallyCountUp,
 } from './src/game/respinCount';
+export {
+	collectorLevelName,
+	wheelEase,
+	wheelLandingRotation,
+	wheelPrizeLabel,
+	wheelSegmentAngle,
+	wheelSegmentAt,
+	wheelSegmentCentre,
+} from './src/game/holdAndWinWheel';
 export { type EmitterEventFlight } from './src/game/flight';
 export {
 	curveLength,

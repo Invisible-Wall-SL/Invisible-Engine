@@ -11,8 +11,9 @@
 	/**
 	 * THE CODED HOLD AND WIN BANNER — the Lucky Spin intro, a jackpot celebration (large) and a coin
 	 * jackpot in the tally (small), centred on the board (`holdAndWinBanner.svelte.ts`). Mounted in the
-	 * flights band at a zIndex seat above the flight layer, so a coin flying into the Total Win bar
-	 * passes under it, and below the pinned takeovers (a big win follows it, never overlaps it).
+	 * flights band at a zIndex seat above the flight layer and the wheel, so a coin flying into the
+	 * Total Win bar passes under it, and below the pinned takeovers (a big win follows it, never
+	 * overlaps it).
 	 *
 	 * Nothing is mounted until a banner is up, so a game that never receives a Hold and Win event pays
 	 * nothing for it.
@@ -40,7 +41,7 @@
 </script>
 
 {#if banner}
-	<Container zIndex={1}>
+	<Container zIndex={2}>
 		<MainContainer>
 			<BoardContainer>
 				<Container x={centre.x} y={centre.y} scale={pop.current}>
