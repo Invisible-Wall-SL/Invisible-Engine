@@ -987,12 +987,21 @@ export interface Scene {
 	 * - `betMenu` — the bet-amount menu the HUD bet readout opens. Flow-shown (no coded takeover
 	 *   mounts it): the role is what lets the editor and a scaffold find THE bet screen under any id.
 	 * - `autoSpin` — the autoplay menu the auto-spin button opens. Flow-shown, same as `betMenu`.
+	 * - `mode` — a screen that belongs to a GAME MODE (free spins, Hold and Win, a wheel…): the
+	 *   engine mounts it while the mode named by {@link Scene.modeId} is on the mode stack and
+	 *   unmounts it when the mode exits. Many per doc, and per mode (`docs/design/hold-and-win.md` §4.5).
 	 * Resolution order at boot: the flow's `initial`/`start` node (when a FlowDoc is loaded)
 	 * → the scene with this `role` → the legacy scene whose `id` equals the role name
 	 * (parity for un-migrated docs). Absent ⇒ falls back to the legacy id match, so a doc
 	 * with no roles boots byte-identically to today. Additive.
 	 */
-	role?: 'loading' | 'basegame' | 'buyFeature' | 'buyConfirm' | 'betMenu' | 'autoSpin';
+	role?: 'loading' | 'basegame' | 'buyFeature' | 'buyConfirm' | 'betMenu' | 'autoSpin' | 'mode';
+	/**
+	 * The game mode a `role: 'mode'` screen belongs to — a mode id from the project's Game Config
+	 * (`resolveGameModes`: `freeSpins`, `holdAndWin`, …). Meaningless on any other role, and the save
+	 * whitelist drops it there.
+	 */
+	modeId?: string;
 	/**
 	 * Which coordinate space this scene authors into. `<LayoutScene>` reads this
 	 * and **self-wraps** in the matching container, so a scene renders identically

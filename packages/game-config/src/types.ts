@@ -19,6 +19,7 @@
 import type { PartnerPaytable } from './serverPaytable';
 import type { HoldAndWin } from './holdAndWin';
 import type { GameSounds } from './sounds';
+import type { GameModeDecl } from './modes';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
 
@@ -456,6 +457,12 @@ export type GameConfigDoc = {
 	 * feature. Absent ⇒ no feature, byte-identical to every config authored before it existed.
 	 */
 	holdAndWin?: HoldAndWin;
+	/**
+	 * OPTIONAL game MODES (see `./modes`, `docs/design/hold-and-win.md` §4.5) — overrides of the
+	 * built-in modes and the project's own. SPARSE: absent ⇒ the built-ins (`basegame`, `freeSpins`,
+	 * and `holdAndWin` with a `holdAndWin` block). Read it through `resolveGameModes`.
+	 */
+	modes?: GameModeDecl[];
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	/**

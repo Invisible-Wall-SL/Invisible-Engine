@@ -33,6 +33,7 @@
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
 	import { GAME_KINDS } from 'constants-shared/gameKinds';
+	import { BASE_GAME_MODE, builtinGameModes } from 'game-config';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -1083,6 +1084,23 @@
 		if (!sc) return;
 		if (isSceneRole(value)) sc.role = value;
 		else delete sc.role;
+		if (sc.role !== 'mode') delete sc.modeId;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
+	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
+		(mode) => mode.id !== BASE_GAME_MODE,
+	);
+
+	/** Name the game mode the active `mode` screen belongs to (`Scene.modeId`). `''` clears it. */
+	function setSceneModeId(value: string): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc || sc.role !== 'mode') return;
+		const id = value.trim();
+		if (id) sc.modeId = id;
+		else delete sc.modeId;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -3161,6 +3179,25 @@
 									{/each}
 								</select>
 							</label>
+							{#if activeScene.role === 'mode'}
+								<label
+									class="space-field"
+									title="The game mode this screen belongs to (a mode id from Game Config: freeSpins, holdAndWin, or one of the project's own). The game shows it while that mode is playing and removes it when the mode ends."
+								>
+									<span>mode</span>
+									<input
+										list="scene-mode-ids"
+										value={activeScene.modeId ?? ''}
+										placeholder="freeSpins"
+										onchange={(e) => setSceneModeId(e.currentTarget.value)}
+									/>
+									<datalist id="scene-mode-ids">
+										{#each MODE_SUGGESTIONS as mode (mode.id)}
+											<option value={mode.id}>{mode.label ?? mode.id}</option>
+										{/each}
+									</datalist>
+								</label>
+							{/if}
 							<label
 								class="ontop-field"
 								title="Layering: normally a screen stacks by its position in the Screens list above — drag it there to re-layer it in-game. Tick this to pin it ABOVE every other screen instead (for a splash or a big-win celebration that must never be buried); its list position is then ignored. Round-blocking engine gates still draw above it."
