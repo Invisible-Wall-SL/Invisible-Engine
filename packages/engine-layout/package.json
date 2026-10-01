@@ -32,25 +32,25 @@
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "2.3.10",
+		"@sveltejs/package": "2.5.8",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
-		"esbuild": "0.25.5",
+		"esbuild": "0.28.2",
 		"config-svelte": "workspace:*",
 		"config-vite": "workspace:*",
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"prettier": "3.5.2",
+		"prettier": "3.9.9",
 		"prettier-plugin-svelte": "3.3.3",
 		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
-		"@esotericsoftware/spine-pixi-v8": "4.2.74",
+		"@esotericsoftware/spine-pixi-v8": "4.2.120",
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",
 		"pixi-svelte": "workspace:*",
-		"pixi.js": "8.8.1",
-		"svelte": "5.35.1",
+		"pixi.js": "8.21.0",
+		"svelte": "5.57.1",
 		"utils-layout": "workspace:*",
 		"vite": "6.2.0"
 	}

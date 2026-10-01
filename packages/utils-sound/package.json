@@ -17,8 +17,8 @@
 		"state-shared": "workspace:*",
 		"utils-shared": "workspace:*",
 		"pixi-svelte": "workspace:*",
-		"svelte": "5.35.1",
-		"@types/howler": "2.2.12",
+		"svelte": "5.57.1",
+		"@types/howler": "2.2.13",
 		"howler": "2.2.4"
 	}
 }

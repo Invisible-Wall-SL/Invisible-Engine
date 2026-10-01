@@ -20,11 +20,11 @@
 		"rig-bound": "tsx rigBound.ts"
 	},
 	"devDependencies": {
-		"tsx": "4.19.2",
+		"tsx": "4.23.15",
 		"engine-fx": "workspace:*",
 		"utils-event-emitter": "workspace:*",
 		"@barvynkoa/particle-emitter": "0.0.1",
-		"@esotericsoftware/spine-core": "4.2.74",
-		"pixi.js": "8.8.1"
+		"@esotericsoftware/spine-core": "4.2.120",
+		"pixi.js": "8.21.0"
 	}
 }
