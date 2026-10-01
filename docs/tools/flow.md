@@ -30,7 +30,7 @@ signals that components — and spines placed on a screen — listen for), waits
   time** — an incompatible wire simply won't drop.
 - **It validates against a template vocabulary.** The flow is written against the game
   template's declared **events / actions / cues / collections** — `book-of`, `ways`,
-  `cluster` and `scatter` are registered. The palette offers exactly those names, and a live
+  `cluster`, `scatter` and `holdAndWin` are registered. The palette offers exactly those names, and a live
   **Validation** panel flags anything unresolved or mis-wired.
 - **Deterministic preview.** Pick one of your event nodes and run its handler headlessly
   against a fixed sample; the panel lists the resulting ordered timeline (each effect /
@@ -284,11 +284,23 @@ lists what the game answers at runtime. The **values** come first:
 | `balance` | number | The player's wallet. |
 | `bet` | number | The current total stake (bet × cost multiplier). |
 | `win`, `totalWin` | number | The win the book event carried. Two names, one read. |
-| `gameType` | `basegame` / `freegame` | |
+| `gameType` | `basegame` / `freegame` / `respin` | The game type of the mode on screen. |
+| `activeMode` | text | The game mode on screen (`basegame`, `freeSpins`, `holdAndWin`, …). |
+| `modeDepth`, `queuedModes` | number | Modes on the stack (`0` at the base game), and modes waiting. |
 | `isFreeGame` | true/false | The free-spin feature is running. |
 | `freeSpinsRemaining`, `freeSpinsTotal` | number | Spins left, and spins awarded. |
 | `autoSpinsRemaining` | number | Autoplay rounds left; `0` when no run is live. |
 | `isAutoSpinning` | true/false | An autoplay run is live. |
+
+A **Hold and Win** project has no free-spin values (the kind has no free spins) and these instead:
+
+| Value | Type | What it reads |
+|---|---|---|
+| `respinsLeft` | number | Respins left on the counter. |
+| `respinTotal` | number | What the counter resets to when a coin lands. |
+| `featureWorth` | number | What the open feature is worth so far (banked jackpots + every held coin), as the server counts it, in the same units as `win`. It is final from the trigger's chain on, unlike the Total Win bar a screen binds (`featureTotal`), which counts up. |
+| `activeModifiers` | list | The specials active in the feature (`payer`, `multiplier`, `collector`, `mystery`). |
+| `jackpot.mini` … `jackpot.grand` | number | Each jackpot's prize in the same units as `win`; `0` when the game has no such tier. A screen's `jackpot.<tier>` source shows the same prize in currency. |
 
 Then the **collections** (`reels`) — the iterables a **ForEach** walks, rather than things
 to compare. You pick a name from the list instead of typing it, so there is nothing to
@@ -610,6 +622,54 @@ modes finished outside Global and Base game, never fires.
 
 The **Preview** panel runs only the Global graph, and only on the Global tab.
 
+### Hold and Win — the starter flow and its beats
+
+A new **Hold and Win** project starts on a flow that plays the whole feature with the engine's
+own presentation, so it runs with no authoring. Its vocabulary is the standard one without free
+spins or stacked pictures, plus the feature's events, beats, cues and values (the design is
+[hold-and-win.md §5](../design/hold-and-win.md)).
+
+**One action per beat.** Each Hold and Win event has one action that presents it exactly as the
+engine does when no flow owns it — the same code runs either way. Each takes the event itself on
+its **bookEvent** pin: set it to accessor **$trigger** with no field. Left unfed it is a red
+Validation error (`unfilled-data-in`), because the beat has nothing to present.
+
+| Event | Action | Where the starter flow wires it |
+|---|---|---|
+| `luckySpin` | `playLuckySpinIntro` (no bookEvent) | Global, inside the `luckySpin` screen |
+| `meterUpdate` | `fillMeter` | Global |
+| `coinInstantCollect` | `instantCollect` | Global |
+| `jackpotWin` | `showJackpotWin` | Global; and the Hold and Win tab, inside the `jackpotWin` screen |
+| `holdAndWinTrigger` | `showRespinBoard` | Hold and Win tab |
+| `holdAndWinWheel` | `spinWheel` | Hold and Win tab, inside the `wheel` screen |
+| `respinReveal` | `spinRespin` | Hold and Win tab |
+| `coinsLand` | `stickCoins` | Hold and Win tab |
+| `mysteryReveal` | `revealMystery` | Hold and Win tab |
+| `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
+| `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
+| `coinCollect` | `collectCoins` | Hold and Win tab |
+| `cellsCleared` | `clearRespinCells` | Hold and Win tab |
+| `columnComplete` | `lightLetter` | Hold and Win tab |
+| `respinUpdate` | `setRespinCounter` | Hold and Win tab |
+| `holdAndWinState` | `restoreRespinBoard` (rebuilds the board on a resume) | Hold and Win tab |
+| `holdAndWinEnd` | `hideRespinBoard` (the coins fly into the Total Win bar, then the reels return) | Hold and Win tab |
+
+`meterLevels` and `randomMetreTrigger` have no beat; left unwired, the engine records them. Each
+beat fires its own cues (`respinCoinsLand`, `potFill`, `wheelSpin`, `flightArrive`, …), so a
+**Fire cue** of one of them only notifies your sound or FX; it does not move the board. To fly
+something yourself, use **flyTo**: `cells` (or one `reel` + `row`), a `target` layout node id or
+`total` (the win meter), a `flight` name reported in each `flightArrive`, and `await`.
+
+**The tabs and screens.** The Global graph shows `jackpotBar` and `pots` with the game. The
+**Hold and Win** tab's **Mode trigger (enter)** shows the feature's screens (`respinBackground`,
+`respinBoard`, `respinCounter`, `totalWinBar`, `letters`) and starts the feature music; its
+**Mode trigger (exit)** hides them after the end beat, so the coins have landed. **On all modes
+finished** in Global brings the base music back. `luckySpin`, `wheel` and `jackpotWin` are shown
+for the length of their beat only: while one of them is up, the engine's own banner or wheel
+steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not wired, because the
+engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
+`holdAndWinEnd` with a held Show, as the free-spin intro and outro are.
+
 ### Validation
 
 The left **Validation** panel lists every issue from the live type-checker (unresolved
@@ -746,10 +806,12 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **Containers and the template are data-only.** The set of containers (scene id + z) and
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. `book-of`, `ways`,
-  `cluster` and `scatter` vocabularies are registered, and each ships its own starter flow (a
-  `lines` project starts on the `book-of` one); an unknown template id falls back to `book-of`.
-  A cluster or scatter project created before 2026-10-01 keeps the `book-of` flow it was
-  scaffolded with, because nothing in the editor changes a flow's template.
+  `cluster`, `scatter` and `holdAndWin` vocabularies are registered, and each ships its own
+  starter flow (a `lines` project starts on the `book-of` one); an unknown template id falls back
+  to `book-of`. A cluster, scatter or Hold and Win project created before 2026-10-01 keeps the
+  `book-of` flow it was scaffolded with, because nothing in the editor changes a flow's template.
+  Its game plays the same (the events that flow does not own fall through to the engine), but its
+  palette lacks the kind's own events and beats.
 - **Cues inside a component instance aren't offered.** The **Cues** section collects signal
   names from spines and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own
