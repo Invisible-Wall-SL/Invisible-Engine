@@ -33,13 +33,22 @@
 		H4: ['mystery'],
 	};
 
+	/** Tags the roles for this book only: the config is shared by every story in the session, so the
+	 *  symbols are put back afterwards, or a later story would draw H1–H4 as specials. */
 	const playSpecialsBook = async (name: string) => {
 		const { symbols } = getActiveGameConfig();
+		const original = Object.fromEntries(
+			Object.keys(SPECIAL_ROLES).map((symbol) => [symbol, symbols[symbol]]),
+		);
 		for (const [symbol, roles] of Object.entries(SPECIAL_ROLES)) {
 			if (symbols[symbol]) symbols[symbol] = { ...symbols[symbol], special_properties: roles };
 		}
-		const book = books.find((candidate) => candidate.name === name);
-		if (book) await playBet({ ...book, state: book.events } as never);
+		try {
+			const book = books.find((candidate) => candidate.name === name);
+			if (book) await playBet({ ...book, state: book.events } as never);
+		} finally {
+			for (const [symbol, entry] of Object.entries(original)) if (entry) symbols[symbol] = entry;
+		}
 	};
 </script>
 
