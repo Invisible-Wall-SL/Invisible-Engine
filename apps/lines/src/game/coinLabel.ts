@@ -54,6 +54,10 @@ export const coinLabelFor = (symbol: RawSymbol): string | null => {
 export const coinLabelLookFor = (symbol: RawSymbol): CoinLabelLook =>
 	resolveCoinLabelLook(bakedCoinLabel(), symbol.jackpot);
 
+/** The authored count-up length of one label (`coinLabel.animation.countMs`), else `coded`. */
+export const coinLabelCountMs = (coded: number): number =>
+	bakedCoinLabel()?.animation?.countMs ?? coded;
+
 /** One pop of a label: a fresh `id` replays it. */
 export type CoinLabelPopCue = { id: number; scale: number; ms: number };
 

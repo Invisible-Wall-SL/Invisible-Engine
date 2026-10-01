@@ -20,6 +20,7 @@ import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
 import { waitForTimeout } from 'utils-shared/wait';
 
+import { coinLabelCountMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { getActiveGameConfig } from './gameConfig';
@@ -193,7 +194,7 @@ const runCounts = (counts: HeldCount[]) => {
 		counts.map(async ({ key, change, tween }, i) => {
 			await roundSkip.wait(delays[i]);
 			if (change.jackpot === undefined) {
-				await countTo(tween, change.to, COUNT_MS);
+				await countTo(tween, change.to, coinLabelCountMs(COUNT_MS));
 				releaseHeldDisplay(key, tween);
 				return;
 			}
@@ -434,7 +435,7 @@ export const presentCollectStep = async ({
 		{ index, stagger: 0 },
 	).then(() =>
 		step.to > collectorLabel.target
-			? countTo(collectorLabel, step.to, COLLECT_COUNT_MS)
+			? countTo(collectorLabel, step.to, coinLabelCountMs(COLLECT_COUNT_MS))
 			: undefined,
 	);
 	await Promise.all([playHeldBeat([cell], 'win', { minMs: HIGHLIGHT_MIN_MS }), flight]);
