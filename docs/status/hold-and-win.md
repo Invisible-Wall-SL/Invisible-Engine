@@ -67,6 +67,14 @@ only has to register its own vocab + seed.
 
 ## Decisions & findings
 
+- 2026-10-01 — **First published Hold and Win project: `hw-3pots-sample`** (Invisible_Wall, Pots
+  preset; playbook [docs/playtest/hw-3pots-sample.md](../playtest/hw-3pots-sample.md)). **Trap:** a
+  freshly scaffolded `holdAndWin` project has NO authored Game Config, so its mock contract carries
+  no `holdAndWin` block and the test server deals it plain LINES (5 paylines, `PIC*`) even though the
+  Game Maker card shows the Pots defaults. Saving the config once in `/config` (then Re-publish)
+  fixed it; both mocks then report `protocol: "holdAndWin"`. Phase 9's config seeding should close
+  this for good.
+
 - 2026-10-01 — **Phase 4b: the facade maps the Hold and Win wire** (`packages/rgs-translator-eagaming/src/holdAndWin.ts`,
   the swap seam; gated on the boot config's `holdAndWin.wire === 1`, any other wire is refused with
   a console error and the feature is not shown). A Hold and Win server maps symbols by IDENTITY
