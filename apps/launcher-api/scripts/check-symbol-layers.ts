@@ -737,7 +737,9 @@ check(
 const tintedBlocks = [
 	...symbolSrc.matchAll(/<Container tint=\{props\.tint\}>([\s\S]*?)<\/Container>/g),
 ].map((m) => m[1]);
-check('dim — there are exactly two tinted containers', tintedBlocks.length, 2);
+// Three bands: the art, then the win frame + multiplier stamp, then the Hold and Win coin label —
+// its own band so a frame mounting later on `win` cannot land on top of it.
+check('dim — there are exactly three tinted containers', tintedBlocks.length, 3);
 // PARITY: everything the one container above used to darken must still be under a tinted node. The
 // base art, the win frame and the multiplier stamp all dimmed before this moved; if any of them
 // slipped outside, a shipped game would quietly stop darkening part of a losing cell.
@@ -747,6 +749,7 @@ for (const [label, needle] of [
 	['the spine arm', '<SymbolSpineMain'],
 	['the win frame', '<SymbolWinFrame'],
 	['the multiplier stamp', '<BitmapText'],
+	['the coin label', '<ResponsiveBitmapText'],
 ] as const) {
 	check(
 		`dim — ${label} is still inside a tinted container (it dimmed before the move)`,
