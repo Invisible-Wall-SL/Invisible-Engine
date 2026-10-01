@@ -129,6 +129,12 @@ yet shipped an authored cinematic through a `playCinematic` node.
    placed/persistent FX slots (§12.4a). Rig-level localized text is done as §12.4a in the Rigger.
 6. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
+7. **A frame hitch when a cinematic mounts.** On the live remake (2026-10-01) the probe cinematic's
+   ×1 run took 8.2 s of wall time for 6 s of game time (323 frames), and ×2 took 4.4 s for 3 s.
+   The game clock paused for 1–2 s, and so did the cinematic, which follows the game clock by
+   design. Locally it ran 6.000 / 3.006 s, with one 8.4 s outlier. It is likely first-use texture
+   upload of the cast rigs' large atlases. Measure the longest frame at mount; preloading the cast's
+   textures when the flow arms a `playCinematic` would hide it.
 
 ## Blocked (owner / external)
 
