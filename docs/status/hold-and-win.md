@@ -298,8 +298,9 @@ only has to register its own vocab + seed.
   loading screen.** `ResumeBet` broadcasts `resumeBet` on mount, and a flow-driven game mounts it
   under the flow's loading/tap-to-start screen, so a resumed feature runs (and can finish, big win
   included) before the player taps in. Seen on `hw-3pots-sample`; Borut's resume goes through the
-  same path. Owner of the fix: the flow / game-modes area (gate `resumeBet` on the loading screen
-  being dismissed).
+  same path. **FIXED (2026-10-01):** `ResumeBet` waits for `ready` — the base game in the active
+  set with no loading screen up (`Game.svelte` `isPlayerIn`). Verified on both games on the local
+  mocks, A/B against the ungated version; detail in `docs/status/engine.md`.
 
 - 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
   step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,

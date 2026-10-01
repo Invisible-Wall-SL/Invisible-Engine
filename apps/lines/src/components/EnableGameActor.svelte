@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 
 	import { Text } from 'pixi-svelte';
+	import { stateBet } from 'state-shared';
 
 	import { gameActor } from '../game/actor';
 	import { clearWinPresentation } from '../game/winSymbolCycle';
@@ -32,8 +33,14 @@
 
 	context.eventEmitter.subscribeOnMount({
 		// Connect every actor with app.eventEmitter to avoid call actor directly
-		bet: () => gameActor.send({ type: 'BET' }),
-		autoBet: () => gameActor.send({ type: 'AUTO_BET' }),
+		// No new round over an open one: until `<ResumeBet>` fires (the player is past the loading
+		// screen) the actor sits idle with a round still to resume.
+		bet: () => {
+			if (!stateBet.betToResume?.active) gameActor.send({ type: 'BET' });
+		},
+		autoBet: () => {
+			if (!stateBet.betToResume?.active) gameActor.send({ type: 'AUTO_BET' });
+		},
 		resumeBet: () => gameActor.send({ type: 'RESUME_BET' }),
 		// A SLAM press (`stopButtonClick`, fired while a round is rolling/presenting) wipes the
 		// previous win's line + stamped amount + info-bar message NOW, so any spin press clears the
