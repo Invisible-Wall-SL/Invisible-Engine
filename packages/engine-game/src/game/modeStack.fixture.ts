@@ -10,8 +10,8 @@
  *  4. An exit for a mode that is not there is a no-op (a resume starting mid-feature), and the base
  *     game is never pushed nor popped.
  *  5. The free-spin events ARE `modeEnter freeSpins` / `modeExit freeSpins` (aliases), flagged as
- *     owning their own game-type write; the Hold and Win pair carries mode fields; unrelated events
- *     do not move the stack.
+ *     owning their own game-type write; the Hold and Win pair carries mode fields and leaves its game
+ *     type (`respin`) to the mode layer; unrelated events do not move the stack.
  *  6. A restore rebuilds the stack from the kept events with no transitions.
  */
 
@@ -192,8 +192,8 @@ check(
 		policy: 'nest',
 		cause: 'count',
 		payload: { cells: [], respins: 3 },
-		// Hold and Win keeps the game type until the respin board reads `respin` (modeEvents.ts).
-		legacyGameType: true,
+		// Not an alias with a handler of its own: the mode layer writes its game type (`respin`).
+		legacyGameType: false,
 	},
 );
 check(
@@ -203,7 +203,7 @@ check(
 		op: 'exit',
 		id: 'holdAndWin',
 		total: 25,
-		legacyGameType: true,
+		legacyGameType: false,
 	},
 );
 for (const type of ['reveal', 'winInfo', 'updateFreeSpin', 'freeSpinRetrigger', 'setTotalWin']) {
