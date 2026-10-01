@@ -1346,6 +1346,14 @@
 		// (since the stock scene carries the coded `BoardFrame` anchor) would mount the coded glow
 		// a second time on an un-authored game.
 		'boardGlow',
+		// The Hold and Win beat screens (`referenceLayouts/holdAndWin.ts`) are a flow's to show around
+		// their beat, like the free-spin intro/outro above: mounted generically they would hold a tap
+		// dim over every respin, and the Lucky Spin / jackpot ones would double the coded banner.
+		'featureIntro',
+		'featureOutro',
+		'wheel',
+		'luckySpin',
+		'jackpotWin',
 		// The buy-bonus SELECT menu is mounted by its OWN `<BuyFeatureScreen>` takeover (below),
 		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
 		// (which would show the feature cards permanently).

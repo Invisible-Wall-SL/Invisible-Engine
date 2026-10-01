@@ -61,4 +61,4 @@ export { setComponentParams, getComponentParams } from './componentParamsContext
 export { setComponentSignalAnims, getComponentSignalAnims } from './componentSignalContext';
 // Which component defs have an instance on screen (reactive) — how a coded default steps aside for
 // an authored twin while it is mounted.
-export { isComponentMounted } from './mountedComponents';
+export { isComponentMounted, trackComponentMount } from './mountedComponents';

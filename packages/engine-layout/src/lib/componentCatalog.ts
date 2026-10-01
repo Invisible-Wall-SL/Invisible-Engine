@@ -232,8 +232,13 @@ export const HOLD_AND_WIN_VALUE_SOURCE_KEYS: string[] = HOLD_AND_WIN_PARAM_CATAL
 	(p) => p.key,
 );
 
-/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature. */
-export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = ['respinCounterShow'];
+/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; the other two
+ *  while the Lucky Spin intro / a banked jackpot's celebration is up. */
+export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = [
+	'respinCounterShow',
+	'luckySpinShow',
+	'jackpotWinShow',
+];
 
 /**
  * The boolean show/hide feeds a `visibleSource` param can bind to — the keys a game

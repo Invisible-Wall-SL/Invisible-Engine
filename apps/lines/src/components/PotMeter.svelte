@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
-	import { getComponentParams } from 'engine-layout/svelte';
+	import { getComponentParams, trackComponentMount } from 'engine-layout/svelte';
 
 	import HoldAndWinPot from './HoldAndWinPot.svelte';
-	import { configuredMeters } from '../game/holdAndWinMeters.svelte';
+	import { configuredMeters, potMeterMountKey } from '../game/holdAndWinMeters.svelte';
 
 	/**
 	 * The `potMeter` component's coded part: the pot of the meter its `meter` param names, drawn by the
@@ -26,6 +26,8 @@
 	});
 	const meters = $derived(configuredMeters());
 	const index = $derived(meters.findIndex((meter) => meter.id === meterId));
+	// Count this meter's pot in only while it draws one, so the coded pots step aside per meter.
+	$effect(() => (index >= 0 ? trackComponentMount(potMeterMountKey(meterId)) : undefined));
 </script>
 
 {#if index >= 0}
