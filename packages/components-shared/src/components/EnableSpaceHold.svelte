@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import { hasContinuePress, stateBet, stateBetDerived } from 'state-shared';
+	import { hasContinuePress } from 'state-shared';
 </script>
 
 <script lang="ts">
@@ -10,6 +10,7 @@
 		runSpinOrSlamStop,
 		type SpinPressSound,
 	} from 'utils-shared/spinStop';
+	import { HOLD_TO_SPIN_MS, endSpinHold, startSpinHold } from 'utils-shared/spinHold';
 
 	import OnHotkey from './OnHotkey.svelte';
 
@@ -23,8 +24,8 @@
 		{ type: 'bet' } | { type: 'stopButtonClick' } | SpinPressSound
 	>();
 
-	// The player's own turbo, restored when the hold ends rather than switched off.
-	let turboBeforeHold = false;
+	// The Space key's place in the hold it shares with the spin buttons (`utils-shared/spinHold`).
+	const holder = Symbol('space');
 	// When this press's first keyDown landed (0 = no press), and when a round last started.
 	let pressStartedAt = 0;
 	let roundStartedAt = 0;
@@ -54,20 +55,13 @@
 	};
 
 	const spaceHoldOn = () => {
-		// `OnHotkey` calls `onhold` again once its hold state settles; only the first call is the
-		// player's turbo and the hold's start, the second would read the hold's own.
-		const starting = !stateBet.isSpaceHold;
-		if (starting) turboBeforeHold = stateBetDerived.isTurboPersistent();
-		stateBet.autoSpinsCounter = 0;
-		stateBet.isSpaceHold = true;
-		stateBetDerived.updateIsTurbo(true, { persistent: true });
-		if (starting) continueFromIdle();
+		// `OnHotkey` calls `onhold` again once its hold state settles; only the first call starts it.
+		if (startSpinHold(holder)) continueFromIdle();
 	};
 
 	const spaceHoldOff = () => {
 		pressEnd();
-		stateBet.isSpaceHold = false;
-		stateBetDerived.updateIsTurbo(turboBeforeHold, { persistent: true });
+		endSpinHold(holder);
 	};
 </script>
 
@@ -76,6 +70,7 @@
 
 <OnHotkey
 	hotkey="Space"
+	holdMs={HOLD_TO_SPIN_MS}
 	onpress={pressStart}
 	onpressend={pressEnd}
 	onhold={spaceHoldOn}

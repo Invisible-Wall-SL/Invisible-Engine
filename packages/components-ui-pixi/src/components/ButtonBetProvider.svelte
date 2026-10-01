@@ -14,6 +14,8 @@
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
+	import { createSpinButtonHold } from 'utils-shared/spinHold';
+	import type { PressHold } from 'pixi-svelte';
 
 	import { getContext } from '../context';
 
@@ -23,6 +25,7 @@
 				{
 					key: SpinButtonKey;
 					onpress: () => void;
+					hold: PressHold;
 					disabled: boolean;
 					spinning: boolean;
 					hotkeyDisabled: boolean;
@@ -41,6 +44,9 @@
 		context.eventEmitter.broadcast(getSpinPressSound({ isIdle }));
 		runSpinOrSlamStop({ isIdle, broadcast: context.eventEmitter.broadcast });
 	};
+
+	// Holding the button is holding Space (`utils-shared/spinHold`).
+	const hold = createSpinButtonHold();
 
 	// Slam stop is ALWAYS ON: while a round rolls the button is a live STOP that snaps the reels
 	// to the already-resolved result and fast-forwards the win presentation (`roundSkip`). The
@@ -61,4 +67,4 @@
 	const hotkeyDisabled = $derived(disabled || hasContinuePress());
 </script>
 
-{@render props.children({ key, onpress, disabled, spinning, hotkeyDisabled })}
+{@render props.children({ key, onpress, hold, disabled, spinning, hotkeyDisabled })}

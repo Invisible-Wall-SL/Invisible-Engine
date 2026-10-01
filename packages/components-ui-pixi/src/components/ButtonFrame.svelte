@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Container, Sprite, getContextApp } from 'pixi-svelte';
+	import { onDestroy } from 'svelte';
+	import { Container, Sprite, createPressHold, getContextApp, type PressHold } from 'pixi-svelte';
 	import { resolveButtonStateImage } from 'engine-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
 
@@ -84,6 +85,7 @@
 		if (disabled) {
 			hovered = false;
 			pressed = false;
+			pressHold.disarm();
 		}
 	});
 
@@ -133,6 +135,12 @@
 		const handler = params['onpress'];
 		if (typeof handler === 'function') (handler as () => void)();
 	};
+	// Press-and-hold when the action feed provides it (the spin button's hold-to-spin).
+	const pressHold = createPressHold({
+		hold: () => params['hold'] as PressHold | undefined,
+		press: onpress,
+	});
+	onDestroy(pressHold.cancel);
 </script>
 
 <!-- `none` while DISABLED so an inert button does not SWALLOW the pointer — the press falls
@@ -147,12 +155,14 @@
 		hovered = false;
 		pressed = false;
 	}}
-	onpointerdown={() => {
-		if (!disabled) pressed = true;
+	onpointerdown={(e) => {
+		if (disabled) return;
+		pressed = true;
+		pressHold.down(e.pointerId);
 	}}
-	onpointerup={() => {
+	onpointerup={(e) => {
 		pressed = false;
-		onpress();
+		pressHold.up(e.pointerId);
 	}}
 >
 	<Container {tint} rotation={spinRotation}>

@@ -5,6 +5,8 @@
 		Container,
 		Rectangle,
 		anchorToPivot,
+		createPressHold,
+		type PressHold,
 		type ContainerProps,
 		type Sizes,
 		type PixiPoint,
@@ -23,6 +25,8 @@
 	export type Props = Omit<ContainerProps, ContainerPropsToOmit> & {
 		sizes: Sizes;
 		onpress: () => void;
+		/** Press-and-hold behaviour (`createPressHold`); without it every press is a plain click. */
+		hold?: PressHold;
 		disabled?: boolean;
 		anchor?: PixiPoint;
 		children: Snippet<
@@ -39,7 +43,10 @@
 </script>
 
 <script lang="ts">
-	const { children, sizes, anchor, disabled, onpress, debug, ...containerProps }: Props = $props();
+	import { onDestroy } from 'svelte';
+
+	const { children, sizes, anchor, disabled, onpress, hold, debug, ...containerProps }: Props =
+		$props();
 	const center = $derived({
 		x: sizes.width * 0.5,
 		y: sizes.height * 0.5,
@@ -48,12 +55,22 @@
 	let hovered = $state(false);
 	let pressed = $state(false);
 
+	const pressHold = createPressHold({
+		hold: () => hold,
+		press: () => {
+			if (!disabled) onpress();
+		},
+	});
+
 	$effect(() => {
 		if (disabled) {
 			hovered = false;
 			pressed = false;
+			pressHold.disarm();
 		}
 	});
+
+	onDestroy(pressHold.cancel);
 
 	// A DISABLED button must not SWALLOW the pointer. Every handler below already early-returns on
 	// `disabled`, but the container stayed `eventMode: 'static'`, so it still won the hit test and ate
@@ -80,14 +97,15 @@
 		if (disabled) return;
 		hovered = false;
 	}}
-	onpointerdown={() => {
+	onpointerdown={(e) => {
 		if (disabled) return;
 		pressed = true;
+		pressHold.down(e.pointerId);
 	}}
-	onpointerup={() => {
+	onpointerup={(e) => {
 		if (disabled) return;
 		pressed = false;
-		onpress();
+		pressHold.up(e.pointerId);
 	}}
 >
 	{#if debug}

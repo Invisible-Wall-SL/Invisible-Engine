@@ -32,6 +32,7 @@
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
+	import { createSpinButtonHold } from 'utils-shared/spinHold';
 
 	import {
 		UI,
@@ -1915,6 +1916,9 @@
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
 				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
+			// Holding the button is holding Space: the press fires at the hold threshold, then rounds
+			// chain in turbo until release (`utils-shared/spinHold`, shared with `<EnableSpaceHold>`).
+			hold: createSpinButtonHold(),
 			disabled: boolSource(() => isSpinButtonDisabled(getSpinKey())),
 			spinning: boolSource(isSpinning),
 			label: textSource(() =>

@@ -19,3 +19,5 @@ export * from './spineLocale';
 export * from './cameraEffects';
 // Named anchors: where a mounted container is on screen, for code aiming at it (flights).
 export * from './anchors';
+// Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
+export * from './pressHold';
