@@ -82,7 +82,14 @@ for (const file of layerHosts) {
 	const markup = markupOf(read(file));
 	const containers = (markup.match(/<BoardContainer\b/g) ?? []).length;
 	const contexts = (markup.match(/<BoardContext\b/g) ?? []).length;
-	const drawsSymbols = /<(\w*Board(Base|Tiles)|\w*Symbol)\b/.test(markup);
+	// "Draws symbols" means draws them THROUGH `SymbolWrap` — a board base, or a component that renders
+	// `SymbolWrap` itself — because the wrap is the only reader of the context. The Hold and Win respin
+	// board draws `<Symbol>` straight into its own cell containers (`RespinCell`, `RespinHeldSymbol`),
+	// reads no context and is drawn on one layer, so it is not a host this rule is about.
+	const wrapHosts = symbolHosts.map((host) => host.replace(/\.svelte$/, ''));
+	const drawsSymbols =
+		/<\w*Board(Base|Tiles)\b/.test(markup) ||
+		wrapHosts.some((host) => new RegExp(`<${host}\\b`).test(markup));
 	if (!drawsSymbols) continue;
 
 	// A container that draws symbols without a context IS the crash.

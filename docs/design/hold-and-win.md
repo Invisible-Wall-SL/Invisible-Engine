@@ -150,6 +150,10 @@ Following [game-type-templates.md](game-type-templates.md): the base game pays b
 
 ### 4.2 The respin board — a dedicated per-cell board, not a rewrite of the reel board
 
+> **Built (Phase 4c, 2026-10-01).** `engine-game` `respinBoard.ts` / `respinBoard.svelte.ts` and
+> `apps/lines` `RespinBoard.svelte` + `holdAndWinPresentation.ts`. The decisions it fixed are in the
+> status file's findings.
+
 The shared reel board is column-strip based, and everything (anticipation, sequential stop, win
 positions, tumble) assumes one reel per column. Rewriting it for per-cell spins would risk every live
 game. Instead:

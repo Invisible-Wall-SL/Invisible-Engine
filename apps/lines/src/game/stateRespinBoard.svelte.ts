@@ -51,9 +51,14 @@ export const currentRespinBoard = (): RespinBoard | null => board;
 export const respinBlank = (): string =>
 	symbolsWithRole(getActiveGameConfig(), 'blank')[0] ?? 'BLANK';
 
-/** The strip a cell of column `reel` rolls through — the config's `respin` strips. */
+/**
+ * The strip a cell of column `reel` rolls through — the config's `respin` strips (every Hold and Win
+ * preset authors them), else the base game's, so a config without them still visibly spins. An
+ * RGS-authoritative game gets its generated in-play strip either way (`getPaddingReels`).
+ */
 const respinStrip = (reel: number): RawSymbol[] => {
-	const strips = getPaddingReels('respin');
+	const respin = getPaddingReels('respin');
+	const strips = respin.length > 0 ? respin : getPaddingReels('basegame');
 	return (strips[reel] ?? strips[0] ?? []) as RawSymbol[];
 };
 
