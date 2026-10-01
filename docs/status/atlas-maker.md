@@ -23,7 +23,7 @@ Works today on `main` / live:
   not dropped. Switching atlases is a selection, not a settings edit. Creates are `If-None-Match`
   claims; replacing a taken name asks, naming who holds it. A doc no author has saved since this
   shipped asks once after a render ("changed since this page loaded"). A second person on the same
-  atlas sees **"👤 X is editing this atlas"** (`/presence`, advisory). `test_doc_conflicts.py` (114,
+  atlas sees **"👤 X is editing this atlas"** (`/presence`, advisory). `test_doc_conflicts.py` (115,
   incl. a two-thread race, the review's walk-arounds as mutants, and the page wrapper under node).
   ⏳ Not yet run live with two browsers.
 - **Three layouts, chosen per atlas** _(2026-09-17)_. `pack` (the packer owns the page: it
