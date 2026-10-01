@@ -141,6 +141,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		doc,
 		defaults,
 		inPlaySymbols,
+		// The Hold and Win jackpot tiers the Game Config declares — the rows of the coin label's
+		// per-tier jackpot text. Empty ⇒ the page offers the four tiers the presets use.
+		jackpotTiers: (configDoc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
 		assets,
 		fonts: bitmapFonts,
 		clips,

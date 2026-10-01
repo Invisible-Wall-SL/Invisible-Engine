@@ -3,6 +3,7 @@ import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } fro
 import type { EffectDoc } from 'engine-fx';
 import type { GameConfigDoc } from 'game-config';
 import type {
+	CoinLabelConfig,
 	ComponentDef,
 	FlipbookClipEntry,
 	FontCatalog,
@@ -295,6 +296,11 @@ type BakedBundle = {
 			 *  `STACKED_WIN_HOLD_MS`. */
 			winHoldMs?: number;
 		};
+		/** The Hold and Win COIN VALUE LABEL (Invisible Symbols State Machine output) — style, cash
+		 * format, per-tier jackpot text, placement and pops of the value a coin prints on itself. Read
+		 * by `game/coinLabel.ts` and `components/CoinLabel.svelte`. Assetless; a Font Maker font it
+		 * names ships with the font catalog. Absent ⇒ the coded label (parity). */
+		coinLabel?: CoinLabelConfig;
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,
 		 * `foreground` in front. `components/BookVfx.svelte` renders it per matching cell; any
@@ -950,6 +956,17 @@ export function bakedTumblePattern(): TumblePatternConfig | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.tumblePattern;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.tumblePattern;
+}
+
+/**
+ * The Hold and Win coin value label authored in the Invisible Symbols State Machine, or undefined
+ * when the project never authored one (⇒ the coded label, byte-identical). Mirrors
+ * `bakedTumblePattern`'s runtime→baked→undefined resolution.
+ */
+export function bakedCoinLabel(): CoinLabelConfig | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.coinLabel;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.coinLabel;
 }
 
 /**

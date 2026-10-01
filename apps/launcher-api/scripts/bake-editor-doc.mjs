@@ -40,6 +40,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 // submodule's own node_modules, so `import 'config-svelte'` would not resolve there. `appSrc.js`
 // is a node-builtins-only leaf for exactly this reason.
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
+import { bakeCoinLabel } from './lib/bakeCoinLabel.mjs';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -433,6 +434,7 @@ async function main() {
 		tumblePattern: undefined,
 		anticipation: undefined,
 		stacked: undefined,
+		coinLabel: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -684,6 +686,11 @@ async function main() {
 						}
 					: undefined;
 			})();
+			// The Hold and Win COIN VALUE LABEL — assetless config (a Font Maker font it names ships with
+			// the whole font catalog). MUST reach BOTH bundle paths (this + the runtime
+			// `SymbolExportResult`): omit it here and a baked game would print the coded label while the
+			// live one printed the authored one. See `lib/bakeCoinLabel.mjs`.
+			const coinLabel = bakeCoinLabel(s?.coinLabel);
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -709,6 +716,7 @@ async function main() {
 				tumblePattern,
 				anticipation,
 				stacked,
+				coinLabel,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
