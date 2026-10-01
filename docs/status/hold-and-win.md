@@ -68,6 +68,17 @@ only has to register its own vocab + seed.
 
 ## Decisions & findings
 
+- 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
+  step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
+  the symbol `fx` layer, launcher overlays — moves the emitter's container, so particles move
+  rigidly. The library trails via `emitter.updateOwnerPos` on a still parent, which no game path
+  calls. `flyTo` therefore adds an `ownerPos` getter to `pixi-svelte` `ParticleEmitter.svelte` (and
+  fixes its leaked ticker callback); the coded default can use the unused
+  `constants-shared/particleConfig/trail.ts` plus a generated glow texture. Any future `/fx` "flight"
+  preview must use the same `updateOwnerPos` path, or it becomes a fourth hand-synced renderer.
+  Stale comments describing the old behaviour: `apps/launcher-api/src/routes/(app)/fx/fxModel.client.ts`
+  (:385, :408).
+
 - 2026-10-01 — **Phase 4c: the respin board.** `engine-game` builds it: `respinBoard.ts` is pure and
   pinned by `fixtures/respinBoard.fixture.ts` (which cells spin and onto what, which cells a new
   picture releases, what each cell shows at mount); `respinBoard.svelte.ts` makes `reels × rows`
