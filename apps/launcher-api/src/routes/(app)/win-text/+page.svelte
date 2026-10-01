@@ -1,20 +1,34 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
+		WIN_TEXT_FEATURE_FIELDS,
+		WIN_TEXT_FEATURE_LABELS,
+		WIN_TEXT_JACKPOT_FIELDS,
+		WIN_TEXT_JACKPOT_LABELS,
+		WIN_TEXT_RESPIN_FIELDS,
+		WIN_TEXT_RESPIN_LABELS,
 		formatWinText,
+		jackpotCaption,
 		resolveSymbolName,
 		resolveToastTemplate,
 		resolveWinText,
 		resolveWinLineMessage,
+		specialDisplayName,
 		symbolDrawsWinLine,
 		winTextCellKey,
 	} from 'engine-layout';
-	import type { WinTextDoc } from 'engine-layout';
+	import type {
+		WinTextDoc,
+		WinTextFeatureField,
+		WinTextJackpotField,
+		WinTextRespinField,
+	} from 'engine-layout';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -42,11 +56,21 @@
 	const COUNTS = [2, 3, 4, 5];
 
 	/**
-	 * The win-level aliases offered. These mirror the `big`-type tiers in every app's coded
-	 * `winLevelMap`; unlike the symbol list they are NOT published to R2, so there is no live
-	 * source to read them from. The doc accepts any alias key.
+	 * The win-level aliases offered: the project's big-win tiers from its Game Config (a caption is
+	 * only ever drawn for a big tier), labelled with the tier's name. A config that authors no tiers
+	 * runs on the coded `winLevelMap`, whose big tiers are these five. An alias the doc already
+	 * holds is always listed, so a tier renamed in the config never strands what was written for it.
 	 */
-	const WIN_LEVEL_ALIASES = ['big', 'superwin', 'mega', 'epic', 'max'];
+	const CODED_BIG_ALIASES = ['big', 'superwin', 'mega', 'epic', 'max'];
+	const winLevelRows = $derived.by(() => {
+		const rows = data.bigTiers.length
+			? data.bigTiers.map((tier) => ({ alias: tier.alias, name: tier.name }))
+			: CODED_BIG_ALIASES.map((alias) => ({ alias, name: alias }));
+		for (const alias of Object.keys(doc.winLevels ?? {})) {
+			if (!rows.some((row) => row.alias === alias)) rows.push({ alias, name: alias });
+		}
+		return rows;
+	});
 
 	const TOKEN_HELP = '{amount} {count} {symbolName} {line}';
 
@@ -130,6 +154,50 @@
 		if (value.trim()) freeSpins[branch] = value;
 		else delete freeSpins[branch];
 	}
+
+	function setJackpot(field: WinTextJackpotField, value: string) {
+		const jackpots = (doc.jackpots ??= {});
+		if (value.trim()) jackpots[field] = value;
+		else delete jackpots[field];
+	}
+
+	function setJackpotCaption(tier: string, value: string) {
+		const captions = ((doc.jackpots ??= {}).captions ??= {});
+		if (value.trim()) captions[tier] = value;
+		else delete captions[tier];
+	}
+
+	function setRespins(field: WinTextRespinField, value: string) {
+		const respins = (doc.respins ??= {});
+		if (value.trim()) respins[field] = value;
+		else delete respins[field];
+	}
+
+	function setFeature(field: WinTextFeatureField, value: string) {
+		const feature = (doc.feature ??= {});
+		if (value.trim()) feature[field] = value;
+		else delete feature[field];
+	}
+
+	function setSpecialName(kind: string, value: string) {
+		const names = ((doc.feature ??= {}).specialNames ??= {});
+		if (value.trim()) names[kind] = value;
+		else delete names[kind];
+	}
+
+	/**
+	 * The Hold and Win preview values: the config's first jackpot tier, three respins, and the
+	 * payer as the special a pot activates — rendered through the same resolver helpers the game
+	 * calls, so a caption or special name authored here shows up in every line that uses it.
+	 */
+	const holdAndWinVars = $derived({
+		amount: '$4.00',
+		count: 3,
+		jackpot: jackpotCaption(resolved, data.jackpotTiers[0] ?? 'MINI'),
+		meter: specialDisplayName(resolved, 'payer'),
+		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
+	});
+	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
 
 	function setAmountFormat(value: string) {
 		if (value.trim()) doc.amountFormat = value;
@@ -398,21 +466,25 @@
 				whichever fits what it knows: a message fired without a symbol (any flow can fire one) falls
 				back to the amount-only line rather than printing a blank name.
 			</p>
-			<p class="hint">
-				A <strong>Book-of expanding symbol</strong> gets its own line. When the special symbol fills
-				whole reels, <code>{'{count}'}</code> is the number of <strong>reels</strong> it covers — not
-				the number of icons on screen — so the ordinary sentence miscounts what the player is looking
-				at (four boots named over a board showing twelve). Leave it blank to fall back to the amount
-				+ symbol line.
-			</p>
+			{#if data.capabilities.bookReveal}
+				<p class="hint">
+					A <strong>Book-of expanding symbol</strong> gets its own line. When the special symbol
+					fills whole reels, <code>{'{count}'}</code> is the number of <strong>reels</strong> it covers
+					— not the number of icons on screen — so the ordinary sentence miscounts what the player is
+					looking at (four boots named over a board showing twelve). Leave it blank to fall back to the
+					amount + symbol line.
+				</p>
+			{/if}
 			<p class="hint">
 				Live preview for <code>{previewSymbol}</code> × {PREVIEW_COUNT}:
 				<strong class="preview">{toastPreview || '—'}</strong>
 			</p>
-			<p class="hint">
-				…and the same win <strong>expanded</strong>:
-				<strong class="preview">{expandedToastPreview || '—'}</strong>
-			</p>
+			{#if data.capabilities.bookReveal}
+				<p class="hint">
+					…and the same win <strong>expanded</strong>:
+					<strong class="preview">{expandedToastPreview || '—'}</strong>
+				</p>
+			{/if}
 			<label class="single">
 				<span>Amount + symbol</span>
 				<input
@@ -421,14 +493,16 @@
 					oninput={(e) => setToast('full', e.currentTarget.value)}
 				/>
 			</label>
-			<label class="single">
-				<span>Expanded symbol win</span>
-				<input
-					value={doc.toast?.expanded ?? ''}
-					placeholder={resolved.toast.expanded}
-					oninput={(e) => setToast('expanded', e.currentTarget.value)}
-				/>
-			</label>
+			{#if data.capabilities.bookReveal}
+				<label class="single">
+					<span>Expanded symbol win</span>
+					<input
+						value={doc.toast?.expanded ?? ''}
+						placeholder={resolved.toast.expanded}
+						oninput={(e) => setToast('expanded', e.currentTarget.value)}
+					/>
+				</label>
+			{/if}
 			<label class="single">
 				<span>Amount only</span>
 				<input
@@ -461,24 +535,122 @@
 			</label>
 		</section>
 
-		<section>
-			<h2>Free spins</h2>
-			<p class="hint">
-				The celebration line shown when a player wins <strong>extra free spins mid-feature</strong>
-				(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so it
-				reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
-				<a href="/localization">translates</a> correctly. Bind a text node's source to
-				<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
+		{#if data.capabilities.freeSpins}
+			<section>
+				<h2>Free spins</h2>
+				<p class="hint">
+					The celebration line shown when a player wins <strong>extra free spins mid-feature</strong
+					>
+					(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so it
+					reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
+					<a href="/localization">translates</a> correctly. Bind a text node's source to
+					<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
+				</p>
+				<label class="single">
+					<span>Retrigger (+N extra)</span>
+					<input
+						value={doc.freeSpins?.retrigger ?? ''}
+						placeholder={resolved.freeSpins.retrigger}
+						oninput={(e) => setFreeSpins('retrigger', e.currentTarget.value)}
+					/>
+				</label>
+			</section>
+		{/if}
+
+		{#if data.capabilities.holdAndWin}
+			<p class="warn">
+				<strong>Not in the game yet.</strong> The game still draws its built-in Hold and Win lines; what
+				you write below is saved and translated, and shows on screen once the engine reads it.
 			</p>
-			<label class="single">
-				<span>Retrigger (+N extra)</span>
-				<input
-					value={doc.freeSpins?.retrigger ?? ''}
-					placeholder={resolved.freeSpins.retrigger}
-					oninput={(e) => setFreeSpins('retrigger', e.currentTarget.value)}
-				/>
-			</label>
-		</section>
+			<section>
+				<h2>Jackpots</h2>
+				<p class="hint">
+					What the player reads for each jackpot tier, and the banners a jackpot win shows. The
+					tiers are this game's own, from <a href={resolve('/config')}>Invisible Game Config</a>;
+					leave a tier blank and it is called by its config name. Write <code>{'{jackpot}'}</code>
+					where the tier's caption goes and <code>{'{amount}'}</code> for what it paid.
+				</p>
+				{#each data.jackpotTiers as tier (tier)}
+					<label class="single">
+						<span>{tier}</span>
+						<input
+							value={doc.jackpots?.captions?.[tier] ?? ''}
+							placeholder={tier}
+							oninput={(e) => setJackpotCaption(tier, e.currentTarget.value)}
+						/>
+					</label>
+				{:else}
+					<p class="warn">
+						This game's config names no jackpot tiers yet — add them in
+						<a href={resolve('/config')}>Invisible Game Config</a> to caption them here.
+					</p>
+				{/each}
+				{#each WIN_TEXT_JACKPOT_FIELDS as field (field)}
+					<label class="single">
+						<span>{WIN_TEXT_JACKPOT_LABELS[field]}</span>
+						<input
+							value={doc.jackpots?.[field] ?? ''}
+							placeholder={resolved.jackpots[field]}
+							oninput={(e) => setJackpot(field, e.currentTarget.value)}
+						/>
+						<em class="row-preview">{holdAndWinPreview(resolved.jackpots[field]) || '—'}</em>
+					</label>
+				{/each}
+			</section>
+
+			<section>
+				<h2>Respins</h2>
+				<p class="hint">
+					The respin counter and its moments. <code>{'{count}'}</code> is a number of respins — the respins
+					left on the counter, the respins awarded when the feature starts.
+				</p>
+				{#each WIN_TEXT_RESPIN_FIELDS as field (field)}
+					<label class="single">
+						<span>{WIN_TEXT_RESPIN_LABELS[field]}</span>
+						<input
+							value={doc.respins?.[field] ?? ''}
+							placeholder={resolved.respins[field]}
+							oninput={(e) => setRespins(field, e.currentTarget.value)}
+						/>
+						<em class="row-preview">{holdAndWinPreview(resolved.respins[field]) || '—'}</em>
+					</label>
+				{/each}
+			</section>
+
+			<section>
+				<h2>Hold and Win feature</h2>
+				<p class="hint">
+					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
+					<code>{'{meter}'}</code> the special a full pot activates and
+					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the names
+					below. The intro and outro draw nothing until you write them.
+				</p>
+				{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
+					<label class="single">
+						<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+						<input
+							value={doc.feature?.[field] ?? ''}
+							placeholder={resolved.feature[field] || 'not drawn'}
+							oninput={(e) => setFeature(field, e.currentTarget.value)}
+						/>
+						<em class="row-preview">{holdAndWinPreview(resolved.feature[field]) || '—'}</em>
+					</label>
+				{/each}
+				<p class="hint">
+					Special names, as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write them:
+				</p>
+				{#each Object.keys(resolved.feature.specialNames) as kind (kind)}
+					<label class="single">
+						<span>{kind}</span>
+						<input
+							value={doc.feature?.specialNames?.[kind] ?? ''}
+							placeholder={resolved.feature.specialNames[kind]}
+							oninput={(e) => setSpecialName(kind, e.currentTarget.value)}
+						/>
+					</label>
+				{/each}
+			</section>
+		{/if}
 
 		<section>
 			<h2>Win-level captions</h2>
@@ -489,13 +661,13 @@
 				big-win art carries no words (which is also what lets the tier be translated without re-cutting
 				the art per language).
 			</p>
-			{#each WIN_LEVEL_ALIASES as alias (alias)}
+			{#each winLevelRows as row (row.alias)}
 				<label class="single">
-					<span>{alias}</span>
+					<span title={row.alias}>{row.name}</span>
 					<input
-						value={doc.winLevels?.[alias] ?? ''}
+						value={doc.winLevels?.[row.alias] ?? ''}
 						placeholder="not drawn"
-						oninput={(e) => setWinLevel(alias, e.currentTarget.value)}
+						oninput={(e) => setWinLevel(row.alias, e.currentTarget.value)}
 					/>
 				</label>
 			{/each}
@@ -667,6 +839,15 @@
 	.single input:focus {
 		outline: none;
 		border-color: #7ee0c0;
+	}
+	.row-preview {
+		flex: none;
+		width: 220px;
+		font-size: 12px;
+		color: #7ee0c0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.toggle {
 		display: flex;

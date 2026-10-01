@@ -44,7 +44,7 @@ titled **"Hold and win game pipeline"**.
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
-| 8 | Win Text (jackpot + respin copy, gating) | not started | — | — |
+| 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 (contract, /win-text sections, harvest) in review; part 2 (runtime reads the templates, see "Win Text literals for Phase 8") next | Hold and Win Phase 8 — Win Text | part 1: #946 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
@@ -70,6 +70,28 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **Phase 8 (Win Text): what the presentation must call.** The copy lives in
+  `bakedWinText()` (`resolveWinText`); render with `formatWinText(template, vars)` and NEVER build the
+  string first. Map of today's literals → templates (for these the defaults are byte-equal, so the swap is
+  invisible; the six fields under "Authored but not drawn yet" are NEW copy):
+  - `<tier> JACKPOT` → `jackpots.award` with `{ jackpot: jackpotCaption(r, tier) }`; its detail
+    `amount` → `jackpots.awardDetail`, `FULL BOARD  ${amount}` → `jackpots.fullBoardDetail`; the coin
+    banner title `tier` → `jackpots.coin`.
+  - `RESPINS ${left}` (RespinCounter) → `respins.counter` `{ count }`; the modifiers line under it →
+    `specialDisplayName` per kind (it uppercases ids today — same output for the four known kinds).
+  - `LUCKY SPIN` → `feature.luckySpin`; 4f's `INSTANT WIN` → `feature.instantCollect`.
+  - `<names> ACTIVE` → `feature.modifiersActive`, `UNLOCKED: <names>` →
+    `feature.modifiersUnlocked`, with `{ modifiers: kinds.map((k) => specialDisplayName(r, k)).join(', ') }`
+    (replaces `SPECIAL_NAMES` in `holdAndWinPresentation.ts`).
+  - Authored but not drawn yet (a beat or Phase 6 screen may adopt them): `respins.award` / `reset` /
+    `last`, `feature.total` / `intro` / `outro` / `meterFull` (`{meter}` = `specialDisplayName` of what
+    the pot activates).
+  - 4f's wheel / collector-level / pot labels have NO template yet (full list: "Win Text literals
+    for Phase 8") — part 2 adds fields for them. Coin labels belong to Phase 7 (`bakedCoinLabel`).
+  - **Jackpot tiers are the config's** (`holdAndWin.jackpots[].name`); the page lists one caption box
+    per tier, and Localization lists each tier's caption (defaulting to the name) for a Hold and Win
+    project only.
 
 - 2026-10-01 — **Step 10: Grand + Hotfire.** Things a later phase must know:
   - **A swept column reaches the Total Win bar DURING the feature.** `presentColumnComplete` counts
@@ -449,6 +471,15 @@ Hold and Win beats prints copy.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 8 part 1: Win Text families + gating** (branch `claude/hw-phase8-win-text`).
+  `WinTextDoc` gains `jackpots` / `respins` / `feature`, with defaults equal to the presentation's
+  literals where it draws one (six fields are new copy with no draw site yet); `/win-text` shows them only for `holdAndWin` and hides `toast.expanded` without
+  `bookReveal` (Free spins without `freeSpins`); win-level rows come from the config's big tiers;
+  Localization harvests the families for Hold and Win projects only. Both bundle paths ship the
+  normalized doc, so the new keys reach the game (fixture-pinned). Every real `win-text.json` in R2
+  normalizes and harvests byte-identically. PR #946. Left: part 2 (the presentation reads the
+  templates) — the call-site map is in Decisions & findings. Details: [win-text](win-text.md).
 
 - 2026-10-01 — **Phase 4 (engine runtime) build complete** (session "Hold and Win Phase 4 — engine
   runtime"). Merged in order, each a runtime release verified by `X-Runtime-Release`: 4a contract
