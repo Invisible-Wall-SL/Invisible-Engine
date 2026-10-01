@@ -35,7 +35,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a (event contract) in review | Hold and Win Phase 4 — engine runtime | 4a: — |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a merged; 4b (facade + coin labels) merging; 4c (respin board) in review | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -66,6 +66,29 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **First published Hold and Win project: `hw-3pots-sample`** (Invisible_Wall, Pots
+  preset; playbook [docs/playtest/hw-3pots-sample.md](../playtest/hw-3pots-sample.md)). **Trap:** a
+  freshly scaffolded `holdAndWin` project has NO authored Game Config, so its mock contract carries
+  no `holdAndWin` block and the test server deals it plain LINES (5 paylines, `PIC*`) even though the
+  Game Maker card shows the Pots defaults. Saving the config once in `/config` (then Re-publish)
+  fixed it; both mocks then report `protocol: "holdAndWin"`. Phase 9's config seeding should close
+  this for good.
+
+- 2026-10-01 — **Phase 4b: the facade maps the Hold and Win wire** (`packages/rgs-translator-eagaming/src/holdAndWin.ts`,
+  the swap seam; gated on the boot config's `holdAndWin.wire === 1`, any other wire is refused with
+  a console error and the feature is not shown). A Hold and Win server maps symbols by IDENTITY
+  (`pickMappingForConfig`). Its feature is NOT free spins any more: `enterBonus` /
+  `playedBonusSpin` become `holdAndWinState` (the facade computes `total` from the roles and the
+  jackpot table, and takes `stickiness` from the config), each respin's `playedSpin` becomes
+  `respinReveal` (every cell, visible coordinates), and `gameEnd` closes on `setWin` (big-win tier)
+  + `setTotalWin` as in the base game. **Consequence until the RespinBoard ships (4c):** the respins
+  play with nothing on screen moving — the base board stays, the state is recorded, and the round
+  pays the right total at the end. No Hold and Win project is published, so no player sees it.
+- 2026-10-01 — **Mock quirk (wire, not facade):** when a full board or the last letter ends the
+  feature, that respin's `respinUpdate` reports a reset (`left` back to the start) while its closing
+  `playedBonusSpin` snapshot says `left: 0`. The engine takes the snapshot. Harmless; fix in the
+  mock + wire doc together if anyone needs the counter to read 0 on that beat.
 
 - 2026-10-01 — **Phase 4a: the engine's Hold and Win event contract is code, not a table.** One home:
   `HoldAndWinEventFields` in `packages/engine-game/src/game/holdAndWin.ts`; `apps/lines`
@@ -190,6 +213,15 @@ only has to register its own vocab + seed.
 
 ## Recent changes
 
+- 2026-10-01 — **Phase 4b: facade mapping + coin labels** (session "Hold and Win Phase 4 — engine
+  runtime"). The facade translates every wire Hold and Win event into the 4a contract (cell values,
+  jackpot labels and factors parsed off `BONUS:1.5` / `JACKPOT:MINI*2`; credits → book units),
+  pinned by `packages/rgs-translator-eagaming/holdAndWin.fixture.ts` (in `check:holdandwin`): the real
+  facade against the real mock, 18 forced beats over the three presets, every book folded through
+  the engine reducer and compared with the server's snapshot after every respin. Symbols print their
+  value (`coinLabelText` in engine-game, drawn by `Symbol.svelte` over the art): money for a coin or
+  collector (decimals, the operator's currency), `MINI ×2` for a jackpot, `×3` for a multiplier,
+  `+$4.00` for a payer — the coded default until Phase 7 authors it.
 - 2026-10-01 — **Phase 4M: game modes** (session "Hold and Win Phase 4M — Game modes"; PRs #930
   registry, #933 engine + flow).
   - **Registry** (`packages/game-config/src/modes.ts`): sparse `doc.modes`; built-ins `basegame`,
@@ -230,7 +262,7 @@ only has to register its own vocab + seed.
     `holdAndWin`); the facade/mock emit no `modeEnter` yet (nothing needs a queued mode until a game
     announces one).
 
-- 2026-10-01 — **Phase 4a: the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
+- 2026-10-01 — **Phase 4a merged (#928, runtime release `lines@f6b3207671a9`): the Hold and Win book-event contract** (session "Hold and Win Phase 4 —
   engine runtime"). The §4.3 events as typed arms of the shared runtime's union (payloads in
   `engine-game` `holdAndWin.ts`), `RawSymbol` `value`/`jackpot`/`factor`, the `HoldAndWinSnapshot`
   resume shape, state-only default handlers into `stateHoldAndWin`, `flightArrive` cue, regenerated

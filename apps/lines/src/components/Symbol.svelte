@@ -10,6 +10,9 @@
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
+	import { ResponsiveBitmapText } from 'components-pixi';
+	import { SYMBOL_SIZE } from 'engine-game';
+	import { coinLabelFor } from '../game/coinLabel';
 
 	type Props = {
 		x?: number;
@@ -64,6 +67,12 @@
 	// one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
+	/**
+	 * A Hold and Win coin's value, jackpot tier or factor. Like the multiplier stamp it draws even
+	 * with no art bound — the value is what the player reads — and it sits in its own band after the
+	 * win frame's, so a frame mounting later on `win` cannot land on top of it.
+	 */
+	const coinLabel = $derived(coinLabelFor(props.rawSymbol));
 	/**
 	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
 	 * (`symbolStateLoopsByDefault`) — loop for a state that says how a symbol IS, one-shot for a
@@ -173,13 +182,7 @@
 -->
 <Container>
 	{#each behindLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer
-			{layer}
-			x={props.x ?? 0}
-			y={props.y ?? 0}
-			tint={layerTint(layer)}
-			zIndex={i + 1}
-		/>
+		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
 	{/each}
 </Container>
 
@@ -216,13 +219,7 @@
 
 <Container>
 	{#each overLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer
-			{layer}
-			x={props.x ?? 0}
-			y={props.y ?? 0}
-			tint={layerTint(layer)}
-			zIndex={i + 1}
-		/>
+		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
 	{/each}
 </Container>
 
@@ -240,6 +237,22 @@
 			style={{
 				fontFamily: 'gold',
 				fontSize: 50,
+			}}
+		/>
+	{/if}
+</Container>
+
+<Container tint={props.tint}>
+	{#if coinLabel}
+		<ResponsiveBitmapText
+			anchor={0.5}
+			x={props.x}
+			y={props.y}
+			maxWidth={SYMBOL_SIZE * 0.9}
+			text={coinLabel}
+			style={{
+				fontFamily: 'gold',
+				fontSize: SYMBOL_SIZE * 0.3,
 			}}
 		/>
 	{/if}

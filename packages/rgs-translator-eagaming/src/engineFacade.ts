@@ -75,6 +75,15 @@ import {
 	type GameMapping,
 } from './gameMappings';
 import { engineToPlay4Fun, play4FunAmountMultiplier, play4FunToEngine } from './amounts';
+import {
+	boardCells,
+	holdAndWinState,
+	parseHoldAndWinCell,
+	readHoldAndWinConfig,
+	translateHoldAndWinEvent,
+	type HoldAndWinTranslation,
+	type HoldAndWinWireConfig,
+} from './holdAndWin';
 
 // ---------- mapping selection ----------
 
@@ -98,6 +107,10 @@ const reportedSessions = new Set<string>();
 /** Per-session bet-option table (`betOptions` / `betOptionsName` / `gameCost`) from the boot config.
  *  Absent for a server that declares none — the gate for the whole config-driven bet path. */
 const capturedBetOptions = new Map<string, ServerBetOptions>();
+
+/** Per-session Hold and Win wire block from the boot config — present only for a `holdAndWin`
+ *  server, and the gate for the whole Hold and Win translation (`holdAndWin.ts`). */
+const capturedHoldAndWin = new Map<string, HoldAndWinWireConfig>();
 
 /** Track unknown symbols we've already warned about, keyed by `sid:symbol`, so
  *  a malformed reveal doesn't spam the console. */
@@ -180,6 +193,8 @@ const captureConfig = (
 	// Auto-select the symbol mapping from the declared vocabulary.
 	const detected = pickMappingForConfig(cfg);
 	if (detected) activeMapping = detected;
+	const holdAndWin = readHoldAndWinConfig(cfg);
+	if (holdAndWin) capturedHoldAndWin.set(sid, holdAndWin);
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
 	// The bet-option table, when the server declares one. Null leaves every bet on the legacy lines
@@ -553,7 +568,8 @@ const BOARD_PADDING_ROWS = 1;
  * ⚠️ Like `tumbleStep`, this encoding is OURS and not a captured Play4Fun shape. It is inert
  * for every cell without a colon, which is every cell any real session has ever sent.
  */
-const parseCell = (cell: string): { name: string; multiplier?: number } => {
+const parseCell = (cell: string, holdAndWin = false): { name: string; multiplier?: number } => {
+	if (holdAndWin) return parseHoldAndWinCell(cell);
 	const colon = cell.indexOf(':');
 	if (colon === -1) return { name: cell };
 	const multiplier = Number(cell.slice(colon + 1));
@@ -561,8 +577,17 @@ const parseCell = (cell: string): { name: string; multiplier?: number } => {
 	return { name: cell.slice(0, colon), multiplier };
 };
 
-/** A board cell as the engine wants it: the MAPPED symbol name, plus any value it carries. */
-const toRawSymbol = (mapping: GameMapping, cell: string): { name: string; multiplier?: number } => {
+/** A board cell as the engine wants it: the MAPPED symbol name, plus any value it carries. A Hold
+ *  and Win cell carries a coin value, a jackpot label and its factor instead of a multiplier. */
+const toRawSymbol = (
+	mapping: GameMapping,
+	cell: string,
+	holdAndWin = false,
+): { name: string; multiplier?: number; value?: number; jackpot?: string; factor?: number } => {
+	if (holdAndWin) {
+		const symbol = parseHoldAndWinCell(cell);
+		return { ...symbol, name: mapSymbol(mapping, symbol.name) };
+	}
 	const { name, multiplier } = parseCell(cell);
 	const mapped = mapSymbol(mapping, name);
 	return multiplier === undefined ? { name: mapped } : { name: mapped, multiplier };
@@ -615,6 +640,15 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	let scatterTriggerPositions: { reel: number; row: number }[] = [];
 	let specialRaw: string | undefined; // the free-spin expanding symbol (raw Play4Fun name)
 
+	// A Hold and Win server: its feature is NOT free spins. Each respin's board becomes a
+	// `respinReveal`, its bonus snapshots `holdAndWinState`, and its own events go through
+	// `holdAndWin.ts`; the base spin, its line wins and the round close stay on the paths below.
+	const hw = capturedHoldAndWin.get(sid);
+	const holdAndWin: HoldAndWinTranslation | null = hw
+		? { hw, toAmount: (credits) => toBookEventAmount(credits, betBaseCents) }
+		: null;
+	let inHoldAndWin = false;
+
 	// A free-spin response carries its per-spin counter (`playedBonusSpin`) AFTER the board
 	// reveal (`playedSpin`). Translated in that order, the counter TICKS A BEAT LATE: it shows
 	// the PREVIOUS spin's number for the whole of the current spin's board (which is awaited, ~1s),
@@ -629,7 +663,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	// spin — a whole feature can arrive in one batch, with a `playedBonusSpin` per spin. Reading
 	// only the FIRST and latching after one emit collapsed the entire feature to a single tick, so
 	// the panel sat on "1 OF 10" for all ten spins.
-	const bonusSpins = events
+	const bonusSpins = (holdAndWin ? [] : events)
 		.filter((e) => e.event === 'playedBonusSpin')
 		.map((e) => e.context as { played?: number; left?: number } | undefined);
 	let bonusCursor = 0;
@@ -716,10 +750,15 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					reel.map((cell) => {
 						// The WHITELIST check reads the base name, so a `MULT:5` cell is judged as `MULT`
 						// — otherwise every distinct value would warn as its own unknown symbol.
-						isKnownSymbol(sid, parseCell(cell).name);
+						isKnownSymbol(sid, parseCell(cell, Boolean(holdAndWin)).name);
 						return cell;
 					}),
 				);
+				// A respin lands cell by cell on the respin board, never on the reels.
+				if (inHoldAndWin) {
+					push({ type: 'respinReveal', cells: boardCells(reels) });
+					break;
+				}
 				// Book-of mechanic (Book of Thermopylae): during free spins the
 				// reels STOP on the NATURAL board — the special symbol sits in its
 				// own single positions, NOT pre-filled columns. The reveal therefore
@@ -739,7 +778,9 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				if (gameType === 'freegame') emitBonusCounter();
 				push({
 					type: 'reveal',
-					board: reels.map((reel) => padReel(reel).map((cell) => toRawSymbol(activeMapping, cell))),
+					board: reels.map((reel) =>
+						padReel(reel).map((cell) => toRawSymbol(activeMapping, cell, Boolean(holdAndWin))),
+					),
 					paddingPositions: reels.map(() => 0),
 					gameType,
 				});
@@ -895,6 +936,12 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			}
 			case 'enterBonus': {
+				if (holdAndWin) {
+					inHoldAndWin = true;
+					const snapshot = (e.context as { holdAndWin?: object } | undefined)?.holdAndWin;
+					if (snapshot) push(holdAndWinState(holdAndWin, snapshot));
+					break;
+				}
 				gameType = 'freegame';
 				push({
 					type: 'freeSpinTrigger',
@@ -920,6 +967,11 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			}
 			case 'playedBonusSpin': {
+				if (holdAndWin) {
+					const snapshot = (e.context as { holdAndWin?: object } | undefined)?.holdAndWin;
+					if (snapshot) push(holdAndWinState(holdAndWin, snapshot));
+					break;
+				}
 				// Normally the reveal above already emitted this spin's counter (leading the board).
 				// This is the fallback for a malformed response that carries the counter but no
 				// `playedSpin` — emit it here so the count is never simply dropped. Gated on the
@@ -935,6 +987,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				const winCents = (e.context as { win?: number })?.win ?? 0;
 				const amount = toBookEventAmount(winCents, betBaseCents);
 				const winLevel = computeWinLevel(winCents, betBaseCents);
+				inHoldAndWin = false;
 				if (gameType === 'freegame') {
 					push({ type: 'freeSpinEnd', amount, winLevel });
 					gameType = 'basegame';
@@ -952,8 +1005,13 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betBaseCents),
 				});
 				break;
-			default:
-				push({ type: `_${e.event}`, raw: (e as { context?: unknown }).context });
+			default: {
+				const context = (e as { context?: unknown }).context;
+				const translated =
+					holdAndWin &&
+					translateHoldAndWinEvent(holdAndWin, e.event, (context ?? {}) as Record<string, unknown>);
+				push(translated || { type: `_${e.event}`, raw: context });
+			}
 		}
 	}
 

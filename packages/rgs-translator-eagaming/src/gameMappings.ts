@@ -151,9 +151,14 @@ export const resolveActiveMapping = (): GameMapping => {
 
 /** Detect the right mapping from the server's declared symbol vocabulary (the boot `config`'s
  *  `symbols`). Book-of games declare royal symbols (ACE/KING/QUEEN); Hot-Fruits-style lines games
- *  declare PIC5-PIC7. Returns null if undecidable. Shared by the facade and the launcher's
- *  paytable import, so both read a server's names the same way. */
-export const pickMappingForConfig = (cfg: { symbols?: readonly string[] }): GameMapping | null => {
+ *  declare PIC5-PIC7; a Hold and Win server sends the project's OWN names (`docs/reference/
+ *  hold-and-win-wire.md`), so it maps by identity. Returns null if undecidable. Shared by the facade
+ *  and the launcher's paytable import, so both read a server's names the same way. */
+export const pickMappingForConfig = (cfg: {
+	symbols?: readonly string[];
+	holdAndWin?: unknown;
+}): GameMapping | null => {
+	if (cfg.holdAndWin) return identityMapping;
 	const syms = new Set(cfg.symbols ?? []);
 	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
 	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
