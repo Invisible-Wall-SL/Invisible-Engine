@@ -48,10 +48,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, input: unknown): void => {
 	checks += 1;
 	try {
-		normalizeSymbolsDoc(input);
+		normalizeSymbolsDoc(input, 'reject');
 	} catch (e) {
 		if (e instanceof ZodError) return;
 		failures += 1;

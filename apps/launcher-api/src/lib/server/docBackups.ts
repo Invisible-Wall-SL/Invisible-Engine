@@ -125,6 +125,14 @@ const BACKUP_KEEP = 20;
  */
 const lastBackupAtMs = new Map<string, number>();
 
+/**
+ * The ETag of the doc as this process last WROTE it. The window only coalesces over bytes this
+ * process wrote itself: if another instance or build wrote the stored doc since (a rolling deploy,
+ * a newer launcher whose values an older read then drops), those bytes are copied even inside the
+ * window, or the save that replaces them would leave them nowhere.
+ */
+const lastPutEtag = new Map<string, string>();
+
 /** One preserved copy of a doc, as the history endpoints report it. */
 export interface DocBackup {
 	/** The object's file stem — the opaque handle a client passes back to restore. */
@@ -164,6 +172,8 @@ export async function putDocWithBackup(
 	const effective = baseEtag === undefined ? 'always' : mode;
 	const backupId = await backupBeforeOverwrite(target, effective, baseEtag, now);
 	const etag = await putObjectText(target.docKey, text, 'application/json', precondition(baseEtag));
+	if (etag) lastPutEtag.set(target.docKey, etag);
+	else lastPutEtag.delete(target.docKey);
 	if (backupId) {
 		try {
 			await pruneBackups(target);
@@ -196,6 +206,7 @@ async function backupBeforeOverwrite(
 		// backed up immediately instead of inheriting a stale window from the doc that used to be
 		// here. (An update whose doc has vanished is refused by its own `If-Match` on the PUT.)
 		lastBackupAtMs.delete(docKey);
+		lastPutEtag.delete(docKey);
 		return null;
 	}
 	if (baseEtag === null || (typeof baseEtag === 'string' && etagDiffers(head.etag, baseEtag))) {
@@ -203,7 +214,9 @@ async function backupBeforeOverwrite(
 	}
 	if (mode === 'auto') {
 		const last = lastBackupAtMs.get(docKey) ?? 0;
-		if (now.getTime() - last < COALESCE_MS) return null;
+		const ours = lastPutEtag.get(docKey);
+		const wroteIt = ours !== undefined && head.etag !== null && !etagDiffers(head.etag, ours);
+		if (wroteIt && now.getTime() - last < COALESCE_MS) return null;
 	}
 	const id = docBackupId(target.stem, now, head.etag);
 	// Server-side copy: the bytes move inside R2 and never stream through the Node heap, so a save

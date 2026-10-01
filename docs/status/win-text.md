@@ -289,6 +289,12 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-01 — **A newer `version` no longer wipes the whole win-text doc.** `version` is the
+  doc's only enum, and `z.literal(1)` failed a `version: 2` doc into `{ version: 1 }`. A read now
+  takes it as `1` and keeps every field it knows, with a server warning. A save still answers 400.
+  The rule that comes with it: a newer version must never change the meaning of an existing field
+  (`docs/conventions/doc-readers.md` §"Unknown enum values").
+
 - 2026-10-01 — **An unknown field no longer wipes the whole win-text doc.** The nested families
   (`lineMessage`, `toast`, `jackpots`, `respins`, `feature`, `wheel`…) were `.strict()`, so a field a
   newer launcher wrote (Phase 8's `potLabel` / `potNames` against a pre-#954 build) failed the parse

@@ -9,7 +9,7 @@ import {
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
-import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
+import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
 
 /**
  * Invisible Win Text doc — the per-project TEMPLATES for every string the game says about a
@@ -194,10 +194,16 @@ function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
  * The rebuild below is an explicit WHITELIST: a field that passes Zod but isn't copied here is
  * still dropped on save. That is deliberate (it's the `normalizeSymbolsDoc` convention), but it
  * is also the silent round-trip trap — a NEW doc field must be added here too or it vanishes.
+ *
+ * The doc's only enum is `version`. A READ takes a newer one as this build's `1` and keeps every
+ * field it knows (`docs/conventions/doc-readers.md`); a SAVE (`'reject'`) refuses it.
  */
-export function normalizeWinTextDoc(input: unknown): WinTextDoc {
+export function normalizeWinTextDoc(
+	input: unknown,
+	unknownValues: UnknownValues = 'drop',
+): WinTextDoc {
 	const doc = winTextDocSchema.parse(
-		stripUnknownKeysWithWarning(winTextDocSchema, input ?? {}, 'win-text'),
+		stripUnknownKeysWithWarning(winTextDocSchema, input ?? {}, 'win-text', unknownValues),
 	);
 	const next: WinTextDoc = { version: 1 };
 	const lineMessage = pruneLineMessage(doc.lineMessage);
@@ -268,7 +274,7 @@ export async function saveWinTextDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
-	const next = normalizeWinTextDoc(doc);
+	const next = normalizeWinTextDoc(doc, 'reject');
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
 	const etag = await putObjectText(
 		winTextDocKey(clientKey, projectKey),

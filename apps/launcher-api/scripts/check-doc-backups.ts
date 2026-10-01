@@ -153,23 +153,19 @@ mock.module(server('runtimeBundleCache.ts'), {
 });
 
 const paths = await import('../src/lib/server/projectPaths.ts');
-const { listBackups, putDocWithBackup, readBackup } = await import(
-	'../src/lib/server/docBackups.ts'
-);
+const { listBackups, putDocWithBackup, readBackup } =
+	await import('../src/lib/server/docBackups.ts');
 const { normalizeDoc, saveDoc } = await import('../src/lib/server/editorStorage.ts');
 const { saveFlowV2Doc } = await import('../src/lib/server/flowV2Storage.ts');
 const { saveSymbolsDoc } = await import('../src/lib/server/symbolsStorage.ts');
 const { saveGameConfigDoc } = await import('../src/lib/server/gameConfigStorage.ts');
 const { planDuplicate } = await import('../src/lib/server/projectDuplicate.ts');
-const { listComponentDefaults, saveComponentDefaults } = await import(
-	'../src/lib/server/componentDefaultsStorage.ts'
-);
-const componentDefaultsRoute = await import(
-	'../src/routes/api/editor/component-defaults/+server.ts'
-);
-const componentDefaultsBackupsRoute = await import(
-	'../src/routes/api/editor/component-defaults/backups/+server.ts'
-);
+const { listComponentDefaults, saveComponentDefaults } =
+	await import('../src/lib/server/componentDefaultsStorage.ts');
+const componentDefaultsRoute =
+	await import('../src/routes/api/editor/component-defaults/+server.ts');
+const componentDefaultsBackupsRoute =
+	await import('../src/routes/api/editor/component-defaults/backups/+server.ts');
 const editorBackupsRoute = await import('../src/routes/api/editor/backups/+server.ts');
 const flowBackupsRoute = await import('../src/routes/api/flow-v2/backups/+server.ts');
 const flowSaveRoute = await import('../src/routes/api/flow-v2/save/+server.ts');
@@ -382,6 +378,29 @@ const target = (project: string): DocBackupTarget => paths.flowV2DocBackupTarget
 		'the history is newest first and holds what each copy replaced',
 		(await listBackups(t)).map((b) => bucket.get(paths.docBackupKey(t, b.id))?.text),
 		['v5', 'v4', 'v3', 'v1'],
+	);
+}
+
+// ── The window coalesces only over bytes this process wrote ─────────────────
+{
+	const t = target('foreign-write');
+	const e1 = seed(t, 'v1');
+	const e2 = await putDocWithBackup(t, 'v2', e1, 'auto', T0);
+	// Another instance or build writes the doc inside the window (a rolling deploy, a newer
+	// launcher whose values this one's read would drop).
+	const foreign = seed(t, 'v3-newer');
+	check('setup: the foreign write moved the etag', foreign !== e2, true);
+	reset();
+	await putDocWithBackup(t, 'v4', foreign, 'auto', at(1));
+	check(
+		'an auto save over bytes another writer put copies them, even inside the window',
+		ops().slice(0, 3),
+		['head', 'copy', 'put'],
+	);
+	check(
+		'so the foreign bytes are kept',
+		(await listBackups(t)).map((b) => bucket.get(paths.docBackupKey(t, b.id))?.text),
+		['v3-newer', 'v1'],
 	);
 }
 

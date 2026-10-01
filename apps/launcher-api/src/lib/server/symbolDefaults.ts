@@ -125,12 +125,20 @@ export async function loadPublishedSymbolDefaults(
 	}
 }
 
+/**
+ * Validate a published map. Unknown keys AND unknown enum values are dropped on the publish as well as
+ * on the load (`docs/conventions/doc-readers.md`): a game pinned to a newer engine may publish a cell
+ * `type` this build does not know, and a refused publish is swallowed by the build's `--optional`,
+ * leaving the grid on a stale set. Such a cell is dropped (its state shows no default); an unknown
+ * `highlight.type` drops the highlight default.
+ */
 export function parseSymbolDefaults(input: unknown): SymbolDefaults {
 	return symbolDefaultsSchema.parse(
 		stripUnknownKeysWithWarning(
 			symbolDefaultsSchema,
 			migrateLegacySymbolStates(input),
 			'symbol-defaults',
+			'drop',
 		),
 	);
 }

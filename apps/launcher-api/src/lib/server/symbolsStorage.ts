@@ -16,7 +16,7 @@ import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
-import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
+import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -897,12 +897,6 @@ export function migrateLegacySymbolStates(input: unknown): unknown {
 }
 
 /**
- * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
- * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
- * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
- * PUT endpoint maps that to a 400.
- */
-/**
  * Drop an EMPTY `layers: []` from every cell of one symbol's state map — the last authored layer
  * removed has to round-trip to no key at all, or the cell keeps shipping an empty array that reads
  * as "this cell has layers" forever and, worse, signs differently from the untouched doc the page
@@ -924,12 +918,29 @@ function pruneEmptyCellLayers(
 	return next as SymbolsDoc['symbols'][string];
 }
 
-export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
+/**
+ * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
+ * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
+ * round-trip leaves no dangling keys. Throws `ZodError` on invalid input — the
+ * PUT endpoint maps that to a 400.
+ *
+ * `unknownValues` (`docs/conventions/doc-readers.md`): a READ drops what holds an enum value a
+ * newer launcher wrote — the cell over its `type`, the layer over its `kind`, the `transition`,
+ * `highlight` or `boardGlow` over theirs — and ignores an unknown optional value (`blendMode`,
+ * `direction`, `placement`, `tintMode`, a tumble `pattern`, a flight `ease`, a cash `format`), so
+ * its default applies. A SAVE (`'reject'`) still refuses them all: the tool only writes values it
+ * offers, so there one is a typo.
+ */
+export function normalizeSymbolsDoc(
+	input: unknown,
+	unknownValues: UnknownValues = 'drop',
+): SymbolsDoc {
 	const doc = symbolsDocSchema.parse(
 		stripUnknownKeysWithWarning(
 			symbolsDocSchema,
 			migrateLegacySymbolStates(input) ?? {},
 			'symbols',
+			unknownValues,
 		),
 	);
 	const symbols: SymbolsDoc['symbols'] = {};
@@ -1220,6 +1231,9 @@ export async function canonicalizeSymbolsDocForExport(
  *
  * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
  * `/api/editor/symbols/backups`); `backup: 'always'` is for a restore or a deliberate swap.
+ *
+ * `unknownValues` is `'reject'` for an author's save (the typo guard) and `'drop'` for a restore,
+ * whose bytes nobody typed: a backup a newer launcher wrote must still restore on an older one.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
@@ -1227,8 +1241,9 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
+	unknownValues: UnknownValues = 'reject',
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
-	const next = normalizeSymbolsDoc(doc);
+	const next = normalizeSymbolsDoc(doc, unknownValues);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
