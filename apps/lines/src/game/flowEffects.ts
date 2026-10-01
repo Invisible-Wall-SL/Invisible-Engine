@@ -74,9 +74,11 @@ import {
 	presentCoinCollect,
 	presentCoinPay,
 	presentCoinsLand,
+	presentColumnComplete,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
+	presentInstantCollect,
 	presentJackpotWin,
 	presentLuckySpin,
 	presentMeterUpdate,
@@ -84,6 +86,7 @@ import {
 	presentRespinReveal,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
+	presentWheel,
 } from './holdAndWinPresentation';
 import { luckySpinArming, takeLuckySpinReveal } from './luckySpin';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
@@ -1236,7 +1239,8 @@ const effects: Record<string, FlowEffect> = {
 	 * - `payCoins` (`coinPay`) — the payer plays `win`, then every coin's label counts up.
 	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
 	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
-	 * - `collectCoins` (`coinCollect`) — each coin pulses, the collector's label climbs.
+	 * - `collectCoins` (`coinCollect`) — each coin pulses and flies into the collector, whose label
+	 *   climbs as each lands.
 	 * - `revealMystery` (`mysteryReveal`) — each mystery opens and lands as what it revealed; an
 	 *   unlocked modifier gets its toast.
 	 * - `clearRespinCells` (`cellsCleared`) — a streak's collected cells play `clearReel` and go.
@@ -1246,6 +1250,12 @@ const effects: Record<string, FlowEffect> = {
 	 *   level per arrival and pulses when full.
 	 * - `playLuckySpinIntro` (`luckySpin`) — the "LUCKY SPIN" banner; arms the next reveal to
 	 *   anticipate on every reel and to run unskippable.
+	 * - `lightLetter` (`columnComplete`) — the column's letter lights; a cleared column's coins fly
+	 *   into the Total Win bar, which counts up by its amount, and the cells leave.
+	 * - `instantCollect` (`coinInstantCollect`) — base game: the coins fly into the special, then
+	 *   an "INSTANT WIN" banner.
+	 * - `spinWheel` (`holdAndWinWheel`) — the pre-feature wheel spins onto the server's prize, then
+	 *   the prize's banner (a jackpot's celebration is the `jackpotWin` that follows).
 	 *
 	 * `showRespinBoard` also drains the meters a `meter` trigger consumed ("<KIND> ACTIVE"), and
 	 * `hideRespinBoard` counts the Total Win bar up coin by coin as the tally lands in it.
@@ -1275,6 +1285,11 @@ const effects: Record<string, FlowEffect> = {
 		presentJackpotWin(payload.bookEvent as BookEventOfType<'jackpotWin'>),
 	fillMeter: (payload) => presentMeterUpdate(payload.bookEvent as BookEventOfType<'meterUpdate'>),
 	playLuckySpinIntro: () => presentLuckySpin(),
+	lightLetter: (payload) =>
+		presentColumnComplete(payload.bookEvent as BookEventOfType<'columnComplete'>),
+	instantCollect: (payload) =>
+		presentInstantCollect(payload.bookEvent as BookEventOfType<'coinInstantCollect'>),
+	spinWheel: (payload) => presentWheel(payload.bookEvent as BookEventOfType<'holdAndWinWheel'>),
 
 	/**
 	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`

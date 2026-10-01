@@ -769,6 +769,137 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinColumnComplete',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'letter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'newlyLit',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'cleared',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinColumnStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelShow',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'prizes',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'instantCollectWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'specials',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'times',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -917,6 +1048,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'playLuckySpinIntro',
+				group: 'Effect',
+			},
+			{
+				name: 'lightLetter',
+				group: 'Effect',
+			},
+			{
+				name: 'instantCollect',
+				group: 'Effect',
+			},
+			{
+				name: 'spinWheel',
 				group: 'Effect',
 			},
 			{
@@ -1926,6 +2069,137 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinColumnComplete',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'letter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'newlyLit',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'cleared',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinColumnStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelShow',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'prizes',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'instantCollectWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'specials',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'times',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -2074,6 +2348,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'playLuckySpinIntro',
+				group: 'Effect',
+			},
+			{
+				name: 'lightLetter',
+				group: 'Effect',
+			},
+			{
+				name: 'instantCollect',
+				group: 'Effect',
+			},
+			{
+				name: 'spinWheel',
 				group: 'Effect',
 			},
 			{
@@ -3083,6 +3369,137 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinColumnComplete',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'letter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'newlyLit',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'cleared',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinColumnStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelShow',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'prizes',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'instantCollectWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'specials',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'times',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -3231,6 +3648,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'playLuckySpinIntro',
+				group: 'Effect',
+			},
+			{
+				name: 'lightLetter',
+				group: 'Effect',
+			},
+			{
+				name: 'instantCollect',
+				group: 'Effect',
+			},
+			{
+				name: 'spinWheel',
 				group: 'Effect',
 			},
 			{
@@ -4240,6 +4669,137 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinColumnComplete',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'letter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'newlyLit',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'cleared',
+						kind: 'boolean',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinColumnStep',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'reel',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelShow',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'prizes',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelSpin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'wheelLand',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'prize',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'instantCollectWin',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'specials',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'multiplier',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'times',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -4388,6 +4948,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'playLuckySpinIntro',
+				group: 'Effect',
+			},
+			{
+				name: 'lightLetter',
+				group: 'Effect',
+			},
+			{
+				name: 'instantCollect',
+				group: 'Effect',
+			},
+			{
+				name: 'spinWheel',
 				group: 'Effect',
 			},
 			{

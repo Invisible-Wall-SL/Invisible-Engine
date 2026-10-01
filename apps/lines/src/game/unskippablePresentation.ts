@@ -146,6 +146,8 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
  *    wins still slam).
  *  - `holdAndWinEnd` and a BANKED `jackpotWin` — the Hold and Win feature end and its jackpot
  *    celebration ({@link HOLD_AND_WIN_CELEBRATIONS}). A coin jackpot named in the tally is not one.
+ *  - `holdAndWinWheel` — the pre-feature wheel, re-armed like the intro it is; slammable while it
+ *    turns (it lands at once), its result never skipped.
  *
  * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
  * would legitimately stop, so the unskippable scope + the window lock already cover it.
@@ -160,6 +162,11 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		// Not a celebration, but re-armed for the free-spin intro's reason: a press made while the
 		// round was being requested must not trip the token the unskippable intro then plays under.
 		case 'luckySpin':
+			return true;
+		// The Hold and Win pre-feature wheel — a feature intro the player watches: a press that slammed
+		// the trigger's reels must not snap it. It is NOT unskippable: a press while it turns lands it
+		// at once, and its result holds on a bare timer (`presentWheel`), so it is never skipped.
+		case 'holdAndWinWheel':
 			return true;
 		case 'jackpotWin':
 			return bookEvent.banked;

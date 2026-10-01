@@ -1,5 +1,6 @@
 import {
 	applyHoldAndWinEvent,
+	collectorLevelName,
 	emptyHoldAndWinState,
 	type HoldAndWinEvent,
 	type HoldAndWinMeterLevel,
@@ -24,3 +25,28 @@ export const recordHoldAndWinEvent = (event: HoldAndWinEvent) => {
 	metersBefore = before.meters;
 	Object.assign(stateHoldAndWin, applyHoldAndWinEvent(before, event));
 };
+
+/**
+ * What the board SHOWS of the feature where a beat must reveal it first: the collector level the
+ * wheel raised is recorded at the play seam before the wheel even spins, so the wheel's beat pins
+ * the old level here until its prize is announced (`presentWheel`). Null ⇒ show the recorded one.
+ */
+export const stateHoldAndWinShown = $state({ collectorLevel: null as number | null });
+
+/** The collector level the board shows — a beat's pinned value, else the recorded one. */
+export const shownCollectorLevel = (): number =>
+	stateHoldAndWinShown.collectorLevel ?? stateHoldAndWin.collectorLevel;
+
+/**
+ * The modifiers active in the feature as one line ("PAYER · MULTIPLIER"), with a raised collector
+ * named by its level ("DOUBLE COLLECTOR") — what the coded counter's second line shows and the
+ * `activeModifiers` value source carries.
+ */
+export const activeModifiersText = (): string =>
+	stateHoldAndWin.activeModifiers
+		.map((kind) =>
+			kind === 'collector' && shownCollectorLevel() > 1
+				? `${collectorLevelName(shownCollectorLevel())} COLLECTOR`
+				: kind.toUpperCase(),
+		)
+		.join(' · ');
