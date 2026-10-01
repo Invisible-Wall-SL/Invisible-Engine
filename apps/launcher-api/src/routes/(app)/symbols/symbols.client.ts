@@ -13,6 +13,7 @@ import {
 	BOOK_SYMBOL_STATES,
 	canBlendLayerKind,
 	CASCADE_SYMBOL_STATES,
+	HOLD_AND_WIN_SYMBOL_STATES,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
@@ -81,6 +82,12 @@ const CASCADE_STATE_SET = new Set<SymbolState>(CASCADE_STATES);
 export const SWAP_STATES = SWAP_SYMBOL_STATES;
 const SWAP_STATE_SET = new Set<SymbolState>(SWAP_STATES);
 
+/** The Hold and Win states. Same deal again: the doc accepts them for every game, but the grid only
+ *  shows their columns for a Hold and Win project (`kindCapabilities().holdAndWin`) — see
+ *  {@link visibleStatesFor}. */
+export const HOLD_AND_WIN_STATES = HOLD_AND_WIN_SYMBOL_STATES;
+const HOLD_AND_WIN_STATE_SET = new Set<SymbolState>(HOLD_AND_WIN_STATES);
+
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
@@ -97,10 +104,27 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
 	clearReel:
 		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, or the board clearing before the next spin — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	coinIdle:
+		'A held coin (or jackpot, or special) at rest on the respin board. Leave a cell empty to use this symbol’s Static binding.',
+	coinLand:
+		'A respin cell whose reel stops on this symbol, before anything sticks. Leave a cell empty to use this symbol’s Static binding.',
+	coinStick:
+		'A landed coin STICKING into the held layer — also a mystery or a multiplier landing as what it became. Leave a cell empty to reuse this symbol’s Land binding.',
+	coinCollect:
+		'A coin pulsing as a collector takes it. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinBoost:
+		'A special raising other coins — a payer paying, a multiplier boosting. Leave a cell empty to reuse this symbol’s Win binding.',
+	jackpotReveal:
+		'A jackpot coin lit for its jackpot, or every held cell on a full board. Leave a cell empty to reuse this symbol’s Win binding.',
+	mysteryReveal:
+		'A mystery OPENING before it becomes what it revealed. Plays once by default, like Explosion. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	flyToMeter:
+		'A special lit on the base board while it flies into its pot. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the cascade
+ *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the Hold and Win
+ *  states ONLY for a kind with the respin feature (`kindCapabilities().holdAndWin`), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
  *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /
  *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
@@ -114,6 +138,7 @@ export function visibleStatesFor(
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return caps.bookReveal;
+		if (HOLD_AND_WIN_STATE_SET.has(s)) return caps.holdAndWin;
 		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
 		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
 		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the
@@ -627,6 +652,17 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
 	// owes the author the matching picture.
 	if (state === 'intro') return 'land';
+	// The Hold and Win beats borrow what the coded presentation played before they had names. The two
+	// that borrowed `static` (`coinIdle`, `coinLand`) are the engine's last resort, so they read unset.
+	if (state === 'coinStick') return 'land';
+	if (state === 'mysteryReveal') return 'explosion';
+	if (
+		state === 'coinCollect' ||
+		state === 'coinBoost' ||
+		state === 'jackpotReveal' ||
+		state === 'flyToMeter'
+	)
+		return 'win';
 	return null;
 };
 
