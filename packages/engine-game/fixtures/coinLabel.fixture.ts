@@ -175,7 +175,7 @@ const realLabel = (locale: string, currency: string, value: number) => {
 	return coinLabelText({ value }, ['coin'], (multiple) => format(multiple * 2), {
 		cash: { trimZeros: true },
 		decimalSeparator: moneyDecimalSeparator(format),
-	});
+	})?.replace(/\s/g, ' ');
 };
 check(
 	'en-DE trims the currency fraction, not the grouping',
@@ -183,14 +183,10 @@ check(
 	'€1,200',
 );
 check('…and keeps a non-zero digit', realLabel('en-DE', 'EUR', 0.75), '€1.5');
-check(
-	'de-DE trims after its decimal comma',
-	realLabel('de-DE', 'EUR', 600).replace(/\s/g, ' '),
-	'1.200 €',
-);
+check('de-DE trims after its decimal comma', realLabel('de-DE', 'EUR', 600), '1.200 €');
 check(
 	'fr-CH trims after its CURRENCY point, though its plain numbers use a comma',
-	realLabel('fr-CH', 'EUR', 0.75).replace(/\s/g, ' '),
+	realLabel('fr-CH', 'EUR', 0.75),
 	'1.5 €',
 );
 check(
