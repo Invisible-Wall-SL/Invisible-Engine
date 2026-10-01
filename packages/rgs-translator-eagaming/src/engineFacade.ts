@@ -1320,6 +1320,24 @@ const abandonResume = (sid: string, open: OpenRound, why: string) => {
 };
 
 /**
+ * Where the engine picks a resumed round up (`round.event`, the index of the first book event it
+ * PRESENTS; everything before it is folded into `createBonusSnapshot`).
+ *
+ * A Hold and Win feature that was mid-respin resumes at the end of what the server had already
+ * stored: the snapshot keeps the last `holdAndWinState` (and the mode events), so the respin board is
+ * rebuilt where the player left it, without the trigger, and only the respins still to come play.
+ * Its translation is per event and in order, so the replayed actions alone translate to exactly the
+ * book's first N events. Every other round — and a Hold and Win round whose feature had already
+ * ended — keeps `0`: the whole book plays again, as it always has.
+ */
+const holdAndWinResumePoint = (sid: string, replayed: Play4FunBookEvent[]): number => {
+	if (!capturedHoldAndWin.has(sid)) return 0;
+	const names = replayed.map((e) => e.event);
+	if (!names.includes('enterBonus') || names.includes('gameEnd')) return 0;
+	return adaptEventsForEngine(sid, replayed).length;
+};
+
+/**
  * Finish a round a previous session left open, and hand it to the engine as the round to present.
  *
  * The protocol's resume is REPLAY: re-post the round's stored actions at the positions they were
@@ -1387,7 +1405,7 @@ const resumeOpenRound = async (
 			amount: stake ? play4FunToEngine(baseStakeCents(stake)) : undefined,
 			active: true,
 			mode: serverOptions ? serverBetOptionEntries(serverOptions)[0].key : 'BASE',
-			event: '0',
+			event: String(holdAndWinResumePoint(sid, replayed)),
 		},
 	};
 };
