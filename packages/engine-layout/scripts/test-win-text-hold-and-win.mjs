@@ -184,10 +184,10 @@ console.info('collector levels, wheel, pots');
 const r0 = mod.resolveWinText(undefined);
 assert(
 	same(
-		[1, 2, 3, 4].map((l) => mod.collectorLevelCaption(r0, l)),
-		['SINGLE', 'DOUBLE', 'TRIPLE', '×4'],
+		[2, 3, 4].map((l) => mod.collectorLevelCaption(r0, l)),
+		['DOUBLE', 'TRIPLE', '×4'],
 	),
-	'collector level names: SINGLE / DOUBLE / TRIPLE, an unnamed level ×n',
+	'collector level names: DOUBLE / TRIPLE, an unnamed level ×n',
 );
 assert(
 	mod.formatWinText(r0.feature.collectorLevel, { level: mod.collectorLevelCaption(r0, 2) }) ===
@@ -203,9 +203,8 @@ assert(
 	mod.formatWinText(r0.wheel.coinBoostDetail, { count: 3 }) === 'EVERY COIN ×3' &&
 		mod.formatWinText(r0.wheel.extraCollectDetail, {
 			level: mod.collectorLevelCaption(r0, 3),
-		}) === 'TRIPLE COLLECT' &&
-		mod.formatWinText(r0.wheel.jackpotDetail) === 'JACKPOT',
-	'wheel prize banners: "EVERY COIN ×3", "TRIPLE COLLECT", "JACKPOT"',
+		}) === 'TRIPLE COLLECT',
+	'wheel prize banners: "EVERY COIN ×3", "TRIPLE COLLECT"',
 );
 assert(
 	mod.formatWinText(r0.feature.potLabel, { pot: mod.potCaption(r0, 'red'), level: 5, max: 12 }) ===
@@ -284,14 +283,12 @@ for (const expected of [
 	'MYSTERY',
 	'{level} COLLECTOR',
 	'{pot} {level}/{max}',
-	'SINGLE',
 	'DOUBLE',
 	'TRIPLE',
 	'COIN BOOST ×{count}',
 	'+{count} COLLECT',
 	'EVERY COIN ×{count}',
 	'{level} COLLECT',
-	'JACKPOT',
 ]) {
 	assert(hw.includes(expected), `a Hold and Win project harvests "${expected}"`);
 }

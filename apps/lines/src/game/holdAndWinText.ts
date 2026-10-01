@@ -80,19 +80,18 @@ export const wheelPrizeText = (prize: HoldAndWinWheelPrize) => {
 	}
 };
 
-/** What a wheel prize's banner says under its label; `collectorLevel` is the level it raised to. */
-export const wheelPrizeDetailText = (prize: HoldAndWinWheelPrize, collectorLevel: number) => {
+/** What a wheel prize's banner says under its label; `collectorLevel` is the level it raised to. A
+ *  jackpot prize has no banner (the `jackpotWin` after it is the celebration). */
+export const wheelPrizeDetailText = (
+	prize: Exclude<HoldAndWinWheelPrize, { type: 'jackpot' }>,
+	collectorLevel: number,
+) => {
 	const resolved = bakedWinText();
-	switch (prize.type) {
-		case 'coinBoost':
-			return formatWinText(resolved.wheel.coinBoostDetail, { count: prize.multiplier });
-		case 'extraCollect':
-			return formatWinText(resolved.wheel.extraCollectDetail, {
+	return prize.type === 'coinBoost'
+		? formatWinText(resolved.wheel.coinBoostDetail, { count: prize.multiplier })
+		: formatWinText(resolved.wheel.extraCollectDetail, {
 				level: collectorLevelCaption(resolved, collectorLevel),
 			});
-		case 'jackpot':
-			return formatWinText(resolved.wheel.jackpotDetail);
-	}
 };
 
 /** A pot's label over its bar. */

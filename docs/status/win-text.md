@@ -279,7 +279,7 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
    Worth a warning in the tool when a template uses characters the chosen font lacks.
 3. **Match counts are `[2,3,4,5]` in the page** — every current template is a 5-reel board. The
    doc accepts any count key, so only that list widens for a wider board.
-4. **Six Hold and Win templates have no draw site** — respins award / reset / last, feature total /
+4. **Seven Hold and Win templates have no draw site** — respins award / reset / last, feature total /
    meterFull, intro / outro. A Phase 6 scene (a text source) or a beat should adopt them.
 5. **No dedicated agent file** (`.claude/agents/win-text.md` doesn't exist).
 
@@ -295,10 +295,10 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   segments) now renders through `formatWinText(bakedWinText()…)` in
   `apps/lines/src/game/holdAndWinText.ts`. New fields for what Phase 4f added: `feature.collectorLevel`
   ("{level} COLLECTOR"), `feature.potLabel` ("{pot} {level}/{max}"), name maps
-  `feature.collectorLevelNames` (SINGLE/DOUBLE/TRIPLE, else `×n`) and `feature.potNames` (else the id
+  `feature.collectorLevelNames` (DOUBLE/TRIPLE, else `×n`; level 1 is never named) and `feature.potNames` (else the id
   in capitals), and a `wheel` family (segment labels + prize banners; a jackpot segment reads
   `jackpotCaption`). Tokens `{pot}` `{level}` `{max}`. Every default equals the literal it replaced
-  (fixture-pinned), so an unauthored game draws the same text. The six fields with no draw site
+  (fixture-pinned), so an unauthored game draws the same text. The seven fields with no draw site
   (respins award/reset/last, feature total/meterFull, intro/outro) are unchanged — still unused.
   `engine-game`'s `collectorLevelName` was removed (its only callers now use the template).
   `wheelPrizeLabel` stays as the segment identity the wheel compares by. Coin labels are Phase 7's.

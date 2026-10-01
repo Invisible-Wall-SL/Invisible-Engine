@@ -186,11 +186,11 @@ when the game's config has the pre-feature wheel.
   - a collector the wheel raised, on the counter's second line (`{level} COLLECTOR`);
   - each pot's label over its bar (`{pot} {level}/{max}`);
   - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
-    PAYER, MYSTERY), the collector levels (SINGLE, DOUBLE, TRIPLE; an unnamed level reads
+    PAYER, MYSTERY), the collector levels (DOUBLE, TRIPLE; an unnamed level reads
     ×4) and one box per pot in the config (an unnamed pot reads its id in capitals).
 - **Wheel.** The segment labels (`COIN BOOST ×{count}`, `+{count} COLLECT`; a jackpot
   segment reads its tier's caption) and the banner a prize shows (`EVERY COIN ×{count}`,
-  `{level} COLLECT`, `JACKPOT`).
+  `{level} COLLECT`; a jackpot prize has no banner, its jackpot celebration follows).
 
 The defaults are exactly what the game draws when nothing is written, so an untouched game
 reads as it always has. Every one of these lines, each tier's caption and each pot's name is

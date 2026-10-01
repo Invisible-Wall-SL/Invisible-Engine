@@ -138,7 +138,8 @@ export type WinTextFeature = {
 
 /**
  * Hold and Win wheel copy (the pre-feature wheel, Hotfire). A jackpot segment reads its tier's
- * caption ({@link jackpotCaption}); `{count}` is a boost multiplier or a number of extra collects.
+ * caption ({@link jackpotCaption}); `{count}` is a boost multiplier or a number of extra collects. A
+ * jackpot prize has no banner of its own (the `jackpotWin` after it is the celebration).
  */
 export type WinTextWheel = {
 	/** A coin-boost segment — "COIN BOOST ×{count}". */
@@ -149,8 +150,6 @@ export type WinTextWheel = {
 	coinBoostDetail?: string;
 	/** Under an extra-collect prize's banner — "{level} COLLECT" (the collector's new level). */
 	extraCollectDetail?: string;
-	/** Under a jackpot prize's banner — "JACKPOT". */
-	jackpotDetail?: string;
 };
 
 /**
@@ -286,7 +285,7 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 			payer: 'PAYER',
 			mystery: 'MYSTERY',
 		},
-		collectorLevelNames: { '1': 'SINGLE', '2': 'DOUBLE', '3': 'TRIPLE' },
+		collectorLevelNames: { '2': 'DOUBLE', '3': 'TRIPLE' },
 		potNames: {},
 	},
 	wheel: {
@@ -294,7 +293,6 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		extraCollect: '+{count} COLLECT',
 		coinBoostDetail: 'EVERY COIN ×{count}',
 		extraCollectDetail: '{level} COLLECT',
-		jackpotDetail: 'JACKPOT',
 	},
 };
 
@@ -322,7 +320,6 @@ export const WIN_TEXT_WHEEL_FIELDS = [
 	'extraCollect',
 	'coinBoostDetail',
 	'extraCollectDetail',
-	'jackpotDetail',
 ] as const;
 
 export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
@@ -366,7 +363,6 @@ export const WIN_TEXT_WHEEL_LABELS: Record<WinTextWheelField, string> = {
 	extraCollect: 'Wheel — extra collect',
 	coinBoostDetail: 'Wheel prize — coin boost',
 	extraCollectDetail: 'Wheel prize — extra collect',
-	jackpotDetail: 'Wheel prize — jackpot',
 };
 
 /** The key a `byCell` override is stored under. */
@@ -450,25 +446,29 @@ function pick<F extends string>(
  * `{jackpot}` AFTER the banner template is localized and would otherwise never translate.
  */
 export function jackpotCaption(resolved: ResolvedWinText, tier: string): string {
-	return resolveLocalizedText(resolved.jackpots.captions[tier] || tier);
+	return resolveLocalizedText(own(resolved.jackpots.captions, tier) || tier);
 }
 
 /** A special kind's name in the Hold and Win lines (localized at its source, like a caption); an
  *  unknown kind speaks its id in capitals. */
 export function specialDisplayName(resolved: ResolvedWinText, kind: string): string {
-	return resolveLocalizedText(resolved.feature.specialNames[kind] || kind.toUpperCase());
+	return resolveLocalizedText(own(resolved.feature.specialNames, kind) || kind.toUpperCase());
 }
 
 /** A collector level's name ("DOUBLE"), localized at its source; an unnamed level reads `×n`. */
 export function collectorLevelCaption(resolved: ResolvedWinText, level: number): string {
-	const name = resolved.feature.collectorLevelNames[String(level)];
+	const name = own(resolved.feature.collectorLevelNames, String(level));
 	return name ? resolveLocalizedText(name) : `×${level}`;
 }
 
 /** A pot's name, localized at its source; an unnamed pot reads its meter id in capitals. */
 export function potCaption(resolved: ResolvedWinText, meterId: string): string {
-	return resolveLocalizedText(resolved.feature.potNames[meterId] || meterId.toUpperCase());
+	return resolveLocalizedText(own(resolved.feature.potNames, meterId) || meterId.toUpperCase());
 }
+
+/** A name map's own entry — an id like `constructor` must not read an inherited property. */
+const own = (map: Record<string, string>, key: string): string | undefined =>
+	Object.hasOwn(map, key) ? map[key] : undefined;
 
 /**
  * Pick the toast template for the vars actually supplied.

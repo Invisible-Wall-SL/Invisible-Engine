@@ -62,7 +62,8 @@ export const wheelEase = (t: number): number => {
 	return 1 - (1 - clamped) ** 4;
 };
 
-/** The coded label of a wheel prize: `COIN BOOST ×2`, `+1 COLLECT`, `GRAND`. */
+/** A wheel prize's identity — what two prize entries are compared by (`COIN BOOST ×2`, `+1 COLLECT`,
+ *  `GRAND`). The words the player reads come from Invisible Win Text, not from here. */
 export const wheelPrizeLabel = (prize: HoldAndWinWheelPrize): string => {
 	switch (prize.type) {
 		case 'coinBoost':

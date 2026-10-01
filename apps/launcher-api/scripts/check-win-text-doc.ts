@@ -67,7 +67,6 @@ const full: WinTextDoc = {
 		extraCollect: '+{count}',
 		coinBoostDetail: 'ALL ×{count}',
 		extraCollectDetail: '{level}!',
-		jackpotDetail: 'JP',
 	},
 };
 const normalized = normalizeWinTextDoc(full);
@@ -90,7 +89,7 @@ for (const [family, doc] of [
 	['feature.specialNames', { feature: { specialNames: { payer: 'X' } } }],
 	['feature.collectorLevelNames', { feature: { collectorLevelNames: { '2': 'X' } } }],
 	['feature.potNames', { feature: { potNames: { red: 'X' } } }],
-	['wheel', { wheel: { jackpotDetail: 'X' } }],
+	['wheel', { wheel: { coinBoost: 'X' } }],
 ] as const) {
 	check(authorsSomething(normalizeWinTextDoc(doc)), `a doc authoring only ${family} is shipped`);
 }
