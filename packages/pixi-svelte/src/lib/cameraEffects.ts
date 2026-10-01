@@ -103,7 +103,7 @@ type CameraRuntime = {
 	/** The stage-local rect the chroma pass is bounded to; recomputed per frame. */
 	filterArea?: PIXI.Rectangle;
 	/** Whatever was on the stage before the chroma filter displaced it, restored on release. */
-	priorFilters?: PIXI.Filter | PIXI.Filter[];
+	priorFilters?: readonly PIXI.Filter[];
 	priorFilterArea?: PIXI.Rectangle;
 	tick: () => void;
 };
@@ -193,7 +193,7 @@ const releaseChromaFilter = (runtime: CameraRuntime): void => {
 	if (!runtime.chromaFilter) return;
 	const stage = runtime.app.stage;
 	if (stage && !stage.destroyed) {
-		stage.filters = runtime.priorFilters ?? [];
+		stage.filters = [...(runtime.priorFilters ?? [])];
 		stage.filterArea = runtime.priorFilterArea;
 	}
 	runtime.chromaFilter.destroy();

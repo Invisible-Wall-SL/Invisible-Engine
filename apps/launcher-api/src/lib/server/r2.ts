@@ -27,12 +27,22 @@ function s3(): S3Client {
 	return client;
 }
 
+/**
+ * The SDK types its bytes as `Uint8Array<ArrayBufferLike>`, which `Response`/`Blob` reject (a
+ * `SharedArrayBuffer` view is not a `BodyInit`). On Node they are always `ArrayBuffer`-backed, so
+ * this narrows without copying; the copy branch only exists to keep the type honest.
+ */
+function isArrayBufferBacked(bytes: Uint8Array): bytes is Uint8Array<ArrayBuffer> {
+	return bytes.buffer instanceof ArrayBuffer;
+}
+
 export async function getObjectBytes(
 	key: string,
-): Promise<{ body: Uint8Array; contentType: string; etag: string | null } | null> {
+): Promise<{ body: Uint8Array<ArrayBuffer>; contentType: string; etag: string | null } | null> {
 	try {
 		const res = await s3().send(new GetObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key }));
-		const body = await res.Body!.transformToByteArray();
+		const bytes = await res.Body!.transformToByteArray();
+		const body = isArrayBufferBacked(bytes) ? bytes : new Uint8Array(bytes);
 		return {
 			body,
 			contentType: res.ContentType ?? 'application/octet-stream',

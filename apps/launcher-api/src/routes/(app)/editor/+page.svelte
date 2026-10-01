@@ -2770,7 +2770,6 @@
 							>⠿</span
 						>
 						{#if renamingSceneIdx === i}
-							<!-- svelte-ignore a11y_autofocus -->
 							<input
 								class="screen-rename"
 								type="text"
