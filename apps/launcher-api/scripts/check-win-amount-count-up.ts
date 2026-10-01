@@ -151,18 +151,29 @@ check(
 	true,
 );
 
-console.log('\n9. .strict() still rejects an unknown winLine.text key');
+console.log(
+	'\n9. an unknown winLine.text key is ignored, not refused (docs/conventions/doc-readers.md)',
+);
 checks += 1;
-try {
-	normalizeSymbolsDoc({
-		version: 1,
-		symbols: {},
-		winLine: { text: { countUp: true, countUpSpeed: 2 } },
-	});
-	failures += 1;
-	console.log('FAIL  an unknown winLine.text key was ACCEPTED');
-} catch {
-	/* expected — the schema is `.strict()` */
+{
+	const warn = console.warn;
+	console.warn = () => {};
+	try {
+		const read = normalizeSymbolsDoc({
+			version: 1,
+			symbols: {},
+			winLine: { text: { countUp: true, countUpSpeed: 2 } },
+		});
+		if (json(read.winLine) !== json({ text: { countUp: true } })) {
+			failures += 1;
+			console.log(`FAIL  the unknown key changed the known ones: ${json(read.winLine)}`);
+		}
+	} catch (e) {
+		failures += 1;
+		console.log(`FAIL  an unknown winLine.text key failed the doc: ${String(e)}`);
+	} finally {
+		console.warn = warn;
+	}
 }
 
 console.log(

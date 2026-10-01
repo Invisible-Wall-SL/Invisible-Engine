@@ -145,6 +145,33 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-10-01 — **An unknown enum VALUE costs one entry, not the whole doc.** A newer launcher's
+  cell `type`, layer `kind`, blend mode, tumble pattern, flight head kind or ease, cash format,
+  `tintMode`, `placement`, non-spine `highlight`/`boardGlow` or `version: 2` failed the parse, so
+  `loadSymbolsDocWithEtag` fell back to the empty doc and the export pruned `deploy/editor-symbols/`
+  to match. Now a READ drops the optional field (its default applies) or the smallest entry that
+  cannot stand without it (the cell, the layer, the stacked symbol, the block), with one server
+  warning naming both. The SAVE (`PUT /api/editor/symbols`) still answers 400, as the typo guard. A
+  backup restore and the published-defaults publish drop instead of refusing. Known-only docs read
+  byte-identically. Proof is in section 15 of `check:doc-readers-unknown-fields`. The per-field
+  table and the save trade-off are in `docs/conventions/doc-readers.md` §"Unknown enum values".
+  What an older launcher drops is gone from R2 on its next save, so the backups have to hold it:
+  `putDocWithBackup`'s 5-minute `'auto'` window now coalesces only over bytes the same process
+  wrote. A doc another instance or build wrote is copied even inside the window
+  (`check:doc-backups`). This applies to every doc with backups.
+
+- 2026-10-01 — **An unknown field or symbol state no longer wipes the whole symbols doc.** Every
+  nested block was `.strict()` and the state records are keyed by `z.enum(SYMBOL_STATES)`, so one
+  field or state a newer launcher wrote failed the parse and `loadSymbolsDocWithEtag` fell back to
+  the empty doc — the tool, the export/bake and the runtime bundle all lost every binding (and the
+  next save overwrote the real one). `normalizeSymbolsDoc` and the published-defaults parse
+  (`parseSymbolDefaults`) now strip unknown keys first (`stripUnknownKeys`, a server warning names
+  each path); malformed KNOWN fields still 400. The six gates that asserted "an unknown key is
+  refused" now assert "ignored, with a warning". This supersedes #961's silent fix (`coinLabel`/`flights`
+  turned `.strip()`, unknown states deleted in `migrateLegacySymbolStates`): those blocks are
+  `.strict()` again and the strip pass drops the same keys, now with the warning. Real R2 docs normalize unchanged. Rule:
+  `docs/conventions/doc-readers.md`.
+
 - 2026-10-01 — **Live proof + two fixes (Hold and Win Phase 7).** On `hw-3pots-sample` (authoring
   path, real clock) the authored coin label and every flight kind render as authored (numbers in
   [status/hold-and-win](hold-and-win.md)). #963: held coin labels drew BLACK on the respin board —

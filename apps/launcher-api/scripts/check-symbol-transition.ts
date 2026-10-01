@@ -8,7 +8,7 @@
  *      (`delayMs: 0`), so the page's dirty signature and the server agree on "unchanged".
  *   2. REJECTION — the `.strict()` + `.refine()` schema refuses a half-authored binding (a spine with
  *      no animation, a flipbook with no clip, an fx with no effect), the `sprite` kind, a negative or
- *      fractional delay, and an unknown key — the shapes that would otherwise 400 a save silently
+ *      fractional delay — the shapes that would otherwise 400 a save silently
  *      (the publish double-fail).
  *   3. SHIPPING — `collectSymbolRefs` puts a spine bound ONLY as the transition into `spineKeys`,
  *      the set the exporter copies into `deploy/editor-symbols/` and lists in `index.spines`, which
@@ -58,10 +58,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, input: unknown): void => {
 	checks += 1;
 	try {
-		normalizeSymbolsDoc(input);
+		normalizeSymbolsDoc(input, 'reject');
 	} catch (e) {
 		if (e instanceof ZodError) return;
 		failures += 1;
@@ -70,6 +71,19 @@ const rejects = (label: string, input: unknown): void => {
 	}
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
+};
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
 };
 
 const SPINE = 'acme/splashy/spines/engine-splash/';
@@ -126,9 +140,11 @@ rejects('the sprite kind — a frame has no duration', {
 });
 rejects('a negative delay', { transition: { ...spine, delayMs: -1 } });
 rejects('a fractional delay', { transition: { ...spine, delayMs: 12.5 } });
-rejects('an unknown key (.strict)', {
-	transition: { ...spine, sizeRatios: { width: 1, height: 1 } },
-});
+ignores(
+	'an unknown key',
+	{ transition: { ...spine, sizeRatios: { width: 1, height: 1 } } },
+	{ transition: spine },
+);
 
 // 3. SHIPPING
 const onlyHere = collectSymbolRefs(normalizeSymbolsDoc({ transition: spine }));

@@ -16,7 +16,7 @@
  *      spine layer, and an unknown mode from a newer tool degrades to no blend rather than being
  *      handed to Pixi (the version-skew rule).
  *   4. REJECTION — the `.strict()` + shared `.refine()` schema refuses a half-authored layer, an
- *      unknown key, an unknown blend mode and more than `SYMBOL_LAYER_MAX` of them: the shapes that
+ *      unknown blend mode and more than `SYMBOL_LAYER_MAX` of them: the shapes that
  *      would otherwise 400 a save silently (the publish double-fail).
  *   5. SHIPPING (rule 8) — `collectSymbolRefs` puts a spine bound ONLY as a cell layer into
  *      `spineKeys` and a scoped sprite layer's sheet into `spriteManifests`, INCLUDING on a
@@ -76,10 +76,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, input: unknown): void => {
 	checks += 1;
 	try {
-		normalizeSymbolsDoc(input);
+		normalizeSymbolsDoc(input, 'reject');
 	} catch (e) {
 		if (e instanceof ZodError) return;
 		failures += 1;
@@ -88,6 +89,19 @@ const rejects = (label: string, input: unknown): void => {
 	}
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
+};
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
 };
 
 const SPINE = 'acme/splashy/spines/glow/';
@@ -250,9 +264,10 @@ rejects('rejects a flipbook layer with no clip', withLayers([{ kind: 'flipbook' 
 rejects('rejects an fx layer with no effect', withLayers([{ kind: 'fx' }]));
 rejects('rejects a sprite layer with no frame', withLayers([{ kind: 'sprite' }]));
 rejects('rejects an unknown layer kind', withLayers([{ kind: 'video', assetKey: 'x' }]));
-rejects(
-	'rejects an unknown key on a layer (`.strict`)',
+ignores(
+	'ignores an unknown key on a layer',
 	withLayers([{ kind: 'sprite', assetKey: 'x', zIndex: 3 }]),
+	withLayers([{ kind: 'sprite', assetKey: 'x' }]),
 );
 rejects(
 	'rejects an unknown blend mode at save (a typo must fail loudly, not be ignored at play)',

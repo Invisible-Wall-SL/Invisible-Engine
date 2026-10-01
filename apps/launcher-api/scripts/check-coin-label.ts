@@ -6,8 +6,7 @@
  *   1. PARITY — `normalizeSymbolsDoc` writes NO `coinLabel` for a project that never authored one,
  *      nor for one whose every field sits at its default or is empty; it round-trips a real label.
  *   2. JUNK — an out-of-range number is clamped, a non-hex tint / blank font / blank tier text is
- *      dropped, an unknown key is STRIPPED (a newer launcher's field must not fail the whole doc on
- *      read), and a wrong type fails the save loudly.
+ *      dropped, a wrong type fails the save loudly, and an unknown key is ignored with a warning.
  *   3. BOTH BUNDLE PATHS — the runtime exporter carries the field, `/api/editor/export-symbols`
  *      forwards it, and the bake's rebuild (`scripts/lib/bakeCoinLabel.mjs`, RUN here on the
  *      normalized doc) hands back the same block the runtime bundle carries.
@@ -48,10 +47,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	failures += 1;
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
+// The SAVE path: a read drops an unknown enum value instead (docs/conventions/doc-readers.md).
 const rejects = (label: string, input: unknown): void => {
 	checks += 1;
 	try {
-		normalizeSymbolsDoc(input);
+		normalizeSymbolsDoc(input, 'reject');
 	} catch (e) {
 		if (e instanceof ZodError) return;
 		failures += 1;
@@ -60,6 +60,19 @@ const rejects = (label: string, input: unknown): void => {
 	}
 	failures += 1;
 	console.log(`FAIL  ${label}\n        accepted`);
+};
+/** An unknown key is IGNORED, not refused (`docs/conventions/doc-readers.md`): the doc normalizes as
+ *  if it were absent, and the server warns naming it. */
+const ignores = (label: string, input: unknown, known: unknown): void => {
+	const warned: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warned.push(args);
+	try {
+		check(label, normalizeSymbolsDoc(input), normalizeSymbolsDoc(known));
+	} finally {
+		console.warn = warn;
+	}
+	check(`${label} — with a warning`, warned.length > 0, true);
 };
 const label = (coinLabel: unknown) => normalizeSymbolsDoc({ coinLabel }).coinLabel;
 
@@ -181,37 +194,21 @@ check(
 		jackpots: { MINI: { text: 'Mini' } },
 	},
 );
-check('an unknown key at the top is stripped', label({ colour: '#ffffff' }), undefined);
-check(
-	'an unknown key in a style is stripped, the rest kept',
-	label({ style: { size: 0.4, weight: 'bold' } }),
-	{ style: { size: 0.4 } },
+ignores('an unknown key at the top', { coinLabel: { colour: '#ffffff' } }, { coinLabel: {} });
+ignores(
+	'an unknown key in a style',
+	{ coinLabel: { style: { size: 0.4, weight: 'bold' } } },
+	{ coinLabel: { style: { size: 0.4 } } },
 );
-check(
-	'an unknown key in a jackpot is stripped, the rest kept',
-	label({ jackpots: { MINI: { text: 'Mini', label: 'x' } } }),
-	{ jackpots: { MINI: { text: 'Mini' } } },
+ignores(
+	'an unknown key in a jackpot',
+	{ coinLabel: { jackpots: { MINI: { label: 'x' } } } },
+	{ coinLabel: { jackpots: { MINI: {} } } },
 );
-check(
-	'an unknown key in a pop is stripped, the rest kept',
-	label({ animation: { landPop: { enabled: true, scale: 1.4, ease: 'backOut' } } }),
-	{ animation: { landPop: { enabled: true, scale: 1.4 } } },
-);
-check(
-	'a state key this launcher does not know is dropped, the doc survives',
-	normalizeSymbolsDoc({
-		symbols: {
-			H1: {
-				win: { type: 'sprite', assetKey: 'h1.webp' },
-				futureState: { type: 'sprite', assetKey: 'x' },
-			},
-		},
-		coinLabel: { style: { size: 0.4 } },
-	}),
-	normalizeSymbolsDoc({
-		symbols: { H1: { win: { type: 'sprite', assetKey: 'h1.webp' } } },
-		coinLabel: { style: { size: 0.4 } },
-	}),
+ignores(
+	'an unknown key in a pop',
+	{ coinLabel: { animation: { landPop: { enabled: false, ease: 'backOut' } } } },
+	{ coinLabel: { animation: { landPop: { enabled: false } } } },
 );
 rejects('an unknown cash format', { coinLabel: { cash: { format: 'credits' } } });
 rejects('a non-number size', { coinLabel: { style: { size: '0.4' } } });
