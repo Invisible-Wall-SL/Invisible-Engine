@@ -34,8 +34,8 @@ export const UNREGISTERED_TEMPLATE_FALLBACK = BOOK_OF_VOCAB.templateId;
 
 /**
  * Built-in kinds that have no vocabulary of their own yet, and the template each one borrows — named
- * so the borrowing is visible rather than a silent floor. A chain resolves, so a kind that follows
- * `lines` would move with it when `lines` gets its own.
+ * so the borrowing is visible rather than a silent floor. An entry may name another entry and the
+ * chain is followed, so a kind that borrowed `lines` would move with it when `lines` gets its own.
  *  - `lines`: the shared runtime's reference vocabulary is the Book-of one (parity).
  */
 export const VOCABULARY_FALLBACKS: Readonly<Record<string, string>> = {

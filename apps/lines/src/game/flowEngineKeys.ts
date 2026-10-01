@@ -1,7 +1,7 @@
 /**
  * The closed set of `$engine.*` keys the lines reader answers (`linesEngineReader`, the bounded
- * vocabulary, §11.4). Plain data, so a headless gate can hold every template vocabulary's values and
- * collections to it; the reader is typed against it, so a key listed here without a read is a
+ * vocabulary, §11.4). Plain data, so a headless gate can hold every template vocabulary's values
+ * and collections to it; the reader is typed against it, so a key listed here without a read is a
  * compile error.
  */
 export const LINES_ENGINE_KEYS = [

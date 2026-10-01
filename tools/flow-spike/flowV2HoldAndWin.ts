@@ -28,6 +28,9 @@
  *      carries its declared fields. The screens: the jackpot bar and pots from boot, the mode's
  *      screens exactly while the mode is on screen, and each beat screen (`luckySpin`, `wheel`,
  *      `jackpotWin`) shown for its beat and hidden after it.
+ *   7. RESUMED: a resume rebuilds the mode stack silently (no enter), then replays the feature's last
+ *      snapshot. That `holdAndWinState` alone puts the mode's screens up, starts the feature music
+ *      and restores the board — the later beats then play on a fully mounted feature.
  *
  * Prints PASS/FAIL per assertion + a final `V2 HOLD AND WIN: PASSED`.
  */
@@ -468,6 +471,7 @@ const wrongBeat: string[] = [];
 const shapeIssues: string[] = [];
 const outside: string[] = [];
 let enters = 0;
+let featureBook: BookEvent[] = [];
 let finishes = 0;
 let musicOk = true;
 const screenIssues: string[] = [];
@@ -488,6 +492,7 @@ for (const [index, [preset, force]] of CASES.entries()) {
 		return ((bet as { round?: { state?: BookEvent[] } })?.round?.state ?? []) as BookEvent[];
 	});
 	server.close();
+	if (force === 'chain') featureBook = events;
 	for (const event of events) {
 		const payload = declared.get(event.type);
 		if (!payload) outside.push(`event ${event.type}`);
@@ -522,13 +527,25 @@ for (const [index, [preset, force]] of CASES.entries()) {
 			} catch (err) {
 				thrown.push(`${event.type}: ${(err as Error).message}`);
 			}
-			const out = take();
+			// Every snapshot re-asserts the mode's screens and music (what a resume needs; idempotent
+			// otherwise), so for `holdAndWinState` those lead the beat.
+			const snapshot = event.type === 'holdAndWinState';
+			const all = take();
+			const out = snapshot
+				? all.filter((f) => !(f.name === 'soundMusic' && f.payload.name === 'bgm_freespin'))
+				: all;
+			if (snapshot && all.length - out.length !== 1)
+				wrongBeat.push('holdAndWinState: no feature music');
 			const screen = BEAT_SCREENS[event.type];
-			const expected = screen ? [`show ${screen}`, `hide ${screen}`] : [];
+			const expected = snapshot
+				? MODE_SCREENS.map((id) => `show ${id}`)
+				: screen
+					? [`show ${screen}`, `hide ${screen}`]
+					: [];
 			const beatScreen = event.type === 'jackpotWin' && active !== 'holdAndWin' ? [] : expected;
 			if (!same(screens, beatScreen))
 				screenIssues.push(`${event.type} (${active}): ${screens.join(', ') || 'no screen'}`);
-			if (beatScreen.length) beatScreens.add(screen);
+			if (screen && beatScreen.length) beatScreens.add(screen);
 			for (const f of out) if (!surfaceNames.has(f.name)) outside.push(`${f.kind} ${f.name}`);
 			const beat = (active === 'holdAndWin' ? FEATURE_BEATS : BASE_BEATS)[event.type];
 			if (beat) {
@@ -595,6 +612,48 @@ check(
 );
 for (const t of [...Object.keys(BASE_BEATS), ...Object.keys(FEATURE_BEATS)]) {
 	check(`6. the cases presented a ${t} through the seed`, ran.has(t));
+}
+
+// ---------------------------------------------------------------------------
+// 7. Resumed.
+// ---------------------------------------------------------------------------
+
+const snapshots = featureBook.filter((e) => e.type === 'holdAndWinState');
+const snapshot = snapshots[Math.floor(snapshots.length / 2)];
+check('7. the chain round has a mid-feature snapshot to resume from', Boolean(snapshot));
+if (snapshot) {
+	for (const id of MODE_SCREENS) mount.hide(id);
+	take();
+	screens.length = 0;
+	// The play seam restored the stack without a transition: the mode is simply on screen.
+	active = 'holdAndWin';
+	await runFlowEvent(doc, ctx, 'holdAndWinState', snapshot, { bookEvents: featureBook });
+	const out = take();
+	check(
+		'7. the resumed snapshot puts every mode screen up',
+		MODE_SCREENS.every((id) => mount.isShown(id)),
+		MODE_SCREENS.filter((id) => !mount.isShown(id)).join(),
+	);
+	check(
+		'7. …starts the feature music, then restores the board from the snapshot',
+		same(
+			out.map((f) => [f.name, f.payload.name ?? null, f.payload.bookEvent === snapshot]),
+			[
+				['soundMusic', 'bgm_freespin', false],
+				['restoreRespinBoard', null, true],
+			],
+		),
+		JSON.stringify(out.map((f) => f.name)),
+	);
+	const next = featureBook.slice(featureBook.indexOf(snapshot) + 1);
+	const end = next.find((e) => e.type === 'holdAndWinEnd');
+	await runFlowEvent(doc, ctx, 'holdAndWinEnd', end ?? {}, { bookEvents: featureBook });
+	check(
+		'7. the resumed feature ends on its own beat with the screens still up',
+		Boolean(end) &&
+			take().some((f) => f.name === 'hideRespinBoard') &&
+			MODE_SCREENS.every((id) => mount.isShown(id)),
+	);
 }
 
 console.log(failures ? `\nV2 HOLD AND WIN: ${failures} FAILED` : '\nV2 HOLD AND WIN: PASSED');

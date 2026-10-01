@@ -579,62 +579,79 @@ const buildDrivenSeed = (
 };
 
 /**
- * A graph of entry chains: each choreography wired off its event's pin on one `gameSignals` node
- * (inside its `around` screen, if it has one), and each `entries` node followed by its beats. Every id
- * carries `prefix`, so a mode section built here never collides with the global graph (ids are unique
- * across all sections of a doc).
+ * A graph of entry chains: each choreography wired off its event's pin on one `gameSignals` node (as
+ * `frame` wraps it, e.g. inside a screen), and each `entries` node followed by its beats. Every id
+ * carries `prefix`, so a section built here never collides with another (ids are unique across all
+ * sections of a doc), and its nodes stack down from `x`, clear of the other sections' columns.
  */
-const buildEntryGraph = (
-	prefix: string,
-	choreo: Record<string, ChoreoStep[]>,
-	entries: { node: Node; beats: Beat[] }[],
-	around: Readonly<Record<string, string>> = {},
-): Graph => {
+const buildEntryGraph = ({
+	prefix,
+	x,
+	choreo = {},
+	entries = [],
+	frame = (_event, steps) => [{ k: 'steps', steps }],
+}: {
+	prefix: string;
+	x: number;
+	choreo?: Record<string, ChoreoStep[]>;
+	entries?: { node: Node; beats: Beat[] }[];
+	frame?: (event: string, steps: ChoreoStep[]) => Beat[];
+}): Graph => {
 	const next = makeChoreoUid();
 	const uid = (kind: string) => next(`${prefix}_${kind}`);
-	const signals = `${prefix}_game_signals`;
 	const nodes: Node[] = [];
 	const exec: ExecEdge[] = [];
 	const data: DataEdge[] = [];
-	const chain = (from: PinPath, beats: Beat[], row: number): void => {
+	let y = 0;
+	const place = (node: Node): Node => {
+		node.pos = { x, y };
+		y += 20;
+		return node;
+	};
+	const chain = (from: PinPath, beats: Beat[]): void => {
 		let tail = from;
-		let i = 0;
 		const link = (entry: string) => exec.push({ from: tail, to: { node: entry, pin: 'exec' } });
 		for (const beat of beats) {
-			const pos = { x: 0, y: row * 40 + i++ * 20 };
 			if (beat.k !== 'steps') {
 				const id = uid(beat.k);
-				nodes.push({
-					id,
-					kind: beat.k === 'show' ? 'showContainer' : 'hideContainer',
-					pos,
-					ref: beat.id,
-				});
+				nodes.push(
+					place(
+						beat.k === 'show'
+							? {
+									id,
+									kind: 'showContainer',
+									pos: { x, y },
+									ref: beat.id,
+									...(beat.awaitComplete ? { awaitComplete: true } : {}),
+								}
+							: { id, kind: 'hideContainer', pos: { x, y }, ref: beat.id },
+					),
+				);
 				link(id);
 				tail = { node: id, pin: 'exec' };
 				continue;
 			}
 			const sub = buildChoreo(beat.steps, uid);
 			if (!sub.entry) continue;
-			sub.nodes.forEach((n) => (n.pos = { x: 0, y: row * 40 + i++ * 20 }));
-			nodes.push(...sub.nodes);
+			nodes.push(...sub.nodes.map(place));
 			exec.push(...sub.exec);
 			data.push(...sub.data);
 			link(sub.entry);
 			tail = sub.tails[0];
 		}
+		y += 40;
 	};
 	const events = Object.entries(choreo);
 	if (events.length) {
-		nodes.push({ id: signals, kind: 'gameSignals', pos: { x: 0, y: -200 } });
-		events.forEach(([event, steps], row) =>
-			chain({ node: signals, pin: event }, aroundBeat(around[event], [{ k: 'steps', steps }]), row),
-		);
+		const signals = place({ id: `${prefix}_game_signals`, kind: 'gameSignals', pos: { x, y } });
+		nodes.push(signals);
+		for (const [event, steps] of events)
+			chain({ node: signals.id, pin: event }, frame(event, steps));
 	}
-	entries.forEach(({ node, beats }, i) => {
-		nodes.push(node);
-		chain({ node: node.id, pin: 'exec' }, beats, events.length + i);
-	});
+	for (const { node, beats } of entries) {
+		nodes.push(place(node));
+		chain({ node: node.id, pin: 'exec' }, beats);
+	}
 	return { nodes, exec, data };
 };
 
@@ -690,7 +707,8 @@ const music = (name: string): ChoreoStep[] => [
  *   mode is on screen; everything else falls back to the global graph. Its **Mode trigger (enter)**
  *   shows the mode's screens (backdrop, board frame, counter, Total Win bar, letters) and starts the
  *   feature music; **(exit)** — after `holdAndWinEnd` has presented, so the tally has landed in the
- *   Total Win bar — hides them.
+ *   Total Win bar — hides them. A resume rebuilds the mode stack without an enter, so the
+ *   `holdAndWinState` chain (the snapshot a resume replays first) does the same showing first.
  *
  * Each beat screen is mounted only for its beat, and while it is mounted the beat's coded drawing
  * steps aside (Phase 6), so nothing draws twice. The feature intro / outro (tap screens) are left
@@ -708,19 +726,35 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 		around: { luckySpin: LUCKY_SPIN },
 		declared: [...HOLD_AND_WIN_MODE_SCREENS, LUCKY_SPIN, WHEEL, JACKPOT_WIN],
 	});
-	const backToBase = buildEntryGraph('base', {}, [
-		{
-			node: { id: 'all_modes_finished', kind: 'allModesFinished', pos: { x: 900, y: 0 } },
-			beats: [{ k: 'steps', steps: music('bgm_main') }],
-		},
-	]);
-	const modeTrigger = (id: string, on: 'enter' | 'exit', y: number): Node => ({
+	// Right of the global spine (x 0) and the buy subgraph (x 500).
+	const backToBase = buildEntryGraph({
+		prefix: 'base',
+		x: 900,
+		entries: [
+			{
+				node: { id: 'all_modes_finished', kind: 'allModesFinished', pos: { x: 0, y: 0 } },
+				beats: [{ k: 'steps', steps: music('bgm_main') }],
+			},
+		],
+	});
+	const modeTrigger = (id: string, on: 'enter' | 'exit'): Node => ({
 		id,
 		kind: 'modeTrigger',
-		pos: { x: 900, y },
+		pos: { x: 0, y: 0 },
 		modeId: HOLD_AND_WIN_MODE,
 		on,
 	});
+	/** The mode's screens up and its music on — what entering the mode does, and what a resume
+	 *  (which rebuilds the mode stack silently, with no enter) needs from the first snapshot. Both are
+	 *  idempotent: a shown screen stays, a playing track is not restarted. */
+	const modeOn: Beat[] = [
+		...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
+		{ k: 'steps', steps: music('bgm_freespin') },
+	];
+	const beatScreens: Readonly<Record<string, string>> = {
+		holdAndWinWheel: WHEEL,
+		jackpotWin: JACKPOT_WIN,
+	};
 	return {
 		...base,
 		graph: {
@@ -730,24 +764,22 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 		},
 		modes: {
 			[HOLD_AND_WIN_MODE]: {
-				graph: buildEntryGraph(
-					'hw',
-					HOLD_AND_WIN_FEATURE_CHOREO,
-					[
+				graph: buildEntryGraph({
+					prefix: 'hw',
+					x: 0,
+					choreo: HOLD_AND_WIN_FEATURE_CHOREO,
+					frame: (event, steps) =>
+						event === 'holdAndWinState'
+							? [...modeOn, { k: 'steps', steps }]
+							: aroundBeat(beatScreens[event], [{ k: 'steps', steps }]),
+					entries: [
+						{ node: modeTrigger('hw_enter', 'enter'), beats: modeOn },
 						{
-							node: modeTrigger('hw_enter', 'enter', 0),
-							beats: [
-								...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
-								{ k: 'steps', steps: music('bgm_freespin') },
-							],
-						},
-						{
-							node: modeTrigger('hw_exit', 'exit', 200),
+							node: modeTrigger('hw_exit', 'exit'),
 							beats: HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'hide', id })),
 						},
 					],
-					{ holdAndWinWheel: WHEEL, jackpotWin: JACKPOT_WIN },
-				),
+				}),
 			},
 		},
 	};
@@ -770,7 +802,8 @@ export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
 /**
  * Built-in kinds that ship no starter flow of their own, and the seed each one is scaffolded with —
  * named so the borrowing is visible rather than a silent floor. The borrowed seed carries ITS
- * `templateId`, so such a project also runs that template's vocabulary. A chain resolves.
+ * `templateId`, so such a project also runs that template's vocabulary. An entry may name another
+ * entry, and the chain is followed.
  *  - `lines`: the Book-of seed (parity — what it has always been given).
  */
 export const DRIVEN_SEED_FALLBACKS: Readonly<Record<string, string>> = {

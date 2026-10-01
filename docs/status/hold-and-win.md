@@ -63,11 +63,11 @@ titled **"Hold and win game pipeline"**.
 | `cluster` | cluster seed (since 2026-10-01; a project scaffolded before keeps its stored `bookOf` flow) | cluster | `cluster` | default |
 | `scatter` | scatter seed (since 2026-10-01; same caveat) | scatter | `scatter` | default |
 | `bookOf` | bookOf seed | bookOf | `book` | lines |
-| `holdAndWin` | → `lines` → bookOf seed | → `lines` → bookOf | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
+| `holdAndWin` | holdAndWin seed (Phase 5; a project scaffolded before keeps its stored `bookOf` flow) | holdAndWin | `holdAndWin` → **Hold and Win mock** (Phase 3); the lines mock, with a logged warning, only when the contract carries no `holdAndWin` block | lines |
 | custom kind / absent | bookOf seed (`UNREGISTERED_TEMPLATE_FALLBACK`) | bookOf | `lines` | default |
 
-Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` by alias, so Phase 5
-only has to register its own vocab + seed.
+Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` by alias until Phase
+5 registered its own vocab + seed.
 
 ## Decisions & findings
 

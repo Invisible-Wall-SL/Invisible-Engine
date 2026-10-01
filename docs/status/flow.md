@@ -77,12 +77,22 @@
   - **Runtime** (`apps/lines`): `linesEngineReader` is a typed record over `LINES_ENGINE_KEYS`
     (now `flowEngineKeys.ts`), so a listed key without a read is a compile error; `INTENT_COMMANDS`
     moved to `flowIntentCommands.ts`. Both are plain modules so the headless gate can read them.
-  - **Proof:** flow-spike `v2holdandwin` (156 checks — event payloads read off
+    Every Hold and Win beat effect is built by `beat(type, present)` in `flowEffects.ts`: it presents
+    only an event of its own type and refuses (console error) any other — the validator does not
+    type a whole `$trigger` read, so a beat on the wrong chain would otherwise misread a payload.
+    `scripts/gen-flow-vocabulary.mjs` now takes any top-level key of the `effects` map as an effect
+    (it matched only `name: (`, and would have dropped every `beat(...)` silently; output unchanged).
+  - **Resume:** a resume rebuilds the mode stack with no enter, so the seed's `holdAndWinState`
+    chain re-asserts the mode screens and the feature music (idempotent on every other snapshot).
+  - **`flyTo`** takes its sources on `cells` / `cellAmounts` / `positions` — struct types are
+    nominal, so one pin could not accept every cell list a book event carries.
+  - **Proof:** flow-spike `v2holdandwin` (event payloads read off
     `HoldAndWinEventFields` by the TypeScript checker; EVERY registered vocabulary's actions, cues,
     values backed by the generated emitter vocabulary / `flowEffects` / engine keys; the seed played
     from the real Hold and Win mock through the facade across every preset's forced beats, with the
     mode stack moved as the play seam moves it); `check:flow-publish-gate` (holdAndWin → its own seed
-    and vocab, validated against the Phase 6 template scenes). Live on `hw-3pots-sample` and a
+    and vocab, validated against the Phase 6 template scenes; a code review's resume and
+    wrong-chain findings are fixed and pinned, 160 checks). Live on `hw-3pots-sample` and a
     `bookofborutremake` parity boot — details in the hub's Recent changes.
   - **Existing projects keep their stored flow** (the open `templateId` gap, item 9):
     `hw-3pots-sample` runs the `bookOf` seed, whose unowned Hold and Win events fall through to the

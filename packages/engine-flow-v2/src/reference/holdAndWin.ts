@@ -1,5 +1,5 @@
 /**
- * Invisible Flow v2 — the `holdAndWin` template vocabulary (`docs/design/hold-and-win.md` §5, Flow).
+ * Invisible Flow v2 — the `holdAndWin` template vocabulary (`docs/design/hold-and-win.md` §5).
  *
  * A Hold and Win game is the STANDARD shared-runtime vocabulary minus what the kind does not use, plus
  * the respin feature. Transcribed from the runtime's real code, like every other vocabulary:
@@ -479,37 +479,38 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	},
 ];
 
-/** A per-beat effect: the coded presentation of one event, fed the whole event. */
-const beat = (name: string): TemplateVocabulary['actions'][number] => ({
+/** A per-beat effect: the coded presentation of `event`, fed that whole event. The game refuses
+ *  (with a console error) any other event, since the validator cannot see which chain a node is on. */
+const beat = (name: string, event: string): TemplateVocabulary['actions'][number] => ({
 	name,
 	params: [
 		{
 			name: 'bookEvent',
 			type: BOOK_EVENT,
-			description: 'The event this beat presents — wire `$trigger` (the whole payload).',
+			description: `The \`${event}\` event this beat presents: on a \`${event}\` chain, set accessor $trigger with no field. Any other event is refused.`,
 		},
 	],
 	category: 'command',
 });
 
 const ACTIONS: TemplateVocabulary['actions'] = [
-	beat('showRespinBoard'),
-	beat('spinRespin'),
-	beat('stickCoins'),
-	beat('setRespinCounter'),
-	beat('restoreRespinBoard'),
-	beat('payCoins'),
-	beat('boostCoins'),
-	beat('turnSpecialIntoCoin'),
-	beat('collectCoins'),
-	beat('revealMystery'),
-	beat('clearRespinCells'),
-	beat('showJackpotWin'),
-	beat('hideRespinBoard'),
-	beat('fillMeter'),
-	beat('lightLetter'),
-	beat('instantCollect'),
-	beat('spinWheel'),
+	beat('showRespinBoard', 'holdAndWinTrigger'),
+	beat('spinRespin', 'respinReveal'),
+	beat('stickCoins', 'coinsLand'),
+	beat('setRespinCounter', 'respinUpdate'),
+	beat('restoreRespinBoard', 'holdAndWinState'),
+	beat('payCoins', 'coinPay'),
+	beat('boostCoins', 'coinBoost'),
+	beat('turnSpecialIntoCoin', 'specialBecomesCoin'),
+	beat('collectCoins', 'coinCollect'),
+	beat('revealMystery', 'mysteryReveal'),
+	beat('clearRespinCells', 'cellsCleared'),
+	beat('showJackpotWin', 'jackpotWin'),
+	beat('hideRespinBoard', 'holdAndWinEnd'),
+	beat('fillMeter', 'meterUpdate'),
+	beat('lightLetter', 'columnComplete'),
+	beat('instantCollect', 'coinInstantCollect'),
+	beat('spinWheel', 'holdAndWinWheel'),
 	{ name: 'playLuckySpinIntro', params: [], category: 'command' },
 	{
 		name: 'flyTo',
@@ -518,7 +519,20 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 				name: 'cells',
 				type: list(CELL),
 				optional: true,
-				description: 'The cells each flight leaves from.',
+				description: 'The cells each flight leaves from (e.g. `coinsLand` cells).',
+			},
+			{
+				name: 'cellAmounts',
+				type: list(CELL_AMOUNT),
+				optional: true,
+				description:
+					'…or cells with their amounts (a collect, an instant collect, the feature tally).',
+			},
+			{
+				name: 'positions',
+				type: list(POSITION),
+				optional: true,
+				description: '…or bare positions (a column, cleared cells).',
 			},
 			{ name: 'reel', type: INT, optional: true, description: 'One source cell: its reel.' },
 			{ name: 'row', type: INT, optional: true, description: 'One source cell: its row.' },
@@ -538,7 +552,7 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 				name: 'avoid',
 				type: list(POSITION),
 				optional: true,
-				description: 'Cells the routes bend around.',
+				description: 'Positions the routes bend around (e.g. a win’s cells).',
 			},
 			{ name: 'stagger', type: MS, optional: true, description: 'Between two take-offs.' },
 			{
@@ -586,7 +600,8 @@ const CUES: TemplateVocabulary['cues'] = [
 		name: 'respinSpecialBecomesCoin',
 		payload: [
 			{ name: 'cell', type: CELL },
-			{ name: 'from', type: STRING },
+			// The symbol enum, like `specialBecomesCoin.from`, so the event's field feeds it.
+			{ name: 'from', type: SYMBOL },
 		],
 	},
 	{

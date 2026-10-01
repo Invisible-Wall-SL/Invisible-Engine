@@ -632,7 +632,10 @@ spins or stacked pictures, plus the feature's events, beats, cues and values (th
 **One action per beat.** Each Hold and Win event has one action that presents it exactly as the
 engine does when no flow owns it — the same code runs either way. Each takes the event itself on
 its **bookEvent** pin: set it to accessor **$trigger** with no field. Left unfed it is a red
-Validation error (`unfilled-data-in`), because the beat has nothing to present.
+Validation error (`unfilled-data-in`), because the beat has nothing to present. Put each action
+on its own event's chain (the table below; the pin's tooltip names the event). Validation cannot
+see which chain a node sits on, so a beat fed another event does nothing in the game and logs
+an error to the browser console.
 
 | Event | Action | Where the starter flow wires it |
 |---|---|---|
@@ -657,14 +660,20 @@ Validation error (`unfilled-data-in`), because the beat has nothing to present.
 `meterLevels` and `randomMetreTrigger` have no beat; left unwired, the engine records them. Each
 beat fires its own cues (`respinCoinsLand`, `potFill`, `wheelSpin`, `flightArrive`, …), so a
 **Fire cue** of one of them only notifies your sound or FX; it does not move the board. To fly
-something yourself, use **flyTo**: `cells` (or one `reel` + `row`), a `target` layout node id or
-`total` (the win meter), a `flight` name reported in each `flightArrive`, and `await`.
+something yourself, use **flyTo**. Its sources come on three pins, one per kind of cell list a book
+event carries: `cells` (e.g. `coinsLand`), `cellAmounts` (a collect, an instant collect, the
+feature tally) and `positions` (a column, cleared cells); or one `reel` + `row`. Then a `target`
+layout node id or `total` (the win meter), a `flight` name reported in each `flightArrive`,
+`avoid` positions the routes bend around, and `await`.
 
 **The tabs and screens.** The Global graph shows `jackpotBar` and `pots` with the game. The
 **Hold and Win** tab's **Mode trigger (enter)** shows the feature's screens (`respinBackground`,
 `respinBoard`, `respinCounter`, `totalWinBar`, `letters`) and starts the feature music; its
 **Mode trigger (exit)** hides them after the end beat, so the coins have landed. **On all modes
-finished** in Global brings the base music back. `luckySpin`, `wheel` and `jackpotWin` are shown
+finished** in Global brings the base music back. A resumed feature starts without an enter, so
+the tab's `holdAndWinState` chain (the snapshot a resume replays first) shows the same screens and
+starts the music too; on every other snapshot that changes nothing. `luckySpin`, `wheel` and
+`jackpotWin` are shown
 for the length of their beat only: while one of them is up, the engine's own banner or wheel
 steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not wired, because the
 engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
@@ -811,7 +820,10 @@ The two cue traps (splice in series; fire after the screen shows) are in
   to `book-of`. A cluster, scatter or Hold and Win project created before 2026-10-01 keeps the
   `book-of` flow it was scaffolded with, because nothing in the editor changes a flow's template.
   Its game plays the same (the events that flow does not own fall through to the engine), but its
-  palette lacks the kind's own events and beats.
+  palette lacks the kind's own events and beats. A Hold and Win project scaffolded before its
+  Scene Editor template (2026-10-01) has none of the template's screens, so if its flow was never
+  saved, the starter flow `/flow-v2` opens on shows ids its scenes lack and Validation flags them.
+  Run **Add missing screens** in the Scene Editor first.
 - **Cues inside a component instance aren't offered.** The **Cues** section collects signal
   names from spines and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own

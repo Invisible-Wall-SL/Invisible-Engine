@@ -153,10 +153,10 @@ const jackpotAmount = (tier: string): number => {
  *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` from
  *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
  *
- * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a guard over an unknown key is simply false) — the
- * bounded-accessor line we do not cross (no arbitrary state reads, §11.4). Pure-read: calling it
- * never mutates state, so it is harmless to inject for every fixture (a doc with no `$engine.*`
- * guard never calls it).
+ * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a
+ * guard over an unknown key is simply false) — the bounded-accessor line we do not cross (no
+ * arbitrary state reads, §11.4). Pure-read: calling it never mutates state, so it is harmless to
+ * inject for every fixture (a doc with no `$engine.*` guard never calls it).
  */
 const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	balance: () => stateBet.balanceAmount,

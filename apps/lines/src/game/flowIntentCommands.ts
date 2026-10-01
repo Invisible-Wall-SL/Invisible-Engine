@@ -1,8 +1,8 @@
 /**
- * Intent-invoking `command` actions → the game intent they invoke (Phase A). When the flow reacts to
- * a `spin`/`buyBonus` button EVENT and runs one of these actions, the env routes it to the game's
- * `invokeIntent` bridge (the SAME coded body the button press runs) instead of the `flowEffect`
- * registry — so a flow-driven button is byte-identical to the coded one.
+ * Intent-invoking `command` actions → the game intent they invoke (Phase A). When the flow reacts
+ * to a `spin`/`buyBonus` button EVENT and runs one of these actions, the env routes it to the
+ * game's `invokeIntent` bridge (the SAME coded body the button press runs) instead of the
+ * `flowEffect` registry — so a flow-driven button is byte-identical to the coded one.
  *
  * Plain data, so a headless gate can hold every template vocabulary's actions to what the game backs
  * (this map + the `flowEffect` registry).

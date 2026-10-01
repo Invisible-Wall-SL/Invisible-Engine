@@ -252,14 +252,6 @@ export type LinesFlowV2 = {
 	presentModeTransition?: (transition: ModeTransition) => Promise<void>;
 };
 
-/**
- * Build the v2 handle from the live editor doc. Returns `undefined` when no v2 FlowDoc is
- * authored (`__IE_FLOW_V2_DOC__` unset) — the game then runs its v1/coded path (parity).
- *
- * `onContainersChange` is the mount model's mirror: Game.svelte passes a setter that writes the
- * z-ordered list into a `$state`, so `<FlowV2Mount>` re-renders whenever a `show`/`hide` changes
- * the shown set (the interpreter's mount model is a plain object, not a rune).
- */
 /** A structural narrow for a loaded Spine `SkeletonData` — just the `findAnimation` we read, so this
  *  module needs no `@esotericsoftware/spine-*` type import to measure a clip's duration. */
 type SkeletonDataLike = { findAnimation(name: string): { duration: number } | null };
@@ -276,6 +268,14 @@ const spineBundleFolderOf = (key: string): string => {
 	return m ? m[1] : trimmed;
 };
 
+/**
+ * Build the v2 handle from the live editor doc. Returns `undefined` when no v2 FlowDoc is
+ * authored (`__IE_FLOW_V2_DOC__` unset) — the game then runs its v1/coded path (parity).
+ *
+ * `onContainersChange` is the mount model's mirror: Game.svelte passes a setter that writes the
+ * z-ordered list into a `$state`, so `<FlowV2Mount>` re-renders whenever a `show`/`hide` changes
+ * the shown set (the interpreter's mount model is a plain object, not a rune).
+ */
 export const createLinesFlowV2 = (
 	editorDoc: LayoutDoc,
 	onContainersChange?: (containers: MountedContainerRef[]) => void,
