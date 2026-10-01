@@ -41,7 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
-| 5 | Flow vocabulary + driven seed | in progress — stacked on #945 (branch `flow/hold-win-5-vocabulary`): vocab, seed, gates and the live play on hw-3pots-sample done; Borut parity boot, flow docs, PR owed | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
+| 5 | Flow vocabulary + driven seed | in progress — stacked on #945 (branch `flow/hold-win-5-vocabulary`): vocab, seed, gates, live play on hw-3pots-sample and the Borut parity boot done; flow docs, review, PR owed; screen wiring waits for Phase 6 | Hold and Win Phase 5 — flow vocabulary + driven seed | — |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
@@ -730,6 +730,11 @@ Hold and Win beats prints copy.
     seed (`templateId: 'bookOf'`), which owns only `reveal` / `setWin` / `setTotalWin`, so its Hold
     and Win events stay on the coded path (same presentation). Only a project scaffolded from now on
     gets the Hold and Win seed; re-seed the sample to author it in `/flow-v2`.
+  - **Borut parity** (`bookofborutremake`'s published data and flow, local book mock forcing free
+    spins, headless real clock, this branch vs its base = #945's head, same driver): three features
+    each, every one basegame → freegame → basegame and back to idle; the same 18 flow actions used;
+    every intro / outro / big-win hold released; 0 exceptions; every balance = before − stake + win
+    on both. RNG differs per run, so the comparison is structural.
 
 - 2026-10-01 — **Phase 4, step 10: Grand + Hotfire** (branch `engine/hold-win-4f-grand-hotfire`, on
   `engine/hold-win-4e-pots-lucky-end` / #943; no PR yet). One function per beat in
