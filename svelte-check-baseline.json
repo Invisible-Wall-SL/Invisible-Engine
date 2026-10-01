@@ -1100,7 +1100,7 @@
 		}
 	},
 	"packages/engine-game": {
-		"errors": 38,
+		"errors": 37,
 		"byFile": {
 			"packages/engine-game/fixtures/pressAfterArm.fixture.ts": {
 				"ts:2307": 3
@@ -1113,7 +1113,7 @@
 				"ts:2307": 3
 			},
 			"packages/engine-game/src/components/Background.svelte": {
-				"ts:2339": 4
+				"ts:2339": 3
 			},
 			"packages/engine-game/src/components/BoardContainer.svelte": {
 				"ts:2339": 4

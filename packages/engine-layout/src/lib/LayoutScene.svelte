@@ -17,8 +17,14 @@
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
 	import { setTapPortal, type TapPortalEntry } from './tapPortalContext';
 	import { tapDimBehind } from './tapToContinue';
+	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
 	const { scene }: Props = $props();
+
+	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
+	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for
+	// `luckySpin` / `jackpotWin`. A keyed scene never changes id, so the key is read once.
+	$effect(() => untrack(() => trackComponentMount(sceneMountKey(scene.id))));
 
 	const space = $derived(scene.space ?? 'game');
 

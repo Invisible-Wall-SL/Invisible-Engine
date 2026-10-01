@@ -57,8 +57,7 @@
 	const backgroundPropsFor = (key: string) => {
 		const canvas = context.stateLayoutDerived.canvasSizes();
 		const data = appContext.stateApp.loadedAssets?.[key] as
-			| { width?: number; height?: number }
-			| undefined;
+			{ width?: number; height?: number } | undefined;
 		const artWidth = data?.width ?? 0;
 		const artHeight = data?.height ?? 0;
 		const offset =
@@ -87,8 +86,12 @@
 	};
 	const baseBackgroundProps = $derived(backgroundPropsFor('foregroundAnimation'));
 	const featureBackgroundProps = $derived(backgroundPropsFor('foregroundFeatureAnimation'));
-	const showBaseBackground = $derived(context.stateGame.gameType === 'basegame');
-	const showFeatureBackground = $derived(context.stateGame.gameType === 'freegame');
+	const gameType = $derived(context.stateGame.gameType);
+	const showBaseBackground = $derived(gameType === 'basegame');
+	// A Hold and Win feature (game type `respin`, design `docs/design/hold-and-win.md` §4.5) plays on
+	// the feature background, like free spins — a Hold and Win game has no free-spin backdrop of its
+	// own to compete with, and its authored `respinBackground` screen draws over this one.
+	const showFeatureBackground = $derived(gameType === 'freegame' || gameType === 'respin');
 </script>
 
 <Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={0x000000} zIndex={-3} />

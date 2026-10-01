@@ -42,7 +42,7 @@ titled **"Hold and win game pipeline"**.
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
-| 6 | Scene Editor template + components | not started | — | — |
+| 6 | Scene Editor template + components | in progress | Hold and Win Phase 6 — Scene Editor template | — |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | not started | — | — |
 | 8 | Win Text (jackpot + respin copy, gating) | in progress — part 1 (contract, /win-text sections, harvest) in review; part 2 (runtime reads the templates, see "Win Text literals for Phase 8") next | Hold and Win Phase 8 — Win Text | part 1: #946 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | not started | — | — |
@@ -471,6 +471,18 @@ Hold and Win beats prints copy.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 6 (in progress, branch `claude/hw-phase6-scene-template`, NOT merged):** the
+  `holdAndWin` scene set + template (one set for Grand / Hotfire 3×3 / 3 Pots), 7 kind-gated
+  components (`ComponentDef.capability`, palette filter `componentOfferedForKind`), the `infoBar`
+  message host in `basegame`, `featureTotal` / `jackpot.<name>` / banner sources, coded parts
+  PotMeter / LettersStrip / HoldAndWinWheel, mount-based step-aside of the coded counter + pots
+  (`isComponentMounted`), Background shows the feature backdrop for `respin`. Fixture
+  `packages/engine-layout/scripts/test-hold-and-win-template.mjs` pins existing kinds byte-identical.
+  Svelte-check + eslint green. **Owed before merge:** code review, Borut parity boot, hw-3pots-sample
+  toast check, PR. **Phase 5 must** showContainer `jackpotBar`/`pots` at start and the mode screens
+  from the Mode trigger, and step the coded banner aside when it shows `luckySpin`/`jackpotWin`.
+  Intro/outro/wheel/luckySpin are flow-held screens; `jackpotBar` is not mode-tagged (always shown).
 
 - 2026-10-01 — **Phase 8 part 1: Win Text families + gating** (branch `claude/hw-phase8-win-text`).
   `WinTextDoc` gains `jackpots` / `respins` / `feature`, with defaults equal to the presentation's

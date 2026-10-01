@@ -108,7 +108,7 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, plus any author-created custom kinds) and
+  `cluster`, `scatter`, `bookOf`, `holdAndWin`, plus any author-created custom kinds) and
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
@@ -119,6 +119,19 @@ To start from something:
   menus — see [the section below](#the-bet-menu-and-the-auto-spin-screens).
 - **＋ Add missing screens** appears when the game defines screens the current
   layout lacks.
+
+**Hold and Win screens.** A Hold and Win project starts with one screen set for all three
+presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
+the base game and the feature; the feature's screens (**Respin background**, **Respin board**,
+**Respin counter**, **Total win bar**, **Letters**, **Wheel**, **Feature intro**, **Jackpot win**,
+**Feature outro**) carry the role *game mode* `holdAndWin`, so they show only while the feature
+runs; **Lucky Spin intro** is a base-game banner. A piece your preset does not use draws nothing in
+the game (a pot whose meter the Game Config lacks, letters without a column-letters board end, a
+wheel without prizes), so leave it or delete its screen. The base game's **Messages** info bar is
+where the game's toasts ("UNLOCKED: PAYER", jackpot amounts) appear — keep one. There are no
+free-spin screens; the Free-Spin Counter and free-spin intro/outro components stay in the
+Components list, so a hybrid game places them on screens of its own. Until Hold and Win's own starter flow ships (Phase 5), the starter flow shows only the
+base game and HUD, and the game keeps drawing its built-in respin counter and pots.
 
 ### The bet menu and the auto spin screens
 
@@ -743,6 +756,9 @@ game on the next **Publish** — the same trip as the rest of your art.
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
   UI groups, scenery), grouped by category. **Place** one to drop a component
   instance into the active screen; instances' params are editable in Properties.
+  The list shows only what your project's game kind uses: the Hold and Win pieces (Respin
+  Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel) appear
+  only in a Hold and Win project. A screen that already holds one keeps drawing it.
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining

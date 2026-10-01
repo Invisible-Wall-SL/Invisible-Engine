@@ -4,6 +4,8 @@
 	import { MainContainer } from 'components-layout';
 	import { BoardContainer, SYMBOL_SIZE } from 'engine-game';
 	import { Container, Rectangle, Text } from 'pixi-svelte';
+	import { HOLD_AND_WIN_BANNER_SCREENS } from 'engine-layout';
+	import { isComponentMounted, sceneMountKey } from 'engine-layout/svelte';
 
 	import { stateGameDerived } from '../game/stateGame.svelte';
 	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
@@ -16,9 +18,16 @@
 	 * overlaps it).
 	 *
 	 * Nothing is mounted until a banner is up, so a game that never receives a Hold and Win event pays
-	 * nothing for it.
+	 * nothing for it. A Lucky Spin / jackpot banner steps aside while the flow shows the authored
+	 * screen for that beat (`HOLD_AND_WIN_BANNER_SCREENS`), which draws it instead.
 	 */
-	const banner = $derived(stateHoldAndWinBanner.current);
+	const authoredScreen = (kind: string): string | undefined =>
+		(HOLD_AND_WIN_BANNER_SCREENS as Record<string, string>)[kind];
+	const banner = $derived.by(() => {
+		const current = stateHoldAndWinBanner.current;
+		const screen = current && authoredScreen(current.kind);
+		return screen && isComponentMounted(sceneMountKey(screen)) ? null : current;
+	});
 	const centre = $derived.by(() => {
 		const { width, height } = stateGameDerived.boardLayout();
 		return { x: width / 2, y: height / 2 };
