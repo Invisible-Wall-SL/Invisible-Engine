@@ -49,10 +49,10 @@
 	"dependencies": {
 		"eslint": "9.39.5",
 		"eslint-config-custom": "workspace:*",
-		"prettier": "3.5.2",
+		"prettier": "3.9.9",
 		"prettier-plugin-svelte": "3.3.3",
-		"turbo": "2.4.4",
-		"typescript": "5.8.3"
+		"turbo": "2.11.5",
+		"typescript": "5.9.3"
 	},
 	"engines": {
 		"node": ">=22.16.0"
@@ -66,8 +66,8 @@
 		]
 	},
 	"devDependencies": {
-		"@jridgewell/trace-mapping": "0.3.29",
-		"svelte": "5.35.1",
-		"svelte2tsx": "0.7.40"
+		"@jridgewell/trace-mapping": "0.3.31",
+		"svelte": "5.57.1",
+		"svelte2tsx": "0.7.61"
 	}
 }

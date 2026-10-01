@@ -233,11 +233,10 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 166,
+		"errors": 165,
 		"byFile": {
 			"apps/lines/src/components/FlowV2Cinematics.svelte": {
-				"ts:2339": 2,
-				"ts:2353": 1
+				"ts:2339": 2
 			},
 			"apps/lines/src/components/Game.svelte": {
 				"ts:18048": 1,
@@ -1010,11 +1009,8 @@
 		}
 	},
 	"packages/components-storybook": {
-		"errors": 8,
+		"errors": 7,
 		"byFile": {
-			"packages/components-storybook/src/components/StoryGameTemplate.svelte": {
-				"svelte(style)": 1
-			},
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
 			},
@@ -1168,7 +1164,7 @@
 		}
 	},
 	"packages/engine-layout": {
-		"errors": 296,
+		"errors": 291,
 		"byFile": {
 			"packages/engine-layout/scopedFrameRef.fixture.ts": {
 				"ts:2580": 1
@@ -1268,7 +1264,6 @@
 				"ts:7053": 2
 			},
 			"packages/engine-layout/src/lib/Cinematic.svelte": {
-				"ts:2339": 5,
 				"ts:2352": 3
 			},
 			"packages/engine-layout/src/lib/ComponentInstance.svelte": {

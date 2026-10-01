@@ -102,7 +102,7 @@ async function atlasPreferPng(text: string, bundlePrefix: string): Promise<strin
 }
 
 export interface SpineFile {
-	body: Uint8Array | string;
+	body: Uint8Array<ArrayBuffer> | string;
 }
 
 /**

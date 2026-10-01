@@ -6,13 +6,12 @@
 	 * not a guess — it is what Phase 0's gate 3 (`tools/rigger-spike/cinematic-pixi.mjs`) measured
 	 * against `spine-pixi-v8`:
 	 *
-	 *   1. `autoUpdate = false` — otherwise the runtime advances its own AnimationState and fights us.
+	 *   1. `autoUpdate` stays ON — see below; the gate proves Pixi then updates it once per tick.
 	 *   2. `state.clearTracks()` — mandatory for EVENT reasons, not pose reasons. A leftover track
 	 *      cannot corrupt the pose (our `setToSetupPose()` discards it) but DOES keep firing that
 	 *      clip's spine events every frame.
 	 *   3. Pose in `beforeUpdateWorldTransforms`. Posing in the `after` hook renders the PREVIOUS
 	 *      frame's pose — proved, not assumed.
-	 *   4. `spine.update(dt)` each frame so the hook runs.
 	 */
 	import { onDestroy } from 'svelte';
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';

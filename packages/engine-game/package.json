@@ -18,12 +18,12 @@
 		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
-		"pixi.js": "8.8.1",
-		"lodash": "4.17.16",
-		"@types/lodash": "4.17.16",
-		"svelte": "5.35.1",
+		"pixi.js": "8.21.0",
+		"lodash": "4.18.1",
+		"@types/lodash": "4.17.25",
+		"svelte": "5.57.1",
 		"vite": "6.2.0",
-		"@sveltejs/kit": "2.17.3",
+		"@sveltejs/kit": "2.70.3",
 		"envs": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"state-shared": "workspace:*",
