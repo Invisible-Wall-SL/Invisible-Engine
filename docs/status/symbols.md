@@ -145,6 +145,16 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Before an
+  `If-Match` save, `saveSymbolsDoc` reads the stored doc. If its ETag is the save's `baseEtag`, it
+  copies every top-level key `symbolsDocSchema` does not declare onto the PUT
+  (`storedUnknownBlocks`). An author saving from an older launcher after a rollback no longer
+  deletes a block a newer one wrote. A create, a forced overwrite or a stale ETag copies nothing.
+  Nested unknown keys are still dropped and are recoverable from backups. A backup restore keeps
+  the restored bytes' unknown blocks instead (`unknownFrom: 'doc'`). A known-only doc saves
+  byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule: `docs/conventions/doc-readers.md`
+  "Round-tripping".
+
 - 2026-10-01 — **An unknown field or symbol state no longer wipes the whole symbols doc.** Every
   nested block was `.strict()` and the state records are keyed by `z.enum(SYMBOL_STATES)`, so one
   field or state a newer launcher wrote failed the parse and `loadSymbolsDocWithEtag` fell back to

@@ -47,7 +47,14 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 	const restored = await readBackupForRestore(target, id);
 
 	try {
-		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, restored, baseEtag, 'always');
+		const { doc, etag } = await saveSymbolsDoc(
+			clientKey,
+			projectKey,
+			restored,
+			baseEtag,
+			'always',
+			'doc',
+		);
 		return json({ ok: true, id, etag, doc });
 	} catch (e) {
 		if (e instanceof ZodError) {

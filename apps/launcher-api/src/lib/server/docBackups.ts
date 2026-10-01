@@ -229,7 +229,7 @@ async function backupBeforeOverwrite(
  * decide (and at worst leaves an inert orphan), whereas a false "differs" would refuse a save R2
  * would have accepted — on every retry. A missing stored ETag proves nothing, so it is "same".
  */
-function etagDiffers(stored: string | null, base: string): boolean {
+export function etagDiffers(stored: string | null, base: string): boolean {
 	if (stored === null) return false;
 	const norm = (t: string): string =>
 		t

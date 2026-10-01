@@ -17,6 +17,7 @@ import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
 import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
+import { storedUnknownBlocks, unknownTopLevelBlocks } from './unknownBlocks';
 
 /**
  * Invisible Symbols State Machine doc — the per-project symbol→state→asset
@@ -1220,6 +1221,11 @@ export async function canonicalizeSymbolsDocForExport(
  *
  * The bytes it replaces are preserved first (`docBackups.putDocWithBackup`, restorable via
  * `/api/editor/symbols/backups`); `backup: 'always'` is for a restore or a deliberate swap.
+ *
+ * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
+ * `If-Match` save ({@link storedUnknownBlocks}); the returned doc omits them. A backup restore
+ * passes `unknownFrom: 'doc'` to keep the RESTORED bytes' unknown blocks instead — it replaces the
+ * live doc wholesale, so the live doc's blocks are not the author's to keep.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
@@ -1227,12 +1233,17 @@ export async function saveSymbolsDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
+	unknownFrom: 'stored' | 'doc' = 'stored',
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc);
+	const kept =
+		unknownFrom === 'doc'
+			? unknownTopLevelBlocks(symbolsDocSchema, doc)
+			: await storedUnknownBlocks(symbolsDocKey(clientKey, projectKey), symbolsDocSchema, baseEtag);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
-		JSON.stringify(stamped, null, 2),
+		JSON.stringify({ ...next, ...kept, updatedAt: stamped.updatedAt }, null, 2),
 		baseEtag,
 		backup,
 	);

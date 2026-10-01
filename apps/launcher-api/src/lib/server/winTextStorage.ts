@@ -10,6 +10,7 @@ import {
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
+import { storedUnknownBlocks } from './unknownBlocks';
 
 /**
  * Invisible Win Text doc — the per-project TEMPLATES for every string the game says about a
@@ -261,6 +262,10 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  * Without this, two authors on one project silently clobber each other's ENTIRE doc: the page
  * loads the whole doc and PUTs the whole doc, so the second save erases the first's work, not
  * just the conflicting cell. `updatedAt` alone can't catch it — it's stamped, never compared.
+ *
+ * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
+ * `If-Match` save ({@link storedUnknownBlocks}) — win text has no backups, so dropping them would
+ * lose them for good. The returned doc omits them.
  */
 export async function saveWinTextDoc(
 	clientKey: string,
@@ -269,10 +274,12 @@ export async function saveWinTextDoc(
 	baseEtag?: string | null,
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
 	const next = normalizeWinTextDoc(doc);
+	const key = winTextDocKey(clientKey, projectKey);
+	const kept = await storedUnknownBlocks(key, winTextDocSchema, baseEtag);
 	const stamped = { ...next, updatedAt: new Date().toISOString() };
 	const etag = await putObjectText(
-		winTextDocKey(clientKey, projectKey),
-		JSON.stringify(stamped, null, 2),
+		key,
+		JSON.stringify({ ...next, ...kept, updatedAt: stamped.updatedAt }, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
