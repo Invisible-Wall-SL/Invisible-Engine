@@ -45,7 +45,7 @@ titled **"Hold and win game pipeline"**.
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
-| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + Classic/Collector playbooks done; owed: create, publish and play the Classic + Collector samples live | H&W Phase 9 — Game Maker presets, 3 samples, docs | 9a: this branch (`claude/cool-ramanujan-dsnupa`) |
+| 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + Classic/Collector playbooks merged; 9b symbols seed at scaffold on its branch; owed: create, publish and play the Classic + Collector samples live | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: `hw-phase9b-symbols-seed` |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
 
@@ -76,7 +76,7 @@ only has to register its own vocab + seed.
     `/symbols`, `/editor` and `/win-text` previews; no publish, bake or runtime path reads it. The game's
     symbol map is the coded lines `SYMBOL_INFO_MAP` with the project's symbols doc merged over it, so a
     `holdAndWin` project draws NO art for its coins/specials (and boots with `[game-config] … no entry in
-    the symbol map`) until its symbols doc binds them. **Phase 9 must seed the doc at scaffold**: copy the
+    the symbol map`) until its symbols doc binds them. **Phase 9 must seed the doc at scaffold** (done, 9b): copy the
     Hold and Win symbols' cells from `holdAndWin.json` into `<client>/<project>/symbols/symbols.json`
     (type / assetKey / animationName only; they bind coded game assets, which the exporter leaves alone
     and the game registers itself). `hw-3pots-sample` was seeded that way on 2026-10-01 (BONUS = scatter
@@ -529,8 +529,6 @@ Hold and Win beats prints copy.
    - **Owner: Re-publish `hw-3pots-sample`** so players (not just `authoring=1`) see the authored coin
      label, flights and seeded symbol art — and replace the seeded placeholder art with real 3 Pots art
      in `/symbols`.
-   - **Phase 9:** seed the Hold and Win symbols into a new project's symbols doc at scaffold (finding
-     above), or every new `holdAndWin` project boots with coins that draw only their label.
    - Prove an authored `/fx` trail and arrival effect live (author one in the sample); measure
      `countMs` live; an optional "arc" knob for flights; beams (`boostBeam`) are authorable but nothing
      flies them yet.
@@ -566,13 +564,26 @@ Hold and Win beats prints copy.
 
 ## Recent changes
 
+- 2026-10-01 — **Phase 9b part 1: a `holdAndWin` project's symbols are seeded at scaffold**
+  (session "H&W Phase 9b — symbols seed + samples"). `scaffoldProject` now writes
+  `<client>/<project>/symbols/symbols.json` for a `holdAndWin` project with no symbols doc:
+  `holdAndWinSymbolsSeed()` takes every symbol of the STORED Game Config that carries a Hold and
+  Win role (not `blank`) and copies its `symbolDefaults/holdAndWin.json` cells, type / assetKey /
+  animationName only (Pots: BONUS JACKPOT BOOST COLLECT MULTI MYSTERY; Classic: BONUS JACKPOT
+  BOOST; Collector: BONUS JACKPOT COLLECT). Create-only (`If-None-Match: *`, a concurrent save
+  wins); other kinds write nothing new. Reading the stored config makes `/admin` **Rescaffold**
+  the backfill for an older project (seeded from whatever config it has authored). **Reset to
+  preset** in Game Config does not re-seed. `check:project-scaffold` 4 → 9 cases (each preset binds
+  every role symbol cell-for-cell; a lines project — even one whose config carries coin roles —
+  gets none; Rescaffold backfills; an existing / concurrently-created doc is never overwritten),
+  5 mutants planted, all killed. Guide: [game-maker](../tools/game-maker.md) (Create step + trap).
 - 2026-10-01 — **Phase 9a: Game Maker preset picker + Classic/Collector playbooks.** **Create a
   game** shows a **Preset** dropdown for Hold and Win (Pots / Classic sticky / Collector streak);
   `scaffoldProject(…, { holdAndWinPreset })` → `gameConfigSeedFor(gameType, preset)` seeds that
-  preset through #956's create-only seed instead of the default Pots. **Symbols and Win Text are
-  deliberately NOT seeded:** both already resolve by kind when unauthored
-  (`symbolDefaultsFor('holdAndWin')` covers every preset's symbol names; Win Text's empty doc means
-  the engine defaults), so seeding would only freeze today's defaults into every project. Guides:
+  preset through #956's create-only seed instead of the default Pots. Win Text is not seeded (its
+  empty doc means the engine defaults). **Correction (9b):** 9a also left Symbols unseeded on the
+  claim that they "resolve by kind" — wrong: `symbolDefaultsFor` feeds only the `/editor`,
+  `/symbols` and `/win-text` pages, so such a project drew no coin art; 9b seeds them. Guides:
   [game-maker](../tools/game-maker.md) (Create step + trap), [game-config](../tools/game-config.md).
   Playbooks: [hw-classic-sample](../playtest/hw-classic-sample.md),
   [hw-collector-sample](../playtest/hw-collector-sample.md) — both projects **not created yet**
