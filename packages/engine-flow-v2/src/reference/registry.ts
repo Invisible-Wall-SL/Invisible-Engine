@@ -11,6 +11,7 @@
 import type { TemplateVocabulary } from '../types';
 import { BOOK_OF_VOCAB } from './bookOf';
 import { CLUSTER_VOCAB } from './cluster';
+import { HOLD_AND_WIN_VOCAB } from './holdAndWin';
 import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
@@ -20,6 +21,7 @@ export const TEMPLATE_VOCABULARIES: Record<string, TemplateVocabulary> = {
 	[WAYS_VOCAB.templateId]: WAYS_VOCAB,
 	[CLUSTER_VOCAB.templateId]: CLUSTER_VOCAB,
 	[SCATTER_VOCAB.templateId]: SCATTER_VOCAB,
+	[HOLD_AND_WIN_VOCAB.templateId]: HOLD_AND_WIN_VOCAB,
 };
 
 /**
@@ -32,14 +34,12 @@ export const UNREGISTERED_TEMPLATE_FALLBACK = BOOK_OF_VOCAB.templateId;
 
 /**
  * Built-in kinds that have no vocabulary of their own yet, and the template each one borrows — named
- * so the borrowing is visible rather than a silent floor. A chain resolves (`holdAndWin` → `lines` →
- * `bookOf`), so a kind that follows `lines` moves with it when `lines` gets its own.
+ * so the borrowing is visible rather than a silent floor. A chain resolves, so a kind that follows
+ * `lines` would move with it when `lines` gets its own.
  *  - `lines`: the shared runtime's reference vocabulary is the Book-of one (parity).
- *  - `holdAndWin`: plays as a lines game until Hold and Win Phase 5 registers its vocabulary.
  */
 export const VOCABULARY_FALLBACKS: Readonly<Record<string, string>> = {
 	lines: BOOK_OF_VOCAB.templateId,
-	holdAndWin: 'lines',
 };
 
 /**

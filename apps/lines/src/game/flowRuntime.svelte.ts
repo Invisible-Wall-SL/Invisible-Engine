@@ -41,11 +41,14 @@ import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
 import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
 import { freeSpinsRemaining, freeSpinsTotal } from 'engine-game';
 import { stateBet, stateBetDerived } from 'state-shared';
+import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { boardDimensions } from './gameConfig';
+import { boardDimensions, getActiveGameConfig } from './gameConfig';
+import type { LinesEngineKey } from './flowEngineKeys';
+import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
@@ -122,6 +125,15 @@ export const linesValueResolver = (instanceId: string, source: string): string =
 	return getFlowInterpreter()?.resolveValueSource(instanceId, source) ?? source;
 };
 
+/** A jackpot tier's fixed prize in book-event units (× total bet, like `win`); 0 when the game's
+ *  Game Config names no such tier. */
+const jackpotAmount = (tier: string): number => {
+	const jackpot = getActiveGameConfig().holdAndWin?.jackpots.find(
+		({ name }) => name.toLowerCase() === tier,
+	);
+	return jackpot ? jackpot.multiplier * BOOK_AMOUNT_MULTIPLIER : 0;
+};
+
 /**
  * The bounded `$engine.*` reader (flow-driven-game §3, design doc §11.4) — a CLOSED key→value
  * map over LIVE engine state, NOT an expression VM. A `condition`/`bookEvent`/`complete` edge
@@ -138,75 +150,54 @@ export const linesValueResolver = (instanceId: string, source: string): string =
  *  - `reels` — the Flow v2 `reels` COLLECTION (`$engine.reels`): `[{ index }, …]`, one per board reel,
  *    so a v2 `forEach` (e.g. the `StaggerStop` per-reel stagger) can iterate the reels. Sourced from
  *    the live board length (falls back to the static reel count before the first spin lands).
+ *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureTotal` / `activeModifiers` from
+ *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
  *
- * Keys outside this set resolve `undefined` (a guard over an unknown key is simply false) — the
+ * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a guard over an unknown key is simply false) — the
  * bounded-accessor line we do not cross (no arbitrary state reads, §11.4). Pure-read: calling it
  * never mutates state, so it is harmless to inject for every fixture (a doc with no `$engine.*`
  * guard never calls it).
  */
-export const linesEngineReader = (key: string): unknown => {
-	switch (key) {
-		case 'balance':
-			return stateBet.balanceAmount;
-		case 'win':
-		case 'totalWin':
-			return stateBet.winBookEventAmount;
-		case 'bet':
-			return stateBetDerived.betCost();
-		case 'gameType':
-			return stateGame.gameType;
-		case 'isFreeGame':
-			return stateGame.gameType === 'freegame';
-		case 'activeMode':
-			return stateModes.active();
-		case 'modeDepth':
-			return stateModes.state.stack.length;
-		case 'queuedModes':
-			return stateModes.state.queue.length;
-		case 'freeSpinsRemaining':
-			return freeSpinsRemaining();
-		case 'freeSpinsTotal':
-			return freeSpinsTotal();
-		// Autoplay, so an authored auto-spin screen can reproduce what the coded button does. The
-		// HUD auto-spin button is DUAL — open the menu when idle, STOP a live run otherwise — and a
-		// flow that owns its press suppresses that coded body, so without a readable counter the
-		// stop half would be unauthorable. Branch on `isAutoSpinning` to route the press to
-		// `stopAutoSpins` instead of `Show`.
-		case 'autoSpinsRemaining':
-			return stateBet.autoSpinsCounter;
-		case 'isAutoSpinning':
-			return stateBet.autoSpinsCounter !== 0;
-		case 'reels': {
-			// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
-			// (post-spin), else the static reel count (boardDimensions().x) so `$engine.reels` is a
-			// usable list even before the first reveal.
-			const count = stateGame.board?.length || boardDimensions().x;
-			return Array.from({ length: count }, (_unused, index) => ({ index }));
-		}
-		default:
-			return undefined;
-	}
+const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
+	balance: () => stateBet.balanceAmount,
+	win: () => stateBet.winBookEventAmount,
+	totalWin: () => stateBet.winBookEventAmount,
+	bet: () => stateBetDerived.betCost(),
+	gameType: () => stateGame.gameType,
+	isFreeGame: () => stateGame.gameType === 'freegame',
+	activeMode: () => stateModes.active(),
+	modeDepth: () => stateModes.state.stack.length,
+	queuedModes: () => stateModes.state.queue.length,
+	freeSpinsRemaining: () => freeSpinsRemaining(),
+	freeSpinsTotal: () => freeSpinsTotal(),
+	// Autoplay, so an authored auto-spin screen can reproduce what the coded button does. The
+	// HUD auto-spin button is DUAL — open the menu when idle, STOP a live run otherwise — and a
+	// flow that owns its press suppresses that coded body, so without a readable counter the
+	// stop half would be unauthorable. Branch on `isAutoSpinning` to route the press to
+	// `stopAutoSpins` instead of `Show`.
+	autoSpinsRemaining: () => stateBet.autoSpinsCounter,
+	isAutoSpinning: () => stateBet.autoSpinsCounter !== 0,
+	// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
+	// (post-spin), else the static reel count (boardDimensions().x) so `$engine.reels` is a
+	// usable list even before the first reveal.
+	reels: () => {
+		const count = stateGame.board?.length || boardDimensions().x;
+		return Array.from({ length: count }, (_unused, index) => ({ index }));
+	},
+	// Hold and Win: the server's picture (`stateHoldAndWin`), recorded at the play seam BEFORE an
+	// event is presented, so a guard in an event's chain already reads that event's outcome.
+	respinsLeft: () => stateHoldAndWin.left,
+	respinTotal: () => stateHoldAndWin.start,
+	featureTotal: () => stateHoldAndWin.total,
+	activeModifiers: () => [...stateHoldAndWin.activeModifiers],
+	'jackpot.mini': () => jackpotAmount('mini'),
+	'jackpot.minor': () => jackpotAmount('minor'),
+	'jackpot.major': () => jackpotAmount('major'),
+	'jackpot.grand': () => jackpotAmount('grand'),
 };
 
-/** The closed set of `$engine.*` keys the lines reader exposes (the bounded vocabulary, §11.4).
- *  Exported so the game can drive `evaluate()` only on changes to these — and so a harness can
- *  assert the vocabulary is closed. */
-export const LINES_ENGINE_KEYS = [
-	'balance',
-	'win',
-	'totalWin',
-	'bet',
-	'gameType',
-	'isFreeGame',
-	'activeMode',
-	'modeDepth',
-	'queuedModes',
-	'freeSpinsRemaining',
-	'freeSpinsTotal',
-	'autoSpinsRemaining',
-	'isAutoSpinning',
-	'reels',
-] as const;
+export const linesEngineReader = (key: string): unknown =>
+	Object.hasOwn(ENGINE_READS, key) ? ENGINE_READS[key as LinesEngineKey]() : undefined;
 
 /**
  * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).

@@ -69,7 +69,9 @@ import type {
 	ExecEdge,
 	FlowDoc,
 	FunctionLibraryDoc,
+	Graph,
 	Node,
+	PinPath,
 	TemplateVocabulary,
 } from '../types';
 import {
@@ -83,6 +85,8 @@ import {
 } from './bookOfChoreo';
 import { BOOK_OF_VOCAB } from './bookOf';
 import { CLUSTER_VOCAB } from './cluster';
+import { HOLD_AND_WIN_VOCAB } from './holdAndWin';
+import { HOLD_AND_WIN_BASE_CHOREO, HOLD_AND_WIN_FEATURE_CHOREO } from './holdAndWinChoreo';
 import { resolveTemplateId, UNREGISTERED_TEMPLATE_FALLBACK } from './registry';
 import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
@@ -103,6 +107,9 @@ const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] 
 /** The screen set of a type without the expanding-symbol mechanic — its scaffold has no
  *  `specialBook` scene. */
 const NO_SPECIAL_BOOK_SCREENS = GAME_SCREENS.filter((id) => id !== SPECIAL_BOOK);
+
+/** The screen set of a kind without free spins (Hold and Win): no counter, no special book. */
+const NO_FREE_SPIN_SCREENS = NO_SPECIAL_BOOK_SCREENS.filter((id) => id !== FS_COUNTER);
 
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
 const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
@@ -457,9 +464,9 @@ export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEvent
  * honours a scene's "Always on top"). Base low, overlays high, the buy takeovers above the HUD
  * (modal), splash on top.
  *
- * A template declares the subset its screen set covers; the loading splash, the two buy takeovers
- * and the two round-holding free-spin screens are part of the shared spine, so they are always
- * present.
+ * A template declares the subset its screen set covers; the loading splash and the two buy
+ * takeovers are part of the shared spine, so they are always present, and so are the two
+ * round-holding free-spin screens for every template that has free spins.
  */
 const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: BASEGAME, z: 0 },
@@ -474,25 +481,74 @@ const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: LOADING, z: 100 },
 ];
 
-/** Declared for every template regardless of screen set — the splash, the two buy takeovers and the
- *  two round-holding free-spin screens, each shown by its own chain rather than at start. */
-const LIFECYCLE_CONTAINERS = [LOADING, BUY_FEATURE, BUY_CONFIRM, ...HOLD_SCREENS];
+/** Declared regardless of screen set — the splash and the two buy takeovers, plus the two
+ *  round-holding free-spin screens when the template has free spins; each is shown by its own chain
+ *  rather than at start. */
+const lifecycleContainers = (vocab: TemplateVocabulary): string[] => [
+	LOADING,
+	BUY_FEATURE,
+	BUY_CONFIRM,
+	...(vocab.events.some((e) => e.name === 'freeSpinTrigger') ? HOLD_SCREENS : []),
+];
 
 /**
  * The fully flow-driven new-project starter flow for one template. Owns `load` ⇒ drives every screen.
  *
  * The choreography is PROJECTED onto the template's own vocabulary, so a type that lacks a mechanic
  * is never seeded with beats it cannot fire — the reason this is derived rather than hand-written per
- * type (see {@link choreoForVocabulary}).
+ * type (see {@link choreoForVocabulary}). A template whose mechanic adds events passes its own on top.
  */
-const buildDrivenSeed = (vocab: TemplateVocabulary, gameScreens: readonly string[]): FlowDoc => ({
-	version: 2,
-	templateId: vocab.templateId,
-	graph: buildDrivenSeedGraph({ choreo: choreoForVocabulary(BOOK_OF_CHOREO, vocab), gameScreens }),
-	containers: SEED_CONTAINERS.filter(
-		({ id }) => gameScreens.includes(id) || LIFECYCLE_CONTAINERS.includes(id),
-	).map(({ id, z }) => ({ id, sceneId: id, z })),
-});
+const buildDrivenSeed = (
+	vocab: TemplateVocabulary,
+	gameScreens: readonly string[],
+	choreo: Record<string, ChoreoStep[]> = choreoForVocabulary(BOOK_OF_CHOREO, vocab),
+): FlowDoc => {
+	const lifecycle = lifecycleContainers(vocab);
+	return {
+		version: 2,
+		templateId: vocab.templateId,
+		graph: buildDrivenSeedGraph({ choreo, gameScreens }),
+		containers: SEED_CONTAINERS.filter(
+			({ id }) => gameScreens.includes(id) || lifecycle.includes(id),
+		).map(({ id, z }) => ({ id, sceneId: id, z })),
+	};
+};
+
+/**
+ * A graph of entry chains: each choreography wired off its event's pin on one `gameSignals` node, and
+ * each `entries` node followed by its steps. Every id carries `prefix`, so a mode section built here
+ * never collides with the global graph (ids are unique across all sections of a doc).
+ */
+const buildEntryGraph = (
+	prefix: string,
+	choreo: Record<string, ChoreoStep[]>,
+	entries: { node: Node; steps: ChoreoStep[] }[],
+): Graph => {
+	const next = makeChoreoUid();
+	const uid = (kind: string) => next(`${prefix}_${kind}`);
+	const signals = `${prefix}_game_signals`;
+	const nodes: Node[] = [];
+	const exec: ExecEdge[] = [];
+	const data: DataEdge[] = [];
+	const chain = (from: PinPath, steps: ChoreoStep[], row: number): void => {
+		const sub = buildChoreo(steps, uid);
+		sub.nodes.forEach((n, i) => (n.pos = { x: 0, y: row * 40 + i * 20 }));
+		nodes.push(...sub.nodes);
+		exec.push(...sub.exec);
+		data.push(...sub.data);
+		if (sub.entry) exec.push({ from, to: { node: sub.entry, pin: 'exec' } });
+	};
+	const events = Object.entries(choreo);
+	if (events.length) {
+		nodes.push({ id: signals, kind: 'gameSignals', pos: { x: 0, y: -200 } });
+		events.forEach(([event, steps], row) => chain({ node: signals, pin: event }, steps, row));
+	}
+	entries.forEach(({ node, steps }, i) => {
+		nodes.push(node);
+		chain({ node: node.id, pin: 'exec' }, steps, events.length + i);
+	});
+	return { nodes, exec, data };
+};
 
 /** The book-of starter flow — the full screen set, the full choreography. */
 export const BOOK_OF_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(BOOK_OF_VOCAB, GAME_SCREENS);
@@ -522,6 +578,70 @@ export const SCATTER_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(
 	NO_SPECIAL_BOOK_SCREENS,
 );
 
+/** The Hold and Win game mode's id (`game-config` `builtinGameModes`). */
+const HOLD_AND_WIN_MODE = 'holdAndWin';
+
+const music = (name: string): ChoreoStep[] => [
+	{ k: 'cue', ref: 'soundMusic', inputs: { name: enumLit('MusicName', name) } },
+];
+
+/**
+ * The Hold and Win starter flow: a new project plays the whole feature with the coded-default
+ * presentation and zero authoring.
+ *
+ * - **Global graph**: the shared lifecycle spine and base-game presentation (no free spins and no
+ *   special book; the kind has neither), plus the base-game beats of the mechanic: the Lucky Spin
+ *   intro, the pots filling, a base-game jackpot. **On all modes finished** brings the base music
+ *   back once the feature is over (a no-op while it already plays). The round's own return beats,
+ *   the collect (`setTotalWin`) and the big win (`setWin`), are book events that follow the
+ *   feature's end, so they keep their global chains.
+ * - **`modes.holdAndWin`**: every respin-board beat, from the trigger that swaps the board in to the
+ *   end that flies the tally into the Total Win bar and swaps back. A signal the section handles goes
+ *   there while the mode is on screen; everything else falls back to the global graph. Its **Mode
+ *   trigger (enter)** starts the feature music.
+ *
+ * Events with no beat of their own yet (the wheel, the column letters, the instant collect, the
+ * random metre, the meter restatement) stay unwired, so their coded handler runs.
+ */
+const holdAndWinDrivenSeed = (): FlowDoc => {
+	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, NO_FREE_SPIN_SCREENS, {
+		...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
+		...HOLD_AND_WIN_BASE_CHOREO,
+	});
+	const backToBase = buildEntryGraph('base', {}, [
+		{
+			node: { id: 'all_modes_finished', kind: 'allModesFinished', pos: { x: 900, y: 0 } },
+			steps: music('bgm_main'),
+		},
+	]);
+	return {
+		...base,
+		graph: {
+			nodes: [...base.graph.nodes, ...backToBase.nodes],
+			exec: [...base.graph.exec, ...backToBase.exec],
+			data: [...base.graph.data, ...backToBase.data],
+		},
+		modes: {
+			[HOLD_AND_WIN_MODE]: {
+				graph: buildEntryGraph('hw', HOLD_AND_WIN_FEATURE_CHOREO, [
+					{
+						node: {
+							id: 'hw_enter',
+							kind: 'modeTrigger',
+							pos: { x: 900, y: 0 },
+							modeId: HOLD_AND_WIN_MODE,
+							on: 'enter',
+						},
+						steps: music('bgm_freespin'),
+					},
+				]),
+			},
+		},
+	};
+};
+
+export const HOLD_AND_WIN_DRIVEN_SEED_DOC: FlowDoc = holdAndWinDrivenSeed();
+
 /** The driven seed's function library — empty (the choreographies are linear/forEach chains). */
 export const BOOK_OF_DRIVEN_SEED_LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
 
@@ -531,19 +651,17 @@ export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
 	[WAYS_DRIVEN_SEED_DOC.templateId]: WAYS_DRIVEN_SEED_DOC,
 	[CLUSTER_DRIVEN_SEED_DOC.templateId]: CLUSTER_DRIVEN_SEED_DOC,
 	[SCATTER_DRIVEN_SEED_DOC.templateId]: SCATTER_DRIVEN_SEED_DOC,
+	[HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId]: HOLD_AND_WIN_DRIVEN_SEED_DOC,
 };
 
 /**
  * Built-in kinds that ship no starter flow of their own, and the seed each one is scaffolded with —
  * named so the borrowing is visible rather than a silent floor. The borrowed seed carries ITS
- * `templateId`, so such a project also runs that template's vocabulary. A chain resolves
- * (`holdAndWin` → `lines` → `bookOf`).
+ * `templateId`, so such a project also runs that template's vocabulary. A chain resolves.
  *  - `lines`: the Book-of seed (parity — what it has always been given).
- *  - `holdAndWin`: whatever `lines` gets, until Hold and Win Phase 5 registers its own seed.
  */
 export const DRIVEN_SEED_FALLBACKS: Readonly<Record<string, string>> = {
 	lines: BOOK_OF_DRIVEN_SEED_DOC.templateId,
-	holdAndWin: 'lines',
 };
 
 /**

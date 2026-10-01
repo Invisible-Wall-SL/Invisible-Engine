@@ -14,8 +14,8 @@
  *    out-pin on the same node keeps its own wire.
  * 4. **Every kind resolves to the starter flow + vocabulary it is recorded to** — the pin on the
  *    named fallbacks (`DRIVEN_SEED_FALLBACKS` / `VOCABULARY_FALLBACKS`). `cluster` and `scatter` own
- *    their seeds since 2026-10-01 (they borrowed the Book-of one before); `holdAndWin` follows
- *    `lines` until Hold and Win Phase 5 registers its own. A new kind must be added here, so what it
+ *    their seeds since 2026-10-01 (they borrowed the Book-of one before), and so does `holdAndWin`
+ *    (Hold and Win Phase 5; it followed `lines` before). A new kind must be added here, so what it
  *    resolves to is a decision rather than a floor it fell through to.
  * 5. **Every registered starter flow validates against its OWN vocabulary** — every `DRIVEN_SEEDS`
  *    entry is keyed by its `templateId`, that id has a registered vocabulary (not a fallback), and
@@ -117,7 +117,7 @@ const RESOLVES_TO: Record<string, [string, string]> = {
 	cluster: ['cluster', 'cluster'],
 	scatter: ['scatter', 'scatter'],
 	bookOf: ['bookOf', 'bookOf'],
-	holdAndWin: ['bookOf', 'bookOf'],
+	holdAndWin: ['holdAndWin', 'holdAndWin'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
 };
 for (const kind of GAME_KINDS) {
