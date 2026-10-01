@@ -86,7 +86,8 @@ const RESPIN_PAUSE_MS = 250;
 const RESET_BEAT_MS = 600;
 /** The final board stays up this long before the reel board comes back. */
 const END_HOLD_MS = 900;
-/** The shortest a highlight (`win` on a held cell) is on screen — a sprite reports at once. */
+/** The shortest a highlight (a win-highlight state on a held cell) is on screen — a sprite reports
+ *  at once. */
 const HIGHLIGHT_MIN_MS = 400;
 /** One coin's label counting from its old value to its new one. */
 const COUNT_MS = 600;
@@ -143,8 +144,8 @@ const cellOf = ({ reel, row, symbol }: HoldAndWinCell): HoldAndWinCell => ({ ree
 /**
  * Play `state` on the held cells at these positions and wait for them — capped, raced against the
  * slam, and held at least `minMs` (also slammable) so a sprite that reports at once is still seen.
- * A non-terminal state settles back to `static`; a terminal one (`explosion`, `clearReel`) is left
- * for the sync that follows to replace or remove.
+ * A non-terminal state settles back to `coinIdle`; a terminal one (`mysteryReveal`, `clearReel`) is
+ * left for the sync that follows to replace or remove.
  */
 const playHeldBeat = async (
 	cells: Position[],
@@ -198,7 +199,7 @@ const runCounts = (counts: HeldCount[]) => {
 				return;
 			}
 			releaseHeldDisplay(key, tween);
-			await playHeldBeat([change], 'win', { minMs: HIGHLIGHT_MIN_MS });
+			await playHeldBeat([change], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS });
 		}),
 	);
 };
@@ -213,15 +214,16 @@ const SPECIAL_NAMES: Record<string, string> = {
 const specialName = (kind: string) => SPECIAL_NAMES[kind] ?? kind.toUpperCase();
 
 /**
- * Light a base-board cell (`win`) while its special flies. The base reels carry a padding row above
- * the window, so visible row `r` is the reel's symbol `r + 1`. Returns the undo.
+ * Light a base-board cell on `state` while it flies — `flyToMeter` for a special filling its pot,
+ * `coinCollect` for an instant collect. The base reels carry a padding row above the window, so
+ * visible row `r` is the reel's symbol `r + 1`. Returns the undo.
  */
-const lightBaseCell = (cell: HoldAndWinCell) => {
+const lightBaseCell = (cell: HoldAndWinCell, state: SymbolState) => {
 	const symbol = stateGame.board[cell.reel]?.reelState.symbols[cell.row + 1];
 	if (!symbol || symbol.rawSymbol.name !== cell.symbol.name) return () => {};
-	symbol.symbolState = 'win';
+	symbol.symbolState = state;
 	return () => {
-		if (symbol.symbolState === 'win') symbol.symbolState = 'static';
+		if (symbol.symbolState === state) symbol.symbolState = 'static';
 	};
 };
 
@@ -252,7 +254,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	let reached = before;
 	await Promise.all(
 		event.from.map(async (cell, index) => {
-			const unlight = stateRespinBoard.shown ? () => {} : lightBaseCell(cell);
+			const unlight = stateRespinBoard.shown ? () => {} : lightBaseCell(cell, 'flyToMeter');
 			await flyTo(
 				{ reel: cell.reel, row: cell.row },
 				meterAnchor(event.meter),
@@ -342,17 +344,18 @@ export const presentRespinReveal = async (event: Beat<'respinReveal'>) => {
 	await spinRespinCells(event.cells);
 };
 
-/** `coinsLand` — the cells that landed stick: they move into the held layer and play `land`. */
+/** `coinsLand` — the cells that landed stick: they move into the held layer and play
+ *  `coinStick`. */
 export const presentCoinsLand = async (event: Beat<'coinsLand'>) => {
 	syncHeldCells();
 	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
 	eventEmitter.broadcast({ type: 'respinCoinsLand', cells: event.cells });
-	await playHeldBeat(event.cells, 'land');
+	await playHeldBeat(event.cells, 'coinStick');
 };
 
 /**
- * `coinPay` — a PAYER applies: it plays `win` where it stands, then every cash coin's label counts
- * up from `from` to `to` (staggered), so the player watches the value rise.
+ * `coinPay` — a PAYER applies: it plays `coinBoost` where it stands, then every cash coin's label
+ * counts up from `from` to `to` (staggered), so the player watches the value rise.
  */
 export const presentCoinPay = async (event: Beat<'coinPay'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -364,14 +367,14 @@ export const presentCoinPay = async (event: Beat<'coinPay'>) => {
 		value: event.value,
 		cells: event.cells,
 	});
-	await playHeldBeat([event.payer], 'win', { minMs: HIGHLIGHT_MIN_MS });
+	await playHeldBeat([event.payer], 'coinBoost', { minMs: HIGHLIGHT_MIN_MS });
 	await runCounts(counts);
 };
 
 /**
- * `coinBoost` — a MULTIPLIER applies (`source: 'special'`, the booster plays `win` first) or the
- * pre-feature wheel's boost does (`'wheel'`, no cell of its own): every coin's label counts up from
- * `from` to `to`, and a jackpot coin's factor steps (`MINI` → `MINI ×2`).
+ * `coinBoost` — a MULTIPLIER applies (`source: 'special'`, the booster plays `coinBoost` first) or
+ * the pre-feature wheel's boost does (`'wheel'`, no cell of its own): every coin's label counts up
+ * from `from` to `to`, and a jackpot coin's factor steps (`MINI` → `MINI ×2`).
  */
 export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -384,7 +387,7 @@ export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 		multiplier: event.multiplier,
 		cells: event.cells,
 	});
-	if (event.booster) await playHeldBeat([event.booster], 'win', { minMs: HIGHLIGHT_MIN_MS });
+	if (event.booster) await playHeldBeat([event.booster], 'coinBoost', { minMs: HIGHLIGHT_MIN_MS });
 	await runCounts(counts);
 };
 
@@ -398,14 +401,14 @@ export const presentSpecialBecomesCoin = async (event: Beat<'specialBecomesCoin'
 		cell: cellOf(event),
 		from: event.from,
 	});
-	await playHeldBeat([event], 'land');
+	await playHeldBeat([event], 'coinStick');
 };
 
 /**
- * ONE coin's moment of a collect: the coin pulses (`win`) where it stands while its head flies into
- * the collector (`flyTo(cell, collector, 'toCollector')`), and the collector's label rises by that
- * coin's share (`step`) on the ARRIVAL, not when the coin takes off. Never lowers the label, so
- * steps that land out of order still read as one climb. The stagger is the caller's
+ * ONE coin's moment of a collect: the coin pulses (`coinCollect`) where it stands while its head
+ * flies into the collector (`flyTo(cell, collector, 'toCollector')`), and the collector's label
+ * rises by that coin's share (`step`) on the ARRIVAL, not when the coin takes off. Never lowers the
+ * label, so steps that land out of order still read as one climb. The stagger is the caller's
  * ({@link presentCoinCollect}), so the flight adds none of its own.
  */
 export const presentCollectStep = async ({
@@ -437,7 +440,7 @@ export const presentCollectStep = async ({
 			? countTo(collectorLabel, step.to, COLLECT_COUNT_MS)
 			: undefined,
 	);
-	await Promise.all([playHeldBeat([cell], 'win', { minMs: HIGHLIGHT_MIN_MS }), flight]);
+	await Promise.all([playHeldBeat([cell], 'coinCollect', { minMs: HIGHLIGHT_MIN_MS }), flight]);
 };
 
 /**
@@ -483,10 +486,10 @@ export const presentCoinCollect = async (event: Beat<'coinCollect'>) => {
 };
 
 /**
- * `mysteryReveal` — each mystery opens (`explosion`, where it stands), then becomes what it revealed
- * (a coin with its value, a jackpot, a special) and lands as it. A reveal that UNLOCKS a modifier
- * not active at entry says so ("UNLOCKED: PAYER") and broadcasts `respinModifierUnlock`. A revealed
- * special applies at its own place in the order, through the events that follow.
+ * `mysteryReveal` — each mystery opens (`mysteryReveal`, where it stands), then becomes what it
+ * revealed (a coin with its value, a jackpot, a special) and lands as it. A reveal that UNLOCKS a
+ * modifier not active at entry says so ("UNLOCKED: PAYER") and broadcasts `respinModifierUnlock`. A
+ * revealed special applies at its own place in the order, through the events that follow.
  */
 export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -495,10 +498,10 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 		cells: event.cells,
 		activates: event.activates,
 	});
-	await playHeldBeat(event.cells, 'explosion');
+	await playHeldBeat(event.cells, 'mysteryReveal');
 	syncHeldCells();
 	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
-	await playHeldBeat(event.cells, 'land');
+	await playHeldBeat(event.cells, 'coinStick');
 	if (event.activates.length === 0) return;
 	showMessage(`UNLOCKED: ${event.activates.map(specialName).join(', ')}`, { kind: 'info' });
 	eventEmitter.broadcast({ type: 'respinModifierUnlock', activates: event.activates });
@@ -541,7 +544,7 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 		cells: event.cells,
 	});
 	lightLetter(event.reel);
-	await playHeldBeat(event.cells, 'win', { minMs: HIGHLIGHT_MIN_MS });
+	await playHeldBeat(event.cells, 'coinCollect', { minMs: HIGHLIGHT_MIN_MS });
 	if (!event.cleared) return;
 	const jackpots = getActiveGameConfig().holdAndWin?.jackpots ?? [];
 	const order = [...event.cells].sort((a, b) => a.row - b.row);
@@ -599,7 +602,7 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 		cells: event.cells,
 		amount: event.amount,
 	});
-	const unlightSpecials = event.specials.map(lightBaseCell);
+	const unlightSpecials = event.specials.map((special) => lightBaseCell(special, 'coinCollect'));
 	const nearest = (cell: Position) =>
 		event.specials.reduce((best, special) =>
 			Math.hypot(special.reel - cell.reel, special.row - cell.row) <
@@ -610,7 +613,7 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 	if (event.specials.length > 0) {
 		await Promise.all(
 			event.cells.map(async (cell, index) => {
-				const unlight = lightBaseCell(cell);
+				const unlight = lightBaseCell(cell, 'coinCollect');
 				const special = nearest(cell);
 				await flyTo(
 					{ reel: cell.reel, row: cell.row },
@@ -739,7 +742,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		await Promise.all([
 			waitPresentation(JACKPOT_HOLD_MS),
 			event.source === 'fullBoard' && stateRespinBoard.shown
-				? playHeldBeat(stateRespinBoard.held, 'win', { minMs: HIGHLIGHT_MIN_MS })
+				? playHeldBeat(stateRespinBoard.held, 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS })
 				: undefined,
 		]);
 		hideHoldAndWinBanner(banner);
@@ -753,7 +756,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		size: 'small',
 	});
 	await Promise.all([
-		playHeldBeat([event.cell], 'win', { minMs: HIGHLIGHT_MIN_MS }),
+		playHeldBeat([event.cell], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS }),
 		waitPresentation(COIN_JACKPOT_MS),
 	]);
 	hideHoldAndWinBanner(banner);

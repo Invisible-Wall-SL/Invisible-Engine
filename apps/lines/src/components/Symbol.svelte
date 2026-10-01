@@ -4,7 +4,7 @@
 	import SymbolSpineMain from './SymbolSpineMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
-	import { symbolStateLoopsByDefault } from 'engine-layout';
+	import { symbolStateLoopsByDefault, WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
 
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
@@ -113,8 +113,15 @@
 	 *
 	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
 	 * reads as a rendering fault rather than as the missing binding it is.
+	 *
+	 * Drawn on every WIN HIGHLIGHT state, not only `win`: the Hold and Win beats that played `win`
+	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had.
 	 */
-	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
+	const showWinFrame = $derived(
+		hasArt &&
+			(WIN_HIGHLIGHT_SYMBOL_STATES as readonly string[]).includes(props.state) &&
+			props.rawSymbol.name !== 'M',
+	);
 
 	/**
 	 * EXTRA ART for this state — a symbol composed of more than one picture (Invisible Symbols State

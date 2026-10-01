@@ -43,9 +43,11 @@
 
 	/**
 	 * The cell's reel lands on `land`, but a respin cell does not play it: a landed coin plays its land
-	 * as it STICKS, in the held layer (`coinsLand`), and an empty cell has nothing to celebrate.
+	 * as it STICKS, in the held layer (`coinStick`), and an empty cell has nothing to celebrate. It
+	 * plays `coinLand` instead — the stop, which unauthored inherits `static`. While it rolls it plays
+	 * the reel's own `spin` (the blur), as a reel cell does.
 	 */
-	const shownState = (state: SymbolState): SymbolState => (state === 'land' ? 'static' : state);
+	const shownState = (state: SymbolState): SymbolState => (state === 'land' ? 'coinLand' : state);
 </script>
 
 <Container visible={!props.held}>

@@ -100,6 +100,14 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	bookIntro: spine('x_book_intro'),
 	bookIdle: spine('x_book_idle'),
 	stacked: spine('x_stacked'),
+	coinIdle: spine('x_coin_idle'),
+	coinLand: spine('x_coin_land'),
+	coinStick: spine('x_coin_stick'),
+	coinCollect: spine('x_coin_collect'),
+	coinBoost: spine('x_coin_boost'),
+	jackpotReveal: spine('x_jackpot'),
+	mysteryReveal: spine('x_mystery'),
+	flyToMeter: spine('x_fly'),
 };
 
 // FULL has to stay exhaustive, and only a runtime assertion says so — `tsx` strips the annotation
@@ -119,7 +127,21 @@ parity('every state bound', FULL, 'defaults');
 // Every INHERITING state left empty while its donor is bound — the arms the two rules must mirror.
 // Includes the reported case: one explosion bound, the cascade column left empty. The engine plays
 // the `explosion` binding; the grid used to say `unset`.
-const { clearReel: _t, bookIntro: _bi, bookIdle: _bd, intro: _i, ...DONORS_ONLY } = FULL;
+const {
+	clearReel: _t,
+	bookIntro: _bi,
+	bookIdle: _bd,
+	intro: _i,
+	coinIdle: _ci,
+	coinLand: _cl,
+	coinStick: _cs,
+	coinCollect: _cc,
+	coinBoost: _cb,
+	jackpotReveal: _jr,
+	mysteryReveal: _mr,
+	flyToMeter: _fm,
+	...DONORS_ONLY
+} = FULL;
 parity('donors bound, inheritors empty', DONORS_ONLY, 'doc');
 parity('donors bound, inheritors empty', DONORS_ONLY, 'defaults');
 
@@ -131,6 +153,18 @@ parity('bookIntro bound in its own right', OWN_BOOK_INTRO, 'defaults');
 // The same shape for the swap state: `intro` bound alongside the `land` it would otherwise borrow.
 const OWN_INTRO = { static: FULL.static, land: FULL.land, intro: FULL.intro };
 parity('intro bound in its own right', OWN_INTRO, 'defaults');
+
+// The Hold and Win inheritors, each bound in its own right beside the donor it would otherwise borrow.
+const OWN_HOLD_AND_WIN = {
+	static: FULL.static,
+	land: FULL.land,
+	win: FULL.win,
+	explosion: FULL.explosion,
+	coinStick: FULL.coinStick,
+	coinCollect: FULL.coinCollect,
+	mysteryReveal: FULL.mysteryReveal,
+};
+parity('Hold and Win states bound in their own right', OWN_HOLD_AND_WIN, 'defaults');
 
 // Nothing but `static` — every other state hits the engine's last resort and reads `unset` here.
 parity('static only', { static: FULL.static }, 'doc');

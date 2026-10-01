@@ -5,7 +5,7 @@
 	import Symbol from './Symbol.svelte';
 	import { boardDimensions } from '../game/gameConfig';
 	import { getSymbolSeat } from '../game/stateGame.svelte';
-	import { completeHeldBeat, stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
 	type Props = { cell: HoldAndWinCell };
 
@@ -32,7 +32,7 @@
 
 <Container x={seat.x} y={seat.y} {scale} {zIndex}>
 	<Symbol
-		state={stateRespinBoard.heldState[key] ?? 'static'}
+		state={stateRespinBoard.heldState[key] ?? HELD_REST}
 		rawSymbol={props.cell.symbol}
 		{labelOverride}
 		oncomplete={() => completeHeldBeat(key)}

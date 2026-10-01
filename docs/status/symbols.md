@@ -17,11 +17,19 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
 
 - **The grid** — symbols × `Static` / `Spin` / `Land` / `Win` / `Post-win` / `Explosion`, plus
   `Intro` under the `emerge` swap style, `Clear reel` on a project that cascades or clears its
-  board, and the book states on a book game (gates resolved server-side). One home for the state
+  board, the book states on a book game, and the eight Hold and Win states (`coinIdle`,
+  `coinLand`, `coinStick`, `coinCollect`, `coinBoost`, `jackpotReveal`, `mysteryReveal`,
+  `flyToMeter`) on a `holdAndWin` project (gates resolved server-side). One home for the state
   list: `engine-layout/symbolStates.ts`. An empty cell that the engine fills by inheritance
-  (`intro → land`, `clearReel → explosion`, book states → `win`) draws the borrowed art with an
-  `inherits` badge; `effectiveCell` and the engine's `resolveSymbolState` are pinned together by
-  `check:symbol-state-parity`.
+  (`intro → land`, `clearReel → explosion`, book states → `win`, `coinStick → land`,
+  `coinCollect`/`coinBoost`/`jackpotReveal`/`flyToMeter → win`, `mysteryReveal → explosion`)
+  draws the borrowed art with an `inherits` badge; `effectiveCell` and the engine's
+  `resolveSymbolState` are pinned together by `check:symbol-state-parity`.
+- **Kind gating** — only through `kindCapabilities()`: `bookSymbolVfx`, `tumblePattern`,
+  `symbolTransition` (true for every kind but `holdAndWin`) and `stackedPictures` hide the Book
+  symbol VFX / Explosion pattern / Transition / Stacked pictures sections for Hold and Win, each
+  kept while the doc still authors it. A `coinSymbols` kind shows each row's Hold and Win role
+  chips from the live Game Config. Pinned by `check:symbols-kind-gating`.
 - **The cell editor** — Sprite / Spine / Flipbook (`SYMBOL_CELL_TYPES`), a **Loop** toggle (absent
   means loop, except `explosion` / `clearReel`, which are one-shot by default via
   `symbolStateLoopsByDefault()`), a flipbook walk block (fps / direction / mirror, folded by
@@ -35,7 +43,9 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
   access. **↻ Reload from R2** drops the spine and region caches (unsaved edits kept).
 - **Defaults** — each game publishes its coded map at build (`publish-symbol-defaults.mjs`),
-  filtered to the in-play symbols; un-published projects fall back to the committed `lines.json`.
+  filtered to the in-play symbols; un-published projects fall back to the committed `lines.json`
+  (`holdAndWin.json` for a Hold and Win project: the lines set plus `W` and the 3 Pots specials on
+  placeholder art, `BLANK` unbound).
 - **Previews** — one shared WebGL stage, one spine runtime (4.2, `check:builtin-spines`), rigs
   fitted to their authored box (`measureSpineBounds` / `authoredSpineBox`), stage geometry from the
   canvas's own box (`symbolStageGeometry.ts`, `check:symbol-stage-geometry`), rig FX and clips on the
@@ -107,6 +117,22 @@ schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers
 ## Recent changes
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
+
+- 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
+  states with inheritance that replays Phase 4's coded beats (an unauthored project is
+  unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`
+  state. The respin board requests `coinLand` on a stopping cell (it plays the reel's `spin` while
+  rolling) and rests held cells on `coinIdle`; the presentation beats request `coinStick` (sticks,
+  specialBecomesCoin, a mystery landing as what it became), `coinBoost` (payer, multiplier booster),
+  `coinCollect` (the per-coin collect step beside its flight, Grand's column-letter coins, and both
+  sides of a base-game instant collect), `jackpotReveal` (coin jackpot, full board, a jackpot coin's
+  factor step under a boost), `mysteryReveal` (mystery opening) and `flyToMeter` (a base-board
+  special flying to its pot). A streak's or a column's coins still leave on `clearReel`; the wheel
+  plays no symbol state. Grid columns gated on
+  `kindCapabilities().holdAndWin`; three new capability flags hide four sections for Hold and Win;
+  role chips on row heads; `symbolDefaultsFor('holdAndWin')`. New gate `check:symbols-kind-gating`.
+  The Scene Editor's two symbol-state pickers offer the eight Hold and Win states only to a
+  `holdAndWin` project (`symbolStatesForKind`, pinned in the same gate).
 
 - 2026-09-30 — **Leaving with unsaved edits asks first**: the page tracked `dirty` but registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded edits silently. It now calls the shared `guardUnsavedWork` (app confirm in-app, browser prompt on unload). A History… restore marks the doc settled before its reload, so the author is not asked a second time over a restore already applied. (No history entry — see the launcher status of the same date.)
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).
