@@ -56,7 +56,18 @@ const full: WinTextDoc = {
 		meterFull: '{meter} ON',
 		modifiersActive: '{modifiers} ON',
 		modifiersUnlocked: '+{modifiers}',
+		collectorLevel: '{level} COLL.',
+		potLabel: '{pot}: {level} of {max}',
 		specialNames: { payer: 'Payer' },
+		collectorLevelNames: { '2': 'Double' },
+		potNames: { red: 'Ruby' },
+	},
+	wheel: {
+		coinBoost: 'BOOST ×{count}',
+		extraCollect: '+{count}',
+		coinBoostDetail: 'ALL ×{count}',
+		extraCollectDetail: '{level}!',
+		jackpotDetail: 'JP',
 	},
 };
 const normalized = normalizeWinTextDoc(full);
@@ -77,6 +88,9 @@ for (const [family, doc] of [
 	['respins', { respins: { last: 'X' } }],
 	['feature', { feature: { luckySpin: 'X' } }],
 	['feature.specialNames', { feature: { specialNames: { payer: 'X' } } }],
+	['feature.collectorLevelNames', { feature: { collectorLevelNames: { '2': 'X' } } }],
+	['feature.potNames', { feature: { potNames: { red: 'X' } } }],
+	['wheel', { wheel: { jackpotDetail: 'X' } }],
 ] as const) {
 	check(authorsSomething(normalizeWinTextDoc(doc)), `a doc authoring only ${family} is shipped`);
 }

@@ -65,6 +65,8 @@ export type WinTextDoc = {
 	respins?: WinTextRespins;
 	/** Hold and Win: the feature's own lines (total, intro/outro, instant collect, Lucky Spin, pots). */
 	feature?: WinTextFeature;
+	/** Hold and Win: the pre-feature wheel's segment labels and prize banners. */
+	wheel?: WinTextWheel;
 	updatedAt?: string;
 };
 
@@ -101,7 +103,9 @@ export type WinTextRespins = {
 
 /**
  * Hold and Win feature copy. `{modifiers}` is the special names ({@link WinTextFeature.specialNames})
- * joined with ", "; `{meter}` is the name of the special a full pot activates.
+ * joined with ", "; `{meter}` is the name of the special a full pot activates; `{pot}` is a pot's
+ * name ({@link potCaption}); `{level}` is a collector level's name ({@link collectorLevelCaption}) or,
+ * on a pot, its fill level.
  */
 export type WinTextFeature = {
 	/** The feature's total as it ends — "BONUS WIN {amount}". */
@@ -120,8 +124,33 @@ export type WinTextFeature = {
 	modifiersActive?: string;
 	/** A mystery unlocked modifiers mid-feature — "UNLOCKED: {modifiers}". */
 	modifiersUnlocked?: string;
+	/** A collector the wheel raised, on the counter's modifier line — "{level} COLLECTOR". */
+	collectorLevel?: string;
+	/** A pot's label — "{pot} {level}/{max}". */
+	potLabel?: string;
 	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`) → its name in these lines. */
 	specialNames?: Record<string, string>;
+	/** Collector level (`"2"`) → its name (`"DOUBLE"`). An unnamed level reads `×n`. */
+	collectorLevelNames?: Record<string, string>;
+	/** Pot (Game Config meter id) → its name. An unnamed pot reads its id in capitals. */
+	potNames?: Record<string, string>;
+};
+
+/**
+ * Hold and Win wheel copy (the pre-feature wheel, Hotfire). A jackpot segment reads its tier's
+ * caption ({@link jackpotCaption}); `{count}` is a boost multiplier or a number of extra collects.
+ */
+export type WinTextWheel = {
+	/** A coin-boost segment — "COIN BOOST ×{count}". */
+	coinBoost?: string;
+	/** An extra-collect segment — "+{count} COLLECT". */
+	extraCollect?: string;
+	/** Under a coin-boost prize's banner — "EVERY COIN ×{count}". */
+	coinBoostDetail?: string;
+	/** Under an extra-collect prize's banner — "{level} COLLECT" (the collector's new level). */
+	extraCollectDetail?: string;
+	/** Under a jackpot prize's banner — "JACKPOT". */
+	jackpotDetail?: string;
 };
 
 /**
@@ -181,6 +210,7 @@ export type ResolvedWinText = {
 	jackpots: Required<WinTextJackpots>;
 	respins: Required<WinTextRespins>;
 	feature: Required<WinTextFeature>;
+	wheel: Required<WinTextWheel>;
 };
 
 /**
@@ -199,10 +229,11 @@ export type ResolvedWinText = {
  *   (`big_win_intro` …), and `Win.svelte` draws only the count-up amount. Seeding these with
  *   the coded literals would make every existing game suddenly draw a tier caption OVER art
  *   that already says it. Empty ⇒ nothing drawn ⇒ parity; authoring one opts that game in.
- * - `jackpots` / `respins` / `feature` (Hold and Win) ⇒ where the respin presentation already draws
- *   a line (the counter, the jackpot banners, Lucky Spin, the modifier toasts, the special names),
+ * - `jackpots` / `respins` / `feature` / `wheel` (Hold and Win) ⇒ where the respin presentation
+ *   already draws a line (the counter and its modifier line, the jackpot / instant / wheel banners,
+ *   Lucky Spin, the modifier toasts, the pots, the special and collector-level names),
  *   exactly that literal, so an unauthored Hold and Win game reads the same once it reads these.
- *   `respins.award`/`reset`/`last`, `feature.total`/`instantCollect`/`meterFull` are NEW copy with
+ *   `respins.award`/`reset`/`last`, `feature.total`/`meterFull` are NEW copy with
  *   no draw site yet: adopting one adds a line to the screen.
  *   `jackpots.captions` is empty because an unset tier speaks its own config name. `feature.intro`
  *   and `feature.outro` are empty (no prior line, so nothing is drawn until authored).
@@ -247,12 +278,23 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		meterFull: '{meter} ACTIVATED',
 		modifiersActive: '{modifiers} ACTIVE',
 		modifiersUnlocked: 'UNLOCKED: {modifiers}',
+		collectorLevel: '{level} COLLECTOR',
+		potLabel: '{pot} {level}/{max}',
 		specialNames: {
 			collector: 'COLLECTOR',
 			multiplier: 'MULTIPLIER',
 			payer: 'PAYER',
 			mystery: 'MYSTERY',
 		},
+		collectorLevelNames: { '1': 'SINGLE', '2': 'DOUBLE', '3': 'TRIPLE' },
+		potNames: {},
+	},
+	wheel: {
+		coinBoost: 'COIN BOOST ×{count}',
+		extraCollect: '+{count} COLLECT',
+		coinBoostDetail: 'EVERY COIN ×{count}',
+		extraCollectDetail: '{level} COLLECT',
+		jackpotDetail: 'JACKPOT',
 	},
 };
 
@@ -270,11 +312,24 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'meterFull',
 	'modifiersActive',
 	'modifiersUnlocked',
+	'collectorLevel',
+	'potLabel',
+] as const;
+/** The feature family's name maps — resolved, pruned and harvested alike. */
+export const WIN_TEXT_FEATURE_MAPS = ['specialNames', 'collectorLevelNames', 'potNames'] as const;
+export const WIN_TEXT_WHEEL_FIELDS = [
+	'coinBoost',
+	'extraCollect',
+	'coinBoostDetail',
+	'extraCollectDetail',
+	'jackpotDetail',
 ] as const;
 
 export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
 export type WinTextRespinField = (typeof WIN_TEXT_RESPIN_FIELDS)[number];
 export type WinTextFeatureField = (typeof WIN_TEXT_FEATURE_FIELDS)[number];
+export type WinTextFeatureMap = (typeof WIN_TEXT_FEATURE_MAPS)[number];
+export type WinTextWheelField = (typeof WIN_TEXT_WHEEL_FIELDS)[number];
 
 /** Each field's label — the tool's row and the Localization hint say the same thing. */
 export const WIN_TEXT_JACKPOT_LABELS: Record<WinTextJackpotField, string> = {
@@ -298,6 +353,20 @@ export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	meterFull: 'Pot full',
 	modifiersActive: 'Modifiers active',
 	modifiersUnlocked: 'Modifiers unlocked',
+	collectorLevel: 'Raised collector',
+	potLabel: 'Pot label',
+};
+export const WIN_TEXT_FEATURE_MAP_LABELS: Record<WinTextFeatureMap, string> = {
+	specialNames: 'Special',
+	collectorLevelNames: 'Collector level',
+	potNames: 'Pot',
+};
+export const WIN_TEXT_WHEEL_LABELS: Record<WinTextWheelField, string> = {
+	coinBoost: 'Wheel — coin boost',
+	extraCollect: 'Wheel — extra collect',
+	coinBoostDetail: 'Wheel prize — coin boost',
+	extraCollectDetail: 'Wheel prize — extra collect',
+	jackpotDetail: 'Wheel prize — jackpot',
 };
 
 /** The key a `byCell` override is stored under. */
@@ -347,12 +416,21 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 		respins: pick(WIN_TEXT_RESPIN_FIELDS, WIN_TEXT_DEFAULTS.respins, doc?.respins),
 		feature: {
 			...pick(WIN_TEXT_FEATURE_FIELDS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
-			specialNames: {
-				...WIN_TEXT_DEFAULTS.feature.specialNames,
-				...(doc?.feature?.specialNames ?? {}),
-			},
+			...pickMaps(WIN_TEXT_FEATURE_MAPS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
 		},
+		wheel: pick(WIN_TEXT_WHEEL_FIELDS, WIN_TEXT_DEFAULTS.wheel, doc?.wheel),
 	};
+}
+
+/** Each of `maps`: the default entries with the authored ones over them. */
+function pickMaps<M extends string>(
+	maps: readonly M[],
+	defaults: Record<M, Record<string, string>>,
+	authored: Partial<Record<M, Record<string, string>>> | undefined,
+): Record<M, Record<string, string>> {
+	const out = {} as Record<M, Record<string, string>>;
+	for (const map of maps) out[map] = { ...defaults[map], ...(authored?.[map] ?? {}) };
+	return out;
 }
 
 /** Each of `fields` from the sparse `authored` family, else its default. */
@@ -379,6 +457,17 @@ export function jackpotCaption(resolved: ResolvedWinText, tier: string): string 
  *  unknown kind speaks its id in capitals. */
 export function specialDisplayName(resolved: ResolvedWinText, kind: string): string {
 	return resolveLocalizedText(resolved.feature.specialNames[kind] || kind.toUpperCase());
+}
+
+/** A collector level's name ("DOUBLE"), localized at its source; an unnamed level reads `×n`. */
+export function collectorLevelCaption(resolved: ResolvedWinText, level: number): string {
+	const name = resolved.feature.collectorLevelNames[String(level)];
+	return name ? resolveLocalizedText(name) : `×${level}`;
+}
+
+/** A pot's name, localized at its source; an unnamed pot reads its meter id in capitals. */
+export function potCaption(resolved: ResolvedWinText, meterId: string): string {
+	return resolveLocalizedText(resolved.feature.potNames[meterId] || meterId.toUpperCase());
 }
 
 /**
@@ -462,6 +551,12 @@ export type WinTextVars = {
 	meter?: string;
 	/** Special names joined with ", ", each already localized. */
 	modifiers?: string;
+	/** A collector level's name ({@link collectorLevelCaption}) or a pot's fill level. */
+	level?: string | number;
+	/** A pot's maximum level. */
+	max?: number;
+	/** A pot's name ({@link potCaption}), already localized. */
+	pot?: string;
 };
 
 const TOKEN = /\{(\w+)\}/g;
@@ -496,18 +591,18 @@ export function formatWinText(template: string, vars: WinTextVars = {}): string 
  * through {@link resolveWinText} and are harvested even when the author never retyped them.
  * Otherwise the built-in win message could never be translated.
  *
- * The Hold and Win families (`jackpots`/`respins`/`feature`) follow the toasts' rule — their
+ * The Hold and Win families (`jackpots`/`respins`/`feature`/`wheel`) follow the toasts' rule — their
  * defaults are player-facing — but only for a project whose kind has the feature
  * (`options.holdAndWin`, from `kindCapabilities`), so every other project's harvest stays exactly
  * what it was. What an author DID write in them is harvested regardless. `options.jackpots` is the
  * config's tier names: each tier's caption (authored, else the name itself) is a string the player
- * reads, so it is listed per tier.
+ * reads, so it is listed per tier; `options.meters` (the config's meter ids) does the same for pots.
  *
  * `label` is the human hint shown in the tool's Win-text section.
  */
 export function collectWinTextTemplates(
 	doc: WinTextDoc | undefined,
-	options: { holdAndWin?: boolean; jackpots?: readonly string[] } = {},
+	options: { holdAndWin?: boolean; jackpots?: readonly string[]; meters?: readonly string[] } = {},
 ): { key: string; source: string; label: string }[] {
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
@@ -559,8 +654,19 @@ export function collectWinTextTemplates(
 	for (const field of WIN_TEXT_FEATURE_FIELDS) {
 		addWords(source?.feature?.[field], WIN_TEXT_FEATURE_LABELS[field]);
 	}
-	for (const [kind, name] of Object.entries(source?.feature?.specialNames ?? {})) {
-		add(name, `Special — ${kind}`);
+	for (const map of WIN_TEXT_FEATURE_MAPS) {
+		for (const [key, name] of Object.entries(source?.feature?.[map] ?? {})) {
+			add(name, `${WIN_TEXT_FEATURE_MAP_LABELS[map]} — ${key}`);
+		}
+	}
+	for (const meter of options.meters ?? []) {
+		add(
+			doc?.feature?.potNames?.[meter] || (holdAndWin ? meter.toUpperCase() : undefined),
+			`Pot — ${meter}`,
+		);
+	}
+	for (const field of WIN_TEXT_WHEEL_FIELDS) {
+		addWords(source?.wheel?.[field], WIN_TEXT_WHEEL_LABELS[field]);
 	}
 	return out;
 }

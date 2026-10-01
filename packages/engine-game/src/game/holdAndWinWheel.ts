@@ -73,7 +73,3 @@ export const wheelPrizeLabel = (prize: HoldAndWinWheelPrize): string => {
 			return prize.jackpot;
 	}
 };
-
-/** How a collector level reads: 1 single, 2 double, 3 triple, else `×n`. */
-export const collectorLevelName = (level: number): string =>
-	['', 'SINGLE', 'DOUBLE', 'TRIPLE'][level] ?? `×${level}`;

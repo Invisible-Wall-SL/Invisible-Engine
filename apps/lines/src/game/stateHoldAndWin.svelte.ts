@@ -1,10 +1,11 @@
 import {
 	applyHoldAndWinEvent,
-	collectorLevelName,
 	emptyHoldAndWinState,
 	type HoldAndWinEvent,
 	type HoldAndWinMeterLevel,
 } from 'engine-game';
+
+import { modifierLineText } from './holdAndWinText';
 
 /**
  * The client's picture of a Hold and Win feature and the persistent meters — what the respin board,
@@ -43,10 +44,4 @@ export const shownCollectorLevel = (): number =>
  * `activeModifiers` value source carries.
  */
 export const activeModifiersText = (): string =>
-	stateHoldAndWin.activeModifiers
-		.map((kind) =>
-			kind === 'collector' && shownCollectorLevel() > 1
-				? `${collectorLevelName(shownCollectorLevel())} COLLECTOR`
-				: kind.toUpperCase(),
-		)
-		.join(' · ');
+	modifierLineText(stateHoldAndWin.activeModifiers, shownCollectorLevel());

@@ -5,6 +5,7 @@
 	import { Anchor, Container, Rectangle, Text } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 
+	import { potActivatesText, potLabelText } from '../game/holdAndWinText';
 	import {
 		meterAnchor,
 		meterLevelShown,
@@ -85,13 +86,13 @@
 	<Text
 		anchor={{ x: 0.5, y: 1 }}
 		y={-HEIGHT * 0.65}
-		text={`${props.meter.id.toUpperCase()} ${Math.round(level)}/${max}`}
+		text={potLabelText(props.meter.id, Math.round(level), max)}
 		style={textStyle(SYMBOL_SIZE * 0.14)}
 	/>
 	<Text
 		anchor={{ x: 0.5, y: 0 }}
 		y={HEIGHT * 0.65}
-		text={props.meter.activates.toUpperCase()}
+		text={potActivatesText(props.meter.activates)}
 		style={textStyle(SYMBOL_SIZE * 0.1)}
 	/>
 </Container>

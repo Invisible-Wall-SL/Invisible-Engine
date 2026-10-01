@@ -126,7 +126,6 @@ export {
 	type TallyCountUp,
 } from './src/game/respinCount';
 export {
-	collectorLevelName,
 	wheelEase,
 	wheelLandingRotation,
 	wheelPrizeLabel,
