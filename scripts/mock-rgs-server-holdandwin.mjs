@@ -468,6 +468,7 @@ export function createMockRgs(opts = {}) {
 		'wheel',
 		'chain',
 		'dead',
+		'queuedMode',
 	]);
 	/**
 	 * A force spec: comma-separated tokens, each `name[:arg[:arg]]`.
@@ -483,6 +484,9 @@ export function createMockRgs(opts = {}) {
 	 *   wheel:<index>|coinBoost|extraCollect[:n]|jackpot:<TIER>        the wheel's prize
 	 *   chain                                 the longest reset chain: one new coin every respin
 	 *   dead                                  nothing lands in the feature
+	 *   queuedMode[:<id>]                     a second mode (default `queuedFixture`) is queued behind
+	 *                                         the feature and exits, empty, as it ends — the generic
+	 *                                         `modeEnter`/`modeExit` pair, no gameplay of its own
 	 *   instant                               a base-game instant collect, no feature
 	 *
 	 * Any feature token implies `trigger`. Returns `{ force }` or `{ errors }` — a typo is refused,
@@ -567,6 +571,15 @@ export function createMockRgs(opts = {}) {
 				case 'instant':
 					force[name] = true;
 					break;
+				case 'queuedMode': {
+					const id = args[0] ?? 'queuedFixture';
+					if (!/^[A-Za-z][\w-]*$/.test(id) || id === 'holdAndWin')
+						errors.push(
+							`${token}: "${id}" is not a mode id (a letter, then letters, digits, - or _; not holdAndWin)`,
+						);
+					force.queuedMode = id;
+					break;
+				}
 				case 'wheel': {
 					const prizes = list(block.wheel?.prizes);
 					if (!prizes.length) {
@@ -906,6 +919,11 @@ export function createMockRgs(opts = {}) {
 				total,
 			},
 		});
+		// The queued mode has nothing of its own to play, so it closes as soon as it starts. `total` is
+		// in credits, like every amount on this wire.
+		if (round.force?.queuedMode) {
+			events.push({ event: 'modeExit', context: { mode: round.force.queuedMode, total: 0 } });
+		}
 		f.total = total;
 		f.ended = true;
 		round.win += total;
@@ -989,6 +1007,14 @@ export function createMockRgs(opts = {}) {
 				activeModifiers: [...f.active],
 			},
 		});
+		// A second mode in the same round is announced explicitly. Queued: it starts once the feature
+		// has ended (the wheel is part of the Hold and Win entry, never a mode of its own).
+		if (force.queuedMode) {
+			events.push({
+				event: 'modeEnter',
+				context: { mode: force.queuedMode, cause: 'forced', policy: 'queue' },
+			});
+		}
 
 		// The pre-feature wheel.
 		const prizes = list(block.wheel?.prizes);
@@ -1241,17 +1267,22 @@ export function createMockRgs(opts = {}) {
 			revealedCoins.length > 0;
 		const reset = respinRules.reset === 'anySpecial' ? landed.length > 0 : newCoins;
 		f.left = reset ? respinRules.start : f.left - 1;
-		events.push({
-			event: 'respinUpdate',
-			context: { left: f.left, played: f.played, start: respinRules.start, reset },
-		});
+		const update = { left: f.left, played: f.played, start: respinRules.start, reset };
+		events.push({ event: 'respinUpdate', context: update });
 
 		const ended =
 			checkBoardEnd(events, round) ||
 			f.left <= 0 ||
 			(respinRules.cap !== undefined && f.played >= respinRules.cap) ||
 			f.played >= MAX_RESPINS;
-		if (ended) f.left = 0;
+		// The board-end events follow the counter on the wire, so the respin that ENDS the feature (a
+		// full board, the last letter, the cap) restates its counter here: nothing left, no reset —
+		// the same `left` its closing snapshot carries.
+		if (ended) {
+			f.left = 0;
+			update.left = 0;
+			update.reset = false;
+		}
 		events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round) });
 		if (ended) finishFeature(events, round);
 	};

@@ -7,6 +7,8 @@
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { gameConfigSeedFor } from './gameConfigDefaults';
+import { ConflictError, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
 import {
@@ -14,6 +16,7 @@ import {
 	atlasConfigKey,
 	editorDocKey,
 	flowV2DocKey,
+	gameConfigDocKey,
 	localizationDocKey,
 	sheetConfigKey,
 } from './projectPaths';
@@ -99,5 +102,15 @@ export async function scaffoldProject(client: string, project: string): Promise<
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
+	}
+	// The kind's default Game Config, written through the config store (validated, backed up,
+	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
+	const config = gameConfigSeedFor(gameType);
+	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
+		try {
+			await saveGameConfigDoc(client, project, config, null);
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 	}
 }
