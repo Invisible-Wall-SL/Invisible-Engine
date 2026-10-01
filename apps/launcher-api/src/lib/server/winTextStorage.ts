@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import {
 	WIN_TEXT_FEATURE_FIELDS,
+	WIN_TEXT_FEATURE_MAPS,
 	WIN_TEXT_JACKPOT_FIELDS,
 	WIN_TEXT_RESPIN_FIELDS,
+	WIN_TEXT_WHEEL_FIELDS,
 	type WinTextDoc,
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
@@ -76,7 +78,11 @@ const jackpotsSchema = familySchema(WIN_TEXT_JACKPOT_FIELDS)
 const respinsSchema = familySchema(WIN_TEXT_RESPIN_FIELDS).strict();
 
 const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
-	.extend({ specialNames: templateMapSchema.optional() })
+	.extend(
+		Object.fromEntries(
+			WIN_TEXT_FEATURE_MAPS.map((map) => [map, templateMapSchema.optional()]),
+		) as Record<(typeof WIN_TEXT_FEATURE_MAPS)[number], z.ZodOptional<typeof templateMapSchema>>,
+	)
 	.strict();
 
 export const winTextDocSchema = z
@@ -90,6 +96,7 @@ export const winTextDocSchema = z
 		jackpots: jackpotsSchema.optional(),
 		respins: respinsSchema.optional(),
 		feature: featureSchema.optional(),
+		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -168,11 +175,13 @@ function pruneJackpots(input: WinTextDoc['jackpots']): WinTextDoc['jackpots'] {
 
 function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
 	if (!input) return undefined;
-	const specialNames = pruneMap(input.specialNames);
 	const next: NonNullable<WinTextDoc['feature']> = {
 		...pruneFamily(WIN_TEXT_FEATURE_FIELDS, input),
-		...(specialNames ? { specialNames } : {}),
 	};
+	for (const map of WIN_TEXT_FEATURE_MAPS) {
+		const names = pruneMap(input[map]);
+		if (names) next[map] = names;
+	}
 	return Object.keys(next).length ? next : undefined;
 }
 
@@ -203,6 +212,8 @@ export function normalizeWinTextDoc(input: unknown): WinTextDoc {
 	if (respins) next.respins = respins;
 	const feature = pruneFeature(doc.feature);
 	if (feature) next.feature = feature;
+	const wheel = pruneFamily(WIN_TEXT_WHEEL_FIELDS, doc.wheel);
+	if (wheel) next.wheel = wheel;
 	return next;
 }
 

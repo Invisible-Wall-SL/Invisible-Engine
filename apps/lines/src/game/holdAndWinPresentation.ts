@@ -2,12 +2,10 @@ import { cubicOut } from 'svelte/easing';
 import type { Tween } from 'svelte/motion';
 import {
 	cellWorth,
-	collectorLevelName,
 	countSteps,
 	respinCellKey,
 	staggerDelays,
 	tallyCountUp,
-	wheelPrizeLabel,
 	type CountStep,
 	type HoldAndWinCell,
 	type HoldAndWinCoinChange,
@@ -25,6 +23,16 @@ import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { getActiveGameConfig } from './gameConfig';
 import { hideHoldAndWinBanner, showHoldAndWinBanner } from './holdAndWinBanner.svelte';
+import {
+	instantCollectText,
+	jackpotBannerText,
+	jackpotCoinText,
+	luckySpinText,
+	modifiersActiveText,
+	modifiersUnlockedText,
+	wheelPrizeDetailText,
+	wheelPrizeText,
+} from './holdAndWinText';
 import { FLIGHT_TO_COLLECTOR, FLIGHT_TO_TOTAL, flyCoinsToTotal } from './holdAndWinFlights';
 import { lightLetter, syncLetters } from './holdAndWinLetters.svelte';
 import {
@@ -205,15 +213,6 @@ const runCounts = (counts: HeldCount[]) => {
 	);
 };
 
-/** The coded name of a special kind in the "UNLOCKED" / "ACTIVE" toasts. */
-const SPECIAL_NAMES: Record<string, string> = {
-	collector: 'COLLECTOR',
-	multiplier: 'MULTIPLIER',
-	payer: 'PAYER',
-	mystery: 'MYSTERY',
-};
-const specialName = (kind: string) => SPECIAL_NAMES[kind] ?? kind.toUpperCase();
-
 /**
  * Light a base-board cell on `state` while it flies — `flyToMeter` for a special filling its pot,
  * `coinCollect` for an instant collect. The base reels carry a padding row above the window, so
@@ -303,7 +302,7 @@ const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
 		}),
 	);
 	if (activates.length === 0) return;
-	showMessage(`${activates.map(specialName).join(', ')} ACTIVE`, { kind: 'info' });
+	showMessage(modifiersActiveText(activates), { kind: 'info' });
 	await waitPresentation(TOAST_HOLD_MS);
 };
 
@@ -316,7 +315,7 @@ const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
 export const presentLuckySpin = async () => {
 	armLuckySpinReveal();
 	eventEmitter.broadcast({ type: 'luckySpinIntro' });
-	const banner = showHoldAndWinBanner({ kind: 'luckySpin', title: 'LUCKY SPIN', size: 'large' });
+	const banner = showHoldAndWinBanner({ kind: 'luckySpin', title: luckySpinText(), size: 'large' });
 	await waitPresentation(LUCKY_INTRO_MS);
 	hideHoldAndWinBanner(banner);
 };
@@ -504,7 +503,7 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
 	await playHeldBeat(event.cells, 'coinStick');
 	if (event.activates.length === 0) return;
-	showMessage(`UNLOCKED: ${event.activates.map(specialName).join(', ')}`, { kind: 'info' });
+	showMessage(modifiersUnlockedText(event.activates), { kind: 'info' });
 	eventEmitter.broadcast({ type: 'respinModifierUnlock', activates: event.activates });
 	await waitPresentation(TOAST_HOLD_MS);
 };
@@ -629,7 +628,7 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 	const factors = [event.multiplier, event.times].filter((factor) => factor > 1);
 	const banner = showHoldAndWinBanner({
 		kind: 'instantWin',
-		title: 'INSTANT WIN',
+		title: instantCollectText(),
 		detail: [
 			...factors.map((factor) => `×${factor}`),
 			bookEventAmountToCurrencyString(event.amount),
@@ -648,14 +647,6 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 const holdWheelResult = async (ms: number) => {
 	await waitForTimeout(WHEEL_RESULT_MIN_MS);
 	await roundSkip.wait(Math.max(0, ms - WHEEL_RESULT_MIN_MS));
-};
-
-/** What a wheel prize's banner says under its label. */
-const wheelPrizeDetail = (prize: Beat<'holdAndWinWheel'>['prize']): string => {
-	if (prize.type === 'coinBoost') return `EVERY COIN ×${prize.multiplier}`;
-	if (prize.type === 'extraCollect')
-		return `${collectorLevelName(stateHoldAndWin.collectorLevel)} COLLECT`;
-	return 'JACKPOT';
 };
 
 /**
@@ -698,8 +689,8 @@ export const presentWheel = async (event: Beat<'holdAndWinWheel'>) => {
 	if (event.prize.type === 'jackpot') return;
 	const banner = showHoldAndWinBanner({
 		kind: 'wheelPrize',
-		title: wheelPrizeLabel(event.prize),
-		detail: wheelPrizeDetail(event.prize),
+		title: wheelPrizeText(event.prize),
+		detail: wheelPrizeDetailText(event.prize, stateHoldAndWin.collectorLevel),
 		size: 'small',
 	});
 	await holdWheelResult(WHEEL_PRIZE_MS);
@@ -736,8 +727,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		});
 		const banner = showHoldAndWinBanner({
 			kind: 'jackpot',
-			title: `${event.tier} JACKPOT`,
-			detail: event.source === 'fullBoard' ? `FULL BOARD  ${amount}` : amount,
+			...jackpotBannerText(event.tier, amount, event.source === 'fullBoard'),
 			size: 'large',
 		});
 		await Promise.all([
@@ -752,7 +742,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 	if (event.source !== 'coin' || !event.cell || !stateRespinBoard.shown) return;
 	const banner = showHoldAndWinBanner({
 		kind: 'coinJackpot',
-		title: event.tier,
+		title: jackpotCoinText(event.tier),
 		detail: amount,
 		size: 'small',
 	});

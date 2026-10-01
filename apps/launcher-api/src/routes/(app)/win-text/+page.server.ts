@@ -74,6 +74,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		capabilities: kindCapabilities(gameType),
 		/** The config's jackpot tier names, in the config's order. */
 		jackpotTiers: (config.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+		/** The config's pot (meter) ids, in the config's order. */
+		meterIds: (config.doc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
+		/** Whether the config has the pre-feature wheel — its copy is offered only then. */
+		hasWheel: Boolean(config.doc?.holdAndWin?.wheel),
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when
 		 *  the config authors none — the page then offers the coded `winLevelMap` aliases. */
 		bigTiers: bigTiersOf(config.doc),

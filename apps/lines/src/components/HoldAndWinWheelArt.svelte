@@ -1,12 +1,8 @@
 <script lang="ts">
-	import {
-		wheelPrizeLabel,
-		wheelSegmentAngle,
-		wheelSegmentCentre,
-		type HoldAndWinWheelPrize,
-	} from 'engine-game';
+	import { wheelSegmentAngle, wheelSegmentCentre, type HoldAndWinWheelPrize } from 'engine-game';
 	import { Container, Graphics, Text, type GraphicsProps } from 'pixi-svelte';
 
+	import { wheelPrizeText } from '../game/holdAndWinText';
 	import { stateWheel, wheelRotation } from '../game/holdAndWinWheel.svelte';
 
 	/**
@@ -95,7 +91,7 @@
 				y={Math.sin(angle) * radius * 0.58}
 				rotation={angle + Math.PI / 2}
 				anchor={0.5}
-				text={twoLines(wheelPrizeLabel(prize))}
+				text={twoLines(wheelPrizeText(prize))}
 				style={{
 					align: 'center',
 					fontFamily: 'Arial',

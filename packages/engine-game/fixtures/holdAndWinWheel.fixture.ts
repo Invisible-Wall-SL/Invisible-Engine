@@ -6,7 +6,6 @@
  * Run: node --experimental-strip-types packages/engine-game/fixtures/holdAndWinWheel.fixture.ts
  */
 import {
-	collectorLevelName,
 	wheelEase,
 	wheelLandingRotation,
 	wheelPrizeLabel,
@@ -94,7 +93,6 @@ it('the coded prize labels read as the reference wheel does', () => {
 	assert.equal(wheelPrizeLabel({ type: 'coinBoost', multiplier: 2 }), 'COIN BOOST ×2');
 	assert.equal(wheelPrizeLabel({ type: 'extraCollect', count: 1 }), '+1 COLLECT');
 	assert.equal(wheelPrizeLabel({ type: 'jackpot', jackpot: 'GRAND' }), 'GRAND');
-	assert.deepEqual([1, 2, 3, 4].map(collectorLevelName), ['SINGLE', 'DOUBLE', 'TRIPLE', '×4']);
 });
 
 const JACKPOTS = [
