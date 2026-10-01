@@ -48,12 +48,22 @@
  *                            once-per-session `tapToStart`, so it is a hint, not a defect.
  *  - `text-message-unreachable` — a `textMessage` with NO state-gate (`visibleWhile` unset/`'none'`)
  *                            AND no incoming `show` exec edge: nothing can ever make it appear.
+ *  - `mode-unset`          — a `modeTrigger` / `enterMode` naming no mode, or a mode section whose
+ *                            id is not a mode id (an ERROR: it can never fire / enters nothing).
+ *  - `mode-entry-scope`    — a mode entry in a section that never runs it: a `modeTrigger` for mode
+ *                            B inside mode A's section, or `allModesFinished` inside any mode section
+ *                            but `basegame` (a WARNING — the graph runs, the entry is dead).
+ *
+ * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
+ * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
+ * across ALL sections, so the editor's jump-to-node is never ambiguous.
  *
  * The checks mirror the schema's rules; a flagged doc is still structurally a FlowDoc — the
  * issues are an authoring aid + the connect-time gate, not a runtime crash.
  */
 
 import { flattenGroups } from './collapse';
+import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
 import { assignable } from './types-check';
@@ -98,7 +108,9 @@ export type FlowIssueCode =
 	| 'cinematic-await-loop'
 	| 'cinematic-missing-ref'
 	| 'hold-without-release'
-	| 'tap-without-hold';
+	| 'tap-without-hold'
+	| 'mode-unset'
+	| 'mode-entry-scope';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -115,6 +127,8 @@ export interface FlowIssue {
 	severity: FlowIssueSeverity;
 	message: string;
 	at: FlowIssueAt;
+	/** The game-mode section (`FlowDoc.modes` key) the issue is in; absent ⇒ the global graph. */
+	mode?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +271,10 @@ const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
 			if (e.from.node !== node.id) continue;
 			if (node.kind === 'event') walk(e.to.node, node.ref);
 			else if (node.kind === 'gameSignals') walk(e.to.node, e.from.pin);
+			// A mode entry seeds its own trigger (the transition), which is no vocab event — so a
+			// gameSignals wire into its chain is a cross-event read, caught like any other.
+			else if (node.kind === 'modeTrigger') walk(e.to.node, `mode:${node.modeId}:${node.on ?? 'enter'}`);
+			else if (node.kind === 'allModesFinished') walk(e.to.node, 'mode:allFinished');
 			else if (isContainerEventPin(node, e.from.pin)) walk(e.to.node, e.from.pin);
 		}
 	}
@@ -402,9 +420,12 @@ const holdSafetyIssues = (graph: FlowDoc['graph'], ctx: PinContext): FlowIssue[]
  * so they collapse and edges cross-wire. Flatten now re-namespaces the collision so it is no longer a
  * runtime break, hence a WARNING; but it is a data smell (a fixed id minter never produces one).
  */
-const duplicateIdIssues = (graph: FlowDoc['graph']): FlowIssue[] => {
+const duplicateIdIssues = (graph: FlowDoc['graph']): FlowIssue[] =>
+	duplicateIdIssuesFrom(collectIdCounts(graph));
+
+const duplicateIdIssuesFrom = (counts: Map<string, number>): FlowIssue[] => {
 	const issues: FlowIssue[] = [];
-	for (const [id, count] of collectIdCounts(graph)) {
+	for (const [id, count] of counts) {
 		if (count > 1) {
 			issues.push({
 				code: 'duplicate-id',
@@ -441,14 +462,70 @@ export const validateFlowDoc = (
 	// is where a body-vs-main id collision is visible. §5.2: the structural checks then run on the
 	// FLATTENED graph so exec/data rules apply to the real semantics — a `group` is a pure fold, so its
 	// boundary pins would otherwise look like unfilled/dangling endpoints.
-	return [
-		...duplicateIdIssues(doc.graph),
-		...validateGraph(flattenGroups(doc.graph), ctx, {
+	const issues: FlowIssue[] = [];
+	const idCounts = new Map<string, number>();
+	for (const { modeId, graph } of flowGraphs(doc)) {
+		collectIdCounts(graph, idCounts);
+		const scoped = validateGraph(flattenGroups(graph), ctx, {
 			mode: 'flow',
 			containerIds,
 			templateId: doc.templateId,
-		}),
-	];
+		});
+		scoped.push(...modeScopeIssues(graph, modeId));
+		issues.push(...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))));
+	}
+	return [...duplicateIdIssuesFrom(idCounts), ...issues];
+};
+
+const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+/**
+ * The mode-entry checks for one section (`modeId` undefined ⇒ the global graph): an entry or an Enter
+ * mode node must name a mode, and an entry must sit where `runFlowModeTransition` will run it.
+ */
+const modeScopeIssues = (graph: FlowDoc['graph'], modeId: string | undefined): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	if (modeId !== undefined && !MODE_ID.test(modeId)) {
+		const first = graph.nodes[0];
+		if (first) {
+			issues.push({
+				code: 'mode-unset',
+				severity: 'error',
+				message: `mode section '${modeId}' is not a mode id (a letter, then letters, digits, _ or -)`,
+				at: { on: 'node', node: first.id },
+			});
+		}
+	}
+	for (const node of graph.nodes) {
+		if ((node.kind === 'modeTrigger' || node.kind === 'enterMode') && !node.modeId?.trim()) {
+			issues.push({
+				code: 'mode-unset',
+				severity: 'error',
+				message:
+					node.kind === 'modeTrigger'
+						? `mode trigger '${node.id}' names no mode, so it never fires`
+						: `enter-mode node '${node.id}' names no mode to enter`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+		if (node.kind === 'modeTrigger' && modeId !== undefined && node.modeId && node.modeId !== modeId) {
+			issues.push({
+				code: 'mode-entry-scope',
+				severity: 'warning',
+				message: `mode trigger '${node.id}' listens for '${node.modeId}' inside the '${modeId}' section, which only runs its own mode's triggers — move it to the '${node.modeId}' tab or the global graph`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+		if (node.kind === 'allModesFinished' && modeId !== undefined && modeId !== 'basegame') {
+			issues.push({
+				code: 'mode-entry-scope',
+				severity: 'warning',
+				message: `'on all modes finished' node '${node.id}' sits in the '${modeId}' section and never fires there — move it to the global graph or the base game tab`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+	}
+	return issues;
 };
 
 /**

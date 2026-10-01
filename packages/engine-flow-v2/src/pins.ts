@@ -360,6 +360,29 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 				dataType: b.dataType,
 				label: b.label,
 			}));
+		case 'modeTrigger':
+			// A mode-stack ENTRY point (no exec-in): the transition's mode, why it was entered, and the
+			// total an exit carried (0 elsewhere).
+			return [
+				{ ...EXEC_OUT, doc: `Fires when the mode ${node.on === 'exit' ? 'finishes' : node.on === 'resume' ? 'comes back on screen' : 'starts'}.` },
+				dataOut('mode', { t: 'string' }, 'mode', 'The mode id.'),
+				dataOut('cause', { t: 'string' }, 'cause', 'Why it was entered (count, meter:<id>, buy…), as the book named it.'),
+				dataOut('total', { t: 'float' }, 'total', 'What the mode won — set on exit.'),
+			];
+		case 'allModesFinished':
+			return [{ ...EXEC_OUT, doc: 'Fires when no mode is playing or queued: back at the base game.' }];
+		case 'enterMode':
+			return [
+				EXEC_IN,
+				EXEC_OUT,
+				dataIn('cause', { t: 'string' }, 'cause', 'Why the mode is entered (shown to its Mode trigger).', true),
+			];
+		case 'exitMode':
+			return [
+				EXEC_IN,
+				EXEC_OUT,
+				dataIn('total', { t: 'float' }, 'total', 'What the mode won (shown to its exit Mode trigger).', true),
+			];
 		case 'functionEntry': {
 			// The body reads the function's inputs by pulling from the entry's OUTPUTS:
 			// exec-OUT + one data-OUT per the FunctionDef's declared data input (§5). If `ref`

@@ -45,12 +45,15 @@ import {
 	createContainerMountModel,
 	createFlowV2Env,
 	flattenGroups,
+	flowGraphs,
+	flowHandlesModeTransitions,
 	flowOwnsContainerEvent,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
 	hideContainerIds,
 	runFlowContainerEvent,
 	runFlowEvent,
+	runFlowModeTransition,
 	SCREEN_LIFECYCLE_SIGNALS,
 	templateVocabulary,
 	type ContainerMountModel,
@@ -71,6 +74,8 @@ import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
+import { stateModes } from './stateModes.svelte';
+import type { ModeTransition } from 'engine-game';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 import { LINES_FLOW_V2_DOC, LINES_FLOW_V2_LIBRARY } from './flowV2Doc';
 import { LINES_FLOW_V2_STACKED_DOC } from './flowV2StackedDoc';
@@ -241,6 +246,9 @@ export type LinesFlowV2 = {
 	 *  `hide`/auto-hide has cleared it). REACTIVE — reads a `SvelteSet`, so a render that calls it
 	 *  re-runs on show/hide. `<FlowV2Messages>` OR-s this with the node's `visibleWhile` state-gate. */
 	messageShown: (nodeId: string) => boolean;
+	/** Present a mode-stack transition through the flow's Mode trigger / All modes finished entries
+	 *  (hold-and-win §4.5). `undefined` when the doc has none, so the stack stays a pure state move. */
+	presentModeTransition?: (transition: ModeTransition) => Promise<void>;
 };
 
 /**
@@ -551,9 +559,9 @@ export const createLinesFlowV2 = (
 	// message inside a group still renders + harvests) + the reactive set of the ones a `show` exec has
 	// raised. `<FlowV2Messages>` renders each whose `visibleWhile` state-gate matches OR whose id is in
 	// this set. A plain-object interpreter can't hold a rune, so the flag lives here as a `SvelteSet`.
-	const textMessages = flattenGroups(doc.graph).nodes.filter(
-		(n): n is TextMessageNode => n.kind === 'textMessage',
-	);
+	const textMessages = flowGraphs(doc)
+		.flatMap(({ graph }) => flattenGroups(graph).nodes)
+		.filter((n): n is TextMessageNode => n.kind === 'textMessage');
 	const flowShownMessages = new SvelteSet<string>();
 	/**
 	 * Cinematics the flow is currently PLAYING, in mount order. `<FlowV2Cinematics>` renders one
@@ -638,6 +646,15 @@ export const createLinesFlowV2 = (
 		// `<FlowV2Messages>` OR-s that with the node's `visibleWhile` state-gate to decide the overlay.
 		setMessageShown: (nodeId, shown) =>
 			shown ? flowShownMessages.add(nodeId) : flowShownMessages.delete(nodeId),
+		// Enter mode / Exit mode nodes move the game's mode stack, the same one the book moves.
+		enterMode: (modeId, { policy, cause }) => {
+			trace('mode', `enter ${modeId} (${policy})`);
+			return stateModes.enter({ id: modeId, policy, cause, payload: {} });
+		},
+		exitMode: (modeId, total) => {
+			trace('mode', `exit ${modeId ?? '(on screen)'}`);
+			return stateModes.exit(modeId, total);
+		},
 		// A `playCinematic` node mounts the cinematic for the flow to render, and (unless it loops)
 		// hands back a promise that settles when `<Cinematic>` reports completion — that is what
 		// `awaitComplete` holds the exec chain on. A looping cinematic resolves IMMEDIATELY: nothing
@@ -661,7 +678,13 @@ export const createLinesFlowV2 = (
 		},
 	});
 
-	const ctx: RunContext = { vocab, library: loadFlowV2Library(), env };
+	// A signal goes to the ACTIVE mode's graph first (`FlowDoc.modes`), then the global one.
+	const ctx: RunContext = {
+		vocab,
+		library: loadFlowV2Library(),
+		env,
+		activeMode: () => stateModes.active(),
+	};
 	const resolveScene = (sceneId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === sceneId);
 
@@ -683,7 +706,9 @@ export const createLinesFlowV2 = (
 		// coded path; book events are unaffected, so migrated presentation still works.
 		ownsEvent: (eventType) => {
 			if (screenStatus.halfOn && SCREEN_LIFECYCLE_SIGNALS.has(eventType)) return false;
-			return ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType);
+			return (
+				ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType, stateModes.active())
+			);
 		},
 		dispatch: (eventName, payload, context) => {
 			trace('event ▶', eventName);
@@ -694,13 +719,29 @@ export const createLinesFlowV2 = (
 		ordered: () => mount.ordered(),
 		awaitTargets: awaitCompleteContainerIds(doc),
 		hideTargets: hideContainerIds(doc),
-		ownsContainerEvent: (componentId, action) => flowOwnsContainerEvent(doc, componentId, action),
+		ownsContainerEvent: (componentId, action) =>
+			flowOwnsContainerEvent(doc, componentId, action, stateModes.active()),
 		dispatchContainerEvent: (componentId, action, payload) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
 		},
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
+		presentModeTransition: flowHandlesModeTransitions(doc)
+			? (transition) => {
+					// `merge` / `queued` change no mode on screen: nothing to present.
+					if (transition.kind === 'merge' || transition.kind === 'queued') return Promise.resolve();
+					const mode = 'mode' in transition ? transition.mode : undefined;
+					trace('mode ▶', `${transition.kind}${mode ? ` ${mode.id}` : ''}`);
+					return runFlowModeTransition(doc, ctx, {
+						kind: transition.kind,
+						mode: mode?.id,
+						cause: mode?.cause,
+						total: transition.kind === 'exit' ? transition.total : undefined,
+						payload: mode?.payload,
+					});
+				}
+			: undefined,
 		/** The cinematics the flow currently wants on screen (id → play options). */
 		playingCinematics,
 		/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */

@@ -14,6 +14,7 @@
 import type { FlowPressResolver } from 'engine-layout';
 
 import type { LinesFlowV2 } from './flowV2Runtime.svelte';
+import { setModeTransitionPresenter } from './stateModes.svelte';
 
 declare global {
 	/** DEV live-verify handle (Phase 4b) — the built v2 handle, published for ad-hoc verification:
@@ -39,6 +40,8 @@ let tapToStartFired = false;
 export const setFlowV2 = (handle: LinesFlowV2 | undefined): void => {
 	flowV2 = handle;
 	tapToStartFired = false; // re-arm the tapToStart one-shot for this session.
+	// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
+	setModeTransitionPresenter(handle?.presentModeTransition);
 	// Publish the handle for dev live-verify (see the global above). Harmless on a normal boot
 	// (handle is `undefined`); never read by product code.
 	if (typeof globalThis !== 'undefined') globalThis.__IE_FLOW_V2__ = handle;

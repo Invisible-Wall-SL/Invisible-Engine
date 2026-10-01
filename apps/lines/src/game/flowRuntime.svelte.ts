@@ -49,6 +49,7 @@ import { boardDimensions } from './gameConfig';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
+import { stateModes } from './stateModes.svelte';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
 import {
@@ -156,6 +157,12 @@ export const linesEngineReader = (key: string): unknown => {
 			return stateGame.gameType;
 		case 'isFreeGame':
 			return stateGame.gameType === 'freegame';
+		case 'activeMode':
+			return stateModes.active();
+		case 'modeDepth':
+			return stateModes.state.stack.length;
+		case 'queuedModes':
+			return stateModes.state.queue.length;
 		case 'freeSpinsRemaining':
 			return freeSpinsRemaining();
 		case 'freeSpinsTotal':
@@ -191,6 +198,9 @@ export const LINES_ENGINE_KEYS = [
 	'bet',
 	'gameType',
 	'isFreeGame',
+	'activeMode',
+	'modeDepth',
+	'queuedModes',
 	'freeSpinsRemaining',
 	'freeSpinsTotal',
 	'autoSpinsRemaining',

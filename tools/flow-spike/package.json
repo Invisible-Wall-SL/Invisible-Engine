@@ -44,6 +44,7 @@
 		"v2buyconfirmvalues": "tsx flowV2BuyConfirmValues.ts",
 		"v2confirmgate": "tsx flowV2ConfirmGate.ts",
 		"v2gamesignals": "tsx flowV2GameSignals.ts",
+		"v2modes": "tsx flowV2Modes.ts",
 		"v2signalscope": "tsx flowV2SignalScope.ts",
 		"v2preview": "tsx flowV2Preview.ts",
 		"v2lifecycle": "tsx flowV2Lifecycle.ts",

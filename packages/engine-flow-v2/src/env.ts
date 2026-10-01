@@ -49,6 +49,10 @@ export interface FlowV2EnvDeps {
 	/** Raise/clear a `textMessage` node's FLOW-SHOWN flag (the game OR-s it with the node's
 	 *  `visibleWhile` state-gate). Optional — omit for a headless/recorder env that renders nothing. */
 	setMessageShown?: (nodeId: string, shown: boolean) => void;
+	/** Enter / exit a game mode (the `enterMode` / `exitMode` nodes) — the game's mode stack.
+	 *  Optional — omit for a headless/recorder env, which makes both nodes no-ops. */
+	enterMode?: FlowV2Env['enterMode'];
+	exitMode?: FlowV2Env['exitMode'];
 }
 
 /**
@@ -73,4 +77,6 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	awaitContainerComplete: (containerId) => deps.mount.awaitComplete(containerId),
 	engineRead: (key) => deps.engineRead(key),
 	setMessageShown: (nodeId, shown) => deps.setMessageShown?.(nodeId, shown),
+	enterMode: (modeId, opts) => deps.enterMode?.(modeId, opts),
+	exitMode: (modeId, total) => deps.exitMode?.(modeId, total),
 });
