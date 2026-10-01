@@ -131,8 +131,8 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   plays no symbol state. Grid columns gated on
   `kindCapabilities().holdAndWin`; three new capability flags hide four sections for Hold and Win;
   role chips on row heads; `symbolDefaultsFor('holdAndWin')`. New gate `check:symbols-kind-gating`.
-  The Scene Editor's `symbolState` dropdown lists every state for every project, as it already did
-  for the book states.
+  The Scene Editor's two symbol-state pickers offer the eight Hold and Win states only to a
+  `holdAndWin` project (`symbolStatesForKind`, pinned in the same gate).
 
 - 2026-09-30 — **Leaving with unsaved edits asks first**: the page tracked `dirty` but registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded edits silently. It now calls the shared `guardUnsavedWork` (app confirm in-app, browser prompt on unload). A History… restore marks the doc settled before its reload, so the author is not asked a second time over a restore already applied. (No history entry — see the launcher status of the same date.)
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).
