@@ -29,6 +29,8 @@
 		"check:project-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scope.ts",
 		"precheck:published-runtime": "node scripts/ensure-svelte-kit.mjs",
 		"check:published-runtime": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-published-runtime.ts",
+		"precheck:project-scaffold": "node scripts/ensure-svelte-kit.mjs",
+		"check:project-scaffold": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scaffold.ts",
 		"precheck:mock-contract": "node scripts/ensure-svelte-kit.mjs",
 		"check:mock-contract": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-mock-contract.ts",
 		"precheck:deploy-read": "node scripts/ensure-svelte-kit.mjs",

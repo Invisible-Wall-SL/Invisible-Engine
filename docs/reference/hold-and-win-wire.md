@@ -125,7 +125,7 @@ every coin drawn for the rest of the feature; `extraCollect` raises the collecto
 | · `coinCollect`                        | `{collector, level, cells: [cell + amount], value}`                                                                        | the collector's new `value = old + level × Σ worth(cells)`. Sticky coins: it takes the cash coins, once, when it lands (`collects: atEnd` — at the feature end). Streak: every collector takes every coin and jackpot coin each respin, then they clear. Sent only when there was something to take |
 | `jackpotWin`                           | `{tier, amount, source, banked, cell?}`                                                                                    | see "Money"                                                                                                                                                                                                                                                                                         |
 | `cellsCleared`                         | `{reason: "collected", cells: [{reel,row}]}`                                                                               | a streak's non-collector cells leave the board                                                                                                                                                                                                                                                      |
-| `respinUpdate`                         | `{left, played, start, reset}`                                                                                             | `reset` = `anyCoin`: a coin or jackpot landed, or a mystery revealed one · `anySpecial`: anything landed. `left = reset ? start : left − 1`                                                                                                                                                         |
+| `respinUpdate`                         | `{left, played, start, reset}`                                                                                             | `reset` = `anyCoin`: a coin or jackpot landed, or a mystery revealed one · `anySpecial`: anything landed. `left = reset ? start : left − 1` — except on the respin that ENDS the feature (full board, last letter, cap), which always says `left: 0, reset: false`, like its closing snapshot       |
 | `columnComplete`                       | `{reel, letter, newlyLit, cleared, value, amount, cells}`                                                                  | column letters: a column with every row held. `cleared` ⇒ its cells' `amount`s are banked and it empties; not cleared ⇒ the letter lights, the cells stay (`amount: 0`). Every letter lit ⇒ `jackpotWin {source: "letters"}` and the feature ends                                                   |
 | `playedBonusSpin`                      | partner snapshot + `holdAndWin` state                                                                                      | after every respin — the board as it now stands                                                                                                                                                                                                                                                     |
 | `holdAndWinEnd`                        | `{cells: [cell + amount], banked, total}`                                                                                  | the feature is over (see below)                                                                                                                                                                                                                                                                     |
@@ -141,6 +141,26 @@ jackpot only; whether letters clear and which roles fill a board are learned fro
 **The bonus snapshot's `holdAndWin`** (on `enterBonus`, `playedBonusSpin`, `playedBonusSpins`):
 `{cells, start, left, played, banked, activeModifiers, collectorLevel, coinBoost, lettersLit?}` —
 everything held, so a resume can rebuild the board from the last one.
+
+## Modes — `modeEnter` / `modeExit`
+
+A Hold and Win feature IS a mode: `holdAndWinTrigger` opens it and `holdAndWinEnd` closes it (the
+facade gives them the engine's mode shape, `{mode: "holdAndWin", cause, payload}` /
+`{mode: "holdAndWin", total, payload}`). They are never sent as `modeEnter`/`modeExit` as well. The
+pre-feature wheel belongs to the Hold and Win entry; it is not a mode.
+
+ANOTHER mode in the same round is announced explicitly, with the generic pair, so the facade can pass
+it through without knowing the mode:
+
+| Event       | Context                            | When                                                                                                                                                                                                     |
+| ----------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modeEnter` | `{mode, cause, policy?, payload?}` | a mode is entered. `policy`: `nest` (default — it plays now, over the current mode) or `queue` (it plays once the current modes have ended). `payload` is the mode's own state, passed through untouched |
+| `modeExit`  | `{mode, total?}`                   | that mode is over. `total` is in **credits**, like every amount on this wire (the facade converts it to book units)                                                                                      |
+
+No preset produces a second mode today, so the mock sends the pair only for the forced `queuedMode`
+beat (below): a mode queued behind the feature, announced right after `holdAndWinTrigger`, and closed
+(`total: 0`, nothing of its own to play) right after `holdAndWinEnd`, before `gameEnd`. It exists so
+the facade has a fixture for the shape.
 
 ## Money
 
@@ -191,6 +211,7 @@ A force spec is comma-separated tokens; any feature token implies `trigger`:
 | `wheel:<index>` · `wheel:coinBoost` · `wheel:extraCollect[:n]` · `wheel:jackpot:<TIER>`   | that wheel prize                                                                                                |
 | `chain`                                                                                   | the longest reset chain — one new coin every respin (until one cell is left; 10 respins on a board that clears) |
 | `dead`                                                                                    | nothing lands                                                                                                   |
+| `queuedMode[:<id>]`                                                                       | a second mode (default `queuedFixture`) queued behind the feature — see "Modes"; `holdAndWin` is refused        |
 | `instant`                                                                                 | a base-game instant collect, no feature                                                                         |
 
 Three ways in: `play.context = "force:<spec>"`; `POST|GET /api/<key>/force?sid=<sid>&beat=<spec>`
@@ -213,7 +234,8 @@ node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rg
 `PRESET=pots|classic|collector` (default `pots`), `PORT=7799`, `SEED`, `START_BALANCE`, `FORCE`. On the
 Invisible Test Server a `holdAndWin` project is dealt by it automatically from its (published or
 authoring) Game Config; a project with no `holdAndWin` block is dealt its base game as lines, with a
-warning in the log.
+warning in the log. The Game Maker scaffold seeds a new `holdAndWin` project with the kind's default
+preset (Pots), so only a project scaffolded before 2026-10-01 can lack one, and Publish warns about it.
 
 ## Pacing is the mock's, not math
 

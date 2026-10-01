@@ -195,6 +195,16 @@ const all = (round, name) =>
 
 /** Every invariant one round must satisfy. `meters` is the running per-session expectation. */
 const verifyRound = (g, round, label, meters) => {
+	const problems = roundProblems(g, round, meters);
+	if (problems.length) {
+		check(false, label, problems.slice(0, 6).join(' | '));
+		return false;
+	}
+	return true;
+};
+
+/** What {@link verifyRound} finds wrong with a round, without reporting it. */
+const roundProblems = (g, round, meters) => {
 	const problems = [];
 	const fail = (msg) => problems.push(msg);
 	const { block } = g;
@@ -433,16 +443,17 @@ const verifyRound = (g, round, label, meters) => {
 			const newCoin =
 				landed.some((c) => c.jackpot || g.rolesOf(c.symbol).includes('coin')) ||
 				reveals.some((c) => c.becomes === 'coin' || c.becomes === 'jackpot');
-			const reset = block.respins.reset === 'anySpecial' ? landed.length > 0 : newCoin;
-			if (update.reset !== reset)
-				fail(`respin ${played}: reset ${update.reset}, landed says ${reset}`);
-			const expectedLeft = reset ? start : left - 1;
 			const snap = events.find((e) => e.event === 'playedBonusSpin').context;
 			const endedHere = events.some((e) => e.event === 'holdAndWinEnd');
+			// The respin that ends the feature never resets: it says 0 left, like its snapshot.
+			const reset =
+				!endedHere && (block.respins.reset === 'anySpecial' ? landed.length > 0 : newCoin);
+			if (update.reset !== reset)
+				fail(`respin ${played}: reset ${update.reset}, expected ${reset}`);
+			const expectedLeft = endedHere ? 0 : reset ? start : left - 1;
 			if (update.left !== expectedLeft)
 				fail(`respin ${played}: ${update.left} left, expected ${expectedLeft}`);
-			if (!endedHere && snap.left !== update.left)
-				fail(`respin ${played}: snapshot left ${snap.left}`);
+			if (snap.left !== update.left) fail(`respin ${played}: snapshot left ${snap.left}`);
 			if (update.played !== played || snap.played !== played)
 				fail(`respin ${played}: played ${update.played}`);
 			left = update.left;
@@ -503,11 +514,7 @@ const verifyRound = (g, round, label, meters) => {
 	if (round.balanceAfter !== round.balanceBefore - stake + win) {
 		fail(`balance ${round.balanceBefore}→${round.balanceAfter}, stake ${stake}, win ${win}`);
 	}
-	if (problems.length) {
-		check(false, label, problems.slice(0, 6).join(' | '));
-		return false;
-	}
-	return true;
+	return problems;
 };
 
 // ---------- 1. natural and forced-trigger rounds, every invariant ----------
@@ -568,6 +575,11 @@ const cause = (r) => first(r, 'holdAndWinTrigger')?.cause;
 const inRespin = (r, n, name) =>
 	(r.responses[n]?.events ?? []).filter((e) => e.event === name).map((e) => e.context);
 const endCells = (r) => first(r, 'holdAndWinEnd')?.cells ?? [];
+/** The respin that ends the feature says 0 left and no reset, like its closing snapshot. */
+const closesAtZero = (r) => {
+	const last = all(r, 'respinUpdate').at(-1);
+	return last?.left === 0 && last.reset === false;
+};
 const jackpotsWon = (r, source) =>
 	all(r, 'jackpotWin').filter((j) => !source || j.source === source);
 
@@ -661,9 +673,33 @@ const jackpotsWon = (r, source) =>
 		'fullBoard',
 		(r) =>
 			jackpotsWon(r, 'fullBoard')[0]?.tier === 'GRAND' &&
-			first(r, 'holdAndWinEnd').banked >= jackpotsWon(r, 'fullBoard')[0].amount,
-		'a full board pays GRAND',
+			first(r, 'holdAndWinEnd').banked >= jackpotsWon(r, 'fullBoard')[0].amount &&
+			closesAtZero(r),
+		'a full board pays GRAND, its respin closing at 0 left without a reset',
 	);
+	{
+		// Planted bug: the respin that fills the board reports a reset (counter back to the start)
+		// while its snapshot says 0 — what the mock sent before. The verifier must refuse it.
+		const round = await forced(g, 'fullBoard');
+		if (round) {
+			const planted = structuredClone(round);
+			const update = planted.responses
+				.flatMap((resp) => resp.events)
+				.filter((e) => e.event === 'respinUpdate')
+				.at(-1).context;
+			update.left = g.block.respins.start;
+			update.reset = true;
+			const problems = roundProblems(g, planted, meterStart(round.config));
+			if (
+				check(
+					problems.some((p) => /reset true|left/.test(p)),
+					'a feature-ending respin that reports a reset is flagged',
+					problems.join(' | ') || 'not flagged',
+				)
+			)
+				pass('planted: a reset on the full-board respin is caught');
+		}
+	}
 	await beat(
 		g,
 		'chain',
@@ -679,6 +715,30 @@ const jackpotsWon = (r, source) =>
 	);
 	await beat(
 		g,
+		'queuedMode',
+		(r) => {
+			const names = (resp) => resp.events.map((e) => e.event);
+			const opening = names(r.responses[0]);
+			const closing = r.responses.find((resp) => names(resp).includes('holdAndWinEnd'));
+			const enter = first(r, 'modeEnter');
+			const exit = first(r, 'modeExit');
+			return (
+				opening.indexOf('modeEnter') > opening.indexOf('holdAndWinTrigger') &&
+				enter?.mode === 'queuedFixture' &&
+				enter.policy === 'queue' &&
+				enter.cause === 'forced' &&
+				names(closing).indexOf('modeExit') > names(closing).indexOf('holdAndWinEnd') &&
+				names(closing).indexOf('modeExit') < names(closing).indexOf('gameEnd') &&
+				exit?.mode === 'queuedFixture' &&
+				exit.total === 0 &&
+				all(r, 'modeEnter').length === 1 &&
+				all(r, 'modeExit').length === 1
+			);
+		},
+		'a second mode queued behind the feature: modeEnter after the trigger, modeExit after the end',
+	);
+	await beat(
+		g,
 		'dead',
 		(r) => all(r, 'respinUpdate').length === g.block.respins.start,
 		'nothing lands: three respins',
@@ -690,6 +750,7 @@ const jackpotsWon = (r, source) =>
 		'instant',
 		'bogus',
 		'jackpot:GIANT',
+		'queuedMode:holdAndWin',
 	]) {
 		const round = await playRound(g, `bad-${spec}`, { force: spec });
 		check(Boolean(round.error), `force ${spec} is refused on pots`, round.error ?? 'dealt');
@@ -741,8 +802,8 @@ const jackpotsWon = (r, source) =>
 	await beat(
 		g,
 		'letters',
-		(r) => jackpotsWon(r, 'letters')[0]?.tier === 'GRAND',
-		'G-R-A-N-D pays GRAND',
+		(r) => jackpotsWon(r, 'letters')[0]?.tier === 'GRAND' && closesAtZero(r),
+		'G-R-A-N-D pays GRAND, its respin closing at 0 left without a reset',
 	);
 	for (const tier of ['MINI', 'MINOR', 'MAJOR']) {
 		await beat(

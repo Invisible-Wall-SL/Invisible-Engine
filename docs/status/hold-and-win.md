@@ -118,6 +118,26 @@ only has to register its own vocab + seed.
   - **Parallel playtests: never share a mock port.** A seeded local book mock on the default 7788 was
     hit by another session's game mid-run, which consumed its seeded RNG and diverged the outcomes. Give
     every run its own port.
+- 2026-10-01 — **A new `holdAndWin` project is scaffolded WITH its Game Config; other kinds are not**
+  (#956). The scaffold seed was chosen over a publish/mock fallback to the kind default: a fallback
+  would make the mock deal Pots while `/config` and the runtime bundle still had no config (the bundle
+  bakes only an AUTHORED config, so the client would boot the compiled lines template against a Hold
+  and Win server). Seeding is limited to kinds whose defaults are presets (`gameConfigSeedFor`, keyed
+  on the same `KIND_DEFAULT_KEY` map as `gameConfigDefaultFor`), so lines/ways/scatter/cluster/bookOf
+  stay un-authored and play byte-identically. Older projects: Publish flags a missing block
+  (`holdAndWinConfigMissing`, card note "dealt plain lines"); `/admin` Re-scaffold backfills it.
+- 2026-10-01 — **Wire: a second mode in one round is announced with `modeEnter` / `modeExit`**
+  (#956, [hold-and-win-wire.md](../reference/hold-and-win-wire.md) "Modes"). `modeEnter {mode,
+  cause, policy?, payload?}` (`policy` `nest` default | `queue`, the engine's `ModePolicy`) and
+  `modeExit {mode, total?}` with `total` in CREDITS. The Hold and Win feature itself keeps
+  `holdAndWinTrigger`/`End` (never doubled as `modeEnter`/`Exit`); the wheel is part of its entry. No
+  preset produces a second mode, so the mock sends the pair only on the forced `queuedMode[:<id>]`
+  beat: `modeEnter {mode: "queuedFixture", cause: "forced", policy: "queue"}` right after
+  `holdAndWinTrigger`, `modeExit {mode, total: 0}` right after `holdAndWinEnd`, before `gameEnd`. The
+  facade drops both today (its `default` branch); the "Hold and Win engine runtime" session maps them.
+- 2026-10-01 — **Mock quirk fixed** (#956): the respin that ends the feature (full board, last
+  letter, cap) now sends `respinUpdate {left: 0, reset: false}`, matching its closing snapshot.
+  `check:holdandwin` re-derives it on every round and plants the old shape to prove it is caught.
 
 - 2026-10-01 — **Phase 8 (Win Text): what the presentation must call.** The copy lives in
   `bakedWinText()` (`resolveWinText`); render with `formatWinText(template, vars)` and NEVER build the
@@ -329,7 +349,7 @@ only has to register its own vocab + seed.
   no `holdAndWin` block and the test server deals it plain LINES (5 paylines, `PIC*`) even though the
   Game Maker card shows the Pots defaults. Saving the config once in `/config` (then Re-publish)
   fixed it; both mocks then report `protocol: "holdAndWin"`. Phase 9's config seeding should close
-  this for good.
+  this for good. **Fixed 2026-10-01 (#956): the scaffold seeds the Pots config.**
 
 - 2026-10-01 — **Phase 4b: the facade maps the Hold and Win wire** (`packages/rgs-translator-eagaming/src/holdAndWin.ts`,
   the swap seam; gated on the boot config's `holdAndWin.wire === 1`, any other wire is refused with
@@ -343,8 +363,8 @@ only has to register its own vocab + seed.
   pays the right total at the end. No Hold and Win project is published, so no player sees it.
 - 2026-10-01 — **Mock quirk (wire, not facade):** when a full board or the last letter ends the
   feature, that respin's `respinUpdate` reports a reset (`left` back to the start) while its closing
-  `playedBonusSpin` snapshot says `left: 0`. The engine takes the snapshot. Harmless; fix in the
-  mock + wire doc together if anyone needs the counter to read 0 on that beat.
+  `playedBonusSpin` snapshot says `left: 0`. The engine takes the snapshot. **Fixed 2026-10-01
+  (#956).**
 
 - 2026-10-01 — **Phase 4a: the engine's Hold and Win event contract is code, not a table.** One home:
   `HoldAndWinEventFields` in `packages/engine-game/src/game/holdAndWin.ts`; `apps/lines`
@@ -489,10 +509,10 @@ Hold and Win beats prints copy.
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
   `holdAndWin` project, open `/editor`, screenshot the template; check the jackpot bar's portrait fit
   (≈22 px each side at 0.75 scale).
-- **Facade `modeEnter` / `modeExit`** for a QUEUED mode: today's wire has no mode change other than
-  the aliased `holdAndWinTrigger`/`End` (the wheel is part of the entry, not a mode). Map them when
-  the mock announces one — proposed wire `modeEnter {mode, cause, payload?}` / `modeExit {mode,
-  total?}`, `total` in credits.
+- **Facade `modeEnter` / `modeExit`** for a QUEUED mode (owner: "Hold and Win engine runtime"): the
+  mock now announces one on the forced `queuedMode` beat (see Decisions, 2026-10-01). Pass both
+  through generically, converting `modeExit.total` from credits to book units, and add a fixture
+  case from that beat.
 
 1. **Phase 7 follow-ups** (none blocks authoring):
    - **Owner: Re-publish `hw-3pots-sample`** so players (not just `authoring=1`) see the authored coin
@@ -505,8 +525,8 @@ Hold and Win beats prints copy.
      flies them yet.
 2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
-     feature total). Publish a Classic and a Collector sample project — save `/config` once on the
-     preset (the unauthored-config trap above), then Re-publish — and play their letters, instant
+     feature total). Publish a Classic and a Collector sample project — a new project is seeded
+     with Pots, so pick the preset in `/config` ("Reset to preset") and save, then Re-publish — and play their letters, instant
      collect, streak flights and wheel live. Start their playbooks beside
      [hw-3pots-sample.md](../playtest/hw-3pots-sample.md).
    - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
@@ -563,6 +583,13 @@ Hold and Win beats prints copy.
     `[symbols]` warning that BLANK has no art, by design), 0 exceptions, balances = the mock. The
     placeholder scatter art has "SCATTER" baked in and sits under the coin value — real art is the
     owner's.
+- 2026-10-01 — **Scaffold config seed, mock end-of-feature counter, `modeEnter`/`modeExit` on the
+  wire** (#956). (1) `scaffoldProject` seeds a `holdAndWin` project with `gameConfigSeedFor` = the
+  Pots preset (other kinds untouched); Publish warns on a Hold and Win project without the block;
+  `pnpm --filter launcher-api check:project-scaffold` (4 cases, mutant-tested). (2) The mock's
+  feature-ending respin says `left: 0, reset: false`; `check:holdandwin` checks it on every round, on
+  the `fullBoard`/`letters` beats, and with a planted old-shape round. (3) Forced `queuedMode[:<id>]`
+  beat emits the generic mode pair; wire doc "Modes" section.
 
 - 2026-10-01 — **Hold and Win writes `gameType: 'respin'`** (session "Hold and Win Phase 4 — engine
   runtime"). `HOLD_AND_WIN_KEEPS_GAME_TYPE` is gone (`engine-game` `modeEvents.ts`): the mode layer
