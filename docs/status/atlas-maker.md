@@ -117,6 +117,15 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-01 — **`test_the_page_wrapper` no longer races the clock.** Its node harness raced the save
+  against a 500 ms timer (there only so the "reload theirs" case, which leaves the caller pending,
+  could finish); on a slow CI runner the overwrite dialog → re-send outran it and the test died at
+  `res["sent"][1]` (once, on #919 — and "python tests" is a required check). The harness now races
+  the save against `location.reload()` actually firing, then drains the event loop to prove the
+  caller is still pending; it exits as soon as it has answered (doc-guard's 15 s queue-bound timer
+  used to keep each node run alive, so the file drops from ~80 s to ~7 s); an empty answer fails a
+  named check. 200/200 solo and 400/400 under CPU stress; mutants (reload never fires, re-send
+  skipped, reload settles the caller) all fail.
 - 2026-09-30 — **Every save is compare-and-swapped; a conflict names who saved and asks.** Two people
   on one atlas used to overwrite each other silently — and so did one container whose staging was
   older than R2 (a rolling deploy, the Sheet Maker re-exporting the manifest). Now `doc_sync.py` is
