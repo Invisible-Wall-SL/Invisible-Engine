@@ -60,10 +60,12 @@ project's own flow.
 
 ### Read the sub-bar
 
-Across the top the sub-bar shows a **Flow** breadcrumb (it becomes **Flow ↳ &lt;function&gt;**
-while you edit a function body), an **exec / data** legend, and — in the main flow — the
-buttons **＋ Comment**, **⤵ Collapse** and **▣ Group** (plus **⤴ Expand group** when a group
-is selected; see [Comment boxes and inline groups](#comment-boxes-and-inline-groups)). On the
+Across the top the sub-bar shows the **section tabs** — **Global** plus one tab per game mode
+and a **＋ Mode** button (see [Game modes](#game-modes--one-graph-per-mode)). While you edit a
+function body they give way to a breadcrumb, **&lt;tab&gt; ↳ &lt;function&gt;**. Next come an
+**exec / data** legend and the buttons **＋ Comment**, **⤵ Collapse** and **▣ Group** (plus
+**⤴ Expand group** when a group is selected; see [Comment boxes and inline
+groups](#comment-boxes-and-inline-groups)). These three work on the Global tab only. On the
 right are **↶ Undo**, **↷ Redo** and **History…** (see [Undo, redo and version
 history](#undo-redo-and-version-history)), the **save pill**, a live **node / exec / data**
 count, and a validation pill (**✓ valid** or **⚠ N issues**).
@@ -103,6 +105,8 @@ function library:
   (`show basegame`, `hide loading`, …). Adds a **showContainer** / **hideContainer** node.
 - **Presentation** — a **Text Message** node: one line of on-screen text you author right on
   the node (see below).
+- **Modes** — **Mode trigger**, **On all modes finished**, **Enter mode** and **Exit mode**
+  (see [Game modes](#game-modes--one-graph-per-mode)). Not offered inside a function body.
 - **Control** — the flow-control kinds: **Delay**, **Branch**, **ForEach**, **Sequence**,
   **Parallel**, **Compute**.
 
@@ -538,7 +542,8 @@ collapse in one project is available everywhere.
 
 - **Edit a function's body** by double-clicking its call node, clicking **✎** in the
   palette's Functions section, or using the crumb. The sub-bar breadcrumb reads
-  **Flow ↳ &lt;FunctionName&gt;** while you edit a body; **← Back to flow** returns you. A
+  **&lt;tab&gt; ↳ &lt;FunctionName&gt;** while you edit a body; **← Back to flow** returns you
+  to the tab you opened it from. A
   body has fixed **Entry** and **Result** nodes (the function's signature) that you wire
   between; those two can't be deleted.
 - **Rename** the open function inline in the breadcrumb (its id stays stable, so existing
@@ -556,6 +561,50 @@ collapse in one project is available everywhere.
   the shared function library. Select a group and **⤴ Expand group** puts its nodes back
   inline. If the selection cannot be grouped, the reason appears as a ⚠ note beside the
   buttons.
+
+Comments, **⤵ Collapse** and **▣ Group** belong to the **Global** tab. On a mode tab the three
+buttons are greyed out and comment boxes are hidden.
+
+### Game modes — one graph per mode
+
+A bonus is a different game: free spins, a Hold and Win respin feature, a wheel. Each one gets
+its own **mode tab** with its own graph, so `reveal` can do something else on the respin board
+than in the base game without a Branch on the game type. The design is in
+[hold-and-win.md §4.5](../design/hold-and-win.md).
+
+**The tabs.** **Global** is the graph every flow already had. **＋ Mode** opens a picker with
+this project's modes that have no tab yet. The list is the [Game Config](./game-config.md)
+mode registry: **Base game**, **Free spins**, **Hold and Win** when the project has a Hold and
+Win block, and any mode the project declares. A mode the registry does not list can be typed
+into the box under the list; an id is a letter followed by letters, digits, `_` or `-`. A new tab
+opens with one **Mode trigger** on **enter** for that mode, ready to wire. **✕** on a tab
+removes it. A tab still holding only that starting node goes without asking; otherwise you
+confirm, and **↶ Undo** brings it back. A tab with issues shows their count.
+
+**How the game picks a graph.** A signal goes to the graph of the mode **on screen** first. When
+that graph has no handler for it, the **Global** graph handles it. A mode with no tab uses Global
+for everything, so a flow without mode tabs plays exactly as before.
+
+**The four mode nodes** (palette section **Modes**; in a mode tab, Mode trigger and Exit mode
+start with that tab's mode filled in):
+
+| Node | What it does | Fields |
+|---|---|---|
+| **Mode trigger** | An entry point. It fires when the engine's mode stack moves its mode: **enter** when the mode actually starts playing (a queued mode starts after the modes before it finish, not when the book announces it), **exit** when it finishes, **resume** when a mode played on top of it finishes. Outputs `mode`, `cause` (why it was entered, as the book named it) and `total` (what it won, set on exit). Reads e.g. `On enter · holdAndWin`. | **Mode** (pick from the list or type one), **Fires on** |
+| **On all modes finished** | An entry point. It fires when no mode is playing or queued, so the game is back at the base game. Collect, big win and idle hang off it. It only fires from the **Global** or the **Base game** tab, so the palette does not offer it on other mode tabs. | — |
+| **Enter mode** | Asks the engine to enter a mode. **Nest** plays it now, on top of the current mode. **Queue** plays it after the current modes finish. A mode already playing or queued merges. Optional data-in `cause`. Reads e.g. `Enter holdAndWin (queue)`. | **Mode**, **Policy** |
+| **Exit mode** | Closes a mode, or the mode on screen when **Mode** is blank. Optional data-in `total`, which its exit trigger reads. | **Mode** |
+
+A mode transition runs the matching triggers in that mode's own tab and in **Global**. The book
+stays the source of truth: Enter mode orders the presentation and never invents a feature.
+
+Validation covers every tab at once. An issue found in a mode tab carries the tab's name, and
+clicking it opens that tab before selecting the node. Two codes are specific to modes:
+`mode-unset` (red) is a Mode trigger or Enter mode with no mode, or a tab whose id is not a mode
+id. `mode-entry-scope` is a warning: a Mode trigger for another mode inside a mode tab, or On all
+modes finished outside Global and Base game, never fires.
+
+The **Preview** panel runs only the Global graph, and only on the Global tab.
 
 ### Validation
 

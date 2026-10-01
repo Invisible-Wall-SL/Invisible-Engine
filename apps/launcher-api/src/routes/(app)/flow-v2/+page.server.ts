@@ -7,6 +7,8 @@ import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2DocForEditor } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { loadDoc } from '$lib/server/editorStorage';
+import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
+import { resolveGameModes } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
 import type { PageServerLoad } from './$types';
@@ -94,6 +96,15 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// §6.1 — the container-event surface (see `projectContainerEvents`).
 	const containerEvents = projectContainerEvents(doc.containers, layout.scenes ?? []);
 
+	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
+	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
+	// unauthored config resolves to the built-ins.
+	const { doc: configDoc } = await loadGameConfigDocWithEtag(clientKey, projectKey);
+	const gameModes = resolveGameModes(configDoc ?? undefined).map((mode) => ({
+		id: mode.id,
+		label: mode.label ?? mode.id,
+	}));
+
 	return {
 		clientKey,
 		projectKey,
@@ -114,5 +125,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
 		 *  time; a container absent from the map is unresolved and stays unchecked. */
 		containerTaps,
+		gameModes,
 	};
 };

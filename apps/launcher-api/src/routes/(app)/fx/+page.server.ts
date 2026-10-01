@@ -102,7 +102,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const vocab = resolveEmitterVocabulary(layout.gameType);
 	const flowV2 = await loadFlowV2Doc(clientKey, projectKey).catch(() => null);
 	const v2Cues: string[] = [];
-	for (const node of flowV2?.graph?.nodes ?? []) {
+	// Every section: the global graph and each game mode's.
+	const graphs = flowV2
+		? [flowV2.graph, ...Object.values(flowV2.modes ?? {}).map((scope) => scope?.graph)]
+		: [];
+	for (const node of graphs.flatMap((graph) => graph?.nodes ?? [])) {
 		if (node.kind === 'fireCue' && typeof node.ref === 'string' && node.ref) v2Cues.push(node.ref);
 	}
 	const eventTypes = Array.from(new Set([...vocab.events.map((e) => e.type), ...v2Cues])).sort(

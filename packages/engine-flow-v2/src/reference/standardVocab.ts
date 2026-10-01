@@ -332,7 +332,11 @@ export const standardVocabulary = ({
 			payload: [
 				{ name: 'mode', type: STRING, description: 'The mode id (freeSpins, holdAndWin, …).' },
 				{ name: 'cause', type: STRING, description: 'Why it was entered, as the book named it.' },
-				{ name: 'policy', type: STRING, description: '`nest` (plays now) or `queue` (plays after the current modes).' },
+				{
+					name: 'policy',
+					type: STRING,
+					description: '`nest` (plays now) or `queue` (plays after the current modes).',
+				},
 			],
 			category: 'book',
 			description:
@@ -780,15 +784,24 @@ export const standardVocabulary = ({
 		{
 			name: 'gameType',
 			type: GAME_TYPE,
-			description: "The active mode's game type: basegame, freegame, respin, or a project mode's own.",
+			description:
+				"The active mode's game type: basegame, freegame, respin, or a project mode's own.",
 		},
 		{
 			name: 'activeMode',
 			type: STRING,
 			description: 'The game mode on screen (basegame, freeSpins, holdAndWin, …).',
 		},
-		{ name: 'modeDepth', type: INT, description: 'How many modes are on the stack (0 at the base game).' },
-		{ name: 'queuedModes', type: INT, description: 'How many modes are waiting to play after the current ones.' },
+		{
+			name: 'modeDepth',
+			type: INT,
+			description: 'How many modes are on the stack (0 at the base game).',
+		},
+		{
+			name: 'queuedModes',
+			type: INT,
+			description: 'How many modes are waiting to play after the current ones.',
+		},
 		{ name: 'isFreeGame', type: BOOL, description: 'True while the free-spin feature is running.' },
 		{ name: 'freeSpinsRemaining', type: INT, description: 'Free spins still to play.' },
 		{ name: 'freeSpinsTotal', type: INT, description: 'Free spins awarded this feature.' },

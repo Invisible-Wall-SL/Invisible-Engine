@@ -19,6 +19,7 @@
 		onopen,
 		ondelete,
 		deleteError = null,
+		modeNodes = [],
 	}: {
 		vocab: TemplateVocabulary;
 		library: FunctionLibraryDoc;
@@ -34,6 +35,9 @@
 		ondelete?: (functionId: string) => void;
 		// A non-blocking message when a delete was blocked ("in use by N calls").
 		deleteError?: string | null;
+		// The game-mode nodes this section offers, each with the mode id it starts with (the page
+		// picks them per tab: none in a function body, no "all modes finished" in a mode's own tab).
+		modeNodes?: { kind: NodeKind; label: string; ref?: string }[];
 	} = $props();
 
 	// Control nodes carry no `ref` — their fields get defaults now (2b.1) and are edited in 2b.2.
@@ -174,7 +178,11 @@
 	</section>
 
 	<section>
-		{@render head('functions', 'Functions', library.functions.filter((f) => matches(f.name)).length)}
+		{@render head(
+			'functions',
+			'Functions',
+			library.functions.filter((f) => matches(f.name)).length,
+		)}
 		{#if isOpen('functions')}
 			{#if deleteError}
 				<p class="fn-error">Can't delete — {deleteError}.</p>
@@ -215,7 +223,7 @@
 		{@render head(
 			'containers',
 			'Containers',
-			doc.containers.filter((c) => matches(containerLabel(c.id))).length
+			doc.containers.filter((c) => matches(containerLabel(c.id))).length,
 		)}
 		{#if isOpen('containers')}
 			{#each doc.containers.filter((c) => matches(containerLabel(c.id))) as c (c.id)}
@@ -247,7 +255,7 @@
 		{@render head(
 			'presentation',
 			'Presentation',
-			PRESENTATION_NODES.filter((p) => matches(p.label)).length
+			PRESENTATION_NODES.filter((p) => matches(p.label)).length,
 		)}
 		{#if isOpen('presentation')}
 			{#each PRESENTATION_NODES.filter((p) => matches(p.label)) as p (p.kind)}
@@ -263,6 +271,25 @@
 			{/each}
 		{/if}
 	</section>
+
+	{#if modeNodes.length > 0}
+		<section>
+			{@render head('modes', 'Modes', modeNodes.filter((m) => matches(m.label)).length)}
+			{#if isOpen('modes')}
+				{#each modeNodes.filter((m) => matches(m.label)) as m (m.kind)}
+					<button
+						class="entry mode"
+						draggable={true}
+						ondragstart={(ev) => onDragStart(ev, m.kind, m.ref)}
+						onclick={() => onadd(m.kind, m.ref)}
+						title="{m.kind}{m.ref ? ` · ${m.ref}` : ''}"
+					>
+						{m.label}{#if m.ref}<span class="cat">{m.ref}</span>{/if}
+					</button>
+				{/each}
+			{/if}
+		</section>
+	{/if}
 
 	<section>
 		{@render head('control', 'Control', CONTROL.filter((c) => matches(c.label)).length)}
@@ -445,6 +472,9 @@
 	.entry.presentation {
 		/* Sky — a presentation leaf; distinct from the indigo container show/hide it sits beside. */
 		border-left: 3px solid #38bdf8;
+	}
+	.entry.mode {
+		border-left: 3px solid #f43f5e;
 	}
 	.entry.control {
 		border-left: 3px solid #64748b;

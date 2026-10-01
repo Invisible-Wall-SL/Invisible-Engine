@@ -273,7 +273,8 @@ const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
 			else if (node.kind === 'gameSignals') walk(e.to.node, e.from.pin);
 			// A mode entry seeds its own trigger (the transition), which is no vocab event — so a
 			// gameSignals wire into its chain is a cross-event read, caught like any other.
-			else if (node.kind === 'modeTrigger') walk(e.to.node, `mode:${node.modeId}:${node.on ?? 'enter'}`);
+			else if (node.kind === 'modeTrigger')
+				walk(e.to.node, `mode:${node.modeId}:${node.on ?? 'enter'}`);
 			else if (node.kind === 'allModesFinished') walk(e.to.node, 'mode:allFinished');
 			else if (isContainerEventPin(node, e.from.pin)) walk(e.to.node, e.from.pin);
 		}
@@ -472,7 +473,9 @@ export const validateFlowDoc = (
 			templateId: doc.templateId,
 		});
 		scoped.push(...modeScopeIssues(graph, modeId));
-		issues.push(...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))));
+		issues.push(
+			...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))),
+		);
 	}
 	return [...duplicateIdIssuesFrom(idCounts), ...issues];
 };
@@ -508,7 +511,12 @@ const modeScopeIssues = (graph: FlowDoc['graph'], modeId: string | undefined): F
 				at: { on: 'node', node: node.id },
 			});
 		}
-		if (node.kind === 'modeTrigger' && modeId !== undefined && node.modeId && node.modeId !== modeId) {
+		if (
+			node.kind === 'modeTrigger' &&
+			modeId !== undefined &&
+			node.modeId &&
+			node.modeId !== modeId
+		) {
 			issues.push({
 				code: 'mode-entry-scope',
 				severity: 'warning',

@@ -147,7 +147,12 @@
 		warnOnServerPaytableMismatch,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
-	import { activeModeHud, activeModeIds, modeHudIds } from '../game/stateModes.svelte';
+	import {
+		activeModeHud,
+		activeModeIds,
+		modeHudIds,
+		setModeTransitionPresenter,
+	} from '../game/stateModes.svelte';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
@@ -1863,6 +1868,8 @@
 				(intent) => invokeHostIntent(intent),
 			);
 			setFlowV2(flowV2);
+			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
+			setModeTransitionPresenter(flowV2?.presentModeTransition);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A
 			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;

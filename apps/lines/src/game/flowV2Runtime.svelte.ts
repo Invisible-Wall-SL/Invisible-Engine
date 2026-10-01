@@ -706,9 +706,7 @@ export const createLinesFlowV2 = (
 		// coded path; book events are unaffected, so migrated presentation still works.
 		ownsEvent: (eventType) => {
 			if (screenStatus.halfOn && SCREEN_LIFECYCLE_SIGNALS.has(eventType)) return false;
-			return (
-				ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType, stateModes.active())
-			);
+			return ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType, stateModes.active());
 		},
 		dispatch: (eventName, payload, context) => {
 			trace('event ▶', eventName);
