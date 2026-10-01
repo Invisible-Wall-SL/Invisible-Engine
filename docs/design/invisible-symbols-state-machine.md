@@ -576,10 +576,12 @@ a wrong type still fails the save.
 
 **Runtime** — `coinLabelText` (engine-game) takes the block as an optional format: absent ⇒ the
 coded text exactly. Decimals never cut a non-zero digit (`trimFractionZeros` trims only trailing
-zeros, in the locale's decimal separator). `components/CoinLabel.svelte` draws the look
+zeros, after the separator read off the money formatter's own output — `moneyDecimalSeparator`,
+since a currency rendering's separator can differ from the locale's plain numbers, e.g. `en-DE`).
+`components/CoinLabel.svelte` draws the look
 (`resolveCoinLabelLook`: tier style over shared style over coded); `RespinHeldSymbol` cues the pops
-(on `land` / `coinStick`, and when a held count-up is released); `countMs` replaces the coded count
-lengths in `holdAndWinPresentation.ts`.
+(on `land` / `coinStick`, and when a held count-up is released); `countMs` replaces the coded 600 ms
+payer / boost count in `holdAndWinPresentation.ts`, and a collect step scales with it (×350/600).
 
 ## "Spine export" demystified
 

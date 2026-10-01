@@ -1,8 +1,7 @@
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
-import { coinLabelText, type RawSymbol } from 'engine-game';
+import { coinLabelText, moneyDecimalSeparator, type RawSymbol } from 'engine-game';
 import { resolveCoinLabelLook, resolveCoinLabelPop, type CoinLabelLook } from 'engine-layout';
 import { symbolHoldAndWinRoles } from 'game-config';
-import { stateI18n } from 'state-shared';
 import {
 	bookEventAmountToCurrencyString,
 	bookEventAmountToNormalisedAmount,
@@ -11,21 +10,6 @@ import {
 
 import { bakedCoinLabel } from '../editor-scenes';
 import { getActiveGameConfig } from './gameConfig';
-
-const separators = new Map<string, string>();
-/** The active locale's decimal separator, which the money formatter prints its fraction after. */
-const decimalSeparator = (): string => {
-	const locale = stateI18n.i18n.locale;
-	let separator = separators.get(locale);
-	if (separator === undefined) {
-		separator =
-			new Intl.NumberFormat([locale, 'en'])
-				.formatToParts(1.5)
-				.find((part) => part.type === 'decimal')?.value ?? '.';
-		separators.set(locale, separator);
-	}
-	return separator;
-};
 
 /**
  * What a Hold and Win symbol prints on itself, in this game's currency, by its role in the active
@@ -46,7 +30,11 @@ export const coinLabelFor = (symbol: RawSymbol): string | null => {
 				? bookEventAmountToCurrencyString(amount)
 				: numberToCurrencyString(bookEventAmountToNormalisedAmount(amount), decimals);
 		},
-		authored && { ...authored, decimalSeparator: decimalSeparator() },
+		authored && {
+			...authored,
+			// Read off the SAME formatter that prints the amount, never the locale's plain numbers.
+			decimalSeparator: moneyDecimalSeparator((amount) => numberToCurrencyString(amount)),
+		},
 	);
 };
 
@@ -54,9 +42,15 @@ export const coinLabelFor = (symbol: RawSymbol): string | null => {
 export const coinLabelLookFor = (symbol: RawSymbol): CoinLabelLook =>
 	resolveCoinLabelLook(bakedCoinLabel(), symbol.jackpot);
 
-/** The authored count-up length of one label (`coinLabel.animation.countMs`), else `coded`. */
-export const coinLabelCountMs = (coded: number): number =>
-	bakedCoinLabel()?.animation?.countMs ?? coded;
+/**
+ * A count-up length under the authored `coinLabel.animation.countMs`, else `coded`. `countMs` is
+ * authored against `reference` (the payer/boost count); a beat coded shorter or longer than it is
+ * scaled in proportion, so a collect step stays as much quicker than a payer count as it was coded.
+ */
+export const coinLabelCountMs = (coded: number, reference = coded): number => {
+	const countMs = bakedCoinLabel()?.animation?.countMs;
+	return countMs === undefined ? coded : Math.round((countMs * coded) / reference);
+};
 
 /** One pop of a label: a fresh `id` replays it. */
 export type CoinLabelPopCue = { id: number; scale: number; ms: number };

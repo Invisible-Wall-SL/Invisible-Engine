@@ -2,11 +2,20 @@ import type { CoinLabelConfig } from 'engine-layout';
 
 import type { RawSymbol } from './types';
 
-/** The authored formatting a label reads (`doc.coinLabel`), plus the locale's decimal separator so a
- *  fraction can be trimmed in any locale's money. */
+/** The authored formatting a label reads (`doc.coinLabel`), plus the decimal separator OF THE MONEY
+ *  FORMATTER ({@link moneyDecimalSeparator}). Without one, money is never trimmed. */
 export type CoinLabelFormat = Pick<CoinLabelConfig, 'cash' | 'jackpots'> & {
 	decimalSeparator?: string;
 };
+
+/**
+ * The decimal separator `formatAmount` prints, read off its own output for `1.5` — so it is the
+ * separator of the formatter that prints the label (the currency rendering, an operator pattern, a
+ * social coin's `toFixed`), not of the locale's plain numbers, which can differ (`en-DE`). Undefined
+ * when it cannot be read (non-Latin digits), and money is then left untrimmed.
+ */
+export const moneyDecimalSeparator = (formatAmount: (amount: number) => string) =>
+	/1(\D{1,4}?)5/.exec(formatAmount(1.5))?.[1];
 
 /** A multiple of the total bet as the player's currency; `decimals` asks for at least that many. */
 export type CoinLabelMoney = (betMultiple: number, decimals?: number) => string;
@@ -67,5 +76,6 @@ const cashText = (value: number, money: CoinLabelMoney, format?: CoinLabelFormat
 		return `${trimFractionZeros(value.toFixed(BET_MULTIPLE_DIGITS), '.', keep ?? 0)}×`;
 	}
 	const text = money(value, cash.decimals);
-	return keep === undefined ? text : trimFractionZeros(text, format?.decimalSeparator ?? '.', keep);
+	const separator = format?.decimalSeparator;
+	return keep === undefined || !separator ? text : trimFractionZeros(text, separator, keep);
 };

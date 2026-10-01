@@ -3793,8 +3793,9 @@
 								</div>
 								<p class="wl-note">
 									Both pops are off by default. <strong>Count-up length</strong> is how long a label takes
-									to count to its new value when a payer pays it, a multiplier boosts it or a collector
-									collects; blank keeps the coded lengths (600 ms, 350 ms for a collect).
+									to count to its new value when a payer pays it or a multiplier boosts it (coded 600 ms).
+									Each step of a collector's collect scales with it — 350/600 of the length, as coded
+									(350 ms) — so the collect stays quicker. Blank keeps the coded lengths.
 								</p>
 							</div>
 

@@ -435,7 +435,7 @@ export const presentCollectStep = async ({
 		{ index, stagger: 0 },
 	).then(() =>
 		step.to > collectorLabel.target
-			? countTo(collectorLabel, step.to, coinLabelCountMs(COLLECT_COUNT_MS))
+			? countTo(collectorLabel, step.to, coinLabelCountMs(COLLECT_COUNT_MS, COUNT_MS))
 			: undefined,
 	);
 	await Promise.all([playHeldBeat([cell], 'win', { minMs: HIGHLIGHT_MIN_MS }), flight]);

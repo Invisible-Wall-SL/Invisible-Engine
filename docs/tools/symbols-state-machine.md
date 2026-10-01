@@ -661,7 +661,8 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
 - **Animation** — **Pop as the coin sticks** (the label pops when the coin lands and sticks on the
   respin board), **Pop when a count lands** (each time a payer, a multiplier or a collect finishes
   counting a label up), each with a pop scale and length; **Count-up length** (ms) replaces the
-  coded count lengths (600 ms; 350 ms for a collect). Both pops are off by default.
+  coded 600 ms payer / multiplier count, and each collect step scales with it (350/600 of it, the
+  coded proportion). Both pops are off by default.
 
 Assetless: it travels to the game as `bundle.symbols.coinLabel`, and a Font Maker font it names
 ships with the project's font catalog.

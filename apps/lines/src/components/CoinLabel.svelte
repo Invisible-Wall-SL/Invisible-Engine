@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { cubicIn, cubicOut } from 'svelte/easing';
 	import { Container } from 'pixi-svelte';
@@ -27,7 +28,9 @@
 	 * the look is the coded one — `gold`, 0.3 × the symbol, centred, 0.9 wide — and nothing pops.
 	 */
 	const pop = new Tween(1);
-	let seen = 0;
+	// The cue present at mount is already spent: a label that remounts (a mystery revealing) must not
+	// replay the pop its previous instance played.
+	let seen = untrack(() => props.pop?.id ?? 0);
 	$effect(() => {
 		const cue = props.pop;
 		if (!cue || cue.id === seen) return;
