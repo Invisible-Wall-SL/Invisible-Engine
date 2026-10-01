@@ -6,14 +6,15 @@
 
 	import { boardDimensions } from '../game/gameConfig';
 	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
-	import { stateHoldAndWin } from '../game/stateHoldAndWin.svelte';
+	import { activeModifiersText } from '../game/stateHoldAndWin.svelte';
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
 	/**
 	 * THE CODED RESPIN COUNTER — "RESPINS 3" centred above the respin board, pulsing on every reset,
 	 * and under it the modifiers active in this feature ("PAYER · MULTIPLIER", from the entry and any
-	 * mystery unlock since). The default for a project that authored none: Phase 6 gives it a Scene
-	 * Editor component, fed the same state through the `respinsLeft` / `activeModifiers` sources.
+	 * mystery unlock since; a collector the wheel raised reads "DOUBLE COLLECTOR"). The default for a
+	 * project that authored none: Phase 6 gives it a Scene Editor component, fed the same state through
+	 * the `respinsLeft` / `activeModifiers` sources.
 	 */
 	const PULSE_SCALE = 1.35;
 	const pulse = new Tween(1);
@@ -30,9 +31,7 @@
 
 	const x = $derived((getSymbolX(0) + getSymbolX(boardDimensions().x - 1)) / 2);
 	const y = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.3);
-	const modifiers = $derived(
-		stateHoldAndWin.activeModifiers.map((kind) => kind.toUpperCase()).join(' · '),
-	);
+	const modifiers = $derived(activeModifiersText());
 </script>
 
 {#if stateRespinBoard.counter.show}

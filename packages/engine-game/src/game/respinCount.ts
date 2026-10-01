@@ -90,3 +90,20 @@ export const tallyCountUp = ({
 		final: start + total,
 	};
 };
+
+/**
+ * What a held cell is worth, × the total bet — its weight in a count that splits one amount across
+ * cells (a column swept into the Total Win bar). A jackpot coin is its tier's multiplier × its
+ * factor; a cash coin (or a collector) its value; anything else nothing. A jackpot the table does
+ * not name weighs nothing rather than a guess.
+ */
+export const cellWorth = (
+	symbol: { value?: number; jackpot?: string; factor?: number },
+	jackpots: readonly { name: string; multiplier: number }[],
+): number => {
+	if (symbol.jackpot !== undefined) {
+		const tier = jackpots.find((jackpot) => jackpot.name === symbol.jackpot);
+		return tier ? tier.multiplier * (symbol.factor ?? 1) : 0;
+	}
+	return symbol.value !== undefined && Number.isFinite(symbol.value) ? symbol.value : 0;
+};

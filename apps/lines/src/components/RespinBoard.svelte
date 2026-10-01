@@ -4,6 +4,7 @@
 		HoldAndWinCellAmount,
 		HoldAndWinCoinChange,
 		HoldAndWinJackpotSource,
+		HoldAndWinWheelPrize,
 		Position,
 	} from 'engine-game';
 	import type { HoldAndWinSpecial } from 'game-config';
@@ -14,9 +15,9 @@
 	 * handlers and by the flow effects (`showRespinBoard`, `spinRespin`, `stickCoins`,
 	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `boostCoins`,
 	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`,
-	 * `fillMeter`, `playLuckySpinIntro`); broadcasting a cue does not move the board.
-	 * `respinCollectStep` fires once per collected coin, as its moment starts — the hook a per-coin
-	 * sound (and, later, a flight) hangs on.
+	 * `fillMeter`, `playLuckySpinIntro`, `lightLetter`, `instantCollect`, `spinWheel`); broadcasting
+	 * a cue does not move the board. `respinCollectStep` fires once per collected coin, as it takes
+	 * off for the collector (its landing is a `flightArrive` with flight `toCollector`).
 	 *
 	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
 	 * - `potFill` as a meter's specials take off (each landing is a `flightArrive` with flight
@@ -26,6 +27,14 @@
 	 * - `jackpotCelebration` for a banked jackpot (full board, letters, the wheel);
 	 * - `respinTallyStep` each time the Total Win bar steps in the feature end's tally — `total` is
 	 *   what the bar now reads; the last step (`index` = the coin count) adds the banked part.
+	 *
+	 * Grand's letters, Hotfire's wheel and the base-game instant collect:
+	 * - `respinColumnComplete` as a full column's letter lights (`lightLetter`), and
+	 *   `respinColumnStep` each time a swept coin lands in the Total Win bar (`total` = the bar now);
+	 * - `wheelShow` as the wheel pops up, `wheelSpin` as it starts turning, `wheelLand` as it stops
+	 *   on the server's prize (`spinWheel`);
+	 * - `instantCollectWin` as a base-game instant collect's coins take off for their special
+	 *   (`instantCollect`; each landing is a `flightArrive` with flight `toCollector`).
 	 */
 	export type EmitterEventRespinBoard =
 		| { type: 'respinBoardShow' }
@@ -81,13 +90,35 @@
 				amount: number;
 				source: HoldAndWinJackpotSource;
 		  }
-		| { type: 'respinTallyStep'; index: number; amount: number; total: number };
+		| { type: 'respinTallyStep'; index: number; amount: number; total: number }
+		| {
+				type: 'respinColumnComplete';
+				reel: number;
+				letter: string;
+				newlyLit: boolean;
+				cleared: boolean;
+				amount: number;
+				cells: Position[];
+		  }
+		| { type: 'respinColumnStep'; reel: number; index: number; total: number }
+		| { type: 'wheelShow'; prizes: HoldAndWinWheelPrize[] }
+		| { type: 'wheelSpin'; segment: number; prize: HoldAndWinWheelPrize }
+		| { type: 'wheelLand'; segment: number; prize: HoldAndWinWheelPrize }
+		| {
+				type: 'instantCollectWin';
+				specials: HoldAndWinCell[];
+				multiplier: number;
+				times: number;
+				cells: HoldAndWinCellAmount[];
+				amount: number;
+		  };
 </script>
 
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { BoardContainer, respinCellKey } from 'engine-game';
 
+	import HoldAndWinLetters from './HoldAndWinLetters.svelte';
 	import HoldAndWinPots from './HoldAndWinPots.svelte';
 	import RespinCell from './RespinCell.svelte';
 	import RespinCounter from './RespinCounter.svelte';
@@ -110,7 +141,8 @@
 	 *
 	 * The persistent meters' pots (`HoldAndWinPots`) share this container: they sit above the board in
 	 * the base game and the feature alike, and draw nothing — mount nothing — for a game whose config
-	 * declares no meters.
+	 * declares no meters. So do the column letters (`HoldAndWinLetters`), mounted only while the
+	 * board is up on a config whose board ends on letters.
 	 */
 
 	const context = getContext();
@@ -142,4 +174,5 @@
 		</BoardContainer>
 	{/if}
 	<HoldAndWinPots />
+	<HoldAndWinLetters />
 </Container>

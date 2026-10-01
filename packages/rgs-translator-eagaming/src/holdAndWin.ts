@@ -231,7 +231,7 @@ export const translateHoldAndWinEvent = (
 			if (type !== 'coinBoost' && type !== 'extraCollect' && type !== 'jackpot') return null;
 			return {
 				type: 'holdAndWinWheel',
-				index: ctx.index,
+				segment: ctx.index,
 				prize:
 					type === 'coinBoost'
 						? { type, multiplier: prize.multiplier }

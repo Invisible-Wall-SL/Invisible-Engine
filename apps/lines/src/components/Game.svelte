@@ -193,7 +193,12 @@
 		stateGameDerived,
 	} from '../game/stateGame.svelte';
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
-	import { stateHoldAndWin } from '../game/stateHoldAndWin.svelte';
+	import {
+		activeModifiersText,
+		shownCollectorLevel,
+		stateHoldAndWin,
+	} from '../game/stateHoldAndWin.svelte';
+	import { configuredLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
 	import {
 		configuredMeters,
 		meterLevelShown,
@@ -251,6 +256,7 @@
 	import RespinBoard from './RespinBoard.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
+	import HoldAndWinWheel from './HoldAndWinWheel.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -697,9 +703,14 @@
 		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
 		// …and the modifiers active in the feature ("PAYER · MULTIPLIER"), what the coded counter's
 		// second line shows.
-		activeModifiers: textSource(() =>
-			stateHoldAndWin.activeModifiers.map((kind) => kind.toUpperCase()).join(' · '),
-		),
+		activeModifiers: textSource(activeModifiersText),
+		// The collector level (1 single, 2 double, 3 triple — raised by the wheel's `extraCollect`).
+		collectorLevel: valueSource(shownCollectorLevel),
+		// Grand's column letters: how many are lit (each letter's own flag is a visibility source,
+		// below). Registered only for a config whose board ends on column letters.
+		...(configuredLetters().length > 0
+			? { lettersLit: valueSource(() => stateLetters.lit.length) }
+			: {}),
 		// Each persistent meter the Game Config declares: `meter.<id>.level` (the level the pot shows —
 		// the server's, ticking up as a special lands) and `meter.<id>.max`, what Phase 6's authored
 		// pots bind. None declared ⇒ none registered.
@@ -796,6 +807,14 @@
 		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
 		// Hold and Win: true while the respin counter is up — the whole feature, trigger to end.
 		respinCounterShow: boolSource(() => stateRespinBoard.counter.show),
+		// …and each column letter's lit flag (`letter.<reel>.lit`), what Phase 6's authored letters
+		// row binds to swap a letter's lit art in. Only for a config whose board ends on letters.
+		...Object.fromEntries(
+			configuredLetters().map((_, reel) => [
+				`letter.${reel}.lit`,
+				boolSource(() => stateLetters.lit.includes(reel)),
+			]),
+		),
 		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
 		// is active, so the bar shows only when there's a message and hides on the existing
 		// auto-clear — the engine-layout equivalent of the coded HTML `MessageToast`.
@@ -2397,8 +2416,10 @@
 			 pinned celebrations), and empty until a flight runs (`FlightLayer.svelte`). -->
 	<Container zIndex={LAYER_BAND_FLIGHTS}>
 		<FlightLayer />
-		<!-- The Hold and Win banner (Lucky Spin, jackpots): nothing mounted until one is up; its own
-		     zIndex seat puts it above the flights, whatever mounted first. -->
+		<!-- The Hold and Win pre-feature wheel and banner (Lucky Spin, jackpots, the wheel's prize):
+		     nothing mounted until one is up; their own zIndex seats put the wheel above the flights and
+		     the banner above both, whatever mounted first. -->
+		<HoldAndWinWheel />
 		<HoldAndWinBanner />
 	</Container>
 	<!-- Engine-owned TOP band (§11.5-C): the coded path's free-spin counter + the info overlay sit at
