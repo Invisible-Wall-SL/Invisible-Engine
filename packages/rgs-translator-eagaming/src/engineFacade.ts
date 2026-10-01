@@ -1336,6 +1336,24 @@ const abandonResume = (sid: string, open: OpenRound, why: string) => {
  * no mode, and the resume machine — unlike a fresh bet — never drops a bought mode back to base: a
  * resumed buy would leave the NEXT spin buying again at the buy price.
  */
+/**
+ * Where the engine picks a resumed round up (`round.event`, the index of the first book event it
+ * PRESENTS; everything before it is folded into `createBonusSnapshot`).
+ *
+ * A Hold and Win feature that was mid-respin resumes at the end of what the server had already
+ * stored: the snapshot keeps the last `holdAndWinState` (and the mode events), so the respin board is
+ * rebuilt where the player left it, without the trigger, and only the respins still to come play.
+ * Its translation is per event and in order, so the replayed actions alone translate to exactly the
+ * book's first N events. Every other round — and a Hold and Win round whose feature had already
+ * ended — keeps `0`: the whole book plays again, as it always has.
+ */
+const holdAndWinResumePoint = (sid: string, replayed: Play4FunBookEvent[]): number => {
+	if (!capturedHoldAndWin.has(sid)) return 0;
+	const names = replayed.map((e) => e.event);
+	if (!names.includes('enterBonus') || names.includes('gameEnd')) return 0;
+	return adaptEventsForEngine(sid, replayed).length;
+};
+
 const resumeOpenRound = async (
 	sid: string,
 	fetcher: ReturnType<typeof fetcherFor>,
@@ -1387,7 +1405,7 @@ const resumeOpenRound = async (
 			amount: stake ? play4FunToEngine(baseStakeCents(stake)) : undefined,
 			active: true,
 			mode: serverOptions ? serverBetOptionEntries(serverOptions)[0].key : 'BASE',
-			event: '0',
+			event: String(holdAndWinResumePoint(sid, replayed)),
 		},
 	};
 };

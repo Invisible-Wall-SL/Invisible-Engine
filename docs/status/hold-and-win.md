@@ -36,7 +36,7 @@ titled **"Hold and win game pipeline"**.
 | 1 | Kind plumbing + `kindCapabilities()` | merged | Hold and Win Phase 1: register the kind everywhere | #917 |
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
-| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a + 4b merged; 4c (respin board) in review; specials, mystery, pots, Lucky Spin, feature end, flights, Grand/Hotfire next | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 |
+| 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | in progress — 4a, 4b, 4c merged; resume fix + 4d (specials, mystery) + flights next; then pots, Lucky Spin, feature end, Grand/Hotfire | Hold and Win Phase 4 — engine runtime | 4a: #928 · 4b: #931 · 4c: #934 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | not started | — | — |
 | 6 | Scene Editor template + components | not started | — | — |
@@ -67,6 +67,28 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` follows `lines` b
 only has to register its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-01 — **4c live check (#934, merged as `lines@28b09d57cd88`).** Borut parity held (14 base
+  spins, a natural and a bought feature, every balance = the RGS, 0 exceptions). On
+  `hw-3pots-sample` the respin board covers exactly the reel seats, held coins stay, only free cells
+  roll, the counter reads the server's `left` after every `respinUpdate`, a slam compresses a 13-respin
+  chain from ~20 s to 5.6 s with every coin landing, and every balance matches. Follow-ups (not
+  regressions): the "RESPINS 3" counter shows ~0.7 s before the board swaps; a ~100–130 ms frame
+  hitch at the start of every respin (probably the per-cell strip mount — profile); the base reels
+  come back showing the trigger board and the big win plays over it.
+- 2026-10-01 — **Resume did NOT reach the snapshot path, and why.** The Play4Fun facade plays the
+  whole round (every respin + collect) within ~1.6 s of the bet, before anything is presented, so a
+  plain reload finds the round closed. A round left OPEN (requests failed mid-feature) resumed by full
+  replay (`round.event = '0'`), so the trigger played again and `holdAndWinState`'s rebuild was never
+  used. Fixed in the facade: a mid-feature Hold and Win round now resumes at the end of what the
+  server had stored (`holdAndWinResumePoint`), so the engine folds the trigger and the last snapshot
+  into `createBonusSnapshot` and presents only the respins still to come. Other kinds keep `0`.
+- 2026-10-01 — **Pre-existing, every flow-driven game: a resumed book starts playing BEHIND the
+  loading screen.** `ResumeBet` broadcasts `resumeBet` on mount, and a flow-driven game mounts it
+  under the flow's loading/tap-to-start screen, so a resumed feature runs (and can finish, big win
+  included) before the player taps in. Seen on `hw-3pots-sample`; Borut's resume goes through the
+  same path. Owner of the fix: the flow / game-modes area (gate `resumeBet` on the loading screen
+  being dismissed).
 
 - 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
   step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
@@ -269,6 +291,11 @@ only has to register its own vocab + seed.
 
 ## Recent changes
 
+- 2026-10-01 — **4c merged (#934): the respin board** — live as `lines@28b09d57cd88` (findings
+  above). **Then: Hold and Win resume through the snapshot** — the facade hands the engine the
+  resume point of a mid-feature round (`holdAndWinResumePoint`, `engineFacade.ts`), pinned by the
+  facade fixture's resume case (starts at the next `respinReveal`, the snapshot before it is the board
+  held at the break, the trigger is not presented again; a mutant that resumes at 0 fails 4 checks).
 - 2026-10-01 — **Phase 4c: respin board, sticky coins, respin counter** (session "Hold and Win
   Phase 4 — engine runtime", branch `engine/hold-win-4c-respin-board`). `holdAndWinTrigger` swaps
   the reel board for the respin board over the same seats, triggering coins held; `respinReveal`

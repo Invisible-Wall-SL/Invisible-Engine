@@ -25,7 +25,10 @@ import { createMockRgs } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 
 type Facade = typeof import('./src/engineFacade.ts');
 type BookEvent = { type: string; [key: string]: unknown };
-type Answer = { balance?: { amount: number }; round?: { state?: BookEvent[]; active?: boolean } };
+type Answer = {
+	balance?: { amount: number };
+	round?: { state?: BookEvent[]; active?: boolean; event?: string };
+};
 
 let failures = 0;
 let passes = 0;
@@ -311,6 +314,31 @@ for (const type of HW_TYPES) {
 		'resume: the replayed respins rebuild the board held at the break',
 		states[2]?.snapshot.cells.length,
 		held?.cells.length,
+	);
+	// The engine presents the book from `round.event` and folds everything before it into the
+	// snapshot. A mid-feature resume must start at the first respin still to come, with the last
+	// snapshot before it holding the board as the server stored it — so the trigger does not replay.
+	const at = Number(resumed.round?.event);
+	const before = book.slice(0, at);
+	const lastState = before.filter((e) => e.type === 'holdAndWinState').pop() as unknown as
+		| { snapshot: { cells: unknown[] } }
+		| undefined;
+	check('resume: it picks up past the replayed respins, not at 0', at > 0, true);
+	check(
+		'resume: the snapshot before the resume point is the board held at the break',
+		lastState?.snapshot.cells.length,
+		held?.cells.length,
+	);
+	check('resume: the first event presented is the next respin', book[at]?.type, 'respinReveal');
+	check(
+		'resume: the trigger is folded into the snapshot, not presented again',
+		book.slice(at).some((e) => e.type === 'holdAndWinTrigger'),
+		false,
+	);
+	check(
+		'resume: the feature still ends in the presented part',
+		book.slice(at).some((e) => e.type === 'holdAndWinEnd'),
+		true,
 	);
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 }
