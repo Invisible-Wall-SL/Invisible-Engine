@@ -37,13 +37,16 @@
 //
 // THE INTEGRATION CONTRACT (this is the shape the `<Cinematic>` component must use):
 //
-//   spine.autoUpdate = false;          // detaches it from Ticker.shared — nothing self-advances
+//   // autoUpdate stays ON (the default): the Spine is registered ONCE on Ticker.shared
 //   spine.state.clearTracks();         // see "leftover tracks" below
 //   spine.beforeUpdateWorldTransforms = () => evaluateActor(SPINE, actor, t, resolveClip);
-//   // per frame:
-//   t += dt * timeScale;
-//   spine.update(dt);                  // → state.update → skeleton.update(physics) → OUR HOOK
-//                                      //   → updateWorldTransform → slot objects → view dirty
+//   // each tick: update(dt) → state.update → skeleton.update(physics) → OUR HOOK
+//   //   → updateWorldTransform → slot objects → view dirty
+//
+// Part C proves the ticker half against the real runtime: one registration, one update per tick,
+// and no second registration when `autoUpdate = true` is set again. spine-pixi-v8 4.2.74
+// registered twice on a repeated `true` (a double-speed rig); 4.2.120 made the setter idempotent
+// and the ticker configurable (`ticker`, default Ticker.shared).
 //
 // WHY `beforeUpdateWorldTransforms` AND NOT `after`: the hook runs AFTER `state.apply(skeleton)`
 // and BEFORE `skeleton.updateWorldTransform()`. That is the only window where a pose both
@@ -65,7 +68,7 @@
 
 import { readFileSync } from 'node:fs';
 import { evaluateActor } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { SPINE_CORE, spinePixiFile } from './spine.mjs';
+import { SPINE_CORE, pixiEntry, spinePixiFile } from './spine.mjs';
 
 const SPINE = await import(SPINE_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState, AnimationStateData, MixBlend, MixDirection, Physics } = SPINE;
@@ -226,9 +229,52 @@ section('B. Call order — asserted against the SHIPPED spine-pixi-v8 dist');
 	ok('the update marks the view dirty (so the pose we wrote actually re-renders)', iDirty > iSlots && iView > iDirty);
 
 	ok('`update(dt)` is public and routes into that sequence', /update\(dt\)\s*\{\s*this\.internalUpdate\(0, dt\)/.test(src));
-	ok('`autoUpdate = false` detaches the shared ticker', /set autoUpdate\(value\)[\s\S]{0,220}Ticker\.shared\.remove\(this\.internalUpdate, this\)/.test(src));
 	ok('`skeleton` and `state` are public fields we may drive', /^\s*skeleton;/m.test(src) && /^\s*state;/m.test(src));
 	ok('`beforeUpdateWorldTransforms` is an assignable no-op hook', /beforeUpdateWorldTransforms = \(\) => \{/.test(src) || /beforeUpdateWorldTransforms\s*=/.test(src));
+}
+
+// =========================================================================
+section('C. Ticker — the real Spine on the real Ticker.shared (what <CinematicActor> relies on)');
+// =========================================================================
+{
+	// Ticker.shared starts itself on its first listener; Node has no rAF to schedule with.
+	globalThis.requestAnimationFrame ??= () => 0;
+	globalThis.cancelAnimationFrame ??= () => {};
+	const { Ticker } = await import(pixiEntry());
+	const { Spine } = await import(spinePixiFile('dist/index.js').href);
+
+	const base = Ticker.shared.count;
+	const registered = () => Ticker.shared.count - base;
+	let frame = performance.now();
+	const tick = () => Ticker.shared.update((frame += 1000 / 60));
+
+	const spine = new Spine(skeletonData);
+	let updates = 0;
+	let hooks = 0;
+	const run = spine._updateAndApplyState.bind(spine);
+	spine._updateAndApplyState = (dt) => {
+		updates++;
+		run(dt);
+	};
+	spine.beforeUpdateWorldTransforms = () => hooks++;
+
+	ok('a default Spine registers exactly ONE update on Ticker.shared', spine.autoUpdate === true && registered() === 1, `${registered()} registrations`);
+	tick();
+	ok('one tick runs the update once and the BEFORE hook once (no double update)', updates === 1 && hooks === 1, `${updates} updates, ${hooks} hooks`);
+
+	spine.autoUpdate = true;
+	tick();
+	ok('re-asserting `autoUpdate = true` adds no second registration', registered() === 1 && updates === 2, `${registered()} registrations, ${updates} updates`);
+
+	spine.autoUpdate = false;
+	tick();
+	ok('`autoUpdate = false` detaches it from Ticker.shared (spineBacking, the FX stage)', registered() === 0 && updates === 2, `${registered()} registrations, ${updates} updates`);
+	spine.update(1 / 60);
+	ok('`update(dt)` still drives it by hand once detached', updates === 3 && hooks === 3);
+
+	spine.autoUpdate = true;
+	spine.destroy();
+	ok('destroy() leaves nothing on Ticker.shared', registered() === 0, `${registered()} registrations`);
 }
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'} — ${pass}/${pass + fail}`);

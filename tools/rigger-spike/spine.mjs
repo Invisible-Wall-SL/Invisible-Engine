@@ -13,36 +13,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveFromPackage } from './resolve.mjs';
 
 const REQUIRED = /^4\.2\.\d+$/;
 
-/**
- * `name`'s entry file and package dir. A git worktree has no node_modules of its own until someone
- * installs in it, so each ancestor checkout's `packages/pixi-svelte` is tried in turn.
- */
-function resolvePackage(name) {
-	for (let dir = dirname(fileURLToPath(import.meta.url)); ; dir = dirname(dir)) {
-		const anchor = join(dir, 'packages', 'pixi-svelte', 'package.json');
-		if (existsSync(anchor)) {
-			let entry = null;
-			try {
-				entry = createRequire(anchor).resolve(name);
-			} catch {}
-			if (entry) {
-				let pkgDir = dirname(entry);
-				while (!existsSync(join(pkgDir, 'package.json'))) pkgDir = dirname(pkgDir);
-				return { entry, pkgDir };
-			}
-		}
-		if (dirname(dir) === dir) {
-			console.error(`✗ ${name} not found from any packages/pixi-svelte — run pnpm install`);
-			process.exit(1);
-		}
-	}
-}
-
 function spinePackage(name) {
-	const found = resolvePackage(name);
+	const found = resolveFromPackage(name, 'pixi-svelte');
 	const { version } = JSON.parse(readFileSync(join(found.pkgDir, 'package.json'), 'utf8'));
 	if (!REQUIRED.test(version)) {
 		console.error(
@@ -60,3 +36,15 @@ export const SPINE_CORE = pathToFileURL(spinePackage('@esotericsoftware/spine-co
 /** A file inside the spine-pixi-v8 package, e.g. `dist/Spine.js`, as a file URL. */
 export const spinePixiFile = (sub) =>
 	pathToFileURL(join(spinePackage('@esotericsoftware/spine-pixi-v8').pkgDir, sub));
+
+/**
+ * pixi.js's ESM entry as spine-pixi-v8 resolves it — the instance its `Spine` imports, so its
+ * `Ticker.shared` is the one a `Spine` registers on.
+ */
+export function pixiEntry() {
+	const spinePkg = fileURLToPath(spinePixiFile('package.json'));
+	let dir = dirname(createRequire(spinePkg).resolve('pixi.js'));
+	while (!existsSync(join(dir, 'package.json'))) dir = dirname(dir);
+	const entry = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).exports['.'].import;
+	return pathToFileURL(join(dir, typeof entry === 'string' ? entry : entry.default)).href;
+}

@@ -61,10 +61,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
     `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
     `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than Spine's).
     Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
-14. **Seven spikes still hard-code `.pnpm/esbuild@0.25.5/…`** (`irig-save`, `rigtext`,
-    `rigtext-runtime`, `rigtext-panel`, `reindex-preserve`, `cinematic-flow`, `cinematic-storage`).
-    Any esbuild bump breaks them with ERR_MODULE_NOT_FOUND, and Dependabot's #911 group carries
-    esbuild 0.25.5 → 0.28.2. They need the same fix Spine got: resolve through a workspace package.
+14. ~~Seven spikes hard-code `.pnpm/esbuild@0.25.5/…`~~ — fixed 2026-10-01 (Recent changes).
 
 ## Blocked (owner / external)
 
@@ -75,6 +72,17 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-01 — **The esbuild spikes resolve esbuild through the workspace** (was open item 14).
+  `irig-save`, `rigtext`, `rigtext-runtime`, `rigtext-panel`, `reindex-preserve`,
+  `cinematic-flow` and `cinematic-storage` hard-coded `.pnpm/esbuild@0.25.5/…`; they now
+  `import { ESBUILD } from './esbuild.mjs'`, which resolves esbuild from `packages/engine-layout`
+  (the package that declares it). `spine.mjs` and `esbuild.mjs` share one ancestor-walking
+  resolver, `resolve.mjs`. All seven pass on esbuild 0.28.2 (the #929 group bump).
+- 2026-10-01 — **`cinematic-pixi` checks the ticker by behaviour, not by regex** — part C builds a
+  real `Spine` on the real `Ticker.shared` and asserts one registration, one update per tick, no
+  second registration on a repeated `autoUpdate = true`, and that `autoUpdate = false` detaches it.
+  Its old source regex broke on spine-pixi-v8 4.2.120's rewritten setter. Verdict:
+  [cinematic](cinematic.md).
 - 2026-10-01 — **Rig edits undo and redo** (was open item 1). ↶ ↷ beside the mode toggle, Ctrl+Z /
   Ctrl+Shift+Z / Ctrl+Y, in Preview / Setup / Animate and while tweaking a cinematic clip; the plain
   Cinematic stage keeps its own history. One step per user action, drag, typing burst or

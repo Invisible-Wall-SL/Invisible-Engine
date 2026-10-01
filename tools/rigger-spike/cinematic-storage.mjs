@@ -14,9 +14,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
-const ESBUILD = new URL('node_modules/.pnpm/esbuild@0.25.5/node_modules/esbuild/lib/main.js', ROOT).href;
 const SERVER_DIR = fileURLToPath(new URL('apps/launcher-api/src/lib/server/', ROOT));
 const esbuild = await import(ESBUILD);
 

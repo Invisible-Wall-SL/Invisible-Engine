@@ -22,14 +22,13 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join, extname } from 'node:path';
 import { launchChrome } from './chrome.mjs';
+import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
 const RIG_DIR = fileURLToPath(new URL('apps/lines/static/assets/spines/anticipation/', ROOT));
 const FONT_DIR = fileURLToPath(new URL('apps/lines/static/assets/fonts/goldFont/', ROOT));
 const LIB = fileURLToPath(new URL('apps/launcher-api/src/lib/', ROOT));
-const ESBUILD = new URL('node_modules/.pnpm/esbuild@0.25.5/node_modules/esbuild/lib/main.js', ROOT)
-	.href;
 
 // The REAL atlas composer — the fake API must recompose exactly like the server does, or this
 // gate would be testing a re-implementation instead of the shipping one.

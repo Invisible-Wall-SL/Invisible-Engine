@@ -117,6 +117,30 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-01 — **Dependabot's 34-package npm group (#929) and TypeScript 5.9.3 (#915) land in one
+  PR.** This is a runtime release: pixi.js 8.8 → 8.21, svelte 5.35 → 5.57, spine-pixi-v8 4.2.74 →
+  4.2.120, SvelteKit 2.17 → 2.70, xstate, tsx 4.23, esbuild 0.28 and more. #929 was red for four
+  reasons, plus one finding:
+  - ESLint: svelte 5.57 no longer emits two a11y warnings, so two `svelte-ignore` comments became
+    unused (editor `+page.svelte`, flow-v2 `PinDropMenu.svelte`). Removed.
+  - svelte-check: pixi 8.21 types `container.filters` as `readonly Filter[]`
+    (`cameraEffects.ts`). TS 5.9 made six launcher `new Response(bytes)` calls fail
+    (`Uint8Array<ArrayBufferLike>` is not a `BodyInit`). Fixed once, in `getObjectBytes`, which now
+    returns `Uint8Array<ArrayBuffer>` through a type predicate (no copy on Node). Baselines went down:
+    components-storybook 8 → 7 and engine-layout 296 → 291.
+  - `tools/flow-spike:slamcounter`: tsx ≥ 4.20 resolves through `module.registerHooks` and
+    short-circuits every specifier, so the stub's off-thread `register()` hook never ran
+    (ERR_UNKNOWN_FILE_EXTENSION ".svelte"). It now registers in-thread.
+  - `cinematic-pixi`'s source regex broke on spine-pixi-v8's rewritten `autoUpdate` setter. Verdict
+    and the behavioural replacement: [cinematic](cinematic.md). The seven esbuild spikes stopped
+    hard-coding `esbuild@0.25.5` ([rigger](rigger.md)).
+  - Found in the browser proof: `<Cinematic>` had thrown on every in-game mount since it was written.
+    The cause is a pre-existing bug, not the bump ([cinematic](cinematic.md)).
+  - Before merge: a local `apps/lines` build played the remake's live data at 60 fps on the headless
+    shell, against the book mock with `BIG_WIN=1`. It covered spins, a MEGA WIN, a bought 10-spin
+    round with intro and outro, and the cinematic. Every spine track ran at 1.00× real time, no
+    update ran twice in a tick, and there were 0 console errors. The 13
+    `[Cache] already has key` warnings are also on the live pixi 8.8 build.
 - 2026-10-01 — **Dependabot stops offering Spine 4.3.** The weekly `npm-minor-patch` group (#911)
   carried `@esotericsoftware/spine-core` + `spine-pixi-v8` 4.2.74 → 4.3.13 among 34 bumps, because
   semver calls it a minor. For Spine it is a data-format boundary: the runtime must match the editor
