@@ -143,6 +143,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 
 	let state = emptyHoldAndWinState();
 	let snapshots = 0;
+	let lastTotal = 0;
 	for (const event of events) {
 		if (!HW_TYPES.has(event.type)) continue;
 		if (event.type === 'holdAndWinState') {
@@ -159,6 +160,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 				check(`${label}: snapshot ${snapshots} — counter`, state.left, server.left);
 			}
 			check(`${label}: snapshot ${snapshots} — banked`, state.banked, server.banked);
+			lastTotal = server.total;
 		}
 		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
 	}
@@ -174,6 +176,13 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 		check(
 			`${label}: the end's total is its cells plus what was banked (±rounding)`,
 			Math.abs(sum - end.total) <= end.payload.cells.length,
+			true,
+		);
+		// The running total the facade computes for each snapshot (roles × values + the jackpot
+		// table) must land where the server's own tally does.
+		check(
+			`${label}: the last snapshot's total is the end's total (±rounding)`,
+			Math.abs(lastTotal - end.total) <= end.payload.cells.length,
 			true,
 		);
 		const close = events.filter((e) => e.type === 'setTotalWin').pop() as
@@ -258,6 +267,51 @@ for (const type of HW_TYPES) {
 		| undefined;
 	check('instant collect: translated', Boolean(instant), true);
 	check('instant collect: amounts in book units', (instant?.amount ?? 0) > 0, true);
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+// RESUME: a feature left open after two respins, picked up by a fresh tab. The replayed `bet` sets
+// the base before any amount converts, and the book rebuilds the feature to its end.
+{
+	const { server, rgsUrl } = await hush(() => startMock('pots', 'trigger'));
+	const sid = 'fx-resume';
+	const post = async (seq: number, gid: string | null, body: unknown) => {
+		const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+		const res = await fetch(`http://${rgsUrl}/rgs/engine?${query}`, {
+			method: 'POST',
+			body: JSON.stringify(body),
+		});
+		return (await res.json()) as {
+			platform: { gameRound?: { id?: string } };
+			events: { event: string; context?: { holdAndWin?: { cells: unknown[] } } }[];
+		};
+	};
+	await post(0, null, [{ action: 'config' }]);
+	const opened = await post(0, null, [
+		{ action: 'bet', context: [25, 4] },
+		{ action: 'play', context: null },
+	]);
+	const gid = opened.platform.gameRound?.id ?? null;
+	let last = opened;
+	for (const seq of [2, 3]) last = await post(seq, gid, [{ action: 'play' }]);
+	const held = last.events.find((e) => e.event === 'playedBonusSpin')?.context?.holdAndWin;
+	check('resume: the feature is open after two respins', Boolean(gid && held), true);
+
+	const facade = await openTab();
+	const resumed = await hush(
+		async () =>
+			(await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' })) as Answer,
+	);
+	const book = resumed.round?.state ?? [];
+	verifyRound('resume', book);
+	const states = book.filter((e) => e.type === 'holdAndWinState') as unknown as {
+		snapshot: { cells: unknown[] };
+	}[];
+	check(
+		'resume: the replayed respins rebuild the board held at the break',
+		states[2]?.snapshot.cells.length,
+		held?.cells.length,
+	);
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 

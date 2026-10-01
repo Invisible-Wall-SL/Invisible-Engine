@@ -68,6 +68,12 @@
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
 	/**
+	 * A Hold and Win coin's value, jackpot tier or factor. Like the multiplier stamp it draws even
+	 * with no art bound — the value is what the player reads — and it sits in its own band after the
+	 * win frame's, so a frame mounting later on `win` cannot land on top of it.
+	 */
+	const coinLabel = $derived(coinLabelFor(props.rawSymbol));
+	/**
 	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
 	 * (`symbolStateLoopsByDefault`) — loop for a state that says how a symbol IS, one-shot for a
 	 * TERMINAL one that says it is leaving (`explosion`, `clearReel`). An explicit `loop` prop still
@@ -98,9 +104,6 @@
 	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
 	 * reads as a rendering fault rather than as the missing binding it is.
 	 */
-	/** A Hold and Win coin's value, jackpot tier or factor — drawn with the readouts, over the art. */
-	const coinLabel = $derived(coinLabelFor(props.rawSymbol));
-
 	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
 
 	/**
@@ -237,7 +240,9 @@
 			}}
 		/>
 	{/if}
+</Container>
 
+<Container tint={props.tint}>
 	{#if coinLabel}
 		<ResponsiveBitmapText
 			anchor={0.5}

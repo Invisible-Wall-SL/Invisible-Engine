@@ -583,7 +583,7 @@ const toRawSymbol = (
 	mapping: GameMapping,
 	cell: string,
 	holdAndWin = false,
-): { name: string; multiplier?: number } => {
+): { name: string; multiplier?: number; value?: number; jackpot?: string; factor?: number } => {
 	if (holdAndWin) {
 		const symbol = parseHoldAndWinCell(cell);
 		return { ...symbol, name: mapSymbol(mapping, symbol.name) };
@@ -663,8 +663,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	// spin — a whole feature can arrive in one batch, with a `playedBonusSpin` per spin. Reading
 	// only the FIRST and latching after one emit collapsed the entire feature to a single tick, so
 	// the panel sat on "1 OF 10" for all ten spins.
-	const bonusSpins = events
-		.filter((e) => !holdAndWin && e.event === 'playedBonusSpin')
+	const bonusSpins = (holdAndWin ? [] : events)
+		.filter((e) => e.event === 'playedBonusSpin')
 		.map((e) => e.context as { played?: number; left?: number } | undefined);
 	let bonusCursor = 0;
 	let bonusSeen = 0;

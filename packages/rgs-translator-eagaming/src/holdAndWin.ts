@@ -10,7 +10,8 @@
  *
  * Units: positions stay the wire's VISIBLE 0-based ones (the engine contract uses them too); a
  * wire `amount` is credits and becomes book-event units through `toAmount`; a `value` stays × the
- * base total bet.
+ * base total bet. Symbol names pass through unmapped: a Hold and Win server maps by identity
+ * (`pickMappingForConfig`), so they agree with the mapped `reveal` board.
  */
 
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
@@ -202,6 +203,7 @@ export const translateHoldAndWinEvent = (
 		case 'holdAndWinWheel': {
 			const prize = (ctx.prize ?? {}) as Record<string, unknown>;
 			const { type } = prize;
+			if (type !== 'coinBoost' && type !== 'extraCollect' && type !== 'jackpot') return null;
 			return {
 				type: 'holdAndWinWheel',
 				index: ctx.index,
@@ -225,7 +227,8 @@ export const translateHoldAndWinEvent = (
 				activates: ctx.activates ?? [],
 			};
 		case 'coinPay': {
-			const payer = ctx.payer as WireCell;
+			const payer = ctx.payer as WireCell | undefined;
+			if (!payer) return null;
 			return {
 				type: 'coinPay',
 				payer: { ...cellOf(payer), symbol: { name: payer.symbol, value: ctx.value } },
@@ -259,7 +262,8 @@ export const translateHoldAndWinEvent = (
 				symbol: { name: ctx.symbol, value: ctx.value },
 			};
 		case 'coinCollect': {
-			const collector = ctx.collector as WireCell;
+			const collector = ctx.collector as WireCell | undefined;
+			if (!collector) return null;
 			return {
 				type: 'coinCollect',
 				collector: { ...cellOf(collector), symbol: { name: collector.symbol, value: ctx.value } },
