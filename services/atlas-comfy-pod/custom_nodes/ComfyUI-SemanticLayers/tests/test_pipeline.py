@@ -5,6 +5,7 @@ Debug — on synthetic layers, including the case that matters most: the same la
 in a different order must produce the same semantic outputs, all the way down to the
 content hashes that make the layer ids.
 """
+# check: requires torch — the real nodes run on real tensors
 
 from __future__ import annotations
 

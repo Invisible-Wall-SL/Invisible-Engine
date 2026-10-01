@@ -23,7 +23,7 @@ Works today on `main` / live:
   not dropped. Switching atlases is a selection, not a settings edit. Creates are `If-None-Match`
   claims; replacing a taken name asks, naming who holds it. A doc no author has saved since this
   shipped asks once after a render ("changed since this page loaded"). A second person on the same
-  atlas sees **"👤 X is editing this atlas"** (`/presence`, advisory). `test_doc_conflicts.py` (114,
+  atlas sees **"👤 X is editing this atlas"** (`/presence`, advisory). `test_doc_conflicts.py` (115,
   incl. a two-thread race, the review's walk-arounds as mutants, and the page wrapper under node).
   ⏳ Not yet run live with two browsers.
 - **Three layouts, chosen per atlas** _(2026-09-17)_. `pack` (the packer owns the page: it
@@ -117,6 +117,12 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-01 — **Stop cancels a serverless job on the endpoint it was submitted to.** The
+  `@@RUNPOD_JOB@@` marker now carries `<job id> <endpoint>` (`batch_atlas.read_runpod_job_mark`),
+  `_render_state` keeps `runpodEndpoint`, and `_runpod_run_and_wait` polls and gives up on the
+  endpoint returned by `runpod_submit`, never the current env — so a rotated
+  `RUNPOD_ENDPOINT_ID` cannot send a cancel to the wrong endpoint. Shared with the video runner;
+  detail in [flipbook.md](flipbook.md) (2026-10-01).
 - 2026-10-01 — **`test_the_page_wrapper` no longer races the clock.** Its node harness raced the save
   against a 500 ms timer (there only so the "reload theirs" case, which leaves the caller pending,
   could finish); on a slow CI runner the overwrite dialog → re-send outran it and the test died at
@@ -134,7 +140,8 @@ _Nothing._
   the signed identity), machine writes CAS-only. `doc-guard.js` wraps the page's `fetch` so all ~40
   inline POSTs carry the page's versions and a 409 becomes the reload / overwrite prompt. Also: the
   Flipbook's ref export claims its atlas name `If-None-Match`; a clip re-export is `If-Match`; the
-  "X is editing this atlas" banner (`/presence`, `iw_common/lease.py` + `holderName`). Design:
+  "X is editing this atlas" banner (`/presence`, `iw_common/lease.py` + `holderName`; since
+  2026-10-01 in `iw_common/presence.py`/`.js`, shared with the Sheet Maker). Design:
   [multi-user-concurrency Phase 3b](../design/multi-user-concurrency.md). Live run owed (item 14).
 - 2026-09-30 — **The still path cancels a job before abandoning it** (`batch_atlas.py`
   `_runpod_run_and_wait`). A 404 on a job already read is re-read at +10/+30/+70/+150 s instead of

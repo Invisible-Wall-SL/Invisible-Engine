@@ -43,7 +43,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Spine Viewer** | [status/spine-viewer](status/spine-viewer.md) | — | [tools/spine-viewer](tools/spine-viewer.md) | `launcher-studio` |
 | **Launcher / platform** | [status/launcher](status/launcher.md) | [design/unified-project-repo](design/unified-project-repo.md) | [tools/launcher](tools/launcher.md) | `launcher-studio` |
 | **Engine & games** (runtime) | [status/engine](status/engine.md) | [design/flow-driven-game](design/flow-driven-game.md) | — | `engine-pixi-svelte` |
-| **Hold and Win** (game kind, planned — session hub) | [status/hold-and-win](status/hold-and-win.md) | [design/hold-and-win](design/hold-and-win.md) | — | per phase |
+| **Hold and Win** (game kind — engine runtime built; authoring phases 5–8 in progress — session hub) | [status/hold-and-win](status/hold-and-win.md) | [design/hold-and-win](design/hold-and-win.md) | — | per phase |
 | **Invisible Playtester** (automated QA) | [status/playtester](status/playtester.md) | [design/invisible-playtester](design/invisible-playtester.md) | [playtest/](playtest/README.md) | `game-playtester` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
 

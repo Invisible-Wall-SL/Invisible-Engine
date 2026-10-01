@@ -13,6 +13,7 @@ a save states the version it replaces and lands only on that one.
 """
 from __future__ import annotations
 
+import contextlib
 import http.client
 import io
 import json
@@ -21,7 +22,6 @@ import plistlib
 import sys
 import tempfile
 import threading
-import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -62,7 +62,6 @@ class FakeR2:
         self.n = 0
         self.puts: list[tuple[str, str | None, str | None]] = []
         self.before_put = None          # hook(fake, key, if_match, if_none_match)
-        self.read_delay = 0.0
         self.unreadable = False
         self.unlistable: tuple[str, ...] = ()
 
@@ -88,8 +87,6 @@ class FakeR2:
     def get_with_etag(self, key: str):
         if self.unreadable:
             raise storage.ObjectUnreadable(f"{key}: throttled")
-        if self.read_delay:
-            time.sleep(self.read_delay)
         with self.lock:
             o = self.objs.get(key)
         return None if o is None else (o[0], o[1])
@@ -554,29 +551,96 @@ def test_unlock() -> None:
     check("...and with the current base returns it", res.get("etag"), cur)
 
 
+RACE_WAIT_S = 10.0
+
+
+class Overlap:
+    """Makes two racing exports overlap by construction, not by scheduling.
+
+    The first thread past the pre-check holds there until the other one has
+    either passed its own pre-check (nothing kept it out) or is waiting on the
+    sheet's lock (the lock kept it out). So the race is decided by the code
+    under test every run — a slow runner can no longer let one thread finish
+    before the other starts. Bounded, so a real deadlock fails fast."""
+
+    def __init__(self) -> None:
+        self.cv = threading.Condition()
+        self.checked = 0
+        self.blocked = 0
+
+    def after_precheck(self) -> None:
+        with self.cv:
+            self.checked += 1
+            self.cv.notify_all()
+            if not self.cv.wait_for(lambda: self.checked == 2 or self.blocked, RACE_WAIT_S):
+                raise TimeoutError("the other export reached neither the pre-check nor the lock")
+
+    def blocked_on_lock(self) -> None:
+        with self.cv:
+            self.blocked += 1
+            self.cv.notify_all()
+
+
+class ContendedLock:
+    """A sheet lock that tells `Overlap` when a thread has to wait for it."""
+
+    def __init__(self, overlap: Overlap) -> None:
+        self.lock = threading.Lock()
+        self.overlap = overlap
+
+    def __enter__(self) -> None:
+        if not self.lock.acquire(blocking=False):
+            self.overlap.blocked_on_lock()
+            self.lock.acquire()
+
+    def __exit__(self, *exc) -> None:
+        self.lock.release()
+
+
 def test_lock_serialises_one_sheet() -> None:
     seed("S5")
     e0 = export("S5", "", "Alice")["etag"]
+    lock_key = next(k for k in sheet_server._SHEET_LOCKS if k[2] == "S5")
 
-    def race() -> tuple[list[dict], int]:
+    def race(base: str, locked: bool) -> tuple[list[dict], int, int, list[str]]:
         start = COMPOSES[0]
         out: list[dict] = []
-        gate = threading.Barrier(2)
+        errors: list[str] = []
+        overlap = Overlap()
+        real_lock = sheet_server._SHEET_LOCKS[lock_key]
+        real_guard, real_check = sheet_server._sheet_guard, sheet_server._check_base
+
+        def check_then_overlap(sheet, base_etag):
+            res = real_check(sheet, base_etag)
+            overlap.after_precheck()
+            return res
 
         def run(who: str, x: int) -> None:
-            gate.wait()
-            out.append(export("S5", e0, who, x))
+            try:
+                out.append(export("S5", base, who, x))
+            except Exception as e:
+                errors.append(f"{who}: {e!r}")
 
-        FAKE.read_delay = 0.2
-        ts = [threading.Thread(target=run, args=(w, x)) for w, x in (("Ann", 0), ("Ben", 30))]
-        for t in ts:
-            t.start()
-        for t in ts:
-            t.join()
-        FAKE.read_delay = 0.0
-        return out, COMPOSES[0] - start
+        sheet_server._SHEET_LOCKS[lock_key] = ContendedLock(overlap)
+        sheet_server._check_base = check_then_overlap
+        if not locked:
+            sheet_server._sheet_guard = lambda *s: contextlib.nullcontext()
+        try:
+            ts = [threading.Thread(target=run, args=(w, x), name=w)
+                  for w, x in (("Ann", 0), ("Ben", 30))]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(3 * RACE_WAIT_S)
+            errors += [f"{t.name}: still running" for t in ts if t.is_alive()]
+        finally:
+            sheet_server._SHEET_LOCKS[lock_key] = real_lock
+            sheet_server._sheet_guard, sheet_server._check_base = real_guard, real_check
+        return out, COMPOSES[0] - start, overlap.blocked, errors
 
-    out, composed = race()
+    out, composed, blocked, errors = race(e0, locked=True)
+    check("both racers finished without an error", errors, [])
+    check("...and they met: one waited on the sheet's lock", blocked, 1)
     landed = [r for r in out if not r.get("conflict")]
     lost = [r for r in out if r.get("conflict")]
     check("two threads, one version: exactly one save lands", (len(landed), len(lost)), (1, 1))
@@ -588,15 +652,9 @@ def test_lock_serialises_one_sheet() -> None:
 
     # Mutant: without the per-sheet lock both threads pass the pre-check and both
     # compose — R2's precondition still refuses one manifest, but only after its
-    # page was written. Proves the check above can see the lock.
-    real_guard = sheet_server._sheet_guard
-    import contextlib
-    sheet_server._sheet_guard = lambda *s: contextlib.nullcontext()
-    try:
-        e0 = norm(FAKE.etag(man_key("S5")))
-        out, composed = race()
-    finally:
-        sheet_server._sheet_guard = real_guard
+    # page was written. Same race, same overlap: proves the check above can see the lock.
+    out, composed, _, errors = race(norm(FAKE.etag(man_key("S5"))), locked=False)
+    check("(mutant) both racers finished without an error", errors, [])
     check("(mutant) without the lock both compose", composed, 2)
 
 

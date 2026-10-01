@@ -315,7 +315,7 @@ const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
 export const presentLuckySpin = async () => {
 	armLuckySpinReveal();
 	eventEmitter.broadcast({ type: 'luckySpinIntro' });
-	const banner = showHoldAndWinBanner({ title: 'LUCKY SPIN', size: 'large' });
+	const banner = showHoldAndWinBanner({ kind: 'luckySpin', title: 'LUCKY SPIN', size: 'large' });
 	await waitPresentation(LUCKY_INTRO_MS);
 	hideHoldAndWinBanner(banner);
 };
@@ -627,6 +627,7 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 	}
 	const factors = [event.multiplier, event.times].filter((factor) => factor > 1);
 	const banner = showHoldAndWinBanner({
+		kind: 'instantWin',
 		title: 'INSTANT WIN',
 		detail: [
 			...factors.map((factor) => `×${factor}`),
@@ -695,6 +696,7 @@ export const presentWheel = async (event: Beat<'holdAndWinWheel'>) => {
 	}
 	if (event.prize.type === 'jackpot') return;
 	const banner = showHoldAndWinBanner({
+		kind: 'wheelPrize',
 		title: wheelPrizeLabel(event.prize),
 		detail: wheelPrizeDetail(event.prize),
 		size: 'small',
@@ -732,6 +734,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 			source: event.source,
 		});
 		const banner = showHoldAndWinBanner({
+			kind: 'jackpot',
 			title: `${event.tier} JACKPOT`,
 			detail: event.source === 'fullBoard' ? `FULL BOARD  ${amount}` : amount,
 			size: 'large',
@@ -746,7 +749,12 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		return;
 	}
 	if (event.source !== 'coin' || !event.cell || !stateRespinBoard.shown) return;
-	const banner = showHoldAndWinBanner({ title: event.tier, detail: amount, size: 'small' });
+	const banner = showHoldAndWinBanner({
+		kind: 'coinJackpot',
+		title: event.tier,
+		detail: amount,
+		size: 'small',
+	});
 	await Promise.all([
 		playHeldBeat([event.cell], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS }),
 		waitPresentation(COIN_JACKPOT_MS),

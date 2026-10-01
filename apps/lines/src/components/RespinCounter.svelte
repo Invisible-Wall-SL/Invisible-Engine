@@ -3,6 +3,7 @@
 	import { backOut } from 'svelte/easing';
 	import { Container, Text } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
+	import { isComponentMounted } from 'engine-layout/svelte';
 
 	import { boardDimensions } from '../game/gameConfig';
 	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
@@ -13,8 +14,8 @@
 	 * THE CODED RESPIN COUNTER — "RESPINS 3" centred above the respin board, pulsing on every reset,
 	 * and under it the modifiers active in this feature ("PAYER · MULTIPLIER", from the entry and any
 	 * mystery unlock since; a collector the wheel raised reads "DOUBLE COLLECTOR"). The default for a
-	 * project that authored none: Phase 6 gives it a Scene Editor component, fed the same state through
-	 * the `respinsLeft` / `activeModifiers` sources.
+	 * project that authored none: it steps aside while an authored `respinCounter` component (fed the
+	 * same state through `respinsLeft`) is mounted.
 	 */
 	const PULSE_SCALE = 1.35;
 	const pulse = new Tween(1);
@@ -34,7 +35,7 @@
 	const modifiers = $derived(activeModifiersText());
 </script>
 
-{#if stateRespinBoard.counter.show}
+{#if stateRespinBoard.counter.show && !isComponentMounted('respinCounter')}
 	<Container {x} {y} scale={pulse.current}>
 		<Text
 			anchor={0.5}

@@ -98,6 +98,7 @@
 		FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 		TAP_TO_CONTINUE_DEF,
 		LOADING_BAR_DEF,
+		HOLD_AND_WIN_COMPONENTS,
 		findReelGridNode,
 		backgroundCoverAnchor,
 		backgroundCoverScale,
@@ -141,6 +142,7 @@
 		publishSoundBindings,
 		publishWinLevelsToFacade,
 		publishWinPresentation,
+		getActiveGameConfig,
 		resetGameConfigCache,
 		captureServerGrid,
 		warnOnGameConfigIssues,
@@ -257,6 +259,10 @@
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
 	import HoldAndWinWheel from './HoldAndWinWheel.svelte';
+	import PotMeter from './PotMeter.svelte';
+	import LettersStrip from './LettersStrip.svelte';
+	import HoldAndWinWheelPart from './HoldAndWinWheelPart.svelte';
+	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -495,6 +501,11 @@
 		// (`completeActiveScreen` + `emitFlowSignal(tapSignal)`). Unused until an author
 		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
 		TapToContinue,
+		// The Hold and Win components' coded parts (`potMeter`, `lettersStrip`, `wheel` defs): live
+		// pots, lit letters and the config's wheel, which the static node model can't express.
+		PotMeter,
+		LettersStrip,
+		HoldAndWinWheelPart,
 	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
@@ -568,6 +579,9 @@
 			// when boot loading finishes — the loading gate becomes authorable in `/flow`. Inert
 			// until a doc references it (parity); the capability is a no-op with no active interpreter.
 			[LOADING_BAR_DEF.id]: LOADING_BAR_DEF,
+			// The kind-gated Hold and Win components (respin counter, jackpot bar / tile, total win
+			// bar, pot meter, letters strip, wheel). Inert until a doc places one (parity).
+			...Object.fromEntries(HOLD_AND_WIN_COMPONENTS.map((def) => [def.id, def])),
 			// BUILT-IN (lowest precedence): these SEED the engine defs, but `registerBakedComponents()`
 			// (below) must be free to override any id with the project's EDITED def — so the built-in
 			// never shadows a baked/project def, whatever the boot order (§8 "project shadows shared").
@@ -720,6 +734,21 @@
 				[`meter.${id}.max`, valueSource(() => meterMax(id))],
 			]),
 		),
+		// What the authored Total Win bar reads: the win meter the feature end counts every coin into
+		// (`tallyCountUp`), so the bar and the HUD win readout can never disagree.
+		featureTotal: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
+		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
+		// authored jackpot tiles read. None configured ⇒ none registered.
+		...Object.fromEntries(
+			(getActiveGameConfig().holdAndWin?.jackpots ?? []).map(({ name, multiplier }) => [
+				`jackpot.${name.toLowerCase()}`,
+				valueSource(() => multiplier * stateBetDerived.betCost(), numberToCurrencyString),
+			]),
+		),
+		// The coded banner's headline and detail line ("GRAND JACKPOT", the amount), what the authored
+		// `luckySpin` / `jackpotWin` screens show — one beat sets them for both paths.
+		holdAndWinBanner: textSource(() => stateHoldAndWinBanner.current?.title ?? ''),
+		holdAndWinBannerDetail: textSource(() => stateHoldAndWinBanner.current?.detail ?? ''),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
 		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
 		// presents the retrigger.
@@ -815,6 +844,9 @@
 				boolSource(() => stateLetters.lit.includes(reel)),
 			]),
 		),
+		// …and the two banner beats the authored `luckySpin` / `jackpotWin` screens gate on.
+		luckySpinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'luckySpin'),
+		jackpotWinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'jackpot'),
 		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
 		// is active, so the bar shows only when there's a message and hides on the existing
 		// auto-clear — the engine-layout equivalent of the coded HTML `MessageToast`.
@@ -1314,6 +1346,14 @@
 		// (since the stock scene carries the coded `BoardFrame` anchor) would mount the coded glow
 		// a second time on an un-authored game.
 		'boardGlow',
+		// The Hold and Win beat screens (`referenceLayouts/holdAndWin.ts`) are a flow's to show around
+		// their beat, like the free-spin intro/outro above: mounted generically they would hold a tap
+		// dim over every respin, and the Lucky Spin / jackpot ones would double the coded banner.
+		'featureIntro',
+		'featureOutro',
+		'wheel',
+		'luckySpin',
+		'jackpotWin',
 		// The buy-bonus SELECT menu is mounted by its OWN `<BuyFeatureScreen>` takeover (below),
 		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
 		// (which would show the feature cards permanently).
