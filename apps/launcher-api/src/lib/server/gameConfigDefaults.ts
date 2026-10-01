@@ -144,6 +144,11 @@ export async function resolveBigTiers(
 	gameType: string | undefined,
 ): Promise<BigTier[]> {
 	const { doc } = await resolveGameConfig(clientKey, projectKey, gameType);
+	return bigTiersOf(doc);
+}
+
+/** {@link resolveBigTiers} for a config already in hand. */
+export function bigTiersOf(doc: GameConfigDoc | null): BigTier[] {
 	const tiers = doc ? resolveWinLevels(doc) : undefined;
 	if (!tiers) return [];
 	return tiers

@@ -112,6 +112,9 @@ The page shows a **live preview** of what the current templates will actually sa
 using one of your real symbols — one for a normal win and one for an expanded win,
 because the two must read differently.
 
+**Expanded symbol win** appears only for a **Book-of** game, the one kind whose
+special symbol expands. Other kinds don't show the box or its preview.
+
 If a message is fired with no symbol, the game uses **Amount only** rather than
 printing an empty name — so you never see a blank or a stray `{symbolName}`.
 
@@ -147,10 +150,54 @@ retrigger screen and bind a text node's **source** to `freeSpinsAddedText` — y
 full control of the font, size, colour and position, exactly like any other text box.
 (For a bare "+10" number with no words, bind `freeSpinsAdded` instead.)
 
+A **Hold and Win** game has no free spins, so it doesn't show this section.
+
+### Hold and Win (jackpots, respins, feature)
+
+These three sections appear only for a **Hold and Win** game. They hold the lines the
+respin feature shows. Each row has a live preview on its right.
+
+| Placeholder   | Becomes                                                        |
+| ------------- | -------------------------------------------------------------- |
+| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND"                       |
+| `{amount}`    | what the jackpot or the feature paid, in the player's currency |
+| `{count}`     | a number of respins — the respins left, or the respins awarded |
+| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"     |
+| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"     |
+
+- **Jackpots.** There is one box per jackpot tier. The tiers are the game's own, from
+  [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
+  game calls it by its config name. Below the tiers are the jackpot banners: the title
+  (`{jackpot} JACKPOT`), the amount under it, the full-board amount
+  (`FULL BOARD  {amount}`) and the small banner over a jackpot coin (`{jackpot}`).
+- **Respins.** The counter (`RESPINS {count}`), the award when the feature starts
+  (`{count} RESPINS`), the reset (`RESPINS RESET`) and the last respin (`LAST RESPIN`).
+- **Hold and Win feature.** These boxes hold:
+  - the feature total (`BONUS WIN {amount}`);
+  - an intro and an outro line, which draw nothing until you write them;
+  - the instant collect (`INSTANT WIN`) and the Lucky Spin (`LUCKY SPIN`);
+  - the pot-full line (`{meter} ACTIVATED`);
+  - the modifiers a feature starts with (`{modifiers} ACTIVE`) and the ones a mystery
+    unlocks (`UNLOCKED: {modifiers}`);
+  - the special names that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
+    PAYER, MYSTERY).
+
+Where the game already shows a line (the counter, the jackpot banners, Lucky Spin, the
+modifier toasts), the default is exactly that line. Every one of these lines, and each
+tier's caption, is listed in Localization for translation.
+
+**Not on screen yet:** the game still draws its built-in Hold and Win lines. What you
+write here starts showing once the engine reads this page (Hold and Win Phase 8, second
+part); the page says so above these sections.
+
 ### Win-level captions
 
-One box per big-win level (`big`, `superwin`, `mega`, `epic`, `max`). **Usually leave
-these blank.** In most games the tier words (BIG WIN, MEGA WIN…) are painted into the
+One box per **big-win tier** in the game's [Invisible Game Config](./game-config.md),
+labelled with the tier's name (hover it for the tier id). A game whose config authors no
+tiers shows the built-in five (`big`, `superwin`, `mega`, `epic`, `max`). A caption you
+already wrote for a tier the config no longer has stays listed, so it isn't lost (clear
+it to remove it).
+**Usually leave these blank.** In most games the tier words (BIG WIN, MEGA WIN…) are painted into the
 **big-win artwork**, and the game draws only the amount on top. If you fill one of
 these in, you'll get a _second_ caption over art that already says it.
 
@@ -167,7 +214,7 @@ Changes are not saved until you click **Save** in the top bar. The pill beside i
   you opened it, a banner says so. Your edits stay on the page: **Reload theirs** takes
   their version (your unsaved edits go), **Overwrite with mine** replaces theirs.
 - **Someone else is editing.** Only one person edits at a time. When someone else (or
-  another tab of yours) has the page open, the top bar reads "*name* is editing this —
+  another tab of yours) has the page open, the top bar reads "_name_ is editing this —
   read-only" and Save is disabled; **Take over** moves editing to you.
 
 ### Translate it
@@ -210,8 +257,10 @@ build/publish of the game.
 
 - **The grid stops at 5 matching.** The match-count columns are fixed at 2–5, which
   covers every current 5-reel board; a wider board needs the list widened.
-- **The win-level list is fixed.** The caption boxes are a built-in list of level
-  names rather than the tiers authored in [Invisible Game Config](./game-config.md).
+- **Hold and Win lines don't reach the game yet.** The game draws its built-in lines until
+  the engine reads this page (Hold and Win Phase 8, second part). Even then, the respin
+  award, reset and last-respin lines, the feature total, the instant collect and the pot-full
+  line have no place on screen until a beat or a scene adopts them.
 - **Letters on a bitmap win-line font.** The win line is drawn in a bitmap font. If
   that font was made with digits only, a letter in your template has no glyph — check
   the win line in the game after adding words.

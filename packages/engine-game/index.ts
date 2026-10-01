@@ -157,7 +157,7 @@ export {
 	FLIGHT_TRAIL_LIFETIME_S,
 	flightGlowTexture,
 } from './src/game/flightGlow';
-export { coinLabelText } from './src/game/coinLabel';
+export { coinLabelText, moneyDecimalSeparator, type CoinLabelFormat } from './src/game/coinLabel';
 
 export {
 	tierHasExit,

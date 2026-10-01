@@ -1,6 +1,13 @@
 import { BUILTIN_REGION } from './builtinRegions';
 import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
-import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS, VISIBILITY_SOURCE_KEYS } from './componentCatalog';
+import {
+	HOLD_AND_WIN_VALUE_SOURCE_KEYS,
+	HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS,
+	TEXT_SOURCE_KEYS,
+	VALUE_SOURCE_KEYS,
+	VISIBILITY_SOURCE_KEYS,
+} from './componentCatalog';
+import { kindCapabilities } from './kindCapabilities';
 import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
 /**
@@ -276,14 +283,12 @@ export const BUTTON_DEF: ComponentDef = {
 		// feedback (each falling back to `imageSpinning`). All absent ⇒ the coded variant
 		// tile renders unchanged (parity). DERIVED from the shared source-of-truth so this
 		// def, the picker (`BUTTON_STATE_PARAMS`) and the cascade key list can't drift.
-		...BUTTON_STATE_IMAGE_PARAMS.map(
-			(p): ComponentParam => ({
-				key: p.key,
-				kind: 'image',
-				group: 'State images',
-				label: p.label,
-			}),
-		),
+		...BUTTON_STATE_IMAGE_PARAMS.map((p): ComponentParam => ({
+			key: p.key,
+			kind: 'image',
+			group: 'State images',
+			label: p.label,
+		})),
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 		{ key: 'spinning', kind: 'boolean', engineProvided: true },
@@ -1957,14 +1962,12 @@ export const OPTION_CARD_DEF: ComponentDef = {
 		// the picked tile and hover/pressed give the press its feedback. All absent ⇒ the plate +
 		// label render unchanged. Derived from the shared source of truth so this def, the picker and
 		// the cascade key list can't drift.
-		...BUTTON_STATE_IMAGE_PARAMS.map(
-			(p): ComponentParam => ({
-				key: p.key,
-				kind: 'image',
-				group: 'State images',
-				label: p.label,
-			}),
-		),
+		...BUTTON_STATE_IMAGE_PARAMS.map((p): ComponentParam => ({
+			key: p.key,
+			kind: 'image',
+			group: 'State images',
+			label: p.label,
+		})),
 		// Engine-fed per-item values (the `repeater` feeds one tile per option). All `engineProvided`,
 		// so the editor renders no control — the source supplies them at runtime.
 		{ key: 'label', kind: 'string', engineProvided: true },
@@ -1975,6 +1978,288 @@ export const OPTION_CARD_DEF: ComponentDef = {
 	// one `<repeaterId>.onSelect` flow pin, so an author wires the choice wherever it belongs.
 	signals: [{ key: 'select', note: 'Fired when the tile is pressed (pick this option).' }],
 };
+
+// ─── Hold and Win (design `docs/design/hold-and-win.md` §5, Phase 6) ─────────────────────────────
+//
+// Kind-gated (`capability: 'holdAndWin'`): the Scene Editor offers them only to a Hold and Win
+// project. Each one's moving parts are engine-fed — the counter, jackpot tiles and total bar through
+// the {@link HOLD_AND_WIN_VALUE_SOURCE_KEYS} feeds, the pot / letters / wheel through coded parts
+// (`apps/lines`) that read the same state. Sizes are in the shared runtime's cell units
+// (`SYMBOL_SIZE = 120`).
+
+const HW_FONT_SIZE = 34;
+const HW_CAPTION_SIZE = 22;
+/** Gold — the jackpot / total figures. */
+const HW_VALUE_FILL = 0xffd35c;
+
+const HW_SOURCE_PARAM_OPTIONS = [...HOLD_AND_WIN_VALUE_SOURCE_KEYS, ...VALUE_SOURCE_KEYS];
+const HW_VISIBILITY_OPTIONS = [...HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS, ...VISIBILITY_SOURCE_KEYS];
+
+type HoldAndWinPanel = {
+	id: string;
+	name: string;
+	caption: string;
+	sample: string;
+	source: string;
+	width: number;
+	height: number;
+	visibleSource?: string;
+	note: string;
+};
+
+/**
+ * A caption over an engine-fed value on an author-picked frame — the respin counter, a jackpot tile
+ * and the total win bar. PLAIN-NODE path, like {@link FREE_SPIN_COUNTER_DEF}: the frame is a sprite
+ * whose `region` is the `frameImage` param (none picked ⇒ text only), the caption is the `label`
+ * param, and the value text is the `value` the instance's `source` feeds, through that source's own
+ * formatter (currency for a jackpot or the total).
+ */
+const holdAndWinPanel = (panel: HoldAndWinPanel): ComponentDef => ({
+	id: panel.id,
+	name: panel.name,
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: `${panel.id}-root`,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: `${panel.id}-frame`,
+				label: 'Frame',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				assetKey: '',
+				width: panel.width,
+				height: panel.height,
+				paramBindings: { region: 'frameImage', tint: 'frameTint' },
+				preview: { w: panel.width, h: panel.height, style: 'tile' },
+			},
+			{
+				id: `${panel.id}-caption`,
+				label: 'Caption',
+				kind: 'text',
+				x: 0,
+				y: -panel.height * 0.2,
+				anchor: { x: 0.5, y: 0.5 },
+				text: panel.caption,
+				style: { fontFamily: HUD_FONT_FAMILY, fontSize: HW_CAPTION_SIZE, fill: HUD_FILL },
+				paramBindings: {
+					text: 'label',
+					'style.fontFamily': 'fontFamily',
+					'style.fill': 'captionFill',
+				},
+				preview: { style: 'text', textParam: 'label' },
+			},
+			{
+				id: `${panel.id}-value`,
+				label: 'Value',
+				kind: 'text',
+				x: 0,
+				y: panel.height * 0.18,
+				anchor: { x: 0.5, y: 0.5 },
+				text: panel.sample,
+				style: { fontFamily: HUD_FONT_FAMILY, fontSize: HW_FONT_SIZE, fill: HW_VALUE_FILL },
+				paramBindings: {
+					text: 'value',
+					'style.fontFamily': 'fontFamily',
+					'style.fontSize': 'fontSize',
+					'style.fill': 'fill',
+				},
+				preview: { style: 'text', textParam: 'value' },
+			},
+		],
+	},
+	params: [
+		{ key: 'source', kind: 'string', options: HW_SOURCE_PARAM_OPTIONS, default: panel.source },
+		{
+			key: 'visibleSource',
+			kind: 'string',
+			options: HW_VISIBILITY_OPTIONS,
+			...(panel.visibleSource ? { default: panel.visibleSource } : {}),
+		},
+		{ key: 'label', kind: 'string', default: panel.caption },
+		{ key: 'frameImage', kind: 'image', label: 'frame image' },
+		{ key: 'frameTint', kind: 'color' },
+		{ key: 'fill', kind: 'color', default: HW_VALUE_FILL },
+		{ key: 'captionFill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontSize', kind: 'number', default: HW_FONT_SIZE },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		{ key: 'countUp', kind: 'boolean', default: false },
+		{ key: 'value', kind: 'number', engineProvided: true, label: panel.note },
+	],
+});
+
+/** "RESPINS 3" — the respins left, shown for the whole feature (`respinCounterShow`). */
+export const RESPIN_COUNTER_DEF: ComponentDef = holdAndWinPanel({
+	id: 'respinCounter',
+	name: 'Respin Counter',
+	caption: 'RESPINS',
+	sample: '3',
+	source: 'respinsLeft',
+	visibleSource: 'respinCounterShow',
+	width: 240,
+	height: 96,
+	note: 'respins left (engine)',
+});
+
+/** One jackpot's name and its value at the current bet. The bar places four. */
+export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
+	id: 'jackpotTile',
+	name: 'Jackpot Tile',
+	caption: 'GRAND',
+	sample: '$2,000.00',
+	source: 'jackpot.grand',
+	width: 240,
+	height: 96,
+	note: 'jackpot × total bet (engine)',
+});
+
+/** "TOTAL WIN" — what the feature has won; the feature end counts every coin into it. */
+export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({
+	id: 'totalWinBar',
+	name: 'Total Win Bar',
+	caption: 'TOTAL WIN',
+	sample: '$12.50',
+	source: 'featureTotal',
+	visibleSource: 'respinCounterShow',
+	width: 360,
+	height: 96,
+	note: 'feature total (engine)',
+});
+
+const JACKPOT_TIERS = ['mini', 'minor', 'major', 'grand'] as const;
+/** Tile pitch in the bar — a tile plus a 16px gap. */
+const JACKPOT_TILE_PITCH = 256;
+
+/**
+ * MINI · MINOR · MAJOR · GRAND, each a nested {@link JACKPOT_TILE_DEF} fed `jackpot.<tier>` — the
+ * jackpot table every reference game (Grand, Super Hotfire Diamonds, 3 Pots of Egypt) shows. A tile
+ * whose jackpot the project's config does not declare reads empty.
+ */
+export const JACKPOT_BAR_DEF: ComponentDef = {
+	id: 'jackpotBar',
+	name: 'Jackpot Bar',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'jackpotBar-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: JACKPOT_TIERS.map((tier, index): LayoutNode => ({
+			id: `jackpotBar-${tier}`,
+			label: tier.toUpperCase(),
+			kind: 'componentInstance',
+			componentId: JACKPOT_TILE_DEF.id,
+			x: (index - (JACKPOT_TIERS.length - 1) / 2) * JACKPOT_TILE_PITCH,
+			y: 0,
+			params: { source: `jackpot.${tier}`, label: tier.toUpperCase() },
+		})),
+	},
+};
+
+/** A coded part's box in the editor (the game draws the real thing). */
+const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
+	({
+		id,
+		label,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component, props: { boundToInstance: true } },
+		preview: { w, h, style: 'tile' },
+		children: [],
+	}) satisfies LayoutNode;
+
+/**
+ * ONE persistent meter (a 3 Pots pot): its level bar, "<ID> level/max", what a full one activates,
+ * a size step at each of the meter's `sizeStages` and a pulse when it fills. The coded `PotMeter`
+ * reads `meter.<id>.level` / `meter.<id>.max` for its `meter` param and registers the
+ * `meter:<id>` anchor the specials fly into. A meter the config does not declare draws nothing.
+ */
+export const POT_METER_DEF: ComponentDef = {
+	id: 'potMeter',
+	name: 'Pot Meter',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'potMeter-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('potMeter-pot', 'Pot', 'PotMeter', 120, 60)],
+	},
+	params: [
+		{ key: 'meter', kind: 'string', default: 'red', label: 'meter id (Game Config)' },
+		{ key: 'scale', kind: 'number', default: 1 },
+	],
+};
+
+/**
+ * Grand's column letters — one per reel, lit as its column completes. The coded `LettersStrip`
+ * spells the config's `boardEnd.letters` at `spacing` px (the cell pitch, so the strip lines up with
+ * the reels when centred on the board); the coded row steps aside while this is mounted. A project
+ * whose board end is not column letters draws nothing.
+ */
+export const LETTERS_STRIP_DEF: ComponentDef = {
+	id: 'lettersStrip',
+	name: 'Letters Strip',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'lettersStrip-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('lettersStrip-letters', 'Letters', 'LettersStrip', 600, 70)],
+	},
+	params: [{ key: 'spacing', kind: 'number', default: 120, label: 'letter pitch (px)' }],
+};
+
+/**
+ * The pre-feature wheel (Super Hotfire Diamonds) at the instance's position: the coded
+ * `HoldAndWinWheelPart` draws the same art and spin as the coded board-centred wheel, which steps
+ * aside while this is mounted. Draws nothing until the wheel beat puts a wheel up.
+ */
+export const WHEEL_DEF: ComponentDef = {
+	id: 'wheel',
+	name: 'Wheel',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	capability: 'holdAndWin',
+	root: {
+		id: 'wheel-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('wheel-art', 'Wheel', 'HoldAndWinWheelPart', 440, 440)],
+	},
+	params: [{ key: 'radius', kind: 'number', default: 220 }],
+};
+
+/** The Hold and Win components, in palette order. */
+export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
+	RESPIN_COUNTER_DEF,
+	JACKPOT_TILE_DEF,
+	JACKPOT_BAR_DEF,
+	TOTAL_WIN_BAR_DEF,
+	POT_METER_DEF,
+	LETTERS_STRIP_DEF,
+	WHEEL_DEF,
+];
 
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
@@ -1995,7 +2280,19 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FEATURE_CARD_DEF,
 	CONFIRM_DIALOG_DEF,
 	OPTION_CARD_DEF,
+	...HOLD_AND_WIN_COMPONENTS,
 ];
+
+/**
+ * Whether the Scene Editor's palette offers `def` to a project of kind `gameType`: a def gated on a
+ * capability (`ComponentDef.capability`) only where `kindCapabilities` grants it. A saved snapshot of
+ * a built-in keeps the built-in's gate, so forking the respin counter does not offer it to a lines
+ * project. Palette only — never consulted when rendering a doc.
+ */
+export function componentOfferedForKind(def: ComponentDef, gameType: string | undefined): boolean {
+	const capability = def.capability ?? BUILTIN_COMPONENTS.find((b) => b.id === def.id)?.capability;
+	return capability === undefined || kindCapabilities(gameType)[capability];
+}
 
 /**
  * Union the code-defined ("built-in") params INTO a resolved def, ADDITIVELY — every

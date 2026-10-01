@@ -1,6 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
+import { kindCapabilities } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { bigTiersOf, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
@@ -37,9 +39,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		user: locals.user,
 	});
 
-	const [{ doc, etag }, gameType, published, symbolsDoc] = await Promise.all([
+	const gameType = await projectGameType(projectKey);
+	const [{ doc, etag }, config, published, symbolsDoc] = await Promise.all([
 		loadWinTextDocWithEtag(clientKey, projectKey),
-		projectGameType(projectKey),
+		// The RESOLVED config (authored ◁ the kind's template) — the game's own precedence, so the
+		// jackpot tiers and win levels offered here are the ones the game will name.
+		resolveGameConfig(clientKey, projectKey, gameType),
 		loadPublishedSymbolDefaults(clientKey, projectKey),
 		// The DISPLAY NAMES authored next door in `/symbols` — read-only here. This page previews
 		// what a template will actually render, and `{symbolName}` is the one token whose value
@@ -66,5 +71,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** Symbol id → its authored name, straight from the symbols doc. Sparse — an absent id
 		 *  is an unnamed symbol, which the shared resolver renders as the id itself. */
 		symbolNames: symbolsDoc.names ?? {},
+		capabilities: kindCapabilities(gameType),
+		/** The config's jackpot tier names, in the config's order. */
+		jackpotTiers: (config.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when
+		 *  the config authors none — the page then offers the coded `winLevelMap` aliases. */
+		bigTiers: bigTiersOf(config.doc),
 	};
 };

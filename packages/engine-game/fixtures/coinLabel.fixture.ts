@@ -4,7 +4,8 @@
  *
  * Run: node --experimental-strip-types packages/engine-game/fixtures/coinLabel.fixture.ts
  */
-import { coinLabelText } from '../src/game/coinLabel.ts';
+import { formatMoney } from '../../utils-shared/money.ts';
+import { coinLabelText, moneyDecimalSeparator } from '../src/game/coinLabel.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown) => {
@@ -51,6 +52,153 @@ check(
 	null,
 );
 check('a plain symbol prints nothing', coinLabelText({}, [], money), null);
+
+// The AUTHORED label (`doc.coinLabel`). An empty format prints exactly the coded text.
+check(
+	'an empty format is the coded label',
+	coinLabelText({ value: 1.5 }, ['coin'], money, {}),
+	'$3.00',
+);
+check(
+	'…and so is a jackpot with no authored text',
+	coinLabelText({ jackpot: 'MINI', factor: 2 }, ['jackpot'], money, { jackpots: {} }),
+	'MINI ×2',
+);
+check(
+	'a tier prints its authored text',
+	coinLabelText({ jackpot: 'GRAND' }, ['jackpot'], money, { jackpots: { GRAND: { text: 'BIG' } } }),
+	'BIG',
+);
+check(
+	'…and keeps the factor suffix',
+	coinLabelText({ jackpot: 'MAJOR', factor: 3 }, ['jackpot'], money, {
+		jackpots: { MAJOR: { text: 'Major' } },
+	}),
+	'Major ×3',
+);
+check(
+	'a blank authored text falls back to the tier name',
+	coinLabelText({ jackpot: 'MINOR' }, ['jackpot'], money, { jackpots: { MINOR: { text: '  ' } } }),
+	'MINOR',
+);
+check(
+	'trimZeros drops the whole fraction of a round amount',
+	coinLabelText({ value: 1.5 }, ['coin'], money, {
+		cash: { trimZeros: true },
+		decimalSeparator: '.',
+	}),
+	'$3',
+);
+check(
+	'…and only the trailing zeros of another',
+	coinLabelText({ value: 0.75 }, ['coin'], money, {
+		cash: { trimZeros: true },
+		decimalSeparator: '.',
+	}),
+	'$1.5',
+);
+check(
+	'decimals keep at least that many digits and never cut a non-zero one',
+	coinLabelText({ value: 0.755 }, ['coin'], money, {
+		cash: { decimals: 0 },
+		decimalSeparator: '.',
+	}),
+	'$1.51',
+);
+{
+	const asked: unknown[] = [];
+	const spy = (multiple: number, decimals?: number) => {
+		asked.push(decimals);
+		return `$${(multiple * 2).toFixed(Math.max(2, decimals ?? 2))}`;
+	};
+	check(
+		'more decimals than the currency prints are asked of the money formatter',
+		coinLabelText({ value: 1.5 }, ['coin'], spy, { cash: { decimals: 3 } }),
+		'$3.000',
+	);
+	check('…with that count', asked[0], 3);
+}
+check(
+	'a payer keeps its "+" under an authored format',
+	coinLabelText({ value: 4 }, ['payer'], money, {
+		cash: { trimZeros: true },
+		decimalSeparator: '.',
+	}),
+	'+$8',
+);
+check(
+	'× bet prints the decimal multiple, trimmed',
+	coinLabelText({ value: 1.5 }, ['coin'], money, { cash: { format: 'betMultiple' } }),
+	'1.5×',
+);
+check(
+	'× bet with decimals pads to them',
+	coinLabelText({ value: 2 }, ['coin'], money, { cash: { format: 'betMultiple', decimals: 2 } }),
+	'2.00×',
+);
+check(
+	'a payer in × bet',
+	coinLabelText({ value: 0.25 }, ['payer'], money, { cash: { format: 'betMultiple' } }),
+	'+0.25×',
+);
+check(
+	'a multiplier is a factor whatever the cash format',
+	coinLabelText({ value: 3 }, ['coinMultiplier'], money, { cash: { format: 'betMultiple' } }),
+	'×3',
+);
+check(
+	"a locale's decimal comma is trimmed, its grouping dot left alone",
+	coinLabelText({ value: 600 }, ['coin'], () => '1.200,00 €', {
+		cash: { trimZeros: true },
+		decimalSeparator: ',',
+	}),
+	'1.200 €',
+);
+check(
+	'an amount with no fraction is untouched',
+	coinLabelText({ value: 600 }, ['coin'], () => '$1,200', {
+		cash: { trimZeros: true },
+		decimalSeparator: '.',
+	}),
+	'$1,200',
+);
+check(
+	'with no separator known, money is never trimmed',
+	coinLabelText({ value: 1.5 }, ['coin'], money, { cash: { trimZeros: true } }),
+	'$3.00',
+);
+
+// The separator comes from the MONEY formatter itself (the real `formatMoney`), not the locale's
+// plain numbers — `en-DE` prints `€1,200.00` while its plain numbers use a decimal comma.
+const realLabel = (locale: string, currency: string, value: number) => {
+	const format = (amount: number) => formatMoney(amount, { locale, currency });
+	return coinLabelText({ value }, ['coin'], (multiple) => format(multiple * 2), {
+		cash: { trimZeros: true },
+		decimalSeparator: moneyDecimalSeparator(format),
+	})?.replace(/\s/g, ' ');
+};
+check(
+	'en-DE trims the currency fraction, not the grouping',
+	realLabel('en-DE', 'EUR', 600),
+	'€1,200',
+);
+check('…and keeps a non-zero digit', realLabel('en-DE', 'EUR', 0.75), '€1.5');
+check('de-DE trims after its decimal comma', realLabel('de-DE', 'EUR', 600), '1.200 €');
+check(
+	'fr-CH trims after its CURRENCY point, though its plain numbers use a comma',
+	realLabel('fr-CH', 'EUR', 0.75),
+	'1.5 €',
+);
+check(
+	'a social coin (toFixed) trims under a comma locale',
+	realLabel('de-DE', 'XGC', 600),
+	'GC 1200',
+);
+check(
+	'the separator is unreadable from non-Latin digits, so nothing is trimmed',
+	moneyDecimalSeparator(() => '١٫٥٠'),
+	undefined,
+);
 
 if (failures) throw new Error(`${failures} coin label check(s) failed`);
 console.log('\ncoin labels ok');

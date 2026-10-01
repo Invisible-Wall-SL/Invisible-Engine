@@ -4,15 +4,14 @@
 	import SymbolSpineMain from './SymbolSpineMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
-	import { symbolStateLoopsByDefault } from 'engine-layout';
+	import { symbolStateLoopsByDefault, WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
 
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
-	import { ResponsiveBitmapText } from 'components-pixi';
-	import { SYMBOL_SIZE } from 'engine-game';
-	import { coinLabelFor } from '../game/coinLabel';
+	import CoinLabel from './CoinLabel.svelte';
+	import { coinLabelFor, coinLabelLookFor, type CoinLabelPopCue } from '../game/coinLabel';
 
 	type Props = {
 		x?: number;
@@ -62,6 +61,8 @@
 		 * every frame never re-resolves the art. Omitted everywhere else.
 		 */
 		labelOverride?: Pick<RawSymbol, 'value' | 'factor'>;
+		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
+		labelPop?: CoinLabelPopCue;
 	};
 
 	const props: Props = $props();
@@ -113,8 +114,15 @@
 	 *
 	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
 	 * reads as a rendering fault rather than as the missing binding it is.
+	 *
+	 * Drawn on every WIN HIGHLIGHT state, not only `win`: the Hold and Win beats that played `win`
+	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had.
 	 */
-	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
+	const showWinFrame = $derived(
+		hasArt &&
+			(WIN_HIGHLIGHT_SYMBOL_STATES as readonly string[]).includes(props.state) &&
+			props.rawSymbol.name !== 'M',
+	);
 
 	/**
 	 * EXTRA ART for this state — a symbol composed of more than one picture (Invisible Symbols State
@@ -254,16 +262,12 @@
 
 <Container tint={props.tint}>
 	{#if coinLabel}
-		<ResponsiveBitmapText
-			anchor={0.5}
+		<CoinLabel
 			x={props.x}
 			y={props.y}
-			maxWidth={SYMBOL_SIZE * 0.9}
 			text={coinLabel}
-			style={{
-				fontFamily: 'gold',
-				fontSize: SYMBOL_SIZE * 0.3,
-			}}
+			look={coinLabelLookFor(props.rawSymbol)}
+			pop={props.labelPop}
 		/>
 	{/if}
 </Container>

@@ -41,6 +41,9 @@ export const meterLevelShown = (id: string): number =>
 export const meterMax = (id: string): number =>
 	recorded(id)?.max ?? configuredMeters().find((meter) => meter.id === id)?.maxLevel ?? 0;
 
+/** What an authored pot drawing meter `id` counts itself in as (`trackComponentMount`). */
+export const potMeterMountKey = (id: string): string => `potMeter:${id}`;
+
 /** The flight target a meter's pot anchors (`<Anchor name>`), and the kind its specials fly as. */
 export const meterAnchor = (id: string): string => `meter:${id}`;
 export const meterFlight = (id: string): string => `toMeter:${id}`;

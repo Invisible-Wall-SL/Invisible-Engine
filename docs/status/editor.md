@@ -46,6 +46,7 @@ to its server whitelist** (`normalizeScene`, `normalizeAlign`, `normalizeGameSet
 silently dropped on save); **the launcher `vite build` is not a type-check** (run `svelte-check`);
 **"shows in the editor" ≠ "ships"** (check the export walks the new reference).
 
+- 2026-10-01 — **Hold and Win kind** (#951): "New game from kind → holdAndWin" now scaffolds the real Hold and Win screen set (jackpot bar, pots, the `holdAndWin` mode screens, the base-game message host — see [hold-and-win status](hold-and-win.md)), and the Library's **Components** list is filtered by the project's kind (`componentOfferedForKind`): the seven Hold and Win components appear only in a Hold and Win project. Palette only — a placed instance always renders. Other kinds' scene sets are hash-pinned unchanged (`test-hold-and-win-template.mjs`).
 - 2026-09-29 — **Docs caught up with the code**: new screens have mounted in the game in list order since the generic-mount work (the old open item said otherwise); `reelGrid.symbolSizeRatios` is long gone (symbols are sized by their art); the guide's pane layout matches the 2026-08-11 shell. `EDITOR_DOC_SECRET` is set; rotation is the owner item.
 - 2026-09-29 — **History… uses the shared version-history modal** (#859, live `4f32e773`). The
   backup list moved off the `askText` prompt onto `$lib/DocHistoryModal.svelte`, the picker

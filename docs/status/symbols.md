@@ -17,11 +17,19 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
 
 - **The grid** — symbols × `Static` / `Spin` / `Land` / `Win` / `Post-win` / `Explosion`, plus
   `Intro` under the `emerge` swap style, `Clear reel` on a project that cascades or clears its
-  board, and the book states on a book game (gates resolved server-side). One home for the state
+  board, the book states on a book game, and the eight Hold and Win states (`coinIdle`,
+  `coinLand`, `coinStick`, `coinCollect`, `coinBoost`, `jackpotReveal`, `mysteryReveal`,
+  `flyToMeter`) on a `holdAndWin` project (gates resolved server-side). One home for the state
   list: `engine-layout/symbolStates.ts`. An empty cell that the engine fills by inheritance
-  (`intro → land`, `clearReel → explosion`, book states → `win`) draws the borrowed art with an
-  `inherits` badge; `effectiveCell` and the engine's `resolveSymbolState` are pinned together by
-  `check:symbol-state-parity`.
+  (`intro → land`, `clearReel → explosion`, book states → `win`, `coinStick → land`,
+  `coinCollect`/`coinBoost`/`jackpotReveal`/`flyToMeter → win`, `mysteryReveal → explosion`)
+  draws the borrowed art with an `inherits` badge; `effectiveCell` and the engine's
+  `resolveSymbolState` are pinned together by `check:symbol-state-parity`.
+- **Kind gating** — only through `kindCapabilities()`: `bookSymbolVfx`, `tumblePattern`,
+  `symbolTransition` (true for every kind but `holdAndWin`) and `stackedPictures` hide the Book
+  symbol VFX / Explosion pattern / Transition / Stacked pictures sections for Hold and Win, each
+  kept while the doc still authors it. A `coinSymbols` kind shows each row's Hold and Win role
+  chips from the live Game Config. Pinned by `check:symbols-kind-gating`.
 - **The cell editor** — Sprite / Spine / Flipbook (`SYMBOL_CELL_TYPES`), a **Loop** toggle (absent
   means loop, except `explosion` / `clearReel`, which are one-shot by default via
   `symbolStateLoopsByDefault()`), a flipbook walk block (fps / direction / mirror, folded by
@@ -35,7 +43,9 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
   access. **↻ Reload from R2** drops the spine and region caches (unsaved edits kept).
 - **Defaults** — each game publishes its coded map at build (`publish-symbol-defaults.mjs`),
-  filtered to the in-play symbols; un-published projects fall back to the committed `lines.json`.
+  filtered to the in-play symbols; un-published projects fall back to the committed `lines.json`
+  (`holdAndWin.json` for a Hold and Win project: the lines set plus `W` and the 3 Pots specials on
+  placeholder art, `BLANK` unbound).
 - **Previews** — one shared WebGL stage, one spine runtime (4.2, `check:builtin-spines`), rigs
   fitted to their authored box (`measureSpineBounds` / `authoredSpineBox`), stage geometry from the
   canvas's own box (`symbolStageGeometry.ts`, `check:symbol-stage-geometry`), rig FX and clips on the
@@ -61,6 +71,10 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   - `anticipation` — overlay spine + animation set, activation / loop sounds, per-big-tier FX.
   - `bookVfx` (layers behind / in front of the book symbol during free spins), `symbolSounds` (the
     cue one symbol plays entering `land` / `clearReel`), `names`.
+  - `coinLabel` (Hold and Win, gated on `kindCapabilities().coinSymbols`) — the value a coin prints:
+    style, cash format, per-tier jackpot text + style, placement, land / count pops, count length.
+    Shape, defaults and prune live once in `engine-layout/coinLabel.ts`; the bake's rebuild is
+    `scripts/lib/bakeCoinLabel.mjs`.
   - `flights` (Hold and Win only, or once authored) — per flight kind (`toTotal`, `toCollector`,
     `boostBeam`, `toMeter`, `toMeter:<id>` for each Game Config meter): the head (built-in glow,
     re-tinted glow, sprite / spine / flipbook, none), the trail (an Invisible FX effect played as a
@@ -84,6 +98,7 @@ rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** 
 enables), the `/api/editor/export-symbols` response, and the **`bake-editor-doc.mjs` whitelist**
 (else only the runtime-bundle path carries it). `check:win-cycle` derives its field list from the
 schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
+`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:coin-label`.
 `check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:flights`
 (which also RUNS the bake's `scripts/lib/bakeFlights.mjs` rather than grepping for it). A global
 that names an Invisible FX effect must also join the reachable-effects set in `runtimeBundle.ts`
@@ -130,6 +145,33 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
+- 2026-10-01 — **Hold and Win Phase 7a — states, roles, kind gating, defaults.** Eight H&W symbol
+  states with inheritance that replays Phase 4's coded beats (an unauthored project is
+  unchanged); `mysteryReveal` is terminal; the win frame draws on every `WIN_HIGHLIGHT_SYMBOL_STATES`
+  state. The respin board requests `coinLand` on a stopping cell (it plays the reel's `spin` while
+  rolling) and rests held cells on `coinIdle`; the presentation beats request `coinStick` (sticks,
+  specialBecomesCoin, a mystery landing as what it became), `coinBoost` (payer, multiplier booster),
+  `coinCollect` (the per-coin collect step beside its flight, Grand's column-letter coins, and both
+  sides of a base-game instant collect), `jackpotReveal` (coin jackpot, full board, a jackpot coin's
+  factor step under a boost), `mysteryReveal` (mystery opening) and `flyToMeter` (a base-board
+  special flying to its pot). A streak's or a column's coins still leave on `clearReel`; the wheel
+  plays no symbol state. Grid columns gated on
+  `kindCapabilities().holdAndWin`; three new capability flags hide four sections for Hold and Win;
+  role chips on row heads; `symbolDefaultsFor('holdAndWin')`. New gate `check:symbols-kind-gating`.
+  The Scene Editor's two symbol-state pickers offer the eight Hold and Win states only to a
+  `holdAndWin` project (`symbolStatesForKind`, pinned in the same gate).
+- 2026-10-01 — **Coin value label** (Hold and Win Phase 7b): a new `coinLabel` doc global and a
+  "Coin value label" section, shown for a coin-symbol kind. It styles the label a coin prints
+  (font / size / tint, per jackpot tier too), its cash format (money or × bet, fewest decimals,
+  trimmed zeros), each tier's text (the ` ×N` suffix kept), its placement, and two pops (as the
+  coin sticks; as a count lands) plus the count-up length. One home for the shape, defaults and
+  prune (`engine-layout/coinLabel.ts`), shared by the page, `normalizeSymbolsDoc` and the game, so a
+  draft signs exactly like the saved doc. Full chain: export → endpoint → bake
+  (`scripts/lib/bakeCoinLabel.mjs`, run by the fixture) → `bakedCoinLabel()` → `coinLabelFor` /
+  `components/CoinLabel.svelte` / `RespinHeldSymbol` pops. Fonts need no new wiring: the font
+  export ships the whole catalog. Absent ⇒ the coded label byte-for-byte (`coinLabelText` with no
+  format, the same `bookEventAmountToCurrencyString`). Pinned by `check:coin-label` (39) and the
+  engine-game `coinLabel` fixture. ⏳ owner visual-verify on a Hold and Win board.
 - 2026-10-01 — **Flights** (Hold and Win Phase 7c): the `flights` doc global and its section. The
   block is strict in shape and forgiving in value — junk keys and invalid values are dropped and
   numbers clamped by `engine-layout`'s `normalizeFlights`, which the page's `setFlightStyle`, the

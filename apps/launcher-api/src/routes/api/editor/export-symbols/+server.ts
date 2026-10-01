@@ -39,8 +39,9 @@ export const POST: RequestHandler = async ({ url }) => {
 		// them for the same reason again — omit it and the baked game would still sit out the emerge
 		// intro the live one no longer waits on. `symbolSounds` (the per-symbol cues) is here as the
 		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
-		// the runtime path has always passed it verbatim, so without it the two paths disagreed. `flights`
-		// (the Hold and Win flight styles) is here for the same reason again.
+		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
+		// `coinLabel` (the Hold and Win coin value label) and `flights` (its flight styles) are here
+		// for the same reach-both reason.
 		const {
 			map,
 			index,
@@ -58,6 +59,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			tumblePattern,
 			anticipation,
 			stacked,
+			coinLabel,
 			flights,
 		} = await withDeployWrite(projectKey, () =>
 			exportEditorSymbols(clientKey, projectKey, {
@@ -90,6 +92,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			tumblePattern,
 			anticipation,
 			stacked,
+			coinLabel,
 			flights,
 		});
 	} catch (e) {

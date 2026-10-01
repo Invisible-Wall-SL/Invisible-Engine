@@ -40,6 +40,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 // submodule's own node_modules, so `import 'config-svelte'` would not resolve there. `appSrc.js`
 // is a node-builtins-only leaf for exactly this reason.
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
+import { bakeCoinLabel } from './lib/bakeCoinLabel.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 
 const args = process.argv.slice(2);
@@ -434,6 +435,7 @@ async function main() {
 		tumblePattern: undefined,
 		anticipation: undefined,
 		stacked: undefined,
+		coinLabel: undefined,
 		flights: undefined,
 	};
 	const symbolsUrl =
@@ -686,6 +688,11 @@ async function main() {
 						}
 					: undefined;
 			})();
+			// The Hold and Win COIN VALUE LABEL — assetless config (a Font Maker font it names ships with
+			// the whole font catalog). MUST reach BOTH bundle paths (this + the runtime
+			// `SymbolExportResult`): omit it here and a baked game would print the coded label while the
+			// live one printed the authored one. See `lib/bakeCoinLabel.mjs`.
+			const coinLabel = bakeCoinLabel(s?.coinLabel);
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -711,6 +718,7 @@ async function main() {
 				tumblePattern,
 				anticipation,
 				stacked,
+				coinLabel,
 				// The Hold and Win flight styles. MUST reach BOTH bundle paths (this + the runtime
 				// `SymbolExportResult`): omit it and a baked game would fly the coded glow while the live
 				// one flew the authored heads and trails. See `lib/bakeFlights.mjs`.

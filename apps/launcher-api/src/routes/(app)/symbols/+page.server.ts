@@ -1,5 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
-import { resolveCascade, resolveReelBehaviour, symbolsInPlay } from 'game-config';
+import { kindCapabilities } from 'engine-layout';
+import {
+	resolveCascade,
+	resolveReelBehaviour,
+	symbolHoldAndWinRoles,
+	symbolsInPlay,
+} from 'game-config';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -99,6 +105,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// panel grows/shrinks with `/config` rather than a fixed big/mega/massive triple. Resolved after
 	// the batch since it needs the resolved `gameType`.
 	const bigTiers = await resolveBigTiers(clientKey, projectKey, gameType);
+	// Each symbol's Hold and Win role(s) from the LIVE config's `special_properties` — chips on the
+	// grid's row heads, so the author sees which row is the coin, the collector, the mystery. Only
+	// for a kind with coin symbols; every other kind gets an empty map and renders as before.
+	const holdAndWinRoles: Record<string, string[]> = {};
+	if (configDoc && kindCapabilities(gameType).coinSymbols) {
+		for (const [name, symbol] of Object.entries(configDoc.symbols)) {
+			const roles = symbolHoldAndWinRoles(symbol);
+			if (roles.length) holdAndWinRoles[name] = roles;
+		}
+	}
 	// `docEtag` guards the save against a concurrent author; null = never authored.
 	const { doc, etag: docEtag } = loaded;
 
@@ -141,6 +157,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		doc,
 		defaults,
 		inPlaySymbols,
+		holdAndWinRoles,
+		// The Hold and Win jackpot tiers the Game Config declares — the rows of the coin label's
+		// per-tier jackpot text. Empty ⇒ the page offers the four tiers the presets use.
+		jackpotTiers: (configDoc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
 		assets,
 		fonts: bitmapFonts,
 		clips,

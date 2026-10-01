@@ -244,6 +244,10 @@ export interface SymbolExportResult {
 	 *  `art.assetKey` with no rewriting, exactly like the grid `map`. Present ONLY when the master toggle is
 	 *  ON and ≥1 symbol is authored, so a disabled/un-authored project bakes NO `stacked` field (byte-parity). */
 	stacked?: SymbolExportStacked;
+	/** The Hold and Win coin value label, passed through VERBATIM. Assetless: a Font Maker font it
+	 *  names ships with the whole font catalog (`fontExport.ts`), a builtin with the game. Absent →
+	 *  the coded label. */
+	coinLabel?: SymbolsDoc['coinLabel'];
 	/** Hold and Win flights (head / trail / arrival / path / timing per flight kind), passed through
 	 *  VERBATIM. A sprite/spine head ships via `refs` into `index.sheets`/`index.spines` under its own
 	 *  key, a flipbook head's clip via the editor-art clip walk, a trail/arrival effect via the effects
@@ -901,6 +905,7 @@ export async function exportEditorSymbols(
 		...(tumblePattern ? { tumblePattern } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
+		...(doc.coinLabel ? { coinLabel: doc.coinLabel } : {}),
 		...(flights ? { flights } : {}),
 	};
 }

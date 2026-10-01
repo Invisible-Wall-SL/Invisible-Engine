@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SymbolState } from 'engine-game';
+	import { WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
 
 	import Symbol from './Symbol.svelte';
 	import SymbolWrap from './SymbolWrap.svelte';
@@ -53,7 +54,7 @@
 	 */
 	const ANIMATING_SYMBOL_STATES: readonly SymbolState[] = [
 		'land',
-		'win',
+		...WIN_HIGHLIGHT_SYMBOL_STATES,
 		'explosion',
 		'clearReel',
 		'intro',
@@ -191,8 +192,13 @@
 				// `postWinStatic` and `spin` are nobody's beat, so a looping clip in one of them
 				// reports nothing — the guard that keeps a settled win beat from being re-fired by a
 				// cell that has since moved on.
+				// `flyToMeter` / `coinCollect` are the Hold and Win beats that light a BASE-board cell (a
+				// special flying to its pot, an instant collect); they played `win` before they had
+				// names, so they report as `win` does.
 				if (
 					state === 'win' ||
+					state === 'flyToMeter' ||
+					state === 'coinCollect' ||
 					state === 'explosion' ||
 					state === 'clearReel' ||
 					state === 'intro'

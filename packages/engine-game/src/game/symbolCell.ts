@@ -22,6 +22,20 @@ export type StateMapLike = Record<string, CellLike> | undefined;
  *  exact shape that crashes, so "present but unusable" counts as missing. */
 export const isUsableCell = (cell: CellLike): boolean => Boolean(cell && cell.assetKey);
 
+/** Each named inheritance arm of {@link resolveSymbolState}: an unauthored state → its donor. */
+const INHERITS: Readonly<Record<string, string>> = {
+	bookIntro: 'win',
+	bookIdle: 'win',
+	clearReel: 'explosion',
+	intro: 'land',
+	coinStick: 'land',
+	coinCollect: 'win',
+	coinBoost: 'win',
+	jackpotReveal: 'win',
+	mysteryReveal: 'explosion',
+	flyToMeter: 'win',
+};
+
 /**
  * The state a symbol actually draws, given what its map holds.
  *
@@ -37,6 +51,10 @@ export const isUsableCell = (cell: CellLike): boolean => Boolean(cell && cell.as
  *   at rest. `land` rather than `static` because both are ARRIVALS — the fallback should be the
  *   nearest thing the symbol already says about arriving, and `static` is what it says about not
  *   arriving at all;
+ * - the Hold and Win states inherit what the coded presentation played for that beat before they
+ *   had names of their own: `coinStick` → `land`; `coinCollect`, `coinBoost`, `jackpotReveal` and
+ *   `flyToMeter` → `win`; `mysteryReveal` → `explosion`. `coinIdle` and `coinLand` were `static`, so
+ *   they take the last resort below;
  * - ANY unauthored state now inherits `static` as a last resort, because a symbol sitting in its
  *   resting art is a better answer than a symbol that is not drawn at all — and a far better one
  *   than a crash.
@@ -46,10 +64,7 @@ export const isUsableCell = (cell: CellLike): boolean => Boolean(cell && cell.as
 export const resolveSymbolState = (states: StateMapLike, state: string): string | null => {
 	if (!states) return null;
 	if (isUsableCell(states[state])) return state;
-	if (state === 'bookIntro' || state === 'bookIdle') {
-		if (isUsableCell(states.win)) return 'win';
-	}
-	if (state === 'clearReel' && isUsableCell(states.explosion)) return 'explosion';
-	if (state === 'intro' && isUsableCell(states.land)) return 'land';
+	const donor = INHERITS[state];
+	if (donor && isUsableCell(states[donor])) return donor;
 	return isUsableCell(states.static) ? 'static' : null;
 };

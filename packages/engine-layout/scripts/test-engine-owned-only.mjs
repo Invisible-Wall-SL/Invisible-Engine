@@ -156,16 +156,10 @@ for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 	assert(!!hudCorners && hudCorners.nodes.length > 0, `${kind} HUD corners retained`);
 	assert(!!findNode(scaffold, 'hud-btn-menu'), `${kind} HUD button retained`);
 
-	// (d) overlay + free-spin bind anchors retained.
-	for (const id of [
-		'loading-bar',
-		'bg',
-		'bound-win',
-		'bound-transition',
-		'fs-intro',
-		'fs-counter',
-		'fs-outro',
-	]) {
+	// (d) overlay + free-spin bind anchors retained. Hold and Win has no free spins — its feature
+	// is the respins (`referenceLayouts/holdAndWin.ts`, pinned by test-hold-and-win-template.mjs).
+	const freeSpinAnchors = kind === 'holdAndWin' ? [] : ['fs-intro', 'fs-counter', 'fs-outro'];
+	for (const id of ['loading-bar', 'bg', 'bound-win', 'bound-transition', ...freeSpinAnchors]) {
 		assert(!!findNode(scaffold, id), `${kind} bind anchor '${id}' retained`);
 	}
 

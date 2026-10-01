@@ -749,7 +749,7 @@ for (const [label, needle] of [
 	['the spine arm', '<SymbolSpineMain'],
 	['the win frame', '<SymbolWinFrame'],
 	['the multiplier stamp', '<BitmapText'],
-	['the coin label', '<ResponsiveBitmapText'],
+	['the coin label', '<CoinLabel'],
 ] as const) {
 	check(
 		`dim — ${label} is still inside a tinted container (it dimmed before the move)`,

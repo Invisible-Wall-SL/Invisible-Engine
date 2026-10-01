@@ -10,6 +10,7 @@
 	import { askConfirm, askMessage, askText } from '$lib/dialogs.svelte';
 	import {
 		buttonBindToInstance,
+		componentOfferedForKind,
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
@@ -1774,6 +1775,11 @@
 	/** The project's OWN game type (from its saved doc / resolved template). Used to
 	 * flag a cross-type reference load that would overwrite a different game's doc. */
 	const projectGameType = data.doc.gameType ?? data.template?.gameType ?? '';
+	// The palette offers only what this project's kind uses (`ComponentDef.capability` — the Hold and
+	// Win counter, jackpot bar and pots); every placed instance still resolves from `components`.
+	const paletteComponents = $derived(
+		components.filter((def) => componentOfferedForKind(def, projectGameType)),
+	);
 	/** True after loading a reference/blank layout whose game type ≠ this project's.
 	 * While set, AUTOSAVE is suppressed so an edit can't silently overwrite the
 	 * project's real (different-type) saved doc — the user must Save or Discard.
@@ -3127,9 +3133,9 @@
 						{/snippet}
 					</EditorAssetLibrary>
 
-					<PanelSection id="lib-components" title="Components" count={components.length}>
+					<PanelSection id="lib-components" title="Components" count={paletteComponents.length}>
 						<EditorComponentPanel
-							{components}
+							components={paletteComponents}
 							onPlace={placeComponentInstance}
 							onOpenTool={openComponentEditor}
 						/>
@@ -3277,6 +3283,7 @@
 					{/if}
 					<EditorProperties
 						node={selectedNode}
+						gameType={projectGameType}
 						componentDefaults={data.componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}
@@ -3489,8 +3496,8 @@
 									</select>
 								</label>
 								<p class="gs-note">
-									Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay,
-									turbo and hold-to-spin).
+									Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay, turbo
+									and hold-to-spin).
 								</p>
 								<label class="gs-toggle" class:disabled={ukLocked}>
 									<input

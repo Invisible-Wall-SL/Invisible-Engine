@@ -27,7 +27,7 @@
 		resolveOverrideTextStyle,
 		resolveTransform,
 		SYMBOL_STATE_LABELS,
-		SYMBOL_STATES,
+		symbolStatesForKind,
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
@@ -73,6 +73,8 @@
 	}
 
 	interface Props {
+		/** The project's kind — gates which symbol states the state pickers offer. */
+		gameType?: string;
 		node: LayoutNode | null;
 		layoutType: LayoutType;
 		/** The BASE bucket id (the profile's fallback). A non-base `layoutType` is override
@@ -288,7 +290,10 @@
 		onSetInstanceCueSignal,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
+		gameType,
 	}: Props = $props();
+
+	const offeredSymbolStates = $derived(symbolStatesForKind(gameType));
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
@@ -2585,10 +2590,10 @@
 										? `(default: ${p.default})`
 										: '(inherit default)'}</option
 								>
-								{#each SYMBOL_STATES as s (s)}
+								{#each offeredSymbolStates as s (s)}
 									<option value={s}>{SYMBOL_STATE_LABELS[s]}</option>
 								{/each}
-								{#if cur && !SYMBOL_STATES.some((s) => s === cur)}
+								{#if cur && !offeredSymbolStates.some((s) => s === cur)}
 									<option value={cur}>{cur} (custom)</option>
 								{/if}
 							</select>
@@ -3716,10 +3721,10 @@
 							onchange={(e) => setRevealState(node as SpineNode, e.currentTarget.value)}
 						>
 							<option value="">(default: bookIdle)</option>
-							{#each SYMBOL_STATES as s (s)}
+							{#each offeredSymbolStates as s (s)}
 								<option value={s}>{SYMBOL_STATE_LABELS[s]}</option>
 							{/each}
-							{#if node.revealSymbolState && !SYMBOL_STATES.some((s) => s === node.revealSymbolState)}
+							{#if node.revealSymbolState && !offeredSymbolStates.some((s) => s === node.revealSymbolState)}
 								<option value={node.revealSymbolState}>{node.revealSymbolState} (custom)</option>
 							{/if}
 						</select>

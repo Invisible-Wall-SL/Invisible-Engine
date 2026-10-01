@@ -155,6 +155,12 @@
 		type SymbolCellType,
 		type SymbolState,
 		type SymbolsDoc,
+		COIN_LABEL_BOUNDS,
+		COIN_LABEL_DEFAULTS,
+		clearCoinLabel,
+		coinLabelTiers,
+		setCoinLabel,
+		type CoinLabelConfig,
 	} from './symbols.client';
 	import type { PageData } from './$types';
 
@@ -218,6 +224,10 @@
 	// `stacked` state is never a grid column — its tall art lives in the "Stacked pictures" section.
 	// Every gate comes from the server, RESOLVED (`resolveCascade` / `resolveReelBehaviour`), so
 	// /config's own switches drive the columns rather than the game kind.
+	// What this project's kind offers. The four sections below that a Hold and Win game has no use for
+	// (Book symbol VFX, Stacked pictures, Explosion pattern, Transition) hide on its flags — but each
+	// stays while the doc still authors it, so an author can always reach the switch that turns it off.
+	const caps = $derived(kindCapabilities(data.gameType));
 	const visibleStates = $derived(
 		visibleStatesFor(data.gameType, {
 			cascade: data.cascade,
@@ -1625,6 +1635,57 @@
 		return [...names];
 	});
 
+	// ── Coin value label ───────────────────────────────────────────────────────
+	// How a Hold and Win coin prints its value or jackpot tier on itself. Shown for a kind with coin
+	// symbols (`kindCapabilities().coinSymbols`) — or wherever a label is already authored, so a
+	// project whose kind changed can still see and clear what it ships.
+	const coinLabelShown = $derived(kindCapabilities(data.gameType).coinSymbols || !!doc.coinLabel);
+	const cl = $derived(doc.coinLabel ?? {});
+	const clTiers = $derived(coinLabelTiers(data.jackpotTiers));
+	const CL_POPS = [
+		{ key: 'landPop', label: 'Pop as the coin sticks' },
+		{ key: 'boostPop', label: 'Pop when a count lands' },
+	] as const;
+	const CL_AXES = [
+		{ key: 'x', label: 'Offset X' },
+		{ key: 'y', label: 'Offset Y' },
+	] as const;
+
+	/** Edit a COPY of the label and hand it to `setCoinLabel`, which prunes it the way the server
+	 *  will — so a field dragged back to its default leaves no key behind. */
+	function patchCoinLabel(mutate: (draft: CoinLabelConfig) => void): void {
+		const draft: CoinLabelConfig = $state.snapshot(doc.coinLabel) ?? {};
+		mutate(draft);
+		doc = setCoinLabel(doc, draft);
+	}
+	function patchCoinLabelStyle(patch: NonNullable<CoinLabelConfig['style']>): void {
+		patchCoinLabel((d) => (d.style = { ...d.style, ...patch }));
+	}
+	function patchCoinLabelTier(
+		tier: string,
+		patch: { text?: string; style?: NonNullable<CoinLabelConfig['style']> },
+	): void {
+		patchCoinLabel((d) => {
+			const entry = d.jackpots?.[tier] ?? {};
+			d.jackpots = {
+				...d.jackpots,
+				[tier]: {
+					...entry,
+					...(patch.text !== undefined ? { text: patch.text } : {}),
+					...(patch.style ? { style: { ...entry.style, ...patch.style } } : {}),
+				},
+			};
+		});
+	}
+	function patchCoinLabelPop(
+		key: 'landPop' | 'boostPop',
+		patch: { enabled?: boolean; scale?: number; ms?: number },
+	): void {
+		patchCoinLabel((d) => {
+			d.animation = { ...d.animation, [key]: { ...d.animation?.[key], ...patch } };
+		});
+	}
+
 	const wlLine = $derived(doc.winLine?.line ?? {});
 	const wlText = $derived(doc.winLine?.text ?? {});
 
@@ -2394,7 +2455,7 @@
 					</div>
 				</section>
 
-				{#if explodesSeats}
+				{#if explodesSeats && (caps.tumblePattern || doc.tumblePattern)}
 					<section class="winline tumblepattern" class:expanded={tumblePattern !== 'all'}>
 						<div class="wl-head">
 							<div class="wl-text">
@@ -2487,7 +2548,7 @@
 				<!-- `|| arOn` widens the section's own gate ONLY so the arrival-release switch below it
 					 stays reachable: a project that authored the flag and then left `emerge` would otherwise
 					 have nowhere to switch it back off, and the flag persists sparsely. -->
-				{#if data.reelBehaviour.emerge || doc.transition || arOn}
+				{#if (caps.symbolTransition && data.reelBehaviour.emerge) || doc.transition || arOn}
 					<section class="bookvfx">
 						<div class="hl-head">
 							<div class="hl-title">
@@ -2739,283 +2800,289 @@
 					</section>
 				{/if}
 
-				<section class="bookvfx">
-					<div class="hl-head">
-						<div class="hl-title">
-							<h2>Book symbol VFX</h2>
-							<p class="hl-sub">
-								Two layers drawn behind and in front of the book symbol during free spins. Each can
-								be a sprite frame, a spine animation, an Invisible Flipbook clip, or an Invisible FX
-								effect. Leave a layer unset to draw nothing.
-							</p>
+				{#if caps.bookSymbolVfx || doc.bookVfx}
+					<section class="bookvfx">
+						<div class="hl-head">
+							<div class="hl-title">
+								<h2>Book symbol VFX</h2>
+								<p class="hl-sub">
+									Two layers drawn behind and in front of the book symbol during free spins. Each
+									can be a sprite frame, a spine animation, an Invisible Flipbook clip, or an
+									Invisible FX effect. Leave a layer unset to draw nothing.
+								</p>
+							</div>
 						</div>
-					</div>
 
-					<div class="bv-slots">
-						{#each BOOK_VFX_SLOT_META as meta (meta.slot)}
-							{@const layer = doc.bookVfx?.[meta.slot]}
-							{@const editing = bookVfxEditing === meta.slot}
-							<div class="bv-slot" class:editing>
-								<div class="bv-slot-head">
-									<div class="bv-slot-title">
-										<h3>{meta.label}</h3>
-										<p class="bv-sub">{meta.sub}</p>
-									</div>
-									<div class="hl-actions">
-										{#if layer}<span class="badge">set</span>{/if}
-										{#if editing}
-											<button type="button" class="ghost" onclick={closeBookVfx}>Cancel</button>
-										{:else}
-											<button
-												type="button"
-												class="hl-change"
-												onclick={() => openBookVfx(meta.slot)}
-											>
-												{layer ? 'Change' : 'Add'}
-											</button>
-											{#if layer}
-												<button type="button" class="ghost" onclick={() => resetBookVfx(meta.slot)}>
-													↺ Clear
-												</button>
-											{/if}
-										{/if}
-									</div>
-								</div>
-
-								<div class="bv-current">
-									{#if layer}
-										<div class="bv-thumb">{@render layerThumb(layer, 72)}</div>
-										<div class="bv-meta">
-											<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
-											<span class="hl-chip">{bookVfxLabel(layer)}</span>
+						<div class="bv-slots">
+							{#each BOOK_VFX_SLOT_META as meta (meta.slot)}
+								{@const layer = doc.bookVfx?.[meta.slot]}
+								{@const editing = bookVfxEditing === meta.slot}
+								<div class="bv-slot" class:editing>
+									<div class="bv-slot-head">
+										<div class="bv-slot-title">
+											<h3>{meta.label}</h3>
+											<p class="bv-sub">{meta.sub}</p>
 										</div>
-									{:else}
-										<span class="hl-note">No layer — the game draws nothing here.</span>
-									{/if}
-								</div>
-
-								{#if editing && bookVfxDraft}
-									<div class="bv-editor">
-										<div class="field">
-											<span class="label">Type</span>
-											<div class="seg">
-												{#each BOOK_VFX_KINDS as kind (kind)}
-													{@const noClips = kind === 'flipbook' && clips.length === 0}
-													{@const noFx = kind === 'fx' && effects.length === 0}
+										<div class="hl-actions">
+											{#if layer}<span class="badge">set</span>{/if}
+											{#if editing}
+												<button type="button" class="ghost" onclick={closeBookVfx}>Cancel</button>
+											{:else}
+												<button
+													type="button"
+													class="hl-change"
+													onclick={() => openBookVfx(meta.slot)}
+												>
+													{layer ? 'Change' : 'Add'}
+												</button>
+												{#if layer}
 													<button
 														type="button"
-														class:active={bookVfxDraft.kind === kind}
-														disabled={noClips || noFx}
-														title={noClips
-															? 'This project has no Flipbook clips yet'
-															: noFx
-																? 'This project has no FX effects yet'
-																: ''}
-														onclick={() => setBookVfxKind(kind)}
-														>{BOOK_VFX_KIND_LABELS[kind]}</button
+														class="ghost"
+														onclick={() => resetBookVfx(meta.slot)}
 													>
-												{/each}
-											</div>
+														↺ Clear
+													</button>
+												{/if}
+											{/if}
 										</div>
+									</div>
 
-										{#if bookVfxDraft.kind === 'sprite'}
-											<div class="field">
-												<span class="label">Frame</span>
-												<RegionPicker
-													scoped
-													sheets={pickSheets}
-													value={bookVfxDraft.assetKey ?? ''}
-													onSelect={(region) => {
-														if (bookVfxDraft) bookVfxDraft.assetKey = region;
-													}}
-												/>
+									<div class="bv-current">
+										{#if layer}
+											<div class="bv-thumb">{@render layerThumb(layer, 72)}</div>
+											<div class="bv-meta">
+												<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
+												<span class="hl-chip">{bookVfxLabel(layer)}</span>
 											</div>
-											{#if bookVfxDraft.assetKey}
-												<div class="field">
-													<span class="label">Preview</span>
-													<div class="panel-preview">
-														<SymbolSpritePreview
-															frame={bookVfxDraft.assetKey}
-															index={spriteIndex}
-															size={110}
-														/>
-													</div>
-												</div>
-											{/if}
-										{:else if bookVfxDraft.kind === 'spine'}
+										{:else}
+											<span class="hl-note">No layer — the game draws nothing here.</span>
+										{/if}
+									</div>
+
+									{#if editing && bookVfxDraft}
+										<div class="bv-editor">
 											<div class="field">
-												<span class="label">Spine bundle</span>
-												<select
-													value={bookVfxDraft.assetKey ?? ''}
-													onchange={(e) => {
-														if (!bookVfxDraft) return;
-														bookVfxDraft.assetKey = e.currentTarget.value || undefined;
-														bookVfxDraft.animationName = undefined;
-														bookVfxAnimations = [];
-													}}
-												>
-													<option value="">Pick a bundle…</option>
-													{#each spineBundles as b (b.key)}
-														<option value={b.key}>{b.name}</option>
-													{/each}
-												</select>
-											</div>
-											{#if bookVfxDraft.assetKey}
-												<div class="field">
-													<span class="label">Animation</span>
-													{#if bookVfxAnimations.length}
-														<select
-															value={bookVfxDraft.animationName ?? ''}
-															onchange={(e) => {
-																if (bookVfxDraft)
-																	bookVfxDraft.animationName = e.currentTarget.value || undefined;
-															}}
+												<span class="label">Type</span>
+												<div class="seg">
+													{#each BOOK_VFX_KINDS as kind (kind)}
+														{@const noClips = kind === 'flipbook' && clips.length === 0}
+														{@const noFx = kind === 'fx' && effects.length === 0}
+														<button
+															type="button"
+															class:active={bookVfxDraft.kind === kind}
+															disabled={noClips || noFx}
+															title={noClips
+																? 'This project has no Flipbook clips yet'
+																: noFx
+																	? 'This project has no FX effects yet'
+																	: ''}
+															onclick={() => setBookVfxKind(kind)}
+															>{BOOK_VFX_KIND_LABELS[kind]}</button
 														>
-															<option value="">Pick an animation…</option>
-															{#each bookVfxAnimations as anim (anim)}
-																<option value={anim}>{anim}</option>
-															{/each}
-														</select>
-													{:else}
-														<input
-															type="text"
-															placeholder="animation name"
-															value={bookVfxDraft.animationName ?? ''}
-															oninput={(e) => {
-																if (bookVfxDraft)
-																	bookVfxDraft.animationName = e.currentTarget.value || undefined;
-															}}
-														/>
-													{/if}
-												</div>
-												<div class="field">
-													<span class="label">Preview</span>
-													<div class="panel-preview">
-														<SymbolSpinePreview
-															assetKey={bookVfxDraft.assetKey}
-															animationName={bookVfxDraft.animationName}
-															size={110}
-															{reloadToken}
-															onAnimations={(names) => (bookVfxAnimations = names)}
-														/>
-													</div>
-												</div>
-											{/if}
-										{:else if bookVfxDraft.kind === 'flipbook'}
-											<div class="field">
-												<span class="label">Clip</span>
-												<select
-													value={bookVfxDraft.clipId ?? ''}
-													onchange={(e) => setBookVfxClip(e.currentTarget.value)}
-												>
-													<option value="">Pick a clip…</option>
-													{#each clips as c (c.id)}
-														<option value={c.id}>{clipLabel(c.id)}</option>
 													{/each}
-												</select>
+												</div>
 											</div>
-											{#if bookVfxDraft.clipId}
-												{@const frame = clipFirstFrame(bookVfxDraft.clipId)}
+
+											{#if bookVfxDraft.kind === 'sprite'}
 												<div class="field">
-													<span class="label">Preview</span>
-													<div class="panel-preview">
-														{#if frame}
-															<SymbolSpritePreview {frame} index={spriteIndex} size={110} />
+													<span class="label">Frame</span>
+													<RegionPicker
+														scoped
+														sheets={pickSheets}
+														value={bookVfxDraft.assetKey ?? ''}
+														onSelect={(region) => {
+															if (bookVfxDraft) bookVfxDraft.assetKey = region;
+														}}
+													/>
+												</div>
+												{#if bookVfxDraft.assetKey}
+													<div class="field">
+														<span class="label">Preview</span>
+														<div class="panel-preview">
+															<SymbolSpritePreview
+																frame={bookVfxDraft.assetKey}
+																index={spriteIndex}
+																size={110}
+															/>
+														</div>
+													</div>
+												{/if}
+											{:else if bookVfxDraft.kind === 'spine'}
+												<div class="field">
+													<span class="label">Spine bundle</span>
+													<select
+														value={bookVfxDraft.assetKey ?? ''}
+														onchange={(e) => {
+															if (!bookVfxDraft) return;
+															bookVfxDraft.assetKey = e.currentTarget.value || undefined;
+															bookVfxDraft.animationName = undefined;
+															bookVfxAnimations = [];
+														}}
+													>
+														<option value="">Pick a bundle…</option>
+														{#each spineBundles as b (b.key)}
+															<option value={b.key}>{b.name}</option>
+														{/each}
+													</select>
+												</div>
+												{#if bookVfxDraft.assetKey}
+													<div class="field">
+														<span class="label">Animation</span>
+														{#if bookVfxAnimations.length}
+															<select
+																value={bookVfxDraft.animationName ?? ''}
+																onchange={(e) => {
+																	if (bookVfxDraft)
+																		bookVfxDraft.animationName = e.currentTarget.value || undefined;
+																}}
+															>
+																<option value="">Pick an animation…</option>
+																{#each bookVfxAnimations as anim (anim)}
+																	<option value={anim}>{anim}</option>
+																{/each}
+															</select>
 														{:else}
-															<span class="chip">no frames</span>
+															<input
+																type="text"
+																placeholder="animation name"
+																value={bookVfxDraft.animationName ?? ''}
+																oninput={(e) => {
+																	if (bookVfxDraft)
+																		bookVfxDraft.animationName = e.currentTarget.value || undefined;
+																}}
+															/>
 														{/if}
 													</div>
-												</div>
-											{/if}
-										{:else}
-											<div class="field">
-												<span class="label">Effect</span>
-												<select
-													value={bookVfxDraft.effectId ?? ''}
-													onchange={(e) => {
-														if (bookVfxDraft)
-															bookVfxDraft.effectId = e.currentTarget.value || undefined;
-													}}
-												>
-													<option value="">Pick an effect…</option>
-													{#each effects as fx (fx.id)}
-														<option value={fx.id}>{fx.name}</option>
-													{/each}
-												</select>
-												<p class="hint">
-													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a>
-													to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
-													on the effect's authored size (1 = as authored), not a cell fit — so 10 is 10×
-													(huge); dial it down (e.g. 0.5) to fit the cell.
-												</p>
-											</div>
-											{#if bookVfxDraft.effectId}
+													<div class="field">
+														<span class="label">Preview</span>
+														<div class="panel-preview">
+															<SymbolSpinePreview
+																assetKey={bookVfxDraft.assetKey}
+																animationName={bookVfxDraft.animationName}
+																size={110}
+																{reloadToken}
+																onAnimations={(names) => (bookVfxAnimations = names)}
+															/>
+														</div>
+													</div>
+												{/if}
+											{:else if bookVfxDraft.kind === 'flipbook'}
 												<div class="field">
-													<span class="label">Preview</span>
-													<div class="panel-preview">
-														<SymbolFxPreview effectId={bookVfxDraft.effectId} size={140} />
+													<span class="label">Clip</span>
+													<select
+														value={bookVfxDraft.clipId ?? ''}
+														onchange={(e) => setBookVfxClip(e.currentTarget.value)}
+													>
+														<option value="">Pick a clip…</option>
+														{#each clips as c (c.id)}
+															<option value={c.id}>{clipLabel(c.id)}</option>
+														{/each}
+													</select>
+												</div>
+												{#if bookVfxDraft.clipId}
+													{@const frame = clipFirstFrame(bookVfxDraft.clipId)}
+													<div class="field">
+														<span class="label">Preview</span>
+														<div class="panel-preview">
+															{#if frame}
+																<SymbolSpritePreview {frame} index={spriteIndex} size={110} />
+															{:else}
+																<span class="chip">no frames</span>
+															{/if}
+														</div>
+													</div>
+												{/if}
+											{:else}
+												<div class="field">
+													<span class="label">Effect</span>
+													<select
+														value={bookVfxDraft.effectId ?? ''}
+														onchange={(e) => {
+															if (bookVfxDraft)
+																bookVfxDraft.effectId = e.currentTarget.value || undefined;
+														}}
+													>
+														<option value="">Pick an effect…</option>
+														{#each effects as fx (fx.id)}
+															<option value={fx.id}>{fx.name}</option>
+														{/each}
+													</select>
+													<p class="hint">
+														The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a>
+														to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
+														on the effect's authored size (1 = as authored), not a cell fit — so 10 is
+														10× (huge); dial it down (e.g. 0.5) to fit the cell.
+													</p>
+												</div>
+												{#if bookVfxDraft.effectId}
+													<div class="field">
+														<span class="label">Preview</span>
+														<div class="panel-preview">
+															<SymbolFxPreview effectId={bookVfxDraft.effectId} size={140} />
+														</div>
+													</div>
+												{/if}
+											{/if}
+
+											<div class="bv-fit">
+												<div class="field">
+													<span class="label">Size × cell (w × h)</span>
+													<div class="bv-pair">
+														<input
+															type="number"
+															step="0.05"
+															min="0"
+															placeholder="auto"
+															value={bookVfxDraft.sizeRatios?.width ?? ''}
+															oninput={(e) => setBookVfxSize('width', e.currentTarget.value)}
+														/>
+														<input
+															type="number"
+															step="0.05"
+															min="0"
+															placeholder="auto"
+															value={bookVfxDraft.sizeRatios?.height ?? ''}
+															oninput={(e) => setBookVfxSize('height', e.currentTarget.value)}
+														/>
 													</div>
 												</div>
-											{/if}
-										{/if}
+												<div class="field">
+													<span class="label">Offset × cell (x, y)</span>
+													<div class="bv-pair">
+														<input
+															type="number"
+															step="0.05"
+															placeholder="0"
+															value={bookVfxDraft.offset?.x ?? ''}
+															oninput={(e) => setBookVfxOffset('x', e.currentTarget.value)}
+														/>
+														<input
+															type="number"
+															step="0.05"
+															placeholder="0"
+															value={bookVfxDraft.offset?.y ?? ''}
+															oninput={(e) => setBookVfxOffset('y', e.currentTarget.value)}
+														/>
+													</div>
+												</div>
+											</div>
 
-										<div class="bv-fit">
-											<div class="field">
-												<span class="label">Size × cell (w × h)</span>
-												<div class="bv-pair">
-													<input
-														type="number"
-														step="0.05"
-														min="0"
-														placeholder="auto"
-														value={bookVfxDraft.sizeRatios?.width ?? ''}
-														oninput={(e) => setBookVfxSize('width', e.currentTarget.value)}
-													/>
-													<input
-														type="number"
-														step="0.05"
-														min="0"
-														placeholder="auto"
-														value={bookVfxDraft.sizeRatios?.height ?? ''}
-														oninput={(e) => setBookVfxSize('height', e.currentTarget.value)}
-													/>
-												</div>
-											</div>
-											<div class="field">
-												<span class="label">Offset × cell (x, y)</span>
-												<div class="bv-pair">
-													<input
-														type="number"
-														step="0.05"
-														placeholder="0"
-														value={bookVfxDraft.offset?.x ?? ''}
-														oninput={(e) => setBookVfxOffset('x', e.currentTarget.value)}
-													/>
-													<input
-														type="number"
-														step="0.05"
-														placeholder="0"
-														value={bookVfxDraft.offset?.y ?? ''}
-														oninput={(e) => setBookVfxOffset('y', e.currentTarget.value)}
-													/>
-												</div>
-											</div>
+											<button
+												type="button"
+												class="apply"
+												disabled={!bookVfxBindable}
+												onclick={applyBookVfx}
+											>
+												Apply {meta.label.toLowerCase()}
+											</button>
 										</div>
-
-										<button
-											type="button"
-											class="apply"
-											disabled={!bookVfxBindable}
-											onclick={applyBookVfx}
-										>
-											Apply {meta.label.toLowerCase()}
-										</button>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</section>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</section>
+				{/if}
 
 				{#if flightsShown}
 					{#snippet flightHeadArt(size: number)}
@@ -3430,191 +3497,195 @@
 					{/if}
 				{/snippet}
 
-				<section class="winline" class:expanded={stackedOn}>
-					<div class="wl-head">
-						<div class="wl-text">
-							<h2>Stacked pictures</h2>
-							<p class="wl-sub">
-								Turn a symbol into a single <strong>tall picture</strong> that fills several cells
-								for the stacked-picture reel mode. Pick which symbols are stacked, how many cells
-								tall each is, and each one's two pictures: the <em>resting</em> picture it normally
-								shows, and an optional <em>winning</em> picture it swaps to while it pays. A tall
-								picture is the <em>only</em> thing a stacked symbol shows. Off by default.
-							</p>
+				{#if caps.stackedPictures || stackedOn}
+					<section class="winline" class:expanded={stackedOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Stacked pictures</h2>
+								<p class="wl-sub">
+									Turn a symbol into a single <strong>tall picture</strong> that fills several cells
+									for the stacked-picture reel mode. Pick which symbols are stacked, how many cells
+									tall each is, and each one's two pictures: the <em>resting</em> picture it
+									normally shows, and an optional <em>winning</em> picture it swaps to while it
+									pays. A tall picture is the <em>only</em> thing a stacked symbol shows. Off by default.
+								</p>
+							</div>
+							<label class="switch" class:on={stackedOn}>
+								<input
+									type="checkbox"
+									checked={stackedOn}
+									onchange={(e) => toggleStackedPictures(e.currentTarget.checked)}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">{stackedOn ? 'On' : 'Off'}</span>
+							</label>
 						</div>
-						<label class="switch" class:on={stackedOn}>
-							<input
-								type="checkbox"
-								checked={stackedOn}
-								onchange={(e) => toggleStackedPictures(e.currentTarget.checked)}
-							/>
-							<span class="track"><span class="knob"></span></span>
-							<span class="switch-label">{stackedOn ? 'On' : 'Off'}</span>
-						</label>
-					</div>
 
-					{#if stackedOn}
-						<div class="wl-config">
-							<div class="wl-group">
-								<label class="switch" class:on={stackedFullHeightOnly}>
-									<input
-										type="checkbox"
-										checked={stackedFullHeightOnly}
-										onchange={(e) => toggleStackedFullHeightOnly(e.currentTarget.checked)}
-									/>
-									<span class="track"><span class="knob"></span></span>
-									<span class="switch-label">Show the tall picture only at full height</span>
-								</label>
-								<p class="hint">
-									On: a landed stack shorter than the symbol's height shows the normal single
-									symbols instead of a cropped tall picture. Off: a partial stack shows the top of
-									the picture.
-								</p>
-							</div>
-							<div class="wl-group">
-								<label class="switch" class:on={stackedEdgeCutoffs}>
-									<input
-										type="checkbox"
-										checked={stackedEdgeCutoffs}
-										onchange={(e) => toggleStackedEdgeCutoffs(e.currentTarget.checked)}
-									/>
-									<span class="track"><span class="knob"></span></span>
-									<span class="switch-label">Cut-off tall pictures at the board edges</span>
-								</label>
-								<p class="hint">
-									On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall picture
-									— the visible slice of a symbol scrolled partly off-screen (top edge shows the
-									bottom of the picture, bottom edge the top), for any run length. This overrides
-									"full-height only" at the edges. Off: edge stacks follow the setting above.
-								</p>
-							</div>
-							<div class="wl-group">
-								<h3>Stacked symbols</h3>
-								{#if symbolNames.length === 0}
-									<p class="hint">No symbols defined for this game type.</p>
-								{:else}
-									<div class="stacked-pick">
-										{#each symbolNames as name (name)}
-											<button
-												type="button"
-												class="stacked-chip"
-												class:on={stackedSet.has(name)}
-												onclick={() => toggleStackedSymbol(name)}
-												title={stackedSet.has(name)
-													? 'Stacked — click to un-stack'
-													: 'Make stacked'}
-											>
-												{name}
-											</button>
-										{/each}
-									</div>
-								{/if}
-							</div>
-
-							<div class="wl-group">
-								<label class="field">
-									<span class="label">Win beat (ms)</span>
-									<input
-										type="number"
-										min="0"
-										step="50"
-										placeholder={String(STACKED_WIN_HOLD_MS_DEFAULT)}
-										value={doc.stackedPictures?.winHoldMs ?? ''}
-										oninput={(e) => setStackedWinHold(e.currentTarget.value)}
-									/>
-								</label>
-								<p class="hint">
-									How long a winning stack stays lit — the beat its win picture plays for. The cells
-									under a tall picture have no per-symbol win animation to wait on, so the game
-									holds this fixed time instead. Blank ⇒ {STACKED_WIN_HOLD_MS_DEFAULT}ms.
-								</p>
-							</div>
-
-							{#each stackedList as s (s.name)}
-								<div class="wl-group stacked-row">
-									<div class="stacked-art-preview">
-										{@render stackedArtPreview(s.art, 96)}
-									</div>
-									<div class="stacked-controls">
-										<h3>{s.name}</h3>
-										<label class="field">
-											<span class="label">Height (cells tall)</span>
-											<input
-												type="number"
-												min="1"
-												step="1"
-												value={s.height}
-												oninput={(e) => setStackedHeight(s.name, e.currentTarget.value)}
-											/>
-										</label>
-										<div class="stacked-art-actions">
-											<button
-												type="button"
-												class="apply"
-												class:editing={stackedEdit?.symbol === s.name && stackedEdit.slot === 'art'}
-												onclick={() => openStackedArt(s.name, 'art')}
-											>
-												{stackedEdit?.symbol === s.name && stackedEdit.slot === 'art'
-													? 'Editing picture…'
-													: 'Edit picture'}
-											</button>
-											<button
-												type="button"
-												class="ghost"
-												onclick={() => toggleStackedSymbol(s.name)}
-											>
-												Remove
-											</button>
+						{#if stackedOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<label class="switch" class:on={stackedFullHeightOnly}>
+										<input
+											type="checkbox"
+											checked={stackedFullHeightOnly}
+											onchange={(e) => toggleStackedFullHeightOnly(e.currentTarget.checked)}
+										/>
+										<span class="track"><span class="knob"></span></span>
+										<span class="switch-label">Show the tall picture only at full height</span>
+									</label>
+									<p class="hint">
+										On: a landed stack shorter than the symbol's height shows the normal single
+										symbols instead of a cropped tall picture. Off: a partial stack shows the top of
+										the picture.
+									</p>
+								</div>
+								<div class="wl-group">
+									<label class="switch" class:on={stackedEdgeCutoffs}>
+										<input
+											type="checkbox"
+											checked={stackedEdgeCutoffs}
+											onchange={(e) => toggleStackedEdgeCutoffs(e.currentTarget.checked)}
+										/>
+										<span class="track"><span class="knob"></span></span>
+										<span class="switch-label">Cut-off tall pictures at the board edges</span>
+									</label>
+									<p class="hint">
+										On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall
+										picture — the visible slice of a symbol scrolled partly off-screen (top edge
+										shows the bottom of the picture, bottom edge the top), for any run length. This
+										overrides "full-height only" at the edges. Off: edge stacks follow the setting
+										above.
+									</p>
+								</div>
+								<div class="wl-group">
+									<h3>Stacked symbols</h3>
+									{#if symbolNames.length === 0}
+										<p class="hint">No symbols defined for this game type.</p>
+									{:else}
+										<div class="stacked-pick">
+											{#each symbolNames as name (name)}
+												<button
+													type="button"
+													class="stacked-chip"
+													class:on={stackedSet.has(name)}
+													onclick={() => toggleStackedSymbol(name)}
+													title={stackedSet.has(name)
+														? 'Stacked — click to un-stack'
+														: 'Make stacked'}
+												>
+													{name}
+												</button>
+											{/each}
 										</div>
-										<p class="hint mono">{cellLabel(s.art)}</p>
-									</div>
-									<!--
+									{/if}
+								</div>
+
+								<div class="wl-group">
+									<label class="field">
+										<span class="label">Win beat (ms)</span>
+										<input
+											type="number"
+											min="0"
+											step="50"
+											placeholder={String(STACKED_WIN_HOLD_MS_DEFAULT)}
+											value={doc.stackedPictures?.winHoldMs ?? ''}
+											oninput={(e) => setStackedWinHold(e.currentTarget.value)}
+										/>
+									</label>
+									<p class="hint">
+										How long a winning stack stays lit — the beat its win picture plays for. The
+										cells under a tall picture have no per-symbol win animation to wait on, so the
+										game holds this fixed time instead. Blank ⇒ {STACKED_WIN_HOLD_MS_DEFAULT}ms.
+									</p>
+								</div>
+
+								{#each stackedList as s (s.name)}
+									<div class="wl-group stacked-row">
+										<div class="stacked-art-preview">
+											{@render stackedArtPreview(s.art, 96)}
+										</div>
+										<div class="stacked-controls">
+											<h3>{s.name}</h3>
+											<label class="field">
+												<span class="label">Height (cells tall)</span>
+												<input
+													type="number"
+													min="1"
+													step="1"
+													value={s.height}
+													oninput={(e) => setStackedHeight(s.name, e.currentTarget.value)}
+												/>
+											</label>
+											<div class="stacked-art-actions">
+												<button
+													type="button"
+													class="apply"
+													class:editing={stackedEdit?.symbol === s.name &&
+														stackedEdit.slot === 'art'}
+													onclick={() => openStackedArt(s.name, 'art')}
+												>
+													{stackedEdit?.symbol === s.name && stackedEdit.slot === 'art'
+														? 'Editing picture…'
+														: 'Edit picture'}
+												</button>
+												<button
+													type="button"
+													class="ghost"
+													onclick={() => toggleStackedSymbol(s.name)}
+												>
+													Remove
+												</button>
+											</div>
+											<p class="hint mono">{cellLabel(s.art)}</p>
+										</div>
+										<!--
 										The WIN picture — the same authoring surface as the resting one, in its own slot.
 										Optional: unset, the stack simply keeps showing its resting picture while it pays,
 										which is exactly how this behaved before the slot existed.
 									-->
-									<div class="stacked-art-preview">
-										{@render stackedArtPreview(s.winArt, 96)}
-									</div>
-									<div class="stacked-controls">
-										<h3>{s.name} · winning</h3>
-										<p class="hint">
-											Shown while this stack is part of a paying line — the animation it pays out
-											with. Unset ⇒ it keeps showing the picture on the left.
-										</p>
-										<div class="stacked-art-actions">
-											<button
-												type="button"
-												class="apply"
-												class:editing={stackedEdit?.symbol === s.name &&
-													stackedEdit.slot === 'winArt'}
-												onclick={() => openStackedArt(s.name, 'winArt')}
-											>
-												{stackedEdit?.symbol === s.name && stackedEdit.slot === 'winArt'
-													? 'Editing win picture…'
-													: s.winArt
-														? 'Edit win picture'
-														: 'Add win picture'}
-											</button>
-											{#if s.winArt}
+										<div class="stacked-art-preview">
+											{@render stackedArtPreview(s.winArt, 96)}
+										</div>
+										<div class="stacked-controls">
+											<h3>{s.name} · winning</h3>
+											<p class="hint">
+												Shown while this stack is part of a paying line — the animation it pays out
+												with. Unset ⇒ it keeps showing the picture on the left.
+											</p>
+											<div class="stacked-art-actions">
 												<button
 													type="button"
-													class="ghost"
-													onclick={() => clearStackedWinArt(s.name)}
+													class="apply"
+													class:editing={stackedEdit?.symbol === s.name &&
+														stackedEdit.slot === 'winArt'}
+													onclick={() => openStackedArt(s.name, 'winArt')}
 												>
-													Clear
+													{stackedEdit?.symbol === s.name && stackedEdit.slot === 'winArt'
+														? 'Editing win picture…'
+														: s.winArt
+															? 'Edit win picture'
+															: 'Add win picture'}
 												</button>
-											{/if}
+												{#if s.winArt}
+													<button
+														type="button"
+														class="ghost"
+														onclick={() => clearStackedWinArt(s.name)}
+													>
+														Clear
+													</button>
+												{/if}
+											</div>
+											<p class="hint mono">
+												{s.winArt ? cellLabel(s.winArt) : 'inherits the picture'}
+											</p>
 										</div>
-										<p class="hint mono">
-											{s.winArt ? cellLabel(s.winArt) : 'inherits the picture'}
-										</p>
 									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</section>
+								{/each}
+							</div>
+						{/if}
+					</section>
+				{/if}
 
 				<section class="winline" class:expanded={winLineOn}>
 					<div class="wl-head">
@@ -4023,6 +4094,329 @@
 						</div>
 					{/if}
 				</section>
+
+				{#if coinLabelShown}
+					<section class="winline" class:expanded={true}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Coin value label</h2>
+								<p class="wl-sub">
+									The value a Hold and Win coin prints on itself — its cash, a payer's "+", a
+									multiplier's "×", or its jackpot tier. Every field left alone keeps the game's
+									coded label.
+								</p>
+							</div>
+						</div>
+						<div class="wl-config">
+							<div class="wl-group">
+								<h3>Style</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Font</span>
+										<select
+											value={cl.style?.font ?? COIN_LABEL_DEFAULTS.font}
+											onchange={(e) => patchCoinLabelStyle({ font: e.currentTarget.value })}
+										>
+											{#each fontOptions as name (name)}
+												<option value={name}>{name}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="field">
+										<span class="label"
+											>Size {(cl.style?.size ?? COIN_LABEL_DEFAULTS.size).toFixed(2)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.size[0]}
+											max={COIN_LABEL_BOUNDS.size[1]}
+											step="0.01"
+											value={cl.style?.size ?? COIN_LABEL_DEFAULTS.size}
+											oninput={(e) => patchCoinLabelStyle({ size: Number(e.currentTarget.value) })}
+										/>
+									</label>
+									<label class="field">
+										<span class="label">Colour (tint)</span>
+										<ColorField
+											value={cl.style?.tint ?? '#ffffff'}
+											oninput={(hex) => patchCoinLabelStyle({ tint: hex })}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Cash coins, collectors, payers and multipliers. The size is a multiple of the
+									symbol. The label is bitmap text, so the colour tints the font (see Win amount
+									text).
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Cash format</h3>
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Show cash as</span>
+										<select
+											value={cl.cash?.format ?? 'money'}
+											onchange={(e) => {
+												const format = e.currentTarget.value as 'money' | 'betMultiple';
+												patchCoinLabel((d) => (d.cash = { ...d.cash, format }));
+											}}
+										>
+											<option value="money">Money ($1.50)</option>
+											<option value="betMultiple">× bet (1.5×)</option>
+										</select>
+									</label>
+									<label class="field">
+										<span class="label">Decimals</span>
+										<select
+											value={cl.cash?.decimals === undefined ? '' : String(cl.cash.decimals)}
+											onchange={(e) => {
+												const v = e.currentTarget.value;
+												const decimals = v === '' ? undefined : Number(v);
+												patchCoinLabel((d) => (d.cash = { ...d.cash, decimals }));
+											}}
+										>
+											<option value="">Default</option>
+											{#each [0, 1, 2, 3, 4] as n (n)}
+												<option value={String(n)}>At least {n}</option>
+											{/each}
+										</select>
+									</label>
+									<div class="field">
+										<span class="label">Trim trailing zeros</span>
+										<label class="switch sm" class:on={cl.cash?.trimZeros === true}>
+											<input
+												type="checkbox"
+												checked={cl.cash?.trimZeros === true}
+												onchange={(e) => {
+													const trimZeros = e.currentTarget.checked;
+													patchCoinLabel((d) => (d.cash = { ...d.cash, trimZeros }));
+												}}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{cl.cash?.trimZeros === true ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+								</div>
+								<p class="wl-note">
+									<strong>Decimals</strong> is the fewest printed; a digit that is not zero is never
+									cut, so the label can never read as a different amount. <strong>Trim</strong> drops
+									every trailing zero ($3.00 → $3, $1.50 → $1.5).
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Jackpots</h3>
+								{#each clTiers as tier (tier)}
+									{@const entry = cl.jackpots?.[tier]}
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">{tier} text</span>
+											<input
+												type="text"
+												placeholder={tier}
+												value={entry?.text ?? ''}
+												onchange={(e) => patchCoinLabelTier(tier, { text: e.currentTarget.value })}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">Font</span>
+											<select
+												value={entry?.style?.font ?? ''}
+												onchange={(e) =>
+													patchCoinLabelTier(tier, { style: { font: e.currentTarget.value } })}
+											>
+												<option value="">Same as cash</option>
+												{#each fontOptions as name (name)}
+													<option value={name}>{name}</option>
+												{/each}
+											</select>
+										</label>
+										<label class="field">
+											<span class="label"
+												>Size {(
+													entry?.style?.size ??
+													cl.style?.size ??
+													COIN_LABEL_DEFAULTS.size
+												).toFixed(2)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.size[0]}
+												max={COIN_LABEL_BOUNDS.size[1]}
+												step="0.01"
+												value={entry?.style?.size ?? cl.style?.size ?? COIN_LABEL_DEFAULTS.size}
+												oninput={(e) =>
+													patchCoinLabelTier(tier, {
+														style: { size: Number(e.currentTarget.value) },
+													})}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">Colour (tint)</span>
+											<ColorField
+												value={entry?.style?.tint ?? cl.style?.tint ?? '#ffffff'}
+												oninput={(hex) => patchCoinLabelTier(tier, { style: { tint: hex } })}
+											/>
+										</label>
+									</div>
+								{/each}
+								<p class="wl-note">
+									One row per jackpot tier in the Game Config (MINI, MINOR, MAJOR and GRAND when it
+									declares none). Blank text prints the tier's name; a multiplied jackpot keeps its
+									"×2". An unset style uses the cash style above.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Placement</h3>
+								<div class="wl-fields">
+									{#each CL_AXES as axis (axis.key)}
+										<label class="field">
+											<span class="label"
+												>{axis.label}
+												{(cl.placement?.[axis.key] ?? COIN_LABEL_DEFAULTS[axis.key]).toFixed(
+													2,
+												)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.offset[0]}
+												max={COIN_LABEL_BOUNDS.offset[1]}
+												step="0.01"
+												value={cl.placement?.[axis.key] ?? COIN_LABEL_DEFAULTS[axis.key]}
+												oninput={(e) => {
+													const v = Number(e.currentTarget.value);
+													patchCoinLabel((d) => (d.placement = { ...d.placement, [axis.key]: v }));
+												}}
+											/>
+										</label>
+									{/each}
+									<label class="field">
+										<span class="label"
+											>Scale {(cl.placement?.scale ?? COIN_LABEL_DEFAULTS.scale).toFixed(2)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.scale[0]}
+											max="2"
+											step="0.05"
+											value={cl.placement?.scale ?? COIN_LABEL_DEFAULTS.scale}
+											oninput={(e) => {
+												const scale = Number(e.currentTarget.value);
+												patchCoinLabel((d) => (d.placement = { ...d.placement, scale }));
+											}}
+										/>
+									</label>
+									<label class="field">
+										<span class="label"
+											>Max width {(cl.placement?.maxWidth ?? COIN_LABEL_DEFAULTS.maxWidth).toFixed(
+												2,
+											)}</span
+										>
+										<input
+											type="range"
+											min={COIN_LABEL_BOUNDS.maxWidth[0]}
+											max={COIN_LABEL_BOUNDS.maxWidth[1]}
+											step="0.05"
+											value={cl.placement?.maxWidth ?? COIN_LABEL_DEFAULTS.maxWidth}
+											oninput={(e) => {
+												const maxWidth = Number(e.currentTarget.value);
+												patchCoinLabel((d) => (d.placement = { ...d.placement, maxWidth }));
+											}}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Offsets move the label from the centre of the cell, in symbol sizes (Y down). A
+									label wider than <strong>Max width</strong> shrinks to fit it.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<h3>Animation</h3>
+								<div class="wl-fields">
+									{#each CL_POPS as popRow (popRow.key)}
+										{@const pop = cl.animation?.[popRow.key]}
+										<div class="field">
+											<span class="label">{popRow.label}</span>
+											<label class="switch sm" class:on={pop?.enabled === true}>
+												<input
+													type="checkbox"
+													checked={pop?.enabled === true}
+													onchange={(e) =>
+														patchCoinLabelPop(popRow.key, { enabled: e.currentTarget.checked })}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{pop?.enabled === true ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<label class="field" class:disabled={pop?.enabled !== true}>
+											<span class="label"
+												>Pop scale {(pop?.scale ?? COIN_LABEL_DEFAULTS.popScale).toFixed(2)}</span
+											>
+											<input
+												type="range"
+												min={COIN_LABEL_BOUNDS.popScale[0]}
+												max="2"
+												step="0.05"
+												disabled={pop?.enabled !== true}
+												value={pop?.scale ?? COIN_LABEL_DEFAULTS.popScale}
+												oninput={(e) =>
+													patchCoinLabelPop(popRow.key, { scale: Number(e.currentTarget.value) })}
+											/>
+										</label>
+										<label class="field" class:disabled={pop?.enabled !== true}>
+											<span class="label">Pop length {pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}ms</span>
+											<input
+												type="range"
+												min="60"
+												max="1000"
+												step="20"
+												disabled={pop?.enabled !== true}
+												value={pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}
+												oninput={(e) =>
+													patchCoinLabelPop(popRow.key, { ms: Number(e.currentTarget.value) })}
+											/>
+										</label>
+									{/each}
+									<label class="field">
+										<span class="label">Count-up length (ms)</span>
+										<input
+											type="number"
+											min={COIN_LABEL_BOUNDS.countMs[0]}
+											max={COIN_LABEL_BOUNDS.countMs[1]}
+											step="10"
+											placeholder="Coded"
+											value={cl.animation?.countMs ?? ''}
+											onchange={(e) => {
+												const v = e.currentTarget.value;
+												const countMs = v === '' ? undefined : Number(v);
+												patchCoinLabel((d) => (d.animation = { ...d.animation, countMs }));
+											}}
+										/>
+									</label>
+								</div>
+								<p class="wl-note">
+									Both pops are off by default. <strong>Count-up length</strong> is how long a label takes
+									to count to its new value when a payer pays it or a multiplier boosts it (coded 600 ms).
+									Each step of a collector's collect scales with it — 350/600 of the length, as coded
+									(350 ms) — so the collect stays quicker. Blank keeps the coded lengths.
+								</p>
+							</div>
+
+							{#if doc.coinLabel}
+								<button
+									type="button"
+									class="ghost wl-reset"
+									onclick={() => (doc = clearCoinLabel(doc))}
+								>
+									Reset coin label
+								</button>
+							{/if}
+						</div>
+					</section>
+				{/if}
 
 				<section class="winline" class:expanded={wcOn}>
 					<div class="wl-head">
@@ -4571,6 +4965,13 @@
 								<tr>
 									<th class="rowhead">
 										<span class="sym-id">{symbol}</span>
+										{#if data.holdAndWinRoles[symbol]}
+											<span class="roles" title="Hold and Win role, from Invisible Game Config">
+												{#each data.holdAndWinRoles[symbol] as role (role)}
+													<span class="role">{role}</span>
+												{/each}
+											</span>
+										{/if}
 										<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
 										     Text prints it as {symbolName}, so a win says "4 Bananas" instead of the
 										     unspeakable id — or "4 of a kind", which is what it had to say before a
@@ -5349,6 +5750,19 @@
 	.sym-id {
 		display: block;
 		margin-bottom: 4px;
+	}
+	.roles {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px;
+		margin-bottom: 4px;
+	}
+	.role {
+		font-size: 9px;
+		color: #ffd27a;
+		background: #2e2410;
+		border-radius: 3px;
+		padding: 1px 4px;
 	}
 	.sym-name {
 		display: block;

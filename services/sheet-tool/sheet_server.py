@@ -42,6 +42,7 @@ from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images
 from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SENTRY_DSN)
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + compare-and-swap check)
+from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
 
 SELF = Path(__file__).resolve().parent
 
@@ -980,6 +981,14 @@ def _holder_note(by: dict | None) -> str:
 
 
 _UNLOCK_ATTEMPTS = 4    # the first try + 3 retries through a concurrent write
+
+
+def api_presence(payload: dict) -> dict:
+    """The "X is editing this sheet" heartbeat (iw_common/presence.py), keyed
+    `sheetMaker/<sheet>` — the sheet whose manifest a Save writes."""
+    return presence.beat("sheetMaker", _ctx()["r2_prefix"] or "",
+                         safe_name(str(payload.get("doc") or ""), ""), _identity(),
+                         payload.get("tab"), release=bool(payload.get("release")))
 
 
 def api_unlock_sheet(payload: dict) -> dict:
@@ -3208,6 +3217,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_delete_sheet(payload))
             elif path == "/api/session":
                 self._send_json(api_session(payload))
+            elif path == "/presence":
+                self._send_json(api_presence(payload))
             elif path == "/api/set-project":
                 self._send_json(api_set_project(payload))
             elif path == "/api/refresh":
@@ -3222,8 +3233,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _page() -> str:
-    """Serve the UI from ui.html each request so edits show on reload."""
-    return (SELF / "ui.html").read_text(encoding="utf-8")
+    """Serve the UI from ui.html each request so edits show on reload, with the
+    shared "X is editing this sheet" heartbeat inlined."""
+    return (SELF / "ui.html").read_text(encoding="utf-8").replace(
+        "/*__IW_PRESENCE_JS__*/", presence.script("sheet"))
 
 
 class _Server(errors.ReportingServerMixin, ThreadingHTTPServer):

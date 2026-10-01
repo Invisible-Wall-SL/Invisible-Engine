@@ -13,6 +13,11 @@ import {
 	BOOK_SYMBOL_STATES,
 	canBlendLayerKind,
 	CASCADE_SYMBOL_STATES,
+	COIN_LABEL_BOUNDS,
+	COIN_LABEL_DEFAULTS,
+	COIN_LABEL_FALLBACK_JACKPOTS,
+	HOLD_AND_WIN_SYMBOL_STATES,
+	pruneCoinLabel,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
@@ -27,6 +32,7 @@ import {
 	normalizeFlights,
 	tumbleExplosionDelays,
 	type BlendMode,
+	type CoinLabelConfig,
 	type FlightsConfig,
 	type FlightStyle,
 	type SymbolNameEntry,
@@ -62,6 +68,11 @@ export {
 };
 export type { TumblePatternConfig, TumblePatternName };
 
+/** The coin value label vocabulary, re-exported from its ONE home in `engine-layout` — the module the
+ *  server prunes with and the game draws from, so the three cannot disagree on a default. */
+export { COIN_LABEL_BOUNDS, COIN_LABEL_DEFAULTS, COIN_LABEL_FALLBACK_JACKPOTS };
+export type { CoinLabelConfig };
+
 /** The book-only states. They mirror new engine states and are valid in the doc for
  *  every game (the schema accepts them), but the grid only SHOWS their columns for a
  *  book game — see {@link visibleStatesFor}. */
@@ -84,6 +95,12 @@ const CASCADE_STATE_SET = new Set<SymbolState>(CASCADE_STATES);
 export const SWAP_STATES = SWAP_SYMBOL_STATES;
 const SWAP_STATE_SET = new Set<SymbolState>(SWAP_STATES);
 
+/** The Hold and Win states. Same deal again: the doc accepts them for every game, but the grid only
+ *  shows their columns for a Hold and Win project (`kindCapabilities().holdAndWin`) — see
+ *  {@link visibleStatesFor}. */
+export const HOLD_AND_WIN_STATES = HOLD_AND_WIN_SYMBOL_STATES;
+const HOLD_AND_WIN_STATE_SET = new Set<SymbolState>(HOLD_AND_WIN_STATES);
+
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
@@ -100,10 +117,27 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
 	clearReel:
 		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, or the board clearing before the next spin — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	coinIdle:
+		'A held coin (or jackpot, or special) at rest on the respin board. Leave a cell empty to use this symbol’s Static binding.',
+	coinLand:
+		'A respin cell whose reel stops on this symbol, before anything sticks. Leave a cell empty to use this symbol’s Static binding.',
+	coinStick:
+		'A landed coin STICKING into the held layer — also a mystery or a multiplier landing as what it became. Leave a cell empty to reuse this symbol’s Land binding.',
+	coinCollect:
+		'A coin pulsing as a collector takes it — also a lit column’s coins, and an instant collect on the base board. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinBoost:
+		'A special raising other coins — a payer paying, a multiplier boosting. Leave a cell empty to reuse this symbol’s Win binding.',
+	jackpotReveal:
+		'A jackpot coin lit for its jackpot, or every held cell on a full board. Leave a cell empty to reuse this symbol’s Win binding.',
+	mysteryReveal:
+		'A mystery OPENING before it becomes what it revealed. Plays once by default, like Explosion. Leave a cell empty to reuse this symbol’s Explosion binding.',
+	flyToMeter:
+		'A special lit on the base board while it flies into its pot. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the cascade
+ *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the Hold and Win
+ *  states ONLY for a kind with the respin feature (`kindCapabilities().holdAndWin`), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
  *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /
  *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
@@ -117,6 +151,7 @@ export function visibleStatesFor(
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return caps.bookReveal;
+		if (HOLD_AND_WIN_STATE_SET.has(s)) return caps.holdAndWin;
 		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
 		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
 		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the
@@ -599,6 +634,10 @@ export interface SymbolsDoc {
 	 *  one frame, nothing ships, byte-identical. Passed through verbatim to
 	 *  `bundle.symbols.tumblePattern`. */
 	tumblePattern?: TumblePatternConfig;
+	/** The Hold and Win COIN VALUE LABEL — style, cash format, per-tier jackpot text, placement and
+	 *  pops. Sparse: absent ⇒ the coded label, nothing ships. Passed through verbatim to
+	 *  `bundle.symbols.coinLabel`. */
+	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
 	 *  `toCollector`, `boostBeam`, `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the
 	 *  coded glow. Normalized by `engine-layout`'s `normalizeFlights` on both sides of the save.
@@ -635,6 +674,17 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
 	// owes the author the matching picture.
 	if (state === 'intro') return 'land';
+	// The Hold and Win beats borrow what the coded presentation played before they had names. The two
+	// that borrowed `static` (`coinIdle`, `coinLand`) are the engine's last resort, so they read unset.
+	if (state === 'coinStick') return 'land';
+	if (state === 'mysteryReveal') return 'explosion';
+	if (
+		state === 'coinCollect' ||
+		state === 'coinBoost' ||
+		state === 'jackpotReveal' ||
+		state === 'flyToMeter'
+	)
+		return 'win';
 	return null;
 };
 
@@ -952,6 +1002,32 @@ export function clearTumblePattern(doc: SymbolsDoc): SymbolsDoc {
 	const next = { ...doc };
 	delete next.tumblePattern;
 	return next;
+}
+
+/**
+ * Replace the coin value label with `next`, pruned by the SAME `pruneCoinLabel` the server applies on
+ * save — so a value dragged back to its default, or a section emptied, signs exactly like the doc the
+ * server hands back and the page never sits dirty after a save. New doc.
+ */
+export function setCoinLabel(doc: SymbolsDoc, next: CoinLabelConfig): SymbolsDoc {
+	const coinLabel = pruneCoinLabel(next);
+	const out = { ...doc };
+	if (coinLabel) out.coinLabel = coinLabel;
+	else delete out.coinLabel;
+	return out;
+}
+
+/** Back to the coded label — no key at all. New doc (the same one when there was nothing). */
+export function clearCoinLabel(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.coinLabel) return doc;
+	const out = { ...doc };
+	delete out.coinLabel;
+	return out;
+}
+
+/** The jackpot tiers the label section lists: the Game Config's, else the four the presets use. */
+export function coinLabelTiers(configured: readonly string[]): string[] {
+	return configured.length ? [...configured] : [...COIN_LABEL_FALLBACK_JACKPOTS];
 }
 
 /**
@@ -1623,6 +1699,17 @@ export function docSignature(doc: SymbolsDoc): string {
 				stepMs: doc.tumblePattern.stepMs ?? null,
 			}
 		: null;
+	// Listed here or a coin-label edit never marks the page dirty and Save stays disabled — the same
+	// trap every sibling above carries a warning about. Keys sorted at every level (tiers included), so
+	// the order a field was set in cannot move the signature.
+	const sortDeep = (value: unknown): unknown => {
+		if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+		const out: Record<string, unknown> = {};
+		for (const k of Object.keys(value).sort())
+			out[k] = sortDeep((value as Record<string, unknown>)[k]);
+		return out;
+	};
+	const coinLabel = doc.coinLabel ? sortDeep(doc.coinLabel) : null;
 	return JSON.stringify({
 		symbols,
 		names,
@@ -1645,6 +1732,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		transition,
 		tumblePattern,
 		anticipation,
+		coinLabel,
 		// Same trap again: without this line authoring a flight never marks the page dirty. Signed
 		// normalized, so the key and field order cannot move the signature.
 		flights: normalizeFlights(doc.flights) ?? null,
