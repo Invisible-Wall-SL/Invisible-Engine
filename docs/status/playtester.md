@@ -107,6 +107,9 @@ gap is closed by the headless real-clock path (2026-09-28, see Current state).
   `scripts/playtest/headless-shell.mjs` is now the one launch for `win-countup-repro.mjs` and
   `host-settings-probe.mjs`: either name, the sandbox flag only as root, and the shell's stderr on
   an early exit. The GPU flags are unchanged; on Windows the play run still reaches idle at 60 fps.
+  Verified in a cloud container (uid 0, `chromium_headless_shell-1194/chrome-linux/headless_shell`):
+  `win-countup-repro.mjs` booted to idle in 9–18 s at 4–6 fps and played a big-win count-up back to
+  idle with no stall, exit 0. The same shell started without `--no-sandbox` refuses to run as root.
   The caveat lives in [the headless real clock](../playtest/README.md#the-headless-real-clock).
 - 2026-09-28 — **Live check of #807/#810 on the headless real clock** (#836): `bookofborutremake`
   passes (intro holds and releases on tap, book reveal, two-stage outro tap, idle with credit).

@@ -57,9 +57,11 @@ its `--mode recon` boots, prints the fps and exits.
 - **As root it needs `--no-sandbox`.** Chromium will not start its sandbox as root, which is a cloud
   container's default user. The launch adds the flag only when `process.getuid()` is 0. A shell
   that exits before it answers prints its stderr.
-- **Frame rate:** 60 fps with a GPU. A container has no GPU and renders in software at a few fps.
-  That is slow, but the clock is real and the page is `visible`, so rounds still finish. Check the
-  `fps` a run prints before timing anything.
+- **Frame rate:** 60 fps with a GPU. A container has no GPU and renders in software: 4–6 fps,
+  falling to 2 during a big win (measured 2026-10-02). That is slow, but the clock is real and the
+  page is `visible`, so rounds still finish: idle in 9–18 s, and a 32 s big-win count-up lands on
+  time. Check the `fps` a run prints before timing anything. Expect one `Web font load inactive`
+  console error there, because the Typekit font does not load from a container.
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.
 
