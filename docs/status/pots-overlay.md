@@ -36,7 +36,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
-| 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
+| 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
@@ -149,6 +149,34 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     Forcing works only on the authoring twin or a standalone build, as on Hold and Win. An overlay
     that cannot be built deals the plain book game and warns once. The Dockerfile copies the two new
     modules (the H&W gate checks the copy).
+- 2026-10-02 — **Phase 5b, Scene Editor + Component Editor, as built** (session "Pots overlay Phase
+  5b — Scene Editor overlay screens", #1009). Pinned by `packages/engine-layout/scripts/test-hold-and-win-template.mjs`.
+  - **Flags.** `apps/launcher-api/src/lib/addOns.ts` (`projectAddOns`) turns the resolved Game
+    Config into `{holdAndWin, potsOverlay}` and the pot ids (`resolveMeters`). The Scene Editor
+    palette, the properties panel's signal and symbol-state pickers, and the Component Editor's
+    pickers pass the flags. Without a block, both flags are `false`, which `kindCapabilities`
+    treats exactly like no config.
+  - **Screens.** `getFullSceneSet(kind, SceneSetOptions)` merges the add-on screens into any kind but
+    `holdAndWin` when a flag is set:
+    - either add-on: the `pots` screen, with one Pot Meter per resolved meter;
+    - with a Hold and Win bonus: also `jackpotBar` and all nine `holdAndWin` mode screens (respin
+      background, board, counter, total bar, letters, wheel, intro, jackpot win, outro).
+    - Not merged: `luckySpin` (an error on an overlay host's bonus), and the base game's message
+      host (a node on an existing screen; a merge never edits one).
+    - The screens come from the Hold and Win reference, so they are placed for its 5×3 board in the
+      same main box as Book-of. They are centred, not fitted to the host's own board.
+  - **Merge.** `mergeMissingScreens(current, reference, ids)` is one pure helper, used by both "Add
+    missing screens" and the new **＋ Add overlay screens**. It puts each missing screen after the
+    nearest preceding present screen and skips an id that already exists, so a second merge adds
+    nothing. **＋ Add overlay screens** adds only `addOnSceneIds(kind, options)`, so a hand-authored
+    layout like Borut's keeps every other screen unchanged even if it lacks other reference screens.
+  - **Pot ids.** `HoldAndWinTemplateOptions.potIds` drives the pots: absent ⇒ red/blue/green (every
+    kind's set with no options is byte-identical; hashes pinned); empty ⇒ no Pots screen. The editor
+    passes the config's ids, so a **Hold and Win project on the Classic or Collector preset (no
+    meters) no longer gets an empty Pots screen** from the scaffold or "Add missing screens". This
+    is a deliberate change.
+  - **Not covered:** the server-side new-project scaffold (`projectScaffold.ts:119`) passes no
+    add-ons. It is Phase 6's to seed the overlay screens there.
 
 - 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
   `packages/game-config/potsOverlay.fixture.ts` (115 assertions) and the kind-gating /
@@ -260,6 +288,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      published symbol defaults must add them through `resolveMeters`. `symbolStatesForKind` (pinned
      by `check-symbols-kind-gating.ts`) hides `coinLand` / `coinIdle` / `flyToMeter` from a pots-only
      host, but design §4 wants those states for the tokens. Gate them on `pots` there.
+   - **Phase 5c (found in 5b):** `apps/launcher-api/src/lib/sceneCues.ts` still lists the game-driven
+     signals with `engineSignalsForKind(gameType)`, without the add-ons. Once Phase 4 registers the
+     pot family on an overlay host, pass the config there too.
+   - **Phase 6 (found in 5b):** the new-project scaffold (`projectScaffold.ts:119`) calls
+     `getFullSceneSet` without add-ons. Pass `SceneSetOptions` (see `$lib/addOns`) when the add-on
+     seeds the overlay screens.
    - **Phase 6:** merging `holdAndWinBonus()` symbols into a host's dictionary can clash with the
      host's own names (a host that already has a `BONUS` or a `BLANK`). The add-on needs a rename
      map, or must refuse with a clear message.
@@ -299,7 +333,14 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     unchanged.
   - Surprise: the brief's "post-process each play" could not keep a round open that the host had
     closed, hence the seam (Decisions).
-
+- 2026-10-02 — **Phase 5b: Scene Editor overlay screens (#1009).** The Scene Editor palette, its pickers
+  and the Component Editor's pickers follow the config's add-on blocks. "Add missing screens" is
+  capability-based, and a new **＋ Add overlay screens** merges only the Pots screen (pot ids from
+  `resolveMeters`), plus the Jackpot bar and the `holdAndWin` mode screens for a Hold and Win bonus.
+  Agent `invisible-components`, guides via `docs-keeper`. Details under Decisions.
+  - **Left for later:** `sceneCues.ts` (the flow's game-driven signal list) still reads the kind
+    only; that is Phase 5c's, along with the runtime registering pot signals (Phase 4). The
+    new-project scaffold is Phase 6's.
 - 2026-10-02 — **Phase 1: the contract (#1008).** The `potsOverlay` Game Config block with its
   normalizer, validator, `resolveMeters` and two presets (Phase 1a, agent `invisible-game-config`).
   The additive `kindCapabilities` with the new `pots` / `potsOverlay` capabilities (Phase 1b, agent

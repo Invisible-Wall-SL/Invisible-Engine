@@ -134,7 +134,16 @@ To start from something:
   example a Hold and Win project scaffolded before the Jackpot bar and Pots screens) gets
   them here. The screens and the Components list follow the project's game kind (set when
   the project was created, or in Admin), even when its layout was first loaded from another
-  kind's reference.
+  kind's reference. They also follow the project's **add-ons** (its Game Config's **Pots overlay**
+  and **Hold and Win** blocks): a Book of project with the pots overlay gets the Pot Meter in the
+  Components list, the pot signals in the pickers, and a **Pots** screen in its screen set; one
+  with a Hold and Win bonus also gets the respin parts, the Hold and Win signals and symbol
+  states, and the feature's screens.
+- **＋ Add overlay screens (n)** appears on a project of another kind whose add-on screens are
+  missing. It adds only those: the **Pots** screen (one Pot Meter per pot in the Game Config),
+  plus, with a Hold and Win bonus, the **Jackpot bar** and the feature's screens (not Lucky
+  Spin). Each goes in after the screen it follows; existing screens are never replaced or edited.
+  Hover it to see which screens it will add.
 
 **Hold and Win screens.** A Hold and Win project starts with one screen set for all three
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
@@ -147,7 +156,8 @@ wheel without prizes), so leave it or delete its screen. The base game's **Messa
 where the game's toasts ("UNLOCKED: PAYER", jackpot amounts) appear — keep one. There are no
 free-spin screens; the Free-Spin Counter and free-spin intro/outro components stay in the
 Components list, so a hybrid game places them on screens of its own. Each pot is a **Pot
-Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter.
+Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter; the
+screen gets one per meter the config declares, so a preset without meters gets no Pots screen.
 Move and scale it here. Its look (bar, label) is coded, so there is no art to pick yet. While no
 Pot Meter for a meter is on screen, the game draws its built-in pot for that meter. A screen
 reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
@@ -483,7 +493,8 @@ Each row is:
 - **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). You invent the
   name here, and Invisible Flow offers it back to you in its **Cues** palette. The field also
   suggests the signals the game fires from its own beats for this project's kind (Win, Big
-  Win, and in a Hold and Win project the pot, coin, jackpot, wheel and feature signals). Those
+  Win, and with the Hold and Win feature the pot, coin, jackpot, wheel and feature signals; with
+  the pots overlay add-on the pot signals). Those
   need no Flow at all, which is why the **Cues** palette does not offer them. The match is
   exact: a name spelled differently on the two sides never fires.
 - **animation** (spine) — the clip to play. A dropdown of the rig's animations when the editor
@@ -798,9 +809,11 @@ game on the next **Publish** — the same trip as the rest of your art.
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
   UI groups, scenery), grouped by category. **Place** one to drop a component
   instance into the active screen; instances' params are editable in Properties.
-  The list shows only what your project's game kind uses: the Hold and Win pieces (Respin
-  Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel, Respin Cell
-  Tiles, Locked Row) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.
+  The list shows only what your project's game kind and add-ons use: the Hold and Win pieces
+  (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel,
+  Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
+  has a Hold and Win bonus; the Pot Meter also with the pots overlay. A screen that already holds
+  one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
   progressive tier, the server's live pool, which moves with every round and balance refresh.
   The **Platform Jackpot Bar** is offered to every kind. It holds four Jackpot Tiles fed
