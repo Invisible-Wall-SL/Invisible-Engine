@@ -1,12 +1,14 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';
-	import { Container, Text } from 'pixi-svelte';
+	import { Container, getContextParent, Text } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 	import { isComponentMounted } from 'engine-layout/svelte';
 
 	import { boardDimensions } from '../game/gameConfig';
-	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
+	import { getContext } from '../game/context';
+	import { cellWindow, getSymbolX, stateGameDerived } from '../game/stateGame.svelte';
 	import { respinCounterText } from '../game/holdAndWinText';
 	import { activeModifiersText } from '../game/stateHoldAndWin.svelte';
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
@@ -32,7 +34,32 @@
 	});
 
 	const x = $derived((getSymbolX(0) + getSymbolX(boardDimensions().x - 1)) / 2);
-	const y = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.3);
+	const aboveBoard = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.3);
+
+	/**
+	 * Above the board — unless the layout puts the board's top at the canvas edge (a portrait layout,
+	 * `hw-3pots-sample`), where that is off screen: then the counter is pulled down until its line is
+	 * on screen, over the top row. Measured through the board's own transform, once it is attached
+	 * (pixi-svelte adds a parent after its children mount) and again on every resize.
+	 */
+	const MARGIN_PX = 6;
+	const board = getContextParent().parent;
+	const context = getContext();
+	let attached = $state(false);
+	onMount(() => {
+		const timer = setTimeout(() => (attached = true));
+		return () => clearTimeout(timer);
+	});
+	const y = $derived.by(() => {
+		context.stateLayoutDerived.canvasSizes();
+		stateGameDerived.boardLayout();
+		if (!attached || !board.parent) return aboveBoard;
+		const at = board.toGlobal({ x, y: aboveBoard });
+		const pxPerUnit = (board.toGlobal({ x, y: aboveBoard + 100 }).y - at.y) / 100;
+		if (pxPerUnit <= 0) return aboveBoard;
+		const lowest = MARGIN_PX + SYMBOL_SIZE * 0.15 * pxPerUnit;
+		return at.y >= lowest ? aboveBoard : aboveBoard + (lowest - at.y) / pxPerUnit;
+	});
 	const modifiers = $derived(activeModifiersText());
 </script>
 

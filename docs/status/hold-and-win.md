@@ -559,7 +559,11 @@ Hold and Win beats prints copy.
   **＋ Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
   `holdAndWin` project, open `/editor`, screenshot the template; check the jackpot bar's portrait fit
-  (≈22 px each side at 0.75 scale).
+  (≈22 px each side at 0.75 scale). **Portrait finding (Phase 4 polish):** on `hw-3pots-sample`'s
+  layout the board's top sits at the canvas edge, so the coded counter placed above it was off
+  screen. Fixed for the CODED counter (it is pulled down onto the top row when there is no room
+  above, measured through the board's transform); an authored `respinCounter` is the author's to
+  place — check it in portrait with the jackpot bar.
 - **Facade `modeEnter` / `modeExit`** for a QUEUED mode (owner: "Hold and Win engine runtime"): the
   mock now announces one on the forced `queuedMode` beat (see Decisions, 2026-10-01). Pass both
   through generically, converting `modeExit.total` from credits to book units, and add a fixture
@@ -579,10 +583,16 @@ Hold and Win beats prints copy.
      letters, instant collect, streak flights and wheel live through their playbooks.
    - **From the live checks (not regressions):** a banked jackpot's 350 ms beat is hidden while
      coins are still counting. (Counter timing, the per-respin hitch, the cropped rolling cells, the
-     end board and the tally/hide order were fixed by Phase 4 polish — Recent changes.) Also seen:
-     on `hw-3pots-sample`'s layout the coded counter sits above the top of the screen (only the
-     modifiers line shows) — the authored `respinCounter` (Phase 6) is the fix; and a ~170 ms idle
-     (non-JS) frame at the feature's entry, before the board shows.
+     end board and the tally/hide order were fixed by Phase 4 polish — Recent changes.) Also seen: a ~170 ms
+     idle (non-JS) frame at the feature's entry, before the board shows.
+   - **Authorable respin cell tile / frame + cell gap** (hub decision, 2026-10-01; follow-up, not
+     built): the references draw each respin cell on a tile, blank cells as empty tiles. Make it
+     AUTHORED, never coded: an optional per-cell background/frame art under each respin cell (a
+     cell-frame art key on the Phase 6 `respinBoard` scene/component is the natural home — today the
+     scene has no nodes and no component carries it) and an optional cell gap. Unauthored = today's
+     look. Not small: it needs a component property, a per-cell draw in `RespinBoard`, the Scene
+     Editor field and the art's export/bake chain (CLAUDE.md rule 8). The roll already plays an
+     authored `spin` state (blur) when the symbol has one, else the static art.
    - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
      so the end volley plays at full length even under turbo/autoplay.
    - **Not covered:** the respin cells use the coded spin profile, not the editor's
@@ -634,6 +644,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 4 polish, hub follow-ups on item 3** (session "Hold and Win Phase 4 —
+  polish"): a RESTING respin cell's mask opens to three cells, so landed art draws whole like the
+  reel board's (only the window's symbol exists at rest); while it rolls the mask stays the cell.
+  The coded counter stays on screen in portrait (pulled onto the top row when the board's top is at
+  the canvas edge — seen on `hw-3pots-sample`). The tile/frame + gap is a recorded follow-up (Open
+  items). Rolling cells already play an authored `spin` state.
 
 - 2026-10-01 — **Phase 4 polish, item 9: a flight ARC knob** (session "Hold and Win Phase 4 —
   polish"). `flights.<kind>.path.arc` (field recorded in Decisions, Phase 4 polish): `planFlight`'s
