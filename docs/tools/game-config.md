@@ -57,9 +57,11 @@ before — an un-authored project still runs the compiled template.
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
   **presentation** (kind, menu order, and the copy the card shows). See _Bet
   modes: math + presentation_ below.
-- **Hold and Win** — only on a Hold and Win project: the respin feature's trigger,
-  respins, board end, coin values, jackpots, specials, pots and wheel. See _Hold and
-  Win_ below.
+- **Add-ons** — on every project, whatever its kind: the **pots overlay** and a **Hold
+  and Win bonus**, layered on the game you already have. See _Add-ons_ below.
+- **Hold and Win** — on a Hold and Win project, or once an add-on has given the project a
+  Hold and Win block: the respin feature's trigger, respins, board end, coin values,
+  jackpots, specials, pots and wheel. See _Hold and Win_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below). A **scatter** symbol's paytable is its
@@ -90,9 +92,80 @@ before — an un-authored project still runs the compiled template.
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
+## Add-ons
+
+The **Add-ons** section sits after Bet modes, before the Hold and Win section, on every
+project. An add-on is a mechanic layered on the game you already have. Adding one
+**merges** its parts into the config — it never resets the doc or replaces anything
+already there. If a name it brings (a symbol, a pot id) is already used, it takes the first
+free `_2`, `_3`… suffix everywhere the add-on names it, and the section says which names
+changed. Nothing is stored until you **Save**. Why the model works this way is in
+[the pots overlay plan](../design/pots-overlay.md).
+
+### Pots overlay
+
+Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.
+
+**Adding it.** Pick a preset and press **＋ Pots overlay**:
+
+- **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting the
+  Hold and Win feature with a different special active.
+- **Pots to free spins** — one pot that starts free spins.
+
+It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only —
+a strip never deals them. The 3 Pots preset also adds a Hold and Win bonus (its block, the
+symbols its respin board deals and its respin strips) — unless the project already has a
+Hold and Win block, in which case the pots use that one.
+
+**Pots** (the server keeps each player's level) — one row per pot:
+
+- **Id** — renaming a pot also renames it in the drop table.
+- **Token** — the symbol that fills it. Untagged `meterSpecial` symbols, and symbols a
+  strip deals, are marked in the list. **＋ new** makes a fresh token for the pot —
+  `POT_<ID>`, tagged `meterSpecial`, on no strip.
+- **Max level** — the level at which the pot is full.
+- **Size stages** — the levels where the pot grows, as a comma list (e.g. `5, 9`).
+- **Starts** — the bonus a full pot starts, picked from the project's modes (see _Game
+  modes_).
+- **With** — for **Hold and Win**, the special that starts active (or _no special_; a
+  special the Hold and Win block hasn't configured says so). For a reels mode such as
+  free spins, the number of **spins** — mock only; the real count is the server's.
+
+**+ pot** opens a draft row. Pick its token and its bonus, then press **Add pot** — only
+then does it join the config, because a pot missing either would be dropped on save.
+**×** discards a draft, or removes a pot along with its drop-table rows.
+
+**Drops** — mock math; the real RGS decides what drops:
+
+- **Chance per spin** (0–1) and **Most per spin**.
+- The weighted **drop table** — each row drops _a token for a pot_ or _a value coin (Hold
+  and Win)_, with a weight; its share is shown beside it. **+ drop** adds a row.
+- **Reels a token can land on** — none ticked = every reel.
+- **Modes that drop** — the base game by default; only modes on the reels are offered,
+  since only they have a cell to drop on.
+
+Problems show under the row or field they belong to, and that field gets a red border.
+
+**Remove overlay** asks first, then takes out the pots, the drop table and their token
+symbols. If the Hold and Win block is the overlay's bonus (see below), it goes too, with
+its respin strips and symbols. Everything else in the config is kept.
+
+### Hold and Win bonus
+
+Once the project has a pots overlay and no Hold and Win block yet, pick a Hold and Win
+preset (the same three as in _Hold and Win_ below) and press **＋ Hold and Win bonus**. This
+works on any kind: it adds the block, its symbols and its respin strips, and the overlay's
+pots and value coins can then start it. From then on you edit it in the **Hold and Win**
+section. While the base strips deal no Hold and Win symbol, the block is the **overlay's
+bonus**: the game keeps its own win model, and removing the overlay removes the bonus too.
+
+The button is offered only beside an overlay: without one, a Hold and Win block counts as the
+base game's own feature, with the lines-only win model — that is a Hold and Win game.
+
 ## Hold and Win
 
-A Hold and Win project gets a **Hold and Win** section between Bet modes and Symbols.
+A project with a Hold and Win block gets a **Hold and Win** section between Add-ons and
+Symbols.
 One kind makes three different games; each is a **preset** you can start from. Pick one
 in the banner's preset menu and press **Reset to preset** (it asks first — the whole
 config is replaced):
@@ -173,7 +246,8 @@ The panels:
 - **Wheel** — prizes spun once as the feature starts: coin boost, extra collect, or a
   jackpot.
 
-The win model is locked to **lines** — a Hold and Win base game pays by lines. The
+The win model is locked to **lines** — a Hold and Win base game pays by lines (not when the
+block is the pots overlay's bonus; see _Add-ons_). The
 checker names impossible setups (a pattern on a reel that doesn't exist, only
 collectors sticking with no sticky collector, a letters word that doesn't match the
 reel count, a jackpot name no tier has…).
