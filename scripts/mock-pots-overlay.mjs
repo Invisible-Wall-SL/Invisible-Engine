@@ -77,6 +77,12 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				},
 			})
 		: null;
+	const orphan = pots.find((p) => p.bonus.mode === HOLD_AND_WIN_MODE && !hw);
+	if (orphan) {
+		throw new Error(
+			`[${host.label}] pot "${orphan.id}" starts Hold and Win, but the project has no Hold and Win bonus`,
+		);
+	}
 	const coinTrigger = hw?.trigger.count?.min;
 	const table = list(drops.table).filter(
 		(e) => Number(e?.weight) > 0 && (e.coin === true ? Boolean(hw) : potById.has(e.pot)),
@@ -154,7 +160,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			.filter(Boolean)) {
 			const [name, ...args] = token.split(':');
 			if (name === 'overlay' && args[0] === 'drop' && args.length === 1) {
-				if (!table.length) errors.push(`${token}: nothing can drop on this game`);
+				if (!table.length || !dropReels.length)
+					errors.push(`${token}: nothing can drop on this game`);
 				force.drop = true;
 			} else if (name === 'overlay' && args[0] === 'coins' && args.length === 2) {
 				const n = /^\d+$/.test(args[1]) ? Number(args[1]) : NaN;
@@ -228,17 +235,19 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		const level = (id) => session.meters[id] + (tokens.get(id)?.length ?? 0);
 		const placeToken = (pot) => {
 			const at = freeCell();
-			if (!at) return;
+			if (!at) return false;
 			const cell = { reel: at.reel, row: at.row, symbol: pot.token, pot: pot.id };
 			cells.push(cell);
 			tokens.set(pot.id, [...(tokens.get(pot.id) ?? []), cell]);
+			return true;
 		};
 		const placeCoin = () => {
 			const at = freeCell();
 			const coin = at && hw.drawCoin(at.reel);
-			if (!coin) return;
+			if (!coin) return false;
 			coins.push({ reel: at.reel, row: at.row, cell: coin });
 			cells.push(hw.cellInfo(at.reel, at.row, coin));
+			return true;
 		};
 		for (const id of force?.pots ?? []) placeToken(potById.get(id));
 		for (let i = 0; i < (force?.coins ?? 0); i++) placeCoin();
@@ -252,28 +261,42 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				);
 				if (!live.length) break;
 				const entry = weighted(live);
-				if (entry.coin === true) placeCoin();
-				else placeToken(potById.get(entry.pot));
+				if (!(entry.coin === true ? placeCoin() : placeToken(potById.get(entry.pot)))) break;
 			}
 		}
 		return { cells, coins, tokens };
 	};
 
 	// ---- bonuses ----
-	/** Queue what this spin started, behind anything already waiting: Hold and Win first (every pot
-	 *  routed to it and the coins, as one feature), then each other full pot in config order. */
+	const queued = (round, id) => (round.potsQueue ?? []).some((q) => q.meters.includes(id));
+	/**
+	 * Queue what this spin started, behind anything already waiting: Hold and Win first (every pot
+	 * routed to it and the coins, as one feature), then each other full pot in config order. A round
+	 * plays ONE Hold and Win: what fills while one waits joins it, and a pot that fills after it has
+	 * played stays full for the next round (coins then are shown and gone).
+	 */
 	const queueBonuses = (round, full, coins) => {
 		const queue = (round.potsQueue ??= []);
-		const toHoldAndWin = full.filter((p) => p.bonus.mode === HOLD_AND_WIN_MODE && hw);
-		const coinStart = Boolean(coinTrigger) && coins.length >= coinTrigger;
+		const played = Boolean(round.potsFeature);
+		const toHoldAndWin = played ? [] : full.filter((p) => p.bonus.mode === HOLD_AND_WIN_MODE);
+		const coinStart = !played && Boolean(coinTrigger) && coins.length >= coinTrigger;
 		if (toHoldAndWin.length || coinStart) {
-			queue.push({
-				mode: HOLD_AND_WIN_MODE,
-				cause: toHoldAndWin.length ? 'meter' : 'count',
-				meters: toHoldAndWin.map((p) => p.id),
-				activates: toHoldAndWin.map((p) => p.bonus.activates).filter(Boolean),
-				coins,
-			});
+			const meters = toHoldAndWin.map((p) => p.id);
+			const activates = toHoldAndWin.map((p) => p.bonus.activates).filter(Boolean);
+			const waiting = queue.find((q) => q.mode === HOLD_AND_WIN_MODE);
+			if (waiting) {
+				waiting.meters.push(...meters);
+				waiting.activates.push(...activates);
+				if (meters.length) waiting.cause = 'meter';
+			} else {
+				queue.push({
+					mode: HOLD_AND_WIN_MODE,
+					cause: meters.length ? 'meter' : 'count',
+					meters,
+					activates,
+					coins,
+				});
+			}
 		}
 		for (const pot of full) {
 			if (pot.bonus.mode === HOLD_AND_WIN_MODE) continue;
@@ -400,7 +423,12 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				},
 			});
 		}
-		queueBonuses(round, full, dealt.coins);
+		// A pot left full by a round that could not start it (its Hold and Win had played, the round
+		// was abandoned, a contract swap, a lowered max) starts on the next round's first base spin.
+		const starting = base
+			? pots.filter((p) => session.meters[p.id] >= maxOf(p) && !queued(round, p.id))
+			: full;
+		queueBonuses(round, starting, dealt.coins);
 		round.potsTurn = { cells: dealt.cells, updates };
 		return { context: rest, hostFeature: force?.hostFeature === true };
 	};
@@ -453,7 +481,6 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		endPlay,
 		inBonus,
 		holdForce,
-		parseForce,
 	};
 }
 
@@ -471,11 +498,18 @@ export const withPotsOverlay =
 			overlay: (host) => (overlay = createPotsOverlay(host, inputs, opts)),
 		});
 		if (!overlay) throw new Error(`[${opts.label ?? 'mock'}] this mock takes no overlay`);
-		const json = (res, status, body) => {
+		const json = (req, res, status, body) => {
 			const text = JSON.stringify(body);
+			const origin = req.headers.origin;
 			res.writeHead(status, {
 				'Content-Type': 'application/json',
-				'Access-Control-Allow-Origin': '*',
+				...(origin
+					? {
+							'Access-Control-Allow-Origin': origin,
+							'Access-Control-Allow-Credentials': 'true',
+							Vary: 'Origin',
+						}
+					: { 'Access-Control-Allow-Origin': '*' }),
 				'Content-Length': Buffer.byteLength(text),
 			});
 			res.end(text);
@@ -483,11 +517,11 @@ export const withPotsOverlay =
 		const handle = (req, res, url) => {
 			if ((req.method === 'POST' || req.method === 'GET') && /\/force\/?$/.test(url.pathname)) {
 				const sid = url.searchParams.get('sid');
-				if (!sid) return json(res, 400, { error: 'missing sid' });
+				if (!sid) return json(req, res, 400, { error: 'missing sid' });
 				const { status, body } = overlay.holdForce(sid, url.searchParams.get('beat') ?? '');
-				return json(res, status, body);
+				return json(req, res, status, body);
 			}
 			return mock.handle(req, res, url);
 		};
-		return { ...mock, handle, overlay };
+		return { ...mock, handle };
 	};

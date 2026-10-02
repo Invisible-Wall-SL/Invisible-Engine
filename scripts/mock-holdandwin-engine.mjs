@@ -66,7 +66,7 @@ export function hashStr(s) {
 /** Values are × the base total stake; four decimals keep `1.5 × 3` from reading `4.499999`. */
 export const tidy = (n) => Number(n.toFixed(4));
 
-export const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
+const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
 
 // ---------- factory ----------
 
@@ -1716,10 +1716,7 @@ export function createHoldAndWinEngine(opts = {}) {
 	};
 
 	return {
-		label,
 		list,
-		block,
-		symbols,
 		trigger,
 		meters,
 		progressiveTiers,
@@ -1727,12 +1724,6 @@ export function createHoldAndWinEngine(opts = {}) {
 		setLivePools,
 		paylines,
 		betTable,
-		reelCount,
-		rowHeights,
-		rand,
-		weighted,
-		coinSymbol,
-		blankSymbol,
 		drawCoin,
 		cellInfo,
 		emptyBoard,
@@ -1740,7 +1731,6 @@ export function createHoldAndWinEngine(opts = {}) {
 		configContext,
 		holdAndWinConfig,
 		featureState,
-		bonusSnapshot,
 		startFeature,
 		playRespin,
 		playBase,

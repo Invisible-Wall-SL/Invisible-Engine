@@ -127,6 +127,15 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       `modeExit {total: 0}`, then the round goes on.
     - A full pot waiting behind another bonus gets no more tokens. Its level stays at max until its
       bonus starts.
+    - At most ONE Hold and Win per round (from the code review, sent to the hub). What starts one
+      while one waits joins it. A Hold and Win pot that fills after the feature has played waits
+      for the next round, and coins then start nothing.
+    - A pot that is full with nothing waiting starts its bonus on the next round's first base spin,
+      with no `meterUpdate` for it. That covers the case above, an abandoned round, a contract swap
+      and a lowered `maxLevel`. Without this rule such a pot stayed full for good, because a full
+      pot is dealt no tokens.
+    - A pot routed to Hold and Win in a project with no Hold and Win bonus makes the overlay refuse
+      to build. The test server then deals the plain book game and warns once.
     - The held coins are the value coins of the spin that started the feature. Coins below the
       trigger with no feature starting are shown and gone.
     - Force tokens: the brief's four, plus `feature` (the host's own feature on the same spin).

@@ -222,9 +222,10 @@ untouched.
 
 ### 3.5 The mock — a composed protocol
 
-- **The wrapper.** `withPotsOverlay(mock, inputs)` wraps the host's own mock (book first, then lines
-  and ways). It post-processes each base play: deals the drops, moves the per-session pots, and
-  emits the events above.
+- **The wrapper.** `withPotsOverlay(createHost, inputs)` composes over the host's own mock (book
+  first, then lines and ways) through a seam of hooks the host calls on each play: it deals the
+  drops, moves the per-session pots, emits the events above, and keeps the round open when a bonus
+  starts.
 - **On a full pot it routes the bonus:**
   - `holdAndWin` → the Hold and Win mock's feature generator, refactored into a reusable engine with
     the held value coins and the activated special;
@@ -233,8 +234,8 @@ untouched.
   - any other mode → `modeEnter` / `modeExit` around that mode's generator (Phase 7).
 - **Selection.** `protocolFor(kind)` is unchanged. The launcher's mock contract adds the overlay
   inputs whenever the config carries the block, and the test server's `makeMock` wraps.
-- **Forced beats** (authoring mock): `overlay:drop`, `overlay:coins:<n>`, `pot:<id>` (fill it to full
-  on the next spin), `pot:<id>:<level>`.
+- **Forced beats** (authoring mock): `overlay:drop`, `overlay:coins:<n>`, `pot:<id>` (full on the
+  forced spin), `pot:<id>:<level>`, `feature`.
 - **Gate.** A fixture gate, `check:pots-overlay`, pins the wire and the routes. The existing
   `check:holdandwin` / `check:freespins` digests must not move.
 

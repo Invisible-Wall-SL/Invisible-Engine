@@ -161,6 +161,7 @@ const names = (answer) => answer.events.map((e) => e.event);
  * Walk a round's answers against `levels` (the pots as the client knows them) and check every
  * overlay rule the wire states. Returns what the round did, for the coverage checks.
  */
+const waitingOf = new WeakMap();
 const deriveRound = (doc, answers, levels, tag) => {
 	const overlay = doc.potsOverlay;
 	const potOf = new Map(overlay.pots.map((p) => [p.id, p]));
@@ -185,10 +186,13 @@ const deriveRound = (doc, answers, levels, tag) => {
 	};
 	let win = 0;
 	let stake = 0;
-	let waiting = []; // full pots whose bonus has not started yet
+	// Full pots whose bonus has not started yet — kept across rounds, as the mock keeps the pots.
+	let waiting = waitingOf.get(levels) ?? [];
+	const carried = [...waiting];
 	let mode = 'basegame';
-	// The coins each queued Hold and Win will hold: those of the spin that started it.
+	// The coins the round's one Hold and Win will hold: those of the spin that queued it.
 	const heldCoins = [];
+	let features = 0;
 	for (const [index, a] of answers.entries()) {
 		const ev = names(a);
 		if (a.error) {
@@ -246,7 +250,8 @@ const deriveRound = (doc, answers, levels, tag) => {
 			const potToHoldAndWin = updates.some(
 				(u) => u.full && potOf.get(u.meter).bonus.mode === 'holdAndWin',
 			);
-			if (potToHoldAndWin || (coinMin && coins.length >= coinMin)) heldCoins.push(coins);
+			const coinStart = coinMin && coins.length >= coinMin;
+			if ((potToHoldAndWin || coinStart) && !features && !heldCoins.length) heldCoins.push(coins);
 			const firstUpdate = ev.indexOf('meterUpdate');
 			if (firstUpdate >= 0) {
 				const before = ev.slice(ev.indexOf('overlayDrop') + 1, firstUpdate);
@@ -257,6 +262,11 @@ const deriveRound = (doc, answers, levels, tag) => {
 			}
 		} else {
 			expect(!ev.includes('meterUpdate'), 'a meterUpdate with no drop');
+		}
+		// A pot left full by an earlier round starts on this round's first base spin.
+		if (index === 0 && !heldCoins.length) {
+			const stale = carried.some((id) => potOf.get(id).bonus.mode === 'holdAndWin');
+			if (stale) heldCoins.push((drop?.cells ?? []).filter((c) => c.pot === undefined));
 		}
 		// — a bonus entry —
 		const trigger = one(a, 'spinTrigger');
@@ -301,6 +311,8 @@ const deriveRound = (doc, answers, levels, tag) => {
 					expect(trigger.cause === 'count' && !trigger.meters, 'value coins: cause count');
 					did.coinBonus++;
 				}
+				features++;
+				expect(features === 1, `one Hold and Win per round (${features})`);
 				const coins = heldCoins.shift() ?? [];
 				if (doc.holdAndWin.stickiness === 'allCoins') {
 					expect(
@@ -347,7 +359,15 @@ const deriveRound = (doc, answers, levels, tag) => {
 		const gameEnd = one(a, 'gameEnd');
 		if (gameEnd) {
 			expect(gameEnd.win === win, `gameEnd.win ${gameEnd.win}, derived ${win}`);
-			expect(!waiting.length, `a round ended with a full pot waiting (${waiting})`);
+			expect(!heldCoins.length, 'a Hold and Win was queued and never started');
+			expect(
+				carried.every((id) => !waiting.includes(id)),
+				`a pot full since an earlier round did not start (${carried})`,
+			);
+			expect(
+				waiting.every((id) => potOf.get(id).bonus.mode === 'holdAndWin' && features),
+				`only a Hold and Win pot filled after the round's feature may wait (${waiting})`,
+			);
 		}
 	}
 	const last = answers.at(-1);
@@ -358,7 +378,9 @@ const deriveRound = (doc, answers, levels, tag) => {
 			`the balance moves by win − stake (${last.platform.balance} vs ${want})`,
 		);
 	}
+	waitingOf.set(levels, waiting);
 	did.ok = ok;
+	did.features = features;
 	return did;
 };
 
@@ -790,9 +812,89 @@ console.log('8. replay and resume inside a pot bonus');
 	);
 }
 
-// ---------- 9. the test-server image ----------
+// ---------- 9. a full pot always starts ----------
 
-console.log('9. the test server ships it');
+console.log('9. one Hold and Win per round, and a full pot never stays stuck');
+{
+	// Drops in free spins every spin: several Hold and Win starts in one round join into one.
+	const mock = overlayMock(FREE_DROPS, { seed: 'one-feature' });
+	const levels = Object.fromEntries(FREE_DROPS.potsOverlay.pots.map((p) => [p.id, 0]));
+	let ok = true;
+	let most = 0;
+	for (let r = 0; r < 60; r++) {
+		const did = deriveRound(
+			FREE_DROPS,
+			await playRound(mock, 'o', { context: 'force:feature' }),
+			levels,
+			`one ${r}`,
+		);
+		ok &&= did.ok;
+		most = Math.max(most, did.features);
+	}
+	check(ok && most === 1, `60 free-spin rounds dropping every spin: never more than one feature`);
+
+	const firstAnswer = async (m, sid) => (await playRound(m, sid))[0];
+	const startsFrom = (answer, id) =>
+		same(one(answer, 'spinTrigger')?.meters, [id]) &&
+		!named(answer, 'meterUpdate').some((u) => u.context.meter === id);
+	// An abandoned round: its pot shows full, the next bet opens a new round.
+	const abandon = overlayMock(THREE, { seed: 'abandon' });
+	await engine(abandon, 'sid=a&seq=0', [
+		{ action: 'bet', context: [0, 1] },
+		{ action: 'play', context: 'force:feature,pot:blue' },
+	]);
+	check(
+		startsFrom(await firstAnswer(abandon, 'a'), 'blue'),
+		'an abandoned round: its full pot starts on the next round’s first spin, with no meterUpdate',
+	);
+	// A contract swap drops the open round and keeps the pots.
+	const before = overlayMock(THREE, { seed: 'swap' });
+	await engine(before, 'sid=s&seq=0', [
+		{ action: 'bet', context: [0, 1] },
+		{ action: 'play', context: 'force:feature,pot:green' },
+	]);
+	const after = overlayMock(THREE, { seed: 'swap-2' });
+	for (const [sid, session] of before.sessions)
+		after.sessions.set(sid, carrySession(session, { keepBetShape: true }));
+	check(
+		startsFrom(await firstAnswer(after, 's'), 'green'),
+		'a contract swap: the waiting pot starts on the next round',
+	);
+	// A max lowered under a pot's level makes it full; it starts too.
+	const tall = overlayMock(FREE, { seed: 'lower' });
+	await playRound(tall, 'l', { context: 'force:pot:gold:10' });
+	const lowered = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
+		doc.potsOverlay.pots[0].maxLevel = 8;
+		return doc;
+	});
+	const short = overlayMock(lowered, { seed: 'lower-2' });
+	for (const [sid, session] of tall.sessions)
+		short.sessions.set(sid, carrySession(session, { keepBetShape: true }));
+	check(
+		startsFrom(await firstAnswer(short, 'l'), 'gold'),
+		'a lowered max: the pot it leaves full starts',
+	);
+	// A pot routed to Hold and Win with no Hold and Win bonus cannot be dealt: the mock refuses to build.
+	const orphan = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
+		doc.potsOverlay.pots[0].bonus = { mode: 'holdAndWin' };
+		return doc;
+	});
+	let refused = '';
+	try {
+		overlayMock(orphan);
+	} catch (e) {
+		refused = e.message;
+	}
+	check(
+		/no Hold and Win bonus/.test(refused),
+		'a Hold and Win pot with no Hold and Win bonus: refused at build',
+		refused,
+	);
+}
+
+// ---------- 10. the test-server image ----------
+
+console.log('10. the test server ships it');
 {
 	const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 	const copied = new Set(

@@ -330,8 +330,9 @@ The base game, and free spins only when `drops.modes` lists `freeSpins`. Pass-2 
 
 | Event                                                           | Context                                                           | When                                                                                                                                                                                                       |
 | --------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spinStart`, the host's wins (`spinWin`, `bonusWin`)            | the host's                                                        | as the host sends them                                                                                                                                                                                     |
+| `spinStart`                                                     | the host's                                                        | always                                                                                                                                                                                                     |
 | `overlayDrop`                                                   | `{cells: [{reel, row, symbol, pot?, value?, jackpot?}]}`          | something dropped. A pot token carries `pot`; a value coin carries `value` (× base total stake) or `jackpot`. Drawn OVER the cell's symbol: the board, its wins and its triggers are the host's, untouched |
+| the host's wins (`spinWin`, `bonusWin`)                         | the host's                                                        | as the host sends them                                                                                                                                                                                     |
 | `meterUpdate`                                                   | `{meter, level, max, full, from: [{reel, row, symbol}], forced?}` | one per pot that moved; `from` = its token cells. `forced: true` = a `pot:<id>` force set it one short first                                                                                               |
 | the host's own feature entry, `retrigger`, `playedBonusSpin`, … | the host's                                                        | unchanged                                                                                                                                                                                                  |
 | the pot bonus entry (below)                                     |                                                                   | a bonus starts now: it REPLACES `gameEnd` (and `gameRoundOver`), and the round stays open                                                                                                                  |
@@ -339,11 +340,16 @@ The base game, and free spins only when `drops.modes` lists `freeSpins`. Pass-2 
 | `meterLevels`                                                   | `{meters: [{id, level, max}]}`                                    | last, after every `play` (respins included)                                                                                                                                                                |
 
 In the array `overlayDrop` sits right after `spinStart`, and the `meterUpdate`s right after the
-host's wins and `playedSpin`. Pass 1 (`bet`, `playedSpin`) is unchanged.
+host's wins (and its `playedSpin`, when that comes next), before anything else the host sends — on a
+spin that enters the host's own free spins that is `…spinWin, meterUpdate, spinTrigger, playedSpin,
+enterBonus…`. Pass 1 (`bet`, `playedSpin`) is unchanged.
 
 **Pots.** A token fills its pot by one. A pot that reaches `max` is `full: true` and its bonus
 starts; it drains to 0 the moment its bonus starts, so that answer's `meterLevels` reads 0. A full
-pot still waiting for its bonus (behind another one) is dealt no more tokens.
+pot still waiting for its bonus (behind another one) is dealt no more tokens. A pot full with no
+bonus waiting — its round's Hold and Win had already played, or the round was abandoned, or a
+contract swap or a lowered `max` left it there — starts its bonus on the next round's first base
+spin: that answer carries its entry, with no `meterUpdate` for it.
 
 ### A full pot (or enough value coins) starts its bonus
 
@@ -363,7 +369,11 @@ occurs: 0, bonus: "feature", trigger, cause: "meter", meters: [id]}`, then its `
   then `modeExit {mode, total: 0}`, after which the round goes on as if no bonus had started.
 
 **Several in one round.** The host's own feature always plays first. Then Hold and Win (every pot
-routed to it, and the coins, as one feature), then each other full pot in config order. Whatever
+routed to it, and the coins, as one feature), then each other full pot in config order. A round
+plays at most ONE Hold and Win: a pot or coins that start one while one is waiting join it (its
+`meters` and `activeModifiers` grow; the coins held are the first spin's), and a Hold and Win pot
+that fills after the round's feature has played waits for the next round (coins then start
+nothing). Whatever
 ends one — the last free spin's `playedBonusSpins`, a feature's `holdAndWinEnd` +
 `playedBonusSpins` — carries the next one's entry **instead of** `gameEnd`. The last one ends with
 `gameEnd {win}` = the whole round's win, and the client `collect`s. So with the host's free spins
