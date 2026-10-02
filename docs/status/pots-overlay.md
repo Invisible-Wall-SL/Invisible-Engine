@@ -93,11 +93,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Decisions & findings
 
 - 2026-10-02 — **Phase 3 contract, as built** (session "Pots overlay Phase 3 — facade + event
-  contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (65 checks
+  contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (75 checks
   on hand-built wire that follows Phase 2's wire doc; it runs in `check:holdandwin`) and new
   `modeStack.fixture.ts` cases. A throwaway driver also played the facade against Phase 2's real
-  `withPotsOverlay` book mock (branch `claude/pots-overlay-phase2`): every forced beat plus 80
-  random rounds, 641 checks, 0 failures.
+  `withPotsOverlay` book mock (branch `claude/pots-overlay-phase2`, after its review): every
+  forced beat plus 150 random rounds, 1,688 checks, 0 failures.
   - **The engine events** (`engine-game` `potsOverlay.ts`):
     - `overlayDrop {cells: [{reel, row, token, pot?, value?, jackpot?}]}`. Positions are VISIBLE
       0-based, like every Hold and Win position. `token` is the symbol name, mapped through the
@@ -121,6 +121,17 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       pass through.
     - **Order:** the wire puts `overlayDrop` right after `spinStart`. The facade binds each drop to
       the next `playedSpin` and emits it right after that board's `reveal`, before its `winInfo`s.
+      A spin that also enters the host's own feature sends its `meterUpdate`s before `playedSpin`.
+      The facade holds those until that board has paid, so a pot never fills before its board
+      shows (§3.2: reveal → drop → wins → fills).
+    - **A pot already full with no bonus waiting** (at boot, or left full by the previous round)
+      enters its bonus on the next base spin with no drop and no `meterUpdate` before it. The
+      entry carries `cause: 'meter', meters` all the same, so Phase 4's drain plays from the
+      boot level. At most one Hold and Win per round: a second Hold and Win pot merges into the
+      waiting entry (`meters` unioned) or waits for the next round. The mock decides both; the
+      facade passes them through.
+    - **A boot pot whose bonus names a mode the game lacks** is ignored: the host's own rounds
+      translate as usual.
       Under an overlay, the overlay translation runs first, ahead of the Hold and Win one, for
       `overlayDrop`, `meterUpdate`, `meterLevels`, `modeEnter` and `modeExit`. The builders are
       shared, so the pot meters translate the same with or without a Hold and Win block. Only the
@@ -155,8 +166,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       free-spin round does.
   - **Parity:** with no block, the facade is byte-identical to `main`. A throwaway harness ran the
     old facade and this one against 36 seeded rounds (book, book free spins, lines, the three Hold
-    and Win presets, a queued second mode): 4,199 book events, 0 differences. `check:holdandwin` (1892), `check:resume`,
-    `check:freespins`, `check:rgs` and `check:engine-game` pass unchanged. The svelte-check ratchet
+    and Win presets, a queued second mode, a forced meter trigger): 4,396 book events, 0
+    differences. `check:holdandwin` (1892), `check:resume`, `check:freespins`, `check:rgs` and `check:engine-game` pass unchanged. The svelte-check ratchet
     holds (lines 164, engine-game 37, launcher 53). `apps/lines` booted on the local book mock
     (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. In this
     container neither branch's presentation reaches idle (swiftshader, remote art unreachable), so
