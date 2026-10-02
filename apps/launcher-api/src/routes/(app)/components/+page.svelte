@@ -620,6 +620,7 @@
 			componentDraft = def;
 			inspectingVersion = version;
 			selectedIds = [];
+			insidePartId = null;
 			// Baseline = this snapshot, so the read-only draft never reads as "dirty".
 			savedSnapshot = JSON.stringify(def);
 		} catch (e) {
@@ -651,6 +652,7 @@
 		inspectingVersion = null;
 		pickVersion = '';
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 	}
 

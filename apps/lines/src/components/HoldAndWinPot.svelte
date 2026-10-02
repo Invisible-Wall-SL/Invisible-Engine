@@ -127,36 +127,45 @@
 </script>
 
 {#snippet art()}
-	{#if body}
-		<Sprite
-			key={body}
-			fallbackKey={fallbackKey(body)}
-			anchor={0.5}
-			width={look.width}
-			height={look.height}
-		/>
-	{/if}
-	{#if look.fill && fillRect}
-		<Container>
+	<!-- One always-mounted container per layer: pixi-svelte appends a child when it MOUNTS, so a layer
+	     that appears later (the fill at the first level, a stage body) must not land above the frame,
+	     the author's nodes or the labels. -->
+	<Container>
+		{#if body}
 			<Sprite
-				key={look.fill}
-				fallbackKey={fallbackKey(look.fill)}
+				key={body}
+				fallbackKey={fallbackKey(body)}
 				anchor={0.5}
 				width={look.width}
 				height={look.height}
 			/>
-			<Rectangle isMask {...fillRect} />
-		</Container>
-	{/if}
-	{#if look.frame}
-		<Sprite
-			key={look.frame}
-			fallbackKey={fallbackKey(look.frame)}
-			anchor={0.5}
-			width={look.width}
-			height={look.height}
-		/>
-	{/if}
+		{/if}
+	</Container>
+	<Container>
+		{#if look.fill && fillRect}
+			<Container>
+				<Sprite
+					key={look.fill}
+					fallbackKey={fallbackKey(look.fill)}
+					anchor={0.5}
+					width={look.width}
+					height={look.height}
+				/>
+				<Rectangle isMask {...fillRect} />
+			</Container>
+		{/if}
+	</Container>
+	<Container>
+		{#if look.frame}
+			<Sprite
+				key={look.frame}
+				fallbackKey={fallbackKey(look.frame)}
+				anchor={0.5}
+				width={look.width}
+				height={look.height}
+			/>
+		{/if}
+	</Container>
 {/snippet}
 
 <Container x={props.x} y={props.y} scale={(1 + stage * look.stageGrowth) * pulse.current}>

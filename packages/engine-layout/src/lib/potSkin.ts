@@ -10,7 +10,7 @@ import type { ComponentParam } from './types';
  * labels and the motion keep their coded look until their own params are set. Unset, the pot draws
  * exactly the coded bar (parity).
  *
- * No value import here: the engine-layout fixtures bundle this file on its own.
+ * No value import here: `scripts/verify-pot-meter-mount.mjs` loads this file on its own.
  */
 
 /** The edge a fill image grows from, named as the value bindings name a `fill` reveal. */
@@ -127,7 +127,7 @@ export function readPotSkin(param: (key: string) => unknown): PotSkin {
 		labelFontFamily: str('labelFontFamily'),
 		labelFill: num('labelFill'),
 		labelScale: positive(num('labelScale')) ?? 1,
-		stageGrowth: num('stageGrowth') ?? POT_STAGE_GROWTH,
+		stageGrowth: Math.max(0, num('stageGrowth') ?? POT_STAGE_GROWTH),
 		pulseScale: positive(num('pulseScale')) ?? POT_PULSE_SCALE,
 	};
 }

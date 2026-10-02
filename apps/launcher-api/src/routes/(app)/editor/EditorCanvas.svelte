@@ -3170,11 +3170,6 @@
 		);
 	}
 
-	/** Core atlas-region draw, shared by region sprite NODES and `preview.art` sprite
-	 * anchors. `assetKey` = manifest/atlas key, `region` = packed frame; honours the
-	 * resolved transform's anchor + explicit width/height (else the region's native
-	 * size). Falls back to a placeholder until the page image + rect resolve. `tint`
-	 * multiplies the drawn frame (absent / 0xffffff = untinted — parity). */
 	/** A skinnable part's layer images, picked on the enclosing instance (or the open component). */
 	function partSkinImage(params: Record<string, unknown>, key: string | undefined): string {
 		const value = key ? params[key] : undefined;
@@ -3250,6 +3245,11 @@
 		}
 	}
 
+	/** Core atlas-region draw, shared by region sprite NODES and `preview.art` sprite
+	 * anchors. `assetKey` = manifest/atlas key, `region` = packed frame; honours the
+	 * resolved transform's anchor + explicit width/height (else the region's native
+	 * size). Falls back to a placeholder until the page image + rect resolve. `tint`
+	 * multiplies the drawn frame (absent / 0xffffff = untinted — parity). */
 	function drawArtRegionSprite(
 		ctx: CanvasRenderingContext2D,
 		assetKey: string,

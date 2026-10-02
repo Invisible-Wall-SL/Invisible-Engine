@@ -117,11 +117,13 @@ const cleared = skinOf({
 	artHeight: -4,
 	labelScale: 0,
 	pulseScale: 'big',
+	stageGrowth: -0.5,
 });
 assert(!mod.potHasArt(cleared), 'a cleared image is unset, not "draw nothing"');
 assert(cleared.fillDirection === 'right', 'an unknown direction grows right');
 assert(cleared.width === undefined && cleared.height === undefined, 'a non-positive box is blank');
 assert(cleared.labelScale === 1 && cleared.pulseScale === 1.3, 'bad numbers keep the coded value');
+assert(cleared.stageGrowth === 0, 'a negative growth is none, never a flipped pot');
 
 // --- the pot body follows the size stages ------------------------------------
 console.info('stage images');

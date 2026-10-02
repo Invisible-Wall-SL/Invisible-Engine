@@ -41,6 +41,7 @@
 	 * caption) — the coded drawing gives way, while the part still grows with its stages and pulses.
 	 * A second frog pot sits on RED: each frog pot's ACTIVE badge waits for **Pot — activate**, and the
 	 * copy keeps the Pot Meter's scope, so `window.__activatePot('green')` reveals green's badge only.
+	 * RED therefore has two pots, and `__potAnchor('red')` returns whichever registered last.
 	 * The levels step on their own; a test can set one with `window.__setPotLevel(id, level)` and read
 	 * where a pot's flights land with `window.__potAnchor(id)`.
 	 */

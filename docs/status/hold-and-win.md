@@ -693,9 +693,13 @@ Hold and Win beats prints copy.
     name.
   - **The other parts, same pattern:** respin counter, jackpot bar/tile, total win bar, letters
     strip, wheel, respin cell tiles.
-  - **Editor limits:** inside a part, positions are the part's own (fine while the part sits at
-    the component's origin, as the Pot does). The canvas previews neither the coded labels, the
-    size-stage images nor the pot's `scale` param.
+  - **Editor limits:**
+    - Inside a part, positions are the part's own. That is fine while the part sits at the
+      component's origin, as the Pot does.
+    - Inside a part, the canvas shows only the part's nodes. The art picked in this game's
+      defaults is not drawn behind them.
+    - The canvas does not preview the coded labels, the size-stage images or the pot's `scale`
+      param.
   - **Not verified in a browser:** the editor side (the launcher is auth-gated). It type-checks and
     builds. The runtime was verified in Storybook (`MODE_HOLD_AND_WIN/skinned pot (12c)`).
 
@@ -867,6 +871,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - The **Pot Meter (Hold and Win)** copy keeps the def's signal scope and is kind-gated.
     - Two frog pots in the story: `__activatePot('green')` reveals only green's
       `hiddenUntilSignal: 'potActivate'` badge.
+  - **Review fixes** (code-reviewer):
+    - Each art layer sits in an always-mounted slot. pixi-svelte appends a child when it mounts, so
+      a fill that first appears at level 1 drew over the frame and the author's nodes.
+    - `stageGrowth` is clamped to ≥ 0.
+    - Part mode resets on inspect / back to latest.
   - **CI fix:** `scripts/verify-pot-meter-mount.mjs` stubs `PotMeter`'s imports. It now hands it
     the real `readPotSkin` from `potSkin.ts`. Before, the package index loaded the build-generated
     `builtinSpineMeta` and failed on a clean checkout.
