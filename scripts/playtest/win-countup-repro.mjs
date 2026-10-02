@@ -8,9 +8,9 @@
 // Why: the Browser pane — and a Claude-in-Chrome tab whose window is not in front — is `hidden`,
 // so rAF never fires, and hand-stepping Svelte's `raf.tasks` to get past that manufactured a
 // count-up "stall" the engine does not have (2026-09-28, docs/status/engine.md). This drives
-// Playwright's `chrome-headless-shell` over --remote-debugging-pipe (no network listener) with the
-// GPU on, so the page is `visible`, focused and runs the real frame clock. Clicks are CDP input,
-// i.e. trusted; nothing in the page's clocks or state is written.
+// Playwright's headless shell (`headless-shell.mjs`), so the page is `visible`, focused and runs the
+// real frame clock. Clicks are CDP input, i.e. trusted; nothing in the page's clocks or state is
+// written.
 //
 // Needs, for the default --url: the book mock forcing free spins
 // (`FORCE_TRIGGER=1 PORT=7788 node scripts/mock-rgs-server-book.mjs`), the lines dev server on the
@@ -27,11 +27,11 @@
 //
 // Writes log.txt, summary.json and screenshots to --out (default: a fresh dir under the OS temp).
 
-import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { headlessShell, spawnHeadlessShell } from './headless-shell.mjs';
 
 const { values: opt } = parseArgs({
 	options: {
@@ -66,36 +66,7 @@ const CY = H / 2;
 const STALL_MS = 4000;
 const NO_PROGRESS_MS = 60_000;
 
-/** The newest Playwright `chrome-headless-shell` on this machine. */
-const findHeadlessShell = () => {
-	const exe = process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
-	const roots = [
-		process.env.PLAYWRIGHT_BROWSERS_PATH,
-		process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
-		join(homedir(), '.cache', 'ms-playwright'),
-		join(homedir(), 'Library', 'Caches', 'ms-playwright'),
-	].filter((root) => root && existsSync(root));
-	for (const root of roots) {
-		const builds = readdirSync(root)
-			.filter((dir) => dir.startsWith('chromium_headless_shell-'))
-			.sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()));
-		for (const build of builds) {
-			for (const platformDir of readdirSync(join(root, build))) {
-				const path = join(root, build, platformDir, exe);
-				if (existsSync(path)) return path;
-			}
-		}
-	}
-	return undefined;
-};
-
-const CHROME = opt.chrome ?? findHeadlessShell();
-if (!CHROME) {
-	console.error(
-		'No chrome-headless-shell found — `npx playwright install chromium-headless-shell`.',
-	);
-	process.exit(1);
-}
+const CHROME = headlessShell(opt.chrome);
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'log.txt'), '');
@@ -106,28 +77,7 @@ const log = (...parts) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Without the GPU flags the shell renders WebGL in software at ~12 fps. Measured on Windows (ANGLE
-// on D3D11); elsewhere check the `fps` the run prints first.
-const GPU_FLAGS =
-	process.platform === 'win32'
-		? ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist']
-		: ['--enable-gpu', '--ignore-gpu-blocklist'];
-
-const chrome = spawn(
-	CHROME,
-	[
-		'--headless',
-		'--remote-debugging-pipe',
-		`--user-data-dir=${join(OUT, 'profile')}`,
-		`--window-size=${W},${H}`,
-		'--no-first-run',
-		'--no-default-browser-check',
-		'--autoplay-policy=no-user-gesture-required',
-		...GPU_FLAGS,
-		'about:blank',
-	],
-	{ stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] },
-);
+const chrome = spawnHeadlessShell(CHROME, { profile: join(OUT, 'profile'), width: W, height: H });
 let finished = false;
 chrome.on('error', (error) => {
 	console.error(`Could not start ${CHROME}: ${error.message}`);
@@ -135,7 +85,7 @@ chrome.on('error', (error) => {
 });
 chrome.on('exit', (code) => {
 	if (finished) return;
-	console.error(`Chromium exited early (code ${code}).`);
+	console.error(`Chromium exited early (code ${code}):\n${chrome.stderrTail()}`);
 	process.exit(1);
 });
 const finish = (code) => {

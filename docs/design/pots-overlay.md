@@ -203,8 +203,9 @@ untouched.
 
 ### 3.4 Runtime presentation (coded defaults)
 
-- **The overlay layer.** A board-level layer at a fixed zIndex seat, above the symbols and below the
-  win frames and the flight layer. It draws each token at its cell's seat, using the board's own seat
+- **The overlay layer.** A board-level layer at a fixed zIndex seat, above the symbols and their win
+  frames (owner, 2026-10-02: a coin on a paying cell covers that cell's frame) and below the flight
+  layer. It draws each token at its cell's seat, using the board's own seat
   maths, so stepped and perspective boards follow.
   - It never changes the cell's `RawSymbol`. Win frames, the book's expansion and anticipation never
     see a token.
@@ -374,3 +375,11 @@ an edit made in the source project.
    routing before a real-money release (Phase 8).
 7. **Never test on live Borut:** the sample is a duplicate (`borut-pots-sample`), so the live remake
    is never touched.
+8. **Pots and coins are each optional** (owner, 2026-10-02). An overlay has pots, value coins or
+   both, but at least one of them:
+   - **pots only:** tokens fill pots, and each full pot starts its bonus;
+   - **coins only:** value coins drop over the host's symbols with no pots on screen, N+ on one spin
+     start a classic Hold and Win with those coins held, and fewer simply clear;
+   - **both:** the 3 Pots shape.
+9. **Coin over the win frame** (owner, 2026-10-02): a token on a paying cell draws over that cell's
+   win frame, as 4a built it.
