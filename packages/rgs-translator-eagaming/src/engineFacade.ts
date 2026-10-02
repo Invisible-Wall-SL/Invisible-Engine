@@ -755,24 +755,41 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	// A finished Hold and Win feature's total, not yet in `runningTotal` (it reaches the meter only at
 	// `gameEnd`): a bonus that follows it in the same round counts from the round's whole win.
 	let featureTotal = 0;
-	// Each spin's overlay drop, by the index of its `playedSpin`: the one dealt since the previous
-	// board (the wire puts it right after `spinStart`), presented with that board's reveal.
-	const dropFor = new Map<number, number>();
+	// What the wire dealt AHEAD of a spin's board, by the index of its `playedSpin`: its overlay drop
+	// (sent right after `spinStart`) and any pot fills sent before the board (a spin that also enters
+	// the host's own feature). Both are presented with that board — the drop right after its
+	// `reveal`, the fills once it has paid (§3.2: reveal → drop → wins → fills).
+	const ahead = new Map<number, { drop?: number; meters: number[] }>();
 	if (overlay) {
-		let pending = -1;
+		let drop: number | undefined;
+		let meters: number[] = [];
+		let inSpin = false;
 		events.forEach((d, at) => {
-			if (d.event === 'overlayDrop') pending = at;
-			if (d.event === 'playedSpin' && pending >= 0) {
-				dropFor.set(at, pending);
-				pending = -1;
+			if (d.event === 'spinStart') inSpin = true;
+			if (d.event === 'overlayDrop') drop = at;
+			if (d.event === 'meterUpdate' && inSpin) meters.push(at);
+			if (d.event === 'playedSpin') {
+				if (drop !== undefined || meters.length) ahead.set(at, { drop, meters });
+				drop = undefined;
+				meters = [];
+				inSpin = false;
 			}
 		});
 	}
-	const presentedDrops = new Set(dropFor.values());
+	const presentedAhead = new Set(
+		[...ahead.values()].flatMap(({ drop, meters }) => [
+			...(drop === undefined ? [] : [drop]),
+			...meters,
+		]),
+	);
 	const pushDropOf = (spin: number) => {
-		const drop = dropFor.get(spin);
+		const drop = ahead.get(spin)?.drop;
 		if (drop !== undefined)
 			push(overlayDropEvent(events[drop].context, (n) => mapSymbol(activeMapping, n)));
+	};
+	const pushFillsOf = (spin: number) => {
+		for (const at of ahead.get(spin)?.meters ?? [])
+			push(meterUpdateEvent((events[at].context ?? {}) as Record<string, unknown>));
 	};
 
 	// A free-spin response carries its per-spin counter (`playedBonusSpin`) AFTER the board
@@ -849,18 +866,17 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		pendingWins = [];
 	};
 
-	/** An overlay event outside a Hold and Win translation: the pots' meter events (a host with no
-	 *  Hold and Win block), and a drop no reveal presented. `undefined` ⇒ already presented. */
+	/** The overlay's own translation: drops, the pots' meter events and a stub mode's pair. A drop or
+	 *  fill its board already presented ⇒ `undefined`; not an overlay event ⇒ `null`. */
 	const translateOverlayEvent = (
 		name: string,
 		context: unknown,
 		at: number,
 	): Record<string, unknown> | null | undefined => {
 		const ctx = (context ?? {}) as Record<string, unknown>;
+		if (presentedAhead.has(at)) return undefined;
 		if (name === 'overlayDrop')
-			return presentedDrops.has(at)
-				? undefined
-				: overlayDropEvent(context, (n) => mapSymbol(activeMapping, n));
+			return overlayDropEvent(context, (n) => mapSymbol(activeMapping, n));
 		if (name === 'meterUpdate') return meterUpdateEvent(ctx);
 		if (name === 'meterLevels') return meterLevelsEvent(ctx);
 		// A bonus routed to a mode the client does not play yet arrives as this pair (Phase 7).
@@ -1020,6 +1036,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					push({ type: 'setTotalWin', amount: runningTotal });
 					bankedAtReveal = true;
 				}
+				pushFillsOf(i);
 				break;
 			}
 			/**

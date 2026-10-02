@@ -778,9 +778,10 @@ console.log('\n4. both: the host’s free spins, then the pot’s Hold and Win, 
 		]),
 		lineWin(20),
 		scatterWin(40),
+		// The pot fills BEFORE the host's own feature entry (and so before its board).
+		meterUpdate('red', 5, [{ reel: 3, row: 0 }]),
 		featureTrigger(2),
 		{ event: 'playedSpin', context: SCATTER_BOARD },
-		meterUpdate('red', 5, [{ reel: 3, row: 0 }]),
 		...enterFreeSpins(2),
 		meterLevels({ red: 5, green: 0 }),
 	];
@@ -942,6 +943,83 @@ console.log('\n4b. both pots full: Hold and Win, then the other pot’s free spi
 		'exit:freeSpins',
 		'allFinished',
 	]);
+}
+
+console.log('\n4c. a pot already full at boot starts its bonus on the first base spin');
+{
+	const fullRed = await play('S-full-red', {
+		config: bookConfig({
+			holdAndWin: holdAndWinBlock(),
+			potsOverlay: overlayBlock([{ id: 'red', level: 5, bonus: 'holdAndWin' }]),
+		}),
+		answers: [
+			[...opening(), lineWin(20), { event: 'playedSpin', context: BOARD }, ...respinEntry()],
+			respinOne(),
+			[...respinLast(20), meterLevels({ red: 0 })],
+		],
+	});
+	wellFormed('full at boot → Hold and Win', fullRed.book);
+	check('the boot shows it full', fullRed.meters, [{ id: 'red', level: 5, max: 5 }]);
+	const trigger = first(fullRed.book, 'holdAndWinTrigger') as
+		{ cause?: string; payload?: { meters?: string[] } } | undefined;
+	check(
+		'its entry plays with no drop and no fill before it, and names the pot it drains',
+		[
+			types(fullRed.book).filter((t) => t === 'overlayDrop' || t === 'meterUpdate'),
+			trigger?.cause,
+			trigger?.payload?.meters,
+		],
+		[[], 'meter', ['red']],
+	);
+	const fullGreen = await play('S-full-green', {
+		config: bookConfig({
+			potsOverlay: overlayBlock([{ id: 'green', level: 5, bonus: 'freeSpins' }]),
+		}),
+		answers: [
+			[
+				...opening(),
+				{ event: 'playedSpin', context: BOARD },
+				featureTrigger(2, { cause: 'meter', meters: ['green'] }),
+				...enterFreeSpins(2),
+				meterLevels({ green: 0 }),
+			],
+			freeSpin(1, 1, null),
+			freeSpin(2, 0, { win: 0 }),
+		],
+	});
+	wellFormed('full at boot → free spins', fullGreen.book);
+	const fs = first(fullGreen.book, 'freeSpinTrigger');
+	check(
+		'…and a free-spin pot the same',
+		[types(fullGreen.book).includes('meterUpdate'), fs?.cause, fs?.meters],
+		[false, 'meter', ['green']],
+	);
+}
+
+console.log('\n4d. a boot block whose pot names a bonus the game lacks');
+{
+	const { book } = await play('S-missing-mode', {
+		config: bookConfig({
+			potsOverlay: overlayBlock([{ id: 'red', level: 1, bonus: 'holdAndWin' }]),
+		}),
+		answers: [
+			[
+				...opening(),
+				scatterWin(40),
+				featureTrigger(2),
+				{ event: 'playedSpin', context: SCATTER_BOARD },
+				...enterFreeSpins(2),
+			],
+			freeSpin(1, 1, null),
+			freeSpin(2, 0, { win: 40 }),
+		],
+	});
+	wellFormed('a pot routed to a missing Hold and Win', book);
+	check(
+		'it is ignored: the host’s free spins play as free spins',
+		[only(book, 'freeSpinTrigger').length, only(book, 'updateFreeSpin').length],
+		[1, 2],
+	);
 }
 
 // ---------- 5. resume ----------
