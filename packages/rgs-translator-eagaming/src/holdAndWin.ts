@@ -24,6 +24,8 @@ export type HoldAndWinWireConfig = {
 	 *  `jackpotLevels` moves; a fixed tier pays its `multiplier`. */
 	jackpots: { name: string; multiplier: number; progressive?: boolean; value?: number }[];
 	stickiness?: 'allCoins' | 'collectorsOnly';
+	/** Board expansion: the respin board grows from `startRows` to `maxRows` rows. */
+	expansion?: { startRows: number; maxRows: number };
 };
 
 /** The only wire this module was written for — `config.holdAndWin.wire`. */
@@ -43,6 +45,10 @@ export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null 
 		roles: block.roles ?? {},
 		jackpots: (block.jackpots ?? []).map((j) => ({ ...j })),
 		...(block.stickiness ? { stickiness: block.stickiness } : {}),
+		...(typeof block.expansion?.maxRows === 'number' &&
+		typeof block.expansion.startRows === 'number'
+			? { expansion: { startRows: block.expansion.startRows, maxRows: block.expansion.maxRows } }
+			: {}),
 	};
 };
 
@@ -161,6 +167,7 @@ type WireSnapshot = {
 	collectorLevel?: number;
 	coinBoost?: number;
 	lettersLit?: boolean[];
+	rows?: number;
 };
 
 export type HoldAndWinTranslation = {
@@ -201,6 +208,7 @@ export const holdAndWinState = (t: HoldAndWinTranslation, wire: WireSnapshot) =>
 			collectorLevel: wire.collectorLevel ?? 1,
 			coinBoost: wire.coinBoost ?? 1,
 			lettersLit: (wire.lettersLit ?? []).flatMap((lit, reel) => (lit ? [reel] : [])),
+			...(typeof wire.rows === 'number' ? { rows: wire.rows } : {}),
 		},
 	};
 };
@@ -212,6 +220,12 @@ const withAmounts = (t: HoldAndWinTranslation, cells: unknown): CellAmount[] =>
 	}));
 
 type Ctx = Record<string, unknown>;
+
+const isExpansion = (v: unknown): v is { rows: number; maxRows: number } =>
+	typeof v === 'object' &&
+	v !== null &&
+	typeof (v as { rows?: unknown }).rows === 'number' &&
+	typeof (v as { maxRows?: unknown }).maxRows === 'number';
 
 /**
  * One wire Hold and Win event → its engine event, or null when the name is not one of ours. The
@@ -267,6 +281,7 @@ export const translateHoldAndWinEvent = (
 					stickiness: ctx.stickiness,
 					activeModifiers: ctx.activeModifiers ?? [],
 					...(ctx.meters ? { meters: ctx.meters } : {}),
+					...(isExpansion(ctx.expansion) ? { expansion: ctx.expansion } : {}),
 				},
 			};
 		case 'holdAndWinWheel': {
@@ -382,6 +397,16 @@ export const translateHoldAndWinEvent = (
 		}
 		case 'cellsCleared':
 			return { type: 'cellsCleared', reason: ctx.reason, cells: positionsOf(ctx.cells) };
+		case 'rowsUnlocked':
+			return typeof ctx.from === 'number' && typeof ctx.rows === 'number'
+				? {
+						type: 'rowsUnlocked',
+						from: ctx.from,
+						rows: ctx.rows,
+						cause: ctx.cause,
+						unlockers: cellsOf(ctx.unlockers),
+					}
+				: null;
 		case 'columnComplete':
 			return {
 				type: 'columnComplete',

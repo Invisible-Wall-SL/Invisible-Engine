@@ -944,8 +944,8 @@ field over the coded `codedTierFx` ramp for that tier's rank among the config bi
 Shown for a **Hold and Win** project (and for any project that already authored flights, so they can
 be cleared). In Hold and Win things fly across the screen: a coin into the total win at the end of the
 feature, coins into a collector, a special into its meter (a pot), an add-respins' respins into the
-respin counter, an upgrade's beam at each coin it raises. This section decides how each of
-those looks and moves. Leave everything alone and the game flies its built-in gold glow.
+respin counter, an upgrade's beam at each coin it raises, an unlock symbol into the row it opens.
+This section decides how each of those looks and moves. Leave everything alone and the game flies its built-in gold glow.
 
 On the left is the list of **flight kinds**:
 
@@ -961,6 +961,8 @@ On the left is the list of **flight kinds**:
   board).
 - **Upgrade beam** (`upgradeBeam`) — an upgrade special firing at each coin it raises, or at the
   jackpot coin it steps up a tier, like the boost beam.
+- **Unlock into its row** (`unlockRow`) — on an expanding board, an unlock symbol flying into the
+  middle of the locked row it opens, before the row's locked cells fade away.
 - One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
   can give the gold pot its own head and keep the shared timing. A meter you authored that the Game

@@ -31,6 +31,7 @@
  *      (Phase 11a) play only on the test fixture: each forced upgrade rule arrives as that rule, a
 
  *      non-sticky add-respins leaves through `clearRespinCells`, and no preset ever deals either.
+ *      Board expansion (Phase 11b) plays only on the `pots-expansion-*` fixtures (`unlockRows`).
  *   7. RESUMED: a resume rebuilds the mode stack silently (no enter), then replays the feature's last
  *      snapshot. That `holdAndWinState` alone puts the mode's screens up, starts the feature music
  *      and restores the board — the later beats then play on a fully mounted feature.
@@ -218,7 +219,7 @@ const engineEvents = checker
 	}));
 check(
 	'3. the checker read the engine contract',
-	engineEvents.length === 23,
+	engineEvents.length === 24,
 	`${engineEvents.length}`,
 );
 for (const { name, fields } of engineEvents) {
@@ -375,6 +376,7 @@ const FEATURE_BEATS: Record<string, string> = {
 	specialBecomesCoin: 'turnSpecialIntoCoin',
 	coinCollect: 'collectCoins',
 	cellsCleared: 'clearRespinCells',
+	rowsUnlocked: 'unlockRows',
 	columnComplete: 'lightLetter',
 	jackpotWin: 'showJackpotWin',
 	respinUpdate: 'setRespinCounter',
@@ -487,8 +489,10 @@ const CASES: [preset: string, force: string][] = [
 	['pots-extra', 'special:upgrade:adjacent'],
 	['pots-extra', 'special:upgrade:jackpotTier'],
 	['pots-extra', 'mystery:upgrade'],
+	['pots-expansion-unlock', 'unlock:1'],
+	['pots-expansion-fullrow', 'unlock:2'],
 ];
-const EXTRA_EVENTS = ['respinsAdded', 'coinUpgrade'];
+const EXTRA_EVENTS = ['respinsAdded', 'coinUpgrade', 'rowsUnlocked'];
 
 const declared = new Map(vocab.events.map((e) => [e.name, e.payload]));
 const surfaceNames = new Set([...vocab.actions, ...vocab.cues].map((s) => s.name));
@@ -523,7 +527,7 @@ for (const [index, [preset, force]] of CASES.entries()) {
 	});
 	server.close();
 	if (force === 'chain') featureBook = events;
-	if (preset !== 'pots-extra')
+	if (!preset.startsWith('pots-'))
 		for (const e of events)
 			if (EXTRA_EVENTS.includes(e.type)) extraInPresets.push(`${preset} ${force}: ${e.type}`);
 	const rule = /^special:upgrade:(\w+)$/.exec(force)?.[1];
@@ -652,7 +656,7 @@ check(
 	[...new Set(shapeIssues)].join(' | '),
 );
 check(
-	'6. no preset deals an add-respins or an upgrade',
+	'6. no preset deals an add-respins, an upgrade or a row unlock',
 	!extraInPresets.length,
 	extraInPresets.join(' | '),
 );

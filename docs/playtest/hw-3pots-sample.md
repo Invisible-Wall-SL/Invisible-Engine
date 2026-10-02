@@ -32,6 +32,7 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
 ## Scenarios
 
 ### S1 — Boot + base spin, coin labels
+
 - **Do:** boot, tap to start, spin with no force until a `BONUS` lands (15%/cell).
 - **Expect:** `__IE_RUNTIME_STALE__` falsy; the bet response's `playedSpin` coins (`BONUS:1.5`)
   arrive as `reveal` cells `{name:'BONUS', value:1.5}`; each coin prints its money value (1.5 × the
@@ -40,6 +41,7 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
   book events in the round (`__IE_DEBUG__` book log).
 
 ### S2 — Feature round plays to the right total (`trigger`)
+
 - **Force:** `trigger`.
 - **Expect:** the book carries `holdAndWinTrigger {mode:'holdAndWin'}`, one `respinReveal` per
   respin, a `holdAndWinState` after entry and each respin, then `holdAndWinEnd`; NO
@@ -48,6 +50,7 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
   reads 3 and resets on a new coin, the reels return at the end.
 
 ### S3 — Specials (from Phase 4d): `trigger,special:payer` · `special:multiplier` · `special:collector`
+
 - **Expect:** each beat visibly changes the coin labels to the `to` values in the event.
 
 ### S4 — Mystery / unlock (Phase 4e): `mystery:jackpot:MINI` · `unlock:payer`
@@ -59,10 +62,12 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
 ### S7 — Full board GRAND + feature end (Phase 4h): `fullBoard`.
 
 ### S8 — Add-respins + upgrade (Phase 11a) — LOCAL `pots-extra` fixture only
+
 This sample does not configure either special, so its mock refuses the forces. Play them on a
 local runtime stub serving `normalizeGameConfigDoc(HOLD_AND_WIN_TEST_FIXTURES['pots-extra'])`
 (recipe: the "Testing an unmerged engine branch" line above + a `/api/editor/runtime` stub) against
 `PRESET=pots-extra … scripts/mock-rgs-server-holdandwin.mjs` on a FREE port (never 7788).
+
 - **Force:** `special:addRespins` · `special:upgrade:all` · `special:upgrade:adjacent` ·
   `special:upgrade:jackpotTier` · `mystery:addRespins` · `mystery:upgrade`.
 - **Expect:** add-respins plays `respinsAdd`, its "+N" flies into the respin counter (the
@@ -75,6 +80,31 @@ local runtime stub serving `normalizeGameConfigDoc(HOLD_AND_WIN_TEST_FIXTURES['p
   third respin request (CDP `Fetch.failRequest` on `seq=4`), then reload: the board, counter and cap
   rebuild from the snapshot with no intro.
 
+### S9 — Board expansion (Phase 11b) — LOCAL `pots-expansion-*` fixtures only
+
+This sample's board never grows, so its mock refuses the forces (`unlock:<n>`, `expandFull`). Play
+them on a local runtime stub serving one of `HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-unlock' |
+'pots-expansion-fullrow' | 'pots-expansion-count']` and, as its layout, the Hold and Win template
+built for the grown board (`holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxRows: 6 })`), against
+`PRESET=<the same fixture> … scripts/mock-rgs-server-holdandwin.mjs` on a FREE port (never 7788).
+
+- **Force:** `unlock:1` · `unlock:2` · `unlock:3` (one row per respin, by the fixture's rule) ·
+  `expandFull` (every row, then the whole 6-row board).
+- **Expect:** the respin board opens 6 rows tall with the bottom 3 LOCKED (dark panels, or the
+  authored Locked Row art) and spins only the open rows. On an unlock an unlock symbol plays
+  `rowUnlock`, flies into its row, the row's locked cells fade under "ROW UNLOCKED · 4 ROWS", and the
+  symbol leaves (`cellsCleared` reason `applied`); a full row or a coin count opens the row with no
+  flight. Coins land in the new rows from the next respin. `fullrow` reaching 5 rows pays MAJOR
+  (banked); `expandFull` pays the full-board GRAND only once all 6 rows are open and full; `count`
+  does not reset the counter on an unlock. In portrait and desktop the grown board and every piece
+  around it stay on screen. After every respin `stateRespinBoard.rows` equals the server's snapshot
+  `rows`; balance = before − stake + win.
+- **End state (by design):** the base board plays `startRows`, so when the feature ends and the
+  reel board comes back, the coins that sat in the unlocked rows leave with the feature — the reel
+  board shows only the held coins of its own rows. They are paid (they are in the tally); do not
+  report them missing.
+- **Resume:** as S8 (a plain reload cannot land mid-feature): fail a later respin request, reload —
+  the board reopens at the server's open rows, the rest locked, with no intro.
 
 ## Known state (2026-10-01)
 

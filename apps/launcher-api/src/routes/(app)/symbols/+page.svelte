@@ -3109,10 +3109,11 @@
 								<p class="hl-sub">
 									How things fly in Hold and Win — a coin into the total win, a coin into a
 									collector, a special into its meter, a boost beam, an add-respins' "+N" into the
-									respin counter, an upgrade's beam at each coin it raises. Per kind: the head that
-									travels, the trail it leaves (an Invisible FX effect), the effect on impact, the
-									shape of the route around the winning cells, and the timing. Anything left unset
-									flies the built-in gold glow; a single meter falls back to “every meter” first.
+									respin counter, an upgrade's beam at each coin it raises, an unlock symbol into
+									the row it opens. Per kind: the head that travels, the trail it leaves (an
+									Invisible FX effect), the effect on impact, the shape of the route around the
+									winning cells, and the timing. Anything left unset flies the built-in gold glow; a
+									single meter falls back to “every meter” first.
 								</p>
 							</div>
 						</div>
@@ -3382,7 +3383,9 @@
 										/>
 									</div>
 									<div class="field">
-										<span class="label" title="The largest detour a route may take to miss the cells showing a win. It bends a route only when something is in the way — with avoidance off, or nothing to avoid (the feature-end volley), every route flies straight."
+										<span
+											class="label"
+											title="The largest detour a route may take to miss the cells showing a win. It bends a route only when something is in the way — with avoidance off, or nothing to avoid (the feature-end volley), every route flies straight."
 											>Max detour (0–1)</span
 										>
 										<input
@@ -4173,8 +4176,8 @@
 									Cash coins, collectors, payers and multipliers. The size is a multiple of the
 									symbol. The label is bitmap text, so the colour MULTIPLIES the font's own colours:
 									over the gold builtin, cyan reads green and pink reads orange. For a colour that
-									reads true, pick the neutral <strong>silver</strong> builtin (it keeps its
-									shading) or a white Font Maker font.
+									reads true, pick the neutral <strong>silver</strong> builtin (it keeps its shading)
+									or a white Font Maker font.
 								</p>
 							</div>
 
@@ -4427,8 +4430,8 @@
 								</div>
 								<p class="wl-note">
 									Both pops are off by default. <strong>Count-up length</strong> is how long a label takes
-									to count to its new value when a payer pays it or a multiplier boosts it (coded 600 ms).
-									Each step of a collector's collect scales with it — 350/600 of the length, as coded
+									to count to its new value when a payer pays it or a multiplier boosts it (coded 600
+									ms). Each step of a collector's collect scales with it — 350/600 of the length, as coded
 									(350 ms) — so the collect stays quicker. Blank keeps the coded lengths.
 								</p>
 							</div>
@@ -4539,11 +4542,11 @@
 								</div>
 							</div>
 							<p class="wl-note">
-								Turn this on and pressing and holding the spin button plays like holding Space: after
-								a moment the button spins (or stops a spin already rolling), then rounds keep coming
-								in turbo until the player lets go. A quick press stays an ordinary spin. Off, the
-								button only takes a click. Holding Space works either way, and neither is offered
-								where the jurisdiction forbids autoplay.
+								Turn this on and pressing and holding the spin button plays like holding Space:
+								after a moment the button spins (or stops a spin already rolling), then rounds keep
+								coming in turbo until the player lets go. A quick press stays an ordinary spin. Off,
+								the button only takes a click. Holding Space works either way, and neither is
+								offered where the jurisdiction forbids autoplay.
 							</p>
 						</div>
 					</div>

@@ -36,6 +36,7 @@ export const HOLD_AND_WIN_SYMBOL_ROLES = [
 	'blank',
 	'addRespins',
 	'upgrade',
+	'unlock',
 ] as const;
 
 export type HoldAndWinSymbolRole = (typeof HOLD_AND_WIN_SYMBOL_ROLES)[number];
@@ -266,6 +267,35 @@ export type WheelPrize =
 /** A pre-feature wheel, spun once when the feature starts. */
 export type HoldAndWinWheel = { prizes: WheelPrize[] };
 
+/** What opens the next locked row of an expanding board. */
+export const EXPANSION_RULES = ['fullRow', 'unlockSymbol', 'coinCount'] as const;
+export type ExpansionRule = (typeof EXPANSION_RULES)[number];
+
+/** Reaching `rows` open rows awards `jackpot` (banked, once per feature). */
+export type RowJackpot = { rows: number; jackpot: string };
+
+/**
+ * Board expansion (design §7 11b): the respin board opens with `startRows` rows — the base grid's —
+ * and unlocks rows BELOW them up to `maxRows`, so a held cell's row index never changes. Locked rows
+ * hold nothing. A full board (`boardEnd.fullBoardJackpot`) is every cell of `maxRows`.
+ */
+export type HoldAndWinExpansion = {
+	startRows: number;
+	maxRows: number;
+	/** `fullRow` — every cell of the bottom-most open row held opens the next; `unlockSymbol` — a
+	 *  symbol tagged `unlock` landing opens one; `coinCount` — the held count reaching a threshold. */
+	rule: ExpansionRule;
+	/** `coinCount` only: the held symbols that open each row past `startRows`, ascending —
+	 *  `thresholds[i]` opens row `startRows + i + 1`. */
+	thresholds?: number[];
+	/** `unlockSymbol` only: the reels an unlock symbol may land on; absent ⇒ every reel. It clears
+	 *  after opening its row. */
+	unlockReels?: number[];
+	/** An unlock resets the respin counter to its start. */
+	resetsRespins: boolean;
+	rowJackpots?: RowJackpot[];
+};
+
 export type HoldAndWin = {
 	trigger: HoldAndWinTrigger;
 	stickiness: Stickiness;
@@ -279,6 +309,7 @@ export type HoldAndWin = {
 	activeModifiers: ActiveModifiers;
 	meters?: HoldAndWinMeter[];
 	wheel?: HoldAndWinWheel;
+	expansion?: HoldAndWinExpansion;
 };
 
 // ─── normalize ────────────────────────────────────────────────────────────────────────────────
@@ -603,6 +634,33 @@ const wheelPrize = (raw: unknown): WheelPrize | undefined => {
 	return undefined;
 };
 
+const expansion = (raw: unknown): HoldAndWinExpansion | undefined => {
+	if (!isObject(raw)) return undefined;
+	const startRows = int(raw.startRows, 1);
+	const maxRows = int(raw.maxRows, 1);
+	const rule = oneOf(EXPANSION_RULES, raw.rule);
+	if (startRows === undefined || maxRows === undefined || !rule) return undefined;
+	const out: HoldAndWinExpansion = {
+		startRows,
+		maxRows,
+		rule,
+		resetsRespins: raw.resetsRespins !== false,
+	};
+	if (rule === 'coinCount') out.thresholds = list(raw.thresholds, (t) => int(t, 1));
+	if (rule === 'unlockSymbol') {
+		const onReels = reels(raw.unlockReels);
+		if (onReels) out.unlockReels = onReels;
+	}
+	const rowJackpots = list(raw.rowJackpots, (entry): RowJackpot | undefined => {
+		if (!isObject(entry)) return undefined;
+		const rows = int(entry.rows, 1);
+		const name = text(entry.jackpot);
+		return rows !== undefined && name ? { rows, jackpot: name } : undefined;
+	});
+	if (rowJackpots.length) out.rowJackpots = rowJackpots;
+	return out;
+};
+
 /**
  * Canonicalize a `holdAndWin` block, or `undefined` when there is none. Any object normalizes to a
  * full block (defaults filled: 3 respins resetting on a new coin, every coin sticks, no board end),
@@ -637,6 +695,8 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 		const prizes = list(raw.wheel.prizes, wheelPrize);
 		if (prizes.length) out.wheel = { prizes };
 	}
+	const grows = expansion(raw.expansion);
+	if (grows) out.expansion = grows;
 	return out;
 }
 
@@ -673,6 +733,10 @@ export const coinEntryLabel = (entry: CoinValueEntry): string =>
 /** The jackpot tiers, lowest prize first — the ladder a `jackpotTier` upgrade climbs. */
 export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
 	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
+
+/** The rows the respin board can reach: `maxRows` when it expands, else the grid's. */
+export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAndWin'>): number =>
+	doc.holdAndWin?.expansion?.maxRows ?? doc.numRows[0] ?? 0;
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
@@ -841,7 +905,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		}
 		for (const g of tier.guaranteed) {
-			if (g.role === 'blank' || g.role === 'meterSpecial') {
+			if (g.role === 'blank' || g.role === 'meterSpecial' || g.role === 'unlock') {
 				error(
 					`trigger.buy.${i}.guaranteed`,
 					`A buy can guarantee coins, jackpots and specials, not a "${g.role}".`,
@@ -1049,6 +1113,101 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 						`+${p.count} collect would take the collector past its maximum level (${col.maxLevel}).`,
 					);
 				}
+			}
+		});
+	}
+
+	// Board expansion
+	const grow = block.expansion;
+	const unlockSymbols = tagged('unlock');
+	if (unlockSymbols.length && grow?.rule !== 'unlockSymbol') {
+		warning(
+			'expansion',
+			`${unlockSymbols.join(', ')} ${unlockSymbols.length > 1 ? 'are' : 'is'} tagged "unlock" but no unlock-symbol board expansion is configured, so it does nothing.`,
+		);
+	}
+	if (grow) {
+		const gridRows = doc.numRows[0] ?? 0;
+		if (grow.startRows !== gridRows) {
+			error(
+				'expansion.startRows',
+				`The board starts at ${grow.startRows} rows but the grid has ${gridRows} — the base game plays the starting rows.`,
+			);
+		}
+		if (grow.maxRows < grow.startRows) {
+			error(
+				'expansion.maxRows',
+				`The board grows to ${grow.maxRows} rows, fewer than it starts with (${grow.startRows}).`,
+			);
+		} else if (grow.maxRows === grow.startRows) {
+			warning('expansion.maxRows', 'The board starts at its maximum, so no row ever unlocks.');
+		}
+		const opens = Math.max(0, grow.maxRows - grow.startRows);
+		if (end.type === 'columnLetters') {
+			error(
+				'expansion',
+				'Column letters need a fixed column height; an expanding board ends on a full board or not at all.',
+			);
+		}
+		if (grow.rule === 'fullRow' && block.stickiness === 'collectorsOnly') {
+			error(
+				'expansion.rule',
+				'Coins are cleared every respin, so a row can never fill — pick another unlock rule.',
+			);
+		}
+		if (grow.rule === 'coinCount') {
+			const thresholds = grow.thresholds ?? [];
+			if (thresholds.length !== opens) {
+				error(
+					'expansion.thresholds',
+					`${opens} row${opens === 1 ? '' : 's'} can unlock, so the count rule needs ${opens} threshold${opens === 1 ? '' : 's'} (it has ${thresholds.length}).`,
+				);
+			}
+			thresholds.forEach((t, i) => {
+				if (i > 0 && t <= thresholds[i - 1]) {
+					error(
+						`expansion.thresholds.${i}`,
+						`Each threshold must be above the one before (${t} after ${thresholds[i - 1]}).`,
+					);
+				}
+				const room = doc.numReels * (grow.startRows + i);
+				if (t > room) {
+					error(
+						`expansion.thresholds.${i}`,
+						`${t} held symbols can never be reached: the ${grow.startRows + i} open rows hold ${room}.`,
+					);
+				}
+			});
+			if (block.stickiness === 'collectorsOnly') {
+				warning(
+					'expansion.rule',
+					'Coins are cleared every respin, so a threshold counts the collectors plus what that respin landed.',
+				);
+			}
+		}
+		if (grow.rule === 'unlockSymbol') {
+			if (!unlockSymbols.length) {
+				error(
+					'expansion.rule',
+					'Rows unlock on an unlock symbol, but no symbol is tagged "unlock".',
+				);
+			}
+			grow.unlockReels?.forEach((r) =>
+				checkReel('expansion.unlockReels', r, 'The unlock symbol lands on'),
+			);
+		}
+		const jackpotRows = new Set<number>();
+		grow.rowJackpots?.forEach((rj, i) => {
+			checkJackpot(`expansion.rowJackpots.${i}.jackpot`, rj.jackpot);
+			if (jackpotRows.has(rj.rows)) {
+				error(`expansion.rowJackpots.${i}.rows`, `Reaching ${rj.rows} rows pays twice.`);
+			}
+			jackpotRows.add(rj.rows);
+			if (rj.rows <= grow.startRows || rj.rows > grow.maxRows) {
+				error(
+					`expansion.rowJackpots.${i}.rows`,
+					`Row ${rj.rows} never unlocks: the board grows from ${grow.startRows} to ${grow.maxRows} rows.`,
+				);
 			}
 		});
 	}

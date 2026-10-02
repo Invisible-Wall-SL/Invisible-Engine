@@ -449,10 +449,12 @@ const isKnownSymbol = (sid: string, name: string): boolean => {
 
 /** Clamp a reveal board to the captured grid dimensions. Out-of-grid cells are
  *  dropped with a one-time log. Returns the (possibly trimmed) board. */
-const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
+const clampBoardToGrid = (sid: string, board: string[][], tallestRows?: number): string[][] => {
 	const cfg = capturedConfig.get(sid);
 	if (!cfg?.window) return board;
-	const { reels, rows, rowsPerReel } = cfg.window;
+	const { reels, rowsPerReel } = cfg.window;
+	// An expanding respin board grows past the base grid, up to its declared `maxRows`.
+	const rows = Math.max(cfg.window.rows, tallestRows ?? 0);
 	let trimmed = false;
 	// A STEPPED board is clamped per COLUMN. Clamping it to the bounding box would let a reel dealt
 	// full height survive into a short column, where the client would seat rows the server never
@@ -800,7 +802,11 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			}
 			case 'playedSpin': {
 				const raw = (e.context as string[][]) ?? [];
-				const reels = clampBoardToGrid(sid, raw).map((reel) =>
+				const reels = clampBoardToGrid(
+					sid,
+					raw,
+					inHoldAndWin ? holdAndWin?.hw.expansion?.maxRows : undefined,
+				).map((reel) =>
 					reel.map((cell) => {
 						// The WHITELIST check reads the base name, so a `MULT:5` cell is judged as `MULT`
 						// — otherwise every distinct value would warn as its own unknown symbol.

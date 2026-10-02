@@ -38,6 +38,7 @@ import {
 	modifiersActiveText,
 	modifiersUnlockedText,
 	respinsAddedText,
+	rowUnlockedText,
 	upgradeText,
 	wheelPrizeDetailText,
 	wheelPrizeText,
@@ -47,6 +48,7 @@ import {
 	FLIGHT_TO_COLLECTOR,
 	FLIGHT_TO_COUNTER,
 	FLIGHT_TO_TOTAL,
+	FLIGHT_UNLOCK_ROW,
 	FLIGHT_UPGRADE_BEAM,
 	flyCoinsToTotal,
 } from './holdAndWinFlights';
@@ -70,6 +72,9 @@ import {
 	armHeldBeat,
 	hideRespinBoard,
 	holdHeldDisplay,
+	openRespinRows,
+	openRespinRowsTo,
+	respinUnlockFade,
 	holdHeldJackpot,
 	releaseHeldDisplay,
 	releaseHeldJackpot,
@@ -117,6 +122,9 @@ const RANDOM_METRE_MS = 1_600;
 const RESPIN_PAUSE_MS = 250;
 /** How long the counter holds on its reset pulse — the beat that tells the player "back to 3". */
 const RESET_BEAT_MS = 600;
+/** A locked row fading open, and the hold on the "ROW UNLOCKED" banner. */
+const ROW_UNLOCK_FADE_MS = 450;
+const ROW_UNLOCK_HOLD_MS = 900;
 /** How long the counter holds after an add-respins special's respins land in it. */
 const COUNTER_STEP_MS = 450;
 /** The final board stays up this long before the reel board comes back. */
@@ -722,6 +730,59 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	await waitPresentation(TOAST_HOLD_MS);
 };
 
+/**
+ * `rowsUnlocked` — an expanding board opens rows (design §7 11b). An unlock symbol that opened them
+ * plays `rowUnlock` where it stands and flies into the middle of the first row it opens (`flyTo`
+ * kind `unlockRow` — the coded glow unless the Symbols doc authors one); a full row or a coin count
+ * opens them with no flight. Then the locked cells of the opened rows fade away under a "ROW
+ * UNLOCKED · 5 ROWS" banner, and the rows are open from the next respin. The unlock symbols leave
+ * on the `cellsCleared {reason: 'applied'}` that follows; any counter reset is the respin's own
+ * `respinUpdate`.
+ */
+export const presentRowsUnlocked = async (event: Beat<'rowsUnlocked'>) => {
+	if (!stateRespinBoard.shown) return;
+	syncHeldCells();
+	eventEmitter.broadcast({
+		type: 'respinRowsUnlocked',
+		from: event.from,
+		rows: event.rows,
+		cause: event.cause,
+		unlockers: event.unlockers.map(cellOf),
+	});
+	if (event.unlockers.length) {
+		await playHeldBeat(event.unlockers, 'rowUnlock', { minMs: HIGHLIGHT_MIN_MS });
+		const reels = stateGame.board.length;
+		await Promise.all(
+			event.unlockers.map((cell, index) =>
+				flyTo(
+					{ reel: cell.reel, row: cell.row },
+					{ reel: Math.floor(reels / 2), row: Math.min(event.from + index, event.rows - 1) },
+					FLIGHT_UNLOCK_ROW,
+					{ index },
+				),
+			),
+		);
+	}
+	const text = rowUnlockedText(event.rows);
+	const banner = text.title
+		? showHoldAndWinBanner({
+				kind: 'rowUnlocked',
+				title: text.title,
+				detail: text.detail,
+				size: 'small',
+			})
+		: 0;
+	stateRespinBoard.unlockingTo = Math.max(event.rows, openRespinRows());
+	respinUnlockFade.set(1, { duration: 0 });
+	await Promise.all([
+		respinUnlockFade.set(0, { duration: roundSkip.isSkipped() ? 0 : ROW_UNLOCK_FADE_MS }),
+		banner ? holdBanner(ROW_UNLOCK_HOLD_MS) : roundSkip.wait(ROW_UNLOCK_FADE_MS),
+	]);
+	openRespinRowsTo(event.rows);
+	stateRespinBoard.unlockingTo = 0;
+	hideHoldAndWinBanner(banner);
+};
+
 /** `cellsCleared` — a streak's collected cells, or a non-sticky special that has applied, leave the
  *  board: each plays `clearReel`, then goes. */
 
@@ -1004,6 +1065,8 @@ export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => 
 	showRespinBoard();
 	syncLetters();
 	updateCounter(event.snapshot);
+	// An expanding board's open rows are the server's from here on — a resume opens them at once.
+	if (event.snapshot.rows !== undefined) openRespinRowsTo(event.snapshot.rows);
 	stateRespinBoard.counter.show = true;
 	if (opening) eventEmitter.broadcast({ type: 'respinBoardShow' });
 };

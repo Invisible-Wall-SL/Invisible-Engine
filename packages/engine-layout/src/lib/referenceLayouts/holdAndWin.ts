@@ -3,7 +3,14 @@ import {
 	TAP_DIM_ALPHA_PARAM,
 	TAP_TO_CONTINUE_PARAM,
 } from '../tapToContinue';
-import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
+import type {
+	LayoutDoc,
+	LayoutNode,
+	LayoutType,
+	NodeOverride,
+	ReelGridNode,
+	Scene,
+} from '../types';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
 /**
@@ -38,7 +45,8 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  *
  * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
  * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
- * `board`. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
+ * `board`. An EXPANDING board (design §7 11b) passes its `maxRows`: the template then reserves the
+ * grown board's area ({@link reserveExpandingBoard}) and places the `lockedRow` handle over it. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
  * the board, tall (tablet/portrait) stacks them above and below.
  */
 
@@ -52,6 +60,60 @@ export const HOLD_AND_WIN_BOARD: EngineSkeletonBoard = {
 
 /** Super Hotfire Diamonds' 3×3 board — the `collector` preset. */
 export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN_BOARD, reels: 3 };
+
+/**
+ * How an EXPANDING board's area is reserved (design §7 11b). Its rows grow below the base grid, so
+ * the board's cells shrink until the grown block takes at most this share of the SHORTEST layout
+ * box's height, and the reel grid's board NUDGE (`boardNudgeY` — cells, masks and symbols move
+ * together; the row lead would move the symbols out of their masks) lifts the base rows by half the
+ * extra rows, so the whole `maxRows` block sits where the base board's centre was, in every layout,
+ * without moving the node. Both are absolute, so reserving twice changes nothing.
+ */
+export const EXPANDING_BLOCK_SHARE = 0.495;
+
+/** The cell size and row lead that reserve `maxRows` for a grid of `rows` rows at `cellSize`. */
+export const expandingBoardReserve = (
+	grid: Pick<ReelGridNode, 'rows' | 'cellSize'>,
+	maxRows: number,
+	mainSizes: LayoutDoc['mainSizesMap'],
+): { cellSize: number; boardNudgeY: number } => {
+	const extra = Math.max(0, maxRows - grid.rows);
+	if (!extra) return { cellSize: grid.cellSize, boardNudgeY: 0 };
+	const shortest = Math.min(...Object.values(mainSizes).map((size) => size.height));
+	const cellSize = Math.min(
+		grid.cellSize,
+		Math.floor((shortest * EXPANDING_BLOCK_SHARE) / maxRows),
+	);
+	return { cellSize, boardNudgeY: -(extra * cellSize) / 2 };
+};
+
+/** Does every reel grid of `doc` already reserve `maxRows`? */
+export const expandingBoardReserved = (doc: LayoutDoc, maxRows: number): boolean =>
+	reelGridsOf(doc).every((grid) => {
+		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap);
+		return grid.cellSize === want.cellSize && (grid.boardNudgeY ?? 0) === want.boardNudgeY;
+	});
+
+/** `doc` with every reel grid reserving `maxRows` (cell size + board nudge; nothing else moves). */
+export const reserveExpandingBoard = (doc: LayoutDoc, maxRows: number): LayoutDoc => ({
+	...doc,
+	scenes: doc.scenes.map((scene) => ({
+		...scene,
+		nodes: scene.nodes.map((node) =>
+			node.kind === 'reelGrid'
+				? { ...node, ...expandingBoardReserve(node, maxRows, doc.mainSizesMap) }
+				: node,
+		),
+	})),
+});
+
+const reelGridsOf = (doc: LayoutDoc): ReelGridNode[] =>
+	doc.scenes.flatMap((scene) =>
+		scene.nodes.filter((node): node is ReelGridNode => node.kind === 'reelGrid'),
+	);
+
+/** Template options: an expanding board's `maxRows` (absent ⇒ the board never grows). */
+export type HoldAndWinTemplateOptions = { maxRows?: number };
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
@@ -145,14 +207,33 @@ const modeScene = (scene: Omit<Scene, 'role' | 'modeId'>): Scene => ({
 const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro']);
 
 export function holdAndWinReferenceLayout(
-	board: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
+	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
+	{ maxRows }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
-	const skeleton = engineSkeletonLayout({
+	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
+	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
 		projectKey: 'holdAndWin',
-		board,
+		board: baseBoard,
 	});
-	const place = placeIn(skeleton.mainSizesMap);
+	const skeleton = extraRows ? reserveExpandingBoard(raw, baseBoard.rows + extraRows) : raw;
+	const { cellSize } = expandingBoardReserve(
+		baseBoard,
+		baseBoard.rows + extraRows,
+		raw.mainSizesMap,
+	);
+	/** How far the reserved block's edges sit past the base board's. */
+	const blockGrowth =
+		((baseBoard.rows + extraRows) * cellSize - baseBoard.rows * baseBoard.cellSize) / 2;
+	/** A piece at least this far above or below the centre sits above or below the board. */
+	const baseHalf = (baseBoard.rows * baseBoard.cellSize) / 2;
+	/** A piece above the board moves up with the block's top edge, one below with its bottom. */
+	const clear = (spot: Spot): Spot =>
+		extraRows && Math.abs(spot.dy) >= baseHalf
+			? { ...spot, dy: spot.dy + Math.sign(spot.dy) * blockGrowth }
+			: spot;
+	const placeAround = placeIn(skeleton.mainSizesMap);
+	const place = (wide: Spot, tall: Spot = wide) => placeAround(clear(wide), clear(tall));
 	// The intro/outro are `canvas` screens (their tap dim covers the window), so their text is
 	// pinned to the window centre rather than placed in the main box.
 	const centred = (id: string, label: string, dy: number, params: Record<string, unknown>) =>
@@ -204,6 +285,14 @@ export function holdAndWinReferenceLayout(
 			// editor shows its handle; with no tile image it draws nothing.
 			nodes: [
 				instance('respin-cell-tiles', 'Respin cell tiles', 'respinCells', place({ dx: 0, dy: 0 })),
+				// An expanding board's locked cells (draws nothing on a board that never grows). Its
+				// handle sits over the reserved rows below the base grid.
+				instance(
+					'locked-rows',
+					'Locked rows',
+					'lockedRow',
+					placeAround({ dx: 0, dy: (baseBoard.rows * cellSize) / 2 }),
+				),
 			],
 		}),
 		modeScene({
@@ -246,7 +335,7 @@ export function holdAndWinReferenceLayout(
 					'Letters',
 					'lettersStrip',
 					place({ dx: 0, dy: -235 }, { dx: 0, dy: -300 }),
-					{ spacing: board.cellSize },
+					{ spacing: cellSize },
 				),
 			],
 		}),

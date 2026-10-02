@@ -50,7 +50,7 @@ titled **"Hold and win game pipeline"**.
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
-| 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
+| 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | built, PR open — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
@@ -105,6 +105,23 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     `coinLand`, `coinCollect`, `coinBoost`, `coinUpgrade`, `featureEnter`, `featureExit`) rather
     than the emitter cue names, because a cue like `respinCounterUpdate` means two moments (reset,
     last). `wheelSpin` / `wheelLand` keep the cue names, as `specialBookReveal` does.
+- 2026-10-02 — **Phase 11b contract (board expansion)** (session "H&W Phase 11b — board expansion").
+  - **Config:** `holdAndWin.expansion {startRows, maxRows, rule, thresholds?, unlockReels?,
+    resetsRespins, rowJackpots?}`, rule `fullRow` | `unlockSymbol` | `coinCount`. `startRows` must
+    equal the grid's rows (the base game plays them); rows unlock BELOW the base grid, so a held
+    cell's row index never changes. Only the chosen rule's own field is stored. `resetsRespins`
+    defaults on. A row jackpot pays once when that many rows are open (banked).
+  - **Refused combinations:** column letters + expansion (a letter needs a fixed column height);
+    `fullRow` under `collectorsOnly` (a row can never fill). `coinCount` needs one ascending
+    threshold per unlockable row, each reachable on the rows open before it. An `unlock` symbol
+    cannot be a buy guarantee.
+  - **Events:** `rowsUnlocked {from, rows, cause, unlockers}` (unlockers = the unlock symbols, then a
+    `cellsCleared {reason: 'applied'}` — the same reason 11a's non-sticky add-respins uses); the
+    counter reset is the respin's own `respinUpdate`; a row jackpot is `jackpotWin {source: 'row',
+    banked: true}`. The entry payload gains `expansion {rows, maxRows}` and the snapshot `rows`, both
+    absent on a board that never grows (parity). A full board = every cell of `maxRows`.
+  - **Fixtures:** `HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-fullrow' | 'pots-expansion-unlock' |
+    'pots-expansion-count']`; no preset gains the option.
 - 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach spine cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
 - 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
   add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`
@@ -636,6 +653,13 @@ Hold and Win beats prints copy.
   - **Coins are not scoped.** A coin signal has no part a placed component stands for: the respin
     cells are one coded board, not per-cell instances. Revisit with 12c's skinnable respin cell
     tiles if a per-cell component appears.
+- **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
+  - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
+    template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
+    board expansion** when the config expands but the reel grid has no room (it sets the grid's cell
+    size and board nudge; the node does not move; `reserveExpandingBoard` / `expandingBoardReserved`).
+  - **Coins in unlocked rows after the feature** — decided: the base board has `startRows`, so they
+    leave with the feature (they are paid in the tally). Documented in the playbook (S9 end state).
 
 - **Phase 11a follow-ups** (none blocks authoring):
   - **The active-modifiers line overflows** on the reference layout's wide arrangement once five
@@ -736,13 +760,20 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     read token from R2 was refused by auto mode (as on 2026-10-02 before). It ran the proxy instead:
     apps/lines as a book game on the local book mock, a full free-spin round, balance exact, 0
     errors. Play the remake on its live data per `reference_parity_free_spin_round_local`, or grant
-    the read, to close it.
+    the read, to close it. **Evidence from 11b (2026-10-02):** the 11b session's read of the token
+    was allowed and it ran the remake on live data, real clock: `main@59d12ae6` (11c part 1) vs
+    `cf41a3c9` + 11b (11c parts 1 and 2) had identical flow-trace vocabulary and emitter-event sets,
+    holds = releases, 0 exceptions — the hub may close this item on that.
 11. **Try the platform jackpot on a test game (11c part 2)** — add `"mockPlatformJackpot": true` to a game's
     `hostSettings` in `test_server/games.json` (a republish keeps it). Its mock then runs the
     platform jackpot. Force a hit from an authoring link with
     `/api/<key>/authoring/platformJackpot?sid=<sid>&hit=Grand` (`&when=feature` for a free spin or a
     respin). And ask the partner for a heartbeat answer from a brand that runs one
     (`play4fun-protocol.md` "Checks owed", item 5).
+12. **Bind art for an unlock symbol (11b)** — a project that turns on the unlock-symbol expansion rule
+    binds its `unlock`-tagged symbol in `/symbols` (the tool defaults use the scatter art, seeded only
+    when the symbol exists at scaffold time). Without art the beat still plays (state, flight, fade,
+    banner).
 
 ## Blocked (owner / external)
 
@@ -805,6 +836,60 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - a missing `precheck`;
     - an empty scope pin leaked `scope: ''`;
     - cue names were stored untrimmed.
+- 2026-10-02 — **Phase 11b follow-ups (ruled by the hub)** (session "H&W Phase 11b — board
+  expansion"). Reserving an expanding board's area is one helper in `engine-layout`
+  (`reserveExpandingBoard`: the reel grid's cells shrink to fit `maxRows` in the shortest layout
+  box, and its board nudge lifts the whole board by half the extra rows — the node never moves; absolute,
+  so applying it twice changes nothing). The template uses it; the scaffold and the editor's "Add
+  missing screens" pass the stored config's `maxRows`; the editor offers **⇕ Reserve rows for
+  board expansion** when the config expands but the reel grid has no room. The coins of unlocked
+  rows leaving with the feature is the decided end state (playbook S9). Unlock-symbol art is an
+  owner checklist item.
+- 2026-10-02 — **Phase 11b merged and live** (#1002, `lines@8fe81dbefddc`, served by
+  `hw-3pots-sample` and `bookofborutremake`).
+
+- 2026-10-02 — **Phase 11b: board expansion (rows unlock), through the whole pipeline** (branch
+  `claude/hw-11b-board-expansion`; session "H&W Phase 11b — board expansion"; contract in
+  Decisions above). A runtime release on merge; nothing new runs unless a config has `expansion`
+  (no preset does).
+  - **Game Config:** `holdAndWin.expansion` + validator + the `/config` Board expansion panel; role
+    `unlock`; fixtures `pots-expansion-fullrow` (MAJOR at 5 rows), `-unlock` (`UNLOCK` symbol),
+    `-count` (thresholds 8/12/16, no reset); `respinBoardMaxRows()`.
+  - **Mock + wire + facade:** the board grows below the grid per rule (fullRow / unlock symbols /
+    held count), `rowsUnlocked` then the unlock symbols' `applied` clear, banked row jackpots, an
+    unlock resets the counter (`max(start, left)`) when `resetsRespins`, a full board needs every row
+    of `maxRows`, `playedSpin` boards as tall as the open rows, `rows` on the snapshot and
+    `expansion {rows, maxRows}` on the trigger and the boot config. Forced beats `unlock:<n>`
+    (numeric; `unlock:<special>` is unchanged) and `expandFull`. `check:holdandwin` re-derives every
+    expanded round (rows, rule, thresholds, row jackpots, reset) and the preset digests are unchanged.
+    The facade clamps a respin board to `maxRows` instead of the grid.
+  - **Engine:** `RespinBoard` builds every cell of `maxRows` and spins only the open rows; locked
+    cells draw `RespinLockedCell` (coded dark LOCKED panel, or the authored `lockedRow` art);
+    `presentRowsUnlocked` — the unlock symbol plays `rowUnlock`, flies into its row (`unlockRow`),
+    the locked cells fade under "ROW UNLOCKED · {rows} ROWS", the rows open; a resume's
+    `holdAndWinState` reopens the server's rows. **Flow:** event `rowsUnlocked`, action `unlockRows`,
+    cue `respinRowsUnlocked`, the seed owns it in the Hold and Win tab. **Symbols:** state
+    `rowUnlock` (fallback `win`), flight `unlockRow`. **Win Text:** `feature.rowUnlocked`,
+    `feature.rows` — two more strings in every Hold and Win project's /localization (play
+    unchanged). **Scene Editor:** kind-gated `lockedRow` component (+ selected preview); the template
+    takes `{ maxRows }` and reserves the grown area in every layout. **Game Maker:** "Rows 3→6" chip.
+    Storybook `MODE_HOLD_AND_WIN/board expansion` (books generated from the real mock + facade);
+    playbook S9.
+  - **Verified live, real clock (60 fps, headless shell), desktop + portrait, all three fixtures:**
+    80/80 — the board opens 6 rows tall with 15 locked cells, grows by the right rule, never shows
+    more rows than the server opened, coins land in the new rows, `expandFull` pays the 6-row GRAND,
+    the shown win equals the server's `gameEnd.win`, and a reload with respin 3's answer lost
+    reopens the server's 5 rows with 5 cells locked.
+  - **Parity:** Borut (`bookofborutremake` live data, local book mock, real clock) — `main` vs this
+    branch rebased on `59d12ae6`: identical flow-trace vocabulary and emitter-event set, holds =
+    releases, 0 exceptions, 0 errors on both. `hw-3pots-sample` (live data, local Pots mock): 13/13 —
+    3 rows, nothing locked, no expansion on the wire, the shown win equals the server's (trigger,
+    full board, payer), no page errors. `check:holdandwin`'s preset digests are unchanged.
+  - **Code review** (code-reviewer): no blocker; fixed — a non-expanding board keeps the reconciled
+    grid's rows, rows open before a streak's clear (an unlock symbol leaves as `applied`), `rows`
+    is set on every trigger and cleared at the end, `unlock:<n>` past the unlockable rows is refused.
+    Noted, not changed: under `respins.reset: anySpecial` a landed unlock symbol resets like any
+    special even with `resetsRespins: false`.
 - 2026-10-02 — **Phase 11c part 2: the operator platform jackpot** (session "Hold and Win Phase 11c —
   progressive + platform jackpots"). Kind-independent: any game carries it. The contract was read
   off the partner's client and recorded in `play4fun-protocol.md` § "The operator platform jackpot",

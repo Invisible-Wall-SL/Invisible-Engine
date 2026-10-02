@@ -16,6 +16,7 @@ import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import {
 	presentCellsCleared,
+	presentRowsUnlocked,
 	presentCoinBoost,
 	presentCoinCollect,
 	presentCoinPay,
@@ -422,6 +423,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	specialBecomesCoin: presentSpecialBecomesCoin,
 	coinCollect: presentCoinCollect,
 	cellsCleared: presentCellsCleared,
+	rowsUnlocked: presentRowsUnlocked,
 	columnComplete: presentColumnComplete,
 	jackpotWin: presentJackpotWin,
 	respinUpdate: presentRespinUpdate,

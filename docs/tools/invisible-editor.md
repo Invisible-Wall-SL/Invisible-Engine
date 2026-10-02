@@ -140,7 +140,7 @@ To start from something:
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
 the base game and the feature; the feature's screens (**Respin background**, **Respin board**,
 **Respin counter**, **Total win bar**, **Letters**, **Wheel**, **Feature intro**, **Jackpot win**,
-**Feature outro**) carry the role *game mode* `holdAndWin`, so they show only while the feature
+**Feature outro**) carry the role _game mode_ `holdAndWin`, so they show only while the feature
 runs; **Lucky Spin intro** is a base-game banner. A piece your preset does not use draws nothing in
 the game (a pot whose meter the Game Config lacks, letters without a column-letters board end, a
 wheel without prizes), so leave it or delete its screen. The base game's **Messages** info bar is
@@ -161,8 +161,8 @@ stake, and the **auto spin** button to set autoplay up — used to be coded dial
 authoring surface at all. Both are now ordinary screens you build here, and
 [Invisible Flow](flow.md) decides **when** each one opens.
 
-**Seed one.** Under the Screens list, **＋ New bet menu screen** creates *Bet Menu* and
-**＋ New auto spin screen** creates *Auto Spin*. Each lands in `canvas` space (positioned
+**Seed one.** Under the Screens list, **＋ New bet menu screen** creates _Bet Menu_ and
+**＋ New auto spin screen** creates _Auto Spin_. Each lands in `canvas` space (positioned
 against the window edges, so it stays centred on any device) and is tagged with the
 matching role. Pressing the button again once the screen exists just selects it, so you
 cannot end up with two. What you get is deliberately plain — a starting point to restyle,
@@ -182,7 +182,7 @@ player's way back out, and the flow has to wire it (see the caveat at the end of
 section).
 
 The seeded copy is not English typed into a text box: every title, **START AUTOPLAY** and
-**CANCEL** is the *same* string the coded dialog uses, so a game that already ships in
+**CANCEL** is the _same_ string the coded dialog uses, so a game that already ships in
 other languages has them translated before you start. The `MAX` tile label goes the same
 way, which matters because the repeater feeds it and you can't reach it here at all.
 Reword a title and you simply get a new string — still collected by
@@ -208,9 +208,9 @@ mode's **HUD** in Game Config to make it replace the base HUD while the mode is 
 Select it and Properties gives you:
 
 - **data source** — which list to stamp, now a dropdown rather than a free-text box:
-  *buy-feature cards (one per bet mode)*, *bet amounts (the bet menu ladder)*, *auto spin
-  counts (10 … ∞)*, *auto spin loss limits (5× … ∞)* and *auto spin single-win limits
-  (5× … ∞)*. A custom source already saved in the document is kept in the list so it is
+  _buy-feature cards (one per bet mode)_, _bet amounts (the bet menu ladder)_, _auto spin
+  counts (10 … ∞)_, _auto spin loss limits (5× … ∞)_ and _auto spin single-win limits
+  (5× … ∞)_. A custom source already saved in the document is kept in the list so it is
   never rewritten under you. The game registers the actual arrays at runtime; a source the
   game doesn't register simply stamps nothing.
 - **component** — which component each item becomes. It defaults to the new built-in
@@ -227,18 +227,18 @@ params are a frame **tint**, **fontSize**, **font**, and the usual **State image
 (normal / hover / pressed / **selected** / …) — point those at your own frames and the
 tile takes your art. The label and which tile is currently picked are fed by the engine,
 not typed here. The picked one is shown two ways at once: it takes the **selected** state
-image, *and* its label turns gold — so the current stake reads correctly even before any
+image, _and_ its label turns gold — so the current stake reads correctly even before any
 art is authored. Restyle the tile in the [Invisible Component Editor](component-editor.md),
 or point the repeater's **component** dropdown at a component of your own.
 
 **Making a button on the screen do something.** Properties → **Engine bindings** →
 **Action** (and a button instance's own `action` param) gained three keys:
 
-| Action | What it does |
-|---|---|
-| **bet menu (open)** | Opens the bet menu. The seeded HUD bet readout already carries it. |
-| **auto spin — start** | Starts an autoplay run from the currently picked options. The seeded **START AUTOPLAY** button carries it. |
-| **close (dismiss screen)** | A generic dismiss. Both seeded menus carry a **CANCEL** button bound to it; use it for a ✕ of your own. |
+| Action                     | What it does                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **bet menu (open)**        | Opens the bet menu. The seeded HUD bet readout already carries it.                                         |
+| **auto spin — start**      | Starts an autoplay run from the currently picked options. The seeded **START AUTOPLAY** button carries it. |
+| **close (dismiss screen)** | A generic dismiss. Both seeded menus carry a **CANCEL** button bound to it; use it for a ✕ of your own.    |
 
 A readout can also show the standing choice: the **source** dropdown on a HUD Readout,
 text box or message bar gained `autoSpins`, `autoSpinsLossLimit` and `autoSpinsWinLimit`
@@ -250,10 +250,10 @@ page declares one, and the defaults otherwise.
 page declares them (`clock`, `elapsedTime`, `home`, `externalHistoryUrl`). With no authoring, every
 game draws them in a thin strip at the top edge. To place them in your own HUD instead:
 
-| Put this | Bind it to | Gate it with (**Shows during**) |
-|---|---|---|
-| a text box | **source** **Clock (operator)** (e.g. `14:05`) or **Session Time (operator)** (e.g. `0:12:34` — add your own label) | **Operator shows a clock** / **Operator shows session time** |
-| a button | **action** **home (operator lobby)** or **history (operator page, new tab)** | **Operator has a HOME (lobby) link** / **Operator has a HISTORY link** |
+| Put this   | Bind it to                                                                                                          | Gate it with (**Shows during**)                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| a text box | **source** **Clock (operator)** (e.g. `14:05`) or **Session Time (operator)** (e.g. `0:12:34` — add your own label) | **Operator shows a clock** / **Operator shows session time**           |
+| a button   | **action** **home (operator lobby)** or **history (operator page, new tab)**                                        | **Operator has a HOME (lobby) link** / **Operator has a HISTORY link** |
 
 Once your HUD shows one of them, the strip stops drawing that item. Ungated, a clock text box is
 empty and a home/history button is disabled on a launch that declares nothing. The editor preview
@@ -439,7 +439,7 @@ item's pixels are combined with them.
   toward white — warm light shafts stay warm over blue water, where Screen would wash them
   pale. Reach for it when Screen is right in principle but is bleaching the colour out.
 - **Overlay** — Multiply where the backdrop is dark, Screen where it is light, so it
-  *boosts contrast* instead of pushing one direction. The mode for a texture or colour pass
+  _boosts contrast_ instead of pushing one direction. The mode for a texture or colour pass
   that should sit **into** the art rather than on top of it: grime over a panel, a light wash
   across a backdrop, a gradient that tints the shadows and the highlights differently. It
   keys off what is behind it, so the same layer reads differently over a dark screen than a
@@ -459,7 +459,7 @@ backdrop often has to fall back to Normal over a portrait crop.
 > surfaces its blend model does not cover, so the preview could not keep the promise.
 >
 > **Neither do spines, and that one is worth knowing.** A blend can't reach skeleton geometry
-> at all — the Spine runtime batches every slot carrying that *slot's* own blend and never
+> at all — the Spine runtime batches every slot carrying that _slot's_ own blend and never
 > consults the engine's blend setting, so a blend on a spine node would preview in the editor
 > and do nothing in the game. Spine art blends **per slot, in the Rigger**: give each layer its
 > own slot, set the draw order, and pick its blend there. Spine's format offers
@@ -474,7 +474,7 @@ something you placed on a screen changes what it plays while the game runs: each
 node plays it. A spine swaps **animation**; a flipbook swaps **clip** — which is how a
 character drawn as frame animation, rather than rigged in Spine, reacts to the game at all.
 
-The fields above the block stay the node's *resting* state — what it plays when no signal has
+The fields above the block stay the node's _resting_ state — what it plays when no signal has
 fired: a spine's **default animation**, **skin** and **loop**; a flipbook's **clip** and the
 playback overrides beside it.
 
@@ -509,7 +509,7 @@ settling back to the resting clip — a flipbook has no equivalent of a rig's de
 — so a one-shot clip stays on its last frame until another cue replaces it.
 
 **A cue is never cleared.** There is no stop signal: going back to idle means firing a
-*second* cue that names the idle animation, or the resting clip. A character that idles,
+_second_ cue that names the idle animation, or the resting clip. A character that idles,
 spins, then idles again is two rows, not one.
 
 **A cue only reaches a node that is on screen.** Nothing is queued and nothing is
@@ -562,7 +562,7 @@ draggable (its transform is computed, not authored); these controls are how you 
     vertically (crop or gap).
   - **fit height — Y** — the art is exactly as tall as the window.
 
-  `cover` / `contain` *choose* the axis from the aspect ratio, so which axis they pin
+  `cover` / `contain` _choose_ the axis from the aspect ratio, so which axis they pin
   flips as the window ratio crosses the art's. The two per-axis fits **pin** it, which is
   what you want when a backdrop must always span the window horizontally (say) and you
   have decided what happens on the other axis.
@@ -787,7 +787,7 @@ game on the next **Publish** — the same trip as the rest of your art.
   instance into the active screen; instances' params are editable in Properties.
   The list shows only what your project's game kind uses: the Hold and Win pieces (Respin
   Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel, Respin Cell
-  Tiles) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.
+  Tiles, Locked Row) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
   progressive tier, the server's live pool, which moves with every round and balance refresh.
   The **Platform Jackpot Bar** is offered to every kind. It holds four Jackpot Tiles fed
@@ -801,6 +801,18 @@ game on the next **Publish** — the same trip as the rest of your art.
   changes nothing. **Select it** to preview: the reel grid then shows every cell as an empty respin
   cell on your tile, at the gap — the respin board itself only appears in the game, during a
   feature (**Live ↗**).
+  **Locked Row** is what an **expanding** respin board (Game Config → Board expansion) draws over
+  every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
+  game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the
+  template puts one on the **Respin board** screen. **Select it** to preview one locked row under the
+  reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there. A
+  project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
+  with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
+  the whole board lifts (its **board nudge**), so the grown board sits where the base board was, and the pieces
+  above and below are pushed clear. A project that turns expansion on **later** shows a
+  **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
+  and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
+  grown board yourself.
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining

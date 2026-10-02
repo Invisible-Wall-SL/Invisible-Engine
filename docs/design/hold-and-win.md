@@ -443,6 +443,9 @@ game (and every existing Hold and Win project) must play byte-identically.
   reserves the `maxRows` area (the Scene Editor template's respinBoard gets a `maxRows` height and a
   locked-row component). Resume must restore the unlocked row count.
 - Biggest slice; starts after 11a merges (both touch the respin beats and the mock generator).
+- **Built (2026-10-02):** rows open BELOW the base grid (a held cell's row never changes); the
+  contract and what shipped are in [status/hold-and-win](../status/hold-and-win.md) (Decisions,
+  Recent changes).
 
 ### 11c — progressive jackpots + the operator platform jackpot
 

@@ -458,6 +458,23 @@ export const HOLD_AND_WIN_PRESETS: Record<HoldAndWinPresetId, RawGameConfig> = {
 	collector: COLLECTOR,
 };
 
+/** 3 Pots with its respin board growing 3 → 6 rows (design §7 11b); `unlock` names an unlock
+ *  symbol to add to the dictionary and the respin strips. */
+const potsExpansion = (
+	expansion: NonNullable<HoldAndWin['expansion']>,
+	unlock?: string,
+): RawGameConfig => ({
+	...POTS,
+	...(unlock && {
+		symbols: { ...POTS.symbols, [unlock]: tag('unlock') },
+		paddingReels: {
+			...POTS.paddingReels,
+			respin: POTS.paddingReels!.respin.map((reel) => [...reel, { name: unlock }]),
+		},
+	}),
+	holdAndWin: { ...POTS_HOLD_AND_WIN, expansion },
+});
+
 /**
  * 3 Pots plus the Phase 11a specials: an `ADD` add-respins (+1/+2, clears after applying, the cap
  * untouched) and an `UPG` upgrade (all / adjacent / one jackpot tier, steps 0.5/1/2), both active
@@ -534,9 +551,10 @@ const POTS_EXTRA: RawGameConfig = {
 
 /**
  * DEV/TEST fixtures — never offered by the Game Maker. `pots-progressive` is 3 Pots with its upper
- * three tiers progressive (design §7 11c), so the mock, the facade and the engine's live jackpot
- * values can be exercised without any project turning the option on; `pots-extra` is 3 Pots with
- * the 11a add-respins and upgrade specials (`PRESET=pots-extra` on the mock CLI).
+ * three tiers progressive (design §7 11c); `pots-extra` is 3 Pots with the 11a add-respins and
+ * upgrade specials (`PRESET=pots-extra` on the mock CLI); the `pots-expansion-*` trio is 3 Pots with
+ * board expansion on, one per unlock rule (design §7 11b). So the mock, the facade and the engine
+ * can be exercised without any project turning an option on.
  */
 export const HOLD_AND_WIN_TEST_FIXTURES: Record<string, RawGameConfig> = {
 	'pots-progressive': {
@@ -567,4 +585,22 @@ export const HOLD_AND_WIN_TEST_FIXTURES: Record<string, RawGameConfig> = {
 		},
 	},
 	'pots-extra': POTS_EXTRA,
+	'pots-expansion-fullrow': potsExpansion({
+		startRows: 3,
+		maxRows: 6,
+		rule: 'fullRow',
+		resetsRespins: true,
+		rowJackpots: [{ rows: 5, jackpot: 'MAJOR' }],
+	}),
+	'pots-expansion-unlock': potsExpansion(
+		{ startRows: 3, maxRows: 6, rule: 'unlockSymbol', resetsRespins: true },
+		'UNLOCK',
+	),
+	'pots-expansion-count': potsExpansion({
+		startRows: 3,
+		maxRows: 6,
+		rule: 'coinCount',
+		resetsRespins: false,
+		thresholds: [8, 12, 16],
+	}),
 };

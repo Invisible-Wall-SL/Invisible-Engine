@@ -696,6 +696,32 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'respinRowsUnlocked',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'from',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'rows',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'cause',
+					kind: 'object',
+					required: true,
+				},
+				{
+					key: 'unlockers',
+					kind: 'list',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'respinJackpotWin',
 			group: 'Hold and Win',
 			fields: [
@@ -1228,6 +1254,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'unlockRows',
+			group: 'Effect',
+		},
+		{
 			name: 'showJackpotWin',
 			group: 'Effect',
 		},
@@ -1497,6 +1527,9 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'cellsCleared',
+		},
+		{
+			type: 'rowsUnlocked',
 		},
 		{
 			type: 'columnComplete',

@@ -28,7 +28,7 @@ const bundled = await esbuild.build({
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
-			`export { HOLD_AND_WIN_BANNER_SCREENS } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
+			`export { HOLD_AND_WIN_BANNER_SCREENS, reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
 		resolveDir: HERE,
@@ -204,6 +204,7 @@ const PLACED = [
 	'lettersStrip',
 	'wheel',
 	'respinCells',
+	'lockedRow',
 ];
 for (const id of PLACED) {
 	assert(
@@ -256,19 +257,73 @@ const SIZE = {
 	infoBar: [504, 86],
 	textBox: [260, 30],
 };
-for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
-	const layout = mod.holdAndWinReferenceLayout(board);
+// Reserving an expanding board's area (11b follow-up): the scaffold path and the editor action share
+// one helper; it is absolute (reserving twice changes nothing) and touches only the reel grid.
+{
+	const plain = mod.getFullSceneSet('holdAndWin');
+	assert(!mod.expandingBoardReserved(plain, 6), 'an unexpanded scaffold does not reserve 6 rows');
+	const once = mod.reserveExpandingBoard(plain, 6);
+	const twice = mod.reserveExpandingBoard(once, 6);
+	assert(JSON.stringify(once) === JSON.stringify(twice), 'reserving twice changes nothing');
+	assert(mod.expandingBoardReserved(once, 6), 'a reserved doc reads as reserved');
+	const gridOf = (d) =>
+		walk(d.scenes.find((sc) => sc.id === 'basegame').nodes).find((n) => n.kind === 'reelGrid');
+	const g0 = gridOf(plain);
+	const g1 = gridOf(once);
+	assert(
+		g1.x === g0.x && g1.y === g0.y && JSON.stringify(g1.overrides) === JSON.stringify(g0.overrides),
+		'the grid node does not move',
+	);
+	assert(
+		g1.cellSize === 66 && g1.boardNudgeY === -99,
+		`6 rows reserve 66 px cells nudged up 1.5 rows (got ${g1.cellSize}, ${g1.boardNudgeY})`,
+	);
+	const withOption = mod.getFullSceneSet('holdAndWin', { maxRows: 6 });
+	assert(
+		gridOf(withOption).cellSize === 66 && gridOf(withOption).boardNudgeY === -99,
+		'getFullSceneSet takes maxRows',
+	);
+	assert(
+		JSON.stringify(mod.getFullSceneSet('lines', { maxRows: 6 })) ===
+			JSON.stringify(mod.getFullSceneSet('lines')),
+		'other kinds ignore maxRows',
+	);
+	assert(mod.expandingBoardReserved(plain, 3), 'a board that never grows is always reserved');
+}
+
+// An expanding board (11b) reserves its maxRows area: the grid moves up, its cells shrink, and the
+// pieces around it clear the whole grown block.
+for (const [board, options] of [
+	[mod.HOLD_AND_WIN_BOARD, {}],
+	[mod.HOLD_AND_WIN_HOTFIRE_BOARD, {}],
+	[mod.HOLD_AND_WIN_BOARD, { maxRows: 6 }],
+	[mod.HOLD_AND_WIN_HOTFIRE_BOARD, { maxRows: 5 }],
+]) {
+	const layout = mod.holdAndWinReferenceLayout(board, options);
 	const basegame = layout.scenes.find((s) => s.id === 'basegame');
 	const grid = walk(basegame.nodes).find((n) => n.kind === 'reelGrid');
 	assert(
 		grid.reels === board.reels && grid.rows === board.rows,
 		`the reel grid is ${board.reels}×${board.rows}`,
 	);
+	const maxRows = options.maxRows ?? board.rows;
+	if (!options.maxRows)
+		assert(grid.cellSize === board.cellSize, 'an unexpanding board keeps its cells');
 	for (const [type, size] of Object.entries(layout.mainSizesMap)) {
-		const cx = size.width / 2;
-		const cy = size.height / 2;
-		const bw = (board.reels * board.cellSize) / 2;
-		const bh = (board.rows * board.cellSize) / 2;
+		const g = type === 'desktop' ? {} : (grid.overrides?.[type] ?? {});
+		const gx = g.x ?? grid.x;
+		const gy = g.y ?? grid.y;
+		// The base board is centred on the grid node, lifted by its board nudge; the reserved rows hang
+		// below it.
+		const cx = gx;
+		const top = gy + (grid.boardNudgeY ?? 0) - (board.rows * grid.cellSize) / 2;
+		const bottomEdge = top + maxRows * grid.cellSize;
+		const cy = (top + bottomEdge) / 2;
+		const bw = (board.reels * grid.cellSize) / 2;
+		const bh = (bottomEdge - top) / 2;
+		assert(top >= 0 && bottomEdge <= size.height, `${type}: the ${maxRows}-row block fits the box`);
+		if (options.maxRows)
+			assert(Math.abs(cy - size.height / 2) < 1, `${type}: the grown block is centred`);
 		for (const id of [
 			'basegame',
 			'jackpotBar',
@@ -290,7 +345,7 @@ for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
 				const right = x + (w * scale) / 2;
 				const top = y - (h * scale) / 2;
 				const bottom = y + (h * scale) / 2;
-				const where = `${board.reels}×${board.rows} ${type} ${id}/${node.id}`;
+				const where = `${board.reels}×${maxRows} ${type} ${id}/${node.id}`;
 				assert(
 					left >= 0 && right <= size.width && top >= 0 && bottom <= size.height,
 					`${where} leaves the main box`,

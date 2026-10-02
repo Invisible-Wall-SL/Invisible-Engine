@@ -700,6 +700,32 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinRowsUnlocked',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'from',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'rows',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cause',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'unlockers',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinJackpotWin',
 				group: 'Hold and Win',
 				fields: [
@@ -1232,6 +1258,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'unlockRows',
+				group: 'Effect',
+			},
+			{
 				name: 'showJackpotWin',
 				group: 'Effect',
 			},
@@ -1501,6 +1531,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'cellsCleared',
+			},
+			{
+				type: 'rowsUnlocked',
 			},
 			{
 				type: 'columnComplete',
@@ -2209,6 +2242,32 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinRowsUnlocked',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'from',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'rows',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cause',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'unlockers',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinJackpotWin',
 				group: 'Hold and Win',
 				fields: [
@@ -2741,6 +2800,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'unlockRows',
+				group: 'Effect',
+			},
+			{
 				name: 'showJackpotWin',
 				group: 'Effect',
 			},
@@ -3010,6 +3073,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'cellsCleared',
+			},
+			{
+				type: 'rowsUnlocked',
 			},
 			{
 				type: 'columnComplete',
@@ -3718,6 +3784,32 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinRowsUnlocked',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'from',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'rows',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cause',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'unlockers',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinJackpotWin',
 				group: 'Hold and Win',
 				fields: [
@@ -4250,6 +4342,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'unlockRows',
+				group: 'Effect',
+			},
+			{
 				name: 'showJackpotWin',
 				group: 'Effect',
 			},
@@ -4519,6 +4615,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'cellsCleared',
+			},
+			{
+				type: 'rowsUnlocked',
 			},
 			{
 				type: 'columnComplete',
@@ -5227,6 +5326,32 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinRowsUnlocked',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'from',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'rows',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cause',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'unlockers',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinJackpotWin',
 				group: 'Hold and Win',
 				fields: [
@@ -5759,6 +5884,10 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'unlockRows',
+				group: 'Effect',
+			},
+			{
 				name: 'showJackpotWin',
 				group: 'Effect',
 			},
@@ -6028,6 +6157,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'cellsCleared',
+			},
+			{
+				type: 'rowsUnlocked',
 			},
 			{
 				type: 'columnComplete',

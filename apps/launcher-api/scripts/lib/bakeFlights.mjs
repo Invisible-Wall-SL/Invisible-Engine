@@ -10,10 +10,10 @@
 
 const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** `toTotal` / `toCollector` / `boostBeam` / `toCounter` / `upgradeBeam` / `toMeter` /
- *  `toMeter:<id>` — by shape. */
+/** `toTotal` / `toCollector` / `boostBeam` / `toCounter` / `upgradeBeam` / `unlockRow` / `toMeter`
+ *  / `toMeter:<id>` — by shape. */
 const FLIGHT_KEY =
-	/^(toTotal|toCollector|boostBeam|toCounter|upgradeBeam|toMeter|toMeter:\S(.*\S)?)$/;
+	/^(toTotal|toCollector|boostBeam|toCounter|upgradeBeam|unlockRow|toMeter|toMeter:\S(.*\S)?)$/;
 
 /** The baked `symbols.flights`, or undefined (no key) when nothing is authored. */
 export function bakeFlights(raw) {

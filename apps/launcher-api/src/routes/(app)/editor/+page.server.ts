@@ -267,6 +267,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The config's BIG tiers (alias + display name) the `win` component builds its per-tier
 		// presentation groups from. Null ⇒ the built-in default tiers (byte-identical).
 		winTiers,
+		// A Hold and Win project whose Game Config expands its respin board: the rows it grows to, so
+		// the scaffold, "Add missing screens" and the reserve action make room for them. Null ⇒ none.
+		expansionMaxRows: gameConfigDoc?.holdAndWin?.expansion?.maxRows ?? null,
 		// Per-source SAMPLE data for `repeater` placeholders (currently `featureCards` → the config's
 		// non-default bet modes). Empty ⇒ every repeater keeps its fixed fallback sample (parity).
 		repeaterSources,
