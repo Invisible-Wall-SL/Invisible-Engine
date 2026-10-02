@@ -46,6 +46,17 @@ to its server whitelist** (`normalizeScene`, `normalizeAlign`, `normalizeGameSet
 silently dropped on save); **the launcher `vite build` is not a type-check** (run `svelte-check`);
 **"shows in the editor" ≠ "ships"** (check the export walks the new reference).
 
+- 2026-10-02 — **The editor follows the PROJECT's game kind, not the layout's.** Reported on
+  `hw-3pots-sample` after #972: no Pots screen offered, no Pot Meter in the Components list. Its
+  layout was loaded from the lines reference, so `doc.gameType` is `lines`. The client took
+  `projectGameType` from `doc.gameType` first, so the kind-gated surfaces (Components palette
+  `componentOfferedForKind`, **Add missing screens** `getFullSceneSet`, the Properties symbol
+  states, the cross-type load warning) all behaved as lines on a Hold and Win project. Every
+  other tool (`/config`, `/symbols`, `/win-text`, the mock, publish) already follows the stored
+  project kind. The load now returns `projectKind` (`storedProjectGameType`, `null` for a legacy row
+  with none) and the client prefers it. A legacy project with no stored kind keeps the old order
+  (doc, then template). Server-side template, slot and config resolution still read `doc.gameType`
+  first (unchanged). ⏳ Not browser-verified.
 - 2026-10-01 — **In-game view: the canvas draws what the idle game shows.** Reported on
   `hw-3pots-sample`: every screen drew at once (buy cards, confirm dialog, bet menu over the
   board), with labelled "Panel" / "spine: Spine" / "Button ribbon" boxes for Feature Card parts

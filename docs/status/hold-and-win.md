@@ -628,7 +628,10 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 5. **`hw-3pots-sample` layout** — `/editor`: **＋ Add missing screens**, place an **Info Bar** on its
    base game (its toasts "UNLOCKED" / "PAYER ACTIVE" / "Good luck" have no message host today).
    Since the In-game view change (editor status, 2026-10-01) this adds every Hold and Win screen
-   (Jackpot bar, Pots, the feature screens) at its place in the list. The project's flow is the
+   (Jackpot bar, Pots, the feature screens) at its place in the list. It offers them only once the
+   editor follows the project's kind rather than the layout's stored `gameType` (editor status,
+   2026-10-02): this layout came from the lines reference, so before that fix neither the screens
+   nor the Pot Meter component were offered. The project's flow is the
    Book-of seed, so the game draws the added Pots / Jackpot bar only after `/flow-v2` shows them at
    load (or the project is re-seeded with the Hold and Win starter flow). Until then the coded pots
    keep drawing.

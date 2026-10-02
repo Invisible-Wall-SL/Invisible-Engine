@@ -132,7 +132,9 @@ To start from something:
   layout lacks. Each added screen goes in at its place in the game's own screen order,
   not at the end of the list. A project created before its kind's template existed (for
   example a Hold and Win project scaffolded before the Jackpot bar and Pots screens) gets
-  them here.
+  them here. The screens and the Components list follow the project's game kind (set when
+  the project was created, or in Admin), even when its layout was first loaded from another
+  kind's reference.
 
 **Hold and Win screens.** A Hold and Win project starts with one screen set for all three
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
