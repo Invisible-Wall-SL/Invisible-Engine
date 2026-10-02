@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { projectAddOns } from '$lib/addOns';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
 	keyComponentDefaultsById,
@@ -6,6 +7,8 @@ import {
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
+import { gameConfigDefaultFor } from '$lib/server/gameConfigDefaults';
+import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectName, storedProjectGameType } from '$lib/server/projects';
@@ -50,31 +53,38 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		roleOverrides,
 		overrides,
 	);
-	const [componentEntries, assets, storedDefaults, doc, gameName, projectKind] = await Promise.all([
-		// Components the project can use (shared + project, project shadowing shared, §8.3),
-		// each carrying the ETag of the object it was read from — the save's precondition (Phase 1).
-		listComponentsWithEtags({ projectKey }),
-		listProjectAssets(clientKey, projectKey),
-		// Per-project author-set param defaults, by component id (§13.3) — hydrates the
-		// Defaults controls + the non-empty canvas preview without a second round-trip.
-		listComponentDefaults(projectKey),
-		// The project's editor doc — only for its `mainSizesMap` (the game's real MAIN
-		// box, e.g. 1422×800 for Borut). The Component Editor previews game-space
-		// components through this box (same as the Scene Editor), so what's authored
-		// matches the game instead of a neutral 1920×1080 frame.
-		loadDoc(clientKey, projectKey),
-		// Display name of the active project — the "This game's defaults" panel's subtitle
-		// (null for a row with no name ⇒ the page falls back to the project key).
-		projectName(projectKey),
-		// The project's kind — which engine signals the signal pickers offer (a Hold and Win
-		// project's pot, jackpot and respin signals; `engineSignalsForKind`).
-		storedProjectGameType(projectKey),
-	]);
+	const [componentEntries, assets, storedDefaults, doc, gameName, projectKind, config] =
+		await Promise.all([
+			// Components the project can use (shared + project, project shadowing shared, §8.3),
+			// each carrying the ETag of the object it was read from — the save's precondition (Phase 1).
+			listComponentsWithEtags({ projectKey }),
+			listProjectAssets(clientKey, projectKey),
+			// Per-project author-set param defaults, by component id (§13.3) — hydrates the
+			// Defaults controls + the non-empty canvas preview without a second round-trip.
+			listComponentDefaults(projectKey),
+			// The project's editor doc — only for its `mainSizesMap` (the game's real MAIN
+			// box, e.g. 1422×800 for Borut). The Component Editor previews game-space
+			// components through this box (same as the Scene Editor), so what's authored
+			// matches the game instead of a neutral 1920×1080 frame.
+			loadDoc(clientKey, projectKey),
+			// Display name of the active project — the "This game's defaults" panel's subtitle
+			// (null for a row with no name ⇒ the page falls back to the project key).
+			projectName(projectKey),
+			// The project's kind — which engine signals the signal pickers offer (a Hold and Win
+			// project's pot, jackpot and respin signals; `engineSignalsForKind`).
+			storedProjectGameType(projectKey),
+			// The authored Game Config — its add-on blocks widen the pickers (below).
+			loadGameConfigDocWithEtag(clientKey, projectKey),
+		]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
 	// `/editor`'s "Open in Component Editor" sends `&project=` too — that param is now
 	// honoured by `resolveToolScope` above (project-explicit scoping), so the page
 	// binds to the editor's project; here we only need to read the id.
 	const openId = url.searchParams.get('id') || null;
+	const gameType = projectKind ?? doc.gameType ?? '';
+	// The config's add-on blocks widen the kind's signal and symbol-state pickers (a pots overlay or
+	// a Hold and Win bonus on another kind); all false without a config ⇒ the kind's own lists.
+	const { addOns } = projectAddOns(config.doc ?? gameConfigDefaultFor(gameType));
 	const components = componentEntries.map((e) => e.def);
 	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create). The
 	// page holds this so `openComponent` can stamp the draft's `baseEtag` and the save CASes.
@@ -93,7 +103,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 			components.map((c) => c.id),
 		),
 		gameName,
-		gameType: projectKind ?? doc.gameType ?? '',
+		gameType,
+		addOns,
 		openId,
 		mainSizesMap: doc.mainSizesMap,
 		canPublishShared,

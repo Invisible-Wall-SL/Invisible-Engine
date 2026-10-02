@@ -133,7 +133,9 @@ signals. It has two lists, each with its own add button:
 - **Signals in use** — click **+ Add signal** to open a searchable picker of the signals this
   project's kind fires, grouped by family. Every kind gets Enter, Win, Big Win, Win —
   count-up complete, Free-spin start / end, the Free-spin outro signals, Book reveal / hide,
-  Board glow show / hide and **Platform jackpot won**. A Hold and Win project also gets:
+  Board glow show / hide and **Platform jackpot won**. A Hold and Win project (or one whose Game
+  Config has a **Hold and Win** bonus) also gets the families below; a **Pots overlay** block
+  brings just **Pots**:
   - **Pots**: specials take off, special lands, level up, size stage up, full, activate.
   - **Respins**: counter reset, last respin.
   - **Coins**: land, collected, boosted, upgraded.
@@ -143,8 +145,9 @@ signals. It has two lists, each with its own add button:
   - **Feature**: enter, exit.
 
   The game fires all of these from its own beats; no Flow wiring is needed. The Hold and Win
-  ones are fired only in a Hold and Win game, so in any other kind those names stay free for
-  your own Flow cues. Under **Flow cue**
+  ones are fired only in a game with that feature (the Pots ones also with the pots overlay), so
+  elsewhere those names stay free for your own Flow cues. The symbol-state pickers follow the same
+  rule: the Hold and Win states are offered only with the feature. Under **Flow cue**
   you can type any name a Flow **Fire Cue** node broadcasts (e.g. `frogCheer`) and click
   **Add**. A row marked *per meter*, *per tier* or *per reel* is a scoped signal (see
   **scoped by** below). **×** removes a signal.
