@@ -52,6 +52,7 @@ const CAUSE: TypeRef = { t: 'enum', name: 'HoldAndWinCause' };
 const SPECIAL: TypeRef = { t: 'enum', name: 'HoldAndWinSpecial' };
 const JACKPOT_SOURCE: TypeRef = { t: 'enum', name: 'HoldAndWinJackpotSource' };
 const STICKINESS: TypeRef = { t: 'enum', name: 'Stickiness' };
+const EXPANSION_RULE: TypeRef = { t: 'enum', name: 'ExpansionRule' };
 
 /**
  * The symbols the three presets and the `pots-extra` test fixture deal (`game-config`
@@ -100,7 +101,10 @@ export const HOLD_AND_WIN_JACKPOT_SOURCES = [
 	'wheel',
 	'letters',
 	'fullBoard',
+	'row',
 ];
+/** `game-config` `EXPANSION_RULES`. */
+export const HOLD_AND_WIN_EXPANSION_RULES = ['fullRow', 'unlockSymbol', 'coinCount'];
 /** `game-config` `STICKINESS`. */
 export const HOLD_AND_WIN_STICKINESS = ['allCoins', 'collectorsOnly'];
 
@@ -190,6 +194,14 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 			{ name: 'stickiness', type: STICKINESS },
 			{ name: 'activeModifiers', type: list(SPECIAL) },
 			{ name: 'meters', type: list(STRING) },
+			{ name: 'expansion', type: { t: 'struct', name: 'HoldAndWinExpansion' } },
+		],
+	},
+	{
+		name: 'HoldAndWinExpansion',
+		fields: [
+			{ name: 'rows', type: INT },
+			{ name: 'maxRows', type: INT },
 		],
 	},
 	{
@@ -213,6 +225,7 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 			{ name: 'collectorLevel', type: INT },
 			{ name: 'coinBoost', type: FLOAT },
 			{ name: 'lettersLit', type: list(INT) },
+			{ name: 'rows', type: INT },
 		],
 	},
 	{
@@ -234,6 +247,7 @@ const ENUMS: TemplateVocabulary['enums'] = [
 	{ name: 'HoldAndWinJackpotSource', values: HOLD_AND_WIN_JACKPOT_SOURCES },
 	{ name: 'Stickiness', values: HOLD_AND_WIN_STICKINESS },
 	{ name: 'UpgradeTarget', values: HOLD_AND_WIN_UPGRADE_TARGETS },
+	{ name: 'ExpansionRule', values: HOLD_AND_WIN_EXPANSION_RULES },
 ];
 
 /** The base-game Hold and Win events — they ride on a base spin, so they follow `reveal`. */
@@ -486,6 +500,26 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 			"A streak collector's collected coins, or a non-sticky add-respins that applied, leave the board.",
 	},
 	{
+		name: 'rowsUnlocked',
+		payload: [
+			{ name: 'from', type: INT, description: 'Open rows before.' },
+			{ name: 'rows', type: INT, description: 'Open rows now — the new ones are below.' },
+			{
+				name: 'cause',
+				type: EXPANSION_RULE,
+				description: 'What opened them (`fullRow`, `unlockSymbol`, `coinCount`).',
+			},
+			{
+				name: 'unlockers',
+				type: list(CELL),
+				description: 'The unlock symbols that opened them (`unlockSymbol` only).',
+			},
+		],
+		category: 'book',
+		description:
+			'An expanding board opened rows. Any respin reset arrives on the respin counter; a row jackpot on Jackpot win.',
+	},
+	{
 		name: 'columnComplete',
 		payload: [
 			{ name: 'reel', type: INT, description: 'The column.' },
@@ -591,6 +625,7 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('collectCoins', 'coinCollect'),
 	beat('revealMystery', 'mysteryReveal'),
 	beat('clearRespinCells', 'cellsCleared'),
+	beat('unlockRows', 'rowsUnlocked'),
 	beat('showJackpotWin', 'jackpotWin'),
 	beat('hideRespinBoard', 'holdAndWinEnd'),
 	beat('fillMeter', 'meterUpdate'),
@@ -739,6 +774,15 @@ const CUES: TemplateVocabulary['cues'] = [
 		payload: [
 			{ name: 'reason', type: STRING },
 			{ name: 'cells', type: list(POSITION) },
+		],
+	},
+	{
+		name: 'respinRowsUnlocked',
+		payload: [
+			{ name: 'from', type: INT },
+			{ name: 'rows', type: INT },
+			{ name: 'cause', type: EXPANSION_RULE },
+			{ name: 'unlockers', type: list(CELL) },
 		],
 	},
 

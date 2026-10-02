@@ -8,8 +8,8 @@
  * shows is the value the game uses. The route math that consumes the resolved style lives next door
  * in `flightPath.ts`.
  *
- * Keys: `toTotal` · `toCollector` · `boostBeam` · `toCounter` · `upgradeBeam` · `toMeter` (every
- * meter) · `toMeter:<id>` (one meter). Resolution is FIELD BY FIELD: the exact key, then (for
+ * Keys: `toTotal` · `toCollector` · `boostBeam` · `toCounter` · `upgradeBeam` · `unlockRow` ·
+ * `toMeter` (every meter) · `toMeter:<id>` (one meter). Resolution is FIELD BY FIELD: the exact key, then (for
  * `toMeter:<id>`) the `toMeter` family, then the coded default ({@link FLIGHT_DEFAULTS}). An absent
  * block resolves to exactly the coded flight, so an unauthored game flies as it always did.
  *
@@ -22,6 +22,7 @@ export const FLIGHT_KINDS = [
 	'boostBeam',
 	'toCounter',
 	'upgradeBeam',
+	'unlockRow',
 	'toMeter',
 ] as const;
 export type FlightKind = (typeof FLIGHT_KINDS)[number];
@@ -32,6 +33,7 @@ export const FLIGHT_KIND_LABELS: Record<FlightKind, string> = {
 	boostBeam: 'Boost beam',
 	toCounter: 'Into the respin counter',
 	upgradeBeam: 'Upgrade beam',
+	unlockRow: 'Unlock into its row',
 	toMeter: 'Into a meter (every meter)',
 };
 

@@ -70,6 +70,7 @@ import { tumbleBoardCombined } from './stateTumble.svelte';
 import { hideRespinBoard, stateRespinBoard } from './stateRespinBoard.svelte';
 import {
 	presentCellsCleared,
+	presentRowsUnlocked,
 	presentCoinBoost,
 	presentCoinCollect,
 	presentCoinPay,
@@ -1270,6 +1271,8 @@ const effects: Record<string, FlowEffect> = {
 	 * - `revealMystery` (`mysteryReveal`) — each mystery opens and lands as what it revealed; an
 	 *   unlocked modifier gets its toast.
 	 * - `clearRespinCells` (`cellsCleared`) — a streak's collected cells play `clearReel` and go.
+	 * - `unlockRows` (`rowsUnlocked`) — an expanding board opens rows: an unlock symbol plays
+	 *   `rowUnlock` and flies into its row, then the locked cells fade under "ROW UNLOCKED".
 	 * - `showJackpotWin` (`jackpotWin`) — a banked jackpot is a held celebration banner (tier +
 	 *   amount); a jackpot coin in the tally lights with a small banner.
 	 * - `fillMeter` (`meterUpdate`) — the base-game specials fly into their pot, which ticks up a
@@ -1302,6 +1305,7 @@ const effects: Record<string, FlowEffect> = {
 	collectCoins: beat('coinCollect', presentCoinCollect),
 	revealMystery: beat('mysteryReveal', presentMysteryReveal),
 	clearRespinCells: beat('cellsCleared', presentCellsCleared),
+	unlockRows: beat('rowsUnlocked', presentRowsUnlocked),
 	showJackpotWin: beat('jackpotWin', presentJackpotWin),
 	fillMeter: beat('meterUpdate', presentMeterUpdate),
 	playLuckySpinIntro: () => presentLuckySpin(),

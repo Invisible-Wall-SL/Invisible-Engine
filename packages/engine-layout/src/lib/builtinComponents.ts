@@ -2327,6 +2327,33 @@ export const RESPIN_CELLS_DEF: ComponentDef = {
 	],
 };
 
+/**
+ * What every LOCKED cell of an expanding respin board shows (design §7 11b) — the rows below the
+ * open ones, until a beat unlocks them. Placed in the `respinBoard` scene; like the cell tiles, WHERE
+ * it sits does not matter — the coded `RespinLockedRows` hands its art to the respin board, which
+ * stamps it at each locked cell's seat. Not placed, or no image ⇒ the coded overlay (a dark panel
+ * marked LOCKED). Draws nothing on a board that never grows.
+ */
+export const LOCKED_ROW_DEF: ComponentDef = {
+	id: 'lockedRow',
+	name: 'Locked Row',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'lockedRow-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('lockedRow-cells', 'Locked cells', 'RespinLockedRows', 120, 120)],
+	},
+	params: [
+		{ key: 'lockedImage', kind: 'image', label: 'art over every locked cell' },
+		{ key: 'lockedTint', kind: 'color' },
+	],
+};
+
 /** The Hold and Win components, in palette order. */
 export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	RESPIN_COUNTER_DEF,
@@ -2337,6 +2364,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	LETTERS_STRIP_DEF,
 	WHEEL_DEF,
 	RESPIN_CELLS_DEF,
+	LOCKED_ROW_DEF,
 ];
 
 /** Every built-in component def — the launcher's lowest-precedence layer. */

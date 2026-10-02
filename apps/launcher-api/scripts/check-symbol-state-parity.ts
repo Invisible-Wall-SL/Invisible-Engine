@@ -110,6 +110,7 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	flyToMeter: spine('x_fly'),
 	respinsAdd: spine('x_respins_add'),
 	coinUpgrade: spine('x_coin_upgrade'),
+	rowUnlock: spine('x_row_unlock'),
 };
 
 // FULL has to stay exhaustive, and only a runtime assertion says so — `tsx` strips the annotation
@@ -144,6 +145,7 @@ const {
 	flyToMeter: _fm,
 	respinsAdd: _ra,
 	coinUpgrade: _cu,
+	rowUnlock: _ru,
 	...DONORS_ONLY
 } = FULL;
 parity('donors bound, inheritors empty', DONORS_ONLY, 'doc');

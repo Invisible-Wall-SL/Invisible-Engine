@@ -109,6 +109,7 @@ const HW_TYPES = new Set([
 	'specialBecomesCoin',
 	'coinCollect',
 	'cellsCleared',
+	'rowsUnlocked',
 	'columnComplete',
 	'jackpotWin',
 	'respinUpdate',
@@ -182,6 +183,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 				check(`${label}: snapshot ${snapshots} — counter cap`, state.start, server.start);
 			}
 			check(`${label}: snapshot ${snapshots} — banked`, state.banked, server.banked);
+			check(`${label}: snapshot ${snapshots} — open rows`, state.rows, server.rows);
 			lastTotal = server.total;
 		}
 		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
@@ -245,6 +247,10 @@ const CASES: [preset: string, force: string][] = [
 	['pots-extra', 'mystery:addRespins'],
 	['pots-extra', 'mystery:upgrade'],
 	['pots-extra', 'chain'],
+	['pots-expansion-fullrow', 'unlock:2'],
+	['pots-expansion-fullrow', 'expandFull'],
+	['pots-expansion-unlock', 'unlock:1'],
+	['pots-expansion-count', 'unlock:3'],
 ];
 
 const seen = new Set<string>();
@@ -432,6 +438,68 @@ for (const type of HW_TYPES) {
 		'coinUpgrade jackpotTier: one jackpot coin one tier up, step 0',
 		[tier?.target, tier?.step, tier?.cells.map((c) => [c.kind, c.from, c.to])],
 		['jackpotTier', 0, [['jackpot', 'MINI', 'MINOR']]],
+	);
+}
+
+// Board expansion (11b): the entry's rows, each unlock, its row jackpot, the grown respin board.
+{
+	const of = (book: string, type: string): BookEvent[] =>
+		(books.get(book) ?? []).filter((e) => e.type === type);
+	const entry = of('pots-expansion-fullrow unlock:2', 'holdAndWinTrigger')[0] as
+		{ payload: { expansion?: { rows: number; maxRows: number } } } | undefined;
+	check('the entry carries the expansion', entry?.payload.expansion, { rows: 3, maxRows: 6 });
+	check(
+		'an unexpanding board carries none',
+		(of('pots trigger', 'holdAndWinTrigger')[0] as { payload: object })?.payload &&
+			'expansion' in (of('pots trigger', 'holdAndWinTrigger')[0] as { payload: object }).payload,
+		false,
+	);
+	check(
+		'fullRow: two unlocks, 3→4→5, then the MAJOR row jackpot banked',
+		[
+			of('pots-expansion-fullrow unlock:2', 'rowsUnlocked').map((e) => [e.from, e.rows, e.cause]),
+			of('pots-expansion-fullrow unlock:2', 'jackpotWin')
+				.filter((e) => e.source === 'row')
+				.map((e) => [e.tier, e.banked]),
+		],
+		[
+			[
+				[3, 4, 'fullRow'],
+				[4, 5, 'fullRow'],
+			],
+			[['MAJOR', true]],
+		],
+	);
+	const reveals = of('pots-expansion-fullrow expandFull', 'respinReveal') as unknown as {
+		cells: { row: number }[];
+	}[];
+	check(
+		'the respin board grows with the rows: the last reveal is 5 reels × 6 rows',
+		reveals.at(-1)?.cells.length,
+		30,
+	);
+	check(
+		'expandFull pays the full-board jackpot on the 6-row board',
+		of('pots-expansion-fullrow expandFull', 'jackpotWin')
+			.filter((e) => e.source === 'fullBoard')
+			.map((e) => e.tier),
+		['GRAND'],
+	);
+	const unlock = of('pots-expansion-unlock unlock:1', 'rowsUnlocked')[0] as
+		{ cause: string; unlockers: { symbol: { name: string } }[] } | undefined;
+	check(
+		'unlockSymbol: the unlocker rides the event, then leaves as applied',
+		[
+			unlock?.cause,
+			unlock?.unlockers.map((u) => u.symbol.name),
+			of('pots-expansion-unlock unlock:1', 'cellsCleared').some((e) => e.reason === 'applied'),
+		],
+		['unlockSymbol', ['UNLOCK'], true],
+	);
+	check(
+		'coinCount: three thresholds open three rows',
+		of('pots-expansion-count unlock:3', 'rowsUnlocked').map((e) => e.rows),
+		[4, 5, 6],
 	);
 }
 

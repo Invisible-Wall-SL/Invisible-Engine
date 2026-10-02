@@ -280,6 +280,47 @@ it('an upgrade raises cash values and steps a jackpot tier, keeping its factor',
 	assert.equal(upgraded.left, respin.left);
 });
 
+it('an expanding board opens with its entry rows, grows on an unlock, and resumes its rows', () => {
+	assert.equal(entered.rows, undefined);
+	const grows = applyHoldAndWinEvent(base, {
+		type: 'holdAndWinTrigger',
+		mode: 'holdAndWin',
+		cause: 'count',
+		payload: {
+			cells: [coin(0, 0, 1)],
+			respins: 3,
+			stickiness: 'allCoins',
+			activeModifiers: [],
+			expansion: { rows: 3, maxRows: 6 },
+		},
+	});
+	assert.equal(grows.rows, 3);
+	const unlock = { reel: 2, row: 2, symbol: { name: 'UNLOCK' } };
+	const opened = play(
+		[
+			{ type: 'coinsLand', cells: [unlock] },
+			{ type: 'rowsUnlocked', from: 3, rows: 4, cause: 'unlockSymbol', unlockers: [unlock] },
+			{ type: 'cellsCleared', reason: 'applied', cells: [{ reel: 2, row: 2 }] },
+		],
+		grows,
+	);
+	assert.equal(opened.rows, 4);
+	assert.equal(valueAt(opened, 2, 2), undefined);
+	const { active: _a, luckySpin: _l, meters: _m, ...snapshot } = opened;
+	const resumed = applyHoldAndWinEvent(emptyHoldAndWinState(), {
+		type: 'holdAndWinState',
+		snapshot,
+	});
+	assert.equal(resumed.rows, 4);
+	const ended = applyHoldAndWinEvent(opened, {
+		type: 'holdAndWinEnd',
+		mode: 'holdAndWin',
+		total: 0,
+		payload: { cells: [], banked: 0 },
+	});
+	assert.equal(ended.rows, undefined);
+});
+
 it('the end closes the feature and keeps only the meters', () => {
 	const ended = applyHoldAndWinEvent(respin, {
 		type: 'holdAndWinEnd',

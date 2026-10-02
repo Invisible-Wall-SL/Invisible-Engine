@@ -42,6 +42,7 @@ export const HOLD_AND_WIN_FEATURE_CHOREO: Record<string, ChoreoStep[]> = {
 	specialBecomesCoin: beat('turnSpecialIntoCoin'),
 	coinCollect: beat('collectCoins'),
 	cellsCleared: beat('clearRespinCells'),
+	rowsUnlocked: beat('unlockRows'),
 	columnComplete: beat('lightLetter'),
 	jackpotWin: beat('showJackpotWin'),
 	respinUpdate: beat('setRespinCounter'),

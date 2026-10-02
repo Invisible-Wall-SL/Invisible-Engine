@@ -230,6 +230,10 @@ type BookEventHwCoinCollect = {
 	index: number;
 	type: 'coinCollect';
 } & HoldAndWinEventFields['coinCollect'];
+type BookEventHwRowsUnlocked = {
+	index: number;
+	type: 'rowsUnlocked';
+} & HoldAndWinEventFields['rowsUnlocked'];
 type BookEventHwCellsCleared = {
 	index: number;
 	type: 'cellsCleared';
@@ -318,6 +322,7 @@ export type BookEvent =
 	| BookEventHwSpecialBecomesCoin
 	| BookEventHwCoinCollect
 	| BookEventHwCellsCleared
+	| BookEventHwRowsUnlocked
 	| BookEventHwColumnComplete
 	| BookEventHwJackpotWin
 	| BookEventHwRespinUpdate

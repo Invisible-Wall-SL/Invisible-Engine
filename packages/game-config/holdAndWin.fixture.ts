@@ -15,7 +15,12 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 } from './src/holdAndWinPresets.ts';
-import { configuredSpecials, jackpotLadder, symbolsWithRole } from './src/holdAndWin.ts';
+import {
+	configuredSpecials,
+	jackpotLadder,
+	respinBoardMaxRows,
+	symbolsWithRole,
+} from './src/holdAndWin.ts';
 import type { GameConfigDoc } from './src/types.ts';
 
 let failures = 0;
@@ -571,6 +576,149 @@ check(
 		(d) => (d.holdAndWin!.applyOrder = d.holdAndWin!.applyOrder.filter((k) => k !== 'addRespins')),
 	),
 	['holdAndWin.applyOrder'],
+);
+
+console.log('\nboard expansion (11b) — one fixture per rule, every impossible config named');
+for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expansion-count']) {
+	const raw = HOLD_AND_WIN_TEST_FIXTURES[id];
+	const doc = normalize(raw);
+	check(`${id}: re-normalizing is a fixed point`, normalize(clone(doc)), doc);
+	check(`${id}: the block round-trips unchanged`, doc.holdAndWin, raw.holdAndWin);
+	check(`${id}: no issues`, validateGameConfigDoc(doc), []);
+	check(`${id}: the respin board reaches 6 rows`, respinBoardMaxRows(doc), 6);
+}
+check(
+	'no preset expands; an unexpanded board reaches the grid rows',
+	HOLD_AND_WIN_PRESET_IDS.map((id) => {
+		const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
+		return [Boolean(doc.holdAndWin?.expansion), respinBoardMaxRows(doc)];
+	}),
+	[
+		[false, 3],
+		[false, 3],
+		[false, 3],
+	],
+);
+const fullRow = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-fullrow']);
+const unlockRule = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-unlock']);
+const countRule = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-count']);
+check(
+	'only the chosen rule keeps its own field; resetsRespins defaults on',
+	normalize({
+		...clone(HOLD_AND_WIN_PRESETS.pots),
+		holdAndWin: {
+			...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin),
+			expansion: {
+				startRows: 3,
+				maxRows: 5,
+				rule: 'fullRow',
+				thresholds: [1, 2],
+				unlockReels: [0],
+				rowJackpots: [{ rows: 5 }],
+			},
+		},
+	}).holdAndWin?.expansion,
+	{ startRows: 3, maxRows: 5, rule: 'fullRow', resetsRespins: true },
+);
+check(
+	'an unreadable expansion is dropped, not half-kept',
+	normalize({
+		...clone(HOLD_AND_WIN_PRESETS.pots),
+		holdAndWin: { ...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin), expansion: { rule: 'nope' } },
+	}).holdAndWin?.expansion,
+	undefined,
+);
+const expansionIssues = (doc: GameConfigDoc) =>
+	validateGameConfigDoc(doc)
+		.filter((i) => i.path.startsWith('holdAndWin.expansion'))
+		.map((i) => `${i.severity}:${i.path}`);
+check(
+	'startRows must be the grid rows; maxRows below it is an error, equal a warning',
+	[
+		expansionIssues(withBlock(fullRow, (d) => (d.holdAndWin!.expansion!.startRows = 4))),
+		expansionIssues(
+			withBlock(fullRow, (d) => {
+				d.holdAndWin!.expansion!.maxRows = 2;
+				delete d.holdAndWin!.expansion!.rowJackpots;
+			}),
+		),
+		expansionIssues(
+			withBlock(fullRow, (d) => {
+				d.holdAndWin!.expansion!.maxRows = 3;
+				delete d.holdAndWin!.expansion!.rowJackpots;
+			}),
+		),
+	],
+	[
+		['error:holdAndWin.expansion.startRows'],
+		['error:holdAndWin.expansion.maxRows'],
+		['warning:holdAndWin.expansion.maxRows'],
+	],
+);
+check(
+	'a row jackpot must name a tier, a row that unlocks, and each row once',
+	expansionIssues(
+		withBlock(fullRow, (d) => {
+			d.holdAndWin!.expansion!.rowJackpots = [
+				{ rows: 3, jackpot: 'MAJOR' },
+				{ rows: 6, jackpot: 'NOPE' },
+				{ rows: 6, jackpot: 'GRAND' },
+			];
+		}),
+	),
+	[
+		'error:holdAndWin.expansion.rowJackpots.0.rows',
+		'error:holdAndWin.expansion.rowJackpots.1.jackpot',
+		'error:holdAndWin.expansion.rowJackpots.2.rows',
+	],
+);
+check(
+	'count thresholds: one per row, ascending, each reachable on the rows open before it',
+	[
+		expansionIssues(withBlock(countRule, (d) => (d.holdAndWin!.expansion!.thresholds = [8, 12]))),
+		expansionIssues(
+			withBlock(countRule, (d) => (d.holdAndWin!.expansion!.thresholds = [8, 8, 26])),
+		),
+	],
+	[
+		['error:holdAndWin.expansion.thresholds'],
+		['error:holdAndWin.expansion.thresholds.1', 'error:holdAndWin.expansion.thresholds.2'],
+	],
+);
+check(
+	'the unlock rule needs an unlock symbol on the grid; an unused unlock symbol warns',
+	[
+		expansionIssues(
+			withBlock(unlockRule, (d) => {
+				delete d.symbols.UNLOCK;
+				d.holdAndWin!.expansion!.unlockReels = [7];
+			}),
+		),
+		expansionIssues(
+			withBlock(fullRow, (d) => (d.symbols.UNLOCK = { special_properties: ['unlock'] })),
+		),
+	],
+	[
+		['error:holdAndWin.expansion.rule', 'error:holdAndWin.expansion.unlockReels'],
+		['warning:holdAndWin.expansion'],
+	],
+);
+check(
+	'a row cannot fill when coins clear; letters need a fixed column height',
+	[
+		issuePaths(withBlock(fullRow, (d) => (d.holdAndWin!.stickiness = 'collectorsOnly'))),
+		issuePaths(
+			withBlock(classic, (d) => {
+				d.holdAndWin!.expansion = {
+					startRows: 3,
+					maxRows: 4,
+					rule: 'fullRow',
+					resetsRespins: true,
+				};
+			}),
+		),
+	],
+	[['holdAndWin.expansion.rule'], ['holdAndWin.expansion']],
 );
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);

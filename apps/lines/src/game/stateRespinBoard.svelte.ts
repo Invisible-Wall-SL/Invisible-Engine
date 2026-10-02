@@ -13,7 +13,7 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { symbolsWithRole } from 'game-config';
+import { respinBoardMaxRows, symbolsWithRole } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { eventEmitter } from './eventEmitter';
@@ -72,7 +72,22 @@ export const stateRespinBoard = $state({
 		adds: 0,
 		note: null as 'award' | 'reset' | null,
 	},
+	/**
+	 * The rows the board shows OPEN — every row of a board that never grows; an expanding board's
+	 * open rows (design §7 11b), the rest drawn locked. A copy taken at the beats that open a row,
+	 * like {@link stateRespinBoard.held}, so a row opens when its beat plays, not when it is recorded.
+	 */
+	rows: 0,
+	/** The rows an unlock beat is opening (exclusive): the locked cells above it fade with
+	 *  {@link respinUnlockFade}. 0 ⇒ none. */
+	unlockingTo: 0,
 });
+
+/** The fade of the locked cells an unlock beat is opening. */
+export const respinUnlockFade = new Tween(1);
+
+/** The rows a respin spins: the open ones (every row while no feature set them). */
+export const openRespinRows = (): number => stateRespinBoard.rows || (board?.rows ?? 0);
 
 /**
  * The authored look of every respin cell — a tile under it and a gap between cells — handed over by
@@ -86,6 +101,28 @@ let nextLookId = 1;
 
 /** The look the respin board draws, or `null` for the coded one. */
 export const respinCellLook = (): RespinCellLook | null => cellLooks.at(-1)?.look ?? null;
+
+/**
+ * The authored art of a LOCKED cell of an expanding board, handed over by a mounted `lockedRow`
+ * component (`RespinLockedRows`). None ⇒ the coded locked overlay. Same claim model as the tiles.
+ */
+export type RespinLockedLook = { art?: ReelGridTileArt; tint?: string };
+let lockedLooks = $state.raw<{ id: number; look: RespinLockedLook }[]>([]);
+
+export const respinLockedLook = (): RespinLockedLook | null => lockedLooks.at(-1)?.look ?? null;
+
+export const claimRespinLockedLook = () => {
+	const id = nextLookId++;
+	return {
+		set: (look: RespinLockedLook) => {
+			const others = untrack(() => lockedLooks.filter((entry) => entry.id !== id));
+			lockedLooks = [...others, { id, look }];
+		},
+		release: () => {
+			lockedLooks = untrack(() => lockedLooks.filter((entry) => entry.id !== id));
+		},
+	};
+};
 
 /** Start publishing a look; returns its setter and its release. */
 export const claimRespinCellLook = () => {
@@ -134,9 +171,23 @@ const onCellStopping = (reel: number) => {
 	playReelStopSound(reel, stateBet.isTurbo);
 };
 
-/** The reels, built (or rebuilt for a board whose size changed) on first use. */
+/** The rows the feature opens with — the recorded picture's on an expanding board, else every row. */
+const enteringRows = (respinBoard: RespinBoard): number =>
+	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? respinBoard.rows);
+
+/**
+ * The reels, built (or rebuilt for a board whose size changed) on first use. An expanding board
+ * builds every cell of its `maxRows` up front — the rows below the base grid sit on the same
+ * lattice, one pitch each further down — and draws the ones not yet open as locked.
+ */
 const ensureBoard = (): RespinBoard => {
-	const { x: reels, y: rows } = boardDimensions();
+	const { x: reels, y: gridRows } = boardDimensions();
+	// Only an expanding board grows past the grid; any other keeps the grid's rows, which the server's
+	// declared window may have reconciled away from the config's.
+	const config = getActiveGameConfig();
+	const rows = config.holdAndWin?.expansion
+		? Math.max(gridRows, respinBoardMaxRows(config))
+		: gridRows;
 	if (board && board.reels === reels && board.rows === rows) return board;
 	board = createRespinBoard({
 		reels,
@@ -177,6 +228,7 @@ export const showRespinBoard = () => {
 		return;
 	}
 	const respinBoard = ensureBoard();
+	stateRespinBoard.rows = enteringRows(respinBoard);
 	stateRespinBoard.held = $state.snapshot(stateHoldAndWin.cells);
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
@@ -221,6 +273,7 @@ export const hideRespinBoard = () => {
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.counter.show = false;
 	stateRespinBoard.counter.note = null;
+	stateRespinBoard.rows = 0;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
 
@@ -231,13 +284,18 @@ export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 	await board.spin({
 		spins: respinSpins({
 			reels: board.reels,
-			rows: board.rows,
+			rows: openRespinRows(),
 			held: stateRespinBoard.held,
 			reveal: cells,
 			blank: respinBlank(),
 		}),
 		padding: respinStrip,
 	});
+};
+
+/** Open the board to `rows` rows — an unlock beat, or a resume correcting the board. */
+export const openRespinRowsTo = (rows: number) => {
+	if (board) stateRespinBoard.rows = Math.min(board.rows, Math.max(1, rows));
 };
 
 /** What a held cell plays between beats. Unauthored it inherits `static`. */

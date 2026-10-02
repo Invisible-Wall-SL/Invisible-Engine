@@ -708,7 +708,8 @@ const coinLabelSchema = z
  * HOLD AND WIN FLIGHTS — the authored look and feel of each flight kind (design §4.4 of
  * `docs/design/hold-and-win.md`): the head that travels, its Invisible FX trail, the effect on
  * impact, the route's shape and the timing. Keyed by flight kind (`toTotal` / `toCollector` /
- * `boostBeam` / `toCounter` / `upgradeBeam` / `toMeter` / `toMeter:<id>`); every field sparse.
+ * `boostBeam` / `toCounter` / `upgradeBeam` / `unlockRow` / `toMeter` / `toMeter:<id>`); every
+ * field sparse.
  *
  * The SHAPE is strict (an unknown field or head kind is a 400, like every sibling), the VALUES are
  * not: a junk key, an out-of-range number or a head missing the field its kind needs are dropped or

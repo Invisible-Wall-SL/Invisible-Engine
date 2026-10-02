@@ -39,6 +39,15 @@ export const respinCounterText = (left: number, note: 'award' | 'reset' | null =
 export const respinsAddedText = (count: number) =>
 	formatWinText(bakedWinText().respins.added, { count });
 
+/** An expanding board opened a row ("ROW UNLOCKED"), and the rows now open under it ("5 ROWS"). */
+export const rowUnlockedText = (rows: number) => {
+	const feature = bakedWinText().feature;
+	return {
+		title: formatWinText(feature.rowUnlocked),
+		detail: formatWinText(feature.rows, { rows }),
+	};
+};
+
 /** An upgrade special raising coins ("UPGRADE"). */
 export const upgradeText = () => formatWinText(bakedWinText().feature.upgrade);
 
