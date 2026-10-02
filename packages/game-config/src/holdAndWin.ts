@@ -653,6 +653,15 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		return new Set((kind && block.specials[kind]?.reels) || allReels);
 	};
 
+	// The respin board is one cell per row of a rectangular board; a stepped grid is refused rather
+	// than drawn wrong (decided in Hold and Win Phase 4 polish — no reference game is stepped).
+	if (doc.numRows.some((rows) => rows !== doc.numRows[0])) {
+		error(
+			'grid',
+			`Hold and Win needs the same number of rows on every reel (the grid is ${doc.numRows.join('/')}).`,
+		);
+	}
+
 	// Trigger
 	const t = block.trigger;
 	const hasTrigger = Boolean(

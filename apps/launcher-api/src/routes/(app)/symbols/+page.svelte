@@ -4148,8 +4148,9 @@
 								<p class="wl-note">
 									Cash coins, collectors, payers and multipliers. The size is a multiple of the
 									symbol. The label is bitmap text, so the colour MULTIPLIES the font's own colours:
-									over the gold builtin, cyan reads green and pink reads orange. For an exact colour,
-									pick a white Font Maker font.
+									over the gold builtin, cyan reads green and pink reads orange. For a colour that
+									reads true, pick the neutral <strong>silver</strong> builtin (it keeps its
+									shading) or a white Font Maker font.
 								</p>
 							</div>
 
