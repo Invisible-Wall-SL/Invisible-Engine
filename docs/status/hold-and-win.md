@@ -53,7 +53,7 @@ titled **"Hold and win game pipeline"**.
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
-| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | built — whole pipeline (engine → sources → Scene + Component Editor → guides) on `claude/happy-clarke-b718m4`, PR pending merge; owed: the live check (Open items) | Hold and Win Phase 12b value bindings | — |
+| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | built — whole pipeline (engine → sources → Scene + Component Editor → guides) on `claude/happy-clarke-b718m4`, PR pending merge; owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
 ## Current state
@@ -791,7 +791,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 12b: value bindings, through the whole pipeline** (branch
+- 2026-10-02 — **Phase 12b: value bindings, through the whole pipeline** (#1005, branch
   `claude/happy-clarke-b718m4`; session "Hold and Win Phase 12b value bindings"; contract in
   Decisions above). Generic: any node in any kind. An unbound node renders byte-identically.
   - **Engine (`engine-layout`):** `ValueBinding` on every node; the pure `valueBindings.ts`

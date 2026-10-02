@@ -34,12 +34,14 @@
 	 */
 	const makeStore = (initial: number) => {
 		let value = initial;
-		const subscribers = new Set<(v: number) => void>();
+		let subscribers: ((v: number) => void)[] = [];
 		const source: ValueSource = {
 			subscribe(run) {
 				run(value);
-				subscribers.add(run);
-				return () => subscribers.delete(run);
+				subscribers.push(run);
+				return () => {
+					subscribers = subscribers.filter((s) => s !== run);
+				};
 			},
 		};
 		const set = (next: number) => {
