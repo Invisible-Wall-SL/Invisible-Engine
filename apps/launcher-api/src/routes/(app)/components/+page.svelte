@@ -17,6 +17,7 @@
 		isManifestAssetKey,
 		kindCapabilities,
 		POT_METER_DEF,
+		RESPIN_COUNTER_DEF,
 		parseScopedFrameRef,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
@@ -690,7 +691,7 @@
 	 * instance picks its action from the registered-action dropdown, and the engine
 	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
 	 * the authored art becomes clickable with zero extra wiring. */
-	let newType = $state<'blank' | 'button' | 'readout' | 'counter' | 'pot'>('blank');
+	let newType = $state<'blank' | 'button' | 'readout' | 'counter' | 'pot' | 'respin'>('blank');
 
 	/**
 	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
@@ -726,15 +727,21 @@
 				root,
 				params,
 			};
-		} else if (newType === 'counter' || newType === 'pot') {
+		} else if (newType === 'counter' || newType === 'pot' || newType === 'respin') {
 			// Project-scoped clone of a built-in, fresh node ids so two copies never collide.
 			// The Free-Spin Counter: the full frame + "FREE SPIN" caption + "X OF Y" value
 			// structure, pre-wired with `source` (the engine value feed) + the engine-fed string
 			// `value` + `visibleSource` + `label` + font/fill params, so the author only swaps the
-			// art + text. The Pot Meter (Hold and Win 12c): its coded `Pot` part + the meter and
-			// skin params, so a game skins its pots with its own nodes without changing the
-			// shared built-in every other project draws.
-			const clone = structuredClone(newType === 'pot' ? POT_METER_DEF : FREE_SPIN_COUNTER_DEF);
+			// art + text. The Pot Meter and the Respin Counter (Hold and Win 12c): their coded part
+			// + params, so a game skins them with its own nodes without changing the shared
+			// built-in every other project draws.
+			const clone = structuredClone(
+				newType === 'pot'
+					? POT_METER_DEF
+					: newType === 'respin'
+						? RESPIN_COUNTER_DEF
+						: FREE_SPIN_COUNTER_DEF,
+			);
 			const root = clone.root;
 			const reid = (n: LayoutNode): void => {
 				n.id = genComponentId();
@@ -1603,6 +1610,7 @@
 									<option value="counter">Free-Spin Counter</option>
 									{#if kindCapabilities(data.gameType).holdAndWin}
 										<option value="pot">Pot Meter (Hold and Win)</option>
+										<option value="respin">Respin Counter (Hold and Win)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -1655,6 +1663,15 @@
 									art): they replace the coded drawing, and the pot still follows its level, grows,
 									pulses and catches its flights. Place it on the <strong>Pots</strong> screen in
 									place of the Pot Meter. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'respin'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Respin Counter</strong>: its frame, caption
+									and value sit inside the coded <strong>Counter</strong> part. Click
+									<strong>Edit inside Counter</strong> to restyle them or add your own nodes; the
+									part pulses them on a reset or "+N" (<strong>pulseScale</strong>) and the "+N"
+									still flies to it. Place it on the <strong>Respin counter</strong> screen in place
+									of the Respin Counter. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>

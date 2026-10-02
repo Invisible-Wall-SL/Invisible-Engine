@@ -178,6 +178,9 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 			heightParam: 'artHeight',
 		},
 	},
+	// The Respin Counter's coded part: its art is the def's own nodes, which sit inside it — no layer
+	// params, so the editor draws those nodes and offers to edit inside the part.
+	RespinCounterPart: { skin: { layers: [] } },
 	LoadingScreen: {
 		// The startup splash: the game's `loader` spine (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in

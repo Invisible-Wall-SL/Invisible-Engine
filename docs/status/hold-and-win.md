@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a and 12b merged in, so nodes inside a pot hear only their pot's signals; the deleted-part trap fixed (`standsFor`). Next: swap in 12b's fill helper, the done-when on `hw-3pots-sample`, then the other parts | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a and 12b merged in, so nodes inside a pot hear only their pot's signals; the deleted-part trap fixed (`standsFor`); the fill on 12b's `fillMaskRect`; the **Respin Counter** skinned (its panel inside a `Counter` part). Next: the done-when on `hw-3pots-sample`, then the jackpot bar/tile, total win bar, letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -123,6 +123,24 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       for a Pot Meter override saved without it. The create-type copy carries it.
     - **What a deleted part loses:** the coded growth and pulse. The author's nodes follow the level
       only through 12b bindings.
+  - **The Respin Counter gets a coded part, the Pot's pattern.** The authored counter was the plain
+    `holdAndWinPanel` (frame, caption, value). Only the game's coded default pulsed, carried the
+    "+N" anchor and showed the modifiers. An instance-level anchor keyed on the def id `respinCounter`
+    stood in for the anchor, so a renamed copy lost it, and the coded default kept drawing beside it.
+    - **The shape:** `RESPIN_COUNTER_DEF` wraps the panel's three nodes, ids unchanged, in a `Counter`
+      part (`RespinCounterPart`) and `standsFor` it.
+    - **What the part does:** it draws them as its `skin`, scaled by the pulse on every reset and
+      "+N". It registers `respinCounter` and counts in under that name, so the coded default steps
+      aside for any copy, whatever its id.
+    - **Nothing inside the part:** it draws the coded counter (`RespinCounterArt`, shared with the
+      coded default, which renders identically).
+    - **Parity:** `pulseScale` defaults to 1 (still), because the authored counter never pulsed. The
+      coded counter's own pulse is 1.35.
+    - **Old copies:** a counter saved before the part (nodes at the root) gets `standsFor` and
+      `pulseScale` back by id. The stand-in registers the anchor and the count, which is today's
+      behaviour without the id special case. `<ComponentInstance>`'s `flightAnchor` is gone.
+    - **Not on an authored counter:** the active-modifiers line (`PAYER · MULTIPLIER`). It is drawn
+      only by the coded look, because no source an authored text could bind carries it.
 
 - 2026-10-02 — **Phase 12b contract (value bindings)** (session "Hold and Win Phase 12b value
   bindings"). Pinned by `packages/engine-layout/scripts/test-value-bindings.mjs`.
@@ -739,11 +757,10 @@ Hold and Win beats prints copy.
     inside the part. Its cue on **Pot — activate** comes from 12a. The pot's scope comes from the
     `meter` param. Its belly bone is a 12b `bone` binding on `meter.{meter}.level`. Its art is
     the art params. Check it on all three pots with no Flow branch.
-  - **The other parts can stand in too:** the respin counter's instance-level anchor
-    (`ComponentInstance` `flightAnchor`, keyed by def id) is the same idea, older. Move it to
-    `standsFor` when the respin counter is skinned.
-  - **The other parts, same pattern:** respin counter, jackpot bar/tile, total win bar, letters
-    strip, wheel, respin cell tiles.
+  - **The respin counter is done** (Decisions). Open on it: the active-modifiers line has no source
+    an authored text can bind.
+  - **The other parts, same pattern:** jackpot bar/tile, total win bar, letters strip, wheel,
+    respin cell tiles.
   - **Editor limits:**
     - Inside a part, positions are the part's own. That is fine while the part sits at the
       component's origin, as the Pot does.
@@ -899,6 +916,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the Respin Counter skinned** (#1006). Contract: Decisions, "The
+  Respin Counter gets a coded part".
+  - **Engine:** `RESPIN_COUNTER_DEF` wraps its panel in the `Counter` part and `standsFor` it, with a
+    new `pulseScale` param. The `RespinCounterPart` catalog entry is `skin` with no layers.
+    `<ComponentInstance>`'s def-id `flightAnchor` is gone.
+  - **Game:** `RespinCounterPart` (skin, pulse, anchor, count, stand-in, coded fallback) and
+    `RespinCounterArt` (the coded look, now shared by `RespinCounter`), registered in `Game.svelte`.
+  - **Editor:** `/components` offers **Edit inside Counter ›** and a **Respin Counter (Hold and
+    Win)** create type.
+  - **Verified:**
+    - `test-respin-counter-part.mjs` (14 assertions): the shape, ids, the parity default, the flat
+      override's upgrade, and that the other panels are untouched.
+    - Every engine-layout fixture, `check:signal-scope` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned respin counter (12c)`: built-in, stand-in and empty part
+      each register `respinCounter` and count in. Measured pulse on a reset: 1.35 → 1 for the
+      built-in and the coded fallback, none for the stand-in.
 - 2026-10-02 — **Phase 12c: one fill rule** (#1006). The Pot's fill image is revealed by 12b's
   `fillMaskRect` (game and editor preview). The coded `potFillRect` and `PotFillDirection` are
   deleted; `POT_FILL_DIRECTIONS` is typed as 12b's `ValueBindingFillDirection`. The fixture pins
@@ -935,7 +968,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - The canvas draws a skinned part's art (fill part-full) and the nodes inside it.
     - `/components` offers **Edit inside ‹part› ›** and **↩ Back**.
     - New create type **Pot Meter (Hold and Win)**.
-  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part--the-pot-meter)
+  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part--the-pot-meter-and-the-respin-counter)
     and the Scene Editor's Pots paragraph.
   - **Verified:**
     - `test-pot-skin.mjs` passes (43 assertions).

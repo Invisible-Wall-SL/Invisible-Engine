@@ -2112,8 +2112,20 @@ const holdAndWinPanel = (panel: HoldAndWinPanel): ComponentDef => ({
 	],
 });
 
-/** "RESPINS 3" — the respins left, shown for the whole feature (`respinCounterShow`). */
-export const RESPIN_COUNTER_DEF: ComponentDef = holdAndWinPanel({
+/** A coded part's box in the editor (the game draws the real thing). */
+const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
+	({
+		id,
+		label,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component, props: { boundToInstance: true } },
+		preview: { w, h, style: 'tile' },
+		children: [],
+	}) satisfies LayoutNode;
+
+const RESPIN_COUNTER_PANEL = holdAndWinPanel({
 	id: 'respinCounter',
 	name: 'Respin Counter',
 	caption: 'RESPINS',
@@ -2124,6 +2136,33 @@ export const RESPIN_COUNTER_DEF: ComponentDef = holdAndWinPanel({
 	height: 96,
 	note: 'respins left (engine)',
 });
+
+/**
+ * "RESPINS 3" — the respins left, shown for the whole feature (`respinCounterShow`). SKINNABLE
+ * (Phase 12c): the panel's frame, caption and value sit INSIDE the coded `Counter` part, which
+ * pulses them on every reset and "+N" (`pulseScale`, 1 = still, as the authored counter always was),
+ * registers the `respinCounter` anchor the "+N" flies into and counts the instance in as the
+ * counter. With nothing inside, the part draws the coded counter. It `standsFor` the part, so a
+ * counter saved before the part existed (its nodes at the root) still registers through a stand-in.
+ * Same node ids as the plain panel, so its bindings merge by id.
+ */
+export const RESPIN_COUNTER_DEF: ComponentDef = {
+	...RESPIN_COUNTER_PANEL,
+	standsFor: 'RespinCounterPart',
+	root: {
+		...RESPIN_COUNTER_PANEL.root,
+		children: [
+			{
+				...codedPart('respinCounter-counter', 'Counter', 'RespinCounterPart', 240, 96),
+				children: RESPIN_COUNTER_PANEL.root.children,
+			},
+		],
+	},
+	params: [
+		...(RESPIN_COUNTER_PANEL.params ?? []),
+		{ key: 'pulseScale', kind: 'number', default: 1, label: 'pulse on a reset or "+N" (1 = none)' },
+	],
+};
 
 /** One jackpot's name and its value at the current bet. The bar places four. */
 export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
@@ -2218,19 +2257,6 @@ export const PLATFORM_JACKPOT_BAR_DEF: ComponentDef = {
 		})),
 	},
 };
-
-/** A coded part's box in the editor (the game draws the real thing). */
-const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
-	({
-		id,
-		label,
-		kind: 'container',
-		x: 0,
-		y: 0,
-		bind: { component, props: { boundToInstance: true } },
-		preview: { w, h, style: 'tile' },
-		children: [],
-	}) satisfies LayoutNode;
 
 /**
  * ONE persistent meter (a 3 Pots pot): its level bar, "<ID> level/max", what a full one activates,

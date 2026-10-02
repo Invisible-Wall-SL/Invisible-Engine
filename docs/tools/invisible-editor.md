@@ -150,7 +150,7 @@ Components list, so a hybrid game places them on screens of its own. Each pot is
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter.
 Move and scale it here. Its **Pot art**, **Label** and **Motion** groups skin that one pot, and
 nodes you put inside its part in the Component Editor replace the coded drawing. See
-[Skin a coded part](component-editor.md#skin-a-coded-part--the-pot-meter). While no Pot Meter for a
+[Skin a coded part](component-editor.md#skin-a-coded-part--the-pot-meter-and-the-respin-counter). While no Pot Meter for a
 meter is on screen, the game draws its built-in pot for that meter. A screen
 reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
 and **Pots** from the start. A project whose flow is older (scaffolded on the Book-of starter)

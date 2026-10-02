@@ -70,9 +70,10 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
-  - **Pot Meter (Hold and Win)** — a project copy of the built-in Pot Meter, with its coded
-    **Pot** part. Put your own nodes inside the part (see
-    [Skin a coded part](#skin-a-coded-part--the-pot-meter)).
+  - **Pot Meter (Hold and Win)** and **Respin Counter (Hold and Win)** — project copies of those
+    built-ins, each with its coded part. Put your own nodes inside the part (see
+    [Skin a coded part](#skin-a-coded-part--the-pot-meter-and-the-respin-counter)). Offered in a
+    Hold and Win project only.
 - **Library** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
@@ -420,11 +421,11 @@ byte-identically to the built-in table. The animation + spine are consumed insid
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
 
-## Skin a coded part — the Pot Meter
+## Skin a coded part — the Pot Meter and the Respin Counter
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
-The Hold and Win **Pot Meter** is the first such part you can skin, in two ways. You can use both
-together.
+The Hold and Win **Pot Meter** and **Respin Counter** have parts you can skin. The Pot takes two
+ways, which you can use together.
 
 **1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
 **Pot art** group sets that one pot's look, so red, blue and green can each have their own art:
@@ -463,6 +464,19 @@ no longer grows or pulses on its own. To make your nodes follow the level, use
 on the **Pots** screen with your component and set its **meter** param (`red`, `blue`, `green`).
 Do not skin the built-in **Pot Meter** itself: saving it writes the shared library (see
 [Traps](#traps)).
+
+**The Respin Counter.** Its frame, caption and value sit inside its **Counter** part. Create a
+component of type **Respin Counter (Hold and Win)** and click **Edit inside Counter ›** to restyle
+them, or add your own nodes there. The part keeps its behaviour:
+
+- The "+N" of an add-respins special flies to it.
+- It counts as the respin counter, so the game does not draw its own.
+- It pulses on every reset and "+N" when you set **pulseScale** on the instance (the game's own
+  counter uses 1.35). The default, 1, keeps it still, as it always was.
+
+Delete everything inside the part and it draws the game's own counter look, "RESPINS 3" with the
+active modifiers under it, at your position. Place your component on the **Respin counter**
+screen in place of the Respin Counter.
 
 ## Traps
 

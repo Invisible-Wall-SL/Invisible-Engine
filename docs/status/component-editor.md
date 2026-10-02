@@ -35,6 +35,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **The Respin Counter is skinnable** (Hold and Win 12c, #1006). Its panel nodes sit
+  inside a `Counter` part (**Edit inside Counter ›**), with a new **Respin Counter (Hold and Win)**
+  create type. Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Skinnable coded parts, Pot first** (Hold and Win 12c part 1, #1006).
   - `/components` gains **Edit inside ‹part› ›** / **↩ Back**: an `insidePartId` re-points the
     synthetic scene, spawns and deletes at the part's children.
