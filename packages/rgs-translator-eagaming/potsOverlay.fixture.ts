@@ -2,8 +2,9 @@
  * The pots-overlay translation (design `docs/design/pots-overlay.md` §3.2–3.3), driven through the
  * REAL facade against a scripted server that answers with HAND-BUILT wire — the "Pots overlay"
  * section of `docs/reference/hold-and-win-wire.md`, in the array order Phase 2's mock deals it
- * (`overlayDrop` right after `spinStart`, `meterLevels` last). Every book is folded through the engine's own readers (`modeOpOf`, the mode
- * stack, `applyHoldAndWinEvent`), so the facade and the engine contract cannot drift apart.
+ * (`overlayDrop` right after `spinStart`, `meterLevels` last). Every book is folded through the
+ * engine's own readers (`modeOpOf`, the mode stack, `applyHoldAndWinEvent`), so the facade and the
+ * engine contract cannot drift apart.
  *
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/potsOverlay.fixture.ts
  *
