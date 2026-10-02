@@ -168,6 +168,7 @@ when the game's config has the pre-feature wheel.
 | `{pot}`       | a pot's name, e.g. "RED"                                                      |
 | `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level               |
 | `{max}`       | a pot's top level                                                             |
+| `{rows}`      | the rows an expanding respin board has open                                   |
 
 - **Jackpots.** There is one box per jackpot tier. The tiers are the game's own, from
   [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
@@ -194,6 +195,8 @@ when the game's config has the pre-feature wheel.
   - a collector the wheel raised, on the counter's second line (`{level} COLLECTOR`);
   - each pot's label over its bar (`{pot} {level}/{max}`);
   - an upgrade special raising coins (`UPGRADE`);
+  - an expanding board opening a row: the banner title (`ROW UNLOCKED`) and the line under
+    it (`{rows} ROWS`);
   - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
     PAYER, MYSTERY, ADD RESPINS, UPGRADE), the collector levels (DOUBLE, TRIPLE; an
     unnamed level reads ×4) and one box per pot in the config (an unnamed pot reads its id

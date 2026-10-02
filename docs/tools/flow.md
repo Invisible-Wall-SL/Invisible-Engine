@@ -658,7 +658,8 @@ an error to the browser console.
 | `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
 | `coinCollect` | `collectCoins` | Hold and Win tab |
-| `cellsCleared` | `clearRespinCells` (a streak's collect, or a non-sticky add-respins leaving — the cue's `reason`) | Hold and Win tab |
+| `cellsCleared` | `clearRespinCells` (a streak's collect, or a non-sticky add-respins or an unlock symbol leaving — the cue's `reason`) | Hold and Win tab |
+| `rowsUnlocked` | `unlockRows` (an expanding board opens rows: the unlock symbol flies into its row, the locked cells fade; cue `respinRowsUnlocked`) | Hold and Win tab |
 
 | `columnComplete` | `lightLetter` | Hold and Win tab |
 | `respinUpdate` | `setRespinCounter` | Hold and Win tab |

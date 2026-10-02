@@ -110,7 +110,7 @@ template.
 
 **Symbols get their role in the Symbols panel**, through their special properties:
 `coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `addRespins`,
-`upgrade`, `meterSpecial`, `blank`. The Hold and Win section holds the tables for each role, and each special's
+`upgrade`, `meterSpecial`, `blank`, `unlock`. The Hold and Win section holds the tables for each role, and each special's
 card lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold
 and Win role shows its value table in the paytable instead of line pays — it never pays
 on a line.
@@ -127,6 +127,23 @@ The panels:
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or
   **column letters** (one letter per reel; a full column lights its letter and, if you
   tick it, clears; every letter lit pays the jackpot).
+- **Board expansion** — tick **Rows unlock during the feature** to grow the respin board
+  below the base grid. **Starts at** must be the grid's rows (the base game plays them);
+  **Grows to** is the most rows it reaches. **A row opens when**:
+  - **the bottom open row is full** — every cell of it held;
+  - **an unlock symbol lands** — a symbol tagged `unlock` (pick the reels it may land
+    on); it opens one row and leaves;
+  - **enough symbols are held** — one threshold per row that can open, rising, each
+    reachable on the rows open before it.
+
+  **An unlock resets the respins** (on by default). **Row jackpots** pay a jackpot once
+  when that many rows are open (e.g. 6 rows → GRAND). With a full-board jackpot, a full
+  board means every cell of **all** the rows it can grow to. The checker refuses column
+  letters with expansion (a letter needs a fixed column height) and the full-row rule
+  when only collectors stick (a row could never fill). No preset expands — the
+  `pots-expansion-fullrow`, `pots-expansion-unlock` and `pots-expansion-count` mock
+  fixtures exercise it.
+
 - **Coin values** — cash coins (× total bet; 1.5 is fine) and jackpot coins, each with a
   weight (its share is shown) and the reels it may land on (none ticked = every reel).
 - **Jackpot tiers** — name and × total bet. Renaming a tier renames every reference. Untick
