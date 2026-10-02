@@ -396,8 +396,67 @@ rewritten when the partner's format arrives — nothing above the facade may dep
 10. **Partner wire** — when the partner delivers: rewrite the facade mapping (and bring the mock's
     wire in line so the mock keeps matching production), resume, replay; the checks owed on the live
     node.
-11. **Beyond the three references** — board expansion, add-respins / upgrade specials, the operator
-    platform jackpot (§3.3).
+11. **Beyond the three references** — §7. Three slices, each through the whole pipeline: 11a extra
+    specials (add-respins, upgrade), 11b board expansion, 11c progressive + operator platform jackpots.
 
 Phases 1 and 2 start now in parallel; 5–8 run in parallel once 4's event contract is merged (the
 contract can land ahead of the rendering).
+
+## 7. Phase 11 — beyond the three references (planned 2026-10-02)
+
+Owner direction 2026-10-02: start Phase 11 now (Phase 10 waits on the partner). Same rule as the
+rest of the kind: **every slice ships through the whole pipeline in one go** — Game Config option +
+validator + `/config` UI → mock generator + forced beat + wire doc → facade → engine beat (coded
+default) → flow vocabulary + starter-flow step → Scene Editor component/screen where it has one →
+Symbols role/state → Win Text line → docs + playbook. Unauthored and un-configured, every existing
+game (and every existing Hold and Win project) must play byte-identically.
+
+### 11a — extra specials: add-respins and upgrade
+
+- **Add-respins** — a special that, when it lands in a respin, adds N respins to the counter (and
+  optionally raises the counter's cap); N from its own value table. Sticks like a coin or clears
+  (option). Common in Lightning-Link-style games.
+- **Upgrade** — a special that raises values: every coin by a step, the coins around it, or one
+  jackpot tier (MINI→MINOR→MAJOR→GRAND; a GRAND never upgrades past the top tier). Its own value
+  table and target rule; applies in `applyOrder` like the other specials.
+- Both are optional specials in `doc.holdAndWin.specials`, with their roles (`addRespins`, `upgrade`)
+  in `special_properties`, a forced beat each, engine beats with flights (`toCounter` for
+  add-respins; a beam for upgrade), flow events/actions/cues, Symbols states, Win Text lines
+  ("+{count} RESPINS", "UPGRADE").
+- Smallest slice — it follows the payer/collector pattern exactly. Do it first.
+
+### 11b — board expansion (rows unlock)
+
+- The respin board starts at `startRows` and unlocks rows up to `maxRows` (e.g. 3→4→5→6 on a
+  5-reel board). Unlock rules (one per config): **fill the bottom-most open row**, **land an unlock
+  symbol**, or **reach a coin count** (thresholds per row).
+- Locked rows are drawn as a locked overlay over their cells (authorable art), cannot hold coins, and
+  open with a beat (`rowsUnlocked {rows, cause}`); the respin counter usually resets on an unlock
+  (option).
+- **Board end** gains: full board = every cell of `maxRows`, not of the visible rows; per-row
+  jackpots optional (e.g. the 6th row pays GRAND).
+- Engine: the RespinBoard grows its cell set and mask; the base board stays `startRows`; the layout
+  reserves the `maxRows` area (the Scene Editor template's respinBoard gets a `maxRows` height and a
+  locked-row component). Resume must restore the unlocked row count.
+- Biggest slice; starts after 11a merges (both touch the respin beats and the mock generator).
+
+### 11c — progressive jackpots + the operator platform jackpot
+
+Two related things, kind-independent where possible:
+
+- **Progressive game jackpots** — a jackpot tier with `fixed: false` (the config already accepts it,
+  but today pays it as fixed with a warning). The value is the server's: it comes with the round and
+  on a refresh. The jackpot bar shows the live value; a win pays the server's amount.
+- **The operator platform jackpot** (§3.1) — `platform.jackpots[] {id,name,value,minValue,maxValue}`
+  on every response including the balance heartbeat, `platform.gameRound.jackpot {winJackpotId,win}`
+  on a win, the win held back from the shown balance (`lockedPoint`) until its celebration finishes.
+  Any game kind can carry it. Our facade reads it, a value source feeds the HUD jackpot bar (live),
+  a `platformJackpotWin` beat celebrates it outside any feature, and the balance shows the held
+  amount correctly. Brand gating and the partner's "fake spin" teaser are NOT copied (presentation
+  choices, not contract).
+- Mock: a platform-jackpot pool per demo session that grows with bets, refreshes on the heartbeat
+  and can be forced to hit (`force:platformJackpot:<tier>`).
+- Can run in parallel with 11a (facade/HUD/balance rather than respin beats). The real wire must be
+  confirmed with the partner later (it is read off their client, §3.1) — record it as a Phase 10
+  check.
+
