@@ -51,7 +51,7 @@ titled **"Hold and win game pipeline"**.
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
-| 11c | Progressive + operator platform jackpots (design §7) | part 1 merged; part 2 (operator platform jackpot) in review — live Borut round + partner confirmation owed (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 |
+| 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 
 ## Current state
 
