@@ -4,9 +4,10 @@
 > [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** Planned (2026-10-02). Phase 1 (the config contract + additive capabilities) is in
-progress. Nothing reaches a game yet: a project without a `potsOverlay` block, which is every project
-today, plays exactly as before.
+**One-line state:** Phase 1 built (2026-10-02, PR #1008 in review): the `potsOverlay` Game Config block
+(normalizer, validator, presets, `resolveMeters`) and additive `kindCapabilities`. Nothing reaches a
+game or a tool yet, because no consumer reads either. A project without the block, which is every
+project today, plays exactly as before. Next: Phases 2, 3 and 5a–5d in parallel once #1008 merges.
 
 ## How sessions use this file (the hub)
 
@@ -29,8 +30,8 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
-| 0 | Plan + hub | in review | 3 pots overlay mechanic | — |
-| 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | in progress | 3 pots overlay mechanic | — |
+| 0 | Plan + hub | in review | 3 pots overlay mechanic | #1008 |
+| 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | not started (needs 1) | — | — |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
@@ -89,6 +90,60 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Decisions & findings
 
+- 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
+  `packages/game-config/potsOverlay.fixture.ts` and the kind-gating / signal-scope /
+  hold-and-win-template gates.
+  - **The block** (`packages/game-config/src/potsOverlay.ts`). It is the design's §3.1 shape.
+    `normalizePotsOverlay` is structural: a block with no pot and no drop is no block. A block with
+    pots but no `drops` stores `chance: 0.1, maxPerSpin: 1`, values the validator accepts. A drop
+    entry without a weight weighs 1. The default dropping modes (`['basegame']`) and an every-reel
+    `reels` are not stored.
+  - **Tokens never sit on a strip.** A token on any `paddingReels` strip is an error. A token is
+    exempt from the general "in the dictionary but on no strip" warning, but a token with a paytable
+    still warns, because it can never pay.
+  - **Weights:** a drop's weight must be above 0. This is stricter than the Hold and Win tables,
+    which allow a 0 entry.
+  - **New warning:** with value coins in the table and `maxPerSpin` below `holdAndWin.trigger.count.min`,
+    dropped coins can never start the feature. The `threePots` preset therefore sets `maxPerSpin` to
+    the trigger's count (6).
+  - **`resolveMeters(doc)`** lists the Hold and Win block's meters first (`source: 'symbol'`, bonus
+    `{mode: 'holdAndWin', activates}`), then the overlay's pots (`source: 'overlay'`). Nothing reads
+    it yet. Phase 4 moves the runtime's `configuredMeters()` onto it, and Phase 5 moves the tools.
+  - **A `holdAndWin` block beside the overlay is the overlay's bonus.** The lines-only rule is
+    skipped. The trigger check counts any of these as a trigger:
+    - a pot routed to `holdAndWin`;
+    - a value-coin drop together with `trigger.count`;
+    - the block's own meters.
+
+    `trigger.count` alone no longer counts. `trigger.pattern`, `luckySpin`, `randomMetre`, `buy` and
+    `instantCollectInBaseGame` (on the collector and the multiplier) are errors there ("not built
+    for an overlay host yet"). The "nothing activates a special" warning counts a pot with
+    `activates`.
+  - **Presets** (`potsOverlayPresets.ts`):
+    - Each preset is `{potsOverlay, tokens, holdAndWin?}`, to be merged in, never a whole-doc reset.
+      Merging is Phase 5a / 6.
+    - `threePots` is built from the 3 Pots meters (red → payer, blue → collector, green →
+      multiplier).
+    - `holdAndWinBonus('pots')` gives the paired block, its symbols and its respin strips. It drops
+      `luckySpin`, the block's own meters and the `meterSpecial` tags (red/blue/green would clash
+      with the pot ids), and turns instant collect off.
+    - `potsToFreeSpins`: one `gold` pot → `{mode: 'freeSpins', spins: 10}`.
+  - **`modes.ts`** now exports `HOLD_AND_WIN_MODE` and `GAME_MODE_ID`, the id shape pots share
+    because both become anchors and value-source path segments.
+  - **Capabilities** (`kindCapabilities.ts`):
+    - Two presence flags in, `holdAndWin` and `potsOverlay`.
+    - `holdAndWin` and `coinSymbols` = kind OR block. `pots` = `holdAndWin` OR overlay.
+      `potsOverlay` = block.
+    - `freeSpins`, `stackedPictures`, `bookSymbolVfx`, `tumblePattern` and `symbolTransition` stay
+      on the kind.
+    - The Pot Meter and the six pot signals (`potFill`, `potLand`, `potLevelUp`, `potStageUp`,
+      `potFull`, `potActivate`) moved to `pots`.
+    - `symbolStatesForKind`, `engineSignalsForKind` and `componentOfferedForKind` take an optional
+      config. No consumer passes one yet.
+  - **Parity:** 168 docs (every Hold and Win preset and fixture and every committed default, each
+    under 11 mutations) normalize and validate identically to `HEAD`. `check:holdandwin` (1892
+    facade checks) and `check:freespins` pass unchanged, and the svelte-check ratchet holds
+    (launcher 53, lines 164, engine-layout 291).
 - 2026-10-02 — **Owner request + plan** (session "3 pots overlay mechanic").
   - The request: the 3 Pots mechanic as an optional overlay on any game. Coins appear on top of the
     symbols and fly to pots. A full pot cues a bonus: a classic Hold and Win, or "other games I
@@ -103,8 +158,23 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
-1. **Phase 1** — in progress on this branch.
-2. Then **Phases 2, 3 and 5a–5d** can start in parallel; each needs a session (see the Phase board).
+1. **Merge #1008** (Phases 0–1). Then **Phases 2, 3 and 5a–5d** can start in parallel. Each needs a
+   session; see the Phase board.
+2. **Carried into later phases (found in Phase 1):**
+   - **Phase 4:** `Game.svelte` registers the feature signals, pots included, only when the config
+     has a `holdAndWin` block (`featureComponentSignals`, `Game.svelte:1644`). On a pots-only host, an
+     authored pot cue would be offered (`pots`) but never fire, so register the pot family under
+     `potsOverlay` too. The runtime's `configuredMeters()` must read `resolveMeters`.
+   - **Phase 5c:** `packages/engine-flow-v2/src/reference/holdAndWin.ts:936-938` (`unusedByKind`)
+     repeats the kind rule as a regex. Make it read the capabilities.
+   - **Phase 5d:** tokens are off the strips, so `symbolsInPlay` leaves them out. `/symbols` and the
+     published symbol defaults must add them through `resolveMeters`.
+   - **Phase 6:** merging `holdAndWinBonus()` symbols into a host's dictionary can clash with the
+     host's own names (a host that already has a `BONUS` or a `BLANK`). The add-on needs a rename
+     map, or must refuse with a clear message.
+   - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
+     `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
+     `check:all` runs every fixture.
 
 ## Owner checklist
 
@@ -121,5 +191,10 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 1: the contract (#1008).** The `potsOverlay` Game Config block with its
+  normalizer, validator, `resolveMeters` and two presets (Phase 1a, agent `invisible-game-config`).
+  The additive `kindCapabilities` with the new `pots` / `potsOverlay` capabilities (Phase 1b, agent
+  `invisible-components`). The rules settled are under Decisions; the follow-ups are under Open
+  items. No consumer reads the new block or flags yet, so nothing changes in any tool or game.
 - 2026-10-02 — **Plan + hub (Phase 0).** Design `docs/design/pots-overlay.md` and this hub were
   written from three code surveys (runtime, tools, cross-project), with the file references above.
