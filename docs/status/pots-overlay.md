@@ -117,6 +117,20 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - **The graft** now adds `overlayDrop` → `showTokens` beside `meterUpdate` → `fillMeter`. It is
     still idempotent and never touches an authored node. The Hold and Win starter flow with an
     overlay gains only the `overlayDrop` chain.
+  - **Real-clock verification** (headless shell, ~4 fps; local mocks only, no R2):
+    - **Borut-style parity** (book mock, one forced free-spin round): reaches idle; the 261-line
+      flow trace is identical to the earlier `main` run; the same emitter event types; balance
+      $5000 → $5023.50; only the four environmental errors (Typekit, `boot.json` 404).
+    - **`pot:red`, after the stop** (threePots on a book host, a throwaway local config): the token
+      drops, then leaves its cell as its own flight starts, with the `POT_RED` token as the head (a
+      20 ms sampler saw the token, then the token-headed flight); Hold and Win plays; back to idle;
+      0 exceptions.
+    - **`overlay:coins:4`, per reel:** every token was shown by its reel as it stopped, in reel order
+      (0, 1, 2, 4), before the drop restated them in its own order without restarting them; back
+      to idle; 0 exceptions.
+    - **Harness trap, not a game bug:** after any Vite HMR update (a config swap, a branch switch)
+      the driver's `import('/src/game/actor.ts')` gets a fresh, never-started actor, which reads
+      `rendering` forever. Restart Vite after every file change before a run.
   - **Not done, on purpose:** the mode-entry `cause` / `meters` fields are still not in the
     standard Flow payloads. `drainPots` reads the whole entry event, so an author needs no pin for
     them, and adding them would change every kind's vocabulary.
