@@ -15,7 +15,6 @@
  */
 import { pickManifestKey } from '../pickSheets';
 import { isDeployedPageStale, pickDeployedPage } from './deployedPage';
-import { SUB } from './projectPaths';
 import {
 	getObjectText,
 	headObject,
@@ -150,12 +149,33 @@ export async function resolveManifestKey(sheet: string): Promise<string | null> 
 }
 
 /**
- * Resolve the packed page image to a real R2 key inside the project. The
- * manifest's `source_image_path` is an R2 key when authored by the cloud Sheet
- * Maker (B14); legacy manifests carry a local Windows path in `source_image`.
- * In the latter case we resolve by basename against the manifest's own folder
- * and the project's atlas output prefix, tolerating a `.png`/`.webp` mismatch.
+ * `<client>/<project>/` of a manifest key (`_shared/sheets/` for a shared-library sheet), or `''`.
+ *
+ * A manifest's fields (`source_image_path`, `export_prefix`, `texturepacker_json`, …) are written by
+ * whoever can write its project, so every R2 read they drive stays under this prefix: a manifest
+ * planted in one project must not probe — or read — keys of another. It is also where the page
+ * lives: an atlas BORROWED from a sibling project resolves its page in THAT project's `deploy/` and
+ * `atlas/`, never the caller's (a same-stem page there carries the wrong packing).
  */
+function manifestHome(manifestKey: string): string {
+	const [client, project] = manifestKey.split('/');
+	return client && project && manifestKey.length > client.length + project.length + 2
+		? `${client}/${project}/`
+		: '';
+}
+
+/** May a key named by this manifest's own fields be read? */
+export function ownedByManifest(manifestKey: string, key: string | undefined): key is string {
+	const home = manifestHome(manifestKey);
+	return !!key && !!home && !key.includes('..') && key.startsWith(home);
+}
+
+/** The manifest's project `deploy/` (with slash), or null for a shared-library sheet, which has none. */
+function manifestDeployPrefix(manifestKey: string): string | null {
+	const home = manifestHome(manifestKey);
+	return home && !home.startsWith('_') ? `${home}deploy/` : null;
+}
+
 /**
  * Prefer the DEPLOYED page so the editor shows the latest Atlas Maker deploy —
  * i.e. exactly what the game loads (deploy/ is the live-asset source of truth).
@@ -179,10 +199,10 @@ export async function resolveManifestKey(sheet: string): Promise<string | null> 
 async function findDeployedPage(
 	man: RawManifest,
 	manifestKey: string,
-	client: string,
-	project: string,
 	manifestModified: number,
 ): Promise<string | null> {
+	const deployPrefix = manifestDeployPrefix(manifestKey);
+	if (!deployPrefix) return null;
 	const stems = new Set<string>();
 	const addStem = (s: string | undefined): void => {
 		if (!s) return;
@@ -215,7 +235,6 @@ async function findDeployedPage(
 	addDeployName(manifestKey);
 	if (stems.size === 0) return null;
 
-	const deployPrefix = `${SUB.deploy(client, project)}/`;
 	let objs: ListedObject[];
 	try {
 		objs = await listAllObjects(deployPrefix);
@@ -235,7 +254,7 @@ async function findDeployedPage(
 	}
 	const sourceKey = str(man.atlas?.source_image_path);
 	let sourceModified = 0;
-	if (sourceKey) {
+	if (ownedByManifest(manifestKey, sourceKey)) {
 		try {
 			sourceModified = (await headObject(sourceKey))?.lastModified ?? 0;
 		} catch {
@@ -245,44 +264,53 @@ async function findDeployedPage(
 	return isDeployedPageStale(deployedModified, sourceModified, manifestModified) ? null : picked;
 }
 
+/**
+ * The source-page keys to probe, in order — the manifest's `source_image_path`, then its page
+ * basename (`.png`/`.webp`/as given) in the manifest's folder, its `export_prefix` and its project's
+ * atlas output — each kept only inside the manifest's own project (`ownedByManifest`).
+ */
+function pageCandidates(man: RawManifest, manifestKey: string): string[] {
+	const out: string[] = [];
+	const direct = str(man.atlas?.source_image_path);
+	if (direct) out.push(direct);
+	const rawName = str(man.atlas?.source_image) ?? direct;
+	if (rawName) {
+		// Strip any local/Windows directory components → bare filename.
+		const base = rawName.replace(/\\/g, '/').split('/').pop() ?? rawName;
+		const stem = base.replace(/\.[^.]+$/, '');
+		const home = manifestHome(manifestKey);
+		const sheetExport = str(man.export_prefix);
+		const dirs = [
+			manifestKey.slice(0, manifestKey.lastIndexOf('/') + 1),
+			sheetExport ? `${sheetExport}/` : '',
+			home && !home.startsWith('_') ? `${home}atlas/` : '',
+		];
+		for (const dir of dirs.filter((d) => d.length > 0)) {
+			out.push(`${dir}${stem}.png`, `${dir}${stem}.webp`, `${dir}${base}`);
+		}
+	}
+	return [...new Set(out)].filter((key) => ownedByManifest(manifestKey, key));
+}
+
+/**
+ * Resolve the packed page image to a real R2 key inside the manifest's project. The
+ * manifest's `source_image_path` is an R2 key when authored by the cloud Sheet
+ * Maker (B14); legacy manifests carry a local Windows path in `source_image`.
+ * In the latter case we resolve by basename against the manifest's own folder
+ * and its project's atlas output prefix, tolerating a `.png`/`.webp` mismatch.
+ */
 async function resolvePageKey(
 	man: RawManifest,
 	manifestKey: string,
-	client: string,
-	project: string,
 	manifestModified: number,
 ): Promise<string | null> {
 	// Prefer the deployed page so the editor reflects the latest deploy — unless a NEWER
 	// source page proves a re-pack hasn't shipped yet, in which case `findDeployedPage`
 	// returns null and we fall through to that source page.
-	const deployed = await findDeployedPage(man, manifestKey, client, project, manifestModified);
+	const deployed = await findDeployedPage(man, manifestKey, manifestModified);
 	if (deployed) return deployed;
-
-	const direct = str(man.atlas?.source_image_path);
-	if (direct && (await objectExists(direct))) return direct;
-
-	const rawName = str(man.atlas?.source_image) ?? direct;
-	if (!rawName) return null;
-	// Strip any local/Windows directory components → bare filename.
-	const base = rawName.replace(/\\/g, '/').split('/').pop() ?? rawName;
-	const stem = base.replace(/\.[^.]+$/, '');
-
-	const manifestDir = manifestKey.slice(0, manifestKey.lastIndexOf('/') + 1);
-	const atlasOut = `${SUB.atlas(client, project)}/`;
-	const sheetExport = str(man.export_prefix);
-	const candidateDirs = [manifestDir, sheetExport ? `${sheetExport}/` : '', atlasOut].filter(
-		(d) => d.length > 0,
-	);
-
-	const exts = ['png', 'webp'];
-	for (const dir of candidateDirs) {
-		for (const ext of exts) {
-			const candidate = `${dir}${stem}.${ext}`;
-			if (await objectExists(candidate)) return candidate;
-		}
-		// Also try the exact basename as-given (already has an extension).
-		const exact = `${dir}${base}`;
-		if (await objectExists(exact)) return exact;
+	for (const candidate of pageCandidates(man, manifestKey)) {
+		if (await objectExists(candidate)) return candidate;
 	}
 	return null;
 }
@@ -409,9 +437,13 @@ function uprightWH(tp: EditorRegion): { w: number; h: number } {
  * reconcile in job 2 can't be detected without reading it); a manifest with no TP JSON fetches
  * nothing.
  */
-async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]): Promise<void> {
+async function backfillMissingGeometry(
+	man: RawManifest,
+	manifestKey: string,
+	regions: EditorRegion[],
+): Promise<void> {
 	const tpKey = str(man.atlas?.texturepacker_json);
-	if (!tpKey) return;
+	if (!ownedByManifest(manifestKey, tpKey)) return;
 	const stem = (n: string): string => n.replace(/\.[^.]+$/, '').toLowerCase();
 	const have = new Set(regions.map((r) => stem(r.name)));
 	const listed = Array.isArray(man.regions) ? (man.regions as RawRegion[]) : [];
@@ -480,11 +512,7 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
  * set (never null/throws) when nothing usable is found, so the endpoint can
  * always answer `{ regions: [] }` with a clear shape instead of 500-ing.
  */
-export async function loadRegionSet(
-	sheet: string,
-	client: string,
-	project: string,
-): Promise<EditorRegionSet> {
+export async function loadRegionSet(sheet: string): Promise<EditorRegionSet> {
 	const empty: EditorRegionSet = {
 		assetKey: sheet,
 		pageKey: '',
@@ -513,8 +541,8 @@ export async function loadRegionSet(
 	const man: RawManifest = texturePackerToInvisible(parsed) ?? (parsed as RawManifest);
 
 	const regions = parseRegions(man.regions);
-	await backfillMissingGeometry(man, regions);
-	const pageKey = await resolvePageKey(man, manifestKey, client, project, manifestModified);
+	await backfillMissingGeometry(man, manifestKey, regions);
+	const pageKey = await resolvePageKey(man, manifestKey, manifestModified);
 	const pageWidth = num(man.atlas?.width) ?? num(man.width) ?? 0;
 	const pageHeight = num(man.atlas?.height) ?? num(man.height) ?? 0;
 

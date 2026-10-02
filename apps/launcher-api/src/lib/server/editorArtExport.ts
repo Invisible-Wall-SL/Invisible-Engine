@@ -727,7 +727,7 @@ export async function exportEditorArt(
 	): Promise<void> => {
 		if (exported.has(manifestKey)) return;
 		exported.add(manifestKey);
-		const set = preloaded ?? (await loadRegionSet(manifestKey, clientKey, projectKey));
+		const set = preloaded ?? (await loadRegionSet(manifestKey));
 		if (set.regions.length === 0 || !set.pageKey) return;
 
 		// Normally pre-assigned by `plannedStems` above. The fallback path claims one the old way —
@@ -817,7 +817,7 @@ export async function exportEditorArt(
 		for (const atlas of atlases) {
 			if (missing.size === 0) break;
 			if (atlas.kind !== 'atlas-manifest' || exported.has(atlas.key)) continue;
-			const set = await loadRegionSet(atlas.key, clientKey, projectKey);
+			const set = await loadRegionSet(atlas.key);
 			if (set.regions.some((r) => missing.has(r.name))) {
 				await exportManifest(set.assetKey, set);
 				for (const n of [...missing]) if (coveredRegions.has(n)) missing.delete(n);

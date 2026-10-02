@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 
 import { referencedArtRefs } from './editorArtExport';
-import { loadRegionSet } from './editorRegions';
+import { loadRegionSet, ownedByManifest } from './editorRegions';
 import { loadDoc } from './editorStorage';
 import { DEFAULT_PROJECT_KEY } from './projects';
 import { r2Slug, UNASSIGNED_CLIENT } from './projectPaths';
@@ -37,33 +37,28 @@ const cache = new Map<string, { at: number; scope: Promise<ArtScope> }>();
 const ATLAS_MANIFEST = /^[a-z0-9_]+\/[a-z0-9_]+\/manifests\/atlas_manifest_[^/]+\.json$/;
 const PAGE_IMAGE = /\.(png|webp|jpe?g|avif|ktx2)$/i;
 
-/** `<client>/<project>/` of a key, or `''`. */
-const projectOf = (key: string): string => {
-	const [client, project] = key.split('/');
-	return client && project ? `${client}/${project}/` : '';
-};
-
 /**
  * May this atlas's page be read? Its page key is built from the MANIFEST's own fields
  * (`resolvePageKey`), which whoever can write that project can set — so it is trusted only inside the
  * manifest's own project, and only as an image. Pure, for the fixture.
  */
 export const pageAllowed = (manifestKey: string, pageKey: string): boolean =>
-	!!pageKey &&
-	!pageKey.includes('..') &&
-	PAGE_IMAGE.test(pageKey) &&
-	projectOf(manifestKey) !== '' &&
-	pageKey.startsWith(projectOf(manifestKey));
+	ownedByManifest(manifestKey, pageKey) && PAGE_IMAGE.test(pageKey);
 
 /** May this project borrow its client's art at all? Pure, for the fixture. */
 export const borrowsClientArt = (client: string, project: string): boolean =>
 	r2Slug(client) !== UNASSIGNED_CLIENT && project !== DEFAULT_PROJECT_KEY;
 
-/** The referenced keys that may be atlases of this client. Pure, for the fixture. */
+/** The referenced keys that may be atlases of this client — never a `_`-rooted library (`_shared`)
+ *  a client name could slug to. Pure, for the fixture. */
 export const candidateAtlases = (keys: Iterable<string>, client: string): string[] => {
 	const own = `${r2Slug(client)}/`;
 	return [...keys].filter(
-		(key) => key.startsWith(own) && !key.includes('..') && ATLAS_MANIFEST.test(key),
+		(key) =>
+			key.startsWith(own) &&
+			!key.startsWith('_') &&
+			!key.includes('..') &&
+			ATLAS_MANIFEST.test(key),
 	);
 };
 
@@ -75,7 +70,7 @@ const computeArtScope = async (client: string, project: string): Promise<ArtScop
 	const keys = new Set<string>();
 	const refs = await referencedArtRefs(await loadDoc(client, project), project);
 	const atlases = candidateAtlases(refs.manifestKeys, client);
-	const sets = await Promise.allSettled(atlases.map((key) => loadRegionSet(key, client, project)));
+	const sets = await Promise.allSettled(atlases.map((key) => loadRegionSet(key)));
 	for (const [index, settled] of sets.entries()) {
 		if (settled.status !== 'fulfilled' || settled.value.regions.length === 0) continue;
 		keys.add(atlases[index]);

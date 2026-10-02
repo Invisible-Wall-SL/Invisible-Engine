@@ -167,7 +167,7 @@ export async function ensureBundleAtlasFresh(
 	const baseline =
 		opts.manifestKey && opts.manifestKey !== sidecarManifestKey ? '' : recordedRevision;
 
-	const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
+	const rs = await loadRegionSet(manifestKey);
 	if (!rs.regions.length || !rs.pageKey || !rs.pageWidth || !rs.pageHeight) return null;
 
 	// Rig TEXT (design §12.4a) is localized art packed onto a SECOND page of this bundle's

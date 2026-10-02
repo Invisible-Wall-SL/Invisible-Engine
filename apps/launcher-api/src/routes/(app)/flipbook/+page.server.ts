@@ -58,7 +58,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 
 	const atlases: FlipbookAtlas[] = [];
 	for (const manifestKey of manifestKeys) {
-		const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
+		const rs = await loadRegionSet(manifestKey);
 		if (!rs.regions.length || !rs.pageKey) continue; // unusable (no regions or no page)
 		atlases.push({
 			manifestKey,

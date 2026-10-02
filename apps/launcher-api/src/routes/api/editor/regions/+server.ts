@@ -30,7 +30,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	// art authored in another project of the client) — what the export ships, so the editor draws it.
 	await assertProjectArt(sheet, prefixes, clientKey, projectKey);
 
-	const set = await loadRegionSet(sheet, clientKey, projectKey);
+	const set = await loadRegionSet(sheet);
 
 	// Never hand back a page key the asset streamer would reject — drop it so the
 	// client falls back to per-region placeholders instead of a broken <img>.

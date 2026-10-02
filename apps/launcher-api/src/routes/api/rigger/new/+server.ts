@@ -96,7 +96,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		pageBody = BLANK_PAGE_PNG;
 		atlasText = regionsToSpineAtlas(pageName, 1, 1, []);
 	} else {
-		const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
+		const rs = await loadRegionSet(manifestKey);
 		if (!rs.regions.length) throw error(400, 'that atlas has no regions');
 		if (!rs.pageKey) throw error(400, "couldn't resolve the atlas page image");
 		if (!rs.pageWidth || !rs.pageHeight)
