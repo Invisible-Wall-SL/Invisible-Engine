@@ -24,14 +24,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repoFile = (path) => new URL(`../${path}`, import.meta.url).href;
 const POT_METER = repoFile('apps/lines/src/components/PotMeter.svelte');
 const MOUNTED_COMPONENTS = repoFile('packages/engine-layout/src/lib/mountedComponents.ts');
+const POT_SKIN = repoFile('packages/engine-layout/src/lib/potSkin.ts');
 
 const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 const harness = 'globalThis.__potMeterHarness';
 
-/** PotMeter's imports, by specifier: everything but the mount count is a stand-in. */
+/**
+ * PotMeter's imports, by specifier: everything but the mount count and the skin reader is a
+ * stand-in.
+ */
 const STUBS = {
 	'pixi-svelte': moduleUrl('export const Container = () => {};'),
 	'./HoldAndWinPot.svelte': moduleUrl('export default () => {};'),
+	'engine-layout': moduleUrl(`export { readPotSkin } from '${POT_SKIN}';`),
 	'engine-layout/svelte': moduleUrl(`
 		import * as real from '${MOUNTED_COMPONENTS}';
 		export const getComponentParams = () => ${harness}.params;
