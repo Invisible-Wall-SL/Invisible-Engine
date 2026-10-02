@@ -811,6 +811,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   `platformJackpot.<tier>`, the casino platform's own jackpot in money, live. It is gated by
   `platformJackpotShow`, so it stays hidden where the operator runs none. A Jackpot Tile's
   **source** and **visibleSource** lists offer the same platform values.
+  A **Total Win Bar** draws the feature total. Turn on its **catchesCoins** and the feature end's
+  coins fly into it instead of the win meter; **landPulseScale** pulses it on each one. Both are
+  off by default.
   **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The

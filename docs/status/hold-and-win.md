@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy and a **component** swap on instances. Next: the done-when on `hw-3pots-sample`, then the total win bar, letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, and the Total Win Bar (its part can catch the coins). Next: the done-when on `hw-3pots-sample`, then letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -160,6 +160,23 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       now has a **component** select on any instance, in the Scene and Component Editors. It
       switches `componentId`, keeps the placement and params, and drops the version pin. The same
       control swaps a Pot Meter for a game's Pot copy, keeping its `meter`.
+  - **The Total Win Bar can catch the coins, but only when asked to.** Every `toTotal` head flew to
+    `'total'`, which resolved to the HUD's win meter (`hud-win`). No coded total bar exists, and the
+    authored bar never caught anything.
+    - **The shape:** `TOTAL_WIN_BAR_DEF`'s frame, caption and value (ids unchanged) sit inside a
+      `Bar` part (`TotalWinBarPart`), built with `panelInPart`.
+    - **The catch:** with `catchesCoins` on, the part registers the `totalWinBar` anchor
+      (`TOTAL_WIN_BAR_ANCHOR`). `'total'` then resolves to that anchor first, then to `hud-win`
+      (`totalTargetPoint()` in `flights.svelte.ts`). That covers the feature-end volley, a swept
+      Grand column, and a flow that flies to the total.
+    - **The pulse:** `landPulseScale` pulses the bar on every head that lands in the total. It does
+      so whether or not the bar catches, because the figure steps either way.
+    - **Parity:** both are off by default, since moving the landing point of every existing game
+      would be a visible change.
+    - **When the bar is hidden:** its anchor is not shown while the bar is hidden
+      (`respinCounterShow`), so the coins fall back to the win meter instead of flying at nothing.
+    - **Stand-in:** the bar `standsFor` its part, so a bar drawn without it still catches through a
+      stand-in. A bar saved before the part gets both params back by id, off.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -784,7 +801,10 @@ Hold and Win beats prints copy.
     the art params. Check it on all three pots with no Flow branch.
   - **The respin counter is done** (Decisions). Open on it: the active-modifiers line has no source
     an authored text can bind.
-  - **The other parts, same pattern:** total win bar, letters strip, wheel, respin cell tiles.
+  - **The total win bar is done** (Decisions). Open on it, for the owner: whether a new project's
+    reference bar should catch the coins (`catchesCoins` on in `holdAndWinReferenceLayout`). It is
+    off today, so every game keeps flying them to the win meter.
+  - **The other parts, same pattern:** letters strip, wheel, respin cell tiles.
   - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
     component swap works on any bar copy.
   - **Editor limits:**
@@ -942,6 +962,30 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the Total Win Bar skinned** (#1006). Contract: Decisions, "The Total
+  Win Bar can catch the coins".
+  - **Engine:**
+    - `TOTAL_WIN_BAR_DEF` sits inside a `Bar` part and `standsFor` it, with `catchesCoins` and
+      `landPulseScale`.
+    - `TOTAL_WIN_BAR_ANCHOR` (`flightStyle.ts`).
+    - The `TotalWinBarPart` catalog entry.
+  - **Game:**
+    - `TotalWinBarPart` (skin, pulse on each head landing in the total, the catch anchor,
+      stand-in), registered in `Game.svelte`.
+    - `'total'` resolves through `totalTargetPoint()`: the bar first, then the win meter.
+  - **Editor:** a **Total Win Bar (Hold and Win)** create type.
+  - **Verified:**
+    - `test-total-win-bar-part.mjs` (15 assertions): the shape, ids, binding, both parity defaults,
+      `standsFor`, and the flat copy's upgrade (stand-in, both params back, catching off).
+    - `test-respin-counter-part.mjs` drops its check that the total win bar had no part.
+    - Every engine-layout fixture plus `verify-pot-meter-mount`, `check:signal-scope`,
+      `check:symbols-kind-gating`, `check:scene-cues` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned total win bar (12c)`, with a stand-in win meter at
+      (150, 600):
+      - As it ships, the next head lands on the win meter and the bar registers no anchor.
+      - With `catchesCoins`, it lands on the bar's centre. One landing at `landPulseScale` 1.3
+        widens the bar 304 → 347 px, and it settles back.
+      - A bar saved before the part catches through the stand-in, on the same point.
 - 2026-10-02 — **Phase 12c: the Jackpot Tile and Bar** (#1006). Contract: Decisions, "The
   Jackpot Tile follows the counter".
   - **Engine:**

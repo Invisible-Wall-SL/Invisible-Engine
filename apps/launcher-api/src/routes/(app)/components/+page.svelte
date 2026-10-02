@@ -25,6 +25,7 @@
 		resolveComponentParams,
 		scopedFrameRef,
 		STANDARD_MAIN_SIZES_MAP,
+		TOTAL_WIN_BAR_DEF,
 	} from 'engine-layout';
 	import type {
 		ComponentCategory,
@@ -704,6 +705,7 @@
 		respin: RESPIN_COUNTER_DEF,
 		jackpotTile: JACKPOT_TILE_DEF,
 		jackpotBar: JACKPOT_BAR_DEF,
+		totalWinBar: TOTAL_WIN_BAR_DEF,
 	} satisfies Record<string, ComponentDef>;
 	type CopyType = keyof typeof COPY_TYPES;
 	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
@@ -1623,6 +1625,7 @@
 										<option value="respin">Respin Counter (Hold and Win)</option>
 										<option value="jackpotTile">Jackpot Tile (Hold and Win)</option>
 										<option value="jackpotBar">Jackpot Bar (Hold and Win)</option>
+										<option value="totalWinBar">Total Win Bar (Hold and Win)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -1701,6 +1704,16 @@
 									or select a tile and switch its <strong>Component</strong> to your own Jackpot
 									Tile copy. Place it on the <strong>Jackpot bar</strong> screen in place of the
 									Jackpot Bar. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'totalWinBar'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Total Win Bar</strong>: its frame, caption
+									and value sit inside the coded <strong>Bar</strong> part. Click
+									<strong>Edit inside Bar</strong> to restyle them or add your own nodes. Turn on
+									<strong>catchesCoins</strong> and the feature end's coins fly into this bar
+									instead of the win meter; <strong>landPulseScale</strong> pulses it on each one.
+									Place it on the <strong>Total win bar</strong> screen in place of the Total Win
+									Bar. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>

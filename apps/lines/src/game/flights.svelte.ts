@@ -16,6 +16,7 @@ import {
 	flightEaseOf,
 	flightPlanOptions,
 	resolveFlightStyle,
+	TOTAL_WIN_BAR_ANCHOR,
 	type FlightEase,
 	type FlightHead,
 	type ResolvedFlightStyle,
@@ -197,10 +198,17 @@ const boardBottomGlobal = (): FlightPoint | undefined => {
 	return board.toGlobal({ x: width / 2, y: height });
 };
 
+/**
+ * Where `'total'` lands: an authored Total Win Bar that catches the coins (Phase 12c,
+ * `catchesCoins`), else the HUD's win meter — the only target before a bar could catch them.
+ */
+export const totalTargetPoint = (): FlightPoint | undefined =>
+	resolveAnchorPoint(TOTAL_WIN_BAR_ANCHOR) ?? resolveAnchorPoint(TOTAL_ANCHOR);
+
 const resolveEnd = (end: FlightEnd): FlightPoint | undefined => {
 	if (typeof end === 'string') {
-		const name = end === FLIGHT_TARGET_TOTAL ? TOTAL_ANCHOR : end;
-		return resolveAnchorPoint(name) ?? boardBottomGlobal();
+		const point = end === FLIGHT_TARGET_TOTAL ? totalTargetPoint() : resolveAnchorPoint(end);
+		return point ?? boardBottomGlobal();
 	}
 	if (isCell(end)) return cellGlobal(end.reel, end.row);
 	return end;

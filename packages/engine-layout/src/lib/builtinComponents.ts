@@ -2228,8 +2228,7 @@ export const JACKPOT_TILE_DEF: ComponentDef = panelInPart(
 	],
 );
 
-/** "TOTAL WIN" — what the feature has won; the feature end counts every coin into it. */
-export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({
+const TOTAL_WIN_BAR_PANEL = holdAndWinPanel({
 	id: 'totalWinBar',
 	name: 'Total Win Bar',
 	caption: 'TOTAL WIN',
@@ -2240,6 +2239,37 @@ export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({
 	height: 96,
 	note: 'feature total (engine)',
 });
+
+/**
+ * "TOTAL WIN" — what the feature has won (`featureTotal`, the same figure as the HUD's win meter).
+ * SKINNABLE (Phase 12c): the panel's frame, caption and value sit INSIDE the coded `Bar` part. With
+ * `catchesCoins` on, the part registers the `totalWinBar` anchor, so the feature end's coins (and a
+ * swept Grand column's) fly into this bar instead of the HUD's win meter. It pulses on each coin that
+ * lands (`landPulseScale`). Both are off by default: the bar never caught the coins, so every
+ * existing game flies them where it always did. It `standsFor` the part, so a bar drawn without it
+ * still catches the coins through a stand-in.
+ */
+export const TOTAL_WIN_BAR_DEF: ComponentDef = {
+	...panelInPart(
+		TOTAL_WIN_BAR_PANEL,
+		{ id: 'totalWinBar-bar', label: 'Bar', component: 'TotalWinBarPart', width: 360, height: 96 },
+		[
+			{
+				key: 'catchesCoins',
+				kind: 'boolean',
+				default: false,
+				label: 'coins fly here at the feature end',
+			},
+			{
+				key: 'landPulseScale',
+				kind: 'number',
+				default: 1,
+				label: 'pulse on each coin that lands (1 = none)',
+			},
+		],
+	),
+	standsFor: 'TotalWinBarPart',
+};
 
 const JACKPOT_TIERS = ['mini', 'minor', 'major', 'grand'] as const;
 /** Tile pitch in the bar — a tile plus a 16px gap. */

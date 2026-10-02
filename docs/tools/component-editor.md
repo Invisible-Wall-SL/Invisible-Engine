@@ -70,8 +70,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
-  - **Pot Meter**, **Respin Counter**, **Jackpot Tile** and **Jackpot Bar (Hold and Win)** —
-    project copies of those built-ins, the first three with their coded part. Put your own nodes inside the part (see
+  - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar** and **Total Win Bar
+    (Hold and Win)** — project copies of those built-ins, all but the Jackpot Bar with their coded
+    part. Put your own nodes inside the part (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a
     Hold and Win project only.
 - **Library** — existing components grouped by category. Click a row to open it for
@@ -492,6 +493,16 @@ The bar is four tiles. Create a **Jackpot Bar (Hold and Win)** to skin it:
 - To use your own tile, select a tile and switch its **component** to your Jackpot Tile copy.
 
 On the **Jackpot bar** screen, switch the Jackpot Bar's **component** to yours.
+
+**The Total Win Bar.** Its frame, caption and value sit inside its **Bar** part. Create a **Total
+Win Bar (Hold and Win)** and click **Edit inside Bar ›** to restyle them or add your own nodes. Two
+settings on the placement, both off by default:
+
+- **catchesCoins** — the feature end's coins, and a swept Grand column's, fly into this bar instead
+  of the win meter. While the bar is hidden they still fly to the win meter.
+- **landPulseScale** — the bar pulses on each coin that lands (1 = still).
+
+On the **Total win bar** screen, switch the Total Win Bar's **component** to yours.
 
 ## Traps
 

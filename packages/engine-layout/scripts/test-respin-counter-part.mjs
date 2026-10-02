@@ -3,7 +3,7 @@
 // Verify the Respin Counter's coded part (Hold and Win Phase 12c): the built-in's panel nodes sit
 // inside the `Counter` part with their ids unchanged, the part is still (pulse off by default), the
 // def stands for the part, a counter saved before the part existed (its nodes at the root) gets the
-// stand-in and the new param back by id, and the total win bar is untouched.
+// stand-in and the new param back by id.
 //
 //   node scripts/test-respin-counter-part.mjs
 //
@@ -20,7 +20,6 @@ const bundled = await esbuild.build({
 	stdin: {
 		contents: `export {
 			RESPIN_COUNTER_DEF,
-			TOTAL_WIN_BAR_DEF,
 			boundComponentSkin,
 			mergeBuiltinCodedParams,
 			partStandIn,
@@ -107,14 +106,6 @@ assert(
 	),
 	'its own tree is left as saved',
 );
-
-console.info('the other panels');
-for (const other of [mod.TOTAL_WIN_BAR_DEF]) {
-	assert(
-		other.standsFor === undefined && other.root.children.every((n) => !n.bind),
-		`${other.id} is unchanged: plain nodes, no part`,
-	);
-}
 
 if (failures > 0) {
 	console.error(`\n${failures} assertion(s) failed`);

@@ -35,6 +35,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **The Total Win Bar is skinnable** (Hold and Win 12c, #1006). Its panel nodes sit
+  inside a `Bar` part (**Edit inside Bar ›**), with a new **Total Win Bar (Hold and Win)** create
+  type. Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Jackpot Tile skinnable; a component swap on instances** (Hold and Win 12c, #1006).
   - The tile's panel sits inside a `Tile` part (**Edit inside Tile ›**).
   - New **Jackpot Tile** and **Jackpot Bar (Hold and Win)** create types.
