@@ -1,4 +1,4 @@
-import { createModeController, type ModeTransition } from 'engine-game';
+import { createModeController, createModeGameTypeResolver, type ModeTransition } from 'engine-game';
 import { gameModeById, gameTypeForMode, resolveGameModes } from 'game-config';
 
 import { eventEmitter } from './eventEmitter';
@@ -37,10 +37,13 @@ const presentCoded = (transition: ModeTransition): void => {
  * by the mode-tagged screens (`Game.svelte`) and the flow (`$engine.activeMode`).
  */
 export const stateModes = createModeController({
-	gameTypeOf: (modeId) => {
-		const mode = gameModeById(getActiveGameConfig(), modeId);
-		return mode ? gameTypeForMode(mode) : modeId;
-	},
+	gameTypeOf: createModeGameTypeResolver(
+		(modeId) => {
+			const mode = gameModeById(getActiveGameConfig(), modeId);
+			return mode ? gameTypeForMode(mode) : undefined;
+		},
+		(message) => console.warn(message),
+	),
 	setGameType: (gameType) => {
 		stateGame.gameType = gameType as GameType;
 	},

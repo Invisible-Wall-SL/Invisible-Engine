@@ -24,7 +24,7 @@ import {
 	type ModeStackState,
 	type ModeTransition,
 } from './modeStack.ts';
-import { modeOpOf } from './modeEvents.ts';
+import { BASE_GAME_TYPE, createModeGameTypeResolver, modeOpOf } from './modeEvents.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -235,6 +235,29 @@ check(
 		queue: [],
 	},
 );
+
+// 7. The game type a mode puts on screen: a declared mode keeps its own; an UNDECLARED one (a queued
+//    mode the Game Config does not list) plays on the base game type — never its id — and is warned
+//    about once.
+{
+	const warnings: string[] = [];
+	const gameTypeOf = createModeGameTypeResolver(
+		(id) => ({ basegame: 'basegame', freeSpins: 'freegame', holdAndWin: 'respin' })[id],
+		(message) => warnings.push(message),
+	);
+	check('a declared mode keeps its game type', gameTypeOf('holdAndWin'), 'respin');
+	check('...free spins too', gameTypeOf('freeSpins'), 'freegame');
+	check('nothing is warned for declared modes', warnings.length, 0);
+	check(
+		'an undeclared queued mode plays on the base game type',
+		gameTypeOf('queuedFixture'),
+		BASE_GAME_TYPE,
+	);
+	check('...not on its id', gameTypeOf('queuedFixture') === 'queuedFixture', false);
+	check('it is warned about once, by name', warnings.length, 1);
+	check('...naming the mode', warnings[0]?.includes('"queuedFixture"'), true);
+	check('...and the Game Config', warnings[0]?.includes('Game Config'), true);
+}
 
 console.log(failures === 0 ? '\nAll mode-stack assertions passed.\n' : `\n${failures} FAILED\n`);
 if (failures > 0) throw new Error('mode-stack fixture failed');

@@ -650,6 +650,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **An undeclared mode plays on the base game type** (session "Hold and Win Phase 4 —
+  engine runtime"; follow-up from #965's parity run). While a mode the Game Config does not declare
+  was on top of the stack (e.g. the mock's forced `queuedFixture`), `stateGame.gameType` read the mode
+  ID — not a game type, so every game-type-keyed screen matched nothing. `stateModes` now resolves
+  through `engine-game` `createModeGameTypeResolver`: a declared mode keeps its own game type, an
+  undeclared one plays on `basegame` and is warned about once (`[modes] mode "<id>" is not declared
+  in the Game Config …`). `basegame` is a built-in mode, so returning to base never warns. Pinned in
+  `modeStack.fixture.ts` (a mutant that returns the id fails 2 checks).
+
 - 2026-10-02 — **The facade maps `modeEnter` / `modeExit`** (#965; session "Hold and Win Phase 4 —
   engine runtime") — the last Phase 4 item. A Hold and Win server's `modeEnter {mode, cause,
   policy?, payload?}` / `modeExit {mode, total?}` (wire doc "Modes") pass through to the engine's 4M
