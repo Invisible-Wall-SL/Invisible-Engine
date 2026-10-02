@@ -8,8 +8,9 @@
 The pots overlay sample (design [pots-overlay.md](../design/pots-overlay.md), hub
 [status/pots-overlay.md](../status/pots-overlay.md)). It is Book of Borut with the **3 Pots** add-on
 layered on top. The owner made it with Game Maker → Duplicate (`invisible_wall/bookofborutremake` →
-`borut-pots-sample`, setup scope), then added **＋ Pots overlay** with the **3 Pots** preset, then
-published. If the Game Maker action is not live yet, the same add-on is in `/config` → Add-ons. The
+`borut-pots-sample`, setup scope), then added **＋ Pots overlay** with the **3 Pots** preset,
+re-routed the green pot in `/config` → Add-ons (green pot → bonus mode `freeSpins`, so one pot
+starts Borut's own free spins), then published. If the Game Maker action is not live yet, the same add-on is in `/config` → Add-ons. The
 base game is still the `book` kind, so the test server deals it with the book mock
 (`scripts/mock-rgs-server-book.mjs`) wrapped by `withPotsOverlay`
 (`scripts/mock-pots-overlay.mjs`). The wrapper is selected because the contract carries
@@ -24,9 +25,9 @@ base game is still the `book` kind, so the test server deals it with the book mo
 | `blue` | `POT_BLUE` | 12 | 5, 9 | Hold and Win, **collector** active |
 | `green` | `POT_GREEN` | 12 | 5, 9 | Hold and Win, **multiplier** active |
 
-- **All three pots route to Hold and Win.** The design's done-when line "a full green pot starts
-  Borut's own free spins" is NOT what the preset does. That only holds if the owner re-routed green
-  to `freeSpins` in `/config` → Add-ons. Read the boot `config` answer's
+- **The preset routes all three pots to Hold and Win.** The sample's setup re-routes green to
+  `freeSpins` in `/config` → Add-ons (the hub's Owner checklist), which is what makes the design's
+  done-when line "a full green pot starts Borut's own free spins" testable. Read the boot `config` answer's
   `potsOverlay.pots[].bonus` (and `activates`) to see what this build routes, and test S5b only if
   green says `freeSpins`.
 - **Drops:** `chance` 0.15, `maxPerSpin` 6, table red 2 / blue 2 / green 2 / value coin 3. Drops
