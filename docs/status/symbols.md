@@ -131,8 +131,8 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
     and draws the CODED trail as a canvas approximation, not the `constants-shared` trail config the
     game emits (the launcher does not depend on `constants-shared`/`engine-game`). An authored trail
     and every route are the real thing (a bone-placed trail layer is mounted FREE by `FlightView`,
-    as the preview draws it). `boostBeam` is authorable but hidden in the list until authored —
-    beams are not built.
+    as the preview draws it). `boostBeam` is listed and flown since Hold and Win Polish 2
+    (booster → each coin it multiplies).
 11. **Flights are not yet verified on a real board** — the authored head / trail / arrival in a
     running Hold and Win round (Storybook `MODE_HOLD_AND_WIN/flights` with a baked block) is owed.
 
