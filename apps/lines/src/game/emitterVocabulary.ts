@@ -1547,6 +1547,9 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			type: 'holdAndWinEnd',
 		},
 		{
+			type: 'overlayDrop',
+		},
+		{
 			type: 'modeEnter',
 		},
 		{

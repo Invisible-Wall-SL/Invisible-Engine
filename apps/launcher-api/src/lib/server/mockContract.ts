@@ -29,6 +29,7 @@ import {
 	holdAndWinMockInputs,
 	isScatterSymbol,
 	normalizeGameConfigDoc,
+	potsOverlayMockInputs,
 	resolveBetModes,
 	resolveWinModel,
 	symbolsInPlay,
@@ -327,9 +328,9 @@ function projectGrid(
 	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
 	//
 	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and
-	// paylines, and reads only `symbolPaytable` — so that is all it gets beyond the shape the test
-	// server's `validGrid` requires. Without it the book mock paid and DECLARED its captured table
-	// whatever `/config` authored, so the info page and the payouts could disagree.
+	// paylines, and reads only `symbolPaytable` and `potsOverlay` — so that is all it gets beyond the
+	// shape the test server's `validGrid` requires. Without the table the book mock paid and DECLARED
+	// its captured table whatever `/config` authored, so the info page and the payouts could disagree.
 	try {
 		if (!doc) return undefined;
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
@@ -349,9 +350,18 @@ function projectGrid(
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
 		if (protocol === 'book') {
-			// No authored table ⇒ no grid ⇒ the contract is exactly what it was before this existed.
+			// Neither an authored table nor an overlay ⇒ no grid ⇒ the contract is exactly what it was
+			// before either existed; an overlay goes LAST so a project without one is byte-identical.
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
-			return symbolPaytable ? { reels, rows, paylines, symbolPaytable } : undefined;
+			const potsOverlay = potsOverlayMockInputs(doc);
+			if (!symbolPaytable && !potsOverlay) return undefined;
+			return {
+				reels,
+				rows,
+				paylines,
+				...(symbolPaytable ? { symbolPaytable } : {}),
+				...(potsOverlay ? { potsOverlay } : {}),
+			};
 		}
 		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;
 		// `holdAndWin` runs its own mock, which deals from the block and the project's OWN symbol names

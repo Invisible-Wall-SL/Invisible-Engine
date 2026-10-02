@@ -38,6 +38,7 @@
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type KindCapabilityConfig,
 		type CoverFit,
 		type AnticipationProfile,
 		type ButtonStateAnimations,
@@ -78,6 +79,8 @@
 	interface Props {
 		/** The project's kind — gates which symbol states the state pickers offer. */
 		gameType?: string;
+		/** The project's add-ons (its Game Config blocks), which widen the kind's states and signals. */
+		addOns?: KindCapabilityConfig;
 		node: LayoutNode | null;
 		layoutType: LayoutType;
 		/** The BASE bucket id (the profile's fallback). A non-base `layoutType` is override
@@ -303,11 +306,12 @@
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
 		gameType,
+		addOns,
 	}: Props = $props();
 
-	const offeredSymbolStates = $derived(symbolStatesForKind(gameType));
+	const offeredSymbolStates = $derived(symbolStatesForKind(gameType, addOns));
 	/** The engine signals this project's kind fires — what the signal pickers offer (Phase 12a). */
-	const offeredSignals = $derived(engineSignalsForKind(gameType));
+	const offeredSignals = $derived(engineSignalsForKind(gameType, addOns));
 	/** The names a free-text signal field suggests: this component's own, then the kind's engine
 	 *  signals. Any other name still works — a Flow Fire Cue broadcasts whatever it is given. */
 	const signalSuggestions = $derived([

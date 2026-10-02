@@ -73,8 +73,8 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar** and **Total Win Bar
     (Hold and Win)** — project copies of those built-ins, all but the Jackpot Bar with their coded
     part. Put your own nodes inside the part (see
-    [Skin a coded part](#skin-a-coded-part)). Offered in a
-    Hold and Win project only.
+    [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
+    Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
@@ -138,7 +138,9 @@ signals. It has two lists, each with its own add button:
 - **Signals in use** — click **+ Add signal** to open a searchable picker of the signals this
   project's kind fires, grouped by family. Every kind gets Enter, Win, Big Win, Win —
   count-up complete, Free-spin start / end, the Free-spin outro signals, Book reveal / hide,
-  Board glow show / hide and **Platform jackpot won**. A Hold and Win project also gets:
+  Board glow show / hide and **Platform jackpot won**. A Hold and Win project (or one whose Game
+  Config has a **Hold and Win** bonus) also gets the families below; a **Pots overlay** block
+  brings just **Pots**:
   - **Pots**: specials take off, special lands, level up, size stage up, full, activate.
   - **Respins**: counter reset, last respin.
   - **Coins**: land, collected, boosted, upgraded.
@@ -148,8 +150,9 @@ signals. It has two lists, each with its own add button:
   - **Feature**: enter, exit.
 
   The game fires all of these from its own beats; no Flow wiring is needed. The Hold and Win
-  ones are fired only in a Hold and Win game, so in any other kind those names stay free for
-  your own Flow cues. Under **Flow cue**
+  ones are fired only in a game with that feature (the Pots ones also with the pots overlay), so
+  elsewhere those names stay free for your own Flow cues. The symbol-state pickers follow the same
+  rule: the Hold and Win states are offered only with the feature. Under **Flow cue**
   you can type any name a Flow **Fire Cue** node broadcasts (e.g. `frogCheer`) and click
   **Add**. A row marked *per meter*, *per tier* or *per reel* is a scoped signal (see
   **scoped by** below). **×** removes a signal.

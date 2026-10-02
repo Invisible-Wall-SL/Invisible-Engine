@@ -1618,10 +1618,10 @@
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
 									<option value="counter">Free-Spin Counter</option>
-									{#if kindCapabilities(data.gameType).pots}
+									{#if kindCapabilities(data.gameType, data.addOns).pots}
 										<option value="pot">Pot Meter (Hold and Win)</option>
 									{/if}
-									{#if kindCapabilities(data.gameType).holdAndWin}
+									{#if kindCapabilities(data.gameType, data.addOns).holdAndWin}
 										<option value="respin">Respin Counter (Hold and Win)</option>
 										<option value="jackpotTile">Jackpot Tile (Hold and Win)</option>
 										<option value="jackpotBar">Jackpot Bar (Hold and Win)</option>
@@ -1842,6 +1842,7 @@
 						componentDefs={components
 							.filter((c) => c.id !== componentDraft?.id)
 							.map((c) => ({ id: c.id, name: c.name }))}
+						addOns={data.addOns}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}

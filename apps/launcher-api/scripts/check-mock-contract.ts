@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { isHttpError } from '@sveltejs/kit';
-import { normalizeGameConfigDoc, type GameConfigDoc } from 'game-config';
+import { normalizeGameConfigDoc, potsOverlayPreset, type GameConfigDoc } from 'game-config';
 
 // ── In-memory R2 ─────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
@@ -80,6 +80,8 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	scat: { token: 'SCT', gameType: 'scatter' },
 	legacy: { token: 'LEG', gameType: 'lines' },
 	hnw: { token: 'HNW', gameType: 'holdAndWin' },
+	book: { token: 'BOK', gameType: 'bookOf' },
+	bookPots: { token: 'BKP', gameType: 'bookOf' },
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -101,6 +103,14 @@ const resized = (doc: GameConfigDoc, reels: number, rows: number): GameConfigDoc
 	numReels: reels,
 	numRows: Array(reels).fill(rows),
 });
+const withOverlay = (doc: GameConfigDoc): GameConfigDoc => {
+	const preset = potsOverlayPreset('potsToFreeSpins');
+	return normalizeGameConfigDoc({
+		...doc,
+		symbols: { ...doc.symbols, ...preset.tokens },
+		potsOverlay: preset.potsOverlay,
+	})!;
+};
 
 /** The LIVE authoring data, per project — what an authoring boot reads. */
 const LIVE_CONFIG: Record<string, GameConfigDoc> = {
@@ -108,6 +118,8 @@ const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	scat: template('scatter'),
 	legacy: resized(template('lines'), 6, 4),
 	hnw: template('holdAndWin.classic'),
+	book: template('lines'),
+	bookPots: withOverlay(template('lines')),
 };
 type LiveSymbols = {
 	symbols: Record<string, { static?: unknown }>;
@@ -118,6 +130,8 @@ const LIVE_SYMBOLS: Record<string, LiveSymbols> = {
 	scat: { symbols: {} },
 	legacy: { symbols: {} },
 	hnw: { symbols: {} },
+	book: { symbols: {} },
+	bookPots: { symbols: {} },
 };
 mock.module(src('lib/server/gameConfigStorage.ts'), {
 	namedExports: {
@@ -173,6 +187,7 @@ type Answer = {
 		symbols?: unknown;
 		betModes?: { mode: string }[];
 		holdAndWin?: { block: { stickiness: string }; lineSymbols: string[] };
+		potsOverlay?: { pots: { id: string }[]; drops: { modes: string[] } };
 	};
 };
 /** GET the endpoint; resolves to the JSON answer, or `{ status }` for an HTTP error. */
@@ -282,7 +297,11 @@ await check('players get the published holdAndWin block, authoring the live one'
 	eq(published.protocol, 'holdAndWin', 'protocol');
 	eq(published.grid?.holdAndWin?.block.stickiness, 'allCoins', 'published = Pots');
 	eq(published.grid?.betModes, undefined, 'Pots sells nothing');
-	eq(live.grid?.betModes?.map((m) => m.mode), ['base', 'buy', 'superBuy'], 'live = Grand buys');
+	eq(
+		live.grid?.betModes?.map((m) => m.mode),
+		['base', 'buy', 'superBuy'],
+		'live = Grand buys',
+	);
 	eq(
 		live.grid?.holdAndWin?.lineSymbols,
 		['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'W'],
@@ -290,6 +309,36 @@ await check('players get the published holdAndWin block, authoring the live one'
 	);
 	eq(live.grid?.symbols, undefined, 'no lines-mock server pool');
 });
+
+console.info('a book game with a pots overlay');
+
+await check(
+	'the overlay rides last on the book grid; without it the grid is unchanged',
+	async () => {
+		const plain = await answer('project=book&k=BOK&source=live');
+		const pots = await answer('project=bookPots&k=BKP&source=live');
+		eq(plain.protocol, 'book', 'protocol');
+		eq(pots.protocol, 'book', 'protocol');
+		eq(
+			Object.keys(plain.grid ?? {}),
+			['reels', 'rows', 'paylines', 'symbolPaytable'],
+			'plain keys',
+		);
+		eq(Object.keys(pots.grid ?? {}).at(-1), 'potsOverlay', 'overlay last');
+		eq(
+			pots.grid?.potsOverlay?.pots.map((p) => p.id),
+			['gold'],
+			'pots',
+		);
+		eq(
+			pots.grid?.potsOverlay?.drops.modes.length ? 'modes' : 'none',
+			'modes',
+			'drop modes resolved',
+		);
+		const { potsOverlay: _o, ...rest } = pots.grid ?? {};
+		eq(rest, plain.grid, 'the rest of the grid is the plain one');
+	},
+);
 
 console.info('the publish-time copy');
 

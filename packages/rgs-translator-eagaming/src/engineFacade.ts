@@ -79,6 +79,10 @@ import {
 	applyJackpotLevels,
 	boardCells,
 	holdAndWinState,
+	meterLevelsEvent,
+	meterUpdateEvent,
+	modeEnterEvent,
+	modeExitEvent,
 	parseHoldAndWinCell,
 	readBootJackpotLevels,
 	readBootMeterLevels,
@@ -90,6 +94,15 @@ import {
 	type HoldAndWinTranslation,
 	type HoldAndWinWireConfig,
 } from './holdAndWin';
+import {
+	bonusRoutes,
+	entryCause,
+	overlayBootLevels,
+	overlayDropEvent,
+	readPotsOverlayConfig,
+	type BonusRoute,
+	type PotsOverlayWireConfig,
+} from './potsOverlay';
 
 // ---------- mapping selection ----------
 
@@ -117,6 +130,17 @@ const capturedBetOptions = new Map<string, ServerBetOptions>();
 /** Per-session Hold and Win wire block from the boot config — present only for a `holdAndWin`
  *  server, and the gate for the whole Hold and Win translation (`holdAndWin.ts`). */
 const capturedHoldAndWin = new Map<string, HoldAndWinWireConfig>();
+
+/**
+ * Per-session pots-overlay block from the boot config (design `pots-overlay.md` §3.3) — the gate for
+ * routing each bonus by its `spinTrigger.bonus` key instead of "a captured Hold and Win block takes
+ * every bonus". `holdAndWinBonus` is the Hold and Win block's own key, the fallback for a key the
+ * overlay does not list. Absent ⇒ every path below is exactly as it was.
+ */
+const capturedPotsOverlay = new Map<
+	string,
+	{ overlay: PotsOverlayWireConfig; holdAndWinBonus: string | null }
+>();
 
 /** Track unknown symbols we've already warned about, keyed by `sid:symbol`, so
  *  a malformed reveal doesn't spam the console. */
@@ -242,10 +266,17 @@ const captureConfig = (
 	const detected = pickMappingForConfig(cfg);
 	if (detected) activeMapping = detected;
 	const holdAndWin = readHoldAndWinConfig(cfg);
+	const overlay = readPotsOverlayConfig(cfg);
 	if (holdAndWin) {
 		capturedHoldAndWin.set(sid, holdAndWin);
-		publishHoldAndWinMeters(readBootMeterLevels(cfg));
+		if (!overlay) publishHoldAndWinMeters(readBootMeterLevels(cfg));
 		publishHoldAndWinJackpots(readBootJackpotLevels(cfg));
+	}
+	// An overlay host's pots seed at boot like Hold and Win meters, whatever its kind — in
+	// `resolveMeters` order, the Hold and Win block's own meters first.
+	if (overlay) {
+		capturedPotsOverlay.set(sid, { overlay, holdAndWinBonus: holdAndWin?.bonus ?? null });
+		publishHoldAndWinMeters([...readBootMeterLevels(cfg), ...overlayBootLevels(overlay)]);
 	}
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
@@ -347,8 +378,7 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		| { availablePayLines?: number[][]; paylines?: number[][] }
-		| undefined;
+		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -705,6 +735,63 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		: null;
 	let inHoldAndWin = false;
 
+	// A POTS-OVERLAY host (design `pots-overlay.md` §3.3) can hold two bonuses — its own free spins
+	// and a pot's Hold and Win — so each bonus is routed by the key its `spinTrigger` names, not by
+	// whether a Hold and Win block was captured. Without the block, `routes` is null and every bonus
+	// keeps the old rule: a captured Hold and Win block takes them all.
+	const captured = capturedPotsOverlay.get(sid);
+	const overlay = captured?.overlay ?? null;
+	const routes = captured
+		? bonusRoutes(captured.overlay, holdAndWin ? captured.holdAndWinBonus : null, events)
+		: null;
+	// A route to Hold and Win with no Hold and Win block captured has no respin board to play on.
+	const respinsAt = (i: number): boolean =>
+		Boolean(holdAndWin) && (routes ? routes[i] === ('respins' satisfies BonusRoute) : true);
+	// The overlay's trigger fields for the next free-spin entry (`spinTrigger {cause, meters}`).
+	let pendingCause: { cause?: string; meters?: string[] } = {};
+	// The base spin's wins were banked at its reveal (a scatter trigger arrives before `playedSpin`;
+	// a pot's after it, so its free spins bank them at entry instead).
+	let bankedAtReveal = false;
+	// A finished Hold and Win feature's total, not yet in `runningTotal` (it reaches the meter only at
+	// `gameEnd`): a bonus that follows it in the same round counts from the round's whole win.
+	let featureTotal = 0;
+	// What the wire dealt AHEAD of a spin's board, by the index of its `playedSpin`: its overlay drop
+	// (sent right after `spinStart`) and any pot fills sent before the board (a spin that also enters
+	// the host's own feature). Both are presented with that board — the drop right after its
+	// `reveal`, the fills once it has paid (§3.2: reveal → drop → wins → fills).
+	const ahead = new Map<number, { drop?: number; meters: number[] }>();
+	if (overlay) {
+		let drop: number | undefined;
+		let meters: number[] = [];
+		let inSpin = false;
+		events.forEach((d, at) => {
+			if (d.event === 'spinStart') inSpin = true;
+			if (d.event === 'overlayDrop') drop = at;
+			if (d.event === 'meterUpdate' && inSpin) meters.push(at);
+			if (d.event === 'playedSpin') {
+				if (drop !== undefined || meters.length) ahead.set(at, { drop, meters });
+				drop = undefined;
+				meters = [];
+				inSpin = false;
+			}
+		});
+	}
+	const presentedAhead = new Set(
+		[...ahead.values()].flatMap(({ drop, meters }) => [
+			...(drop === undefined ? [] : [drop]),
+			...meters,
+		]),
+	);
+	const pushDropOf = (spin: number) => {
+		const drop = ahead.get(spin)?.drop;
+		if (drop !== undefined)
+			push(overlayDropEvent(events[drop].context, (n) => mapSymbol(activeMapping, n)));
+	};
+	const pushFillsOf = (spin: number) => {
+		for (const at of ahead.get(spin)?.meters ?? [])
+			push(meterUpdateEvent((events[at].context ?? {}) as Record<string, unknown>));
+	};
+
 	// A free-spin response carries its per-spin counter (`playedBonusSpin`) AFTER the board
 	// reveal (`playedSpin`). Translated in that order, the counter TICKS A BEAT LATE: it shows
 	// the PREVIOUS spin's number for the whole of the current spin's board (which is awaited, ~1s),
@@ -719,8 +806,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	// spin — a whole feature can arrive in one batch, with a `playedBonusSpin` per spin. Reading
 	// only the FIRST and latching after one emit collapsed the entire feature to a single tick, so
 	// the panel sat on "1 OF 10" for all ten spins.
-	const bonusSpins = (holdAndWin ? [] : events)
-		.filter((e) => e.event === 'playedBonusSpin')
+	const bonusSpins = events
+		.filter((e, i) => e.event === 'playedBonusSpin' && !respinsAt(i))
 		.map((e) => e.context as { played?: number; left?: number } | undefined);
 	let bonusCursor = 0;
 	let bonusSeen = 0;
@@ -779,7 +866,27 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		pendingWins = [];
 	};
 
-	for (const e of events) {
+	/** The overlay's own translation: drops, the pots' meter events and a stub mode's pair. A drop or
+	 *  fill its board already presented ⇒ `undefined`; not an overlay event ⇒ `null`. */
+	const translateOverlayEvent = (
+		name: string,
+		context: unknown,
+		at: number,
+	): Record<string, unknown> | null | undefined => {
+		const ctx = (context ?? {}) as Record<string, unknown>;
+		if (presentedAhead.has(at)) return undefined;
+		if (name === 'overlayDrop')
+			return overlayDropEvent(context, (n) => mapSymbol(activeMapping, n));
+		if (name === 'meterUpdate') return meterUpdateEvent(ctx);
+		if (name === 'meterLevels') return meterLevelsEvent(ctx);
+		// A bonus routed to a mode the client does not play yet arrives as this pair (Phase 7).
+		if (name === 'modeEnter') return modeEnterEvent(ctx, true);
+		if (name === 'modeExit')
+			return modeExitEvent(ctx, (credits) => toBookEventAmount(credits, betBaseCents));
+		return null;
+	};
+
+	for (const [i, e] of events.entries()) {
 		switch (e.event) {
 			case 'config':
 			case 'gameStart':
@@ -798,6 +905,28 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'spinTrigger': {
 				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
 				totalFs = Array.isArray(spins) ? (spins[0]?.spins ?? 0) : (spins ?? 0);
+				if (overlay) {
+					pendingCause = entryCause(e.context);
+					// A later bonus in the round (the server's book order rules): whatever bonus played
+					// before it is over. A Hold and Win feature's total joins the round's win; free spins
+					// end here, as `gameEnd` would have ended them, on the round's win so far.
+					if (inHoldAndWin) {
+						inHoldAndWin = false;
+						runningTotal += featureTotal;
+						featureTotal = 0;
+					}
+					if (gameType === 'freegame') {
+						push({
+							type: 'freeSpinEnd',
+							amount: runningTotal,
+							winLevel: computeWinLevel(
+								Math.round((runningTotal / BOOK_AMOUNT_MULTIPLIER) * betBaseCents),
+								betBaseCents,
+							),
+						});
+						gameType = 'basegame';
+					}
+				}
 				break;
 			}
 			case 'playedSpin': {
@@ -817,6 +946,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// A respin lands cell by cell on the respin board, never on the reels.
 				if (inHoldAndWin) {
 					push({ type: 'respinReveal', cells: boardCells(reels) });
+					pushDropOf(i);
 					break;
 				}
 				// Book-of mechanic (Book of Thermopylae): during free spins the
@@ -844,6 +974,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					paddingPositions: reels.map(() => 0),
 					gameType,
 				});
+				// The tokens dropped on this board appear with it, before anything it pays (§3.2).
+				pushDropOf(i);
 				// AFTER the natural board lands, if this is a free spin and 3+ of the
 				// special symbol are on the board, tell the client which reels to
 				// morph (every non-special cell in those reels becomes the special,
@@ -902,7 +1034,9 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// takes over. runningTotal only grows, so the meter never steps back.
 				if (gameType === 'freegame' || totalFs > 0) {
 					push({ type: 'setTotalWin', amount: runningTotal });
+					bankedAtReveal = true;
 				}
+				pushFillsOf(i);
 				break;
 			}
 			/**
@@ -996,18 +1130,26 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			}
 			case 'enterBonus': {
-				if (holdAndWin) {
+				if (holdAndWin && respinsAt(i)) {
 					inHoldAndWin = true;
 					const snapshot = (e.context as { holdAndWin?: object } | undefined)?.holdAndWin;
 					if (snapshot) push(holdAndWinState(holdAndWin, snapshot));
 					break;
 				}
+				// A pot's free spins: the base spin's wins were not banked at its reveal (the trigger
+				// came after it), so they reach the meter now, before the intro takes over.
+				if (overlay && !bankedAtReveal && runningTotal > 0) {
+					push({ type: 'setTotalWin', amount: runningTotal });
+				}
 				gameType = 'freegame';
 				push({
 					type: 'freeSpinTrigger',
 					totalFs: totalFs || (e.context as { left?: number })?.left || 0,
-					positions: scatterTriggerPositions,
+					// A full pot is the cause, not the scatters (none need have landed).
+					positions: pendingCause.cause === 'meter' ? [] : scatterTriggerPositions,
+					...pendingCause,
 				});
+				pendingCause = {};
 				break;
 			}
 			case 'pickRandomly': {
@@ -1027,7 +1169,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			}
 			case 'playedBonusSpin': {
-				if (holdAndWin) {
+				if (holdAndWin && respinsAt(i)) {
 					const snapshot = (e.context as { holdAndWin?: object } | undefined)?.holdAndWin;
 					if (snapshot) push(holdAndWinState(holdAndWin, snapshot));
 					break;
@@ -1074,10 +1216,21 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			default: {
 				const context = (e as { context?: unknown }).context;
 				if (hw && e.event === 'jackpotLevels') applyJackpotLevels(hw, readJackpotLevels(context));
+				// Under an overlay its own translation goes first: a stub mode's `modeEnter` keeps the
+				// pots that started it, which the Hold and Win wire's never carries.
+				const overlaid = overlay ? translateOverlayEvent(e.event, context, i) : null;
 				const translated =
-					holdAndWin &&
-					translateHoldAndWinEvent(holdAndWin, e.event, (context ?? {}) as Record<string, unknown>);
-				push(translated || { type: `_${e.event}`, raw: context });
+					overlaid === null
+						? holdAndWin &&
+							translateHoldAndWinEvent(
+								holdAndWin,
+								e.event,
+								(context ?? {}) as Record<string, unknown>,
+							)
+						: overlaid;
+				if (overlay && translated && translated.type === 'holdAndWinEnd')
+					featureTotal = translated.total as number;
+				if (translated !== undefined) push(translated || { type: `_${e.event}`, raw: context });
 			}
 		}
 	}
@@ -1527,11 +1680,19 @@ const abandonResume = (sid: string, open: OpenRound, why: string) => {
  * stored: the snapshot keeps the last `holdAndWinState` (and the mode events), so the respin board is
  * rebuilt where the player left it, without the trigger, and only the respins still to come play.
  * Its translation is per event and in order, so the replayed actions alone translate to exactly the
- * book's first N events. Every other round — and a Hold and Win round whose feature had already
- * ended — keeps `0`: the whole book plays again, as it always has.
+ * book's first N events. Every other round — a Hold and Win round whose feature had already ended,
+ * and an overlay host's round whose open bonus is its free spins — keeps `0`: the whole book plays
+ * again, as it always has.
  */
 const holdAndWinResumePoint = (sid: string, replayed: Play4FunBookEvent[]): number => {
 	if (!capturedHoldAndWin.has(sid)) return 0;
+	// An overlay host's open bonus may be its free spins, which resume as every free-spin round does.
+	const captured = capturedPotsOverlay.get(sid);
+	if (
+		captured &&
+		bonusRoutes(captured.overlay, captured.holdAndWinBonus, replayed).at(-1) !== 'respins'
+	)
+		return 0;
 	const names = replayed.map((e) => e.event);
 	if (!names.includes('enterBonus') || names.includes('gameEnd')) return 0;
 	return adaptEventsForEngine(sid, replayed).length;
@@ -1800,8 +1961,7 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				| { win?: number }
-				| undefined
+				{ win?: number } | undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//
