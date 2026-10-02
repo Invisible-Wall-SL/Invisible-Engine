@@ -52,6 +52,9 @@ titled **"Hold and win game pipeline"**.
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
+| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
+| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
 ## Current state
 
@@ -75,6 +78,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach spine cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
 - 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
   add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`
   and the beats share, pinned by `check:holdandwin`:
