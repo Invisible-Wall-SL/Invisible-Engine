@@ -491,7 +491,9 @@ const BOOK_AMOUNT_MULTIPLIER = 100;
  *  each game's own `game/gameConfig.ts`). Only
  *  the fields the facade needs — level, threshold (win-as-bet-multiplier), type.
  *  The facade can't import the app (it's a drop-in for `rgs-requests`), so a
- *  global is the decoupled bridge. Unset ⇒ un-authored ⇒ the coded ladder. */
+ *  global is the decoupled bridge. Unset ⇒ un-authored ⇒ the coded ladder.
+ *  Read at translation time, so it must be published before the first book is
+ *  translated — which is a resumed round, inside `requestAuthenticate`. */
 type FacadeWinTier = { level: number; threshold: number; type: 'small' | 'medium' | 'big' };
 
 const authoredWinTiers = (): FacadeWinTier[] | undefined => {

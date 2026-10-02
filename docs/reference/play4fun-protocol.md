@@ -406,7 +406,10 @@ mechanism is the partner's own, read off their client (`processResumeData` / `ge
 4. **Present.** The facade returns the whole round as an `active` round from `authenticate` — the
    shape of a Stake resumed bet — so the engine's existing `resumeBet` path presents it from its
    first event and ends it through `requestEndRound`, which collects a base win like any spin. The
-   player sees the outcome they paid for and ends on the wallet the server holds.
+   player sees the outcome they paid for and ends on the wallet the server holds. This book is
+   translated before the game mounts, so the win-tier ladder its `winLevel`s are stamped from must
+   already be published (`apps/lines` `+layout.ts`; why: [status/engine](../status/engine.md),
+   2026-10-02).
 
 Always resumed on the **base** mode: the stake was debited when the round began, and the resume
 machine never drops a bought mode back to base the way a fresh bet does — so a resumed buy would

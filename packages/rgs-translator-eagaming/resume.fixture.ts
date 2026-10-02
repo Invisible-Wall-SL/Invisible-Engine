@@ -6,7 +6,7 @@
  * "reload" is a fresh import of the facade — its sessions, seq and gid are module state, exactly what
  * a closed tab loses — against a server that still holds the round.
  *
- * FIVE claims:
+ * SIX claims:
  *
  *  1. NOTHING OPEN, NOTHING CHANGES. A boot with no open round hands the engine no round.
  *  2. A BASE WIN LEFT UNCOLLECTED IS SHOWN, THEN PAID. The boot replays the round (charging nothing),
@@ -25,14 +25,24 @@
  *     empty; settling the round on it showed a balance of 0, and a `collect` was posted into the
  *     refusal. Since 2026-10-02 the feature is not presented at all (it has no end): the session is
  *     given up for a reload, nothing is collected, and the reload resumes the round and closes it.
+ *  6. A RESUMED RETRIGGERED FREE-SPIN ROUND ENDS ON ITS OWN TOTAL AND RETURNS TO IDLE. The resumed
+ *     book is translated inside `requestAuthenticate`, so the game must hand the facade its authored
+ *     win-tier ladder before it authenticates. Booted in that order, the outro carries the round's
+ *     total at a tier the engine can present, so its count-up mounts and the round can end. Booted
+ *     the old way (the ladder published only once the game mounted), the outro's level came from the
+ *     facade's coded ladder, the authored one had no such level, and the outro froze on "$0.00".
  */
 
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 
+import compiledLinesConfig from '../../apps/lines/src/game/config.ts';
+import { createGameConfig } from '../engine-game/src/game/gameConfig.ts';
+import { normalizeGameConfigDoc, type WinLevelTier } from '../game-config/index.ts';
 import { createMockRgs } from '../../scripts/mock-rgs-server-book.mjs';
 
 type Facade = typeof import('./src/engineFacade.ts');
-type Event = { type: string; amount?: number };
+type Event = { type: string; amount?: number; winLevel?: number; total?: number };
 type Round = { active?: boolean; mode?: string; amount?: number; state?: Event[] };
 type Answer = { balance?: { amount: number }; round?: Round };
 type MockSession = { balance: number; round: { stored: unknown[] } | null };
@@ -333,6 +343,178 @@ console.log('\n5. a free spin refused mid-feature does not zero the wallet');
 	const reloaded = (await boot(await openTab(), sid)) as Answer;
 	check('the reload resumes it and closes it on the server', serverSide(sid).round, null);
 	check('…handing the HUD a real balance, not 0', (reloaded.balance?.amount ?? 0) > 0, true);
+}
+
+console.log('\n6. a resumed retriggered free-spin round ends on its own total and returns to idle');
+{
+	/** A project's authored win tiers, stopping short of the facade's coded ten. */
+	const LADDER: WinLevelTier[] = [
+		{ alias: 'zero', name: 'ZERO', threshold: 0, type: 'small' },
+		{ alias: 'win', name: 'WIN', threshold: 1, type: 'small' },
+		{ alias: 'nice', name: 'NICE WIN', threshold: 5, type: 'medium' },
+		{ alias: 'big', name: 'BIG WIN', threshold: 15, type: 'big' },
+		{ alias: 'mega', name: 'MEGA WIN', threshold: 40, type: 'big' },
+	];
+	const template = normalizeGameConfigDoc(compiledLinesConfig);
+	const game = createGameConfig({
+		bakedConfig: () => (template ? { ...template, winLevels: LADDER } : undefined),
+		compiledConfig: compiledLinesConfig,
+	});
+	const presentable = (level: number | undefined) =>
+		level !== undefined && game.activeWinLevelData(level) !== undefined;
+
+	const layout = readFileSync(
+		new URL('../../apps/lines/src/routes/+layout.ts', import.meta.url),
+		'utf8',
+	);
+	const load = layout.slice(layout.indexOf('export const load'));
+	const at = (call: string) => load.indexOf(call);
+	check(
+		'the game hands the facade its ladder before it authenticates (layout `load`, after the bundle)',
+		at('await prepareRuntimeBundle()') >= 0 &&
+			at('await prepareRuntimeBundle()') < at('resetGameConfigCache()') &&
+			at('resetGameConfigCache()') < at('publishWinLevelsToFacade()'),
+		true,
+	);
+
+	type OpenFeature = { mock: ReturnType<typeof createMockRgs>; server: Server; url: string };
+	/** A book mock of its own on `seed`, with a bought feature left open right after it retriggers. */
+	const openRetriggered = async (seed: string): Promise<OpenFeature | null> => {
+		const own = createMockRgs({ label: 'resume-retrigger', seed, autoCollect: false });
+		const ownServer: Server = createServer((req, res) =>
+			own.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+		);
+		await new Promise<void>((resolve) => ownServer.listen(0, resolve));
+		const port = (ownServer.address() as { port: number }).port;
+		const send = async (seq: number, gid: string | null, body: unknown) => {
+			const res = await fetch(
+				`http://localhost:${port}/rgs/engine?sid=S-retrigger&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
+				{ method: 'POST', body: JSON.stringify(body) },
+			);
+			return (await res.json()) as {
+				events: { event: string }[];
+				platform: { gameRound?: { id: string } };
+			};
+		};
+		const log = console.log;
+		console.log = () => {};
+		try {
+			const opened = await send(0, null, [
+				{ action: 'bet', context: [1, 10] },
+				{ action: 'play', context: '' },
+			]);
+			const gid = opened.platform.gameRound?.id ?? null;
+			for (let seq = 2; gid && seq < 12; seq++) {
+				const { events } = await send(seq, gid, [{ action: 'play' }]);
+				if (events.some((e) => e.event === 'retrigger'))
+					return { mock: own, server: ownServer, url: `localhost:${port}` };
+				if (events.some((e) => e.event === 'gameEnd')) break;
+			}
+		} finally {
+			console.log = log;
+		}
+		ownServer.close();
+		return null;
+	};
+
+	/** Boot a new tab on an open feature, read the book it hands the engine, then end the round. */
+	const resume = async (feature: OpenFeature, ladderFirst: boolean) => {
+		if (ladderFirst) game.publishWinLevelsToFacade();
+		else delete (globalThis as { __IE_WIN_LEVELS__?: unknown }).__IE_WIN_LEVELS__;
+		const tab = await openTab();
+		const held = feature.mock.sessions.get('S-retrigger') as MockSession;
+		const heldBefore = held.balance;
+		const answer = (await tab.requestAuthenticate({
+			sessionID: 'S-retrigger',
+			rgsUrl: feature.url,
+			language: 'en',
+		})) as Answer;
+		const credited = held.balance - heldBefore;
+		const end = (await tab.requestEndRound({
+			sessionID: 'S-retrigger',
+			rgsUrl: feature.url,
+		})) as Answer;
+		return { tab, answer, credited, end, state: answer.round?.state ?? [], held };
+	};
+	const outroOf = (state: Event[]) => state.find((e) => e.type === 'freeSpinEnd');
+	/** A shown amount is hundredths of the stake. */
+	const timesStake = (e: Event | undefined) => (e?.amount ?? 0) / 100;
+
+	// Booted the old way — the ladder reached the facade only once the game had mounted — on a round
+	// that tells the two orders apart: a big win the authored ladder also calls big (15× or more), and
+	// an outro well past the last coded level this ladder has (20× is coded level 7), not on a boundary.
+	let seed: string | null = null;
+	let old: Awaited<ReturnType<typeof resume>> | null = null;
+	for (let n = 0; n < 200 && !seed; n++) {
+		const candidate = `resume-retrigger-${n}`;
+		const open = await openRetriggered(candidate);
+		if (!open) continue;
+		const booted = await resume(open, false);
+		open.server.close();
+		const bigWin = booted.state.some((e) => e.type === 'setWin' && timesStake(e) >= 15);
+		if (bigWin && timesStake(outroOf(booted.state)) >= 20) [seed, old] = [candidate, booted];
+	}
+	check(
+		`a seed whose bought feature retriggers, wins big on the way and pays 20× or more${seed ? ` (${seed})` : ''}`,
+		seed !== null,
+		true,
+	);
+
+	if (seed && old) {
+		check(
+			'booted before the ladder is published, its outro has no tier to present (the frozen "$0.00")',
+			presentable(outroOf(old.state)?.winLevel),
+			false,
+		);
+
+		const feature = (await openRetriggered(seed)) as OpenFeature;
+		const { tab, answer, credited, end, state, held } = await resume(feature, true);
+		const outro = outroOf(state);
+		const lastCounter = state.filter((e) => e.type === 'updateFreeSpin').at(-1);
+		check('the round reaches the engine as ACTIVE', answer.round?.active, true);
+		check(
+			'it retriggered, and every spin of it is presented (the base spin + every free spin)',
+			[
+				state.some((e) => e.type === 'freeSpinRetrigger'),
+				state.filter((e) => e.type === 'reveal').length,
+			],
+			[true, 1 + (lastCounter?.total ?? 0)],
+		);
+		check('…the same round the old boot order dealt', outro?.amount, outroOf(old.state)?.amount);
+		// The stake is 100 cents, so a shown amount reads as cents.
+		check('the outro counts up to exactly what the server paid', outro?.amount, credited);
+		check(
+			'…on the authored tier for that total',
+			outro?.winLevel,
+			game.activeWinLevel(timesStake(outro)),
+		);
+		check(
+			'…which the engine can present, so the count-up mounts and its tap arms',
+			presentable(outro?.winLevel),
+			true,
+		);
+		const bigWins = state.filter((e) => e.type === 'setWin');
+		check(
+			'every big win on the way is presentable too',
+			[bigWins.length > 0, bigWins.every((e) => presentable(e.winLevel))],
+			[true, true],
+		);
+		check(
+			'requestEndRound leaves no round open and ends on the server’s wallet',
+			[held.round, end.balance?.amount],
+			[null, held.balance * ENGINE_PER_CENT],
+		);
+		const next = (await tab.requestBet({
+			sessionID: 'S-retrigger',
+			rgsUrl: feature.url,
+			currency: 'USD',
+			amount: 1,
+			mode: 'BASE',
+		})) as Answer;
+		check('back to idle: the next spin is a fresh round', types(next.round)[0], 'reveal');
+		feature.server.close();
+		delete (globalThis as { __IE_WIN_LEVELS__?: unknown }).__IE_WIN_LEVELS__;
+	}
 }
 
 server.close();

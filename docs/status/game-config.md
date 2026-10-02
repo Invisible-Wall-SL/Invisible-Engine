@@ -363,7 +363,8 @@ the coded `winLevelMap[level]`), `activeWinLevelIsBig(level)`, `activeWinLevelCh
 table: `bookEventHandlerMap.ts` (setWin/freeSpinEnd), `flowEffects.ts` (`winLevelDataOf`),
 `unskippablePresentation.ts` (`startsCelebration`). `winLevelData` widened to `WinLevelData | undefined`
 across the emitter events + state vars (runtime already permitted it; `winLevelSoundsPlay` already used
-optional chaining). `Game.svelte` calls `publishWinLevelsToFacade()` at boot after `resetGameConfigCache`.
+optional chaining). `+layout.ts` calls `publishWinLevelsToFacade()` at boot after `resetGameConfigCache`,
+before `<Authenticate>` (a resumed round is translated there; see [engine](engine.md) 2026-10-02).
 
 **The facade↔engine contract.** The facade can't import the app (it's a drop-in for `rgs-requests`),
 so `publishWinLevelsToFacade()` writes the resolved tiers (level/threshold/type only) to

@@ -68,7 +68,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * Maker) fetches asynchronously in `+layout.ts`'s `load()`, which resolves AFTER module evaluation.
 	 * Anything that reads a config value at import time would therefore freeze to the compiled
 	 * template. {@link resetGameConfigCache} drops the memo once the runtime bundle is applied
-	 * (`Game.svelte`) — miss that call and an online game silently runs the sample config forever,
+	 * (`+layout.ts`, then `Game.svelte`) — miss that call and an online game silently runs the sample config forever,
 	 * which is the bug this whole tool exists to kill.
 	 *
 	 * A never-authored project resolves to `normalizeGameConfigDoc(deps.compiledConfig)`, so it renders
@@ -107,7 +107,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 
 	/**
 	 * Drop the {@link getActiveGameConfig} memo so the next read re-resolves. Called once the live
-	 * runtime bundle is fetched + applied (`Game.svelte`), to discard a config memoised at import
+	 * runtime bundle is fetched (`+layout.ts`) and again once applied (`Game.svelte`), to discard a config memoised at import
 	 * time — before the async doc arrived. A no-op for the baked path (that memo was already
 	 * correct), preserving dev parity.
 	 */
@@ -869,7 +869,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * cannot import this app, so a global is the decoupled bridge: it lets the facade emit a `winLevel`
 	 * from the AUTHORED ladder and gate big-win on the authored `type`, instead of its hardcoded ladder.
 	 * Cleared (set to the un-authored signal) when the project authors no tiers, so the facade falls back
-	 * byte-identically. Called at boot after {@link resetGameConfigCache} (`Game.svelte`).
+	 * byte-identically. Called at boot after {@link resetGameConfigCache}, BEFORE the game
+	 * authenticates (`apps/lines` `+layout.ts`): the facade translates a resumed round inside
+	 * `requestAuthenticate`, and a book stamped from the coded ladder carries levels an authored ladder
+	 * may not have.
 	 */
 	function publishWinLevelsToFacade(): void {
 		const tiers = activeWinLevels();
