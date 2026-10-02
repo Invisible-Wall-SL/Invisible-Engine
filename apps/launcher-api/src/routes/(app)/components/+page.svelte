@@ -1753,7 +1753,7 @@
 									to add nodes that turn with the face. The prize labels and the landed outline stay the
 									game's (switch them off with <strong>showLabels</strong> /
 									<strong>showLanded</strong>). Place it on the <strong>Wheel</strong> screen in
-									place of the Wheel. Listed under <strong>Overlay</strong>.
+									place of the Wheel. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>

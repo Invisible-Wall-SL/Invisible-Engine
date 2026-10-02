@@ -4,7 +4,8 @@
 // unchanged `radius`; unset, they read as the coded wheel (no art, labels and the landed outline on,
 // plain size); a cleared or nonsense value falls back instead of hiding the coded drawing; the def
 // stands for its part and counts in under one name; the editor previews the face and rim at the
-// wheel's size; and a wheel saved before all this gets the params and the stand-in back by id.
+// wheel's size, the rim over the part's nodes as the game draws it; and a wheel saved before all
+// this gets the params and the stand-in back by id.
 //
 //   node scripts/test-wheel-skin.mjs
 //
@@ -24,6 +25,7 @@ const bundled = await esbuild.build({
 			WHEEL_MOUNT,
 			WHEEL_SKIN_PARAMS,
 			boundComponentSkin,
+			fontParamKeysOf,
 			mergeBuiltinCodedParams,
 			partStandIn,
 			readWheelSkin,
@@ -88,10 +90,7 @@ assert(
 	),
 	'face, rim and pointer are image params (they ride the image-param art export)',
 );
-assert(
-	def.params.find((p) => p.key === 'labelFontFamily')?.label === 'font',
-	'the label font gets the font picker',
-);
+assert(mod.fontParamKeysOf(def).has('labelFontFamily'), 'the label font gets the font picker');
 
 console.info('reading the skin');
 const coded = mod.readWheelSkin((key) => params[key]);
@@ -144,6 +143,13 @@ assert(
 		['faceImage', 'rimImage'],
 	),
 	'previews the face under the rim',
+);
+assert(
+	same(
+		skin?.layers.map((l) => !!l.overNodes),
+		[false, true],
+	),
+	'the rim draws over the nodes inside the part, as in the game',
 );
 assert(
 	skin?.widthParam === 'artSize' &&

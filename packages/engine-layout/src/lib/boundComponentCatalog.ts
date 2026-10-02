@@ -84,8 +84,8 @@ export interface TileImageBinding {
 /**
  * A coded part an author can SKIN (Phase 12c, design `hold-and-win.md` §8). The part draws the
  * picked art in place of its coded drawing, and the author's own nodes INSIDE it — its `bind`
- * node's children, which the game hands the part as its `skin` — draw over that art, while the
- * part keeps its behaviour. Declaring this is what lets the editors draw those children and the
+ * node's children, which the game hands the part as its `skin` — draw over that art (under an
+ * `overNodes` layer), while the part keeps its behaviour. Declaring this is what lets the editors draw those children and the
  * art instead of the stand-in chip, and lets the Component Editor step inside the part to author
  * them. Keyed off `bind.component`, naming the ENCLOSING instance's param keys like
  * {@link TileImageBinding}; never written to the layout doc.
@@ -94,9 +94,10 @@ export interface PartSkinBinding {
 	/**
 	 * Instance params (kind `image`) drawn bottom → top, centred on the part. A layer with a
 	 * `directionParam` is a FILL: the game reveals it by a value from the edge that param names
-	 * (12b's `fillMaskRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`.
+	 * (12b's `fillMaskRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`. An `overNodes`
+	 * layer draws over the author's nodes, as the game draws it (the wheel's rim frames everything).
 	 */
-	layers: { imageParam: string; directionParam?: string }[];
+	layers: { imageParam: string; directionParam?: string; overNodes?: boolean }[];
 	/** Instance params (kind `number`) overriding every layer's box; blank ⇒ each image's own. */
 	widthParam?: string;
 	heightParam?: string;
@@ -194,7 +195,7 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	// sits off-centre at the rim, so only the game draws it.
 	HoldAndWinWheelPart: {
 		skin: {
-			layers: [{ imageParam: 'faceImage' }, { imageParam: 'rimImage' }],
+			layers: [{ imageParam: 'faceImage' }, { imageParam: 'rimImage', overNodes: true }],
 			widthParam: 'artSize',
 			heightParam: 'artSize',
 			radiusParam: 'radius',

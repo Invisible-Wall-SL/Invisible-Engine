@@ -2433,8 +2433,9 @@
 		const skinParams = instanceParams ?? componentParams;
 		if (skin && isPartSkinned(node, skin, skinParams)) {
 			// A skinned coded part (Phase 12c): its picked art, then the author's own nodes inside
-			// it — what the game draws in place of the coded drawing — instead of the stand-in chip.
-			drawPartSkin(ctx, skin, skinParams, t);
+			// it — what the game draws in place of the coded drawing — instead of the stand-in chip,
+			// then any art the game draws over those nodes.
+			drawPartSkin(ctx, skin, skinParams, t, false);
 			if (node.kind === 'container')
 				for (const child of node.children)
 					drawNode(
@@ -2447,6 +2448,7 @@
 						true,
 						instanceSpineBundle,
 					);
+			drawPartSkin(ctx, skin, skinParams, t, true);
 		} else if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.
@@ -3255,13 +3257,15 @@
 	/**
 	 * Draw a skinned part's art layers centred on the part, bottom → top — the same layers, box and
 	 * fill reveal the game's coded part draws (`HoldAndWinPot`), with a fill shown at
-	 * {@link POT_PREVIEW_FILL_SHARE} so the author sees which way it grows.
+	 * {@link POT_PREVIEW_FILL_SHARE} so the author sees which way it grows. `overNodes` picks the
+	 * layers the game draws over the part's nodes (true) or under them (false).
 	 */
 	function drawPartSkin(
 		ctx: CanvasRenderingContext2D,
 		skin: PartSkinBinding,
 		params: Record<string, unknown>,
 		t: ResolvedTransform,
+		overNodes: boolean,
 	): void {
 		const size = (key: string | undefined): number | undefined => {
 			const value = key ? params[key] : undefined;
@@ -3271,6 +3275,7 @@
 		const width = size(skin.widthParam) ?? (radius ? radius * 2 : undefined);
 		const height = size(skin.heightParam) ?? (radius ? radius * 2 : undefined);
 		for (const layer of skin.layers) {
+			if (!!layer.overNodes !== overNodes) continue;
 			const image = partSkinImage(params, layer.imageParam);
 			if (!image) continue;
 			const { assetKey, region } = parseScopedFrameRef(image);

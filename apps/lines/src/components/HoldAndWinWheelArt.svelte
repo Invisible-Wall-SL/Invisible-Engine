@@ -2,7 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import { wheelSegmentAngle, wheelSegmentCentre, type HoldAndWinWheelPrize } from 'engine-game';
 	import { parseScopedFrameRef, readWheelSkin, type WheelSkin } from 'engine-layout';
-	import { Container, Graphics, Sprite, Text, type GraphicsProps } from 'pixi-svelte';
+	import { CatalogText } from 'engine-layout/svelte';
+	import { Container, Graphics, Sprite, type GraphicsProps } from 'pixi-svelte';
 
 	import { wheelPrizeText } from '../game/holdAndWinText';
 	import { stateWheel, wheelRotation } from '../game/holdAndWinWheel.svelte';
@@ -29,7 +30,8 @@
 		radius: number;
 		/** An authored wheel's art and label params; absent ⇒ the coded wheel. */
 		look?: WheelSkin;
-		/** The author's own nodes inside the part: they turn with the face, over its art. */
+		/** The author's own nodes inside the part: they turn with the face, over its art and under the
+		 *  rim. */
 		skin?: Snippet;
 	} = $props();
 
@@ -130,7 +132,7 @@
 			{#if look.showLabels}
 				{#each wheel.prizes as prize, index (index)}
 					{@const angle = POINTER + wheelSegmentCentre(index, wheel.prizes.length)}
-					<Text
+					<CatalogText
 						x={Math.cos(angle) * radius * 0.58}
 						y={Math.sin(angle) * radius * 0.58}
 						rotation={angle + Math.PI / 2}

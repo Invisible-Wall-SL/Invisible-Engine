@@ -228,12 +228,13 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       - Both draw at `artSize`, else the wheel's diameter, so the labels and the landed outline
         stay aligned.
       - `pointerImage` stays put at its own size, its bottom edge at the coded pointer's tip.
-    - **Nodes inside the `Wheel` part** turn with the face, in place of the coded segments. The face
-      art still draws under them.
+    - **Nodes inside the `Wheel` part** turn with the face, in place of the coded segments: over the
+      face art, under the rim, which frames everything.
     - **Labels and outline stay coded:** the prize labels and the landed outline come from the Game
       Config and the server's segment, which no authored node can know. So `showLabels` /
       `showLanded` switch them, with a label font, colour and size. Unlike the Pot's labels, nodes
-      inside do not hide them.
+      inside do not hide them. The labels draw through `CatalogText`, so a Font Maker font picked
+      for them renders, a bitmap one included.
     - **Fixed decoration** (lights, a stand) goes beside the part in the component root. It shows
       with the wheel screen, which a Flow holds around the beat. A cue on **Wheel — spin** /
       **Wheel — land** can drive it.
@@ -241,9 +242,14 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     - **Parity:** unset, the drawing is the coded wheel's.
     - **Step-aside:** the part counts in under `WHEEL_MOUNT`, so the coded wheel steps aside for a
       copy of any id. The def `standsFor` the part, and a stand-in draws nothing and counts in.
-    - **Editor:** the canvas previews the face under the rim. `PartSkinBinding.radiusParam` sizes
-      them at twice `radius` when `artSize` is blank, the box the game uses. The pointer sits off
-      centre at the rim, so only the game draws it.
+    - **Editor:**
+      - **Layers:** the canvas previews the face, then the nodes inside, then the rim (an `overNodes`
+        layer), as the game draws them.
+      - **Size:** `PartSkinBinding.radiusParam` sizes the face and rim at twice `radius` when
+        `artSize` is blank, the box the game uses.
+      - **Not previewed:** the pointer sits off centre at the rim, so only the game draws it. With
+        only a rim picked, the canvas shows just the rim, while the game still draws the coded
+        segments under it.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -1048,7 +1054,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - The canvas previews the face and rim at twice `radius`.
     - A **Wheel (Hold and Win)** create type.
   - **Verified:**
-    - `test-wheel-skin.mjs` (20 assertions): the params beside an unchanged `radius`, the
+    - `test-wheel-skin.mjs` (21 assertions): the params beside an unchanged `radius`, the
       parity read, fallbacks for cleared or bad values, `standsFor`, the mount key, the editor box,
       and an old wheel's upgrade.
     - Every engine-layout fixture plus the launcher's `check:*` gates pass.
@@ -1061,6 +1067,18 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
         - The copy counts in as the wheel.
       - **A "★" node inside the part:** it turns with the face, from (506, 200) to (451, 440), 127 px
         from the centre on both sides of a 205.7° turn.
+  - **Review round (code-reviewer):**
+    - **Fixed, blocking:** the labels used a plain `<Text>`, so a Font Maker font picked as the
+      label font drew in the browser's default face. They use `CatalogText` now, as the Pot's
+      labels do.
+    - **Fixed:** the editor drew the rim under the nodes inside the part, while the game draws it
+      over them. Layers now carry `overNodes`.
+    - **Fixed:** the create-type hint named the wrong category (copies are listed under UI).
+    - **Fixed:** the fixture checks the font picker through `fontParamKeysOf` (21 assertions now).
+    - **Noted:** the rim-only preview (Decisions).
+    - **Found in passing, older:** `collectArtRefs` also misses image params set in a per-ratio
+      override (`node.overrides[layoutType].params`). Queued as its own task, beside the one for
+      art picked in **This game's defaults**.
 - 2026-10-02 — **Phase 12c: the Letters Strip skinned** (#1006). Contract: Decisions, "The Letters
   Strip draws each letter as a Letter Tile instance".
   - **Engine:**

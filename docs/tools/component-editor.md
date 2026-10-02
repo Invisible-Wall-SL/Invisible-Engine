@@ -538,8 +538,8 @@ the art in the **Wheel art** group of the placed Wheel's Properties:
   keeps them lined up with the prize labels.
 
 Create a **Wheel (Hold and Win)** and click **Edit inside Wheel ›**. Nodes inside turn with the
-face, in place of the coloured segments. Place them relative to the wheel's centre. The canvas
-shows them still; only the game turns them.
+face, in place of the coloured segments. They draw over the face and under the rim. Place them
+relative to the wheel's centre. The canvas shows them still; only the game turns them.
 
 The prize labels come from the Game Config and the outline from the server's result, so they stay
 the game's. Switch them off with **showLabels** and **showLanded**, or restyle the labels in the
