@@ -52,7 +52,7 @@ titled **"Hold and win game pipeline"**.
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
-| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | built, PR open — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
+| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
@@ -781,6 +781,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12a merged** (#1003, squash `97652ca9`). CI was green on the final head,
+  and the Runtime release workflow passed on the merge commit. Not yet checked: the served bundle,
+  and the `hw-3pots-sample` live check (Open items).
 - 2026-10-02 — **Phase 12a: scoped signals into components** (session "Hold and Win Phase 12a",
   #1003). Design §8.
   - **Engine.** `featureSignals.ts` registers 19 component signals off the beats' existing cues
