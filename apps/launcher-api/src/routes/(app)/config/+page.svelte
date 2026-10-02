@@ -52,6 +52,7 @@
 	import AddOnsSection from './AddOnsSection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
+	import { projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
@@ -90,12 +91,7 @@
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
 
-	const capabilities = $derived(
-		kindCapabilities(data.gameType, {
-			holdAndWin: doc.holdAndWin !== undefined,
-			potsOverlay: doc.potsOverlay !== undefined,
-		}),
-	);
+	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
 	const isHoldAndWin = $derived(capabilities.holdAndWin);
 	/** A Hold and Win base game pays by lines; a Hold and Win block that is the pots overlay's BONUS
 	 *  leaves the host's own win model alone. */
