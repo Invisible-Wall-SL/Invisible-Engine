@@ -50,7 +50,7 @@ titled **"Hold and win game pipeline"**.
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
-| 11b | Board expansion — rows unlock (design §7; after 11a) | built — whole pipeline on branch `claude/hw-11b-board-expansion` (PR pending merge); follow-ups in Open items | H&W Phase 11b — board expansion | — |
+| 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
@@ -618,19 +618,13 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
-- **Phase 11b follow-ups** (none blocks authoring):
-  - **The template reserves an expanding board's area only when asked.** `holdAndWinReferenceLayout(
-    board, { maxRows })` lifts and shrinks the reel grid so the grown block is centred, but the Game
-    Maker scaffolds from a preset (none expands), so a project that turns expansion on later keeps
-    its 3-row layout: its extra rows hang below the board, over whatever sits there. Wire the
-    scaffold / "Add missing screens" to pass the config's `maxRows`, or tell authors to move the
-    reel grid (the `/config` panel and the Scene Editor guide say so).
-  - **The base board after the feature shows only the base rows.** `settleReelsOnHeldCells` settles
-    the reel board on the held coins of the grid's rows; coins in unlocked rows are not drawn once
-    the board swaps back (the win presentation that follows is unaffected).
-  - **No art for an unlock symbol until it is bound.** The tool defaults now carry an `UNLOCK` entry
-    (the scatter art) so a scaffold that names one seeds it; an existing project binds its own in
-    `/symbols`. Without art the beat still plays (state, flight, fade, banner).
+- **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
+  - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
+    template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
+    board expansion** when the config expands but the reel grid has no room (it sets the grid's cell
+    size and board nudge; the node does not move; `reserveExpandingBoard` / `expandingBoardReserved`).
+  - **Coins in unlocked rows after the feature** — decided: the base board has `startRows`, so they
+    leave with the feature (they are paid in the tally). Documented in the playbook (S9 end state).
 
 - **Phase 11a follow-ups** (none blocks authoring):
   - **The active-modifiers line overflows** on the reference layout's wide arrangement once five
@@ -731,19 +725,38 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     read token from R2 was refused by auto mode (as on 2026-10-02 before). It ran the proxy instead:
     apps/lines as a book game on the local book mock, a full free-spin round, balance exact, 0
     errors. Play the remake on its live data per `reference_parity_free_spin_round_local`, or grant
-    the read, to close it.
+    the read, to close it. **Evidence from 11b (2026-10-02):** the 11b session's read of the token
+    was allowed and it ran the remake on live data, real clock: `main@59d12ae6` (11c part 1) vs
+    `cf41a3c9` + 11b (11c parts 1 and 2) had identical flow-trace vocabulary and emitter-event sets,
+    holds = releases, 0 exceptions — the hub may close this item on that.
 11. **Try the platform jackpot on a test game (11c part 2)** — add `"mockPlatformJackpot": true` to a game's
     `hostSettings` in `test_server/games.json` (a republish keeps it). Its mock then runs the
     platform jackpot. Force a hit from an authoring link with
     `/api/<key>/authoring/platformJackpot?sid=<sid>&hit=Grand` (`&when=feature` for a free spin or a
     respin). And ask the partner for a heartbeat answer from a brand that runs one
     (`play4fun-protocol.md` "Checks owed", item 5).
+12. **Bind art for an unlock symbol (11b)** — a project that turns on the unlock-symbol expansion rule
+    binds its `unlock`-tagged symbol in `/symbols` (the tool defaults use the scatter art, seeded only
+    when the symbol exists at scaffold time). Without art the beat still plays (state, flight, fade,
+    banner).
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 11b follow-ups (ruled by the hub)** (session "H&W Phase 11b — board
+  expansion"). Reserving an expanding board's area is one helper in `engine-layout`
+  (`reserveExpandingBoard`: the reel grid's cells shrink to fit `maxRows` in the shortest layout
+  box, and its board nudge lifts the whole board by half the extra rows — the node never moves; absolute,
+  so applying it twice changes nothing). The template uses it; the scaffold and the editor's "Add
+  missing screens" pass the stored config's `maxRows`; the editor offers **⇕ Reserve rows for
+  board expansion** when the config expands but the reel grid has no room. The coins of unlocked
+  rows leaving with the feature is the decided end state (playbook S9). Unlock-symbol art is an
+  owner checklist item.
+- 2026-10-02 — **Phase 11b merged and live** (#1002, `lines@8fe81dbefddc`, served by
+  `hw-3pots-sample` and `bookofborutremake`).
 
 - 2026-10-02 — **Phase 11b: board expansion (rows unlock), through the whole pipeline** (branch
   `claude/hw-11b-board-expansion`; session "H&W Phase 11b — board expansion"; contract in

@@ -797,9 +797,14 @@ game on the next **Publish** — the same trip as the rest of your art.
   every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
   game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the
   template puts one on the **Respin board** screen. **Select it** to preview one locked row under the
-  reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there: the
-  Hold and Win template built for a board's `maxRows` moves the reel grid up and shrinks its cells so
-  the grown board is centred and every piece around it stays clear, in every layout.
+  reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there. A
+  project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
+  with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
+  the whole board lifts (its **board nudge**), so the grown board sits where the base board was, and the pieces
+  above and below are pushed clear. A project that turns expansion on **later** shows a
+  **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
+  and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
+  grown board yourself.
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining

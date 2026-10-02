@@ -99,6 +99,10 @@ built for the grown board (`holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxR
   does not reset the counter on an unlock. In portrait and desktop the grown board and every piece
   around it stay on screen. After every respin `stateRespinBoard.rows` equals the server's snapshot
   `rows`; balance = before − stake + win.
+- **End state (by design):** the base board plays `startRows`, so when the feature ends and the
+  reel board comes back, the coins that sat in the unlocked rows leave with the feature — the reel
+  board shows only the held coins of its own rows. They are paid (they are in the tally); do not
+  report them missing.
 - **Resume:** as S8 (a plain reload cannot land mid-feature): fail a later respin request, reload —
   the board reopens at the server's open rows, the rest locked, with no intro.
 
