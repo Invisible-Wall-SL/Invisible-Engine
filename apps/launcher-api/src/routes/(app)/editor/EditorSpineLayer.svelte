@@ -16,6 +16,7 @@
 		resolveTransform,
 		tapOverlayDim,
 		MAX_COMPONENT_DEPTH,
+		type BoundBoneOffset,
 		type BoundScrub,
 		type ComponentDef,
 		type CoverFit,
@@ -49,7 +50,7 @@
 		type SpineSceneRenderer,
 		type SpineSkeleton,
 	} from './spineRuntime.client';
-	import { applySpineBoneOffset, type SpineBoneOffset } from 'pixi-svelte/spineBoneOffset';
+	import { applySpineBoneOffset } from 'pixi-svelte/spineBoneOffset';
 	import { previewOutputs, previewResolveTransform } from './valuePreview.client.svelte';
 
 	/** Structural view of the project's spines (mirrors `ProjectAssets`) — used to
@@ -450,13 +451,13 @@
 		pose?: SpinePreviewPose;
 	}
 
-	type SpinePreviewPose = { bones: [string, SpineBoneOffset][]; scrubs: BoundScrub[] };
+	type SpinePreviewPose = { bones: BoundBoneOffset[]; scrubs: BoundScrub[] };
 
 	/** A spine node's previewed bone offsets + scrubs, or undefined when it previews none. */
 	function previewPose(node: Extract<LayoutNode, { kind: 'spine' }>): SpinePreviewPose | undefined {
 		if (!node.valueBindings?.length) return undefined;
 		const outputs = previewOutputs(node);
-		const bones = [...boundBoneOffsets(node.valueBindings, outputs)];
+		const bones = boundBoneOffsets(node.valueBindings, outputs);
 		const scrubs = boundScrubs(node.valueBindings, outputs);
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
 	}
@@ -466,11 +467,13 @@
 	const MIX_DIRECTION_IN = 0;
 
 	/**
-	 * Pose a previewed binding onto the skeleton after its animation state applied: each scrub holds
-	 * its animation at the bound share (as the game's own scrub track does, layered over the resting
-	 * animation), then each bone takes its offset (`applySpineBoneOffset`, the game's rule). Returns
-	 * the restores that undo the bone offsets once the skeleton is drawn — the instance is shared per
-	 * bundle, so the next target must start from the un-offset pose.
+	 * Pose a previewed binding onto the skeleton after its animation state applied, the way the
+	 * game's `<SpinePose>` does: each scrub holds its animation at the bound share, then each bone
+	 * takes its offset (`applySpineBoneOffset`, the game's rule). Returns what undoes it once the
+	 * skeleton is drawn — the instance is shared per bundle, so the next target (and this one, when
+	 * the preview stops) must start from an unposed skeleton. A scrub writes channels the playing
+	 * animation may not key, so undoing one returns the skeleton to its setup pose; the next
+	 * `animationState.apply` re-poses whatever is playing.
 	 */
 	function applyPreviewPose(skeleton: SpineSkeleton, pose: SpinePreviewPose): (() => void)[] {
 		for (const scrub of pose.scrubs) {
@@ -480,10 +483,12 @@
 			anim.apply(skeleton, time, time, false, null, 1, MIX_BLEND_REPLACE, MIX_DIRECTION_IN);
 		}
 		const restores: (() => void)[] = [];
-		for (const [name, offset] of pose.bones) {
+		for (const { bone: name, offset } of pose.bones) {
 			const bone = skeleton.findBone(name);
 			if (bone) restores.push(applySpineBoneOffset(bone, offset));
 		}
+		restores.reverse();
+		if (pose.scrubs.length) restores.push(() => skeleton.setToSetupPose());
 		return restores;
 	}
 

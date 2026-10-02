@@ -2411,10 +2411,12 @@
 			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
 		) {
 			const box = boxOf(node, t);
+			// A mirrored clip spans its anchor the other way (the draw flips about the anchor).
+			const mirror = node.kind === 'flipbook' ? flipbookMirror(node) : undefined;
 			const r = fillMaskRect(
 				box.w,
 				box.h,
-				{ x: box.ax, y: box.ay },
+				{ x: mirror?.x ? 1 - box.ax : box.ax, y: mirror?.y ? 1 - box.ay : box.ay },
 				previewFill.share,
 				previewFill.direction,
 			);
@@ -2685,7 +2687,14 @@
 			const frame =
 				held !== undefined && heldClip?.frames.length
 					? clipFrameAt(heldClip, bindingFrameIndex(held, heldClip.frames.length))
-					: flipbookFrame(node.clipId, { fps: node.fps, direction: node.direction });
+					: flipbookFrame(node.clipId, {
+							fps: node.fps,
+							// A frame-bound clip walks forward in the game (its frame counts the clip as
+							// authored), so it previews that way while no test value holds it.
+							direction: node.valueBindings?.some((b) => b.target === 'frame')
+								? 'forward'
+								: node.direction,
+						});
 			if (frame) {
 				drawArtRegionSprite(
 					ctx,

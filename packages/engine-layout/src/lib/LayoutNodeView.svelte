@@ -21,8 +21,8 @@
 		Flipbook,
 		Rectangle,
 		Sprite,
-		SpineBone,
 		SpineBoneAttach,
+		SpinePose,
 		SpineProvider,
 		SpineTrack,
 		getContextApp,
@@ -78,7 +78,6 @@
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
-	import SpineScrubTrack from './SpineScrubTrack.svelte';
 
 	const { node, space, attachedEffects }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -179,22 +178,32 @@
 
 	// Value bindings (Phase 12b): numbers that drive this node. The transform targets fold onto the
 	// authored transform here, ONCE, so every branch below — and the bound / container / instance
-	// wrappers — moves, scales, fades and hides with the value. The other targets (fill, frame,
-	// scrub, bone) are read where their branch renders. No bindings ⇒ `bound.outputs` is empty and
-	// `foldBoundTransform` hands back the resolved transform itself (parity).
+	// wrappers — moves, scales, fades and hides with the value. A `visible` binding hides the way
+	// every layout visibility does, by unmounting: shown again, a spine starts its animation and a
+	// component fires `enter`. The other targets (fill, frame, scrub, bone) are read where their
+	// branch renders. No bindings ⇒ `bound.outputs` is empty and `foldBoundTransform` hands back the
+	// resolved transform itself (parity).
 	// The owning instance's params, captured at init (context reads are init-only; the object's
-	// getters stay live), for `{key}` placeholders and `param` inputs.
+	// getters stay live), for `{key}` placeholders and `param` inputs. The bindings themselves are
+	// read once too: a runtime node never changes them, and which branches carry a mask or a pose
+	// must not flip while the node lives (that would remount its art).
 	const bindingParams = getComponentParams();
+	// svelte-ignore state_referenced_locally
+	const bindings = node.valueBindings;
 	const bound = createBoundValues(
-		node.valueBindings,
+		bindings,
 		() => bindingParams,
-		() => (node.kind === 'flipbook' ? resolveFlipbook(node.clipId)?.frames?.length : undefined),
+		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
 	);
-	const frameBound = node.valueBindings?.some((binding) => binding.target === 'frame') ?? false;
+	const bindsTarget = (...targets: string[]): boolean =>
+		bindings?.some((binding) => targets.includes(binding.target)) ?? false;
+	const frameBound = bindsTarget('frame');
+	const fillBound = bindsTarget('fill');
+	const poseBound = bindsTarget('animTime', 'bone');
 	const transform = $derived(
 		foldBoundTransform(
 			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
-			node.valueBindings,
+			bindings,
 			bound.outputs,
 		),
 	);
@@ -845,10 +854,10 @@
 	 * reveal masks a sprite / flipbook / rect, a `frame` holds a flipbook on one frame, an `animTime`
 	 * scrub and a `bone` offset ride a spine. All empty for an unbound node (parity).
 	 */
-	const fill = $derived(boundFillShare(node.valueBindings, bound.outputs));
-	const heldFrame = $derived(boundFrameOutput(node.valueBindings, bound.outputs));
-	const scrubs = $derived(boundScrubs(node.valueBindings, bound.outputs));
-	const boneOffsets = $derived([...boundBoneOffsets(node.valueBindings, bound.outputs)]);
+	const fill = $derived(boundFillShare(bindings, bound.outputs));
+	const heldFrame = $derived(boundFrameOutput(bindings, bound.outputs));
+	const scrubs = $derived(boundScrubs(bindings, bound.outputs));
+	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 
 	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */
 	const textureSize = (
@@ -865,9 +874,11 @@
 	/**
 	 * The rect a live `fill` reveals, in the node's local space — measured from the size the branch
 	 * draws: its explicit width/height (scale folded in), else the art's natural size × scale. A
-	 * clip's box, when it declares one, is its natural size (what `<Flipbook>` sizes by). Undefined
-	 * on a cover node (the cover owns its size) and until the art has a size, so the node then draws
-	 * whole rather than masked to nothing.
+	 * clip's box, when it declares one, is its natural size (what `<Flipbook>` sizes by), and a
+	 * mirrored clip spans its anchor the other way (`<AnimatedSprite>` flips by the sign of its
+	 * scale, about the anchor). Undefined until the source reports and until the art has a size:
+	 * the mask is then off and the node draws whole, as authored. Never on a cover node (the cover
+	 * owns its size).
 	 */
 	const fillRect = $derived.by(() => {
 		if (!fill || bg) return undefined;
@@ -898,8 +909,16 @@
 		const width = sizedWidth ?? (natural ? natural.w * (sizedScale?.x ?? 1) : undefined);
 		const height = sizedHeight ?? (natural ? natural.h * (sizedScale?.y ?? 1) : undefined);
 		if (width === undefined || height === undefined) return undefined;
-		return fillMaskRect(width, height, transform.anchor, fill.share, fill.direction);
+		const ax = transform.anchor?.x ?? 0;
+		const ay = transform.anchor?.y ?? 0;
+		const anchor =
+			node.kind === 'flipbook'
+				? { x: flipbookClip?.flipX ? 1 - ax : ax, y: flipbookClip?.flipY ? 1 - ay : ay }
+				: transform.anchor;
+		return fillMaskRect(width, height, anchor, fill.share, fill.direction);
 	});
+	/** No mask: the fill branch's mask stays mounted (a remount would restart a clip) but off. */
+	const NO_MASK = { x: 0, y: 0, width: 0, height: 0 };
 </script>
 
 {#if transform.visible && revealed}
@@ -1025,12 +1044,13 @@
 			<Repeater {node} {space} />
 		</Container>
 	{:else if node.kind === 'sprite'}
-		{#if fillRect && spriteKey}
+		{#if fillBound && !bg && spriteKey}
 			<!--
 				A `fill` value binding reveals the sprite from one edge: the placement moves onto a wrapper
 				so the mask rect is drawn in the sprite's own (unrotated) space — a pot's liquid filling
-				upward, a bar filling rightward, at any rotation. Only while a fill is live; otherwise the
-				plain sprite below, byte-identical.
+				upward, a bar filling rightward, at any rotation. The branch is the node's for life (a
+				switch would remount the art); the mask is off until there is a rect. A node without a
+				fill binding takes the plain sprite below, byte-identical.
 			-->
 			<Container
 				x={posX}
@@ -1049,7 +1069,7 @@
 					tint={spriteTint}
 					{blendMode}
 				/>
-				<Rectangle isMask {...fillRect} />
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
 			</Container>
 		{:else}
 			<Sprite
@@ -1078,8 +1098,8 @@
 			matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
 			identically in editor + game); set `{0,0}` to pin from the top-left.
 		-->
-		{#if fillRect}
-			<!-- A live `fill` reveal — the same wrapper + mask as the sprite branch. -->
+		{#if fillBound}
+			<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
 			<Container
 				x={posX}
 				y={posY}
@@ -1093,7 +1113,7 @@
 					height={rectHeight}
 					backgroundColor={rectColor}
 				/>
-				<Rectangle isMask {...fillRect} />
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
 			</Container>
 		{:else}
 			<Rectangle
@@ -1232,23 +1252,21 @@
 				/>
 			{/if}
 			<!--
+				Value bindings on a spine (Phase 12b): an `animTime` scrub holds an animation at the bound
+				share of its length and a `bone` offset poses a bone, both on top of whatever is playing,
+				every frame (`<SpinePose>`). Mounted for the node's life when it binds either, so a value
+				arriving never remounts it; not at all for any other spine (parity).
+			-->
+			{#if poseBound}
+				<SpinePose {scrubs} bones={boneOffsets} />
+			{/if}
+			<!--
 				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
 				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<SpineProvider>` — no extra
 				transform, so a bone layer resolves this rig's bone (`SpineBoneAttach` → `getContextSpine`)
 				and the rig's timeline events (rebroadcast) fire it. The effect rides the rig; its own node
 				transform is intentionally not applied here.
 			-->
-			<!--
-				Value bindings on a spine (Phase 12b): an `animTime` scrub holds an animation on its own
-				track at the bound share of its length, layered over track 0; a `bone` offset poses a
-				bone on top of whatever is playing, every frame. None for an unbound spine (parity).
-			-->
-			{#each scrubs as scrub (scrub.track)}
-				<SpineScrubTrack animation={scrub.animation} track={scrub.track} time={scrub.time} />
-			{/each}
-			{#each boneOffsets as [boneName, offset] (boneName)}
-				<SpineBone {boneName} {offset} />
-			{/each}
 			{#each attachedEffects ?? [] as fx (fx.id)}
 				{@const fxDoc = resolveEffect(fx.effectId)}
 				{#if fxDoc}
@@ -1430,7 +1448,7 @@
 			`frame`: a `frame` value binding holds the clip on the bound frame instead of playing it.
 			`fillRect`: a `fill` binding reveals it from one edge, as in the sprite branch.
 		-->
-		{#if flipbookClip && fillRect}
+		{#if flipbookClip && fillBound && !bg}
 			<Container
 				x={posX}
 				y={posY}
@@ -1448,7 +1466,7 @@
 					frame={heldFrame}
 					{blendMode}
 				/>
-				<Rectangle isMask {...fillRect} />
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
 			</Container>
 		{:else if flipbookClip}
 			<Flipbook

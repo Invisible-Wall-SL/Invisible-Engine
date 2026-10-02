@@ -37,7 +37,7 @@
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
-	import { previewResolveTransform } from './valuePreview.client.svelte';
+	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
 		/** All doc scenes — the live emitters are driven by these (filtered by
@@ -639,6 +639,8 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		// A scrubbed value-binding test value moves / hides an effect like any other node.
+		void previewVersion();
 		if (ready) void requestRebuild();
 	});
 

@@ -155,7 +155,7 @@ export function bindingInput(value: unknown, of?: unknown, normalises = false): 
 	if (v === undefined) return undefined;
 	if (!normalises) return v;
 	const d = bindingNumber(of);
-	return d && d !== 0 ? v / d : 0;
+	return d ? v / d : 0;
 }
 
 /** The mapping curve, over `t` in 0..1 (a value past either end is passed through linearly). */
@@ -345,29 +345,29 @@ export function boundFrameOutput(
 	return found;
 }
 
-/** A live `animTime` scrub: which animation, on which track, at what share of its length. */
-export type BoundScrub = { animation: string; track: number; time: number };
+/** A live `animTime` scrub: which animation, held at what share of its length. */
+export type BoundScrub = { animation: string; time: number };
 
-/** Every `animTime` binding with an animation and a value, one per track (a later binding on the
- * same track wins — one track holds one animation). Track 0 is the resting animation's, so a binding
- * asking for it (or for none) scrubs on track 1. */
+/** Every `animTime` binding with an animation and a value, one per animation (a later binding on
+ * the same animation wins), in binding order — the order `<SpinePose>` applies them in. */
 export function boundScrubs(
 	bindings: readonly ValueBinding[] | undefined,
 	outputs: readonly (number | undefined)[],
 ): BoundScrub[] {
-	const byTrack = new Map<number, BoundScrub>();
+	const byAnimation = new Map<string, BoundScrub>();
 	bindings?.forEach((binding, i) => {
 		const time = outputs[i];
 		if (binding.target !== 'animTime' || !binding.animation || time === undefined) return;
-		const track = binding.track && binding.track > 0 ? Math.round(binding.track) : 1;
-		byTrack.set(track, {
+		byAnimation.set(binding.animation, {
 			animation: binding.animation,
-			track,
 			time: Math.min(1, Math.max(0, time)),
 		});
 	});
-	return [...byTrack.values()];
+	return [...byAnimation.values()];
 }
+
+/** One bone's combined offset — what `<SpinePose bones>` and the editor preview pose. */
+export type BoundBoneOffset = { bone: string; offset: SpineBoneOffset };
 
 /**
  * Every `bone` binding's output, combined per bone into one {@link SpineBoneOffset} — so two
@@ -376,7 +376,7 @@ export function boundScrubs(
 export function boundBoneOffsets(
 	bindings: readonly ValueBinding[] | undefined,
 	outputs: readonly (number | undefined)[],
-): Map<string, SpineBoneOffset> {
+): BoundBoneOffset[] {
 	const map = new Map<string, SpineBoneOffset>();
 	bindings?.forEach((binding, i) => {
 		const out = outputs[i];
@@ -405,11 +405,11 @@ export function boundBoneOffsets(
 		}
 		map.set(binding.bone, offset);
 	});
-	return map;
+	return [...map].map(([bone, offset]) => ({ bone, offset }));
 }
 
-/** The bindings worth keeping: a known target and an input. The editor's save path and the runtime
- * both skip a half-authored one (no `param`/`source` yet, an `animTime` without an animation). */
+/** Does a binding have everything it needs to act — an input, and the animation / bone its target
+ * names? The runtime skips one that does not (it never resolves); the editor flags it. */
 export function isLiveBinding(binding: ValueBinding): boolean {
 	if (!binding.param && !binding.source) return false;
 	if (binding.target === 'animTime' && !binding.animation) return false;

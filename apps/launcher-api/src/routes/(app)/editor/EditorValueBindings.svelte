@@ -8,6 +8,7 @@
 		bindingTargetsForKind,
 		defaultBindingOutRange,
 		evaluateBinding,
+		isLiveBinding,
 		type ComponentParam,
 		type LayoutNode,
 		type ValueBinding,
@@ -43,6 +44,13 @@
 	};
 
 	const { node, componentMode, componentParams, spineMeta, onChange }: Props = $props();
+
+	// A test value belongs to the node being edited: deselecting it (or switching document or
+	// project) drops its preview, so a stale value never poses a node the author is not looking at.
+	$effect(() => {
+		const id = node.id;
+		return () => clearNodePreview(id);
+	});
 
 	const TARGET_LABELS: Record<ValueBindingTarget, string> = {
 		x: 'Move x',
@@ -181,7 +189,6 @@
 		if (target === 'fill') binding.direction = 'right';
 		if (target === 'animTime') {
 			binding.animation = spineMeta?.animations[0] ?? '';
-			binding.track = 1;
 		}
 		if (target === 'bone') {
 			binding.bone = spineMeta?.bones[0] ?? '';
@@ -209,7 +216,6 @@
 			'below',
 			'direction',
 			'animation',
-			'track',
 			'bone',
 			'boneProperty',
 		] as const)
@@ -227,7 +233,6 @@
 		if (target === 'fill') b.direction = 'right';
 		if (target === 'animTime') {
 			b.animation = spineMeta?.animations[0] ?? '';
-			b.track = 1;
 		}
 		if (target === 'bone') {
 			b.bone = spineMeta?.bones[0] ?? '';
@@ -239,7 +244,10 @@
 	function setSource(b: ValueBinding, i: number, choice: string): void {
 		if (choice === 'custom') {
 			customRows[i] = true;
-			delete b.param;
+			if (b.param) {
+				delete b.param;
+				changed();
+			}
 			return;
 		}
 		customRows[i] = false;
@@ -267,7 +275,7 @@
 
 	function setNumber(
 		b: ValueBinding,
-		key: 'inMin' | 'inMax' | 'outMin' | 'outMax' | 'smooth' | 'threshold' | 'track',
+		key: 'inMin' | 'inMax' | 'outMin' | 'outMax' | 'smooth' | 'threshold',
 		value: number,
 	): void {
 		if (Number.isFinite(value)) b[key] = value;
@@ -463,17 +471,6 @@
 								/>
 							{/if}
 						</label>
-						<label class="field">
-							<span>track</span>
-							<input
-								type="number"
-								min="1"
-								max="8"
-								step="1"
-								value={b.track ?? 1}
-								oninput={(e) => setNumber(b, 'track', e.currentTarget.valueAsNumber)}
-							/>
-						</label>
 					</div>
 				{:else if b.target === 'bone'}
 					<div class="row">
@@ -605,6 +602,16 @@
 					/>
 					<span>stop at the ends of the in range</span>
 				</label>
+			{/if}
+
+			{#if !isLiveBinding(b)}
+				<p class="bind-hint warn">
+					Does nothing yet: {b.param || b.source
+						? b.target === 'animTime'
+							? 'pick an animation.'
+							: 'pick a bone.'
+						: 'choose a number in “from”.'}
+				</p>
 			{/if}
 
 			<div class="test">
@@ -743,6 +750,9 @@
 		color: #777;
 		line-height: 1.3;
 		margin: 0 0 6px;
+	}
+	.bind-hint.warn {
+		color: #d98a3a;
 	}
 	.ghost-sm {
 		align-self: flex-start;

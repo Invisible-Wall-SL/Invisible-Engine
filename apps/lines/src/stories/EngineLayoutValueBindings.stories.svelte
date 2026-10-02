@@ -130,7 +130,7 @@
 							outMin: 1,
 							outMax: 1.5,
 						},
-						{ target: 'animTime', ...level, animation: 'h1', track: 1 },
+						{ target: 'animTime', ...level, animation: 'h1' },
 					],
 				},
 			],

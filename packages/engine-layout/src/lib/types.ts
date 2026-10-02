@@ -309,8 +309,9 @@ interface BaseNode {
  * per-ratio override still places it: `x`/`y` add pixels, `rotation` adds degrees (clockwise),
  * `scale`/`scaleX`/`scaleY` and `alpha` multiply. `visible` shows the node while the value passes
  * its threshold. `fill` reveals a sprite, flipbook or rect from one edge (0 = hidden, 1 = whole).
- * `frame` holds a flipbook on one frame. `animTime` scrubs a spine animation on its own track
- * (0 = first frame, 1 = last). `bone` offsets one bone of a spine on top of whatever it is playing.
+ * `frame` holds a flipbook on one frame. `animTime` holds a spine animation at a point (0 = first
+ * frame, 1 = last), over whatever the rig is playing, firing none of its events. `bone` offsets one
+ * bone of a spine on top of whatever it is playing.
  */
 export const VALUE_BINDING_TARGETS = [
 	'x',
@@ -383,8 +384,6 @@ export interface ValueBinding {
 	direction?: ValueBindingFillDirection;
 	/** `animTime`: the animation scrubbed. */
 	animation?: string;
-	/** `animTime`: the track it plays on, above the resting animation's track 0. Absent ⇒ 1. */
-	track?: number;
 	/** `bone`: the bone's name. */
 	bone?: string;
 	/** `bone`: the channel offset. Absent ⇒ `scale`. */

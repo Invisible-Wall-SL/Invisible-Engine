@@ -282,20 +282,18 @@ assert(
 const scrubs = mod.boundScrubs(
 	[
 		{ target: 'animTime', animation: 'fill' },
-		{ target: 'animTime', animation: 'grow', track: 3 },
+		{ target: 'animTime', animation: 'grow' },
 		{ target: 'animTime' },
-		{ target: 'animTime', animation: 'x', track: 0 },
+		{ target: 'animTime', animation: 'fill' },
 	],
 	[0.5, 2, 0.5, 0.2],
 );
-assert(scrubs.length === 2, 'a scrub without an animation is dropped; one scrub per track');
-const track1 = scrubs.find((s) => s.track === 1);
+assert(scrubs.length === 2, 'a scrub without an animation is dropped; one scrub per animation');
 assert(
-	track1?.animation === 'x' && track1.time === 0.2,
-	'track 0 (the resting animation) is never scrubbed — moved to 1, where the later binding wins',
+	scrubs[0].animation === 'fill' && scrubs[0].time === 0.2,
+	'a later binding on the same animation wins, keeping its place in binding order',
 );
-const track3 = scrubs.find((s) => s.track === 3);
-assert(track3?.time === 1, 'a scrub keeps its track; time stays 0..1');
+assert(scrubs[1].animation === 'grow' && scrubs[1].time === 1, 'scrub time stays 0..1');
 
 const bones = mod.boundBoneOffsets(
 	[
@@ -306,13 +304,14 @@ const bones = mod.boundBoneOffsets(
 	],
 	[1.5, 10, 4, 3],
 );
-assert(bones.size === 2, 'a bone binding without a bone is dropped');
-const belly = bones.get('belly');
+assert(bones.length === 2, 'a bone binding without a bone is dropped');
+const boneOffset = (name) => bones.find((b) => b.bone === name)?.offset;
+const belly = boneOffset('belly');
 assert(
 	belly.scaleX === 1.5 && belly.scaleY === 1.5 && belly.rotation === 10,
 	'two bindings on one bone combine',
 );
-assert(bones.get('arm').y === 4, 'a y offset carries');
+assert(boneOffset('arm').y === 4, 'a y offset carries');
 
 const bone = { x: 5, y: 6, rotation: 30, scaleX: 2, scaleY: 1 };
 const restore = mod.applySpineBoneOffset(bone, {

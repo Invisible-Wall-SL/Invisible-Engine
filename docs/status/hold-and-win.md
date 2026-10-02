@@ -93,12 +93,16 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **Targets:** the transform ones are RELATIVE to the authored node, so a per-ratio override still
     places it — `x`/`y` add px, `rotation` adds degrees clockwise, `scale`/`scaleX`/`scaleY` and
     `alpha` multiply — folded once onto the resolved transform in `<LayoutNodeView>`. `visible`:
-    shown while the value is ≥ `threshold` (default 1; `below` inverts). `fill`: a mask revealing a
-    sprite / flipbook / rect from one edge (not on a cover node). `frame`: holds a flipbook frame,
-    counted on the clip as authored (a frame-bound clip walks forward). `animTime`: scrubs an
-    animation on its own track (default 1, never 0) at `timeScale` 0, 0..1 of its length. `bone`:
-    offsets a bone on top of the animated pose every frame and undoes it after the world transform,
-    so an unkeyed channel never compounds (`pixi-svelte/spineBoneOffset`, shared with the editor).
+    shown while the value is ≥ `threshold` (default 1; `below` inverts); hidden means unmounted,
+    like every layout visibility, so a spine shown again restarts and a component fires `enter`.
+    `fill`: a mask revealing a sprite / flipbook / rect from one edge (not on a cover node; a
+    mirrored clip's mask mirrors with it). `frame`: holds a flipbook frame, counted on the clip as
+    authored (a frame-bound clip walks forward). `animTime` and `bone` pose through
+    `pixi-svelte`'s `<SpinePose>` on the spine's world-transform hooks, after the animation state:
+    each scrub applies its animation at the held share of its length (`Animation.apply`, its
+    events dropped, so it fires none), then each bone offset is added / multiplied on top and undone
+    after the world transform, last first, so an unkeyed channel never compounds
+    (`pixi-svelte/spineBoneOffset`, shared with the editor preview).
   - **New sources** (`Game.svelte`): `meter.<id>.stage` and `meter.<id>.full` (1/0; also a visibility
     source), `respinsStart` (the counter's current cap), `cellsHeld` / `cellsTotal`, and `rowsOpen` /
     `rowsMax` on an expanding board. The editor's picker reads `VALUE_BINDING_SOURCE_CATALOG`
@@ -658,8 +662,6 @@ Hold and Win beats prints copy.
     pot on `hw-3pots-sample`) needs 12c's authored children inside the Pot.
   - **The Scene Editor cannot scrub a node inside a placed instance** — those nodes are not
     selectable there. Scrub it in the Component Editor.
-  - **Editor-only:** a scrub on a rig that two nodes share can leave its keyed channels on the
-    other node's preview for a frame (the WebGL instance is shared per bundle).
   - **Fill covers sprite, flipbook and rect only.** A container or spine fill (mask a whole group)
     is not built.
 
@@ -797,9 +799,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Engine (`engine-layout`):** `ValueBinding` on every node; the pure `valueBindings.ts`
     (inputs, mapping, folding, fill rect, frame, scrub, bone) and its fixture
     `test-value-bindings.mjs` (81 assertions); `boundValues.svelte.ts` subscribes the sources and
-    glides; `<LayoutNodeView>` folds the transform once and adds the fill mask, held frame,
-    `<SpineScrubTrack>` and `<SpineBone offset>`.
-  - **`pixi-svelte`:** `SpineBone` gains `offset` (re-applied on the spine's world-transform hooks,
+    glides; `<LayoutNodeView>` folds the transform once and adds the fill mask, the held frame and
+    `<SpinePose>`, each branch fixed for the node's life so a value arriving never remounts art.
+  - **`pixi-svelte`:** `<SpinePose>` (scrubs + bone offsets on the spine's world-transform hooks,
     chained, unlinked on unmount); the `spineBoneOffset` leaf; `AnimatedSprite` / `Flipbook` hold a
     `frame`.
   - **Sources (`apps/lines`):** `meter.<id>.stage` / `.full`, `respinsStart`, `cellsHeld` /
@@ -814,7 +816,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Verified:** the fixture; a Storybook story with one pot def placed twice (`red` at 0 → 6,
     `blue` at 3 → 12), screenshot through Playwright: each liquid fills by its own meter, the marker
     rises, the full badge shows on the full pot only, the H1 rig grows by its `global` bone and
-    scrubs `h1`, and holds a steady size over many frames (no compounding). `check:svelte` at
+    scrubs `h1`, and holds a steady size over many frames (no compounding). A code review then moved
+    the scrub off a track entry (a new entry per change replayed the animation's events onto the game
+    bus) onto `<SpinePose>`, mirrored the fill mask for flipped clips, and fixed the editor preview
+    (a scrub no longer leaks onto the shared rig, the effect overlay repaints, a test value clears
+    on deselect). `check:svelte` at
     baseline for engine-layout / pixi-svelte / lines / launcher, lint clean, `check:path-imports` and
     `check:undefined-names` green, the launcher builds. Not verified: the editor section in a browser
     (it needs the auth-gated launcher).
