@@ -568,10 +568,6 @@ Hold and Win beats prints copy.
   screen. Fixed for the CODED counter (it is pulled down onto the top row when there is no room
   above, measured through the board's transform); an authored `respinCounter` is the author's to
   place — check it in portrait with the jackpot bar.
-- **Facade `modeEnter` / `modeExit`** for a QUEUED mode (owner: "Hold and Win engine runtime"): the
-  mock now announces one on the forced `queuedMode` beat (see Decisions, 2026-10-01). Pass both
-  through generically, converting `modeExit.total` from credits to book units, and add a fixture
-  case from that beat.
 
 1. **Phase 7 follow-ups** (none blocks authoring):
    - **Owner: Re-publish `hw-3pots-sample`** so players (not just `authoring=1`) see the authored coin
@@ -651,6 +647,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **The facade maps `modeEnter` / `modeExit`** (#965; session "Hold and Win Phase 4 —
+  engine runtime") — the last Phase 4 item. A Hold and Win server's `modeEnter {mode, cause,
+  policy?, payload?}` / `modeExit {mode, total?}` (wire doc "Modes") pass through to the engine's 4M
+  pair; `total` converts from credits to book units, `policy` passes only as `nest`/`queue`, an event
+  with no `mode` is dropped. The facade fixture plays the forced `queuedMode` beat: the queued mode
+  enters right after `holdAndWinTrigger` and exits right after `holdAndWinEnd`, and the feature is
+  never doubled as a mode event (a mutant dropping the mapping fails 5 checks).
 - 2026-10-02 — **Authorable respin cell tiles + gap** (session "Hold and Win Phase 4 — polish";
   the hub's item 3 follow-up). New built-in component **`respinCells`** ("Respin Cell Tiles",
   `capability: 'holdAndWin'`): params `tileImage` (image), `tileTint`, `gap` (0–0.45 of a cell). Its
