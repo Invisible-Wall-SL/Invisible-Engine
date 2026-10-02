@@ -299,6 +299,15 @@ const roundProblems = (g, round, meters) => {
 		let left = start;
 		let cap = start;
 		const tier = (c) => g.ladder.indexOf(c.jackpot);
+		// Board expansion (11b): the open rows, the respin's unlock, and the row jackpots it owes.
+		const grow = block.expansion;
+		let openRows = g.doc.numRows[0];
+		let unlockedHere = false;
+		const owedRowJackpots = [];
+		if (grow) {
+			if (trig.expansion?.rows !== grow.startRows || trig.expansion?.maxRows !== grow.maxRows)
+				fail(`the entry says rows ${JSON.stringify(trig.expansion)}`);
+		} else if (trig.expansion) fail('an unexpanding board sent an expansion at entry');
 
 		const apply = (e) => {
 			const c = e.context;
@@ -432,13 +441,56 @@ const roundProblems = (g, round, meters) => {
 					}
 					break;
 				}
+				case 'rowsUnlocked': {
+					if (!grow) {
+						fail('rows unlocked on a board that does not expand');
+						break;
+					}
+					if (c.from !== openRows) fail(`rowsUnlocked from ${c.from}, the board has ${openRows}`);
+					if (c.cause !== grow.rule) fail(`rowsUnlocked by ${c.cause}, the rule is ${grow.rule}`);
+					if (!(c.rows > c.from && c.rows <= grow.maxRows))
+						fail(`rowsUnlocked ${c.from}→${c.rows} (max ${grow.maxRows})`);
+					if (grow.rule === 'unlockSymbol') {
+						const bad = c.unlockers.filter(
+							(u) => !g.rolesOf(tracked.get(key(u))?.symbol).includes('unlock'),
+						);
+						if (bad.length) fail(`unlockers ${bad.map(key)} hold no unlock symbol`);
+						const want = Math.min(grow.maxRows, c.from + c.unlockers.length);
+						if (c.rows !== want) fail(`${c.unlockers.length} unlockers opened to ${c.rows}`);
+					} else if (c.unlockers.length) fail(`a ${grow.rule} unlock named unlockers`);
+					if (grow.rule === 'fullRow') {
+						const reels = g.doc.numReels;
+						const bottom = [...tracked.values()].filter((t) => t.row === c.from - 1).length;
+						if (bottom !== reels || c.rows !== c.from + 1)
+							fail(
+								`fullRow opened ${c.from}→${c.rows} with ${bottom}/${reels} held in the bottom row`,
+							);
+					}
+					if (grow.rule === 'coinCount') {
+						let want = c.from;
+						while (
+							want < grow.maxRows &&
+							tracked.size >= (grow.thresholds?.[want - grow.startRows] ?? Infinity)
+						)
+							want++;
+						if (c.rows !== want)
+							fail(`coinCount opened to ${c.rows} with ${tracked.size} held (expected ${want})`);
+					}
+					for (const rj of grow.rowJackpots ?? [])
+						if (rj.rows > c.from && rj.rows <= c.rows) owedRowJackpots.push(rj.jackpot);
+					openRows = c.rows;
+					unlockedHere = true;
+					break;
+				}
 				case 'cellsCleared':
 					for (const cell of c.cells) {
 						if (c.reason === 'applied') {
 							const t = tracked.get(key(cell));
-							if (!t || !g.rolesOf(t.symbol).includes('addRespins'))
-								fail(`${key(cell)} cleared as applied, but it holds no add-respins`);
-							if (block.specials.addRespins?.sticky) fail(`a sticky add-respins left ${key(cell)}`);
+							const roles = g.rolesOf(t?.symbol);
+							if (!roles.includes('addRespins') && !roles.includes('unlock'))
+								fail(`${key(cell)} cleared as applied, but it holds no add-respins or unlock`);
+							if (roles.includes('addRespins') && block.specials.addRespins?.sticky)
+								fail(`a sticky add-respins left ${key(cell)}`);
 						} else if (c.reason !== 'collected') fail(`cellsCleared reason ${c.reason}`);
 						tracked.delete(key(cell));
 					}
@@ -460,6 +512,13 @@ const roundProblems = (g, round, meters) => {
 					if (c.amount !== credits(g.jackpots[c.tier] * (c.banked ? 1 : 1) * 1) && c.banked) {
 						fail(`${c.tier} jackpot pays ${c.amount}`);
 					}
+					if (c.source === 'row') {
+						const at = owedRowJackpots.indexOf(c.tier);
+						if (at < 0 || !c.banked) fail(`a row jackpot ${c.tier} nobody reached`);
+						else owedRowJackpots.splice(at, 1);
+					}
+					if (c.source === 'fullBoard' && grow && openRows !== grow.maxRows)
+						fail(`a full-board jackpot on ${openRows} of ${grow.maxRows} rows`);
 					if (c.banked) banked.jackpots += c.amount;
 					break;
 				default:
@@ -491,6 +550,8 @@ const roundProblems = (g, round, meters) => {
 		const enter = baseEvents.findIndex((e) => e.event === 'enterBonus');
 		applyAll(baseEvents.slice(from + 1, enter));
 		compare(baseEvents[enter].context, 'entry');
+		if (grow && baseEvents[enter].context.holdAndWin.rows !== grow.startRows)
+			fail(`the entry snapshot has ${baseEvents[enter].context.holdAndWin.rows} rows`);
 		left = baseEvents[enter].context.left;
 		if (left !== start) fail(`the feature opens with ${left} respins, not ${start}`);
 		if (baseEvents[enter].context.holdAndWin.start !== start)
@@ -504,7 +565,12 @@ const roundProblems = (g, round, meters) => {
 			const board = events.find((e) => e.event === 'playedSpin')?.context;
 			if (!board) continue;
 			played++;
+			unlockedHere = false;
 			const heldBefore = new Map(tracked);
+			if (board.some((column) => column.length !== openRows))
+				fail(
+					`respin ${played}: the board has ${board.map((c) => c.length)} rows, ${openRows} open`,
+				);
 			// The board as it lands: every held cell where it was, new ones exactly where `coinsLand` says.
 			const landed = events.find((e) => e.event === 'coinsLand')?.context.cells ?? [];
 			const landedKeys = new Set(landed.map(key));
@@ -538,7 +604,9 @@ const roundProblems = (g, round, meters) => {
 			const endedHere = events.some((e) => e.event === 'holdAndWinEnd');
 			// The respin that ends the feature never resets: it says 0 left, like its snapshot.
 			const reset =
-				!endedHere && (block.respins.reset === 'anySpecial' ? landed.length > 0 : newCoin);
+				!endedHere &&
+				((block.respins.reset === 'anySpecial' ? landed.length > 0 : newCoin) ||
+					(unlockedHere && grow.resetsRespins));
 			if (update.reset !== reset)
 				fail(`respin ${played}: reset ${update.reset}, expected ${reset}`);
 			// `left` already counts what an add-respins added this respin; a reset never throws it away.
@@ -552,6 +620,9 @@ const roundProblems = (g, round, meters) => {
 				fail(`respin ${played}: played ${update.played}`);
 			left = update.left;
 			compare(snap, `respin ${played}`);
+			if (grow && snap.holdAndWin.rows !== openRows)
+				fail(`respin ${played}: snapshot rows ${snap.holdAndWin.rows}, open ${openRows}`);
+			if (owedRowJackpots.length) fail(`respin ${played}: row jackpots ${owedRowJackpots} unpaid`);
 
 			// Stickiness.
 			if (streak) {
@@ -1214,6 +1285,127 @@ const resumeAfter = async (g, force) => {
 		check(Boolean(round.error), `force ${spec} is refused on pots`, round.error ?? 'dealt');
 	}
 	pass('pots (no add-respins, no upgrade) refuses their beats');
+	await pots.close();
+}
+
+// ---------- 2c. board expansion (Phase 11b) on the pots-expansion-* test fixtures ----------
+
+/** The open rows after respin `n` (its snapshot), and the rows each `rowsUnlocked` reached. */
+const rowsAt = (r, n) => snapshotAt(r, n)?.rows;
+const unlocks = (r) => all(r, 'rowsUnlocked');
+const maxRowsOf = (g) => g.block.expansion.maxRows;
+
+for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expansion-count']) {
+	const g = await boot(id);
+	const rule = g.block.expansion.rule;
+	console.log(`${id} (rule ${rule}): rounds, forced beats, resume`);
+	const probe = await g.post(`/rgs/engine?sid=nat-${id}&seq=0`, [{ action: 'config' }]);
+	const boot0 = probe.events.find((e) => e.event === 'config').context.holdAndWin.expansion;
+	check(
+		boot0?.startRows === 3 && boot0.maxRows === 6 && boot0.rule === rule,
+		`${id}: the boot config names the expansion`,
+		JSON.stringify(boot0),
+	);
+	const meters = meterStart(probe.events.find((e) => e.event === 'config').context);
+	let ok = 0;
+	let grew = 0;
+	for (let i = 0; i < 80; i++) {
+		const round = await playRound(g, `nat-${id}`, { force: 'trigger' });
+		if (verifyRound(g, round, `${id} natural round ${i}`, meters)) ok++;
+		if (unlocks(round).length) grew++;
+	}
+	if (
+		check(
+			ok === 80 && grew > 0,
+			`${id}: 80 natural features consistent, some grew`,
+			`${ok} ok, ${grew} grew`,
+		)
+	)
+		pass(`${id}: 80 natural features re-derived (${grew} opened rows)`);
+
+	await beat(
+		g,
+		'unlock:1',
+		(r) => {
+			const u = inRespin(r, 1, 'rowsUnlocked')[0];
+			const next = r.responses[2]?.events.find((e) => e.event === 'playedSpin')?.context;
+			return (
+				u?.from === 3 &&
+				u.rows === 4 &&
+				u.cause === rule &&
+				rowsAt(r, 1) === 4 &&
+				(rule !== 'unlockSymbol' || (u.unlockers.length === 1 && applied(r, 1).length === 1)) &&
+				respinUpdateAt(r, 1).reset === true &&
+				next?.every((column) => column.length === 4)
+			);
+		},
+		'respin 1 opens row 4 by the rule; the next board is 4 rows tall',
+	);
+	await beat(
+		g,
+		'unlock:2,chain',
+		(r) =>
+			unlocks(r).length >= 2 &&
+			unlocks(r)[1].rows === 5 &&
+			all(r, 'coinsLand').some((l) => l.cells.some((c) => c.row >= 3)),
+		'respins 1 and 2 open rows 4 and 5, and coins land in the new rows',
+	);
+	await beat(
+		g,
+		'expandFull',
+		(r) => {
+			const full = jackpotsWon(r, 'fullBoard');
+			const last = unlocks(r).at(-1);
+			return (
+				last?.rows === maxRowsOf(g) &&
+				full.length === 1 &&
+				full[0].tier === g.block.boardEnd.jackpot &&
+				all(r, 'playedBonusSpin').at(-1)?.holdAndWin.cells.length ===
+					g.doc.numReels * maxRowsOf(g) &&
+				closesAtZero(r)
+			);
+		},
+		'every row opens, the whole 6-row board fills and pays the full-board jackpot',
+	);
+	await beat(
+		g,
+		'fullBoard',
+		(r) => !jackpotsWon(r, 'fullBoard').length,
+		'a full 3-row board is no full board while rows are still locked',
+	);
+	for (const force of ['unlock:1', 'unlock:2', 'expandFull']) await resumeAfter(g, force);
+	await g.close();
+}
+
+{
+	const g = await boot('pots-expansion-fullrow');
+	await beat(
+		g,
+		'unlock:2',
+		(r) => {
+			const rows = jackpotsWon(r, 'row');
+			return rows.length === 1 && rows[0].tier === 'MAJOR' && rows[0].banked === true;
+		},
+		'reaching row 5 pays its row jackpot, banked',
+	);
+	await g.close();
+	const noReset = await boot('pots-expansion-count');
+	await beat(
+		noReset,
+		'unlock:1',
+		(r) => {
+			const landedCoins = inRespin(r, 1, 'coinsLand')[0]?.cells.length ?? 0;
+			return landedCoins > 0 && inRespin(r, 1, 'rowsUnlocked').length === 1;
+		},
+		'coinCount: the threshold of held symbols opens the row (resetsRespins off, coins still reset)',
+	);
+	await noReset.close();
+	const pots = await boot('pots');
+	for (const spec of ['unlock:1', 'expandFull', 'unlock:0']) {
+		const round = await playRound(pots, `bad-${spec}`, { force: spec });
+		check(Boolean(round.error), `force ${spec} is refused on pots`, round.error ?? 'dealt');
+	}
+	pass('pots (no expansion) refuses the expansion beats');
 	await pots.close();
 }
 

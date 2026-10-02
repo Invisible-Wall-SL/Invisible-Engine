@@ -71,6 +71,7 @@ const SPECIAL_ROLE = {
 	upgrade: 'upgrade',
 };
 const UPGRADE_TARGETS = ['all', 'adjacent', 'jackpotTier'];
+const EXPANSION_RULES = ['fullRow', 'unlockSymbol', 'coinCount'];
 const ROLE_SPECIAL = Object.fromEntries(Object.entries(SPECIAL_ROLE).map(([k, r]) => [r, k]));
 
 function hashStr(s) {
@@ -217,6 +218,22 @@ export function createMockRgs(opts = {}) {
 	const upgradeTargets = list(specialsCfg.upgrade?.targets).filter((t) =>
 		UPGRADE_TARGETS.includes(t?.target),
 	);
+	/** Board expansion (11b): rows open BELOW the base grid up to `maxRows`. Null when it never grows. */
+	const expansion = (() => {
+		const raw = block.expansion;
+		if (!raw || !EXPANSION_RULES.includes(raw.rule)) return null;
+		const startRows = Math.max(1, Math.round(Number(raw.startRows) || 1));
+		const maxRows = Math.max(startRows, Math.round(Number(raw.maxRows) || startRows));
+		return {
+			startRows,
+			maxRows,
+			rule: raw.rule,
+			thresholds: list(raw.thresholds).map(Number),
+			unlockReels: Array.isArray(raw.unlockReels) ? raw.unlockReels : undefined,
+			resetsRespins: raw.resetsRespins !== false,
+			rowJackpots: list(raw.rowJackpots).filter((rj) => rj?.jackpot in jackpotTable),
+		};
+	})();
 
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? 5)));
 	const rowHeights = Array.from({ length: reelCount }, (_u, reel) => {
@@ -235,6 +252,7 @@ export function createMockRgs(opts = {}) {
 	const coinSymbol = withRole('coin')[0] ?? withRole('jackpot')[0];
 	const jackpotSymbol = withRole('jackpot')[0] ?? coinSymbol;
 	const blankSymbol = withRole('blank')[0] ?? 'BLANK';
+	const unlockSymbol = expansion?.rule === 'unlockSymbol' ? withRole('unlock')[0] : undefined;
 	const specialSymbol = Object.fromEntries(
 		SPECIALS.map((kind) => [kind, specialsCfg[kind] ? withRole(SPECIAL_ROLE[kind])[0] : undefined]),
 	);
@@ -500,6 +518,7 @@ export function createMockRgs(opts = {}) {
 		'special',
 		'mystery',
 		'unlock',
+		'expandFull',
 		'jackpot',
 		'letter',
 		'letters',
@@ -521,6 +540,10 @@ export function createMockRgs(opts = {}) {
 	 *                                         cash coin
 	 *   mystery:<coin|jackpot:<TIER>|<special>>   a mystery lands in respin 1, reveals it
 	 *   unlock:<special>                      the mystery reveals a special NOT active at entry
+	 *   unlock:<n>                            board expansion: the next respins open n rows by the
+	 *                                         game's rule (fill the bottom open row / land an unlock
+	 *                                         symbol / land coins up to the threshold), one per respin
+	 *   expandFull                            open every row, then fill the whole expanded board
 	 *   jackpot:<TIER>                        a jackpot coin lands in respin 1
 	 *   letter                                respin 1 fills the first unlit column (columnLetters)
 	 *   letters · fullBoard                   respin 1 fills every empty cell (all letters / full board)
@@ -587,8 +610,20 @@ export function createMockRgs(opts = {}) {
 						force.upgradeTarget = args[1];
 					}
 					break;
-				case 'mystery':
-				case 'unlock': {
+				case 'unlock':
+				case 'expandFull':
+					if (name === 'expandFull' || /^\d+$/.test(args[0] ?? '')) {
+						const n = name === 'expandFull' ? Infinity : Number(args[0]);
+						if (!expansion) errors.push(`${token}: this game's board does not expand`);
+						else if (!(n >= 1)) errors.push(`${token}: unlock at least one row`);
+						else if (expansion.rule === 'unlockSymbol' && !unlockSymbol)
+							errors.push(`${token}: no symbol is tagged unlock`);
+						force.unlockRows = n;
+						if (name === 'expandFull') force.expandFull = true;
+						break;
+					}
+				// falls through — `unlock:<special>` is the mystery's
+				case 'mystery': {
 					needSpecial('mystery', token);
 					const [what, tier] = args;
 					if (name === 'unlock' || SPECIALS.includes(what)) {
@@ -791,6 +826,15 @@ export function createMockRgs(opts = {}) {
 			})),
 			luckySpin: trigger.luckySpin === true,
 			...(trigger.randomMetre ? { randomMetre: trigger.randomMetre.name } : {}),
+			...(expansion
+				? {
+						expansion: {
+							startRows: expansion.startRows,
+							maxRows: expansion.maxRows,
+							rule: expansion.rule,
+						},
+					}
+				: {}),
 		},
 	});
 
@@ -807,6 +851,7 @@ export function createMockRgs(opts = {}) {
 		collectorLevel: f.collectorLevel,
 		coinBoost: f.coinBoost,
 		...(boardEnd.type === 'columnLetters' ? { lettersLit: [...f.lettersLit] } : {}),
+		...(expansion ? { rows: f.rows } : {}),
 	});
 	const bonusSnapshot = (round) => {
 		const f = round.feature;
@@ -967,7 +1012,9 @@ export function createMockRgs(opts = {}) {
 			}
 		}
 		const full = f.board.every((column) => column.every((cell) => cell !== null));
-		if (boardEnd.type === 'fullBoardJackpot' && full) {
+		// An expanding board is full only once every row of `maxRows` is open and held.
+		const fullAtMax = full && (!expansion || f.rows === expansion.maxRows);
+		if (boardEnd.type === 'fullBoardJackpot' && fullAtMax) {
 			const counts = f.board.every((column) =>
 				column.every((cell) => rolesOf(cell).some((r) => list(boardEnd.roles).includes(r))),
 			);
@@ -1043,6 +1090,9 @@ export function createMockRgs(opts = {}) {
 			queue: [],
 			boosted: false,
 			ended: false,
+			...(expansion
+				? { rows: rowHeights[0], unlocksLeft: force.unlockRows ?? 0, fillAll: force.expandFull }
+				: {}),
 		};
 		round.feature = f;
 		const streak = stickiness === 'collectorsOnly';
@@ -1098,6 +1148,7 @@ export function createMockRgs(opts = {}) {
 				respins: respinRules.start,
 				stickiness,
 				activeModifiers: [...f.active],
+				...(expansion ? { expansion: { rows: f.rows, maxRows: expansion.maxRows } } : {}),
 			},
 		});
 		// A second mode in the same round is announced explicitly. Queued: it starts once the feature
@@ -1189,6 +1240,99 @@ export function createMockRgs(opts = {}) {
 			cells.push({ reel: r, row: w, from, to: cell.value });
 		});
 		return cells;
+	};
+
+	// ---- board expansion (11b) ----
+	const unlockCell = () => ({ symbol: unlockSymbol, kind: 'unlock' });
+	const unlockLandsOn = (f, reel) =>
+		Boolean(unlockSymbol) &&
+		f.rows < expansion.maxRows &&
+		(!expansion.unlockReels || expansion.unlockReels.includes(reel));
+	const heldCount = (f) => cellsWhere(f.board, (cell) => cell !== null).length;
+	/** The rows the board's state opens now: `fullRow` once the bottom open row is held whole,
+	 *  `coinCount` while the held count reaches the next threshold. */
+	const rowsEarned = (f) => {
+		let rows = f.rows;
+		if (expansion.rule === 'fullRow') {
+			if (rows < expansion.maxRows && f.board.every((column) => column[rows - 1] !== null))
+				rows += 1;
+		} else if (expansion.rule === 'coinCount') {
+			const held = heldCount(f);
+			while (
+				rows < expansion.maxRows &&
+				held >= (expansion.thresholds[rows - expansion.startRows] ?? Infinity)
+			)
+				rows += 1;
+		}
+		return rows;
+	};
+	/**
+	 * A forced unlock (`unlock:<n>` / `expandFull`): make the game's rule open the next row on this
+	 * respin; once nothing is left to open, `expandFull` fills the whole expanded board.
+	 */
+	const forceExpansion = (f, place, empties) => {
+		if (f.rows >= expansion.maxRows || f.unlocksLeft <= 0) {
+			for (const { reel, row } of empties()) place(reel, row, drawCash(reel, f.coinBoost));
+			f.fillAll = false;
+			return;
+		}
+		const free = empties();
+		if (expansion.rule === 'fullRow') {
+			for (const { reel, row } of free)
+				if (row === f.rows - 1) place(reel, row, drawCash(reel, f.coinBoost));
+		} else if (expansion.rule === 'coinCount') {
+			const need = (expansion.thresholds[f.rows - expansion.startRows] ?? 0) - heldCount(f);
+			for (const { reel, row } of free.slice(0, Math.max(0, need)))
+				place(reel, row, drawCash(reel, f.coinBoost));
+		} else {
+			const spot = free.find(({ reel }) => unlockLandsOn(f, reel)) ?? free[0];
+			if (spot) place(spot.reel, spot.row, unlockCell());
+		}
+	};
+	/**
+	 * Open the rows this respin earned — each unlock symbol that landed opens one (then clears, an
+	 * `applied` clear), else the rule's own condition. One `rowsUnlocked`, then every row jackpot
+	 * reached. Returns whether a row opened.
+	 */
+	const expand = (events, round, landed) => {
+		const f = round.feature;
+		const from = f.rows;
+		const unlockers = landed.filter(({ cell }) => cell.kind === 'unlock');
+		const rows =
+			expansion.rule === 'unlockSymbol'
+				? Math.min(expansion.maxRows, from + unlockers.length)
+				: rowsEarned(f);
+		const stillHeld = unlockers.filter(({ reel, row }) => f.board[reel][row]?.kind === 'unlock');
+		for (const { reel, row } of stillHeld) f.board[reel][row] = null;
+		const cleared = () => {
+			if (!stillHeld.length) return;
+			events.push({
+				event: 'cellsCleared',
+				context: { reason: 'applied', cells: stillHeld.map(({ reel, row }) => ({ reel, row })) },
+			});
+		};
+		if (rows === from) {
+			cleared();
+			return false;
+		}
+		for (let r = from; r < rows; r++) for (const column of f.board) column.push(null);
+		f.rows = rows;
+		if (f.unlocksLeft > 0) f.unlocksLeft = Math.max(0, f.unlocksLeft - (rows - from));
+		events.push({
+			event: 'rowsUnlocked',
+			context: {
+				from,
+				rows,
+				cause: expansion.rule,
+				unlockers: unlockers.map(({ reel, row, cell }) => cellInfo(reel, row, cell)),
+			},
+		});
+		cleared();
+		for (const rj of expansion.rowJackpots) {
+			if (rj.rows > from && rj.rows <= rows)
+				bank(round, jackpotWin(events, round, rj.jackpot, 'row', true));
+		}
+		return true;
 	};
 
 	/** What lands on the empty cells this respin, forced items first. Returns `[{reel,row,cell}]`. */
@@ -1294,6 +1438,10 @@ export function createMockRgs(opts = {}) {
 				for (const { reel, row } of empties()) place(reel, row, drawCash(reel, f.coinBoost));
 			}
 		}
+		if (expansion && (f.unlocksLeft > 0 || f.fillAll)) {
+			forceExpansion(f, place, empties);
+			return landed;
+		}
 		if (force.chain) {
 			const clears =
 				stickiness === 'collectorsOnly' ||
@@ -1313,8 +1461,11 @@ export function createMockRgs(opts = {}) {
 		for (const { reel, row } of empties()) {
 			if (rand() >= RESPIN_LAND_RATE) continue;
 			const kinds = [...f.active].filter((kind) => specialLandsOn(kind, reel));
-			if (kinds.length && rand() < share) place(reel, row, specialCell(pick(kinds)));
-			else if (coinEntriesOn(reel).length) place(reel, row, drawCoin(reel, f.coinBoost));
+			if (expansion && unlockLandsOn(f, reel)) kinds.push('unlock');
+			if (kinds.length && rand() < share) {
+				const kind = pick(kinds);
+				place(reel, row, kind === 'unlock' ? unlockCell() : specialCell(kind));
+			} else if (coinEntriesOn(reel).length) place(reel, row, drawCoin(reel, f.coinBoost));
 		}
 		return landed;
 	};
@@ -1462,12 +1613,15 @@ export function createMockRgs(opts = {}) {
 			}
 		}
 		if (stickiness === 'collectorsOnly') clearNonCollectors(events, round);
+		const unlocked = expansion ? expand(events, round, landed) : false;
 
-		// The counter: reset by what LANDED (a mystery counts as what it revealed).
+		// The counter: reset by what LANDED (a mystery counts as what it revealed), or by an unlock.
 		const newCoins =
 			landed.some(({ cell }) => cell.kind === 'coin' || cell.kind === 'jackpot') ||
 			revealedCoins.length > 0;
-		const reset = respinRules.reset === 'anySpecial' ? landed.length > 0 : newCoins;
+		const reset =
+			(respinRules.reset === 'anySpecial' ? landed.length > 0 : newCoins) ||
+			(unlocked && expansion.resetsRespins);
 		// A reset never throws away respins an add-respins put above the cap.
 		f.left = reset ? Math.max(f.start, f.left) : f.left - 1;
 		const update = { left: f.left, played: f.played, start: f.start, reset };
