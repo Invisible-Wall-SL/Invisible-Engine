@@ -43,6 +43,7 @@ import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mo
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
+import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
 import { holdOpenRounds, mockForSession } from './openRounds.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
@@ -309,14 +310,45 @@ const platformJackpotFor = (gameKey, meta, channel) => {
 	return platformJackpots.get(key);
 };
 
+/** Games already told their pots overlay could not be dealt, so it is said once. */
+const potsOverlayFallbackWarned = new Set();
+
+/**
+ * A book game's mock, with the POTS OVERLAY composed over it when its contract carries the project's
+ * `potsOverlay` inputs (`potsOverlayMockInputs` in game-config; `scripts/mock-pots-overlay.mjs`).
+ * Without them it is the book mock exactly. An overlay that cannot be built deals the plain book game
+ * and says so once, for the reason `makeHoldAndWinMock` gives.
+ */
+const makeBookMock = (label, grid, gameKey, runtime, twin) => {
+	const opts = { label, symbolPaytable: grid?.symbolPaytable };
+	if (!grid?.potsOverlay) return createBookMock(opts);
+	try {
+		// Forcing a beat is an authoring tool, as on the Hold and Win mock.
+		return withPotsOverlay(
+			createBookMock,
+			grid.potsOverlay,
+		)({ ...opts, allowForce: twin || !runtime });
+	} catch (e) {
+		if (!potsOverlayFallbackWarned.has(gameKey)) {
+			potsOverlayFallbackWarned.add(gameKey);
+			console.warn(
+				`[test-server] '${gameKey}' has a pots overlay but ${e.message} — dealing its book game ` +
+					'with no pots. Check its Game Config potsOverlay block.',
+			);
+		}
+		return createBookMock(opts);
+	}
+};
+
 const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false) => {
 	if (protocol === 'holdAndWin') {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin);
 		if (mock) return mock;
 	}
-	// `book` owns its board and paylines; the only piece of the contract it reads is the project's
-	// authored line table, so it pays (and declares) what `/config` set rather than its captured one.
-	if (protocol === 'book') return createBookMock({ label, symbolPaytable: grid?.symbolPaytable });
+	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
+	// table, so it pays (and declares) what `/config` set rather than its captured one, and its pots
+	// overlay.
+	if (protocol === 'book') return makeBookMock(label, grid, gameKey, runtime, twin);
 	// `holdAndWin` lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
@@ -472,18 +504,40 @@ const validGrid = (grid) => {
 	if (grid.betModes !== undefined && !betModes) warnDroppedBetModes(grid.betModes);
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
-	const hw = grid.holdAndWin;
-	const holdAndWin =
-		hw &&
-		typeof hw === 'object' &&
-		hw.block &&
-		typeof hw.block === 'object' &&
-		Array.isArray(hw.lineSymbols) &&
-		hw.lineSymbols.every((s) => typeof s === 'string') &&
-		hw.symbols &&
-		typeof hw.symbols === 'object' &&
-		Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles))
-			? hw
+	const holdAndWinShaped = (hw) =>
+		Boolean(
+			hw &&
+			typeof hw === 'object' &&
+			hw.block &&
+			typeof hw.block === 'object' &&
+			Array.isArray(hw.lineSymbols) &&
+			hw.lineSymbols.every((s) => typeof s === 'string') &&
+			hw.symbols &&
+			typeof hw.symbols === 'object' &&
+			Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles)),
+		);
+	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
+	// A pots overlay's inputs (a book game's add-on), shape-checked as far as the overlay needs to
+	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's.
+	const po = grid.potsOverlay;
+	const potsOverlay =
+		po &&
+		typeof po === 'object' &&
+		Array.isArray(po.pots) &&
+		po.pots.length &&
+		po.pots.every(
+			(p) =>
+				p &&
+				typeof p.id === 'string' &&
+				typeof p.token === 'string' &&
+				Number.isFinite(Number(p.maxLevel)) &&
+				typeof p.bonus?.mode === 'string',
+		) &&
+		po.drops &&
+		typeof po.drops === 'object' &&
+		Array.isArray(po.drops.table) &&
+		(po.holdAndWin === undefined || holdAndWinShaped(po.holdAndWin))
+			? po
 			: null;
 	return {
 		reels,
@@ -501,6 +555,7 @@ const validGrid = (grid) => {
 		...(scatterPaytable ? { scatterPaytable } : {}),
 		...(betModes ? { betModes } : {}),
 		...(holdAndWin ? { holdAndWin } : {}),
+		...(potsOverlay ? { potsOverlay } : {}),
 	};
 };
 

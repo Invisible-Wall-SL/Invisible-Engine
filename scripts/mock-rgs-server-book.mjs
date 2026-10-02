@@ -410,10 +410,15 @@ const pathEndsWith = (pathname, route) => {
  *
  * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
  *           bigWin?: boolean, autoCollect?: boolean, label?: string,
- *           symbolPaytable?: Record<string, Record<string, number>> }} [opts]
+ *           symbolPaytable?: Record<string, Record<string, number>>,
+ *           overlay?: (host: object) => object }} [opts]
  *
  * `symbolPaytable` is the project's authored line table in SERVER names (`PIC1`…`TEN`), as the
  * Invisible Test Server receives it in the project's live mock contract (`grid.symbolPaytable`).
+ *
+ * `overlay` is the seam an add-on deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`): called
+ * once with this host's board and its `startFreeSpins` hook, it returns the hooks below. Absent, not
+ * one byte of any answer changes.
  */
 export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
@@ -470,6 +475,50 @@ export function createMockRgs(opts = {}) {
 		}
 		return 'TEN';
 	};
+	/**
+	 * Enter the free spins: draw the special and announce it. The round STAYS OPEN — free spins and a
+	 * `collect` follow. `board` (the triggering spin's) is sent between the trigger and the entry, as
+	 * the capture has it; `extra` rides on `spinTrigger` (a pot's `cause` and `meters`).
+	 */
+	const startFreeSpins = (events, round, { occurs, spins = TOTAL_FS, board, extra = {} }) => {
+		const special = pickSpecialSymbol();
+		round.bonus = { active: true, total: spins, played: 0, left: spins, special };
+		events.push({
+			event: 'spinTrigger',
+			context: {
+				spins: [{ prob: 1, spins }],
+				occurs,
+				bonus: 'feature',
+				trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
+				...extra,
+			},
+		});
+		if (board) events.push({ event: 'playedSpin', context: board });
+		events.push({
+			event: 'enterBonus',
+			context: bonusSnapshot(round, { played: 0, left: spins }),
+		});
+		events.push({
+			event: 'pickRandomly',
+			context: {
+				items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
+				state: bonusSnapshot(round, { played: 0, left: spins, playing: 'feature' }),
+				scope: 'enterState',
+				item: { state: special, prob: SPECIAL_WEIGHTS[special] },
+			},
+		});
+	};
+	const overlay = opts.overlay
+		? opts.overlay({
+				label,
+				seed,
+				reels: 5,
+				rows: 3,
+				bonuses: { feature: 'freeSpins' },
+				freeSpinsMode: 'freeSpins',
+				startFreeSpins,
+			})
+		: null;
 
 	const handleEngine = async (req, res, url) => {
 		const sid = url.searchParams.get('sid');
@@ -501,7 +550,9 @@ export function createMockRgs(opts = {}) {
 		const openRound = (round) => ({
 			updating: true,
 			id: round.id,
-			...(round.bonus ? { outcome: 'bonus', inGameBet: round.baseBet } : {}),
+			...(round.bonus || overlay?.inBonus(round)
+				? { outcome: 'bonus', inGameBet: round.baseBet }
+				: {}),
 		});
 		// Send the boot `config` on the first call AND on every heartbeat (empty
 		// body = the auth call). A real server sends it once per session, but the
@@ -511,7 +562,11 @@ export function createMockRgs(opts = {}) {
 		const isConfigCall = actions.length === 1 && actions[0].action === 'config';
 		if (!session.configSent || actions.length === 0 || isConfigCall) {
 			session.configSent = true;
-			const config = { event: 'config', context: buildConfigContext(payTable) };
+			const context = buildConfigContext(payTable);
+			const config = {
+				event: 'config',
+				context: overlay ? { ...context, ...overlay.configContext(session) } : context,
+			};
 			if (session.round) {
 				config.actions = session.round.stored.map((s) => s.action);
 				config.resume = true;
@@ -525,6 +580,16 @@ export function createMockRgs(opts = {}) {
 		}
 
 		let round = session.round;
+		// The add-on's forced beats are checked before anything is dealt, so a typo charges nothing.
+		const refused = overlay?.refuse(actions);
+		if (refused) {
+			return sendJson(req, res, 200, {
+				result: 0,
+				error: refused,
+				errorCode: 101,
+				platform: { balance: session.balance },
+			});
+		}
 
 		for (const [offset, a] of actions.entries()) {
 			// An occupied position under the round's own gid is a REPLAY: answer with what was dealt.
@@ -597,6 +662,23 @@ export function createMockRgs(opts = {}) {
 						});
 					}
 
+					const turn = overlay?.beginPlay(session, round, a.context, {
+						mode: round.bonus?.active ? 'freeSpins' : 'basegame',
+						sid,
+					});
+					if (turn?.refused) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: turn.refused,
+							errorCode: 110,
+							platform: {},
+						});
+					}
+					if (turn?.owned) {
+						overlay.playOwned(events, session, round);
+						break;
+					}
+
 					// ----- FREE SPIN (round already in bonus) -----
 					if (round.bonus?.active) {
 						const reels = spinReels();
@@ -657,13 +739,15 @@ export function createMockRgs(opts = {}) {
 						if (round.bonus.left <= 0) {
 							round.bonus.active = false;
 							events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round) });
-							events.push({ event: 'gameEnd', context: { win: round.win } });
+							// The add-on's bonus waiting behind these free spins starts instead of the end.
+							if (!overlay?.takeOver(events, session, round))
+								events.push({ event: 'gameEnd', context: { win: round.win } });
 						}
 						break;
 					}
 
 					// ----- BASE SPIN -----
-					const trigger = round.isBuy || forceTrigger;
+					const trigger = round.isBuy || forceTrigger || turn?.hostFeature === true;
 					// bigWin: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
 					// a MEGA-tier win, enough to show the big-win banner without hitting
 					// the MAX special-case.
@@ -689,40 +773,18 @@ export function createMockRgs(opts = {}) {
 					const triggered = (scat && scat.count >= 3) || trigger;
 
 					if (triggered) {
-						// Enter the bonus: round STAYS OPEN. Draw the special symbol.
-						const special = pickSpecialSymbol();
-						round.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS, special };
-						events.push({
-							event: 'spinTrigger',
-							context: {
-								spins: [{ prob: 1, spins: TOTAL_FS }],
-								occurs: scat?.count ?? 4,
-								bonus: 'feature',
-								trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
-							},
-						});
-						events.push({ event: 'playedSpin', context: reels });
-						events.push({
-							event: 'enterBonus',
-							context: bonusSnapshot(round, { played: 0, left: TOTAL_FS }),
-						});
-						events.push({
-							event: 'pickRandomly',
-							context: {
-								items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
-								state: bonusSnapshot(round, { played: 0, left: TOTAL_FS, playing: 'feature' }),
-								scope: 'enterState',
-								item: { state: special, prob: SPECIAL_WEIGHTS[special] },
-							},
-						});
 						// Do NOT credit yet, do NOT close — free spins + collect follow.
+						startFreeSpins(events, round, { occurs: scat?.count ?? 4, board: reels });
 						break;
 					}
 
 					// No trigger → base round resolves now.
 					events.push({ event: 'playedSpin', context: reels });
+					// …unless the add-on starts its bonus on this spin: the round stays open.
+					if (overlay?.takeOver(events, session, round)) break;
 					events.push({ event: 'gameEnd', context: { win: round.win } });
-					const autoCollect = autoCollectAllowed && (a.context === '' || a.context === undefined);
+					const context = turn ? turn.context : a.context;
+					const autoCollect = autoCollectAllowed && (context === '' || context === undefined);
 					if (autoCollect || round.win === 0) {
 						session.balance += round.win;
 						events.push({ event: 'gameRoundOver', context: { win: round.win } });
@@ -754,6 +816,7 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
+			if (overlay && a.action === 'play') overlay.endPlay(events, dealtFrom, session, round);
 			round?.stored.push({ action: a, events: events.slice(dealtFrom) });
 		}
 
