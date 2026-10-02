@@ -65,11 +65,14 @@ export type FlightTrail = { effectId: string } | { off: true };
 export type FlightArrival = { effectId: string };
 
 /**
- * The route. `bend` is the largest bend tried, as a fraction of the straight distance (the coded
- * ladder is scaled so its top rung equals it; 0 = no bends). `padding` grows every obstacle, in
+ * The route. `arc` curves the PREFERRED route, as a fraction of the straight distance: positive bows
+ * it up on screen, negative down, absent/0 flies straight. `bend` is the largest DETOUR tried around
+ * a win cell, as a fraction of the straight distance (the coded ladder is scaled so its top rung
+ * equals it; 0 = no bends). `padding` grows every obstacle, in
  * cells. `avoid: false` flies straight through the win cells.
  */
 export type FlightPathStyle = {
+	arc?: number;
 	bend?: number;
 	overRoute?: boolean;
 	avoid?: boolean;
@@ -124,6 +127,7 @@ export const FLIGHT_LIMITS = {
 	ms: { min: 16, max: 10_000 },
 	stagger: { min: 0, max: 2_000 },
 	bend: { min: 0, max: 1 },
+	arc: { min: -1, max: 1 },
 	padding: { min: 0, max: 2 },
 	headScale: { min: 0.05, max: 5 },
 } as const;
@@ -135,6 +139,8 @@ export type ResolvedFlightStyle = {
 	arrival?: FlightArrival;
 	/** Absent ⇒ the coded bend ladder. */
 	bend?: number;
+	/** Absent ⇒ straight. */
+	arc?: number;
 	overRoute: boolean;
 	avoid: boolean;
 	/** Cells. */
@@ -188,6 +194,7 @@ function normalizePath(raw: unknown): FlightPathStyle | undefined {
 	if (!isRecord(raw)) return undefined;
 	const path: FlightPathStyle = {};
 	if (finite(raw.bend)) path.bend = clamp(raw.bend, FLIGHT_LIMITS.bend);
+	if (finite(raw.arc)) path.arc = clamp(raw.arc, FLIGHT_LIMITS.arc);
 	if (typeof raw.overRoute === 'boolean') path.overRoute = raw.overRoute;
 	if (typeof raw.avoid === 'boolean') path.avoid = raw.avoid;
 	if (finite(raw.padding)) path.padding = clamp(raw.padding, FLIGHT_LIMITS.padding);
@@ -273,6 +280,8 @@ export function resolveFlightStyle(
 	if (arrival) resolved.arrival = arrival;
 	const bend = pick((s) => s.path?.bend);
 	if (bend !== undefined) resolved.bend = bend;
+	const arc = pick((s) => s.path?.arc);
+	if (arc !== undefined) resolved.arc = arc;
 	return resolved;
 }
 

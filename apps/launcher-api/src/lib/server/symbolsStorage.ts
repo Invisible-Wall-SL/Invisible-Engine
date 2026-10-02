@@ -733,6 +733,7 @@ const flightStyleSchema = z
 		arrival: z.object({ effectId: z.string().optional() }).strict().optional(),
 		path: z
 			.object({
+				arc: z.number().optional(),
 				bend: z.number().optional(),
 				overRoute: z.boolean().optional(),
 				avoid: z.boolean().optional(),

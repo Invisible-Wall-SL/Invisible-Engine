@@ -182,6 +182,28 @@ it('stagger spaces a volley and never goes negative', () => {
 	assert.equal(flightStagger(2, -5), 0);
 });
 
+it('no arc ⇒ the same straight route as before the knob existed', () => {
+	assert.deepEqual(planFlight(from, to, { arc: 0 }), planFlight(from, to));
+	assert.equal(planFlight(from, to).kind, 'straight');
+});
+
+it('a positive arc bows the route UP with nothing in the way, either direction of travel', () => {
+	const right = planFlight(from, to, { arc: 0.3 });
+	assert.equal(right.kind, 'arc');
+	assert.ok(pointOnCurve(right.curve, 0.5).y < -100, 'rightward flight bows up');
+	const left = planFlight(to, from, { arc: 0.3 });
+	assert.ok(pointOnCurve(left.curve, 0.5).y < -100, 'leftward flight bows up');
+	const down = planFlight(from, to, { arc: -0.3 });
+	assert.ok(pointOnCurve(down.curve, 0.5).y > 100, 'a negative arc bows down');
+});
+
+it('an obstacle on the arc still gets a detour', () => {
+	const onArc = { x: 260, y: -160, width: 80, height: 80 };
+	const route = planFlight(from, to, { arc: 0.3, avoid: [onArc] });
+	assert.ok(route.kind !== 'arc', `kept the blocked arc (${route.kind})`);
+	assert.equal(route.hits, 0);
+});
+
 it('the ease runs 0 → 1 and clamps outside it', () => {
 	assert.equal(flightEase(0), 0);
 	assert.equal(flightEase(1), 1);
