@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { sheetVersion } from '$lib/server/assetVersion';
 import { loadRegionSet } from '$lib/server/editorRegions';
-import { assertAllowed, gate } from '$lib/server/toolScope';
+import { assertProjectArt, isProjectArtAllowed } from '$lib/server/projectArtScope';
+import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
@@ -25,13 +26,18 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 
 	const sheet = url.searchParams.get('sheet');
 	if (!sheet) throw error(400, 'missing sheet');
-	assertAllowed(sheet, prefixes);
+	// The project's prefixes, or an atlas its doc / placed component defs reference (a shared def's
+	// art authored in another project of the client) — what the export ships, so the editor draws it.
+	await assertProjectArt(sheet, prefixes, clientKey, projectKey);
 
 	const set = await loadRegionSet(sheet, clientKey, projectKey);
 
 	// Never hand back a page key the asset streamer would reject — drop it so the
 	// client falls back to per-region placeholders instead of a broken <img>.
-	const pageKey = set.pageKey && prefixes.some((p) => set.pageKey.startsWith(p)) ? set.pageKey : '';
+	const pageKey =
+		set.pageKey && (await isProjectArtAllowed(set.pageKey, prefixes, clientKey, projectKey))
+			? set.pageKey
+			: '';
 
 	// Content-version token for the resolved page (region rects + page ETag). Clients
 	// stamp it into the `/api/editor/asset?key=…&v=…` URL so a re-authored atlas busts

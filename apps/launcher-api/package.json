@@ -60,6 +60,8 @@
 		"check:tumble-pattern": "tsx --tsconfig tsconfig.scripts.json scripts/check-tumble-pattern.ts",
 		"precheck:coin-label": "node scripts/ensure-svelte-kit.mjs",
 		"check:coin-label": "tsx --tsconfig tsconfig.scripts.json scripts/check-coin-label.ts",
+		"precheck:art-scope": "node scripts/ensure-svelte-kit.mjs",
+		"check:art-scope": "tsx --tsconfig tsconfig.scripts.json scripts/check-project-art-scope.ts",
 		"precheck:flights": "node scripts/ensure-svelte-kit.mjs",
 		"check:flights": "tsx --tsconfig tsconfig.scripts.json scripts/check-flights.ts",
 		"precheck:win-cycle": "node scripts/ensure-svelte-kit.mjs",

@@ -339,6 +339,18 @@ async function resolveReferencedDefs(
 	return defs;
 }
 
+/**
+ * Every R2 art reference a project's doc and the component defs it resolves name — the SAME walk the
+ * export ships from (`resolveReferencedDefs` + `collectArtRefs`), so whoever trusts this set (the
+ * Scene Editor's art scope, `projectArtScope.ts`) sees exactly the art the game ships.
+ */
+export async function referencedArtRefs(
+	doc: LayoutDoc,
+	projectKey: string,
+): Promise<Pick<ArtRefs, 'manifestKeys' | 'imageKeys' | 'spineKeys' | 'spineFallbackKeys'>> {
+	return collectArtRefs(doc, await resolveReferencedDefs(doc, projectKey));
+}
+
 /** `atlas_manifest_S_StaticElements.json` → `S_StaticElements` (a safe folder/file stem). */
 function stemFromManifestKey(manifestKey: string): string {
 	const base = manifestKey.slice(manifestKey.lastIndexOf('/') + 1).replace(/\.json$/i, '');
