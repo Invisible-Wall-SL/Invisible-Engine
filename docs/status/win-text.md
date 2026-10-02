@@ -279,8 +279,15 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
    Worth a warning in the tool when a template uses characters the chosen font lacks.
 3. **Match counts are `[2,3,4,5]` in the page** — every current template is a 5-reel board. The
    doc accepts any count key, so only that list widens for a wider board.
-4. **Seven Hold and Win templates have no draw site** — respins award / reset / last, feature total /
-   meterFull, intro / outro. A Phase 6 scene (a text source) or a beat should adopt them.
+4. ~~Seven Hold and Win templates have no draw site~~ — drawn since Phase 4 polish (2026-10-01):
+   the respin counter reads `respins.award` as the feature opens (until the first respin rolls),
+   `respins.reset` while a reset pulses and `respins.last` at 1 left (an empty one falls back to
+   `respins.counter`); the coded banner shows `feature.total` over the board once the Total Win bar
+   has landed, `feature.meterFull` as a base-game pot fills, and `feature.intro` / `feature.outro`
+   only when authored non-empty (their defaults are empty — the references show nothing there).
+   `{count}` = respins for `award`/`reset`/`last`/`intro`; `{amount}` = the feature total for
+   `total`/`outro`; `{meter}` = what the pot activates.
+   An authored `featureIntro` / `featureOutro` screen steps the coded banner aside.
 5. **No dedicated agent file** (`.claude/agents/win-text.md` doesn't exist).
 
 ## Blocked (owner / external)
@@ -288,6 +295,15 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 - Nothing.
 
 ## Recent changes
+
+- 2026-10-01 — **The seven undrawn Hold and Win templates have draw sites** (Hold and Win Phase 4
+  polish, part 2): the respin counter reads `respins.award` as the feature opens (until the first respin rolls),
+  `respins.reset` while a reset pulses and `respins.last` at 1 left (an empty one falls back to
+  `respins.counter`); the coded banner shows `feature.total` over the board once the Total Win bar
+  has landed, `feature.meterFull` as a base-game pot fills, and `feature.intro` / `feature.outro`
+  only when authored non-empty (their defaults are empty — the references show nothing there).
+  `{count}` = respins for `award`/`reset`/`last`/`intro`; `{amount}` = the feature total for
+  `total`/`outro`; `{meter}` = what the pot activates.
 
 - 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Win text has no
   backups, so a block a newer launcher wrote was gone for good once an author saved from an older

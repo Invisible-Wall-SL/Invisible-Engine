@@ -344,6 +344,7 @@ const BASE_BEATS: Record<string, string> = {
 	luckySpin: 'playLuckySpinIntro',
 	meterUpdate: 'fillMeter',
 	coinInstantCollect: 'instantCollect',
+	randomMetreTrigger: 'fireRandomMetre',
 	jackpotWin: 'showJackpotWin',
 };
 const FEATURE_BEATS: Record<string, string> = {
@@ -363,7 +364,7 @@ const FEATURE_BEATS: Record<string, string> = {
 	holdAndWinState: 'restoreRespinBoard',
 	holdAndWinEnd: 'hideRespinBoard',
 };
-const CODED = ['meterLevels', 'randomMetreTrigger'];
+const CODED = ['meterLevels'];
 for (const t of Object.keys(FEATURE_BEATS)) {
 	check(`5. ${t} is owned by the mode`, flowOwnsSignal(doc, t, 'holdAndWin'));
 	if (!(t in BASE_BEATS))
@@ -459,6 +460,7 @@ const CASES: [preset: string, force: string][] = [
 	['pots', 'fullBoard'],
 	['pots', 'chain'],
 	['classic', 'letters'],
+	['classic', 'trigger:randomMetre'],
 	['collector', 'wheel:coinBoost'],
 	['collector', 'instant'],
 ];

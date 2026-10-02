@@ -62,6 +62,8 @@ export const HOLD_AND_WIN_MODE = 'holdAndWin';
 export const HOLD_AND_WIN_BANNER_SCREENS = {
 	luckySpin: 'luckySpin',
 	jackpot: 'jackpotWin',
+	featureIntro: 'featureIntro',
+	featureOutro: 'featureOutro',
 } as const;
 
 /** The meters of the Pots preset (`holdAndWinPresets.ts`) — one pot each. */

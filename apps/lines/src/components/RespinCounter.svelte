@@ -40,7 +40,7 @@
 	<Container {x} {y} scale={pulse.current}>
 		<Text
 			anchor={0.5}
-			text={respinCounterText(stateRespinBoard.counter.left)}
+			text={respinCounterText(stateRespinBoard.counter.left, stateRespinBoard.counter.note)}
 			style={{
 				fontFamily: 'Arial',
 				fontWeight: 'bold',

@@ -11,15 +11,14 @@
 	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
 
 	/**
-	 * THE CODED HOLD AND WIN BANNER — the Lucky Spin intro, a jackpot celebration (large) and a coin
-	 * jackpot in the tally (small), centred on the board (`holdAndWinBanner.svelte.ts`). Mounted in the
-	 * flights band at a zIndex seat above the flight layer and the wheel, so a coin flying into the
-	 * Total Win bar passes under it, and below the pinned takeovers (a big win follows it, never
-	 * overlaps it).
+	 * THE CODED HOLD AND WIN BANNER — every Hold and Win beat's announcement, centred on the board
+	 * (`holdAndWinBanner.svelte.ts` lists them). Mounted in the flights band at a zIndex seat above
+	 * the flight layer and the wheel, so a coin flying into the Total Win bar passes under it, and
+	 * below the pinned takeovers (a big win follows it, never overlaps it).
 	 *
 	 * Nothing is mounted until a banner is up, so a game that never receives a Hold and Win event pays
-	 * nothing for it. A Lucky Spin / jackpot banner steps aside while the flow shows the authored
-	 * screen for that beat (`HOLD_AND_WIN_BANNER_SCREENS`), which draws it instead.
+	 * nothing for it. A banner steps aside while the flow shows the authored screen for its beat
+	 * (`HOLD_AND_WIN_BANNER_SCREENS`), which draws it instead.
 	 */
 	const authoredScreen = (kind: string): string | undefined =>
 		(HOLD_AND_WIN_BANNER_SCREENS as Record<string, string>)[kind];

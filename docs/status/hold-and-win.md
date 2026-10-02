@@ -40,7 +40,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
-| 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | in progress — part 1 (items 1–5) in review | Hold and Win Phase 4 — polish | — |
+| 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | in progress — part 1 (items 1–5) merged; part 2 (items 6–7) in review | Hold and Win Phase 4 — polish | 1: #973 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | merged, live (`lines@ef2ca06bed2a`) | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
@@ -173,9 +173,8 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - `<names> ACTIVE` → `feature.modifiersActive`, `UNLOCKED: <names>` →
     `feature.modifiersUnlocked`, with `{ modifiers: kinds.map((k) => specialDisplayName(r, k)).join(', ') }`
     (replaces `SPECIAL_NAMES` in `holdAndWinPresentation.ts`).
-  - Authored but not drawn yet (a beat or Phase 6 screen may adopt them): `respins.award` / `reset` /
-    `last`, `feature.total` / `intro` / `outro` / `meterFull` (`{meter}` = `specialDisplayName` of what
-    the pot activates).
+  - ~~Authored but not drawn yet~~ `respins.award` / `reset` / `last`, `feature.total` / `intro` /
+    `outro` / `meterFull` — drawn since Phase 4 polish part 2 (see Recent changes).
   - 4f's wheel / collector-level / pot labels have NO template yet (full list: "Win Text literals
     for Phase 8") — part 2 adds fields for them. Coin labels belong to Phase 7 (`bakedCoinLabel`).
   - **Jackpot tiers are the config's** (`holdAndWin.jackpots[].name`); the page lists one caption box
@@ -578,8 +577,6 @@ Hold and Win beats prints copy.
      feature total). Create a Classic and a Collector sample project with the Game Maker preset
      picker (Phase 9a seeds their config; no `/config` save needed), publish, and play their
      letters, instant collect, streak flights and wheel live through their playbooks.
-   - **Random metre** (`randomMetreTrigger`) is the one Hold and Win event with no beat of its own
-     (its coins already stick through the trigger).
    - **From the live checks (not regressions):** a banked jackpot's 350 ms beat is hidden while
      coins are still counting. (Counter timing, the per-respin hitch, the cropped rolling cells, the
      end board and the tally/hide order were fixed by Phase 4 polish — Recent changes.) Also seen:
@@ -637,6 +634,33 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4 polish, part 2: the random metre beat and the undrawn Win Text lines**
+  (session "Hold and Win Phase 4 — polish").
+  - **Random metre** (`randomMetreTrigger`, Grand's Diamond Metre / Hotfire's Extra Bonus Game) has
+    a coded beat, `presentRandomMetreTrigger`: a small banner with the config's metre name over the
+    base board while the coins it ADDED play `coinStick`, 1.6 s, then the trigger. Flow effect
+    `fireRandomMetre` (base graph, `HOLD_AND_WIN_BASE_CHOREO`), cue `randomMetreFire {name, cells}`.
+    `meterLevels` is now the only event left on a sync-only handler.
+  - **Win Text draw sites:** the respin counter reads `respins.award` as the feature opens (until
+    the first respin rolls), `respins.reset` while a reset pulses and `respins.last` at 1 left (an
+    empty one falls back to `respins.counter`); the coded banner shows `feature.total` over the
+    board once the Total Win bar has landed, `feature.meterFull` as a base-game pot fills, and
+    `feature.intro` / `feature.outro` only when authored non-empty (their defaults are empty — the
+    references show nothing there). `{count}` = respins for `award`/`reset`/`last`/`intro`;
+    `{amount}` = the feature total for `total`/`outro`; `{meter}` = what the pot activates.
+    New banner kinds `randomMetre`, `meterFull`, `featureIntro`, `featureTotal`, `featureOutro`;
+    `HOLD_AND_WIN_BANNER_SCREENS` steps the coded banner aside for an authored `featureIntro` /
+    `featureOutro` screen.
+  - **Slam-proof:** the base-game and entry banners (random metre, pot full, intro) hold for the
+    slam's message hold when slammed (`holdBanner`), as the instant-collect banner does; the end's
+    total / outro run inside the celebration window, so an authored outro adds 1.6 s to the locked
+    end.
+  - Verified on a real clock against the local mocks: Pots `meter:red` drew "Payer ACTIVATED",
+    "3 RESPINS", "LAST RESPIN", "RESPINS RESET" and "BONUS WIN $52.00" at their beats, in the
+    sample's authored copy where it has one; Classic `trigger:randomMetre` drew the "Diamond Metre"
+    banner, then the feature; 0 exceptions. `check:all` covers it in `flow-spike:v2holdandwin`
+    (a forced Classic random metre now runs through the seed).
 
 - 2026-10-01 — **Phase 4 polish, part 1: the respin board's timing, hitch, strips and end state**
   (session "Hold and Win Phase 4 — polish"; branch `engine/hw-phase4-polish`). Measured on a real

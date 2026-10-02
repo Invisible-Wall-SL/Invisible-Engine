@@ -13,8 +13,7 @@
  *    enters the mode BEFORE presenting the event that opens it, and closes it only after presenting
  *    the one that ends it.
  *
- * Absent on purpose (no beat yet, so they stay on their coded handler, which re-syncs the board):
- * `meterLevels`, `randomMetreTrigger`.
+ * Absent on purpose: `meterLevels` (no beat — its coded handler only re-syncs the board).
  */
 
 import { trig, type ChoreoStep } from './bookOfChoreo';
@@ -25,6 +24,7 @@ export const HOLD_AND_WIN_BASE_CHOREO: Record<string, ChoreoStep[]> = {
 	luckySpin: [{ k: 'action', ref: 'playLuckySpinIntro' }],
 	meterUpdate: beat('fillMeter'),
 	coinInstantCollect: beat('instantCollect'),
+	randomMetreTrigger: beat('fireRandomMetre'),
 	jackpotWin: beat('showJackpotWin'),
 };
 

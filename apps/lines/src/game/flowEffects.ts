@@ -83,6 +83,7 @@ import {
 	presentLuckySpin,
 	presentMeterUpdate,
 	presentMysteryReveal,
+	presentRandomMetreTrigger,
 	presentRespinReveal,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
@@ -1269,6 +1270,8 @@ const effects: Record<string, FlowEffect> = {
 	 *   level per arrival and pulses when full.
 	 * - `playLuckySpinIntro` (`luckySpin`) — the "LUCKY SPIN" banner; arms the next reveal to
 	 *   anticipate on every reel and to run unskippable.
+	 * - `fireRandomMetre` (`randomMetreTrigger`) — base game: the metre's banner over the coins it
+	 *   added, which play `coinStick`.
 	 * - `lightLetter` (`columnComplete`) — the column's letter lights; a cleared column's coins fly
 	 *   into the Total Win bar, which counts up by its amount, and the cells leave.
 	 * - `instantCollect` (`coinInstantCollect`) — base game: the coins fly into the special, then
@@ -1294,6 +1297,7 @@ const effects: Record<string, FlowEffect> = {
 	showJackpotWin: beat('jackpotWin', presentJackpotWin),
 	fillMeter: beat('meterUpdate', presentMeterUpdate),
 	playLuckySpinIntro: () => presentLuckySpin(),
+	fireRandomMetre: beat('randomMetreTrigger', presentRandomMetreTrigger),
 	lightLetter: beat('columnComplete', presentColumnComplete),
 	instantCollect: beat('coinInstantCollect', presentInstantCollect),
 	spinWheel: beat('holdAndWinWheel', presentWheel),

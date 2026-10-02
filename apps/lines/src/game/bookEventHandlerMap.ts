@@ -29,6 +29,7 @@ import {
 	presentLuckySpin,
 	presentMeterUpdate,
 	presentMysteryReveal,
+	presentRandomMetreTrigger,
 	presentRespinReveal,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
@@ -397,14 +398,13 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		});
 	},
 
-	// Hold and Win (design §4.3). The respin board's beats are presented (`holdAndWinPresentation.ts`,
-	// shared with their flow effects); every other event is recorded and the held layer follows it
-	// until its own beat ships.
+	// Hold and Win (design §4.3). Every beat is presented (`holdAndWinPresentation.ts`, shared with
+	// its flow effect); `meterLevels` only re-syncs the held layer.
 	luckySpin: presentLuckySpin,
 	meterUpdate: presentMeterUpdate,
 	meterLevels: syncHoldAndWin,
 	coinInstantCollect: presentInstantCollect,
-	randomMetreTrigger: syncHoldAndWin,
+	randomMetreTrigger: presentRandomMetreTrigger,
 	holdAndWinTrigger: presentHoldAndWinTrigger,
 	holdAndWinWheel: presentWheel,
 	respinReveal: presentRespinReveal,
