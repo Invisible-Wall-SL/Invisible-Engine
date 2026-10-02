@@ -34,7 +34,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b built, in review | Pots overlay Phase 3 — facade + event contract | #1015, 4b: PR pending |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b built, in review | Pots overlay Phase 3 — facade + event contract | #1015, 4b #1019 |
 | 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
@@ -632,7 +632,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Recent changes
 
 - 2026-10-02 — **Phase 4b: the token flies as its own head, per-reel timing, overlay Flow actions
-  (PR pending).** Details under Decisions. Agent rule 7: built in this session on the
+  (#1019).** Details under Decisions. Agent rule 7: built in this session on the
   `engine-pixi-svelte` patterns, reviewed by `code-reviewer`. `/config` gains "Tokens appear"
   (`docs/tools/game-config.md`). A project without the block is unchanged.
 - 2026-10-02 — **Phase 5c: Flow vocabulary composition (#1014, merged).** A Book-of (or any) flow can
