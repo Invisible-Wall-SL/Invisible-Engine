@@ -9,10 +9,14 @@
  *      `coinSymbols`, `pots`, `potsOverlay`); without a block (or with both `false`) every kind
  *      answers exactly as before.
  *   2. COLUMNS — `visibleStatesFor` gives every existing kind exactly the columns it had before the
- *      Hold and Win states existed, under every gate; `holdAndWin` gets those eight and no book ones.
- *      `symbolStatesForKind` (the Scene Editor's state pickers) hides the eight Hold and Win states
- *      from every kind but `holdAndWin`.
- *   3. DEFAULTS — `symbolDefaultsFor('holdAndWin')` is its own set, validates, carries every symbol
+ *      Hold and Win states existed, under every gate; `holdAndWin` gets those and no book ones.
+ *      `symbolStatesForKind` (the Scene Editor's state pickers) hides the Hold and Win states from
+ *      every kind but `holdAndWin`. With an add-on: a `holdAndWin` block shows them all, a
+ *      `potsOverlay` block alone only the token's three (`POTS_TOKEN_SYMBOL_STATES`).
+ *   3. METER ROWS — `projectAddOns` + `overlayTokenPots` (the `/symbols` token rows and every
+ *      `toMeter:<id>` / pot name)
+ *      lists nothing new for a config without an overlay, and the overlay's tokens and pots with one.
+ *   4. DEFAULTS — `symbolDefaultsFor('holdAndWin')` is its own set, validates, carries every symbol
  *      of every Hold and Win preset (art for all but the blank), and is a strict SUPERSET of the
  *      `lines` set it used to fall back to, binding for binding.
  *
@@ -23,12 +27,14 @@ import { GAME_KINDS } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
 	kindCapabilities,
+	POTS_TOKEN_SYMBOL_STATES,
 	SYMBOL_STATES,
 	symbolStatesForKind,
 	type KindCapabilities,
 	type KindCapabilityConfig,
 } from 'engine-layout';
-import { HOLD_AND_WIN_PRESETS, symbolHoldAndWinRoles } from 'game-config';
+import { HOLD_AND_WIN_PRESETS, potsOverlayPreset, symbolHoldAndWinRoles } from 'game-config';
+import { overlayTokenPots, projectAddOns } from '../src/lib/addOns.ts';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
 import { visibleStatesFor } from '../src/routes/(app)/symbols/symbols.client.ts';
 
@@ -104,6 +110,12 @@ const ADD_ONS: KindCapabilityConfig[] = [
 const HW_STATES_OFF = SYMBOL_STATES.filter(
 	(s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s),
 );
+/** A pots host without the respin feature: the pre-Hold-and-Win list plus the token's states. */
+const TOKEN_STATES_ON = SYMBOL_STATES.filter(
+	(s) =>
+		!(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s) ||
+		(POTS_TOKEN_SYMBOL_STATES as readonly string[]).includes(s),
+);
 for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
 	check(`${kind} · the whole table, no config`, kindCapabilities(kind), table);
@@ -120,9 +132,9 @@ for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 			potsOverlay,
 		});
 		check(
-			`${label} · symbolStatesForKind follows holdAndWin`,
+			`${label} · symbolStatesForKind: all with holdAndWin, the token's with pots alone`,
 			symbolStatesForKind(kind, config),
-			holdAndWin ? SYMBOL_STATES : HW_STATES_OFF,
+			holdAndWin ? SYMBOL_STATES : potsOverlay ? TOKEN_STATES_ON : HW_STATES_OFF,
 		);
 	}
 }
@@ -188,7 +200,97 @@ check(
 	['clearReel', ...HOLD_AND_WIN_SYMBOL_STATES],
 );
 
-// ── 3. defaults ─────────────────────────────────────────────────────────────────────────────────
+// The add-on columns on Book of Borut: the book's, plus the token's or the whole feature's.
+const BOOK_COLS = before('bookOf', {});
+const TOKEN_COLS = ['coinIdle', 'coinLand', 'flyToMeter'];
+check(
+	'bookOf + potsOverlay · book columns plus exactly the token states',
+	visibleStatesFor('bookOf', { potsOverlay: true }),
+	[...BOOK_COLS, ...TOKEN_COLS],
+);
+check(
+	'bookOf + potsOverlay · symbolStatesForKind adds exactly the token states',
+	symbolStatesForKind('bookOf', { potsOverlay: true }).filter(
+		(s) => !(HW_STATES_OFF as readonly string[]).includes(s),
+	),
+	TOKEN_COLS,
+);
+check(
+	'bookOf + holdAndWin · book columns plus every Hold and Win one',
+	visibleStatesFor('bookOf', { holdAndWin: true }),
+	[...BOOK_COLS, ...HOLD_AND_WIN_SYMBOL_STATES],
+);
+check(
+	'bookOf + both · every Hold and Win column, once',
+	visibleStatesFor('bookOf', { holdAndWin: true, potsOverlay: true }),
+	[...BOOK_COLS, ...HOLD_AND_WIN_SYMBOL_STATES],
+);
+check(
+	'bookOf + holdAndWin · symbolStatesForKind is every state, with coin symbols',
+	[symbolStatesForKind('bookOf', { holdAndWin: true }), borutHw.coinSymbols],
+	[SYMBOL_STATES, true],
+);
+check(
+	'bookOf + {holdAndWin:false, potsOverlay:false} · columns unchanged',
+	visibleStatesFor('bookOf', { holdAndWin: false, potsOverlay: false }),
+	BOOK_COLS,
+);
+for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
+	check(
+		`${kind} + potsOverlay {cascade, clears} · the gates still apply`,
+		visibleStatesFor(kind, { cascade: true, clears: true, potsOverlay: true }),
+		[...before(kind, { cascade: true, clears: true }), ...TOKEN_COLS],
+	);
+}
+
+// ── 3. meter rows ───────────────────────────────────────────────────────────────────────────────
+const meterRows = (doc: Parameters<typeof projectAddOns>[0]) => ({
+	meterIds: projectAddOns(doc).potIds ?? [],
+	tokens: overlayTokenPots(doc),
+});
+check(
+	'no config · no add-ons, no meter rows',
+	[projectAddOns(null).addOns, meterRows(null)],
+	[
+		{ holdAndWin: false, potsOverlay: false },
+		{ meterIds: [], tokens: {} },
+	],
+);
+for (const [presetId, preset] of Object.entries(HOLD_AND_WIN_PRESETS)) {
+	const meterIds = (preset.holdAndWin?.meters ?? []).map((meter) => meter.id);
+	check(`${presetId} · Hold and Win meters only, no token rows`, meterRows(preset), {
+		meterIds,
+		tokens: {},
+	});
+	check(`${presetId} · add-ons`, projectAddOns(preset).addOns, {
+		holdAndWin: !!preset.holdAndWin,
+		potsOverlay: false,
+	});
+}
+const threePots = potsOverlayPreset('threePots');
+const borutPotsDoc = { potsOverlay: threePots.potsOverlay };
+check('threePots overlay · add-ons', projectAddOns(borutPotsDoc).addOns, {
+	holdAndWin: false,
+	potsOverlay: true,
+});
+check('threePots overlay · a token row per pot, every pot a meter', meterRows(borutPotsDoc), {
+	meterIds: ['red', 'blue', 'green'],
+	tokens: { POT_RED: ['red'], POT_BLUE: ['blue'], POT_GREEN: ['green'] },
+});
+const hwWithOverlay = {
+	holdAndWin: HOLD_AND_WIN_PRESETS.classic.holdAndWin,
+	potsOverlay: potsOverlayPreset('potsToFreeSpins').potsOverlay,
+};
+check(
+	'Hold and Win + overlay · the block meters first, then the overlay pot',
+	meterRows(hwWithOverlay),
+	{
+		meterIds: [...(HOLD_AND_WIN_PRESETS.classic.holdAndWin?.meters ?? []).map((m) => m.id), 'gold'],
+		tokens: { POT_GOLD: ['gold'] },
+	},
+);
+
+// ── 4. defaults ─────────────────────────────────────────────────────────────────────────────────
 const lines = symbolDefaultsFor('lines');
 const hw = symbolDefaultsFor('holdAndWin');
 check('holdAndWin has its own defaults', hw.gameType, 'holdAndWin');

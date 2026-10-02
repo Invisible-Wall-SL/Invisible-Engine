@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { kindCapabilities } from 'engine-layout';
+import { projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { bigTiersOf, resolveGameConfig } from '$lib/server/gameConfigDefaults';
@@ -71,11 +72,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** Symbol id → its authored name, straight from the symbols doc. Sparse — an absent id
 		 *  is an unnamed symbol, which the shared resolver renders as the id itself. */
 		symbolNames: symbolsDoc.names ?? {},
-		capabilities: kindCapabilities(gameType),
+		/** The kind's capabilities with the config's add-ons — a Hold and Win bonus brings the
+		 *  feature's lines, a pots overlay its pot lines. */
+		capabilities: kindCapabilities(gameType, projectAddOns(config.doc).addOns),
 		/** The config's jackpot tier names, in the config's order. */
 		jackpotTiers: (config.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
-		/** The config's pot (meter) ids, in the config's order. */
-		meterIds: (config.doc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
+		/** Every pot (meter) id the config declares, Hold and Win meters then overlay pots. */
+		meterIds: projectAddOns(config.doc).potIds ?? [],
 		/** Whether the config has the pre-feature wheel — its copy is offered only then. */
 		hasWheel: Boolean(config.doc?.holdAndWin?.wheel),
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when

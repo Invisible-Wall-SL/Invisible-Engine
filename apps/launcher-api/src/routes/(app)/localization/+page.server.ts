@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { kindCapabilities } from 'engine-layout';
+import { projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadComponent } from '$lib/server/componentStorage';
@@ -88,12 +89,15 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// are folded in below), so the etag guards the stored OBJECT and must not be
 	// re-derived from the payload.
 	const { doc, etag: docEtag } = loaded;
+	const { addOns, potIds } = projectAddOns(gameConfig.doc);
+	const capabilities = kindCapabilities(gameType, addOns);
 	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestWinText(winTextDoc, {
-			holdAndWin: kindCapabilities(gameType).holdAndWin,
+			holdAndWin: capabilities.holdAndWin,
+			pots: capabilities.pots,
 			jackpots: (gameConfig.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
-			meters: (gameConfig.doc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
+			meters: potIds ?? [],
 		}),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
