@@ -36,7 +36,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
-| 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
+| 5b | Scene Editor overlay screens + palette/pickers through the capability | in progress | Pots overlay Phase 5b — Scene Editor overlay screens | — |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
