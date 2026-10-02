@@ -1,5 +1,6 @@
 import {
 	applyHoldAndWinEvent,
+	drainMeters,
 	emptyHoldAndWinState,
 	type HoldAndWinEvent,
 	type HoldAndWinMeterLevel,
@@ -25,6 +26,13 @@ export const recordHoldAndWinEvent = (event: HoldAndWinEvent) => {
 	const before = $state.snapshot(stateHoldAndWin);
 	metersBefore = before.meters;
 	Object.assign(stateHoldAndWin, applyHoldAndWinEvent(before, event));
+};
+
+/** A mode a full pot started emptied those pots (`drainedMeters`) — Hold and Win's own trigger
+ *  does it in its reducer. The drain beat runs from each pot's maximum, as Hold and Win's does. */
+export const drainHoldAndWinMeters = (ids: readonly string[]) => {
+	if (ids.length === 0) return;
+	stateHoldAndWin.meters = drainMeters($state.snapshot(stateHoldAndWin.meters), ids);
 };
 
 /**

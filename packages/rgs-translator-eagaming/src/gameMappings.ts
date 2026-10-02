@@ -11,6 +11,10 @@
  * and select it via the Vite alias / facade options.
  */
 
+/** The only pots-overlay wire this client reads — `config.potsOverlay.wire`. Defined here, the
+ *  dependency-free module (plain Node scripts import it), and read by `potsOverlay.ts`. */
+export const POTS_OVERLAY_WIRE = 1;
+
 export interface GameMapping {
 	/** Map a Play4Fun symbol name to the target game's symbol name. Unmapped
 	 *  symbols pass through unchanged so unknown additions surface as warnings
@@ -161,9 +165,15 @@ export const pickMappingForConfig = (cfg: {
 	holdAndWin?: unknown;
 	potsOverlay?: unknown;
 }): GameMapping | null => {
-	// The facade's own gate: only a block on the wire this client reads is an overlay host.
-	const overlayHost = (cfg.potsOverlay as { wire?: unknown } | undefined)?.wire === 1;
-	if (cfg.holdAndWin && !overlayHost) return identityMapping;
+	// The facade's own gate: only a block on the wire this client reads is an overlay host. A Hold
+	// and Win GAME that adds an overlay deals its own names on the base board, so it keeps identity:
+	// its boot `symbols` lists its Hold and Win symbols, which a host whose block is the overlay's
+	// bonus does not.
+	const overlayHost =
+		(cfg.potsOverlay as { wire?: unknown } | undefined)?.wire === POTS_OVERLAY_WIRE;
+	const roles = (cfg.holdAndWin as { roles?: Record<string, unknown> } | undefined)?.roles ?? {};
+	const holdAndWinIsBase = Object.keys(roles).some((name) => cfg.symbols?.includes(name));
+	if (cfg.holdAndWin && (!overlayHost || holdAndWinIsBase)) return identityMapping;
 	const syms = new Set(cfg.symbols ?? []);
 	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
 	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;

@@ -695,7 +695,8 @@
 				<h2>Hold and Win feature</h2>
 				<p class="hint">
 					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
-					<code>{'{meter}'}</code> the special a full pot activates and
+					<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins or
+					another mode reads as its own pot name, below) and
 					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
 					names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
 					outro draw nothing until you write them.

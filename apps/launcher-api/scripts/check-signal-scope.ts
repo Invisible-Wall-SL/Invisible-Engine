@@ -214,9 +214,22 @@ eq(
 	Object.keys(featureComponentSignals(spy, false)),
 	['platformJackpotWin'],
 );
+eq(
+	'a pots-overlay host with no Hold and Win block registers the pot family, and no other feature part',
+	Object.keys(featureComponentSignals(spy, false, true)),
+	[
+		'platformJackpotWin',
+		'potFill',
+		'potLand',
+		'potLevelUp',
+		'potStageUp',
+		'potFull',
+		'potActivate',
+	],
+);
 check(
-	'the game registers the feature signals, the Hold and Win family by its config',
-	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*!!getActiveGameConfig\(\)\.holdAndWin,?\s*\)/.test(
+	'the game registers the feature signals: the Hold and Win family by its block, the pots by either block',
+	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*!!getActiveGameConfig\(\)\.holdAndWin,\s*!!getActiveGameConfig\(\)\.holdAndWin \|\| !!getActiveGameConfig\(\)\.potsOverlay,?\s*\)/.test(
 		read('apps/lines/src/components/Game.svelte'),
 	),
 );

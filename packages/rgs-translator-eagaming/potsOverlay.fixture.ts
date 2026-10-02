@@ -64,8 +64,12 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 };
 
 const quiet = { log: console.log, warn: console.warn, error: console.error };
+/** What the facade warned while hushed — the last `play` only. */
+let warnings: string[] = [];
 const hush = async <T>(fn: () => Promise<T>): Promise<T> => {
-	console.log = console.warn = console.error = () => {};
+	warnings = [];
+	console.log = console.error = () => {};
+	console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
 	try {
 		return await fn();
 	} finally {
@@ -106,10 +110,10 @@ const BOOK_SYMBOLS = [
 	'TEN',
 	'SCAT',
 ];
-const OVERLAY_SYMBOLS = ['RED', 'GREEN', 'BLUE', 'COIN', 'BONUS', 'BLANK'];
-
+/** The host's own vocabulary only, as Phase 2's wire sends it: tokens and the respin feature's
+ *  names are not in it. */
 const bookConfig = (extra: Record<string, unknown> = {}) => ({
-	symbols: [...BOOK_SYMBOLS, ...OVERLAY_SYMBOLS],
+	symbols: BOOK_SYMBOLS,
 	window: { reels: 5, rows: 3 },
 	availablePayLines: PAYLINES,
 	wildSymbols: ['SCAT'],
@@ -1157,6 +1161,146 @@ console.log('\n6. parity: no block, no change');
 			).book,
 		),
 		['reveal', '_overlayDrop', 'setTotalWin', 'finalWin'],
+	);
+}
+
+// ---------- 7. the hub's review of #1012 ----------
+
+console.log('\n7. entries close bonuses; drops bind to their own spin; names; mapping');
+{
+	// The host's free spins, then a pot's stub mode: the free spins end at the stub's ENTRY.
+	const { book } = await play('S-fs-then-stub', {
+		config: bookConfig({
+			potsOverlay: overlayBlock([{ id: 'blue', level: 5, bonus: 'wheel' }]),
+		}),
+		answers: [
+			[
+				...opening(),
+				scatterWin(40),
+				featureTrigger(2),
+				{ event: 'playedSpin', context: SCATTER_BOARD },
+				...enterFreeSpins(2),
+			],
+			freeSpin(1, 1, null),
+			[
+				...freeSpin(2, 0, null),
+				{ event: 'playedBonusSpins', context: bookSnapshot(2, 0) },
+				{ event: 'modeEnter', context: { mode: 'wheel', cause: 'meter', meters: ['blue'] } },
+				{ event: 'modeExit', context: { mode: 'wheel', total: 0 } },
+				{ event: 'gameEnd', context: { win: 40 } },
+				meterLevels({ blue: 0 }),
+			],
+		],
+	});
+	wellFormed('free spins then a stub', book);
+	check(
+		'the free spins end at the stub’s entry, once, and the stub plays after them',
+		types(book).filter((t) => ['freeSpinEnd', 'modeEnter', 'modeExit'].includes(t)),
+		['freeSpinEnd', 'modeEnter', 'modeExit'],
+	);
+	check('the mode stack plays one after the other', modesOf(book).moves, [
+		'enter:freeSpins',
+		'exit:freeSpins',
+		'allFinished',
+		'enter:wheel',
+		'exit:wheel',
+		'allFinished',
+	]);
+	check(
+		'a spinTrigger alone (a retrigger) never ends the free spins',
+		only(book, 'freeSpinEnd').length,
+		1,
+	);
+	check(
+		'the host’s overlay names (tokens, respin symbols) raise no unknown-symbol warning',
+		warnings.filter((w) => w.includes('not declared in server config')),
+		[],
+	);
+
+	// A server that sends a spin's drop AFTER its board binds it to that spin, not the next one.
+	const late = await play('S-late-drop', {
+		config: bookConfig({
+			potsOverlay: overlayBlock([{ id: 'green', level: 1, bonus: 'freeSpins' }]),
+		}),
+		answers: [
+			[
+				...opening(),
+				{ event: 'playedSpin', context: BOARD },
+				drop([{ reel: 1, row: 0, symbol: 'GREEN', pot: 'green' }]),
+				meterUpdate('green', 2, [{ reel: 1, row: 0 }]),
+				{ event: 'gameEnd', context: { win: 0 } },
+				{ event: 'gameRoundOver', context: { win: 0 } },
+				meterLevels({ green: 2 }),
+			],
+		],
+	});
+	wellFormed('a late drop', late.book);
+	check('a drop after its board stays with that board', types(late.book).slice(0, 3), [
+		'reveal',
+		'overlayDrop',
+		'meterUpdate',
+	]);
+
+	// A trigger board between a Hold and Win feature's end and the next bonus lands on the REELS.
+	const hwThenBoard = await play('S-hw-then-board', {
+		config: respinScript().config,
+		answers: [
+			[
+				...opening(),
+				drop([{ reel: 0, row: 1, symbol: 'RED', pot: 'red' }]),
+				lineWin(20),
+				{ event: 'playedSpin', context: BOARD },
+				meterUpdate('red', 5, [{ reel: 0, row: 1 }]),
+				...respinEntry(),
+				meterLevels({ red: 0 }),
+			],
+			respinOne(),
+			[
+				...respinLast(0).slice(0, -1),
+				featureTrigger(2, { cause: 'meter', meters: ['green'] }),
+				{ event: 'playedSpin', context: SCATTER_BOARD },
+				...enterFreeSpins(2),
+			],
+			freeSpin(1, 1, null),
+			freeSpin(2, 0, { win: 340 }),
+		],
+	});
+	wellFormed('Hold and Win, then a trigger board', hwThenBoard.book);
+	const afterEnd = types(hwThenBoard.book).slice(types(hwThenBoard.book).indexOf('holdAndWinEnd'));
+	check('the board after the feature is a reel reveal, not a respin board', afterEnd.slice(1, 2), [
+		'reveal',
+	]);
+	const meterAfter = only(hwThenBoard.book, 'setTotalWin').map((e) => e.amount as number);
+	check(
+		'…and its bank includes the feature’s total (the meter never steps back)',
+		meterAfter.every((amount, i) => i === 0 || amount >= meterAfter[i - 1]),
+		true,
+	);
+
+	// A Hold and Win GAME that adds an overlay keeps identity names, whatever its vocabulary.
+	const hwGame = await play('S-hw-base-overlay', {
+		config: {
+			symbols: ['ACE', 'KING', 'QUEEN', 'H1', 'BONUS', 'BLANK'],
+			window: { reels: 5, rows: 3 },
+			availablePayLines: PAYLINES,
+			wildSymbols: [],
+			holdAndWin: holdAndWinBlock(),
+			potsOverlay: overlayBlock([{ id: 'red', level: 1, bonus: 'holdAndWin' }]),
+		},
+		answers: [
+			[
+				...opening(),
+				{ event: 'playedSpin', context: BOARD },
+				{ event: 'gameEnd', context: { win: 0 } },
+				{ event: 'gameRoundOver', context: { win: 0 } },
+			],
+		],
+	});
+	const reveal = first(hwGame.book, 'reveal') as { board: { name: string }[][] } | undefined;
+	check(
+		'…ACE stays ACE (its Hold and Win block is the base game)',
+		reveal?.board[0][1].name,
+		'ACE',
 	);
 }
 
