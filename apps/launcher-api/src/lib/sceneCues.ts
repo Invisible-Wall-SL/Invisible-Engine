@@ -1,6 +1,6 @@
 import type { CueDecl, TemplateVocabulary } from 'engine-flow-v2';
 import { engineSignalsForKind } from 'engine-layout';
-import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
+import type { ComponentDef, KindCapabilityConfig, LayoutNode, Scene } from 'engine-layout';
 
 /**
  * Signal names the GAME drives for a project of `gameType`, so a flow must not offer to fire them.
@@ -12,11 +12,14 @@ import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
  * nothing, with no warning. These names are still perfectly good on a scene spine — that is how a
  * character reacts to a real win with no flow at all — they are just not the flow's to fire.
  *
- * Per KIND: the game registers the Hold and Win family only in a Hold and Win game, so in any other
- * kind a cue named `featureEnter` or `coinLand` is the author's own, and fireable.
+ * Per KIND and ADD-ON: the game registers the Hold and Win family only for a Hold and Win game or
+ * a config with a `holdAndWin` block, and the pot signals with pots, so elsewhere a cue named
+ * `featureEnter` or `coinLand` is the author's own, and fireable.
  */
-const gameDrivenSignals = (gameType: string | undefined): ReadonlySet<string> =>
-	new Set(engineSignalsForKind(gameType).map((s) => s.key));
+const gameDrivenSignals = (
+	gameType: string | undefined,
+	config: KindCapabilityConfig | undefined,
+): ReadonlySet<string> => new Set(engineSignalsForKind(gameType, config).map((s) => s.key));
 
 /**
  * WHAT A FLOW MAY FIRE — the engine's own cues plus the ones THIS project's scenes ask for.
@@ -58,8 +61,9 @@ export function collectSceneCueNames(
 	scenes: readonly Scene[],
 	components: readonly ComponentDef[] = [],
 	gameType?: string,
+	config?: KindCapabilityConfig,
 ): string[] {
-	const gameDriven = gameDrivenSignals(gameType);
+	const gameDriven = gameDrivenSignals(gameType, config);
 	const defs = new Map<string, ComponentDef[]>();
 	for (const def of components) defs.set(def.id, [...(defs.get(def.id) ?? []), def]);
 	const names = new Set<string>();

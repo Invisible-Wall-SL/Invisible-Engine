@@ -218,6 +218,7 @@ export async function publishGame(
 				...Object.values(assembled.componentDefs),
 				...(assembled.componentVersions ?? []),
 			],
+			config: assembled.config,
 		});
 		refuseFlow(shipped);
 		const engine = await runtimePointer(runtimeFor(gameType));
