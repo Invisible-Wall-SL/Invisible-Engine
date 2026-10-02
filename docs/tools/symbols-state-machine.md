@@ -963,6 +963,9 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
   free-placed effects (a bone-placed layer does not follow the head).
 - **On arrival** — an Invisible FX effect played once where the head lands.
+- **Arc** — curves the route even when nothing is in the way, as a share of the straight distance
+  (−1…1): positive bows it up on screen, negative down, blank or 0 flies straight. It shapes the
+  preferred route only; a win cell in its way still gets the detour below.
 - **Avoid win cells** / **Over-route** / **Max detour** / **Padding** — the route. The game picks a
   curve that bends around the cells showing a win; **Max detour** is the strongest bend it may try
   (0 = never bend; blank = the built-in ladder). It only bends a route that would cross a win cell:

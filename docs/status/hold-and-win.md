@@ -40,7 +40,7 @@ titled **"Hold and win game pipeline"**.
 | 2 | Game Config `holdAndWin` block (full option space, 3 presets) | merged | Hold and Win Phase 2 — Game Config block | #919 |
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
-| 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | in progress — part 1 (items 1–5) merged; part 2 (items 6–7) in review | Hold and Win Phase 4 — polish | 1: #973 |
+| 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | merged — all 10 items (live check owed: an authored arc, see Open items) | Hold and Win Phase 4 — polish | 1–5: #973 · 8+10: #974 · 6–7: #976 · 9: #977 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | merged, live (`lines@ef2ca06bed2a`) | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
@@ -570,7 +570,7 @@ Hold and Win beats prints copy.
      label, flights and seeded symbol art — and replace the seeded placeholder art with real 3 Pots art
      in `/symbols`.
    - Prove an authored `/fx` trail and arrival effect live (author one in the sample); measure
-     `countMs` live; an optional "arc" knob for flights; beams (`boostBeam`) are authorable but nothing
+     `countMs` live; author an `arc` on a flight (the knob shipped in #977; nothing authors one yet); beams (`boostBeam`) are authorable but nothing
      flies them yet.
 2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
@@ -634,6 +634,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-01 — **Phase 4 polish, item 9: a flight ARC knob** (session "Hold and Win Phase 4 —
+  polish"). `flights.<kind>.path.arc` (field recorded in Decisions, Phase 4 polish): `planFlight`'s
+  preferred route bows by it with nothing in the way — so the feature-end volley can arc — and
+  avoidance still detours around a win cell on it. Absent ⇒ every route as before (fixture-pinned).
+  Authored in `/symbols` → Flights ("Arc", beside "Max detour"); detail in [symbols](symbols.md).
+  **Not yet seen live:** no project authors an arc; set one on `hw-3pots-sample` once the launcher
+  is deployed (its strict `path` schema refuses the field until then).
 
 - 2026-10-01 — **Phase 4 polish, part 2: the random metre beat and the undrawn Win Text lines**
   (session "Hold and Win Phase 4 — polish").

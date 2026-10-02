@@ -108,12 +108,12 @@ it(
 	'false and 0 are answers, not gaps — they beat the family',
 	resolveFlightStyle(
 		{
-			toMeter: { path: { overRoute: true, bend: 0.5 } },
-			'toMeter:a': { path: { overRoute: false, bend: 0 } },
+			toMeter: { path: { overRoute: true, bend: 0.5, arc: 0.3 } },
+			'toMeter:a': { path: { overRoute: false, bend: 0, arc: 0 } },
 		},
 		'toMeter:a',
 	),
-	{ ...CODED, overRoute: false, bend: 0 },
+	{ ...CODED, overRoute: false, bend: 0, arc: 0 },
 );
 
 it(
@@ -161,6 +161,24 @@ it(
 	undefined,
 );
 it('normalize: a non-object ⇒ no block', normalizeFlights('toTotal'), undefined);
+it(
+	'normalize: arc is clamped to −1…1 and an arc of 0 is kept (it beats an arced family)',
+	[
+		normalizeFlights({ toTotal: { path: { arc: 3 } } })?.toTotal?.path,
+		normalizeFlights({ toTotal: { path: { arc: -0.4 } } })?.toTotal?.path,
+		normalizeFlights({ toTotal: { path: { arc: 0 } } })?.toTotal?.path,
+	],
+	[{ arc: 1 }, { arc: -0.4 }, { arc: 0 }],
+);
+it(
+	'resolve: arc follows the toMeter family and reaches the plan',
+	flightPlanOptions(
+		resolveFlightStyle({ toMeter: { path: { arc: 0.25 } } }, 'toMeter:red'),
+		120,
+		[],
+	).arc,
+	0.25,
+);
 it(
 	'normalize: a head missing the field its kind needs is dropped',
 	normalizeFlights({

@@ -4,8 +4,9 @@
  * `packages/engine-game/fixtures/flightPath.fixture.ts` rather than only observed on screen. It lives
  * in `engine-layout` so the `/symbols` flight preview plans with the same code the game flies with.
  *
- * A route is one cubic Bézier from the source to the target. The candidates, in order: the straight
- * line, then a bend to the left and to the right of the direction of travel at each strength, then
+ * A route is one cubic Bézier from the source to the target. The candidates, in order: the
+ * PREFERRED route — the straight line, or the authored `arc` (a bow even with nothing in the way) —
+ * then a bend to the left and to the right of the direction of travel at each strength, then
  * an over-route that rises above every obstacle and comes down onto the target — so the order is
  * the order of growing detour. Each is sampled; the FIRST whose samples miss every padded obstacle
  * wins. When none is clean the one with the fewest hit samples wins, then the shorter, then the
@@ -26,12 +27,12 @@ export type FlightRect = { x: number; y: number; width: number; height: number }
 /** A cubic Bézier: start, two controls, end. */
 export type FlightCurve = { p0: FlightPoint; c1: FlightPoint; c2: FlightPoint; p3: FlightPoint };
 
-export type FlightCandidateKind = 'straight' | 'bendLeft' | 'bendRight' | 'over';
+export type FlightCandidateKind = 'straight' | 'arc' | 'bendLeft' | 'bendRight' | 'over';
 
 export type FlightRoute = {
 	curve: FlightCurve;
 	kind: FlightCandidateKind;
-	/** The bend strength (a fraction of the straight distance); 0 for straight and over. */
+	/** The bend or arc strength (a fraction of the straight distance); 0 for straight and over. */
 	strength: number;
 	/** Samples that fell inside a padded obstacle — 0 for a clean route. */
 	hits: number;
@@ -39,6 +40,12 @@ export type FlightRoute = {
 };
 
 export type PlanFlightOptions = {
+	/**
+	 * The preferred route's curvature, a fraction of the straight distance: positive bows it UP on
+	 * screen, negative down. Absent or 0 ⇒ the straight line. Avoidance still detours around an
+	 * obstacle the arc would cross.
+	 */
+	arc?: number;
 	avoid?: readonly FlightRect[];
 	/** Grows every obstacle by this much on each side. */
 	padding?: number;
@@ -115,6 +122,17 @@ const bentCurve = (
 };
 
 /**
+ * The side of the direction of travel (`bentCurve`'s `side`) that is UP on screen (y down) for a
+ * positive `arc`, down for a negative one. A vertical flight has no up side: a positive arc bows it
+ * to its left.
+ */
+const arcSide = (from: FlightPoint, to: FlightPoint, arc: number): 1 | -1 => {
+	// `bentCurve`'s left offset is (dy, -dx): its y is -dx, so left is up when the flight heads right.
+	const leftIsUp = to.x - from.x >= 0;
+	return leftIsUp === arc > 0 ? 1 : -1;
+};
+
+/**
  * Rises straight up from the source, crosses above `apexY` and comes down onto the target. Both
  * controls share one height, chosen so the curve's midpoint (`y(½) = ⅛y0 + ¾c + ⅛y3`) sits on the
  * apex.
@@ -163,12 +181,24 @@ export const planFlight = (
 		.map((rect) => padRect(rect, padding))
 		.filter((rect) => !inside(rect, from) && !inside(rect, to));
 
+	const arc = options.arc ?? 0;
+	// An arced route that must detour tries the arc's own side first, so it keeps bowing the way the
+	// author asked when it can.
+	const sides: (1 | -1)[] = arc !== 0 && arcSide(from, to, arc) === -1 ? [-1, 1] : [1, -1];
 	const candidates: Omit<FlightRoute, 'hits' | 'length'>[] = [
-		{ curve: straightCurve(from, to), kind: 'straight', strength: 0 },
+		arc === 0
+			? { curve: straightCurve(from, to), kind: 'straight', strength: 0 }
+			: {
+					curve: bentCurve(from, to, Math.abs(arc), arcSide(from, to, arc)),
+					kind: 'arc',
+					strength: Math.abs(arc),
+				},
 	];
 	for (const strength of options.bendStrengths ?? FLIGHT_BEND_STRENGTHS) {
-		candidates.push({ curve: bentCurve(from, to, strength, 1), kind: 'bendLeft', strength });
-		candidates.push({ curve: bentCurve(from, to, strength, -1), kind: 'bendRight', strength });
+		for (const side of sides) {
+			const kind = side === 1 ? 'bendLeft' : 'bendRight';
+			candidates.push({ curve: bentCurve(from, to, strength, side), kind, strength });
+		}
 	}
 	if ((options.overRoute ?? true) && obstacles.length > 0) {
 		const top = Math.min(...obstacles.map((rect) => rect.y));
@@ -254,10 +284,11 @@ export const flightBendStrengths = (bend: number | undefined): readonly number[]
  * route's units; `avoid` is the caller's obstacle set, dropped when the style turns avoidance off.
  */
 export const flightPlanOptions = (
-	style: Pick<ResolvedFlightStyle, 'bend' | 'overRoute' | 'avoid' | 'padding'>,
+	style: Pick<ResolvedFlightStyle, 'arc' | 'bend' | 'overRoute' | 'avoid' | 'padding'>,
 	cell: number,
 	avoid: readonly FlightRect[],
 ): PlanFlightOptions => ({
+	arc: style.arc,
 	avoid: style.avoid ? avoid : [],
 	padding: style.padding * cell,
 	overMargin: FLIGHT_OVER_MARGIN_CELLS * cell,

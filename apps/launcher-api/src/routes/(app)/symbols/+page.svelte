@@ -1344,7 +1344,7 @@
 	const cellsPerSecond = (speed: number): number =>
 		Math.round(((speed * 1000) / FLIGHT_CELL) * 100) / 100;
 
-	function setFlightPathNumber(field: 'bend' | 'padding', value: string): void {
+	function setFlightPathNumber(field: 'arc' | 'bend' | 'padding', value: string): void {
 		patchFlight((style) => {
 			const n = numberOrUndefined(value);
 			const path = { ...style.path };
@@ -3356,6 +3356,25 @@
 											<option value="on">Allowed</option>
 											<option value="off">Never</option>
 										</select>
+									</div>
+									<div class="field">
+										<span
+											class="label"
+											title="Curves the route even with nothing in the way — a share of the straight distance. Positive bows it up on screen, negative down (a near-vertical flight bows sideways); 0 flies straight. A win cell in the way still gets the detour below."
+											>Arc (−1–1)</span
+										>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.05"
+											min={FLIGHT_LIMITS.arc.min}
+											max={FLIGHT_LIMITS.arc.max}
+											placeholder={flightInherited.arc === undefined
+												? '0'
+												: String(flightInherited.arc)}
+											value={flightOwn.path?.arc ?? ''}
+											onchange={(e) => setFlightPathNumber('arc', e.currentTarget.value)}
+										/>
 									</div>
 									<div class="field">
 										<span class="label" title="The largest detour a route may take to miss the cells showing a win. It bends a route only when something is in the way — with avoidance off, or nothing to avoid (the feature-end volley), every route flies straight."

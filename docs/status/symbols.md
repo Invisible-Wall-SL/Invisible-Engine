@@ -143,6 +143,13 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-01 — **Flights: an Arc knob** (Hold and Win Phase 4 polish, item 9). `flights.<kind>.path.arc`
+  (−1…1, a share of the straight distance; + bows up on screen, − down; absent/0 = straight, so every
+  existing route is unchanged) shapes the PREFERRED route in `planFlight`; avoidance still detours
+  around a win cell on the arc. One mapping (`flightPlanOptions`) feeds the game's `flyTo` and the
+  `/symbols` preview. Field in `/symbols` → Flights beside "Max detour"; schema, normalize (clamped,
+  0 dropped), resolve (toMeter family) and fixtures (`flightPath` / `flightStyle`).
+
 Detail for every entry is in [symbols-history.md](symbols-history.md).
 
 - 2026-10-01 — **A save keeps the top-level blocks this build does not know.** Before an

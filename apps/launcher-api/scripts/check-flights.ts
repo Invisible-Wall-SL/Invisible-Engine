@@ -85,7 +85,7 @@ const AUTHORED = {
 		},
 		trail: { effectId: 'fx-sparkle-trail' },
 		arrival: { effectId: 'fx-pop' },
-		path: { bend: 0.4, avoid: false },
+		path: { bend: 0.4, arc: 0.25, avoid: false },
 		speed: 2,
 		ease: 'easeOut',
 	},
@@ -140,7 +140,7 @@ const AUTHORED = {
 					minMs: -10,
 					maxMs: 99_999,
 					stagger: 12.6,
-					path: { bend: 4, padding: 9 },
+					path: { arc: -3, bend: 4, padding: 9 },
 					head: { kind: 'glow', scale: 0 },
 				},
 			},
@@ -148,7 +148,7 @@ const AUTHORED = {
 		{
 			toTotal: {
 				head: { kind: 'glow' },
-				path: { bend: 1, padding: 2 },
+				path: { bend: 1, arc: -1, padding: 2 },
 				minMs: 16,
 				maxMs: 10_000,
 				stagger: 13,
