@@ -13,6 +13,7 @@ import {
 	type Position,
 	type SymbolState,
 } from 'engine-game';
+import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
 import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -30,17 +31,22 @@ import {
 	instantCollectText,
 	jackpotBannerText,
 	jackpotCoinText,
+	jackpotUpgradeText,
 	luckySpinText,
 	meterFullText,
 	modifiersActiveText,
 	modifiersUnlockedText,
+	respinsAddedText,
+	upgradeText,
 	wheelPrizeDetailText,
 	wheelPrizeText,
 } from './holdAndWinText';
 import {
 	FLIGHT_BOOST_BEAM,
 	FLIGHT_TO_COLLECTOR,
+	FLIGHT_TO_COUNTER,
 	FLIGHT_TO_TOTAL,
+	FLIGHT_UPGRADE_BEAM,
 	flyCoinsToTotal,
 } from './holdAndWinFlights';
 import { lightLetter, syncLetters } from './holdAndWinLetters.svelte';
@@ -62,7 +68,9 @@ import {
 	armHeldBeat,
 	hideRespinBoard,
 	holdHeldDisplay,
+	holdHeldJackpot,
 	releaseHeldDisplay,
+	releaseHeldJackpot,
 	settleHeldBeats,
 	settleReelsOnHeldCells,
 	showRespinBoard,
@@ -107,6 +115,8 @@ const RANDOM_METRE_MS = 1_600;
 const RESPIN_PAUSE_MS = 250;
 /** How long the counter holds on its reset pulse — the beat that tells the player "back to 3". */
 const RESET_BEAT_MS = 600;
+/** How long the counter holds after an add-respins special's respins land in it. */
+const COUNTER_STEP_MS = 450;
 /** The final board stays up this long before the reel board comes back. */
 const END_HOLD_MS = 900;
 /** The shortest a highlight (a win-highlight state on a held cell) is on screen — a sprite reports
@@ -468,6 +478,100 @@ export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 	await runCounts(counts);
 };
 
+/**
+ * `respinsAdded` — an ADD-RESPINS special applies: it plays `respinsAdd` where it stands while a
+ * "+2 RESPINS" toast goes up, then its "+N" flies into the respin counter (`flyTo(cell,
+ * 'respinCounter', 'toCounter')` — the board's bottom centre when no counter anchor is on screen),
+ * and the counter steps to `left` (its cap to `total`) and pulses ON THE ARRIVAL, then holds a beat
+ * so the new count reads. A non-sticky special then leaves on the `cellsCleared {reason:
+ * 'applied'}` that follows.
+ */
+export const presentRespinsAdded = async (event: Beat<'respinsAdded'>) => {
+	if (!stateRespinBoard.shown) return;
+	syncHeldCells();
+	eventEmitter.broadcast({
+		type: 'respinAddRespins',
+		cell: cellOf(event.cell),
+		added: event.added,
+		left: event.left,
+		total: event.total,
+	});
+	const toast = respinsAddedText(event.added);
+	if (toast) showMessage(toast, { kind: 'info' });
+	await playHeldBeat([event.cell], 'respinsAdd', { minMs: HIGHLIGHT_MIN_MS });
+	await flyTo(
+		{ reel: event.cell.reel, row: event.cell.row },
+		RESPIN_COUNTER_ANCHOR,
+		FLIGHT_TO_COUNTER,
+		{ label: `+${event.added}` },
+	);
+	updateCounter({ left: event.left, start: event.total });
+	stateRespinBoard.counter.adds += 1;
+	await roundSkip.wait(COUNTER_STEP_MS);
+};
+
+/**
+ * `coinUpgrade` — an UPGRADE special applies: it plays `coinUpgrade` where it stands; an upgrade
+ * that raised nothing (`cells` empty) stops there. Otherwise an "UPGRADE" toast goes up and a beam
+ * flies to each coin it raises (`flyTo` kind `upgradeBeam` — the coded glow unless the Symbols doc
+ * authors one); once every beam has landed, each cash coin's label counts up from `from` to `to`
+ * (staggered) and a jackpot coin's label switches to its new tier as it plays `jackpotReveal` under a
+ * "MINOR UPGRADE" banner. Every label is pinned at its old value / tier before the held layer syncs,
+ * so no frame shows the result ahead of its beam.
+ */
+export const presentCoinUpgrade = async (event: Beat<'coinUpgrade'>) => {
+	if (!stateRespinBoard.shown) return;
+	const cashChanges: HoldAndWinCoinChange[] = [];
+	const tierChanges: (Position & { to: string })[] = [];
+	for (const change of event.cells) {
+		if (change.kind === 'value') {
+			cashChanges.push({ reel: change.reel, row: change.row, from: change.from, to: change.to });
+		} else {
+			tierChanges.push({ reel: change.reel, row: change.row, to: change.to });
+			holdHeldJackpot(respinCellKey(change.reel, change.row), change.from);
+		}
+	}
+	const counts = holdCounts(cashChanges);
+	syncHeldCells();
+	eventEmitter.broadcast({
+		type: 'respinCoinUpgrade',
+		upgrader: cellOf(event.upgrader),
+		target: event.target,
+		step: event.step,
+		cells: event.cells,
+	});
+	const upgrader = event.upgrader;
+	await playHeldBeat([upgrader], 'coinUpgrade', { minMs: HIGHLIGHT_MIN_MS });
+	if (event.cells.length === 0) return;
+	const toast = upgradeText();
+	if (toast) showMessage(toast, { kind: 'info' });
+	await Promise.all(
+		event.cells.map((cell, index) =>
+			flyTo(
+				{ reel: upgrader.reel, row: upgrader.row },
+				{ reel: cell.reel, row: cell.row },
+				FLIGHT_UPGRADE_BEAM,
+				{ index },
+			),
+		),
+	);
+	await Promise.all([
+		runCounts(counts),
+		...tierChanges.map(async (change) => {
+			releaseHeldJackpot(respinCellKey(change.reel, change.row));
+			const title = jackpotUpgradeText(change.to);
+			const banner = title
+				? showHoldAndWinBanner({ kind: 'jackpotUpgrade', title, size: 'small' })
+				: 0;
+			await Promise.all([
+				playHeldBeat([change], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS }),
+				holdBanner(COIN_JACKPOT_MS),
+			]);
+			hideHoldAndWinBanner(banner);
+		}),
+	]);
+};
+
 /** `specialBecomesCoin` — a multiplier that has applied turns into a coin: it lands as one. */
 export const presentSpecialBecomesCoin = async (event: Beat<'specialBecomesCoin'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -585,10 +689,12 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	await waitPresentation(TOAST_HOLD_MS);
 };
 
-/** `cellsCleared` — a streak's collected cells leave the board: each plays `clearReel`, then goes. */
+/** `cellsCleared` — a streak's collected cells, or a non-sticky special that has applied, leave the
+ *  board: each plays `clearReel`, then goes. */
+
 export const presentCellsCleared = async (event: Beat<'cellsCleared'>) => {
 	if (!stateRespinBoard.shown) return;
-	eventEmitter.broadcast({ type: 'respinCellsCleared', cells: event.cells });
+	eventEmitter.broadcast({ type: 'respinCellsCleared', reason: event.reason, cells: event.cells });
 	await playHeldBeat(event.cells, 'clearReel');
 	syncHeldCells();
 	settleHeldBeats(

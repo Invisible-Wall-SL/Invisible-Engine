@@ -15,7 +15,7 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 } from './src/holdAndWinPresets.ts';
-import { configuredSpecials, symbolsWithRole } from './src/holdAndWin.ts';
+import { configuredSpecials, jackpotLadder, symbolsWithRole } from './src/holdAndWin.ts';
 import type { GameConfigDoc } from './src/types.ts';
 
 let failures = 0;
@@ -78,6 +78,85 @@ check('collector: COLLECT is the collector symbol', symbolsWithRole(collector, '
 	'COLLECT',
 ]);
 
+console.log('\npresets — none configures the Phase 11a specials (they play as before)');
+for (const id of HOLD_AND_WIN_PRESET_IDS) {
+	const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
+	check(
+		`${id}: no add-respins or upgrade configured`,
+		[doc.holdAndWin?.specials.addRespins, doc.holdAndWin?.specials.upgrade],
+		[undefined, undefined],
+	);
+	check(
+		`${id}: no symbol carries their roles`,
+		[...symbolsWithRole(doc, 'addRespins'), ...symbolsWithRole(doc, 'upgrade')],
+		[],
+	);
+}
+check(
+	'pots-extra is not a preset id',
+	(HOLD_AND_WIN_PRESET_IDS as readonly string[]).includes('pots-extra'),
+	false,
+);
+
+console.log('\ntest fixture — pots-extra validates clean');
+const potsExtra = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-extra']);
+check('potsExtra: re-normalizing is a fixed point', normalize(clone(potsExtra)), potsExtra);
+check(
+	'potsExtra: the block round-trips unchanged',
+	potsExtra.holdAndWin,
+	HOLD_AND_WIN_TEST_FIXTURES['pots-extra'].holdAndWin,
+);
+check('potsExtra: no issues at all', validateGameConfigDoc(potsExtra), []);
+check('potsExtra: every special configured', configuredSpecials(potsExtra.holdAndWin!), [
+	'collector',
+	'multiplier',
+	'payer',
+	'mystery',
+	'addRespins',
+	'upgrade',
+]);
+check(
+	'potsExtra: ADD and UPG carry the roles',
+	[symbolsWithRole(potsExtra, 'addRespins'), symbolsWithRole(potsExtra, 'upgrade')],
+	[['ADD'], ['UPG']],
+);
+check('potsExtra: both active at entry', potsExtra.holdAndWin?.activeModifiers.atEntry, [
+	'mystery',
+	'addRespins',
+	'upgrade',
+]);
+const extraOrder = potsExtra.holdAndWin!.applyOrder;
+check(
+	'potsExtra: both apply after the payer',
+	[extraOrder.indexOf('addRespins'), extraOrder.indexOf('upgrade')].map(
+		(at) => at > extraOrder.indexOf('payer'),
+	),
+	[true, true],
+);
+check(
+	'potsExtra: the mystery may reveal both',
+	potsExtra.holdAndWin?.specials.mystery?.reveals.flatMap((r) =>
+		r.type === 'special' && (r.special === 'addRespins' || r.special === 'upgrade')
+			? [r.special]
+			: [],
+	),
+	['addRespins', 'upgrade'],
+);
+
+console.log('\njackpot ladder — lowest prize first');
+const potsBlock = normalize(HOLD_AND_WIN_PRESETS.pots).holdAndWin!;
+check('pots: the ladder', jackpotLadder(potsBlock), ['MINI', 'MINOR', 'MAJOR', 'GRAND']);
+check(
+	'sorted by multiplier, not listed order',
+	jackpotLadder({
+		jackpots: [
+			{ name: 'GRAND', multiplier: 2000, fixed: true },
+			{ name: 'MINI', multiplier: 15, fixed: true },
+		],
+	}),
+	['MINI', 'GRAND'],
+);
+
 console.log('\nparity — a config without the block is untouched');
 const { holdAndWin: _drop, winLevels: _tiers, ...plain } = clone(HOLD_AND_WIN_PRESETS.classic);
 check('no holdAndWin key appears', 'holdAndWin' in normalize(plain), false);
@@ -107,6 +186,72 @@ check('unknown roles dropped, duplicates collapsed', lax.holdAndWin?.trigger.cou
 ]);
 check('absent apply order = the configured specials', lax.holdAndWin?.applyOrder, ['payer']);
 check('board end defaults to none', lax.holdAndWin?.boardEnd, { type: 'none' });
+
+const laxExtra = normalize({
+	...clone(HOLD_AND_WIN_PRESETS.classic),
+	holdAndWin: {
+		...clone(HOLD_AND_WIN_PRESETS.classic.holdAndWin),
+		applyOrder: undefined,
+		specials: {
+			upgrade: {
+				targets: [
+					{ target: 'all' },
+					{ target: 'nope', weight: 1 },
+					{ target: 'all', weight: 3 },
+					{ target: 'jackpotTier', weight: 2 },
+				],
+				values: [{ value: 0.5 }, { value: 0 }],
+			},
+			addRespins: {
+				values: [{ value: 2 }, { value: -1 }],
+				raisesCap: 'yes',
+				sticky: true,
+				reels: [2, 1, 2],
+			},
+			multiplier: clone(HOLD_AND_WIN_PRESETS.classic.holdAndWin!.specials.multiplier),
+			mystery: {
+				reveals: [
+					{ type: 'special', special: 'addRespins' },
+					{ type: 'special', special: 'upgrade' },
+				],
+			},
+		},
+	},
+});
+check(
+	'add-respins: garbage values dropped, flags strict, reels sorted and unique',
+	laxExtra.holdAndWin?.specials.addRespins,
+	{
+		values: [{ value: 2, weight: 1 }],
+		raisesCap: false,
+		sticky: true,
+		landsInBaseGame: false,
+		reels: [1, 2],
+	},
+);
+check(
+	'upgrade: unknown rules dropped, the first of a repeated rule kept',
+	laxExtra.holdAndWin?.specials.upgrade,
+	{
+		targets: [
+			{ target: 'all', weight: 1 },
+			{ target: 'jackpotTier', weight: 2 },
+		],
+		values: [{ value: 0.5, weight: 1 }],
+		landsInBaseGame: false,
+	},
+);
+check(
+	'a mystery may reveal either',
+	laxExtra.holdAndWin?.specials.mystery?.reveals.map((r) => r.type === 'special' && r.special),
+	['addRespins', 'upgrade'],
+);
+check('absent apply order appends them in the canonical order', laxExtra.holdAndWin?.applyOrder, [
+	'multiplier',
+	'mystery',
+	'addRespins',
+	'upgrade',
+]);
 
 console.log('\nvalidate — impossible configs are named');
 const issuePaths = (doc: GameConfigDoc) => gameConfigErrors(doc).map((i) => i.path);
@@ -347,6 +492,85 @@ check(
 		'error:holdAndWin.jackpots.1.progressive.cap',
 		'warning:holdAndWin.jackpots.2.progressive.contribution',
 	],
+);
+
+console.log('\nvalidate — the Phase 11a specials');
+const extraWith = (edit: (doc: GameConfigDoc) => void) => issuePaths(withBlock(potsExtra, edit));
+check(
+	'an add-respins worth a fraction of a respin',
+	extraWith((d) => (d.holdAndWin!.specials.addRespins!.values = [{ value: 1.5, weight: 1 }])),
+	['holdAndWin.specials.addRespins.values.0.value'],
+);
+check(
+	'an add-respins with no values',
+	extraWith((d) => (d.holdAndWin!.specials.addRespins!.values = [])),
+	['holdAndWin.specials.addRespins.values'],
+);
+check(
+	'an add-respins with no symbol tagged',
+	extraWith((d) => (d.symbols.ADD = {})),
+	['holdAndWin.specials.addRespins'],
+);
+check(
+	'an upgrade with no target rule',
+	extraWith((d) => (d.holdAndWin!.specials.upgrade!.targets = [])),
+	['holdAndWin.specials.upgrade.targets'],
+);
+check(
+	'an upgrade whose rules all weigh 0',
+	extraWith((d) => d.holdAndWin!.specials.upgrade!.targets.forEach((t) => (t.weight = 0))),
+	['holdAndWin.specials.upgrade.targets'],
+);
+check(
+	'a cash upgrade with no step',
+	extraWith((d) => (d.holdAndWin!.specials.upgrade!.values = [])),
+	['holdAndWin.specials.upgrade.values'],
+);
+check(
+	'a tier-only upgrade needs no step',
+	extraWith((d) => {
+		d.holdAndWin!.specials.upgrade!.targets = [{ target: 'jackpotTier', weight: 1 }];
+		d.holdAndWin!.specials.upgrade!.values = [];
+	}),
+	[],
+);
+check(
+	'a tier upgrade with a single jackpot tier',
+	issuePaths(
+		withBlock(collector, (d) => {
+			d.symbols.UPG = { special_properties: ['upgrade'] };
+			d.holdAndWin!.jackpots = [{ name: 'GRAND', multiplier: 1000, fixed: true }];
+			d.holdAndWin!.coins = d.holdAndWin!.coins.filter((c) => c.kind === 'cash');
+			delete d.holdAndWin!.wheel;
+			d.holdAndWin!.specials.upgrade = {
+				targets: [{ target: 'jackpotTier', weight: 1 }],
+				values: [],
+				landsInBaseGame: false,
+			};
+			d.holdAndWin!.applyOrder.push('upgrade');
+		}),
+	),
+	['holdAndWin.specials.upgrade.targets'],
+);
+check(
+	'a mystery revealing an upgrade that is not configured',
+	extraWith((d) => {
+		delete d.holdAndWin!.specials.upgrade;
+		delete d.symbols.UPG;
+		d.paddingReels.respin = d.paddingReels.respin.map((reel) =>
+			reel.filter((s) => s.name !== 'UPG'),
+		);
+		d.holdAndWin!.applyOrder = d.holdAndWin!.applyOrder.filter((k) => k !== 'upgrade');
+		d.holdAndWin!.activeModifiers.atEntry = ['mystery', 'addRespins'];
+	}),
+	['holdAndWin.specials.mystery.reveals.7.special'],
+);
+check(
+	'an add-respins missing from the apply order',
+	extraWith(
+		(d) => (d.holdAndWin!.applyOrder = d.holdAndWin!.applyOrder.filter((k) => k !== 'addRespins')),
+	),
+	['holdAndWin.applyOrder'],
 );
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);

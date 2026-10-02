@@ -8,23 +8,36 @@
  * shows is the value the game uses. The route math that consumes the resolved style lives next door
  * in `flightPath.ts`.
  *
- * Keys: `toTotal` · `toCollector` · `boostBeam` · `toMeter` (every meter) · `toMeter:<id>` (one
- * meter). Resolution is FIELD BY FIELD: the exact key, then (for `toMeter:<id>`) the `toMeter`
- * family, then the coded default ({@link FLIGHT_DEFAULTS}). An absent block resolves to exactly the
- * coded flight, so an unauthored game flies as it always did.
+ * Keys: `toTotal` · `toCollector` · `boostBeam` · `toCounter` · `upgradeBeam` · `toMeter` (every
+ * meter) · `toMeter:<id>` (one meter). Resolution is FIELD BY FIELD: the exact key, then (for
+ * `toMeter:<id>`) the `toMeter` family, then the coded default ({@link FLIGHT_DEFAULTS}). An absent
+ * block resolves to exactly the coded flight, so an unauthored game flies as it always did.
  *
  * No value import here: the engine-game fixtures run this file under `node --experimental-strip-types`.
  */
 
-export const FLIGHT_KINDS = ['toTotal', 'toCollector', 'boostBeam', 'toMeter'] as const;
+export const FLIGHT_KINDS = [
+	'toTotal',
+	'toCollector',
+	'boostBeam',
+	'toCounter',
+	'upgradeBeam',
+	'toMeter',
+] as const;
 export type FlightKind = (typeof FLIGHT_KINDS)[number];
 
 export const FLIGHT_KIND_LABELS: Record<FlightKind, string> = {
 	toTotal: 'Into the total win',
 	toCollector: 'Into a collector',
 	boostBeam: 'Boost beam',
+	toCounter: 'Into the respin counter',
+	upgradeBeam: 'Upgrade beam',
 	toMeter: 'Into a meter (every meter)',
 };
+
+/** The respin counter's flight anchor (`<Anchor name>`): the coded counter and the Scene Editor's
+ *  `respinCounter` component both register it; an add-respins head flies into it (`toCounter`). */
+export const RESPIN_COUNTER_ANCHOR = 'respinCounter';
 
 /** `toMeter:<id>` — one meter's flight, falling back to `toMeter` field by field. */
 export const FLIGHT_METER_PREFIX = 'toMeter:';

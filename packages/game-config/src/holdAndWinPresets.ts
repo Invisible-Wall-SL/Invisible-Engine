@@ -459,9 +459,84 @@ export const HOLD_AND_WIN_PRESETS: Record<HoldAndWinPresetId, RawGameConfig> = {
 };
 
 /**
+ * 3 Pots plus the Phase 11a specials: an `ADD` add-respins (+1/+2, clears after applying, the cap
+ * untouched) and an `UPG` upgrade (all / adjacent / one jackpot tier, steps 0.5/1/2), both active
+ * at entry, applied after the payer, and both revealable by the mystery.
+ */
+const POTS_EXTRA: RawGameConfig = {
+	...POTS,
+	gameName: '3_pots_extra',
+	gameID: 'hold_and_win_pots_extra',
+	symbols: { ...POTS.symbols, ADD: tag('addRespins'), UPG: tag('upgrade') },
+	paddingReels: {
+		...POTS.paddingReels,
+		respin: POTS.paddingReels.respin.map((reel) => [
+			...reel,
+			...strip(['BLANK', 'ADD', 'BLANK', 'UPG']),
+		]),
+	},
+	holdAndWin: {
+		...POTS_HOLD_AND_WIN,
+		boardEnd: {
+			type: 'fullBoardJackpot',
+			jackpot: 'GRAND',
+			roles: [
+				'coin',
+				'jackpot',
+				'collector',
+				'coinMultiplier',
+				'payer',
+				'mystery',
+				'addRespins',
+				'upgrade',
+			],
+		},
+		specials: {
+			...POTS_HOLD_AND_WIN.specials,
+			mystery: {
+				reveals: [
+					...(POTS_HOLD_AND_WIN.specials.mystery?.reveals ?? []),
+					{ type: 'special', special: 'addRespins', weight: 3 },
+					{ type: 'special', special: 'upgrade', weight: 3 },
+				],
+				unlocksInactive: true,
+			},
+			addRespins: {
+				values: [
+					{ value: 1, weight: 3 },
+					{ value: 2, weight: 1 },
+				],
+				raisesCap: false,
+				sticky: false,
+				landsInBaseGame: false,
+			},
+			upgrade: {
+				targets: [
+					{ target: 'all', weight: 1 },
+					{ target: 'adjacent', weight: 2 },
+					{ target: 'jackpotTier', weight: 1 },
+				],
+				values: [
+					{ value: 0.5, weight: 3 },
+					{ value: 1, weight: 2 },
+					{ value: 2, weight: 1 },
+				],
+				landsInBaseGame: false,
+			},
+		},
+		applyOrder: ['mystery', 'payer', 'addRespins', 'upgrade', 'multiplier', 'collector'],
+		activeModifiers: {
+			atEntry: ['mystery', 'addRespins', 'upgrade'],
+			fromTriggeringSpecials: true,
+		},
+	},
+};
+
+/**
  * DEV/TEST fixtures — never offered by the Game Maker. `pots-progressive` is 3 Pots with its upper
  * three tiers progressive (design §7 11c), so the mock, the facade and the engine's live jackpot
- * values can be exercised without any project turning the option on.
+ * values can be exercised without any project turning the option on; `pots-extra` is 3 Pots with
+ * the 11a add-respins and upgrade specials (`PRESET=pots-extra` on the mock CLI).
  */
 export const HOLD_AND_WIN_TEST_FIXTURES: Record<string, RawGameConfig> = {
 	'pots-progressive': {
@@ -491,4 +566,5 @@ export const HOLD_AND_WIN_TEST_FIXTURES: Record<string, RawGameConfig> = {
 			],
 		},
 	},
+	'pots-extra': POTS_EXTRA,
 };

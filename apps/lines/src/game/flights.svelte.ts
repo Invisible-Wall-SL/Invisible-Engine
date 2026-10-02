@@ -62,6 +62,8 @@ export type FlyToOptions = {
 	/** Grows every obstacle by this many BOARD units (default: the kind's authored padding, coded a
 	 *  tenth of a cell). */
 	padding?: number;
+	/** Text carried on the head (an add-respins special's "+2"). Absent ⇒ the head alone. */
+	label?: string;
 };
 
 /** The win meter — `'total'` in a flight's target. */
@@ -97,6 +99,8 @@ export type ActiveFlight = {
 	ease: FlightEase;
 	/** The authored head; absent ⇒ the coded glow. */
 	headStyle?: FlightHead;
+	/** Text riding on the head ({@link FlyToOptions.label}). */
+	label?: string;
 	/** The trail: `'coded'` (the gold glow), the id of an authored effect the bundle carries, or
 	 *  `null` (none). An id, not the doc: this list is deep `$state`, and an emitter config must not
 	 *  be proxied. */
@@ -284,6 +288,7 @@ export const flyTo = (
 			head: { ...route.curve.p0 },
 			ease: style.ease,
 			...(style.head ? { headStyle: style.head } : {}),
+			...(options.label ? { label: options.label } : {}),
 			...trailOf(style),
 			...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
 			arrivalDone: !style.arrival,

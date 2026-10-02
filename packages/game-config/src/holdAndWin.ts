@@ -34,12 +34,21 @@ export const HOLD_AND_WIN_SYMBOL_ROLES = [
 	'mystery',
 	'meterSpecial',
 	'blank',
+	'addRespins',
+	'upgrade',
 ] as const;
 
 export type HoldAndWinSymbolRole = (typeof HOLD_AND_WIN_SYMBOL_ROLES)[number];
 
 /** The feature's special kinds, each optional, each with its own table. */
-export const HOLD_AND_WIN_SPECIALS = ['collector', 'multiplier', 'payer', 'mystery'] as const;
+export const HOLD_AND_WIN_SPECIALS = [
+	'collector',
+	'multiplier',
+	'payer',
+	'mystery',
+	'addRespins',
+	'upgrade',
+] as const;
 
 export type HoldAndWinSpecial = (typeof HOLD_AND_WIN_SPECIALS)[number];
 
@@ -49,6 +58,8 @@ export const SPECIAL_SYMBOL_ROLE: Record<HoldAndWinSpecial, HoldAndWinSymbolRole
 	multiplier: 'coinMultiplier',
 	payer: 'payer',
 	mystery: 'mystery',
+	addRespins: 'addRespins',
+	upgrade: 'upgrade',
 };
 
 /** A value with a draw weight — the shape every value table in the block shares. `value` is a
@@ -172,6 +183,39 @@ export type PayerSpecial = {
 	landsInBaseGame: boolean;
 };
 
+/**
+ * Adds respins to the counter when it lands in a respin (Lightning-Link style). `values` are whole
+ * respins, not × total bet.
+ */
+export type AddRespinsSpecial = {
+	values: WeightedValue[];
+	/** Also raise the counter's CAP — the count a reset fills it back to — by the same amount, so
+	 *  every later reset fills to the higher count. `respins.cap` (the most respins one feature
+	 *  plays) is a different limit and is never raised. */
+	raisesCap: boolean;
+	/** Stays on the board after applying (holding its cell, worth nothing); else its cell clears. */
+	sticky: boolean;
+	reels?: number[];
+	/** Lands in the base game too (where it does nothing but count toward a trigger that counts its
+	 *  role). Normally off. */
+	landsInBaseGame: boolean;
+};
+
+/** What an upgrade raises: every cash coin by its step (`all`), the cash coins in the 8 cells
+ *  around it by its step (`adjacent`), or ONE jackpot coin by one tier (`jackpotTier` — the
+ *  lowest-tier one, never past the top tier). */
+export const UPGRADE_TARGETS = ['all', 'adjacent', 'jackpotTier'] as const;
+export type UpgradeTarget = (typeof UPGRADE_TARGETS)[number];
+
+export type UpgradeSpecial = {
+	/** Which rule a landing applies — drawn per landing. */
+	targets: { target: UpgradeTarget; weight: number }[];
+	/** The step a cash coin rises by, × total bet, decimals allowed. Unused by `jackpotTier`. */
+	values: WeightedValue[];
+	reels?: number[];
+	landsInBaseGame: boolean;
+};
+
 /** One outcome of a mystery reveal. */
 export type MysteryReveal =
 	| { type: 'coin'; weight: number }
@@ -190,6 +234,8 @@ export type HoldAndWinSpecials = {
 	multiplier?: MultiplierSpecial;
 	payer?: PayerSpecial;
 	mystery?: MysterySpecial;
+	addRespins?: AddRespinsSpecial;
+	upgrade?: UpgradeSpecial;
 };
 
 /** Which specials may land in the respins, decided at entry. */
@@ -452,7 +498,7 @@ const payer = (raw: unknown): PayerSpecial | undefined => {
 	);
 };
 
-const MYSTERY_SPECIALS = ['collector', 'multiplier', 'payer'] as const;
+const MYSTERY_SPECIALS = ['collector', 'multiplier', 'payer', 'addRespins', 'upgrade'] as const;
 
 const mysteryReveal = (raw: unknown): MysteryReveal | undefined => {
 	if (!isObject(raw)) return undefined;
@@ -478,6 +524,37 @@ const mystery = (raw: unknown): MysterySpecial | undefined => {
 	);
 };
 
+const addRespins = (raw: unknown): AddRespinsSpecial | undefined => {
+	if (!isObject(raw)) return undefined;
+	return withReels<AddRespinsSpecial>(
+		{
+			values: values(raw.values),
+			raisesCap: raw.raisesCap === true,
+			sticky: raw.sticky === true,
+			landsInBaseGame: raw.landsInBaseGame === true,
+		},
+		raw,
+	);
+};
+
+const upgradeTarget = (raw: unknown): UpgradeSpecial['targets'][number] | undefined => {
+	if (!isObject(raw)) return undefined;
+	const target = oneOf(UPGRADE_TARGETS, raw.target);
+	const w = weight(raw.weight);
+	return target && w !== undefined ? { target, weight: w } : undefined;
+};
+
+const upgrade = (raw: unknown): UpgradeSpecial | undefined => {
+	if (!isObject(raw)) return undefined;
+	const targets = list(raw.targets, upgradeTarget).filter(
+		(t, i, all) => all.findIndex((o) => o.target === t.target) === i,
+	);
+	return withReels<UpgradeSpecial>(
+		{ targets, values: values(raw.values), landsInBaseGame: raw.landsInBaseGame === true },
+		raw,
+	);
+};
+
 const specialsBlock = (raw: unknown): HoldAndWinSpecials => {
 	if (!isObject(raw)) return {};
 	const out: HoldAndWinSpecials = {};
@@ -489,6 +566,10 @@ const specialsBlock = (raw: unknown): HoldAndWinSpecials => {
 	if (p) out.payer = p;
 	const y = mystery(raw.mystery);
 	if (y) out.mystery = y;
+	const a = addRespins(raw.addRespins);
+	if (a) out.addRespins = a;
+	const u = upgrade(raw.upgrade);
+	if (u) out.upgrade = u;
 	return out;
 };
 
@@ -588,6 +669,10 @@ export const isHoldAndWinSymbol = (
 /** A coin entry's label as the board would print it: `1.5×` or `MINI`. */
 export const coinEntryLabel = (entry: CoinValueEntry): string =>
 	entry.kind === 'cash' ? `${entry.value}×` : entry.jackpot;
+
+/** The jackpot tiers, lowest prize first — the ladder a `jackpotTier` upgrade climbs. */
+export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
+	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
@@ -798,7 +883,14 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			checkReel(`specials.${kind}.reels`, r, `The ${kind} lands on`),
 		);
 	}
-	const { collector: col, multiplier: mul, payer: pay, mystery: mys } = block.specials;
+	const {
+		collector: col,
+		multiplier: mul,
+		payer: pay,
+		mystery: mys,
+		addRespins: add,
+		upgrade: upg,
+	} = block.specials;
 	if (block.stickiness === 'collectorsOnly' && (!col || !col.sticky)) {
 		error(
 			'stickiness',
@@ -825,6 +917,30 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		}
 	}
 	if (pay) checkTable('specials.payer.values', pay.values, 'The payer');
+	if (add) {
+		checkTable('specials.addRespins.values', add.values, 'The add-respins');
+		add.values.forEach((v, i) => {
+			if (!Number.isInteger(v.value)) {
+				error(
+					`specials.addRespins.values.${i}.value`,
+					`${v.value} is not a whole number of respins.`,
+				);
+			}
+		});
+	}
+	if (upg) {
+		if (!upg.targets.length) error('specials.upgrade.targets', 'The upgrade has no target rule.');
+		else if (!upg.targets.some((t) => t.weight > 0))
+			error('specials.upgrade.targets', 'No upgrade target rule has a weight above 0.');
+		if (upg.targets.some((t) => t.target !== 'jackpotTier'))
+			checkTable('specials.upgrade.values', upg.values, 'The upgrade step');
+		if (upg.targets.some((t) => t.target === 'jackpotTier') && block.jackpots.length < 2) {
+			error(
+				'specials.upgrade.targets',
+				'A jackpot-tier upgrade needs at least two jackpot tiers to step between.',
+			);
+		}
+	}
 	if (mys) {
 		if (!mys.reveals.length)
 			error('specials.mystery.reveals', 'The mystery has nothing to reveal.');

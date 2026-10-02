@@ -53,6 +53,8 @@
 
 ## Recent changes
 
+- 2026-10-02 — **Hold and Win vocabulary: add-respins + upgrade** (Phase 11a, #995): events `respinsAdded` / `coinUpgrade`, actions `addRespins` / `upgradeCoins`, cues `respinAddRespins` / `respinCoinUpgrade`, `respinCellsCleared` gains `reason`, enum `UpgradeTarget`; the starter flow wires both beats in the Hold and Win tab (new projects only — a saved flow falls through to the coded beats). Detail: [status/hold-and-win](hold-and-win.md).
+
 - 2026-10-01 — **The `holdAndWin` vocabulary + starter flow** (Hold and Win Phase 5; branch
   `flow/hold-win-5-vocabulary`; hub [hold-and-win.md](hold-and-win.md)). `holdAndWin` no longer
   borrows `lines` → `bookOf`: it has its own vocabulary and seed.

@@ -114,7 +114,8 @@ type Position = { reel: number; row: number };
 type Cell = Position & { symbol: HoldAndWinSymbol };
 type CellAmount = Cell & { amount: number };
 
-/** `BONUS:1.5` → a value · `JACKPOT:MINI*2` → a jackpot and its factor · `H1` → a plain symbol. */
+/** `BONUS:1.5` → a value · `JACKPOT:MINI*2` → a jackpot and its factor · `H1` → a plain symbol.
+ *  An add-respins (`ADD:2`) and an upgrade (`UPG:0.5`) carry their respins / step as the value. */
 export const parseHoldAndWinCell = (text: string): HoldAndWinSymbol => {
 	const colon = text.indexOf(':');
 	if (colon === -1) return { name: text };
@@ -319,6 +320,45 @@ export const translateHoldAndWinEvent = (
 					: {}),
 				multiplier: ctx.multiplier,
 				cells: ctx.cells ?? [],
+			};
+		}
+		case 'respinsAdded': {
+			const cell = ctx.cell as WireCell | undefined;
+			if (!cell) return null;
+			return {
+				type: 'respinsAdded',
+				cell: cellOf(cell),
+				added: ctx.added,
+				left: ctx.left,
+				total: ctx.total,
+			};
+		}
+		case 'coinUpgrade': {
+			const upgrader = ctx.upgrader as WireCell | undefined;
+			if (!upgrader) return null;
+			type WireUpgrade = Position & {
+				from?: number;
+				to?: number;
+				jackpot?: string;
+				fromJackpot?: string;
+			};
+			return {
+				type: 'coinUpgrade',
+				upgrader: cellOf(upgrader),
+				target: ctx.target,
+				step: ctx.step ?? 0,
+				// A change missing its `from` reads as no change rather than as an unlabelled coin.
+				cells: ((ctx.cells as WireUpgrade[] | undefined) ?? []).map((c) =>
+					c.jackpot !== undefined
+						? {
+								reel: c.reel,
+								row: c.row,
+								kind: 'jackpot',
+								from: c.fromJackpot ?? c.jackpot,
+								to: c.jackpot,
+							}
+						: { reel: c.reel, row: c.row, kind: 'value', from: c.from ?? c.to, to: c.to },
+				),
 			};
 		}
 		case 'specialBecomesCoin':

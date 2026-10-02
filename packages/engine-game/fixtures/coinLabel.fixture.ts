@@ -47,6 +47,17 @@ check(
 	'+$8.00',
 );
 check(
+	'an add-respins shows the respins it adds',
+	coinLabelText({ value: 2 }, ['addRespins'], money),
+	'+2',
+);
+check(
+	'an upgrade shows its cash step like a payer',
+	coinLabelText({ value: 0.5 }, ['upgrade'], money),
+	'+$1.00',
+);
+check('an upgrade with no step prints nothing', coinLabelText({}, ['upgrade'], money), null);
+check(
 	'an unrevealed mystery prints nothing',
 	coinLabelText({ value: 2 }, ['mystery'], money),
 	null,

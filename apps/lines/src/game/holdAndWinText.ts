@@ -35,6 +35,19 @@ export const respinCounterText = (left: number, note: 'award' | 'reset' | null =
 	return formatWinText(template || respins.counter, { count: left });
 };
 
+/** An add-respins special joining the counter ("+2 RESPINS"); `count` is the respins it added. */
+export const respinsAddedText = (count: number) =>
+	formatWinText(bakedWinText().respins.added, { count });
+
+/** An upgrade special raising coins ("UPGRADE"). */
+export const upgradeText = () => formatWinText(bakedWinText().feature.upgrade);
+
+/** A jackpot coin an upgrade stepped up a tier, named by its NEW tier ("MINOR UPGRADE"). */
+export const jackpotUpgradeText = (tier: string) => {
+	const resolved = bakedWinText();
+	return formatWinText(resolved.jackpots.upgrade, { jackpot: jackpotCaption(resolved, tier) });
+};
+
 /** The feature's total over the board once the Total Win bar has landed ("BONUS WIN $20.00"). */
 export const featureTotalText = (amount: string) =>
 	formatWinText(bakedWinText().feature.total, { amount });

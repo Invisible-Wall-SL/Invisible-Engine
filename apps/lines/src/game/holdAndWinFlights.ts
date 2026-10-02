@@ -8,6 +8,10 @@ export const FLIGHT_TO_TOTAL = 'toTotal';
 export const FLIGHT_TO_COLLECTOR = 'toCollector';
 /** The flight kind a multiplier's beam to each coin it boosts reports (design §4.4 "Beams"). */
 export const FLIGHT_BOOST_BEAM = 'boostBeam';
+/** The flight kind an add-respins special's "+N" reports flying into the respin counter. */
+export const FLIGHT_TO_COUNTER = 'toCounter';
+/** The flight kind an upgrade special's beam to each coin it raises reports. */
+export const FLIGHT_UPGRADE_BEAM = 'upgradeBeam';
 
 /**
  * THE FEATURE END'S COLLECTION (design §4.3 `holdAndWinEnd` / §4.4) — every tallied coin flies from

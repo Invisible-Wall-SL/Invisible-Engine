@@ -26,9 +26,16 @@
 	 * strictly positive so the parent sorts only once a cell exists.
 	 */
 	const zIndex = $derived(1 + props.cell.reel * boardDimensions().y + props.cell.row);
-	/** A count-up in flight on this cell's label (a payer, a multiplier, a collector collecting). */
+	/** A count-up in flight on this cell's label (a payer, a multiplier, a collector collecting), or
+	 *  a jackpot tier an upgrade has not reached yet. */
 	const display = $derived(stateRespinBoard.heldDisplay[key]);
-	const labelOverride = $derived(display ? { [display.field]: display.tween.current } : undefined);
+	const labelOverride = $derived(
+		display
+			? display.field === 'jackpot'
+				? { jackpot: display.jackpot }
+				: { [display.field]: display.tween.current }
+			: undefined,
+	);
 	const cellState = $derived(stateRespinBoard.heldState[key] ?? HELD_REST);
 
 	/**

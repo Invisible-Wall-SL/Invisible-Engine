@@ -223,6 +223,63 @@ it('a collector keeps its value; a streak clears what it took', () => {
 	assert.equal(valueAt(streak, 0, 0), undefined);
 });
 
+it('an add-respins raises the counter and its cap, then leaves when it applied', () => {
+	const add = { reel: 4, row: 0, symbol: { name: 'ADD', value: 2 } };
+	const added = play(
+		[
+			{ type: 'coinsLand', cells: [add] },
+			{ type: 'respinsAdded', cell: add, added: 2, left: 4, total: 5 },
+			{ type: 'cellsCleared', reason: 'applied', cells: [{ reel: 4, row: 0 }] },
+		],
+		{ ...respin, left: 2, start: 3 },
+	);
+	assert.equal(added.left, 4);
+	assert.equal(added.start, 5);
+	assert.equal(valueAt(added, 4, 0), undefined);
+	const reset = applyHoldAndWinEvent(added, {
+		type: 'respinUpdate',
+		left: 5,
+		played: 2,
+		start: 5,
+		reset: true,
+	});
+	assert.equal(reset.left, 5);
+	assert.equal(reset.start, 5);
+});
+
+it('an upgrade raises cash values and steps a jackpot tier, keeping its factor', () => {
+	const upgrader = { reel: 4, row: 1, symbol: { name: 'UPG', value: 0.5 } };
+	const upgraded = play(
+		[
+			{ type: 'coinsLand', cells: [upgrader] },
+			{
+				type: 'coinUpgrade',
+				upgrader,
+				target: 'all',
+				step: 0.5,
+				cells: [
+					{ reel: 0, row: 0, kind: 'value', from: 3, to: 3.5 },
+					{ reel: 1, row: 1, kind: 'value', from: 3.5, to: 4 },
+				],
+			},
+			{
+				type: 'coinUpgrade',
+				upgrader,
+				target: 'jackpotTier',
+				step: 0,
+				cells: [{ reel: 3, row: 2, kind: 'jackpot', from: 'MINI', to: 'MINOR' }],
+			},
+			{ type: 'coinUpgrade', upgrader, target: 'adjacent', step: 0.5, cells: [] },
+		],
+		respin,
+	);
+	assert.equal(valueAt(upgraded, 0, 0)?.value, 3.5);
+	assert.equal(valueAt(upgraded, 1, 1)?.value, 4);
+	assert.deepEqual(valueAt(upgraded, 3, 2), { name: 'JACKPOT', jackpot: 'MINOR', factor: 2 });
+	assert.deepEqual(valueAt(upgraded, 4, 1), upgrader.symbol);
+	assert.equal(upgraded.left, respin.left);
+});
+
 it('the end closes the feature and keeps only the meters', () => {
 	const ended = applyHoldAndWinEvent(respin, {
 		type: 'holdAndWinEnd',

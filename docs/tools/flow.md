@@ -649,9 +649,11 @@ an error to the browser console.
 | `coinsLand` | `stickCoins` | Hold and Win tab |
 | `mysteryReveal` | `revealMystery` | Hold and Win tab |
 | `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
+| `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
 | `coinCollect` | `collectCoins` | Hold and Win tab |
-| `cellsCleared` | `clearRespinCells` | Hold and Win tab |
+| `cellsCleared` | `clearRespinCells` (a streak's collect, or a non-sticky add-respins leaving — the cue's `reason`) | Hold and Win tab |
+
 | `columnComplete` | `lightLetter` | Hold and Win tab |
 | `respinUpdate` | `setRespinCounter` | Hold and Win tab |
 | `holdAndWinState` | `restoreRespinBoard` (rebuilds the board on a resume) | Hold and Win tab |

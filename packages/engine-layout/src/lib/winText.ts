@@ -87,6 +87,9 @@ export type WinTextJackpots = {
 	fullBoardDetail?: string;
 	/** The small banner over a jackpot COIN in the tally — "{jackpot}" (its amount sits under it). */
 	coin?: string;
+	/** An upgrade stepped a jackpot coin up a tier — "{jackpot} UPGRADE" (`{jackpot}` = the new
+	 *  tier's caption). */
+	upgrade?: string;
 };
 
 /** Hold and Win respin copy. `{count}` is a number of respins. */
@@ -99,6 +102,9 @@ export type WinTextRespins = {
 	reset?: string;
 	/** One respin left — "LAST RESPIN". */
 	last?: string;
+	/** An add-respins special added to the counter — "+{count} RESPINS" (`{count}` = respins
+	 *  added). */
+	added?: string;
 };
 
 /**
@@ -128,7 +134,10 @@ export type WinTextFeature = {
 	collectorLevel?: string;
 	/** A pot's label — "{pot} {level}/{max}". */
 	potLabel?: string;
-	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`) → its name in these lines. */
+	/** An upgrade special raising coins — "UPGRADE". */
+	upgrade?: string;
+	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`, `addRespins`, `upgrade`) → its
+	 *  name in these lines. */
 	specialNames?: Record<string, string>;
 	/** Collector level (`"2"`) → its name (`"DOUBLE"`). An unnamed level reads `×n`. */
 	collectorLevelNames?: Record<string, string>;
@@ -233,7 +242,9 @@ export type ResolvedWinText = {
  *   Lucky Spin, the modifier toasts, the pots, the special and collector-level names),
  *   exactly that literal, so an unauthored Hold and Win game reads the same once it reads these.
  *   `respins.award`/`reset`/`last`, `feature.total`/`meterFull` are NEW copy with
- *   no draw site yet: adopting one adds a line to the screen.
+ *   no draw site yet: adopting one adds a line to the screen. `respins.added`, `feature.upgrade`
+ *   and `jackpots.upgrade` (Phase 11a) belong to specials no existing game configures, so they draw
+ *   only in a game that adds one.
  *   `jackpots.captions` is empty because an unset tier speaks its own config name. `feature.intro`
  *   and `feature.outro` are empty (no prior line, so nothing is drawn until authored).
  */
@@ -261,12 +272,14 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		awardDetail: '{amount}',
 		fullBoardDetail: 'FULL BOARD  {amount}',
 		coin: '{jackpot}',
+		upgrade: '{jackpot} UPGRADE',
 	},
 	respins: {
 		counter: 'RESPINS {count}',
 		award: '{count} RESPINS',
 		reset: 'RESPINS RESET',
 		last: 'LAST RESPIN',
+		added: '+{count} RESPINS',
 	},
 	feature: {
 		total: 'BONUS WIN {amount}',
@@ -279,11 +292,14 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		modifiersUnlocked: 'UNLOCKED: {modifiers}',
 		collectorLevel: '{level} COLLECTOR',
 		potLabel: '{pot} {level}/{max}',
+		upgrade: 'UPGRADE',
 		specialNames: {
 			collector: 'COLLECTOR',
 			multiplier: 'MULTIPLIER',
 			payer: 'PAYER',
 			mystery: 'MYSTERY',
+			addRespins: 'ADD RESPINS',
+			upgrade: 'UPGRADE',
 		},
 		collectorLevelNames: { '2': 'DOUBLE', '3': 'TRIPLE' },
 		potNames: {},
@@ -299,8 +315,14 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 /** The Hold and Win template fields that are plain strings — what the tool lists, the storage
  *  prunes and the harvest walks, in display order. One list, so a new field cannot reach one of
  *  them and miss another. */
-export const WIN_TEXT_JACKPOT_FIELDS = ['award', 'awardDetail', 'fullBoardDetail', 'coin'] as const;
-export const WIN_TEXT_RESPIN_FIELDS = ['counter', 'award', 'reset', 'last'] as const;
+export const WIN_TEXT_JACKPOT_FIELDS = [
+	'award',
+	'awardDetail',
+	'fullBoardDetail',
+	'coin',
+	'upgrade',
+] as const;
+export const WIN_TEXT_RESPIN_FIELDS = ['counter', 'award', 'reset', 'last', 'added'] as const;
 export const WIN_TEXT_FEATURE_FIELDS = [
 	'total',
 	'intro',
@@ -312,6 +334,7 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'modifiersUnlocked',
 	'collectorLevel',
 	'potLabel',
+	'upgrade',
 ] as const;
 /** The feature family's name maps — resolved, pruned and harvested alike. */
 export const WIN_TEXT_FEATURE_MAPS = ['specialNames', 'collectorLevelNames', 'potNames'] as const;
@@ -334,12 +357,14 @@ export const WIN_TEXT_JACKPOT_LABELS: Record<WinTextJackpotField, string> = {
 	awardDetail: 'Jackpot banner — amount',
 	fullBoardDetail: 'Jackpot banner — full board',
 	coin: 'Jackpot coin',
+	upgrade: 'Jackpot upgraded',
 };
 export const WIN_TEXT_RESPIN_LABELS: Record<WinTextRespinField, string> = {
 	counter: 'Respin counter',
 	award: 'Respins awarded',
 	reset: 'Respins reset',
 	last: 'Last respin',
+	added: 'Respins added',
 };
 export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	total: 'Feature total',
@@ -352,6 +377,7 @@ export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	modifiersUnlocked: 'Modifiers unlocked',
 	collectorLevel: 'Raised collector',
 	potLabel: 'Pot label',
+	upgrade: 'Upgrade',
 };
 export const WIN_TEXT_FEATURE_MAP_LABELS: Record<WinTextFeatureMap, string> = {
 	specialNames: 'Special',

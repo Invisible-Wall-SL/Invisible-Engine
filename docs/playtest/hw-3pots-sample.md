@@ -58,6 +58,24 @@ Confirm the mock: `GET …/api/hw-3pots-sample/authoring/healthz` → `"protocol
 
 ### S7 — Full board GRAND + feature end (Phase 4h): `fullBoard`.
 
+### S8 — Add-respins + upgrade (Phase 11a) — LOCAL `pots-extra` fixture only
+This sample does not configure either special, so its mock refuses the forces. Play them on a
+local runtime stub serving `normalizeGameConfigDoc(HOLD_AND_WIN_TEST_FIXTURES['pots-extra'])`
+(recipe: the "Testing an unmerged engine branch" line above + a `/api/editor/runtime` stub) against
+`PRESET=pots-extra … scripts/mock-rgs-server-holdandwin.mjs` on a FREE port (never 7788).
+- **Force:** `special:addRespins` · `special:upgrade:all` · `special:upgrade:adjacent` ·
+  `special:upgrade:jackpotTier` · `mystery:addRespins` · `mystery:upgrade`.
+- **Expect:** add-respins plays `respinsAdd`, its "+N" flies into the respin counter (the
+  `respinCounter` anchor, not the board's bottom), and the counter steps to `left` on arrival; a
+  non-sticky one then clears (`cellsCleared` reason `applied`); later resets fill to
+  `max(cap, left)`. Upgrade plays `coinUpgrade`, a beam lands on each coin, then each label counts to
+  the event's `to` (cash coins only) or a MINI label turns MINOR under "MINOR UPGRADE". After every
+  respin `stateHoldAndWin` equals the server's `holdAndWinState`; balance = before − stake + win.
+- **Resume:** a plain reload cannot land mid-feature (the facade pre-fetches the round). Fail the
+  third respin request (CDP `Fetch.failRequest` on `seq=4`), then reload: the board, counter and cap
+  rebuild from the snapshot with no intro.
+
+
 ## Known state (2026-10-01)
 
 - Until Phase 4c the respins show NOTHING moving: the base board stays on screen while the round

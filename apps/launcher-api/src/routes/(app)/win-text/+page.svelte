@@ -614,8 +614,9 @@
 					What the player reads for each jackpot tier, and the banners a jackpot win shows. The
 					tiers are this game's own, from <a href={resolve('/config')}>Invisible Game Config</a>;
 					leave a tier blank and it is called by its config name. Write <code>{'{jackpot}'}</code>
-					where the tier's caption goes and <code>{'{amount}'}</code> for what it paid — for a progressive
-					tier, the live pool the server paid out, not its seed.
+					where the tier's caption goes (the tier it rose to, on an upgrade) and
+					<code>{'{amount}'}</code> for what it paid — for a progressive tier, the live pool the server
+					paid out, not its seed.
 				</p>
 				{#each data.jackpotTiers as tier (tier)}
 					<label class="single">
@@ -649,7 +650,8 @@
 				<h2>Respins</h2>
 				<p class="hint">
 					The respin counter and its moments. <code>{'{count}'}</code> is a number of respins — the respins
-					left on the counter, the respins awarded when the feature starts.
+					left on the counter, the respins awarded when the feature starts, the respins an add-respins
+					special adds.
 				</p>
 				{#each WIN_TEXT_RESPIN_FIELDS as field (field)}
 					<label class="single">
