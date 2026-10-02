@@ -37,7 +37,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
-| 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | built, in review | Pots overlay Phase 5c — Flow vocabulary composition | editor/pots-overlay-flow-vocab |
+| 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | built, in review | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
@@ -256,7 +256,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 5c: Flow vocabulary composition (in review).** A Book-of (or any) flow can
+- 2026-10-02 — **Phase 5c: Flow vocabulary composition (#1014, in review).** A Book-of (or any) flow can
   now reference the pots overlay and Hold and Win vocabulary when the config carries the block,
   and still publishes. The editor's "＋ Add overlay steps" grafts the pot chain and the Hold and Win
   mode tab without touching authored nodes. Agent `invisible-flow`; guide `docs/tools/flow.md`
