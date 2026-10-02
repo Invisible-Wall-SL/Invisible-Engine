@@ -3,6 +3,8 @@ import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
 import {
 	HOLD_AND_WIN_VALUE_SOURCE_KEYS,
 	HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS,
+	PLATFORM_JACKPOT_VALUE_SOURCE_KEYS,
+	PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS,
 	TEXT_SOURCE_KEYS,
 	VALUE_SOURCE_KEYS,
 	VISIBILITY_SOURCE_KEYS,
@@ -1992,8 +1994,16 @@ const HW_CAPTION_SIZE = 22;
 /** Gold — the jackpot / total figures. */
 const HW_VALUE_FILL = 0xffd35c;
 
-const HW_SOURCE_PARAM_OPTIONS = [...HOLD_AND_WIN_VALUE_SOURCE_KEYS, ...VALUE_SOURCE_KEYS];
-const HW_VISIBILITY_OPTIONS = [...HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS, ...VISIBILITY_SOURCE_KEYS];
+const HW_SOURCE_PARAM_OPTIONS = [
+	...HOLD_AND_WIN_VALUE_SOURCE_KEYS,
+	...PLATFORM_JACKPOT_VALUE_SOURCE_KEYS,
+	...VALUE_SOURCE_KEYS,
+];
+const HW_VISIBILITY_OPTIONS = [
+	...HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS,
+	...PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS,
+	...VISIBILITY_SOURCE_KEYS,
+];
 
 type HoldAndWinPanel = {
 	id: string;
@@ -2166,6 +2176,39 @@ export const JACKPOT_BAR_DEF: ComponentDef = {
 	},
 };
 
+/**
+ * The OPERATOR PLATFORM JACKPOT's bar — any kind (design `hold-and-win.md` §7 11c): MINI · MINOR ·
+ * MAJOR · GRAND {@link JACKPOT_TILE_DEF}s fed `platformJackpot.<tier>`, the platform's own live values,
+ * each gated `platformJackpotShow` so the bar stays hidden in a game whose operator runs none.
+ * Offered to every kind; the tiles inside it are the Hold and Win ones, restyled per instance.
+ */
+export const PLATFORM_JACKPOT_BAR_DEF: ComponentDef = {
+	id: 'platformJackpotBar',
+	name: 'Platform Jackpot Bar',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'platformJackpotBar-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: JACKPOT_TIERS.map((tier, index): LayoutNode => ({
+			id: `platformJackpotBar-${tier}`,
+			label: tier.toUpperCase(),
+			kind: 'componentInstance',
+			componentId: JACKPOT_TILE_DEF.id,
+			x: (index - (JACKPOT_TIERS.length - 1) / 2) * JACKPOT_TILE_PITCH,
+			y: 0,
+			params: {
+				source: `platformJackpot.${tier}`,
+				visibleSource: 'platformJackpotShow',
+				label: tier.toUpperCase(),
+			},
+		})),
+	},
+};
+
 /** A coded part's box in the editor (the game draws the real thing). */
 const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
 	({
@@ -2315,6 +2358,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FEATURE_CARD_DEF,
 	CONFIRM_DIALOG_DEF,
 	OPTION_CARD_DEF,
+	PLATFORM_JACKPOT_BAR_DEF,
 	...HOLD_AND_WIN_COMPONENTS,
 ];
 

@@ -977,6 +977,22 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'platformJackpotCelebration',
+				group: 'Platform jackpot',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1348,6 +1364,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'jackpotLevels',
+			},
+			{
+				type: 'platformJackpotWin',
 			},
 			{
 				type: 'coinInstantCollect',
@@ -2375,6 +2394,22 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'platformJackpotCelebration',
+				group: 'Platform jackpot',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -2746,6 +2781,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'jackpotLevels',
+			},
+			{
+				type: 'platformJackpotWin',
 			},
 			{
 				type: 'coinInstantCollect',
@@ -3773,6 +3811,22 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'platformJackpotCelebration',
+				group: 'Platform jackpot',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -4144,6 +4198,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'jackpotLevels',
+			},
+			{
+				type: 'platformJackpotWin',
 			},
 			{
 				type: 'coinInstantCollect',
@@ -5171,6 +5228,22 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'platformJackpotCelebration',
+				group: 'Platform jackpot',
+				fields: [
+					{
+						key: 'tier',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -5542,6 +5615,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'jackpotLevels',
+			},
+			{
+				type: 'platformJackpotWin',
 			},
 			{
 				type: 'coinInstantCollect',

@@ -32,6 +32,7 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
+import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
 import { evaluatePaylines } from './mock-rgs-server.mjs';
 
 /** The bonus key the respin feature is played under — the partner core's `spinTrigger.bonus`. */
@@ -2040,8 +2041,12 @@ if (isMainModule) {
 				: undefined,
 		holdAndWin: gameConfig.holdAndWinMockInputs(doc),
 	});
+	// PLATFORM_JACKPOT=1 adds the operator platform jackpot on top (`mock-platform-jackpot.mjs`).
+	const platform = process.env.PLATFORM_JACKPOT === '1' ? createPlatformJackpot() : null;
+	const serve = (req, res, url) =>
+		platform ? platform.handle(req, res, url, mock.handle) : mock.handle(req, res, url);
 	createServer((req, res) =>
-		mock.handle(req, res, new URL(req.url, `http://${req.headers.host}`)),
+		serve(req, res, new URL(req.url, `http://${req.headers.host}`)),
 	).listen(PORT, () => {
 		console.log(
 			`[mock-hnw] Hold and Win (${preset}) on http://localhost:${PORT}  balance=${mock.startBalance} seed=${mock.seed ?? '(time)'}`,

@@ -10,6 +10,7 @@ import type { EmitterEventSound } from '../components/Sound.svelte';
 import type { EmitterEventTumbleBoard } from '../components/TumbleBoard.svelte';
 import type { EmitterEventMultiplierBoard } from '../components/MultiplierBoard.svelte';
 import type { EmitterEventRespinBoard } from '../components/RespinBoard.svelte';
+import type { EmitterEventPlatformJackpot } from '../components/HoldAndWinBanner.svelte';
 import type { EmitterEventTransition } from 'engine-game';
 import type { EmitterEventFlight } from 'engine-game';
 
@@ -26,5 +27,6 @@ export type EmitterEventGame =
 	| EmitterEventTumbleBoard
 	| EmitterEventMultiplierBoard
 	| EmitterEventRespinBoard
+	| EmitterEventPlatformJackpot
 	| EmitterEventTransition
 	| EmitterEventFlight;

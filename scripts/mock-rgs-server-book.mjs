@@ -36,6 +36,8 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
+import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
+
 // ---------- pure game data (verified from the live config event) ----------
 
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JACK', 'TEN', 'SCAT'];
@@ -796,9 +798,13 @@ const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').hr
 if (isMainModule) {
 	const PORT = Number(process.env.PORT ?? 7788);
 	const mock = createMockRgs({ label: 'mock-book' });
+	// PLATFORM_JACKPOT=1 adds the operator platform jackpot on top (`mock-platform-jackpot.mjs`).
+	const platform = process.env.PLATFORM_JACKPOT === '1' ? createPlatformJackpot() : null;
+	const serve = (req, res, url) =>
+		platform ? platform.handle(req, res, url, mock.handle) : mock.handle(req, res, url);
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
-		return mock.handle(req, res, url);
+		return serve(req, res, url);
 	});
 	server.listen(PORT, () => {
 		console.log(

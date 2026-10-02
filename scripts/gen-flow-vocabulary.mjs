@@ -81,6 +81,7 @@ const GAMES = [
 			EmitterEventTumbleBoard: 'Cascade',
 			EmitterEventMultiplierBoard: 'Multipliers',
 			EmitterEventRespinBoard: 'Hold and Win',
+			EmitterEventPlatformJackpot: 'Platform jackpot',
 			EmitterEventSound: 'Sound',
 			EmitterEventTransition: 'Transition',
 			EmitterEventFlight: 'Flights',

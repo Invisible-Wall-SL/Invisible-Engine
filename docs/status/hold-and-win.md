@@ -51,7 +51,7 @@ titled **"Hold and win game pipeline"**.
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
-| 11c | Progressive + operator platform jackpots (design §7) | in progress — part 1 progressive game jackpots, then part 2 operator platform jackpot | Hold and Win Phase 11c — progressive + platform jackpots | — |
+| 11c | Progressive + operator platform jackpots (design §7) | part 1 merged; part 2 (operator platform jackpot) in review — live Borut round + partner confirmation owed (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 |
 
 ## Current state
 
@@ -692,12 +692,61 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
    (it never touches an existing symbols doc; bind by hand in `/symbols` if one exists).
 9. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2) —
    unblocks Phase 10.
+10. **Borut parity round on live data (11c)** — the session's attempt to read bookofborutremake's
+    read token from R2 was refused by auto mode (as on 2026-10-02 before). It ran the proxy instead:
+    apps/lines as a book game on the local book mock, a full free-spin round, balance exact, 0
+    errors. Play the remake on its live data per `reference_parity_free_spin_round_local`, or grant
+    the read, to close it.
+11. **Try the platform jackpot on a test game (11c part 2)** — add `"jackpot": true` to a game's
+    `hostSettings` in `test_server/games.json` (a republish keeps it). Its mock then runs the
+    platform jackpot. Force a hit from an authoring link with
+    `/api/<key>/authoring/platformJackpot?sid=<sid>&hit=Grand` (`&when=feature` for a free spin or a
+    respin). And ask the partner for a heartbeat answer from a brand that runs one
+    (`play4fun-protocol.md` "Checks owed", item 5).
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 11c part 2: the operator platform jackpot** (session "Hold and Win Phase 11c —
+  progressive + platform jackpots"). Kind-independent: any game carries it. The contract was read
+  off the partner's client and recorded in `play4fun-protocol.md` § "The operator platform jackpot",
+  marked as owing a live confirmation (Checks owed, item 5).
+  - **Facade** — reads `platform.jackpots` on every answer (heartbeat included) and publishes
+    `__IE_PLATFORM_JACKPOTS__` / `ie:platformJackpots`. A hit
+    (`platform.gameRound.jackpot {winJackpotId, win}`) becomes `platformJackpotWin {tier, amount}`,
+    placed after the round's own wins (after free spins or the respin feature, before `finalWin`).
+    The win is held out of the interim balance and every heartbeat (`lockedPoint`) until
+    `__IE_PLATFORM_JACKPOT_RELEASE__`. A new bet drops anything held.
+  - **Engine** — `platformJackpot.svelte.ts`. The coded celebration is the large jackpot banner (the
+    same `jackpotWin` screen step-aside), then the held money is released into the balance. It counts
+    as a celebration (re-armed slam, unskippable). The cue is `platformJackpotCelebration`.
+    `platformJackpot.<tier>` is a value source and a `$engine` key (money, like `balance`).
+    `platformJackpotShow` gates it. A server reporting a live jackpot is heartbeated every 30 s for
+    the values only; the balance moves only on an operator-declared interval (parity).
+  - **Scene Editor** — a new **Platform Jackpot Bar** offered to every kind (pinned in
+    `test-hold-and-win-template.mjs` as a deliberate new library entry), and the platform sources in
+    the jackpot tile's lists.
+  - **Win Text** — a `platformJackpot` family (captions per platform tier, banner title, amount),
+    stored, pruned and harvested only when authored.
+  - **Flow** — the event and cue in the standard vocabulary.
+  - **Mock** — `scripts/mock-platform-jackpot.mjs` wraps any mock: a pool per tier per session that
+    bets grow and time drifts, and forced hits (`force:platformJackpot:<tier>`, or held by
+    `…/platformJackpot?sid=&hit=&when=feature`). It is on with `PLATFORM_JACKPOT=1` (CLI) or a
+    project's `hostSettings.jackpot: true` (test server).
+  - **Gates** — `check-platform-jackpot.mjs` (including byte parity with the bare mock) and
+    `platformJackpot.fixture.ts` (21 checks: book base, book free spins, Hold and Win respin, parity,
+    hold and release; a mutant without the hold fails).
+  - **Not copied:** their brand gating, the "fake spin" teaser and the take-win button.
+  - **Verified live (local):** on the book game the heartbeat moved Grand $5,000 → $5,003. A Grand
+    hit held for a free spin was celebrated after the free spins: banner "GRAND JACKPOT $5,010.21",
+    balance held at $4,999 through it, then $11,053.21, exactly the server's. Hold and Win (pots):
+    a base-game Major hit showed $502.76, then $601.88, exactly the server's.
+  - **The Pots effect loop seen while verifying was a real `main` bug,** not the harness. Svelte
+    `effect_update_depth_exceeded` at a Pots boot reproduced on `main` too; #998 (a parallel
+    session) fixed it — `PotMeter` counting itself in from a tracked effect.
 
 - 2026-10-02 — **Phase 11a follow-up 3 closed: an authored pot no longer loops at boot** (session
   "PotMeter effect loop fix"; a runtime release on merge). `PotMeter.svelte` counted its pot in

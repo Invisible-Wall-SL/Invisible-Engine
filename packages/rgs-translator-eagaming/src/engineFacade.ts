@@ -1058,6 +1058,12 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					amount: toBookEventAmount((e.context as { win?: number })?.win ?? 0, betBaseCents),
 				});
 				break;
+			// Not a wire event: `settleRound` places it, from `platform.gameRound.jackpot`.
+			case PLATFORM_JACKPOT_WIN: {
+				const { tier, win } = e.context as PlatformJackpotWin;
+				push({ type: 'platformJackpotWin', tier, amount: toBookEventAmount(win, betBaseCents) });
+				break;
+			}
 			default: {
 				const context = (e as { context?: unknown }).context;
 				if (hw && e.event === 'jackpotLevels') applyJackpotLevels(hw, readJackpotLevels(context));
@@ -1094,6 +1100,114 @@ const sessionFor = (sid: string) => {
  *  stashing the final balance per-session and returning the interim
  *  (= final − win) from requestBet. */
 const pendingFinalBalance = new Map<string, number>();
+
+// ---------- the operator platform jackpot (kind-independent) ----------
+
+/**
+ * THE OPERATOR PLATFORM JACKPOT — `docs/reference/play4fun-protocol.md` § "The operator platform
+ * jackpot" (read off the partner's client; owed a live confirmation). The platform, not the game,
+ * runs it: every answer may carry `platform.jackpots[] {id, name, value, minValue, maxValue}` (the
+ * balance heartbeat included), and a hit arrives as `platform.gameRound.jackpot {winJackpotId, win}`
+ * with the win ALREADY inside `platform.balance`. Their client holds that win back from the shown
+ * balance (`lockedPoint`) until its celebration has played, then adds it. A server that sends none of
+ * it leaves everything here empty, and every balance is passed through untouched.
+ */
+type PlatformJackpotWin = { tier: string; win: number };
+
+/** A platform tier as the engine reads it — values in engine money units, like a balance. */
+export type PlatformJackpotLevel = { name: string; value: number; min?: number; max?: number };
+
+/** The aggregated round's marker for a hit, placed by `settleRound` — never a wire event. */
+const PLATFORM_JACKPOT_WIN = '_platformJackpotWin';
+
+/** Tier names by id, from the last `platform.jackpots` — a hit names its tier by id. */
+const platformTierNames = new Map<string, Map<string, string>>();
+/** A hit this round has carried, until `settleRound` places it in the book. */
+const platformWins = new Map<string, PlatformJackpotWin>();
+/** Credits held back from every balance shown until the engine releases them (`lockedPoint`). */
+const platformLocks = new Map<string, number>();
+
+const readPlatformJackpots = (raw: unknown) =>
+	Array.isArray(raw)
+		? raw.flatMap((entry: unknown) => {
+				const { id, name, value, minValue, maxValue } = (entry ?? {}) as Record<string, unknown>;
+				if (typeof name !== 'string' || !name || typeof value !== 'number' || value < 0) return [];
+				return [
+					{
+						id: String(id ?? name),
+						level: {
+							name,
+							value: play4FunToEngine(value),
+							...(typeof minValue === 'number' ? { min: play4FunToEngine(minValue) } : {}),
+							...(typeof maxValue === 'number' ? { max: play4FunToEngine(maxValue) } : {}),
+						},
+					},
+				];
+			})
+		: [];
+
+/**
+ * Hand the platform tiers to the GAME (`apps/lines` `platformJackpot.svelte.ts`): a global it seeds
+ * from at mount, and an `ie:platformJackpots` event for every later answer. Never called for a server
+ * that sends no `platform.jackpots`, so the global stays undefined there.
+ */
+const publishPlatformJackpots = (levels: PlatformJackpotLevel[]): void => {
+	(globalThis as { __IE_PLATFORM_JACKPOTS__?: PlatformJackpotLevel[] }).__IE_PLATFORM_JACKPOTS__ =
+		levels;
+	globalThis.dispatchEvent?.(new CustomEvent('ie:platformJackpots', { detail: levels }));
+};
+
+/** Every answer: the platform tiers' values, and a hit (which starts holding its win back). */
+const notePlatform = (sid: string, response: unknown): void => {
+	const platform = (response as { platform?: Record<string, unknown> } | null)?.platform;
+	if (!platform || isPlay4FunError(response as Play4FunResponse)) return;
+	const tiers = readPlatformJackpots(platform.jackpots);
+	if (tiers.length) {
+		platformTierNames.set(sid, new Map(tiers.map(({ id, level }) => [id, level.name])));
+		publishPlatformJackpots(tiers.map(({ level }) => level));
+	}
+	const hit = (
+		platform.gameRound as { jackpot?: { winJackpotId?: unknown; win?: unknown } } | undefined
+	)?.jackpot;
+	if (hit && typeof hit.win === 'number' && hit.win > 0) {
+		const id = String(hit.winJackpotId);
+		const tier = platformTierNames.get(sid)?.get(id) ?? id;
+		platformWins.set(sid, { tier, win: hit.win });
+		platformLocks.set(sid, hit.win);
+	}
+};
+
+/** A balance as the player may see it: the platform's, less any jackpot win still held back. */
+const shownCents = (sid: string, cents: number): number => cents - (platformLocks.get(sid) ?? 0);
+
+/**
+ * A round's events with its platform jackpot hit placed for the engine: after everything the round
+ * itself won — just before its `gameRoundOver` (the book's `finalWin`), or last when the round is
+ * still open — so the celebration plays outside any feature. No hit ⇒ the events as they came.
+ */
+const withPlatformWin = (sid: string, events: Play4FunBookEvent[]): Play4FunBookEvent[] => {
+	const hit = platformWins.get(sid);
+	if (!hit) return events;
+	platformWins.delete(sid);
+	const marker = { event: PLATFORM_JACKPOT_WIN, context: hit } as unknown as Play4FunBookEvent;
+	const close = events.map((e) => e.event).lastIndexOf('gameRoundOver');
+	return close === -1
+		? [...events, marker]
+		: [...events.slice(0, close), marker, ...events.slice(close)];
+};
+
+/**
+ * Release a held platform jackpot win — the engine calls it once the win's celebration has played
+ * (`__IE_PLATFORM_JACKPOT_RELEASE__`) and adds what it answers (engine units) to the shown balance.
+ * From then on every balance is the platform's own. Nothing held ⇒ 0.
+ */
+export const releasePlatformJackpot = (): number => {
+	const held = [...platformLocks.values()].reduce((sum, cents) => sum + cents, 0);
+	platformLocks.clear();
+	return play4FunToEngine(held);
+};
+(globalThis as { __IE_PLATFORM_JACKPOT_RELEASE__?: () => number }).__IE_PLATFORM_JACKPOT_RELEASE__ =
+	releasePlatformJackpot;
 
 // ---------- url helpers ----------
 
@@ -1138,7 +1252,7 @@ export const setResendPolicy = (policy: Partial<Play4FunResendPolicy>): void => 
 
 const fetcherFor = (sid: string, rgsUrl: string) => {
 	const profile = getDeliveryProfile();
-	return createPlay4FunFetcher(
+	const fetcher = createPlay4FunFetcher(
 		{
 			...rgsLocation(rgsUrl),
 			resendPolicy,
@@ -1149,6 +1263,14 @@ const fetcherFor = (sid: string, rgsUrl: string) => {
 		},
 		sessionFor(sid),
 	);
+	return {
+		...fetcher,
+		post: async (options: Parameters<typeof fetcher.post>[0]) => {
+			const result = await fetcher.post(options);
+			notePlatform(sid, result.response);
+			return result;
+		},
+	};
 };
 
 // ---------- balance helpers ----------
@@ -1497,6 +1619,10 @@ export const requestBet = async (options: {
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	session.startRound();
+	// A new round holds nothing back: their client zeroes `lockedPoint` on every spin, so a win whose
+	// celebration never released it stops being held here at the latest.
+	platformLocks.delete(options.sessionID);
+	platformWins.delete(options.sessionID);
 
 	// User-display dollars → Play4Fun cents.
 	const play4FunAmount = Math.max(1, Math.round(options.amount * play4FunAmountMultiplier()));
@@ -1636,7 +1762,7 @@ const playOutRound = async (
  * `requestEndRound` to return after the count-up animation.
  */
 const settleRound = (sid: string, round: PlayedRound, currency: string) => {
-	const allEvents = round.events;
+	const allEvents = withPlatformWin(sid, round.events);
 	const lastResponse = round.last;
 	const aggregated = {
 		events: allEvents,
@@ -1660,7 +1786,9 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	// the win again would show a balance lower than the player ever had, and stashing it as "final"
 	// would credit a win that the missing `collect` never paid.
 	const roundClosed = allEvents.some((e) => e.event === 'gameRoundOver');
-	const interimCents = roundClosed ? finalCents - winCents : finalCents;
+	// A platform jackpot win is inside the reported balance too; it is shown only once its celebration
+	// releases it. The stashed final stays whole: the engine applies it after the round has played.
+	const interimCents = shownCents(sid, roundClosed ? finalCents - winCents : finalCents);
 	if (roundClosed) pendingFinalBalance.set(sid, finalCents);
 
 	if (translated.balance) {
@@ -1712,9 +1840,10 @@ export const requestBalance = async (options: { sessionID: string; rgsUrl: strin
 		}
 		refreshHoldAndWinJackpots(options.sessionID, result.response);
 		const balance = balanceOf(result.response);
+		const held = play4FunToEngine(platformLocks.get(options.sessionID) ?? 0);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
-			balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
+			balance: balance !== undefined ? { amount: balance - held, currency: 'USD' } : undefined,
 		};
 	} catch {
 		return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };

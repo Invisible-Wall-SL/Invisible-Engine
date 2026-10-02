@@ -197,10 +197,12 @@ own games assume, and for game 2 (`betOptions: [10, 1000]`) the two agree.
 ## Response
 
 ```ts
-{ events: [{ event, context }, …], platform: { balance, gameRound?: { id, freeRound? }, remote?, batch? } }
+{ events: [{ event, context }, …], platform: { balance, gameRound?: { id, freeRound?, jackpot? }, jackpots?, remote?, batch? } }
 ```
 
 - `platform.gameRound.id` binds the `gid` for the rest of the round. We already do this.
+- `platform.jackpots` / `platform.gameRound.jackpot` are the operator's platform jackpot — see
+  "The operator platform jackpot" below.
 - `platform.remote.freeBalance` present ⇒ the session has a free-rounds wallet.
 - `platform.batch` (fast-play only) carries `{win, games, bet}`.
 
@@ -530,7 +532,7 @@ durations in **ms**.
 | `historyClient` | This launch IS the history viewer: with the boot `config`'s `replay: true` the core replays that round instead of playing | a normal launch | **not read** — owed item 4 |
 | `showFreeRoundBet` | Free-rounds display | — | **not read** — we implement no free rounds |
 | **Not ours** | | | |
-| `jackpot` · `jpspin` | Jackpot | — | not read — no jackpot |
+| `jackpot` · `jpspin` | The operator's platform jackpot widget / its teaser spin — _inferred_ | — | not read: the engine shows the platform jackpot whenever the platform's answers carry one (see "The operator platform jackpot"). On the Invisible Test Server, a project's `jackpot: true` turns the mock's platform jackpot on. |
 | `deniedCountryCodes` · `allowedCountryCodes` · `certificator` | Enforced by their page/server before we load | — | not read |
 | `versionPath` · `certifiedVersionPaths` · `customJs` · `beforeGameEmbedHeadInclude` · `flash` | Build / page injection | — | not read |
 | `demo` · `allowForcing` | Added by their page (`session.demo`, outcome forcing) | — | not read |
@@ -610,6 +612,66 @@ engine".
    If a regulator needs them, this is the field to request, with that meaning.
 6. **`maxWinMp`** beyond index 0.
 
+## The operator platform jackpot (read off their client 2026-10-02 — owed a live confirmation)
+
+A progressive jackpot the operator's PLATFORM runs above every game. It has nothing to do with a
+game's own jackpots (a Hold and Win tier). Everything here is read from `p4f-slotty-core`
+(`hyper-gaming.partial-response.js`, `jackpot-controller.js`, `model/jackpot-model.js`,
+`slotty-data/jackpot-data/*`). No live answer of ours has carried it yet, so it is **owed a live
+confirmation** — see "Checks owed on the live node", item 5.
+
+**Values.** Any answer's `platform` may carry `jackpots: [{id, name, value, minValue, maxValue}]` —
+the balance heartbeat `[]` included, which is how their client refreshes the values (every
+`balanceUpdateInterval`, 30 s by default). `value` is money in credits, like `balance`. `name` is
+`Mini` / `Minor` / `Major` / `Grand`; their client matches it case-insensitively and shows nothing
+unless all four arrive. `minValue`/`maxValue` are the tier's range; an operator's
+`jackpotSettingArray` may override them.
+
+**A hit.** On the round's answer, `platform.gameRound.jackpot = {winJackpotId, win}`. `winJackpotId`
+is the tier's `id`. `win` is credits and is **already inside `platform.balance`**. Their client keeps
+it out of the shown balance (`lockedPoint`: `currentPoint = balance − lockedPoint`) until its jackpot
+presentation's "take win" step. It then adds it in and sends the round's `collect`. It zeroes
+`lockedPoint` on every new spin.
+
+**What we do.**
+- **Facade** (`engineFacade.ts`, "the operator platform jackpot").
+  - Every answer through the transport is read. The tiers are published in engine units
+    (`__IE_PLATFORM_JACKPOTS__`, then `ie:platformJackpots`).
+  - A hit becomes the book event `platformJackpotWin {tier, amount}`. It is placed after everything
+    the round itself presents, just before its `finalWin`, or last if the round is still open. So it
+    plays after the free spins or the respin feature, never inside them.
+  - The hit's money is held out of the interim balance and every heartbeat until the engine calls
+    `__IE_PLATFORM_JACKPOT_RELEASE__`, after the celebration. The stashed final balance stays whole,
+    because the engine applies it after the round has played. A new bet drops anything still held,
+    as their client does.
+- **Engine** (`apps/lines` `platformJackpot.svelte.ts`).
+  - The coded default is the large jackpot banner, the same one and the same authored `jackpotWin`
+    screen a Hold and Win jackpot uses. It shows the tier and amount from the Win Text
+    `platformJackpot` copy. Then the held money is released into the balance.
+  - The cue is `platformJackpotCelebration`.
+  - The values are the `platformJackpot.<tier>` sources, the `$engine` keys of the same name, and
+    the Platform Jackpot Bar.
+  - When a server reports a live jackpot and the operator declared no `balanceUpdateInterval`, the
+    game heartbeats every 30 s for the values alone. The balance is moved only where the operator
+    asked for it.
+- **Not ours, deliberately not copied** — they are presentation choices, not contract:
+  - Their **brand gating**: the widget shows only for brands `gamingworld`, `eagaming`, `sbobet`,
+    `ambslot` and `tito`.
+  - Their **"fake spin" teaser**: about 1 round in 70, seeded from the round id, plays a jackpot spin
+    that pays nothing.
+  - Their **take-win button**: our release is timed by the celebration, not a press.
+  - The operator `jackpot` / `jpspin` host settings are not read either. The jackpot shows where the
+    platform's answers carry one, and nowhere else.
+
+**On our mocks** (`scripts/mock-platform-jackpot.mjs`, kind-independent, wrapped around any mock).
+- Each session has a pool per tier. Every bet grows it, and it drifts between rounds so a heartbeat
+  shows movement.
+- A hit is forced by `play.context = "force:platformJackpot:<tier>"`, or held by
+  `…/platformJackpot?sid=&hit=<tier>[&when=feature]`.
+- It is switched on by `PLATFORM_JACKPOT=1` on any mock CLI, or by a project's
+  `hostSettings.jackpot: true` on the Invisible Test Server.
+- Gates: `scripts/check-platform-jackpot.mjs` and `rgs-translator-eagaming/platformJackpot.fixture.ts`.
+
 ## Things we have no equivalent for
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:
@@ -645,6 +707,12 @@ Cloudflare challenge; a server-side fetch is bounced). Each step costs at most o
    engine URL with `seq=0`, no `gid`, and body `[]`. Expected: `platform.gameRound.id` present. If
    it answers `not authorized` (code 118), repeat with body `[{"action":"config"}]` — the transport
    falls back to it — and expect the same id.
+
+5. **The platform jackpot** (only on a brand whose operator runs one). Watch a heartbeat answer
+   (body `[]`). Expected: `platform.jackpots` with four `{id, name, value, minValue, maxValue}`,
+   `value` in credits. If a jackpot ever hits, keep that answer. Expected:
+   `platform.gameRound.jackpot {winJackpotId, win}`, with `win` already inside `platform.balance`.
+   Report the shapes, and whether a hit's round still needs its `collect`.
 
 If 2 or 3 fails, a lost answer inside a round ends in the reload prompt instead of a replay — never
 a double charge, since the transport takes an error as an answer and stops resending. If 4 fails

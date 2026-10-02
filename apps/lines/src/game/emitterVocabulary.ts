@@ -973,6 +973,22 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'platformJackpotCelebration',
+			group: 'Platform jackpot',
+			fields: [
+				{
+					key: 'tier',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'amount',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'transition',
 			group: 'Transition',
 		},
@@ -1344,6 +1360,9 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'jackpotLevels',
+		},
+		{
+			type: 'platformJackpotWin',
 		},
 		{
 			type: 'coinInstantCollect',

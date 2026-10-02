@@ -269,6 +269,20 @@ export const standardVocabulary = ({
 				"The round's final settled win, emitted as the round closes. Use it for the closing count-up / total presentation before the game returns to idle.",
 		},
 		{
+			name: 'platformJackpotWin',
+			payload: [
+				{
+					name: 'tier',
+					type: STRING,
+					description: "The operator platform jackpot's tier, as the server names it (Grand, …).",
+				},
+				{ name: 'amount', type: FLOAT, description: 'What the platform paid.' },
+			],
+			category: 'book',
+			description:
+				"The operator's platform jackpot hit this round — any game kind. Sent after the round's own wins, outside any feature. The coded default shows the jackpot banner, then lets the win into the balance (it is held back until then).",
+		},
+		{
 			name: 'freeSpinTrigger',
 			payload: [
 				{ name: 'totalFs', type: INT, description: 'How many free spins were awarded.' },
@@ -817,5 +831,10 @@ export const standardVocabulary = ({
 			description:
 				'True while an autoplay run is live. Branch on this off the auto-spin button so one press opens the menu when idle and stops the run when it is not — what the coded button does.',
 		},
+		...['mini', 'minor', 'major', 'grand'].map((tier) => ({
+			name: `platformJackpot.${tier}`,
+			type: FLOAT,
+			description: `The operator platform jackpot's ${tier.toUpperCase()} value in money, like balance — 0 when the platform runs none.`,
+		})),
 	],
 });

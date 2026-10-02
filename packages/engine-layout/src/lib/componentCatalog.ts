@@ -232,6 +232,31 @@ export const HOLD_AND_WIN_VALUE_SOURCE_KEYS: string[] = HOLD_AND_WIN_PARAM_CATAL
 	(p) => p.key,
 );
 
+/**
+ * The OPERATOR PLATFORM JACKPOT feeds — any kind (design `hold-and-win.md` §7 11c): each standard
+ * tier's value in money, as the operator's platform reports it on every answer. Kept out of
+ * {@link ENGINE_PARAM_CATALOG} like the Hold and Win feeds, so no existing dropdown changes; the
+ * jackpot tiles and the Platform Jackpot Bar offer them.
+ */
+export const PLATFORM_JACKPOT_PARAM_CATALOG: EngineParamEntry[] = [
+	'mini',
+	'minor',
+	'major',
+	'grand',
+].map((tier): EngineParamEntry => ({
+	key: `platformJackpot.${tier}`,
+	kind: 'number',
+	label: `Platform Jackpot ${tier.toUpperCase()}`,
+	note: `The operator platform jackpot's ${tier.toUpperCase()} value (money, refreshed by the server; 0 when it runs none).`,
+}));
+
+export const PLATFORM_JACKPOT_VALUE_SOURCE_KEYS: string[] = PLATFORM_JACKPOT_PARAM_CATALOG.map(
+	(p) => p.key,
+);
+
+/** `platformJackpotShow` — true once the operator's platform reports a jackpot. */
+export const PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS: string[] = ['platformJackpotShow'];
+
 /** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; the other two
  *  while the Lucky Spin intro / a banked jackpot's celebration is up. */
 export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = [

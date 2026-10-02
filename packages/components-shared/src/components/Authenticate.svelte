@@ -162,18 +162,37 @@
 	 */
 	let balanceTimer: ReturnType<typeof setInterval> | undefined;
 
+	/**
+	 * A server whose answers carry a LIVE jackpot — the operator's platform jackpot, or a game's own
+	 * progressive pools — is also asked on the partner client's own heartbeat (every 30 s) when the
+	 * operator declared no interval, so the jackpot values it shows keep moving between rounds. The
+	 * transport reads them off the answer; only an operator-declared interval also moves the balance,
+	 * so a game without a live jackpot polls exactly as before (not at all, unless asked).
+	 */
+	const LIVE_JACKPOT_HEARTBEAT_MS = 30_000;
+	const hasLiveJackpot = () => {
+		const live = globalThis as {
+			__IE_PLATFORM_JACKPOTS__?: unknown[];
+			__IE_HOLD_AND_WIN_JACKPOTS__?: unknown[];
+		};
+		return Boolean(
+			live.__IE_PLATFORM_JACKPOTS__?.length || live.__IE_HOLD_AND_WIN_JACKPOTS__?.length,
+		);
+	};
+
 	const startBalancePolling = () => {
 		const interval = hostNumber('balanceUpdateInterval');
-		if (!interval) return;
+		const jackpotsOnly = !interval && hasLiveJackpot();
+		if (!interval && !jackpotsOnly) return;
 		// A pathologically small value would hammer the RGS; a minute's worth of slack is plenty for
 		// "a deposit shows up eventually".
-		const period = Math.max(interval, 5_000);
+		const period = interval ? Math.max(interval, 5_000) : LIVE_JACKPOT_HEARTBEAT_MS;
 		balanceTimer = setInterval(async () => {
 			const data = await requestBalance({
 				sessionID: stateUrlDerived.sessionID(),
 				rgsUrl: stateUrlDerived.rgsUrl(),
 			});
-			if (data?.balance) {
+			if (data?.balance && !jackpotsOnly) {
 				stateBet.balanceAmount = data.balance.amount / API_AMOUNT_MULTIPLIER;
 			}
 		}, period);
