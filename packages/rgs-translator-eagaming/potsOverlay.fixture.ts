@@ -770,6 +770,90 @@ const respinScript = (): Script => ({
 	]);
 }
 
+// ---------- 3b. coins only ----------
+
+console.log('\n3b. coins only: `pots: []`, dropped value coins start Hold and Win');
+{
+	const countEntry = (): Wire[] =>
+		respinEntry().map((e) => {
+			if (e.event === 'enterBonus') return e;
+			const { meters: _meters, ...context } = e.context as Record<string, unknown>;
+			return { ...e, context: { ...context, cause: 'count', activeModifiers: [] } };
+		});
+	const script = (): Script => ({
+		config: bookConfig({
+			holdAndWin: holdAndWinBlock(),
+			potsOverlay: { wire: 1, pots: [], bonuses: { respin: 'holdAndWin', feature: 'freeSpins' } },
+		}),
+		answers: [
+			[
+				...opening(),
+				drop([
+					{ reel: 1, row: 0, symbol: 'COIN', value: 1 },
+					{ reel: 2, row: 2, symbol: 'COIN', value: 2 },
+				]),
+				lineWin(20),
+				{ event: 'playedSpin', context: BOARD },
+				...countEntry(),
+			],
+			respinOne(),
+			respinLast(20),
+		],
+	});
+	const { book, posted, meters } = await play('S-coins', script());
+	wellFormed('coins only', book);
+	check('the boot block with no pots is captured, and seeds no pot', meters, undefined);
+	check('the facade plays both respins and collects', posted, [
+		['bet', 'play'],
+		['play'],
+		['play'],
+		['collect'],
+	]);
+	check('the book, in order: no pot event anywhere', types(book), [
+		'reveal',
+		'overlayDrop',
+		'winInfo',
+		'holdAndWinTrigger',
+		'holdAndWinState',
+		'respinReveal',
+		'coinsLand',
+		'respinUpdate',
+		'holdAndWinState',
+		'respinReveal',
+		'respinUpdate',
+		'holdAndWinState',
+		'holdAndWinEnd',
+		'setTotalWin',
+		'finalWin',
+	]);
+	check(
+		'the drop is value coins only; the board keeps the host’s names',
+		[
+			first(book, 'overlayDrop')?.cells,
+			(first(book, 'reveal') as { board: { name: string }[][] } | undefined)?.board[0][1].name,
+		],
+		[
+			[
+				{ reel: 1, row: 0, token: 'COIN', value: 1 },
+				{ reel: 2, row: 2, token: 'COIN', value: 2 },
+			],
+			'L1',
+		],
+	);
+	const trigger = first(book, 'holdAndWinTrigger') as
+		{ cause: string; payload: object } | undefined;
+	check(
+		'the respins start from the count, naming no pot',
+		[trigger?.cause, 'meters' in (trigger?.payload ?? {})],
+		['count', false],
+	);
+	check('the mode stack enters and leaves Hold and Win', modesOf(book).moves, [
+		'enter:holdAndWin',
+		'exit:holdAndWin',
+		'allFinished',
+	]);
+}
+
 // ---------- 4. both bonuses in one round ----------
 
 console.log('\n4. both: the host’s free spins, then the pot’s Hold and Win, in one round');

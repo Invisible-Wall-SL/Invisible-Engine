@@ -208,6 +208,17 @@ check(
 	],
 );
 
+check(
+	'coins only is refused on a Hold and Win game: its block counts only its own landed coins',
+	HOLD_AND_WIN_PRESET_IDS.map((id) =>
+		refused(addPotsOverlay(normalize(HOLD_AND_WIN_PRESETS[id]), 'coinsOnly')),
+	),
+	HOLD_AND_WIN_PRESET_IDS.map(
+		() =>
+			"This project's Hold and Win is its base game, started by coins landing on its reels, so dropped value coins would start nothing. Pick a preset with pots.",
+	),
+);
+
 console.log('\n4. a Hold and Win bonus on its own, then the overlay over it');
 for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const doc = added(addHoldAndWinBonus(host, id));
@@ -247,6 +258,23 @@ for (const id of POTS_OVERLAY_PRESET_IDS) {
 	check(`${id} on the book host`, removePotsOverlay(added(addPotsOverlay(host, id))), host);
 }
 check('3 Pots with renames', removePotsOverlay(renamedDoc), crowded);
+const coinsDoc = added(addPotsOverlay(host, 'coinsOnly'));
+check(
+	"coins only: no pots, the Classic bonus is the overlay's, and remove takes it all back",
+	[
+		coinsDoc.potsOverlay!.pots,
+		holdAndWinIsOverlayBonus(coinsDoc),
+		coinsDoc.holdAndWin!.trigger,
+		removePotsOverlay(coinsDoc),
+	],
+	[[], true, { count: HOLD_AND_WIN_PRESETS.classic.holdAndWin!.trigger.count }, host],
+);
+const coinsOverBonus = added(addPotsOverlay(classicFirst, 'coinsOnly'));
+check(
+	'coins only over a Hold and Win bonus already added keeps it, and is its trigger',
+	[coinsOverBonus.holdAndWin, holdAndWinIsOverlayBonus(coinsOverBonus), issues(coinsOverBonus)],
+	[classicFirst.holdAndWin, true, []],
+);
 for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const game = normalize(HOLD_AND_WIN_PRESETS[id]);
 	check(

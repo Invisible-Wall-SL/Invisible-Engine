@@ -14,7 +14,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * Add the pots overlay to an existing project (docs/design/pots-overlay.md §4, Game Maker row).
  *
  *   POST /api/game-maker/add-on
- *     { project, preset?: 'threePots' | 'potsToFreeSpins', flow?: boolean }
+ *     { project, preset?: PotsOverlayPresetId (POTS_OVERLAY_PRESET_IDS), flow?: boolean }
  *   → 200 { ok, configAdded, renamed, seeds: { symbols, layout, winText, flow? } }
  *   → 400 / 409 { error }
  *

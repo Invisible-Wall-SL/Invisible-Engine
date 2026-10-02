@@ -16,13 +16,14 @@ import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { OverlayPot, PotsOverlay } from './potsOverlay';
 import type { GameConfigDoc, GameConfigSymbol, PaddingReels } from './types';
 
-export const POTS_OVERLAY_PRESET_IDS = ['threePots', 'potsToFreeSpins'] as const;
+export const POTS_OVERLAY_PRESET_IDS = ['threePots', 'potsToFreeSpins', 'coinsOnly'] as const;
 
 export type PotsOverlayPresetId = (typeof POTS_OVERLAY_PRESET_IDS)[number];
 
 export const POTS_OVERLAY_PRESET_LABELS: Record<PotsOverlayPresetId, string> = {
 	threePots: '3 Pots (each pot a Hold and Win with its special)',
 	potsToFreeSpins: 'Pots to free spins',
+	coinsOnly: 'Coins only (6+ value coins start a classic Hold and Win)',
 };
 
 /** What a preset adds to a doc. Each part is merged in — never a whole-doc reset. */
@@ -136,7 +137,29 @@ function potsToFreeSpins(): PotsOverlayPreset {
 	};
 }
 
-const BUILD: Record<PotsOverlayPresetId, () => PotsOverlayPreset> = { threePots, potsToFreeSpins };
+/**
+ * No pots: value coins drop over the host's symbols, and as many as the Classic trigger counts on one
+ * spin start its Hold and Win with those coins held; fewer are shown and gone. A dropping spin drops
+ * 1 to 8 coins evenly, so with a 0.1 chance a spin starts the feature about once in 27.
+ */
+function coinsOnly(): PotsOverlayPreset {
+	const preset: HoldAndWinPresetId = 'classic';
+	const trigger = HOLD_AND_WIN_PRESETS[preset].holdAndWin?.trigger.count?.min ?? 1;
+	return {
+		potsOverlay: {
+			pots: [],
+			drops: { chance: 0.1, maxPerSpin: trigger + 2, table: [{ coin: true, weight: 1 }] },
+		},
+		tokens: {},
+		holdAndWin: preset,
+	};
+}
+
+const BUILD: Record<PotsOverlayPresetId, () => PotsOverlayPreset> = {
+	threePots,
+	potsToFreeSpins,
+	coinsOnly,
+};
 
 /** A fresh copy of the preset `id`, safe to merge into a doc and edit. */
 export const potsOverlayPreset = (id: PotsOverlayPresetId): PotsOverlayPreset => BUILD[id]();
