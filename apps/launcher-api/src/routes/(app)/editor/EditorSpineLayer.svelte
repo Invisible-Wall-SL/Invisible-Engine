@@ -4,7 +4,9 @@
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
+		boundBoneOffsets,
 		boundComponentRidesBone,
+		boundScrubs,
 		computeOverlayPlacement,
 		coverTransform,
 		instancePreviewSpineBundle,
@@ -14,6 +16,7 @@
 		resolveTransform,
 		tapOverlayDim,
 		MAX_COMPONENT_DEPTH,
+		type BoundScrub,
 		type ComponentDef,
 		type CoverFit,
 		type LayoutNode,
@@ -44,7 +47,10 @@
 		getSpinePhysics,
 		type SpineMeta,
 		type SpineSceneRenderer,
+		type SpineSkeleton,
 	} from './spineRuntime.client';
+	import { applySpineBoneOffset, type SpineBoneOffset } from 'pixi-svelte/spineBoneOffset';
+	import { previewOutputs, previewResolveTransform } from './valuePreview.client.svelte';
 
 	/** Structural view of the project's spines (mirrors `ProjectAssets`) — used to
 	 * resolve catalog-default spine preview art for `bind` anchors, the SAME way
@@ -439,6 +445,46 @@
 		/** A reel-board SYMBOL seat (world px, pre pan/zoom): the rig is CONTAIN-fit + centred into
 		 * this box instead of taking any of the space/placement branches. See {@link placeInCell}. */
 		cell?: { x: number; y: number; w: number; h: number };
+		/** The value-binding preview's spine outputs ("Bind to value" test values): bone offsets and
+		 * animation scrubs, posed on top of the playing animation. Absent ⇒ nothing previewed. */
+		pose?: SpinePreviewPose;
+	}
+
+	type SpinePreviewPose = { bones: [string, SpineBoneOffset][]; scrubs: BoundScrub[] };
+
+	/** A spine node's previewed bone offsets + scrubs, or undefined when it previews none. */
+	function previewPose(node: Extract<LayoutNode, { kind: 'spine' }>): SpinePreviewPose | undefined {
+		if (!node.valueBindings?.length) return undefined;
+		const outputs = previewOutputs(node);
+		const bones = [...boundBoneOffsets(node.valueBindings, outputs)];
+		const scrubs = boundScrubs(node.valueBindings, outputs);
+		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
+	}
+
+	/** spine-core `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */
+	const MIX_BLEND_REPLACE = 2;
+	const MIX_DIRECTION_IN = 0;
+
+	/**
+	 * Pose a previewed binding onto the skeleton after its animation state applied: each scrub holds
+	 * its animation at the bound share (as the game's own scrub track does, layered over the resting
+	 * animation), then each bone takes its offset (`applySpineBoneOffset`, the game's rule). Returns
+	 * the restores that undo the bone offsets once the skeleton is drawn — the instance is shared per
+	 * bundle, so the next target must start from the un-offset pose.
+	 */
+	function applyPreviewPose(skeleton: SpineSkeleton, pose: SpinePreviewPose): (() => void)[] {
+		for (const scrub of pose.scrubs) {
+			const anim = skeleton.data.animations.find((a) => a.name === scrub.animation);
+			if (!anim) continue;
+			const time = scrub.time * anim.duration;
+			anim.apply(skeleton, time, time, false, null, 1, MIX_BLEND_REPLACE, MIX_DIRECTION_IN);
+		}
+		const restores: (() => void)[] = [];
+		for (const [name, offset] of pose.bones) {
+			const bone = skeleton.findBone(name);
+			if (bone) restores.push(applySpineBoneOffset(bone, offset));
+		}
+		return restores;
 	}
 
 	/** The resolved bone-rider inputs carried on a rig render target (see {@link SpineRenderTarget.rider}). */
@@ -481,12 +527,13 @@
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
-				const t = resolveTransform(n, layoutType);
+				const t = previewResolveTransform(n, layoutType);
 				if (!t.visible) continue;
 				if (n.kind === 'spine') {
 					out.push({
 						nodeId: n.id,
 						assetKey: n.assetKey,
+						pose: previewPose(n),
 						defaultAnimation: n.defaultAnimation,
 						skin: n.skin,
 						loop: n.loop,
@@ -594,7 +641,7 @@
 		previewAnimation?: string,
 	): void {
 		for (const n of nodes) {
-			if (!resolveTransform(n, layoutType).visible) continue;
+			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			// A `bind` child whose coded component RIDES a bone (data-driven via the catalog):
 			// render its rig from the instance's spine param + attach a rider spec, instead of
@@ -675,12 +722,20 @@
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),
-			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+			(child) =>
+				childLocalTransform(
+					child,
+					layoutType,
+					sc.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				),
 		);
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
-		const nt = resolveTransform(node, layoutType);
+		const nt = previewResolveTransform(node, layoutType);
 		return {
 			nodeId: node.id,
 			assetKey,
@@ -720,7 +775,15 @@
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),
-			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+			(child) =>
+				childLocalTransform(
+					child,
+					layoutType,
+					sc.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				),
 		);
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
@@ -733,7 +796,7 @@
 			// the symbol ride it (no one-shot → idle hand-off: repeat the reveal for authoring).
 			enterAnimation: resolved.animation,
 			enterLoop: true,
-			transform: resolveTransform(node, layoutType),
+			transform: previewResolveTransform(node, layoutType),
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
 			rider: {
@@ -768,12 +831,20 @@
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),
-			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+			(child) =>
+				childLocalTransform(
+					child,
+					layoutType,
+					sc.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				),
 		);
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
-		const nt = resolveTransform(node, layoutType);
+		const nt = previewResolveTransform(node, layoutType);
 		const boundName = instanceParams
 			? resolveBoundValue(node.paramBindings, 'assetKey', instanceParams)
 			: undefined;
@@ -794,6 +865,7 @@
 			transform: nt,
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+			pose: previewPose(node),
 		};
 	}
 
@@ -818,12 +890,27 @@
 		const leaf =
 			chain.length === 1
 				? worldTransformOf(node, sc)
-				: childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight);
+				: childLocalTransform(
+						node,
+						layoutType,
+						sc.space,
+						frameWidth,
+						frameHeight,
+						previewResolveTransform,
+					);
 		const geo = reelGridGeometry(node, leaf.anchor, gridDimensions);
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),
-			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+			(child) =>
+				childLocalTransform(
+					child,
+					layoutType,
+					sc.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				),
 		);
 		// Cell boxes are axis-aligned, so the board's world SCALE is all that sizes them (the
 		// spine preview ignores rotation everywhere, as the top-level path does).
@@ -1184,6 +1271,7 @@
 			applySkin(target, entry);
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
+			const poseRestores = target.pose ? applyPreviewPose(inst.skeleton, target.pose) : [];
 			inst.skeleton.updateWorldTransform(getSpinePhysics());
 			renderer.begin();
 			renderer.drawSkeleton(inst.skeleton, inst.premultipliedAlpha);
@@ -1239,6 +1327,7 @@
 					inst.skeleton.scaleY = bsy;
 				}
 			}
+			for (const restore of poseRestores) restore();
 		}
 
 		// Reconcile the shared rider map: drop entries THIS layer published before but no longer

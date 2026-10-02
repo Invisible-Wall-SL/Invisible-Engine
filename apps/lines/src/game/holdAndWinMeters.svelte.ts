@@ -41,6 +41,10 @@ export const meterLevelShown = (id: string): number =>
 export const meterMax = (id: string): number =>
 	recorded(id)?.max ?? configuredMeters().find((meter) => meter.id === id)?.maxLevel ?? 0;
 
+/** How many of `meter`'s size stages a pot at `level` has reached — the step it is drawn at. */
+export const meterStage = (meter: HoldAndWinMeter, level: number): number =>
+	meter.sizeStages.filter((stage) => level >= stage).length;
+
 /** What an authored pot drawing meter `id` counts itself in as (`trackComponentMount`). */
 export const potMeterMountKey = (id: string): string => `potMeter:${id}`;
 
@@ -76,4 +80,18 @@ export const seedHoldAndWinMeters = (): void => {
 		.__IE_HOLD_AND_WIN_METERS__;
 	if (!Array.isArray(meters) || meters.length === 0) return;
 	recordHoldAndWinEvent({ type: 'meterLevels', meters });
+};
+
+/** The size stage meter `id`'s pot shows now — what `meter.<id>.stage` reports (0 for a meter the
+ *  config does not declare). */
+export const meterStageShown = (id: string): number => {
+	const meter = configuredMeters().find((m) => m.id === id);
+	return meter ? meterStage(meter, meterLevelShown(id)) : 0;
+};
+
+/** Is meter `id`'s pot showing full — its shown level at its maximum? What `meter.<id>.full`
+ *  reports. */
+export const meterFullShown = (id: string): boolean => {
+	const max = meterMax(id);
+	return max > 0 && meterLevelShown(id) >= max;
 };

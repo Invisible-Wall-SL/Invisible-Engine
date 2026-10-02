@@ -254,6 +254,95 @@ export const PLATFORM_JACKPOT_VALUE_SOURCE_KEYS: string[] = PLATFORM_JACKPOT_PAR
 	(p) => p.key,
 );
 
+/**
+ * A number a VALUE BINDING (Phase 12b, `ValueBinding.source`) can read — what the editor's "Bind to
+ * value" source picker offers. A `{key}` placeholder reads the owning instance's param, so the pot
+ * entries resolve per placed pot (`meter.{meter}.level` → `meter.red.level`); `needsParam` names it,
+ * and the editor offers the entry only inside a component that has that param. `of` is the divisor
+ * that makes the source 0..1 — what the editor's "normalise" tick fills in.
+ */
+export interface ValueBindingSourceEntry {
+	key: string;
+	label: string;
+	group: string;
+	note?: string;
+	of?: string;
+	needsParam?: string;
+}
+
+/**
+ * The binding sources beyond the plain readout feeds ({@link VALUE_SOURCE_CATALOG}, which the editor
+ * also offers): every per-pot number, and the Hold and Win counts a bar or a character can follow.
+ * The game registers each with `registerComponentValues`; one it does not register leaves its
+ * binding without a value, so the node keeps its authored look.
+ */
+export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
+	{
+		key: 'meter.{meter}.level',
+		label: 'Pot level',
+		group: 'Pot (this instance’s meter)',
+		note: 'The level this pot shows — ticks up as a special lands.',
+		of: 'meter.{meter}.max',
+		needsParam: 'meter',
+	},
+	{
+		key: 'meter.{meter}.max',
+		label: 'Pot maximum',
+		group: 'Pot (this instance’s meter)',
+		needsParam: 'meter',
+	},
+	{
+		key: 'meter.{meter}.stage',
+		label: 'Pot size stage',
+		group: 'Pot (this instance’s meter)',
+		note: 'How many of the meter’s size stages the level has reached (0, 1, 2…) — gate art with "show when ≥ n".',
+		needsParam: 'meter',
+	},
+	{
+		key: 'meter.{meter}.full',
+		label: 'Pot full',
+		group: 'Pot (this instance’s meter)',
+		note: '1 while the pot shows full, else 0.',
+		needsParam: 'meter',
+	},
+	{
+		key: 'respinsLeft',
+		label: 'Respins left',
+		group: 'Hold and Win',
+		of: 'respinsStart',
+	},
+	{
+		key: 'respinsStart',
+		label: 'Respins cap',
+		group: 'Hold and Win',
+		note: 'What the counter resets to (an add-respins special can raise it).',
+	},
+	{
+		key: 'cellsHeld',
+		label: 'Cells held',
+		group: 'Hold and Win',
+		note: 'Coins and specials held on the respin board.',
+		of: 'cellsTotal',
+	},
+	{ key: 'cellsTotal', label: 'Cells open', group: 'Hold and Win' },
+	{
+		key: 'rowsOpen',
+		label: 'Rows open',
+		group: 'Hold and Win',
+		note: 'An expanding board only.',
+		of: 'rowsMax',
+	},
+	{
+		key: 'rowsMax',
+		label: 'Rows at most',
+		group: 'Hold and Win',
+		note: 'An expanding board only.',
+	},
+	{ key: 'collectorLevel', label: 'Collector level', group: 'Hold and Win' },
+	{ key: 'lettersLit', label: 'Letters lit', group: 'Hold and Win' },
+	{ key: 'featureTotal', label: 'Feature total', group: 'Hold and Win' },
+];
+
 /** `platformJackpotShow` — true once the operator's platform reports a jackpot. */
 export const PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS: string[] = ['platformJackpotShow'];
 

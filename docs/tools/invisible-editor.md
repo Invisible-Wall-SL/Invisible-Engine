@@ -540,6 +540,19 @@ free-spin screen, without forking the component.
 > Invisible Flow guide under
 > [Scene cues](flow.md#scene-cues--animate-a-placed-character).
 
+#### Bind to value — a number that moves, fills or poses an item
+
+**Bind to value**, at the bottom of Properties, makes an item follow a live game number. It can
+move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from one edge, hold
+a flipbook frame, scrub a spine animation, or offset a spine bone. On a screen the number is an
+engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
+jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
+it is never saved. Selection handles and dragging keep the authored position.
+
+The same section in the Component Editor can also read the component's own params and the pot
+of the instance it sits in. The full reference is in the Component Editor guide under
+[Bind to value](component-editor.md#3b-drive-a-node-from-a-number-bind-to-value).
+
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
 Select a node that covers the window — anything on a `background` screen, or a

@@ -36,6 +36,12 @@ export interface SpineCamera {
  * uses: `-getWorldRotationX()*DEG_TO_RAD` for rotation, `getWorldScaleX()/getWorldScaleY()` for
  * scale). Read only once a rider is present, so non-rider previews touch none of them. */
 export interface SpineBone {
+	/** The local pose a value-binding preview offsets (`pixi-svelte/spineBoneOffset`). */
+	x: number;
+	y: number;
+	rotation: number;
+	scaleX: number;
+	scaleY: number;
 	worldX: number;
 	worldY: number;
 	/** World rotation about X in DEGREES (skeleton space, CCW) — negate + `DEG_TO_RAD` for Pixi. */
@@ -85,6 +91,18 @@ export interface SpineAnimationState {
 export interface SpineAnimationMeta {
 	name: string;
 	duration: number;
+	/** spine-core `Animation.apply` — the value-binding preview poses a scrub with it. `blend` and
+	 *  `direction` are the runtime's `MixBlend` / `MixDirection` enum values. */
+	apply(
+		skeleton: SpineSkeleton,
+		lastTime: number,
+		time: number,
+		loop: boolean,
+		events: unknown[] | null,
+		alpha: number,
+		blend: number,
+		direction: number,
+	): void;
 }
 export interface SpineSkinMeta {
 	name: string;
