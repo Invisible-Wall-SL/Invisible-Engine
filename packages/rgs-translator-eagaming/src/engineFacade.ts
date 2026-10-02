@@ -463,10 +463,28 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 /** Whitelist check + warn-once for a symbol coming back in a reveal/winInfo
  *  event. Returns true if the symbol is in the server's declared vocabulary
  *  (or no config has been captured yet — fail open). */
+/**
+ * The names an overlay host deals beyond its own vocabulary: its pots' tokens, and — when its Hold
+ * and Win block is the overlay's bonus — the respin feature's symbols (`holdAndWin.roles`, the blank),
+ * which its boot `symbols` (the host's) does not list.
+ */
+const overlaySymbols = (sid: string): Set<string> => {
+	const captured = capturedPotsOverlay.get(sid);
+	if (!captured) return new Set();
+	const hw = capturedHoldAndWin.get(sid);
+	const blank = (capturedConfig.get(sid)?.holdAndWin as { blank?: unknown } | undefined)?.blank;
+	return new Set([
+		...captured.overlay.pots.map((pot) => pot.token),
+		...Object.keys(hw?.roles ?? {}),
+		...(typeof blank === 'string' ? [blank] : []),
+	]);
+};
+
 const isKnownSymbol = (sid: string, name: string): boolean => {
 	const cfg = capturedConfig.get(sid);
 	if (!cfg) return true;
 	if (cfg.symbols.includes(name)) return true;
+	if (overlaySymbols(sid).has(name)) return true;
 	const key = `${sid}:${name}`;
 	if (!warnedUnknownSymbols.has(key)) {
 		warnedUnknownSymbols.add(key);
@@ -765,7 +783,13 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		let meters: number[] = [];
 		let inSpin = false;
 		events.forEach((d, at) => {
-			if (d.event === 'spinStart') inSpin = true;
+			// A new spin: whatever came before it belongs to the board before (a server may send its
+			// drop after its `playedSpin`, which the two-pass rule allows).
+			if (d.event === 'spinStart') {
+				drop = undefined;
+				meters = [];
+				inSpin = true;
+			}
 			if (d.event === 'overlayDrop') drop = at;
 			if (d.event === 'meterUpdate' && inSpin) meters.push(at);
 			if (d.event === 'playedSpin') {
@@ -886,7 +910,38 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		return null;
 	};
 
+	/**
+	 * A later bonus in the round ENTERS (the server's book order rules): whatever bonus played before
+	 * it is over. Closed at the entry itself — `holdAndWinTrigger`, `enterBonus`, or a pot's stub
+	 * `modeEnter` — never at a `spinTrigger`, which a partner may send for a retrigger. Free spins end
+	 * as `gameEnd` would have ended them, on the round's win so far; a Hold and Win feature leaves the
+	 * respin board and its total joins the round's win.
+	 */
+	const closeBonusBefore = (e: Play4FunBookEvent, at: number) => {
+		const ctx = (e as { context?: { cause?: unknown } }).context;
+		const potMode = e.event === 'modeEnter' && ctx?.cause === 'meter';
+		const entry = e.event === 'holdAndWinTrigger' || e.event === 'enterBonus' || potMode;
+		if (!entry) return;
+		if (inHoldAndWin && (potMode || (e.event === 'enterBonus' && !respinsAt(at)))) {
+			inHoldAndWin = false;
+			runningTotal += featureTotal;
+			featureTotal = 0;
+		}
+		if (gameType === 'freegame') {
+			push({
+				type: 'freeSpinEnd',
+				amount: runningTotal,
+				winLevel: computeWinLevel(
+					Math.round((runningTotal / BOOK_AMOUNT_MULTIPLIER) * betBaseCents),
+					betBaseCents,
+				),
+			});
+			gameType = 'basegame';
+		}
+	};
+
 	for (const [i, e] of events.entries()) {
+		if (overlay) closeBonusBefore(e, i);
 		switch (e.event) {
 			case 'config':
 			case 'gameStart':
@@ -905,28 +960,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'spinTrigger': {
 				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
 				totalFs = Array.isArray(spins) ? (spins[0]?.spins ?? 0) : (spins ?? 0);
-				if (overlay) {
-					pendingCause = entryCause(e.context);
-					// A later bonus in the round (the server's book order rules): whatever bonus played
-					// before it is over. A Hold and Win feature's total joins the round's win; free spins
-					// end here, as `gameEnd` would have ended them, on the round's win so far.
-					if (inHoldAndWin) {
-						inHoldAndWin = false;
-						runningTotal += featureTotal;
-						featureTotal = 0;
-					}
-					if (gameType === 'freegame') {
-						push({
-							type: 'freeSpinEnd',
-							amount: runningTotal,
-							winLevel: computeWinLevel(
-								Math.round((runningTotal / BOOK_AMOUNT_MULTIPLIER) * betBaseCents),
-								betBaseCents,
-							),
-						});
-						gameType = 'basegame';
-					}
-				}
+				if (overlay) pendingCause = entryCause(e.context);
 				break;
 			}
 			case 'playedSpin': {

@@ -137,9 +137,27 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     already travels export → bake → pull → register.
   - **`configuredMeters()`** is resolved once per config object, so a pot's per-frame reads allocate
     nothing.
-  - **Several modes in one round:** a stub mode that nests over the host's free spins (enter
-    pickBonus → exit → resume freeSpins → exit) reaches `allFinished` once, after the last mode —
-    seen against Phase 2's real mock in Phase 3's end-to-end run.
+  - **Several modes in one round:** the facade now closes the bonus before at the next one's ENTRY
+    (below), so a pot's stub mode after the host's free spins plays after them, not nested inside:
+    enter freeSpins → exit → enter pickBonus → exit, each reaching `allFinished`.
+  - **The hub's review of #1012, folded in** (no live-game impact; the hub's parity run found 0
+    differences on 15,391 events):
+    - **Resume of free spins → Hold and Win, mid-respins:** `freeSpinsGaveWay` (engine-game,
+      pure) decides; `createBonusSnapshot` skips the ended free spins' trigger and counter. Pinned
+      with the hub's round in `engine-game`'s fixture.
+    - **Bonuses close at the next ENTRY** (`holdAndWinTrigger`, `enterBonus`, a pot's stub
+      `modeEnter`), never at a `spinTrigger`, which the partner may send for a retrigger. A Hold and
+      Win feature followed by free spins leaves the respin board there too.
+    - **The look-ahead resets at each `spinStart`,** so a server that sends a drop after its board's
+      `playedSpin` binds it to that board, not the next.
+    - **A Hold and Win GAME that adds an overlay keeps identity names** (its boot `symbols` lists
+      its Hold and Win symbols; a host whose block is the overlay's bonus does not). The mapping
+      gate reads `POTS_OVERLAY_WIRE`, now defined in the dependency-free `gameMappings.ts`.
+    - **No unknown-symbol warnings** for an overlay host's tokens and respin symbols.
+    - **`potsOverlay.fixture.ts` moved** from `check:holdandwin` to `check:pots-overlay`.
+    - **Validator:** a pot whose bonus is a reels mode it also drops in (free spins with
+      `drops.modes` listing `freeSpins`) warns: it can refill during its own bonus and chain without
+      end.
   - **Parity:** without a drop, the layer is one empty container. Without a meter-caused entry,
     nothing drains. A game with no `potsOverlay` registers the same signals as before. A legacy
     resume replays exactly what it did. The svelte-check ratchet holds (lines 164).
@@ -450,6 +468,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
      `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
      `check:all` runs every fixture.
+
+## Phase 8 checklist (partner wire)
+
+- **Retriggers:** the facade closes free spins at the next bonus's entry. If the partner's wire
+  announces a retrigger with an `enterBonus` (it has no `retrigger` event), that would end the free
+  spins early; check their retrigger shape before switching.
 
 ## Owner checklist
 
