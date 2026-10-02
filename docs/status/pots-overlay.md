@@ -281,7 +281,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       and Hold and Win plays, back to idle, money exact, 0 exceptions.
     - The earlier "cannot reach idle" was the harness: `win-countup-repro.mjs` looks for
       `chrome-headless-shell` (the binary here is `headless_shell`), and as root the shell needs
-      `--no-sandbox`. Only the Typekit font fails remotely.
+      `--no-sandbox`. Only the Typekit font fails remotely. **Fixed** in the scripts' shared launch
+      (`scripts/playtest/headless-shell.mjs`), which finds either name and adds `--no-sandbox` as
+      root — see [the headless real clock](../playtest/README.md#the-headless-real-clock).
   - **Parity:** without a drop, the layer is one empty container. Without a meter-caused entry,
     nothing drains. A game with no `potsOverlay` registers the same signals as before. A legacy
     resume replays exactly what it did. The svelte-check ratchet holds (lines 164).
