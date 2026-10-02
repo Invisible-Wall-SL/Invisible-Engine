@@ -1,8 +1,18 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
-	import { LETTERS_STRIP_MOUNT, resolveComponent, type ComponentInstanceNode } from 'engine-layout';
-	import { ComponentInstance, getComponentParams, trackComponentMount } from 'engine-layout/svelte';
+	import {
+		LETTERS_STRIP_MOUNT,
+		MAX_COMPONENT_DEPTH,
+		resolveComponent,
+		type ComponentInstanceNode,
+	} from 'engine-layout';
+	import {
+		ComponentInstance,
+		getComponentNestState,
+		getComponentParams,
+		trackComponentMount,
+	} from 'engine-layout/svelte';
 
 	import HoldAndWinLetter from './HoldAndWinLetter.svelte';
 	import { configuredLetters } from '../game/holdAndWinLetters.svelte';
@@ -15,8 +25,9 @@
 	 * whatever its id. A project whose board end is not column letters draws nothing.
 	 *
 	 * Each letter draws as the component `tile` names (Phase 12c — a project's Letter Tile copy), fed
-	 * its `reel` and `letter`; blank, or a component that is not registered, draws the coded letter
-	 * (`HoldAndWinLetter`: dim until its column completes, then lit with a pulse).
+	 * its `reel` and `letter`. Blank, or a tile `<ComponentInstance>` would refuse (not registered,
+	 * nested too deep, or a cycle), draws the coded letter (`HoldAndWinLetter`: dim until its column
+	 * completes, then lit with a pulse), so the strip is never empty while the coded row steps aside.
 	 *
 	 * A STAND-IN (`standIn`, mounted by `<ComponentInstance>` for a strip whose def no longer binds
 	 * this part) draws nothing: the def's own nodes are the letters. It still counts in.
@@ -24,13 +35,16 @@
 	// The instance's params, else the bind's own props (a bare scene `bind` sets them there).
 	const { standIn = false, ...props }: Record<string, unknown> & { standIn?: boolean } = $props();
 	const instanceParams = getComponentParams();
+	const nest = getComponentNestState();
 	const spacing = $derived.by(() => {
 		const value = instanceParams.spacing ?? props.spacing;
 		return typeof value === 'number' && Number.isFinite(value) ? value : 120;
 	});
 	const tile = $derived.by(() => {
 		const value = instanceParams.tile ?? props.tile;
-		return typeof value === 'string' && value && resolveComponent(value).def ? value : undefined;
+		if (typeof value !== 'string' || !value) return undefined;
+		if (nest.depth >= MAX_COMPONENT_DEPTH || nest.visited.has(value)) return undefined;
+		return resolveComponent(value).def ? value : undefined;
 	});
 	const letters = $derived(standIn ? [] : configuredLetters());
 

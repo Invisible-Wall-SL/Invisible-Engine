@@ -71,8 +71,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
   - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
-    **Letters Strip** and **Letter Tile (Hold and Win)** — project copies of those built-ins, all
-    but the Jackpot Bar and the Letters Strip with their coded part. Put your own nodes inside the part (see
+    **Letters Strip** and **Letter Tile (Hold and Win)** — project copies of those built-ins. Put
+    your own nodes inside the coded part of the Pot Meter, Respin Counter, Jackpot Tile, Total Win
+    Bar or Letter Tile (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
     Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
@@ -513,7 +514,9 @@ On the **Total win bar** screen, switch the Total Win Bar's **component** to you
 them, create a **Letter Tile (Hold and Win)** and click **Edit inside Letter ›**. Inside sit the
 art and the letter for each state:
 
-- **Dim and lit art.** Pick them as **tileImage** and **litTileImage**.
+- **Dim and lit art.** Pick them as the **default** of **tileImage** and **litTileImage** under
+  **Variables in use**. The strip creates each tile itself, so there is no placed tile to set them
+  on.
 - **Dim and lit letter**, styled like the game's own letters.
 
 Each node shows while its letter is dim or lit, through a [Bind to

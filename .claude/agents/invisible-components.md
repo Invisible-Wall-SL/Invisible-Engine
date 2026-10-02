@@ -72,8 +72,9 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   `panelInPart`); a new flight target is opt-in, so an unauthored game flies as before. A part
   repeated per item (a letter per reel) renders each item as its own `<ComponentInstance>` of a
   component a `component`-kind param names (`LettersStrip` → `letterTile`), so 12a scopes cues per
-  item. Give the def
-  `standsFor` when the part registers something, so a copy without the part still registers.
+  item. Such a component is in no node, so it ships only through `resolveComponentClosure` (the one
+  def walk the bake, the runtime bundle and the art export share). Never hand-roll a def walk. Give
+  the def `standsFor` when the part registers something, so a copy without the part still registers.
   The contract is in `docs/status/hold-and-win.md`.
 
 ## The precedence stack — how reuse works

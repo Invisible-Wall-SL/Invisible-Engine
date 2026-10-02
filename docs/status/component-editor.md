@@ -18,8 +18,8 @@ Shipped capabilities on `main`:
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
 - **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
   declares a `skin` takes the author's own nodes inside it: the Pot, the Respin Counter, the Jackpot
-  Tile, the Total Win Bar and the Letter Tile. Those nodes draw in place of the coded drawing, and the part keeps its
-  behaviour. The Pot also takes art params. The bar's **Edit inside ‹part› ›** edits the part's
+  Tile, the Total Win Bar and the Letter Tile. Those nodes draw in place of the coded drawing, and
+  the part keeps its behaviour. The Pot also takes art params. The bar's **Edit inside ‹part› ›** edits the part's
   children, and the canvas previews the art and the children. A **(Hold and Win)** create type per
   part makes a project copy.
   Contract: [hold-and-win](hold-and-win.md) Decisions.

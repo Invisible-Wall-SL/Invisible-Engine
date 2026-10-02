@@ -13,12 +13,13 @@
 	 * letters, as a Letters Strip draws it per reel. The author's own nodes inside it — the built-in's
 	 * dim and lit art and letter — arrive as `skin` and draw at its origin, pulsed each time the
 	 * tile's letter lights (`pulseScale`, the coded letter's 1.6 by default). The tile's `reel` says
-	 * which letter it is. With nothing inside, it draws the coded letter.
+	 * which letter it is. With nothing inside, it draws the coded letter, which pulses on its own.
 	 */
 	const { skin }: { skin?: Snippet } = $props();
 	const params = getComponentParams();
-	const reel = $derived(typeof params.reel === 'number' ? params.reel : 0);
-	const letter = $derived(typeof params.letter === 'string' ? params.letter : '');
+	// Fixed for the tile's life: the strip remounts a tile rather than re-pointing it.
+	const reel = typeof params.reel === 'number' ? params.reel : 0;
+	const letter = typeof params.letter === 'string' ? params.letter : '';
 
 	const pulse = new Tween(1);
 	let seenPulses = stateLetters.pulses[reel] ?? 0;

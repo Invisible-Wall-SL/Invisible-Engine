@@ -43,7 +43,7 @@
 	 * - the built-in strip as it ships (`tile` blank): the coded letters;
 	 * - a strip copy (`myStrip`) drawing each letter as the built-in Letter Tile;
 	 * - …as a tile with a "LIT" node gated on **Letter lit**, which must show on the lit letter only;
-	 * - …naming a component that is not registered: the coded letters again.
+	 * - …naming a component that is not registered, or the strip itself: the coded letters again.
 	 * `window.__light(reel)` lights a letter as the column-complete beat does; `window.__probe()` lists
 	 * the strip's texts (shown, fill, on-screen scale) and whether the coded row would step aside.
 	 */
@@ -179,4 +179,8 @@
 
 <Story name="a missing tile (coded letters)">
 	{@render stage('myStrip', 'noSuchTile')}
+</Story>
+
+<Story name="a tile naming the strip (coded letters)">
+	{@render stage('myStrip', 'myStrip')}
 </Story>

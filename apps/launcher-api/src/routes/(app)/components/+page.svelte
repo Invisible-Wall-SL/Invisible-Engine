@@ -1866,7 +1866,11 @@
 						gameType={data.gameType}
 						componentDefs={components
 							.filter((c) => c.id !== componentDraft?.id)
-							.map((c) => ({ id: c.id, name: c.name }))}
+							.map((c) => ({
+								id: c.id,
+								name: c.name,
+								params: (c.params ?? []).map((p) => p.key),
+							}))}
 						addOns={data.addOns}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)

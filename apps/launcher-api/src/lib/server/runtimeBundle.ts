@@ -31,9 +31,9 @@ import type { EffectDoc } from 'engine-fx';
 import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
-	collectComponentIds,
 	collectComponentPins,
 	flightEffectIds,
+	resolveComponentClosure,
 	type ComponentDef,
 	type FontCatalog,
 	type SoundCatalog,
@@ -43,7 +43,11 @@ import {
 	type WinTextDoc,
 } from 'engine-layout';
 import { betModeCardIds, type GameConfigDoc } from 'game-config';
-import { keyComponentDefaultsById, listComponentDefaults } from './componentDefaultsStorage';
+import {
+	componentDefaultsFor,
+	keyComponentDefaultsById,
+	listComponentDefaults,
+} from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportBootSplashes } from './bootSplashExport';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
@@ -205,25 +209,14 @@ function resolveSpineKeysForComponentDefs(
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
+	storedDefaults: Record<string, Record<string, unknown>>,
 	extraSeedIds: string[] = [],
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
-	const defs: Record<string, ComponentDef> = {};
-	const seen = new Set<string>();
-	const queue = [
-		...collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes)),
-		...extraSeedIds,
-	];
-	while (queue.length) {
-		const id = queue.shift()!;
-		if (seen.has(id)) continue;
-		seen.add(id);
-		const def = await loadComponent(id, projectKey);
-		if (!def) continue;
-		defs[id] = def;
-		for (const nested of collectComponentIds([def.root])) {
-			if (!seen.has(nested)) queue.push(nested);
-		}
-	}
+	const defs = await resolveComponentClosure(
+		doc.scenes.flatMap((scene) => scene.nodes),
+		(id) => loadComponent(id, projectKey),
+		{ extraSeedIds, defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
+	);
 	const versions: ComponentDef[] = [];
 	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
 		if (defs[pin.id]?.version === pin.version) continue;
@@ -364,7 +357,7 @@ async function assembleRuntimeBundle(
 	const { defs: componentDefs, versions: componentVersions } = await step(
 		'componentDefs',
 		timings,
-		() => resolveReferencedDefs(doc, projectKey, cardComponentIds),
+		() => resolveReferencedDefs(doc, projectKey, storedComponentDefaults, cardComponentIds),
 	);
 	// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
 	// scene tree, or their spines never load in the built game (key mismatch).

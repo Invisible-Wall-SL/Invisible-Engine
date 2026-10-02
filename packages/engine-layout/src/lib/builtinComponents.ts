@@ -2496,6 +2496,7 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 			kind: 'component',
 			default: '',
 			label: 'each letter drawn as (blank = the coded letters)',
+			fedParams: ['reel', 'letter'],
 		},
 	],
 	standsFor: 'LettersStrip',

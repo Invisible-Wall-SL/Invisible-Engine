@@ -1,10 +1,16 @@
 import { error, json } from '@sveltejs/kit';
-import { applyHudGameNameDefault, collectComponentIds, collectComponentPins } from 'engine-layout';
+import {
+	applyHudGameNameDefault,
+	collectComponentIds,
+	collectComponentPins,
+	resolveComponentClosure,
+} from 'engine-layout';
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
 import { repairComponentDefsAtlasRefs } from '$lib/server/atlasRefRepair';
 import { loadComponent } from '$lib/server/componentStorage';
 import {
+	componentDefaultsFor,
 	keyComponentDefaultsById,
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
@@ -90,21 +96,13 @@ function resolveSpineKeysForComponentDefs(
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
+	storedDefaults: Record<string, Record<string, unknown>>,
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
-	const defs: Record<string, ComponentDef> = {};
-	const seen = new Set<string>();
-	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
-	while (queue.length) {
-		const id = queue.shift()!;
-		if (seen.has(id)) continue;
-		seen.add(id);
-		const def = await loadComponent(id, projectKey);
-		if (!def) continue;
-		defs[id] = def;
-		for (const nested of collectComponentIds([def.root])) {
-			if (!seen.has(nested)) queue.push(nested);
-		}
-	}
+	const defs = await resolveComponentClosure(
+		doc.scenes.flatMap((scene) => scene.nodes),
+		(id) => loadComponent(id, projectKey),
+		{ defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
+	);
 	const versions: ComponentDef[] = [];
 	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
 		// Skip a pin that already equals the latest def we shipped above — registering
@@ -167,7 +165,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		// with no non-latest pin, keeping the payload byte-identical.
 		const resolved =
 			url.searchParams.get('components') === '1'
-				? await resolveReferencedDefs(doc as LayoutDoc, projectKey)
+				? await resolveReferencedDefs(doc as LayoutDoc, projectKey, storedComponentDefaults)
 				: undefined;
 		// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
 		// scene tree, or their spines never load in the built game (key mismatch).

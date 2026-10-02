@@ -193,16 +193,32 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       node shows in one state through a 12b `visible` binding on `letter.{reel}.lit`. The letters
       copy the coded letter's font, colours, stroke and alpha. The tile is scoped by `reel`, and the
       part pulses it when its letter lights (`pulseScale`, 1.6 like the coded letter). With nothing
-      inside, it draws the coded letter. It registers nothing, so it stands for no part.
+      inside, it draws the coded letter, which pulses on its own (`pulseScale` does not apply). It
+      registers nothing, so it stands for no part.
     - **The strip:** a new `tile` param, kind `component`, names the component each letter draws
-      as, fed `reel` and `letter`. Blank (the default), or a component that is not registered, draws
-      the coded letters (parity). The part counts in under `LETTERS_STRIP_MOUNT`, so the coded row
-      steps aside for any copy, whatever its id. The def `standsFor` its part.
-    - **New pieces:** the `component` param kind (Properties lists the project's components, minus
-      the instance's own), and the game's `letter.<reel>.lit` VALUE source (1 or 0). The latter is
-      beside the visibility source of the same name, because a 12b binding reads values.
-    - **Nesting limit:** a tile is a second-level instance, so a strip placed inside another
-      component exceeds `MAX_COMPONENT_DEPTH` and draws no tiles. The Jackpot Bar has the same limit.
+      as, fed `reel` and `letter`. Blank (the default) draws the coded letters (parity). So does a
+      tile `<ComponentInstance>` would refuse: not registered, nested past `MAX_COMPONENT_DEPTH`
+      (a strip placed inside another component), or a cycle (a tile naming the strip). The strip is
+      therefore never empty while the coded row steps aside. The part counts in under
+      `LETTERS_STRIP_MOUNT`, so the coded row steps aside for any copy, whatever its id. The def
+      `standsFor` its part.
+    - **The tile ships.** A tile a param names is in no node, so the bake would miss it, and the
+      strip would fall back to the coded letters in the published game. `resolveComponentClosure`
+      (`collectComponentIds.ts`) is now the one walk the doc bake, the runtime bundle and the art
+      export share. It also follows `component`-kind params: the def default, every placed
+      instance's value and per-ratio override, and the project's defaults (read only for a def with
+      such a param). The tile's art then ships through its own image-param defaults.
+    - **New pieces:**
+      - The `component` param kind. Properties and **This game's defaults** list the project's
+        components that declare every `fedParams` key (the tile's `reel` and `letter`), minus the
+        instance's own.
+      - The game's `letter.<reel>.lit` VALUE source (1 or 0). It sits beside the visibility source
+        of the same name, because a 12b binding reads values.
+    - **Limits:**
+      - A component placed inside a Letter Tile is skipped, since the tile is already a
+        second-level instance. The Jackpot Bar has the same limit.
+      - A tile's nodes render without the screen's `space`, because a bound part is not handed it.
+        So `screenAnchor` / cover fit on a node inside a tile does nothing.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -1011,6 +1027,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - `test-letters-strip-part.mjs` (32 assertions): the tile's shape, state bindings, the coded
       look, scope, pulse and source; the strip's param, parity default, `standsFor`, mount key, and
       an old strip's upgrade.
+    - `test-component-closure.mjs` (11 assertions): a tile named on the placed strip, a per-ratio
+      override, the project's defaults, a strip copy's default or a nested strip ships; a missing
+      one is skipped; a doc naming none loads in the plain walk's order.
     - `test-hold-and-win-template.mjs` now lists `letterTile` as gated.
     - Every engine-layout fixture plus the launcher's `check:*` gates, `check:undefined-names`,
       `check:path-imports` and `verify-pot-meter-mount` pass.
@@ -1020,8 +1039,24 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       - A renamed copy drawing the Letter Tile matches the coded letters' positions and colours,
         and pulses the same.
       - A tile with a node gated on **Letter lit** shows it over A only.
-      - A missing tile falls back to the coded letters.
+      - A missing tile, or a tile naming the strip itself, falls back to the coded letters.
       - Every copy counts in as the letters row.
+  - **Review round (code-reviewer):**
+    - **Fixed, blocking:** a project's Letter Tile named by `tile` never shipped. The bake, the runtime
+      bundle and the art export only followed instance nodes, so the published strip fell back to
+      the coded letters. All three now share `resolveComponentClosure`, which follows
+      `component`-kind params.
+    - **Fixed:** the strip drew nothing, not the coded letters, when the tile `<ComponentInstance>`
+      would refuse (too deep, or a cycle).
+    - **Fixed:** **This game's defaults** and **Variables in use** were free text for a `component`
+      param; they are selects now. The picker lists only components declaring every `fedParams` key,
+      and same-named entries show their id.
+    - **Fixed:** the tile reads `reel` once (a Svelte `state_referenced_locally` warning).
+    - **Fixed:** doc wording.
+    - **Left:** a tile's nodes get no screen `space` (Decisions, Limits).
+    - **Found in passing, queued as its own task:** art picked only in **This game's defaults**
+      never reaches `deploy/editor-art/`, for any component. `collectArtRefs` never reads the
+      project's defaults. The guide sends a tile's art to its own param defaults instead.
 - 2026-10-02 — **Phase 12c: the Total Win Bar skinned** (#1006). Contract: Decisions, "The Total
   Win Bar can catch the coins".
   - **Engine:**

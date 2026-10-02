@@ -1469,6 +1469,12 @@ export interface ComponentParam {
 	 * the author picks from the registered sources rather than typing a name.
 	 */
 	options?: string[];
+	/**
+	 * For a `component` param: the params the owning part feeds the component it mounts (the
+	 * Letters Strip feeds its tile `reel` and `letter`). The editor offers only components that
+	 * declare all of them. Absent ⇒ every component.
+	 */
+	fedParams?: string[];
 }
 
 /** A named trigger the engine fires at a component (wiring is engine-owned). */

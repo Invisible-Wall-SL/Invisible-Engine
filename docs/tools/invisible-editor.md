@@ -829,7 +829,8 @@ game on the next **Publish** — the same trip as the rest of your art.
   off by default.
   A **Letters Strip** draws Grand's letters. Its **tile** picks a component, usually your Letter
   Tile copy, for every letter to draw as. Blank keeps the game's own letters. A param that names a
-  component is a list of your project's components.
+  component is a list of your project's components that fit it: the **tile** lists those with a
+  `reel` and a `letter`, which are the Letter Tiles.
   **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The

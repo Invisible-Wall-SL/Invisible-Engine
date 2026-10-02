@@ -146,10 +146,18 @@ export function keyComponentDefaultsById(
 ): Record<string, Record<string, unknown>> {
 	const out = { ...defaults };
 	for (const id of ids) {
-		const params = defaults[r2Slug(id)];
+		const params = componentDefaultsFor(defaults, id);
 		if (params) out[id] = params;
 	}
 	return out;
+}
+
+/** One component's defaults from the listed map, by its real id (the map is keyed `r2Slug(id)`). */
+export function componentDefaultsFor(
+	defaults: Record<string, Record<string, unknown>>,
+	id: string,
+): Record<string, unknown> | undefined {
+	return defaults[r2Slug(id)];
 }
 
 /** Read + unwrap one defaults key's `params` plus the `id` stamped beside them (absent on a

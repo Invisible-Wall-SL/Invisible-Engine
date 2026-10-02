@@ -803,6 +803,11 @@ function normalizeParams(input: unknown): ComponentParam[] {
 			const options = item.options.filter((o): o is string => typeof o === 'string');
 			if (options.length) param.options = options;
 		}
+		// A `component` param's filter: without it the picker offers every component.
+		if (Array.isArray(item.fedParams)) {
+			const fed = item.fedParams.filter((k): k is string => typeof k === 'string' && !!k);
+			if (fed.length) param.fedParams = fed;
+		}
 		out.push(param);
 	}
 	return out;

@@ -167,10 +167,7 @@ assert(
 );
 assert(strip.standsFor === 'LettersStrip', 'it stands for its part');
 assert(mod.partStandIn(strip) === undefined, 'the built-in binds it: no stand-in');
-assert(
-	mod.LETTERS_STRIP_MOUNT === strip.id,
-	'the part counts in under the built-in id, so the coded row steps aside for any copy',
-);
+assert(mod.LETTERS_STRIP_MOUNT === strip.id, 'the part counts in under the built-in id');
 
 console.info('a strip saved before the tile');
 const saved = { ...strip, params: strip.params.filter((p) => p.key !== 'tile') };
