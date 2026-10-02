@@ -18,6 +18,7 @@ export const trailingSlash = 'ignore';
 import { prepareRuntimeBundle } from '../editor-scenes';
 import { exposeBuildInfo } from '../game/buildInfo';
 import { startErrorTracking } from '../game/errorTracking';
+import { publishWinLevelsToFacade, resetGameConfigCache } from '../game/gameConfig';
 
 /**
  * Live runtime (Invisible Game Maker, Phase 0). OPT-IN via `?runtime=1`: fetch the
@@ -27,11 +28,16 @@ import { startErrorTracking } from '../game/errorTracking';
  * when the param is absent, so byte-identical to today for baked + live-doc dev.
  *
  * The delivery profile is NOT loaded here — it is awaited in `<Authenticate>`, which every app
- * mounts, so a shipped game repo (which has no layout `load` at all) gets it too.
+ * mounts, not only `apps/lines` (a game repo compiles these routes too, via `config-svelte`).
  */
 export const load = async () => {
 	exposeBuildInfo();
 	startErrorTracking();
 	await prepareRuntimeBundle();
+	// Before `<Authenticate>` mounts: a round left open is translated inside `requestAuthenticate`,
+	// and the facade stamps its `winLevel`s from whatever ladder it has been given by then. The memo
+	// is dropped first, since a module may have read the config before the runtime bundle landed.
+	resetGameConfigCache();
+	publishWinLevelsToFacade();
 	return {};
 };

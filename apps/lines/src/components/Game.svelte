@@ -141,7 +141,6 @@
 
 	import {
 		publishSoundBindings,
-		publishWinLevelsToFacade,
 		publishWinPresentation,
 		getActiveGameConfig,
 		resetGameConfigCache,
@@ -374,12 +373,6 @@
 	// runtime-bundle branch above so it reads the config the game will actually run — an online
 	// project's authored bet modes, cost and copy — not the one it booted with.
 	syncBetModeMeta();
-
-	// Publish the resolved win tiers (level/threshold/type) to the global the RGS FACADE reads
-	// (`engineFacade.ts`), so an authored config's tier ladder + big-win gate drive the win level the
-	// facade emits. Runs after the runtime-bundle branch, on the config the game will actually run.
-	// Un-authored ⇒ the global is cleared and the facade keeps its coded ladder (byte-identical).
-	publishWinLevelsToFacade();
 
 	// Publish the placed `win` componentInstance's authored params so its per-tier DURATION + SOUND
 	// overrides reach the out-of-tree consumers (`WinGate` duration, `winLevelSoundsPlay`). Runs after

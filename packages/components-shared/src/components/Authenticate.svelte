@@ -208,8 +208,7 @@
 	onMount(async () => {
 		// Resolve the delivery profile before ANYTHING reads `rgsUrl()`/`sessionID()`. It is awaited
 		// here rather than in an app's `+layout.ts` because every app mounts <Authenticate> while only
-		// `apps/lines` has a layout `load` — a game repo scaffolded by `new-game.mjs` has none, and a
-		// delivery cut from one would bake a profile whose `config.json` was then never applied.
+		// `apps/lines` (whose routes a game repo also compiles) has a layout `load`.
 		// A build with no baked profile resolves instantly and changes nothing.
 		await loadDeliveryProfile();
 		// `config.json` may have renamed the profile, or its session param, since reporting started.
