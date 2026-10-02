@@ -1,4 +1,5 @@
 import type { HoldAndWinMeterLevel } from 'engine-game';
+import { meterFlightKey } from 'engine-layout';
 import type { HoldAndWinMeter } from 'game-config';
 import { Tween } from 'svelte/motion';
 
@@ -50,7 +51,7 @@ export const potMeterMountKey = (id: string): string => `potMeter:${id}`;
 
 /** The flight target a meter's pot anchors (`<Anchor name>`), and the kind its specials fly as. */
 export const meterAnchor = (id: string): string => `meter:${id}`;
-export const meterFlight = (id: string): string => `toMeter:${id}`;
+export const meterFlight = meterFlightKey;
 
 /** Pin a pot's drawn level at `level` for the length of a beat; returns the tween that moves it. */
 export const holdMeterDisplay = (id: string, level: number): Tween<number> => {

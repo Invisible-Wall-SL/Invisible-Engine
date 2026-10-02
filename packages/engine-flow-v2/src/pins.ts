@@ -90,6 +90,21 @@ const dataIn = (
  *  follow the vocabulary rather than being re-stated per node (§2, anti-drift). */
 const paramIn = (p: ParamDecl): Pin => dataIn(p.name, p.type, p.name, p.description, p.optional);
 
+/**
+ * Every `fireCue` node's optional SCOPE pin (Phase 12a, `docs/design/hold-and-win.md` §8): the one
+ * part of a repeated feature the cue is about — a meter id, a jackpot tier, a reel. Set, only the
+ * component instances and effects scoped to it react; blank, every listener does (as before).
+ * Rides the payload as `scope`, the field every scoped engine cue carries.
+ */
+export const CUE_SCOPE_PIN = 'scope';
+const CUE_SCOPE_IN: Pin = dataIn(
+	CUE_SCOPE_PIN,
+	{ t: 'string' },
+	'scope',
+	'Only the components and effects scoped to this (a meter id, a jackpot tier, a reel) react. Blank: every one does.',
+	true,
+);
+
 const dataOut = (id: string, dataType: TypeRef, label?: string, doc?: string): Pin => ({
 	id,
 	dir: 'out',
@@ -253,7 +268,8 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 		case 'fireCue': {
 			const decl = ctx.vocab.cues.find((c) => c.name === node.ref);
 			const ins = (decl?.payload ?? []).map(paramIn);
-			return [EXEC_IN, EXEC_OUT, ...ins];
+			const scoped = ins.some((pin) => pin.id === CUE_SCOPE_PIN) ? [] : [CUE_SCOPE_IN];
+			return [EXEC_IN, EXEC_OUT, ...ins, ...scoped];
 		}
 		case 'delay':
 			return [EXEC_IN, EXEC_OUT, dataIn('ms', { t: 'ms' }, 'ms')];

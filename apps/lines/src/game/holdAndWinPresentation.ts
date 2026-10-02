@@ -17,6 +17,7 @@ import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
 import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
+import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { coinLabelCountMs } from './coinLabel';
@@ -58,6 +59,7 @@ import {
 	meterAnchor,
 	meterFlight,
 	meterMax,
+	meterStage,
 	pulseMeter,
 	releaseMeterDisplay,
 } from './holdAndWinMeters.svelte';
@@ -274,11 +276,35 @@ const lightBaseCell = (cell: HoldAndWinCell, state: SymbolState) => {
 };
 
 /**
+ * A pot's level rose from `from` to `to`: `potLevelUp`, and `potStageUp` when the rise crossed one of
+ * the meter's size stages (the step the coded pot grows by). Both are scoped by the meter, so a
+ * component placed on that pot hears its own pot only.
+ */
+const announceMeterRise = (event: Beat<'meterUpdate'>, from: number, to: number) => {
+	if (to <= from) return;
+	const scope = scopeOf('meter', event.meter);
+	eventEmitter.broadcast({
+		type: 'potLevelUp',
+		meter: event.meter,
+		level: to,
+		max: event.max,
+		scope,
+	});
+	const meter = configuredMeters().find((m) => m.id === event.meter);
+	if (!meter) return;
+	const stage = meterStage(meter, to);
+	if (stage > meterStage(meter, from)) {
+		eventEmitter.broadcast({ type: 'potStageUp', meter: event.meter, stage, level: to, scope });
+	}
+};
+
+/**
  * `meterUpdate` — a special landed in the BASE game and fills its pot (3 Pots). Each special in
  * `from` lights where it landed and flies into its pot (`flyTo(cell, 'meter:<id>', 'toMeter:<id>')`);
  * the pot's level ticks up by one on each arrival, from the level before (`level − from.length`) to
  * the server's `level`, and a meter the update FILLED pulses. The level is the server's: the beat
  * only shows it arriving, never computes it (the play seam recorded it before the beat started).
+ * Every cue it sends is scoped by the meter (Phase 12a), arrivals included.
  *
  * No avoidance: the update comes straight after the reveal, before any win is shown. A slam
  * compresses the flights (`flights.svelte.ts`) and never skips an arrival or the final level.
@@ -289,6 +315,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 		meterLevelBefore(event.meter) ?? Math.max(0, event.level - event.from.length),
 	);
 	const shown = holdMeterDisplay(event.meter, before);
+	const scope = scopeOf('meter', event.meter);
 	eventEmitter.broadcast({
 		type: 'potFill',
 		meter: event.meter,
@@ -296,6 +323,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 		max: event.max,
 		full: event.full,
 		cells: event.from.map(cellOf),
+		scope,
 	});
 	let reached = before;
 	await Promise.all(
@@ -308,10 +336,14 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 				{ index },
 			);
 			unlight();
+			const from = reached;
 			reached = Math.min(event.level, reached + 1);
 			void shown.set(reached, { duration: roundSkip.isSkipped() ? 0 : METER_TICK_MS });
+			announceMeterRise(event, from, reached);
 		}),
 	);
+	// A level the arrivals did not account for (more than one per special) still rises — once.
+	announceMeterRise(event, reached, event.level);
 	// Let the last tick play out before the display hands back to the recorded level — releasing at
 	// once snapped the pot on the final arrival. Bounded: a tick a later one interrupted never settles.
 	const tickMs = roundSkip.isSkipped() ? 0 : METER_TICK_MS;
@@ -319,7 +351,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	releaseMeterDisplay(event.meter, shown);
 	if (!event.full) return;
 	pulseMeter(event.meter);
-	eventEmitter.broadcast({ type: 'potFull', meter: event.meter });
+	eventEmitter.broadcast({ type: 'potFull', meter: event.meter, scope });
 	const activates = configuredMeters().find((meter) => meter.id === event.meter)?.activates;
 	const title = activates ? meterFullText(activates) : '';
 	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
@@ -338,7 +370,8 @@ const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
 	if (ids.length === 0) return;
 	const declared = configuredMeters();
 	const activates = ids.flatMap((id) => declared.find((meter) => meter.id === id)?.activates ?? []);
-	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates });
+	const scope = ids.flatMap((id) => scopeOf('meter', id) ?? []);
+	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates, scope });
 	await Promise.all(
 		ids.map(async (id) => {
 			const shown = holdMeterDisplay(id, meterMax(id));
@@ -786,6 +819,7 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 		cleared: event.cleared,
 		amount: event.amount,
 		cells: event.cells,
+		scope: scopeOf('reel', event.reel),
 	});
 	lightLetter(event.reel);
 	await playHeldBeat(event.cells, 'coinCollect', { minMs: HIGHLIGHT_MIN_MS });
@@ -960,6 +994,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		amount: event.amount,
 		source: event.source,
 		banked: event.banked,
+		scope: scopeOf('tier', event.tier),
 	});
 	const amount = bookEventAmountToCurrencyString(event.amount);
 	if (event.banked) {
@@ -968,6 +1003,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 			tier: event.tier,
 			amount: event.amount,
 			source: event.source,
+			scope: scopeOf('tier', event.tier),
 		});
 		const banner = showHoldAndWinBanner({
 			kind: 'jackpot',

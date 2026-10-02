@@ -11,7 +11,7 @@ Standalone authoring tool for **components** (prefabs) at `/components` — laun
 
 Shipped capabilities on `main`:
 - **Author a component** — create Blank (`UI`/`Overlay`/`Scenery`) or a pre-wired **Button** (pre-declares the `action` param); build the `root` element tree on the shared editor canvas (Text/Rect/atlas/spine/sheet regions), outline + properties reused from the Scene Editor. Deep-linked from the Scene Editor's "Open Component Editor" / "Edit as component".
-- **Declare the engine contract** (the "Component variables" block) — **Engine params** (curated catalog: bet/win/balance/…), **Your params** (custom author inputs: string/image/number/color/boolean, with per-param defaults, bound to a node's image/tint/text/font/size/colour), and **Engine signals** (named moments; declare-only). Text nodes have an **Expose as params** shortcut.
+- **Declare the engine contract** (the "Component variables" block) — **Engine params** (curated catalog: bet/win/balance/…), **Your params** (custom author inputs: string/image/number/color/boolean, with per-param defaults, bound to a node's image/tint/text/font/size/colour), and **Signals** (the kind's engine signals, grouped by family, or any Flow cue name; declare-only, since cue fields are free text). **scoped by** names the param a placement's signal scope comes from (Phase 12a). Text nodes have an **Expose as params** shortcut.
 - **Per-instance engine bindings** (Flow-driven-game Phase 6, 2026-06-30) — any placed instance can be made clickable (`action`) or lifecycle-gated (`visibleSource`) without the def declaring the param (shared `engineBindings.ts` + an "Engine bindings" tray in `EditorProperties`); UI for `visibleFor` / `screenAnchor` / custom-param `options`; and **per-instance signal rebinding** (`cueSignalOverrides` — override which engine signal drives a spine cue, e.g. `win` vs `bigWin`).
 - **Button-state-driven spine animations** (2026-06-25) — `SpineNode.stateAnimations` (hover/pressed/selected/disabled/spinning cascade), authored via "Plays on button state"; blank-default spine = a state-only overlay over a resting button image.
 - **Versioning** — pin-by-default with a **true multi-version store** (v2): a changed save bumps `version` AND retains every historical `<id>.v<N>.json` snapshot, so an instance resolves the EXACT def it pinned (editor preview, bake, and shipped game); a missing pin renders latest + a `versionMismatch` warning, never a silent upgrade. Outdated instances are **flagged** in the Scene Editor and updated per instance (never bulk). A **version browser** (top-bar `Version` dropdown + **Inspect** read-only + **Back to latest**) browses retained snapshots non-destructively.
@@ -30,6 +30,15 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 - 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): numbers drive a node's transform, visibility, fill, clip frame, spine scrub and spine bones — engine, sources, the Properties section with a test-value preview, guide §3b. Live check in the tool owed (the auth-gated canvas). Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **Scoped signals (Hold and Win Phase 12a, #1003).**
+  - The signal picker is grouped by family and filtered by the project's kind, and takes any Flow
+    cue name.
+  - Cue signals, **hidden until signal** and per-placement overrides are free text.
+  - **scoped by … as a …** (`ComponentDef.signalScope` + `signalScopeKind`) makes a placement hear
+    only its own pot / tier / reel among the fires of that kind. Nested instances and effects
+    inherit it. `componentStorage` keeps both while the param exists.
+
+  Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **`respinCells` built-in** ("Respin Cell Tiles", Hold and Win, kind-gated): a coded part that hands `tileImage` / `tileTint` / `gap` to the respin board rather than drawing at its own spot. Detail: [hold-and-win](hold-and-win.md).
 
 - 2026-10-01 — **Kind-gated built-ins** (#951): `ComponentDef.capability` (a `KindCapabilities` flag) gates where the Scene Editor offers a def; seven new Hold and Win built-ins carry `capability: 'holdAndWin'` (respinCounter, jackpotTile, jackpotBar — four nested tiles, totalWinBar, potMeter, lettersStrip, wheel). `componentStorage` does not persist `capability`, so a saved fork falls back to the built-in's gate by id; a copy saved under a NEW id is offered to every kind. New `engine-layout` mount registry (`isComponentMounted`, counted by `<ComponentInstance>` and `<LayoutScene>`) lets a coded default step aside for a mounted authored twin.

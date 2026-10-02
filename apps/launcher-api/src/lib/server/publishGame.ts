@@ -84,10 +84,7 @@ export class PublishBlockedError extends Error {
 		 *  clobber a real game — while `unapproved-sounds`, `invalid-flow` and `paytable-drift` are
 		 *  deliberate-override cases (the last two for the owner role only; see the publish endpoint). */
 		readonly reason:
-			| 'own-bundle'
-			| 'unapproved-sounds'
-			| 'invalid-flow'
-			| 'paytable-drift' = 'own-bundle',
+			'own-bundle' | 'unapproved-sounds' | 'invalid-flow' | 'paytable-drift' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
 		readonly details: string[] = [],
 	) {
@@ -217,6 +214,10 @@ export async function publishGame(
 			flowV2: assembled.flowV2,
 			flowV2Library: assembled.flowV2Library,
 			scenes: assembled.doc.scenes,
+			components: [
+				...Object.values(assembled.componentDefs),
+				...(assembled.componentVersions ?? []),
+			],
 		});
 		refuseFlow(shipped);
 		const engine = await runtimePointer(runtimeFor(gameType));

@@ -53,6 +53,16 @@
 
 ## Recent changes
 
+- 2026-10-02 — **Fire Cue scope pin + component cue harvest (Hold and Win Phase 12a, #1003).**
+  - Every Fire Cue has an optional `scope` data-in (`CUE_SCOPE_PIN`). Set, it rides the payload
+    and the open component bus, so only components and effects scoped to that part react. Unset,
+    the payload is byte-identical.
+  - `collectSceneCueNames` walks placed component defs and per-placement overrides: in the
+    editor, at validation and at publish.
+  - The Hold and Win vocabulary has `potLevelUp` / `potStageUp`.
+
+  Detail: [hold-and-win](hold-and-win.md).
+
 - 2026-10-02 — **Hold and Win vocabulary: add-respins + upgrade** (Phase 11a, #995): events `respinsAdded` / `coinUpgrade`, actions `addRespins` / `upgradeCoins`, cues `respinAddRespins` / `respinCoinUpgrade`, `respinCellsCleared` gains `reason`, enum `UpgradeTarget`; the starter flow wires both beats in the Hold and Win tab (new projects only — a saved flow falls through to the coded beats). Detail: [status/hold-and-win](hold-and-win.md).
 
 - 2026-10-01 — **The `holdAndWin` vocabulary + starter flow** (Hold and Win Phase 5; branch
