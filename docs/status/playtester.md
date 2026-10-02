@@ -4,7 +4,7 @@
 
 **One-line state:** Phase 1 shipped — the `game-playtester` subagent + playbooks for `lines`,
 `borut-remake` and `ways`, invoked from a Claude Code session. Since 2026-09-28 a headless
-real-clock drive (GPU `chrome-headless-shell`, 60 fps) runs live games unattended, so the
+real-clock drive (GPU headless shell, 60 fps) runs live games unattended, so the
 frozen-rAF limit no longer blocks spins. Phases 2–3 (a `/playtest` launcher card + an Agent-SDK
 fix-worker) are designed, not built.
 
@@ -23,8 +23,11 @@ fix-worker) are designed, not built.
   the `WIN_MODEL=ways` mock). One file per game; add a launch config for games outside this repo.
 - **Three drive paths** — the Browser preview pane (boot + static render + source-import actor on
   a dev build; its tab is hidden, so rAF is frozen), Claude-in-Chrome (foreground, needs a visible
-  tab) and the headless real clock (`chrome-headless-shell` over a CDP pipe with GPU flags; worked
-  script `scripts/playtest/win-countup-repro.mjs`, exits 1 on a count-up stall). A stall seen only
+  tab) and the headless real clock (Playwright's headless shell over a CDP pipe with GPU flags,
+  one launch shared by `scripts/playtest/*`; worked script
+  `scripts/playtest/win-countup-repro.mjs`, exits 1 on a count-up stall). It runs in a Claude Code
+  cloud container too, in software; setup and caveats are in
+  [the headless real clock](../playtest/README.md#the-headless-real-clock). A stall seen only
   under a hand-stepped clock is unconfirmed until it reproduces on the real clock.
 - **Honest limits are encoded** — no visual-polish pass/fail; those are reported as
   **human-eyes**. Trap list (baked-data masking, silent stale-baked fallback, frozen ticker) is in
@@ -97,6 +100,17 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
 gap is closed by the headless real-clock path (2026-09-28, see Current state).
 
 ## Recent changes
+- 2026-10-02 — **The headless real clock runs in a Claude Code cloud container.** The scripts
+  looked only for `chrome-headless-shell`. The cloud image ships `headless_shell` and runs as root,
+  where Chromium needs `--no-sandbox`. Sessions there reported "the game never reaches idle",
+  which was the harness, not the engine (found by pots-overlay Phase 4).
+  `scripts/playtest/headless-shell.mjs` is now the one launch for `win-countup-repro.mjs` and
+  `host-settings-probe.mjs`: either name, the sandbox flag only as root, and the shell's stderr on
+  an early exit. The GPU flags are unchanged; on Windows the play run still reaches idle at 60 fps.
+  Verified in a cloud container (uid 0, `chromium_headless_shell-1194/chrome-linux/headless_shell`):
+  `win-countup-repro.mjs` booted to idle in 9–18 s at 4–6 fps and played a big-win count-up back to
+  idle with no stall, exit 0. The same shell started without `--no-sandbox` refuses to run as root.
+  The caveat lives in [the headless real clock](../playtest/README.md#the-headless-real-clock).
 - 2026-09-28 — **Live check of #807/#810 on the headless real clock** (#836): `bookofborutremake`
   passes (intro holds and releases on tap, book reveal, two-stage outro tap, idle with credit).
   `test2`–`test6` lost their free-spin intro/outro because they still bind the retired composers;
