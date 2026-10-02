@@ -122,17 +122,21 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 	coinLand:
 		'A respin cell whose reel stops on this symbol, before anything sticks. Leave a cell empty to use this symbol’s Static binding.',
 	coinStick:
-		'A landed coin STICKING into the held layer — also a mystery or a multiplier landing as what it became. Leave a cell empty to reuse this symbol’s Land binding.',
+		'A landed coin STICKING into the held layer — also a mystery, a multiplier, an add-respins or an upgrade landing as what it became. Leave a cell empty to reuse this symbol’s Land binding.',
 	coinCollect:
 		'A coin pulsing as a collector takes it — also a lit column’s coins, and an instant collect on the base board. Leave a cell empty to reuse this symbol’s Win binding.',
 	coinBoost:
 		'A special raising other coins — a payer paying, a multiplier boosting. Leave a cell empty to reuse this symbol’s Win binding.',
 	jackpotReveal:
-		'A jackpot coin lit for its jackpot, or every held cell on a full board. Leave a cell empty to reuse this symbol’s Win binding.',
+		'A jackpot coin lit for its jackpot, or every held cell on a full board — also a jackpot coin an upgrade stepped up a tier. Leave a cell empty to reuse this symbol’s Win binding.',
 	mysteryReveal:
 		'A mystery OPENING before it becomes what it revealed. Plays once by default, like Explosion. Leave a cell empty to reuse this symbol’s Explosion binding.',
 	flyToMeter:
 		'A special lit on the base board while it flies into its pot. Leave a cell empty to reuse this symbol’s Win binding.',
+	respinsAdd:
+		'An add-respins special APPLYING — its “+N” leaving for the respin counter. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinUpgrade:
+		'An upgrade special APPLYING — raising the coins around it, every coin, or a jackpot coin a tier. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
@@ -640,7 +644,7 @@ export interface SymbolsDoc {
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
-	 *  `toCollector`, `boostBeam`, `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the
+	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the
 	 *  coded glow. Normalized by `engine-layout`'s `normalizeFlights` on both sides of the save.
 	 *  Passed through verbatim to `bundle.symbols.flights`. */
 	flights?: FlightsConfig;
@@ -683,7 +687,9 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 		state === 'coinCollect' ||
 		state === 'coinBoost' ||
 		state === 'jackpotReveal' ||
-		state === 'flyToMeter'
+		state === 'flyToMeter' ||
+		state === 'respinsAdd' ||
+		state === 'coinUpgrade'
 	)
 		return 'win';
 	return null;

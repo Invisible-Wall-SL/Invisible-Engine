@@ -6,6 +6,7 @@
 		RESPIN_RESETS,
 		SPECIAL_SYMBOL_ROLE,
 		STICKINESS,
+		UPGRADE_TARGETS,
 		coinEntryLabel,
 		configuredSpecials,
 		normalizeHoldAndWin,
@@ -22,6 +23,8 @@
 		type MysteryReveal,
 		type RespinReset,
 		type Stickiness,
+		type UpgradeSpecial,
+		type UpgradeTarget,
 		type WeightedValue,
 		type WheelPrize,
 	} from 'game-config';
@@ -63,6 +66,8 @@
 		mystery: 'mystery',
 		meterSpecial: 'meter special',
 		blank: 'blank',
+		addRespins: 'add respins',
+		upgrade: 'upgrade',
 	};
 	const STICKINESS_LABELS: Record<Stickiness, string> = {
 		allCoins: 'Every coin sticks',
@@ -82,12 +87,21 @@
 		multiplier: 'Multiplier',
 		payer: 'Payer',
 		mystery: 'Mystery',
+		addRespins: 'Add respins',
+		upgrade: 'Upgrade',
 	};
 	const SPECIAL_HINTS: Record<HoldAndWinSpecial, string> = {
 		collector: 'Gathers the value of the coins on the board into itself.',
 		multiplier: 'Multiplies the coins on the board by a factor.',
 		payer: 'Adds a value to every coin on the board.',
 		mystery: 'Reveals as a coin, a jackpot or another special.',
+		addRespins: 'Adds respins to the counter when it lands in a respin.',
+		upgrade: 'Raises coins: every coin, the coins around it, or one jackpot coin a tier.',
+	};
+	const UPGRADE_TARGET_LABELS: Record<UpgradeTarget, string> = {
+		all: 'every cash coin, by its step',
+		adjacent: 'the cash coins in the 8 cells around it, by its step',
+		jackpotTier: 'the lowest jackpot coin, one tier up',
 	};
 	const COIN_ROLES: HoldAndWinSymbolRole[] = ['coin', 'jackpot'];
 	const MYSTERY_SPECIALS = HOLD_AND_WIN_SPECIALS.filter(
@@ -272,6 +286,25 @@
 				],
 				...base,
 			};
+		} else if (kind === 'addRespins') {
+			hw.specials.addRespins = {
+				values: [
+					{ value: 1, weight: 3 },
+					{ value: 2, weight: 1 },
+				],
+				raisesCap: false,
+				sticky: false,
+				...base,
+			};
+		} else if (kind === 'upgrade') {
+			hw.specials.upgrade = {
+				targets: [{ target: 'all', weight: 1 }],
+				values: [
+					{ value: 0.5, weight: 2 },
+					{ value: 1, weight: 1 },
+				],
+				...base,
+			};
 		} else {
 			hw.specials.mystery = { reveals: [{ type: 'coin', weight: 1 }], unlocksInactive: false };
 		}
@@ -304,6 +337,19 @@
 	function leaveBehindValues(hw: HoldAndWin): WeightedValue[] | undefined {
 		const lb = hw.specials.multiplier?.leaveBehind;
 		return lb?.type === 'becomesCoin' ? lb.values : undefined;
+	}
+
+	/** A rule is listed once (the normalizer keeps the first of a repeat), so a new row takes the
+	 *  first rule not yet listed. */
+	function addUpgradeTarget(upg: UpgradeSpecial) {
+		const target = UPGRADE_TARGETS.find((t) => !upg.targets.some((o) => o.target === t));
+		if (target) upg.targets.push({ target, weight: 1 });
+	}
+	function setUpgradeTarget(upg: UpgradeSpecial, i: number, value: string) {
+		const target = UPGRADE_TARGETS.find((t) => t === value);
+		if (target && !upg.targets.some((o, j) => j !== i && o.target === target)) {
+			upg.targets[i].target = target;
+		}
 	}
 
 	function setRevealType(hw: HoldAndWin, i: number, type: string) {
@@ -426,7 +472,7 @@
 	</select>
 {/snippet}
 
-{#snippet valueTable(values: WeightedValue[], unit: string, step: number)}
+{#snippet valueTable(values: WeightedValue[], unit: string, step: number, integer = false)}
 	<table class="tbl">
 		<thead><tr><th>Value {unit}</th><th>Weight</th><th></th></tr></thead>
 		<tbody>
@@ -438,7 +484,7 @@
 							min="0"
 							{step}
 							value={v.value}
-							oninput={num((n) => n > 0 && (v.value = n))}
+							oninput={num((n) => n > 0 && (v.value = n), integer)}
 						/></td
 					>
 					<td
@@ -561,6 +607,91 @@
 			>
 		</div>
 		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(p)}</div>
+	{:else if kind === 'addRespins' && hw.specials.addRespins}
+		{@const a = hw.specials.addRespins}
+		<div class="sub">
+			<span class="legend">Respins added <em>whole respins, not × bet</em></span>
+			{@render valueTable(a.values, '(respins)', 1, true)}
+		</div>
+		<div class="row">
+			<label class="check"
+				><input type="checkbox" bind:checked={a.raisesCap} /><span
+					>Also raises the count a reset fills back to</span
+				></label
+			>
+			<label class="check"
+				><input type="checkbox" bind:checked={a.sticky} /><span
+					>Sticky — stays on the board (worth nothing) after it adds</span
+				></label
+			>
+			<label class="check"
+				><input type="checkbox" bind:checked={a.landsInBaseGame} /><span
+					>Lands in the base game</span
+				></label
+			>
+		</div>
+		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(a)}</div>
+	{:else if kind === 'upgrade' && hw.specials.upgrade}
+		{@const u = hw.specials.upgrade}
+		{@const targetTotal = u.targets.reduce((sum, t) => sum + t.weight, 0)}
+		<div class="sub">
+			<span class="legend">What it raises <em>one rule drawn per landing</em></span>
+			<table class="tbl">
+				<thead><tr><th>Rule</th><th>Weight</th><th></th></tr></thead>
+				<tbody>
+					{#each u.targets as t, i (i)}
+						<tr>
+							<td
+								><select
+									value={t.target}
+									onchange={(e) => setUpgradeTarget(u, i, e.currentTarget.value)}
+								>
+									{#each UPGRADE_TARGETS as target (target)}
+										<option
+											value={target}
+											disabled={u.targets.some((o, j) => j !== i && o.target === target)}
+											>{UPGRADE_TARGET_LABELS[target]}</option
+										>
+									{/each}
+								</select></td
+							>
+							<td class="weight"
+								><input
+									type="number"
+									min="0"
+									step="any"
+									value={t.weight}
+									oninput={num((n) => n >= 0 && (t.weight = n))}
+								/><span class="note">{share(t.weight, targetTotal)}</span></td
+							>
+							<td
+								><button class="del" title="Remove" onclick={() => u.targets.splice(i, 1)}>×</button
+								></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+			<button
+				class="small"
+				onclick={() => addUpgradeTarget(u)}
+				disabled={u.targets.length >= UPGRADE_TARGETS.length}>+ rule</button
+			>
+		</div>
+		<div class="sub">
+			<span class="legend"
+				>Step a cash coin rises by <em>× total bet · the jackpot-tier rule ignores it</em></span
+			>
+			{@render valueTable(u.values, '(× bet)', 0.5)}
+		</div>
+		<div class="row">
+			<label class="check"
+				><input type="checkbox" bind:checked={u.landsInBaseGame} /><span
+					>Lands in the base game</span
+				></label
+			>
+		</div>
+		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(u)}</div>
 	{:else if kind === 'mystery' && hw.specials.mystery}
 		{@const y = hw.specials.mystery}
 		<div class="sub">
@@ -1277,9 +1408,9 @@
 		land. A symbol joins the feature by its <strong>special properties</strong> in Symbols below (<code
 			>coin</code
 		>, <code>jackpot</code>, <code>collector</code>, <code>coinMultiplier</code>,
-		<code>payer</code>, <code>mystery</code>, <code>meterSpecial</code>, <code>blank</code>); this
-		section holds their tables. The server stays the authority on outcomes — these weights drive the
-		test mock and the readouts.
+		<code>payer</code>, <code>mystery</code>, <code>addRespins</code>, <code>upgrade</code>,
+		<code>meterSpecial</code>, <code>blank</code>); this section holds their tables. The server
+		stays the authority on outcomes — these weights drive the test mock and the readouts.
 	</p>
 	{#each blockIssues as issue (issue.path + issue.message)}
 		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>

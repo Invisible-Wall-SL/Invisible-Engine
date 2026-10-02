@@ -3108,7 +3108,8 @@
 								<h2>Flights</h2>
 								<p class="hl-sub">
 									How things fly in Hold and Win — a coin into the total win, a coin into a
-									collector, a special into its meter, a boost beam. Per kind: the head that
+									collector, a special into its meter, a boost beam, an add-respins' "+N" into the
+									respin counter, an upgrade's beam at each coin it raises. Per kind: the head that
 									travels, the trail it leaves (an Invisible FX effect), the effect on impact, the
 									shape of the route around the winning cells, and the timing. Anything left unset
 									flies the built-in gold glow; a single meter falls back to “every meter” first.
@@ -4126,9 +4127,9 @@
 							<div class="wl-text">
 								<h2>Coin value label</h2>
 								<p class="wl-sub">
-									The value a Hold and Win coin prints on itself — its cash, a payer's "+", a
-									multiplier's "×", or its jackpot tier. Every field left alone keeps the game's
-									coded label.
+									The value a Hold and Win coin prints on itself — its cash, a payer's or an
+									upgrade's "+", a multiplier's "×", an add-respins' "+N", or its jackpot tier.
+									Every field left alone keeps the game's coded label.
 								</p>
 							</div>
 						</div>

@@ -84,14 +84,19 @@ assert(D.feature.luckySpin === 'LUCKY SPIN', 'Lucky Spin banner');
 assert(D.feature.meterFull === '{meter} ACTIVATED', 'pot-full line');
 assert(D.feature.modifiersActive === '{modifiers} ACTIVE', 'pots-bought modifiers toast');
 assert(D.feature.modifiersUnlocked === 'UNLOCKED: {modifiers}', 'mystery unlock toast');
+assert(D.respins.added === '+{count} RESPINS', 'add-respins line reads "+2 RESPINS"');
+assert(D.feature.upgrade === 'UPGRADE', 'upgrade line');
+assert(D.jackpots.upgrade === '{jackpot} UPGRADE', 'jackpot-tier upgrade line');
 assert(
 	same(D.feature.specialNames, {
 		collector: 'COLLECTOR',
 		multiplier: 'MULTIPLIER',
 		payer: 'PAYER',
 		mystery: 'MYSTERY',
+		addRespins: 'ADD RESPINS',
+		upgrade: 'UPGRADE',
 	}),
-	'special names are the coded SPECIAL_NAMES',
+	'special names are the coded SPECIAL_NAMES, plus the two Phase 11a specials',
 );
 assert(
 	same(mod.resolveWinText(undefined).jackpots, D.jackpots) &&
@@ -177,6 +182,37 @@ assert(
 	'the pot-full line translates with the special name translated at its source',
 );
 mod.clearTextResolver();
+
+// --- the Phase 11a lines: add-respins, upgrade -------------------------------------
+console.info('add-respins, upgrade');
+const r11 = mod.resolveWinText(undefined);
+assert(
+	mod.formatWinText(r11.respins.added, { count: 2 }) === '+2 RESPINS',
+	'"+2 RESPINS" — what the add-respins beat draws',
+);
+assert(
+	mod.formatWinText(r11.jackpots.upgrade, { jackpot: mod.jackpotCaption(r11, 'MINOR') }) ===
+		'MINOR UPGRADE',
+	'"MINOR UPGRADE" — the tier a jackpot coin rose to',
+);
+assert(
+	mod.specialDisplayName(r11, 'addRespins') === 'ADD RESPINS' &&
+		mod.specialDisplayName(r11, 'upgrade') === 'UPGRADE',
+	'the two new specials have names for {modifiers}',
+);
+const r11a = mod.resolveWinText({
+	respins: { added: '+{count} GIROS' },
+	jackpots: { upgrade: '¡{jackpot}!', captions: { MINOR: 'MENOR' } },
+	feature: { upgrade: 'MEJORA' },
+});
+assert(
+	r11a.respins.added === '+{count} GIROS' &&
+		r11a.respins.counter === 'RESPINS {count}' &&
+		r11a.feature.upgrade === 'MEJORA' &&
+		mod.formatWinText(r11a.jackpots.upgrade, { jackpot: mod.jackpotCaption(r11a, 'MINOR') }) ===
+			'¡MENOR!',
+	'the three lines are authored per field and read the tier caption',
+);
 
 // --- the 4f lines: collector levels, wheel, pots ---------------------------------
 // Each reproduces the literal the coded presentation drew before it read these templates.
@@ -289,6 +325,10 @@ for (const expected of [
 	'+{count} COLLECT',
 	'EVERY COIN ×{count}',
 	'{level} COLLECT',
+	'+{count} RESPINS',
+	'UPGRADE',
+	'{jackpot} UPGRADE',
+	'ADD RESPINS',
 ]) {
 	assert(hw.includes(expected), `a Hold and Win project harvests "${expected}"`);
 }
@@ -331,6 +371,12 @@ assert(
 );
 const strayAuthored = keys(
 	mod.collectWinTextTemplates({ respins: { counter: 'SPINS: {count}' } }, { holdAndWin: false }),
+);
+assert(
+	!keys(mod.collectWinTextTemplates(legacyDoc)).some(
+		(k) => k.includes('UPGRADE') || k === '+{count} RESPINS',
+	),
+	'the Phase 11a lines are harvested for a Hold and Win project only',
 );
 assert(
 	strayAuthored.includes('SPINS: {count}') && !strayAuthored.includes('RESPINS RESET'),

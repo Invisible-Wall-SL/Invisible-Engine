@@ -16,7 +16,8 @@
  *
  * Symbols travel under the config's own names (`H1`, `BONUS`, `BOOST` …), and a cell that carries a
  * value carries it after a colon: `BONUS:1.5` (× the base total stake), `JACKPOT:MINI`,
- * `JACKPOT:MINI*2` (a jackpot a multiplier doubled), `BOOST:4`, `MULTI:3`, `COLLECT:12.5`.
+ * `JACKPOT:MINI*2` (a jackpot a multiplier doubled), `BOOST:4`, `MULTI:3`, `COLLECT:12.5`, `ADD:2`
+ * (an add-respins worth 2 respins), `UPG:0.5` (an upgrade's cash step).
  *
  * Forced outcomes: a force spec (see `parseForce`) arrives as `play.context = "force:<spec>"`, as
  * `POST …/force?sid=<sid>&beat=<spec>` (held for that session's next round — how a playtest reaches
@@ -24,8 +25,8 @@
  *
  * CLI (the presets are TypeScript, so through the repo's loader):
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
- *   PORT=7799 · PRESET=pots|classic|collector|pots-progressive (a test fixture) · SEED=…
- *   START_BALANCE=10000 · FORCE=<spec>
+ *   PORT=7799 · PRESET=pots|classic|collector|pots-progressive|pots-extra (the last two are test
+ *   fixtures) · SEED=… · START_BALANCE=10000 · FORCE=<spec>
  */
 
 import { createServer } from 'node:http';
@@ -58,14 +59,17 @@ const CLEARING_CHAIN_LENGTH = 10;
 /** Runaway guard on one feature — far above any real one (`respins.cap` is the authored limit). */
 const MAX_RESPINS = 200;
 
-const SPECIALS = ['collector', 'multiplier', 'payer', 'mystery'];
+const SPECIALS = ['collector', 'multiplier', 'payer', 'mystery', 'addRespins', 'upgrade'];
 /** The `special_properties` role each special's symbols carry (game-config `SPECIAL_SYMBOL_ROLE`). */
 const SPECIAL_ROLE = {
 	collector: 'collector',
 	multiplier: 'coinMultiplier',
 	payer: 'payer',
 	mystery: 'mystery',
+	addRespins: 'addRespins',
+	upgrade: 'upgrade',
 };
+const UPGRADE_TARGETS = ['all', 'adjacent', 'jackpotTier'];
 const ROLE_SPECIAL = Object.fromEntries(Object.entries(SPECIAL_ROLE).map(([k, r]) => [r, k]));
 
 function hashStr(s) {
@@ -204,6 +208,14 @@ export function createMockRgs(opts = {}) {
 	let livePools = null;
 	const wonProgressive = new Set();
 	const tierMultiplier = (tier) => livePools?.[tier] ?? jackpotTable[tier] ?? 0;
+	/** Tiers lowest prize first — the ladder a `jackpotTier` upgrade climbs (`jackpotLadder`). */
+	const jackpotLadder = list(block.jackpots)
+		.slice()
+		.sort((a, b) => a.multiplier - b.multiplier)
+		.map((j) => j.name);
+	const upgradeTargets = list(specialsCfg.upgrade?.targets).filter((t) =>
+		UPGRADE_TARGETS.includes(t?.target),
+	);
 
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? 5)));
 	const rowHeights = Array.from({ length: reelCount }, (_u, reel) => {
@@ -294,6 +306,14 @@ export function createMockRgs(opts = {}) {
 			const value = weighted(list(cfg.values))?.value ?? (kind === 'multiplier' ? 2 : 1);
 			return { symbol, kind, value };
 		}
+		// An add-respins carries its respins; an upgrade its cash step (none in a tier-only table).
+		if (kind === 'addRespins') {
+			return { symbol, kind, value: weighted(list(cfg.values))?.value ?? 1 };
+		}
+		if (kind === 'upgrade') {
+			const step = weighted(list(cfg.values))?.value;
+			return step === undefined ? { symbol, kind } : { symbol, kind, value: step };
+		}
 		return kind === 'collector' ? { symbol, kind, value: 0 } : { symbol, kind };
 	};
 	const specialLandsOn = (kind, reel) => {
@@ -316,6 +336,9 @@ export function createMockRgs(opts = {}) {
 			return `${cell.symbol}:${cell.jackpot}${cell.factor > 1 ? `*${tidy(cell.factor)}` : ''}`;
 		}
 		if (cell.kind === 'coin' || cell.kind === 'payer' || cell.kind === 'multiplier') {
+			return `${cell.symbol}:${tidy(cell.value)}`;
+		}
+		if ((cell.kind === 'addRespins' || cell.kind === 'upgrade') && cell.value !== undefined) {
 			return `${cell.symbol}:${tidy(cell.value)}`;
 		}
 		if (cell.kind === 'collector' && cell.value > 0) return `${cell.symbol}:${tidy(cell.value)}`;
@@ -490,9 +513,13 @@ export function createMockRgs(opts = {}) {
 	 *
 	 *   trigger[:count|pattern|luckySpin|randomMetre|meter[:<id>]]   start the feature by that cause
 	 *   lucky · meter:<id>                                            aliases of the two above
-	 *   special:<collector|multiplier|payer|mystery>                  lands in respin 1 (and is active)
-	 *   mystery:<coin|jackpot:<TIER>|collector|multiplier|payer>      a mystery lands in respin 1, reveals it
-	 *   unlock:<collector|multiplier|payer>   the mystery reveals a special NOT active at entry
+	 *   special:<collector|multiplier|payer|mystery|addRespins>   lands in respin 1 (and is active)
+	 *   special:upgrade[:all|adjacent|jackpotTier]   an upgrade lands in respin 1, applying that
+	 *                                         rule: `jackpotTier` also lands the lowest-tier
+	 *                                         jackpot coin, `all`/`adjacent` land it beside a held
+	 *                                         cash coin
+	 *   mystery:<coin|jackpot:<TIER>|<special>>   a mystery lands in respin 1, reveals it
+	 *   unlock:<special>                      the mystery reveals a special NOT active at entry
 	 *   jackpot:<TIER>                        a jackpot coin lands in respin 1
 	 *   letter                                respin 1 fills the first unlit column (columnLetters)
 	 *   letters · fullBoard                   respin 1 fills every empty cell (all letters / full board)
@@ -552,6 +579,12 @@ export function createMockRgs(opts = {}) {
 				}
 				case 'special':
 					force.specials.push(needSpecial(args[0], token));
+					if (args[0] === 'upgrade' && args[1] !== undefined) {
+						if (!upgradeTargets.some((t) => t.target === args[1])) {
+							errors.push(`${token}: this game's upgrade has no "${args[1]}" rule`);
+						}
+						force.upgradeTarget = args[1];
+					}
 					break;
 				case 'mystery':
 				case 'unlock': {
@@ -765,7 +798,7 @@ export function createMockRgs(opts = {}) {
 		cells: cellsWhere(f.board, (cell) => cell !== null).map(({ reel, row, cell }) =>
 			cellInfo(reel, row, cell),
 		),
-		start: respinRules.start,
+		start: f.start,
 		left: f.left,
 		played: f.played,
 		banked: f.banked,
@@ -996,6 +1029,8 @@ export function createMockRgs(opts = {}) {
 		const force = round.force ?? {};
 		const f = {
 			board: emptyBoard(),
+			// The counter's cap — what a reset fills back to. An add-respins that `raisesCap` raises it.
+			start: respinRules.start,
 			left: respinRules.start,
 			played: 0,
 			banked: 0,
@@ -1115,6 +1150,46 @@ export function createMockRgs(opts = {}) {
 		if (checkBoardEnd(events, round)) finishFeature(events, round);
 	};
 
+	const besides = (reel, row) => (r, w) =>
+		Math.abs(r - reel) <= 1 && Math.abs(w - row) <= 1 && (r !== reel || w !== row);
+
+	/**
+	 * An upgrade at `reel,row` applies `target`: `all` / `adjacent` raise the held cash coins (all of
+	 * them / the 8 around it) by `step`; `jackpotTier` steps ONE jackpot coin a tier up — the lowest
+	 * tier below the top (ties: lowest reel, then row), its factor kept. Returns the wire's changes.
+	 */
+	const upgradeCoins = (board, reel, row, target, step) => {
+		const cells = [];
+		if (target === 'jackpotTier') {
+			let lowest = null;
+			eachCell(board, (cell, r, w) => {
+				if (cell?.kind !== 'jackpot') return;
+				const at = jackpotLadder.indexOf(cell.jackpot);
+				if (at < 0 || at >= jackpotLadder.length - 1) return;
+				if (!lowest || at < lowest.at) lowest = { at, cell, reel: r, row: w };
+			});
+			if (lowest) {
+				const from = lowest.cell.jackpot;
+				lowest.cell.jackpot = jackpotLadder[lowest.at + 1];
+				cells.push({
+					reel: lowest.reel,
+					row: lowest.row,
+					jackpot: lowest.cell.jackpot,
+					fromJackpot: from,
+				});
+			}
+			return cells;
+		}
+		const near = besides(reel, row);
+		eachCell(board, (cell, r, w) => {
+			if (cell?.kind !== 'coin' || (target === 'adjacent' && !near(r, w))) return;
+			const from = cell.value;
+			cell.value = tidy(from + step);
+			cells.push({ reel: r, row: w, from, to: cell.value });
+		});
+		return cells;
+	};
+
 	/** What lands on the empty cells this respin, forced items first. Returns `[{reel,row,cell}]`. */
 	const landRespin = (round) => {
 		const f = round.feature;
@@ -1157,8 +1232,39 @@ export function createMockRgs(opts = {}) {
 						: forcedCoin,
 			);
 		}
+		/** A forced upgrade, with something to upgrade under its rule. */
+		const placeUpgrade = () => {
+			const rule = force.upgradeTarget;
+			f.forcedUpgrade = rule;
+			if (rule === 'jackpotTier') {
+				const tier = jackpotLadder[0];
+				placeSomewhere((reel, anywhere) =>
+					anywhere || coinEntriesOn(reel).length
+						? { symbol: jackpotSymbol, kind: 'jackpot', jackpot: tier, factor: 1 }
+						: null,
+				);
+			}
+			if (rule !== 'all' && rule !== 'adjacent') return placeSomewhere(forcedSpecial('upgrade'));
+			const cashBeside = (reel, row) =>
+				cellsWhere(f.board, (cell, r, w) => cell?.kind === 'coin' && besides(reel, row)(r, w))
+					.length > 0;
+			const emptyBeside = (reel, row) =>
+				cellsWhere(f.board, (cell, r, w) => cell === null && besides(reel, row)(r, w)).length > 0;
+			if (!empties().some(({ reel, row }) => cashBeside(reel, row))) {
+				const spot = empties().find(({ reel, row }) => emptyBeside(reel, row));
+				if (spot) place(spot.reel, spot.row, drawCash(spot.reel, f.coinBoost));
+			}
+			const spots = empties().filter(({ reel, row }) => cashBeside(reel, row));
+			const spot = spots.find(({ reel }) => specialLandsOn('upgrade', reel)) ?? spots[0];
+			if (spot) place(spot.reel, spot.row, specialCell('upgrade'));
+			else placeSomewhere(forcedSpecial('upgrade'));
+		};
+
 		if (first) {
-			for (const kind of force.specials ?? []) placeSomewhere(forcedSpecial(kind));
+			for (const kind of force.specials ?? []) {
+				if (kind === 'upgrade') placeUpgrade();
+				else placeSomewhere(forcedSpecial(kind));
+			}
 			if (force.mystery) {
 				placeSomewhere(forcedSpecial('mystery'));
 				f.forcedReveal = force.mystery;
@@ -1314,6 +1420,38 @@ export function createMockRgs(opts = {}) {
 				}
 			} else if (kind === 'collector') {
 				if (specialsCfg.collector?.collects !== 'atEnd') collect(events, round, mine);
+			} else if (kind === 'addRespins') {
+				const cfg = specialsCfg.addRespins;
+				for (const { reel, row, cell } of mine) {
+					const added = Math.max(0, Math.round(cell.value ?? 0));
+					f.left += added;
+					if (cfg.raisesCap) f.start += added;
+					events.push({
+						event: 'respinsAdded',
+						context: { cell: cellInfo(reel, row, cell), added, left: f.left, total: f.start },
+					});
+					if (!cfg.sticky) {
+						f.board[reel][row] = null;
+						events.push({
+							event: 'cellsCleared',
+							context: { reason: 'applied', cells: [{ reel, row }] },
+						});
+					}
+				}
+			} else if (kind === 'upgrade') {
+				for (const { reel, row, cell: upgrader } of mine) {
+					const target = f.forcedUpgrade ?? weighted(upgradeTargets)?.target ?? 'all';
+					f.forcedUpgrade = undefined;
+					events.push({
+						event: 'coinUpgrade',
+						context: {
+							upgrader: cellInfo(reel, row, upgrader),
+							target,
+							step: target === 'jackpotTier' ? 0 : (upgrader.value ?? 0),
+							cells: upgradeCoins(f.board, reel, row, target, upgrader.value ?? 0),
+						},
+					});
+				}
 			}
 		}
 		if (stickiness === 'collectorsOnly') clearNonCollectors(events, round);
@@ -1323,8 +1461,9 @@ export function createMockRgs(opts = {}) {
 			landed.some(({ cell }) => cell.kind === 'coin' || cell.kind === 'jackpot') ||
 			revealedCoins.length > 0;
 		const reset = respinRules.reset === 'anySpecial' ? landed.length > 0 : newCoins;
-		f.left = reset ? respinRules.start : f.left - 1;
-		const update = { left: f.left, played: f.played, start: respinRules.start, reset };
+		// A reset never throws away respins an add-respins put above the cap.
+		f.left = reset ? Math.max(f.start, f.left) : f.left - 1;
+		const update = { left: f.left, played: f.played, start: f.start, reset };
 		events.push({ event: 'respinUpdate', context: update });
 
 		const ended =

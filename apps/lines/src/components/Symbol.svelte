@@ -57,10 +57,11 @@
 		tint?: number;
 		/**
 		 * What the coin label READS instead of `rawSymbol`'s own value / factor — a Hold and Win count-up
-		 * in flight (`stateRespinBoard.heldDisplay`). Only the label follows it, so a label ticking
-		 * every frame never re-resolves the art. Omitted everywhere else.
+		 * in flight (`stateRespinBoard.heldDisplay`) — or its jackpot tier, held at the old one until an
+		 * upgrade's beam lands. Only the label follows it, so a label ticking every frame never
+		 * re-resolves the art. Omitted everywhere else.
 		 */
-		labelOverride?: Pick<RawSymbol, 'value' | 'factor'>;
+		labelOverride?: Pick<RawSymbol, 'value' | 'factor' | 'jackpot'>;
 		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
 		labelPop?: CoinLabelPopCue;
 	};
@@ -79,11 +80,13 @@
 	 * with no art bound — the value is what the player reads — and it sits in its own band after the
 	 * win frame's, so a frame mounting later on `win` cannot land on top of it.
 	 */
-	const coinLabel = $derived(
-		coinLabelFor(
-			props.labelOverride ? { ...props.rawSymbol, ...props.labelOverride } : props.rawSymbol,
-		),
+	const labelSymbol = $derived(
+		props.labelOverride ? { ...props.rawSymbol, ...props.labelOverride } : props.rawSymbol,
 	);
+	const coinLabel = $derived(coinLabelFor(labelSymbol));
+	// The tier alone decides the look, so a value counting every frame never re-resolves it.
+	const labelJackpot = $derived(props.labelOverride?.jackpot ?? props.rawSymbol.jackpot);
+	const labelLook = $derived(coinLabelLookFor({ ...props.rawSymbol, jackpot: labelJackpot }));
 	/**
 	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
 	 * (`symbolStateLoopsByDefault`) — loop for a state that says how a symbol IS, one-shot for a
@@ -262,12 +265,6 @@
 
 <Container tint={props.tint}>
 	{#if coinLabel}
-		<CoinLabel
-			x={props.x}
-			y={props.y}
-			text={coinLabel}
-			look={coinLabelLookFor(props.rawSymbol)}
-			pop={props.labelPop}
-		/>
+		<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
 	{/if}
 </Container>

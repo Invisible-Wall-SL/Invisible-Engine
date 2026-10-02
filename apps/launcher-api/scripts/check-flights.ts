@@ -22,7 +22,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
-import { flightEffectIds } from 'engine-layout';
+import { FLIGHT_KINDS, flightEffectIds } from 'engine-layout';
 import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 import { collectClipIds } from '../src/lib/server/clipReachability.ts';
 import { collectSymbolRefs } from '../src/lib/server/symbolExport.ts';
@@ -255,6 +255,15 @@ rejects('a non-object block', { flights: 'toTotal' });
 		'…and drops junk the bake cannot use',
 		bakeFlights({ toTotal: {}, nonsense: { speed: 1 }, toCollector: 'x', toMeter: { speed: 2 } }),
 		{ toMeter: { speed: 2 } },
+	);
+	// The bake matches keys by its own regex, so a kind added to `FLIGHT_KINDS` and not to it would
+	// author fine, preview fine and silently never ship (CLAUDE.md rule 8).
+	check(
+		'…and keeps EVERY flight kind the doc accepts',
+		Object.keys(
+			bakeFlights(Object.fromEntries(FLIGHT_KINDS.map((kind) => [kind, { speed: 1 }]))) ?? {},
+		),
+		[...FLIGHT_KINDS],
 	);
 	check(
 		'the runtime bundle and the bake keep the SAME effects reachable',

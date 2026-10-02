@@ -32,8 +32,10 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  * game that never receives a Hold and Win event never constructs one; until then this module is a
  * few empty fields.
  */
-/** A count-up in flight on a held cell's label: which field it stands in for, and its tween. */
-export type HeldDisplay = { field: 'value' | 'factor'; tween: Tween<number> };
+/** A count-up in flight on a held cell's label: which field it stands in for, and its tween — or a
+ *  jackpot tier held at its old name until an upgrade's beam lands. */
+export type HeldDisplay =
+	{ field: 'value' | 'factor'; tween: Tween<number> } | { field: 'jackpot'; jackpot: string };
 
 export const stateRespinBoard = $state({
 	/** Is the respin board up in place of the reel board? */
@@ -58,8 +60,18 @@ export const stateRespinBoard = $state({
 	 * played, and the label falls back to it when the count ends ({@link releaseHeldDisplay}).
 	 */
 	heldDisplay: {} as Record<string, HeldDisplay>,
-	/** `note`: the beat the counter is announcing instead of the count (`respinCounterText`). */
-	counter: { show: false, left: 0, start: 0, resets: 0, note: null as 'award' | 'reset' | null },
+	/**
+	 * `note`: the beat the counter is announcing instead of the count (`respinCounterText`). `resets`
+	 * and `adds` count the beats it pulses for — a reset, and an add-respins special's respins landing.
+	 */
+	counter: {
+		show: false,
+		left: 0,
+		start: 0,
+		resets: 0,
+		adds: 0,
+		note: null as 'award' | 'reset' | null,
+	},
 });
 
 /**
@@ -292,7 +304,7 @@ export const settleHeldBeats = (keys: string[], { terminal = false } = {}) => {
  * (`tween.set`) and ends it with {@link releaseHeldDisplay}. A count already running on that cell is
  * replaced — the newest beat owns the label.
  */
-export const holdHeldDisplay = (key: string, field: HeldDisplay['field'], from: number) => {
+export const holdHeldDisplay = (key: string, field: 'value' | 'factor', from: number) => {
 	const tween = new Tween(from);
 	stateRespinBoard.heldDisplay[key] = { field, tween };
 	return tween;
@@ -301,5 +313,19 @@ export const holdHeldDisplay = (key: string, field: HeldDisplay['field'], from: 
 /** End a count-up: the label reads the cell's recorded value again. A no-op if a later count (or a
  *  board that came down) already replaced this one. */
 export const releaseHeldDisplay = (key: string, tween: Tween<number>) => {
-	if (stateRespinBoard.heldDisplay[key]?.tween === tween) delete stateRespinBoard.heldDisplay[key];
+	const display = stateRespinBoard.heldDisplay[key];
+	if (display && 'tween' in display && display.tween === tween) {
+		delete stateRespinBoard.heldDisplay[key];
+	}
+};
+
+/** Pin a held jackpot coin's label at tier `jackpot` until {@link releaseHeldJackpot}. */
+export const holdHeldJackpot = (key: string, jackpot: string) => {
+	stateRespinBoard.heldDisplay[key] = { field: 'jackpot', jackpot };
+};
+
+/** The label reads the coin's recorded tier again — unless a later count already owns it. */
+export const releaseHeldJackpot = (key: string) => {
+	if (stateRespinBoard.heldDisplay[key]?.field === 'jackpot')
+		delete stateRespinBoard.heldDisplay[key];
 };

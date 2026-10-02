@@ -20,14 +20,16 @@
  *   5. The starter flow validates with no error, keeps the feature in `modes.holdAndWin` and the base
  *      game in the global graph, owns exactly the beats the runtime backs, and declares the Hold and
  *      Win template's screens it shows and none of the free-spin ones or the tap-held intro/outro.
- *   6. PLAYED: the real Hold and Win mock (all three presets, a forced beat of every kind) through the
- *      real facade, every book event replayed through the seed with the mode stack moved the way the
- *      play seam moves it. Each owned event runs its beat with the event itself as `bookEvent`, in the
- *      graph it belongs to; the mode's enter starts the feature music and "all modes finished" brings
- *      the base music back; nothing the chains fire is outside the vocabulary; every event payload
+ *   6. PLAYED: the real Hold and Win mock (all three presets and the `pots-extra` test fixture, a forced
+ *      beat of every kind) through the real facade, every book event replayed through the seed with
+ *      the mode stack moved the way the play seam moves it. Each owned event runs its beat with the
+ *      event itself as `bookEvent`, in the graph it belongs to; the mode's enter starts the feature
+ *      music and "all modes finished" brings the base music back; nothing the chains fire is outside the vocabulary; every event payload
  *      carries its declared fields. The screens: the jackpot bar and pots from boot, the mode's
  *      screens exactly while the mode is on screen, and each beat screen (`luckySpin`, `wheel`,
- *      `jackpotWin`) shown for its beat and hidden after it.
+ *      `jackpotWin`) shown for its beat and hidden after it. The add-respins and upgrade specials
+ *      (Phase 11a) play only on the dev fixture: each forced upgrade rule arrives as that rule, a
+ *      non-sticky add-respins leaves through `clearRespinCells`, and no preset ever deals either.
  *   7. RESUMED: a resume rebuilds the mode stack silently (no enter), then replays the feature's last
  *      snapshot. That `holdAndWinState` alone puts the mode's screens up, starts the feature music
  *      and restores the board — the later beats then play on a fully mounted feature.
@@ -49,6 +51,7 @@ import {
 	HOLD_AND_WIN_JACKPOT_SOURCES,
 	HOLD_AND_WIN_SPECIAL_KINDS,
 	HOLD_AND_WIN_STICKINESS,
+	HOLD_AND_WIN_UPGRADE_TARGETS,
 	HOLD_AND_WIN_VOCAB,
 	TEMPLATE_VOCABULARIES,
 	createContainerMountModel,
@@ -69,9 +72,11 @@ import { LINES_EMITTER_VOCABULARY } from '../../apps/lines/src/game/emitterVocab
 import { LINES_ENGINE_KEYS } from '../../apps/lines/src/game/flowEngineKeys';
 import { INTENT_COMMANDS } from '../../apps/lines/src/game/flowIntentCommands';
 import {
+	HOLD_AND_WIN_TEST_FIXTURES,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_SPECIALS,
 	STICKINESS,
+	UPGRADE_TARGETS,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
 } from '../../packages/game-config/index';
@@ -211,7 +216,7 @@ const engineEvents = checker
 	}));
 check(
 	'3. the checker read the engine contract',
-	engineEvents.length === 21,
+	engineEvents.length === 23,
 	`${engineEvents.length}`,
 );
 for (const { name, fields } of engineEvents) {
@@ -237,6 +242,11 @@ check(
 	same(HOLD_AND_WIN_SPECIAL_KINDS, [...HOLD_AND_WIN_SPECIALS]),
 );
 check('3. Stickiness = game-config', same(HOLD_AND_WIN_STICKINESS, [...STICKINESS]));
+check(
+	'3. UpgradeTarget = game-config',
+	same(HOLD_AND_WIN_UPGRADE_TARGETS, [...UPGRADE_TARGETS]) &&
+		same(enumValues('UpgradeTarget'), HOLD_AND_WIN_UPGRADE_TARGETS),
+);
 check(
 	'3. the enums are the ones declared',
 	same(enumValues('HoldAndWinCause'), HOLD_AND_WIN_CAUSES),
@@ -354,6 +364,8 @@ const FEATURE_BEATS: Record<string, string> = {
 	coinsLand: 'stickCoins',
 	mysteryReveal: 'revealMystery',
 	coinPay: 'payCoins',
+	respinsAdded: 'addRespins',
+	coinUpgrade: 'upgradeCoins',
 	coinBoost: 'boostCoins',
 	specialBecomesCoin: 'turnSpecialIntoCoin',
 	coinCollect: 'collectCoins',
@@ -430,7 +442,9 @@ check('6. after boot, loading is hidden', !mount.isShown('loading'));
 take();
 
 const startMock = async (preset: string, force: string): Promise<Server> => {
-	const config = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
+	const config = normalizeGameConfigDoc(
+		HOLD_AND_WIN_PRESETS[preset] ?? HOLD_AND_WIN_TEST_FIXTURES[preset],
+	);
 	const mock = createMockRgs({
 		label: `seed-${preset}`,
 		quiet: true,
@@ -463,7 +477,13 @@ const CASES: [preset: string, force: string][] = [
 	['classic', 'trigger:randomMetre'],
 	['collector', 'wheel:coinBoost'],
 	['collector', 'instant'],
+	['pots-extra', 'special:addRespins'],
+	['pots-extra', 'special:upgrade:all'],
+	['pots-extra', 'special:upgrade:adjacent'],
+	['pots-extra', 'special:upgrade:jackpotTier'],
+	['pots-extra', 'mystery:upgrade'],
 ];
+const EXTRA_EVENTS = ['respinsAdded', 'coinUpgrade'];
 
 const declared = new Map(vocab.events.map((e) => [e.name, e.payload]));
 const surfaceNames = new Set([...vocab.actions, ...vocab.cues].map((s) => s.name));
@@ -478,6 +498,9 @@ let finishes = 0;
 let musicOk = true;
 const screenIssues: string[] = [];
 const beatScreens = new Set<string>();
+const extraInPresets: string[] = [];
+const upgradeRules: string[] = [];
+let appliedCleared = false;
 
 const transition = async (t: FlowModeTransition): Promise<Fired[]> => {
 	await runFlowModeTransition(doc, ctx, t);
@@ -495,6 +518,16 @@ for (const [index, [preset, force]] of CASES.entries()) {
 	});
 	server.close();
 	if (force === 'chain') featureBook = events;
+	if (preset !== 'pots-extra')
+		for (const e of events)
+			if (EXTRA_EVENTS.includes(e.type)) extraInPresets.push(`${preset} ${force}: ${e.type}`);
+	const rule = /^special:upgrade:(\w+)$/.exec(force)?.[1];
+	if (rule) {
+		const got = events.filter((e) => e.type === 'coinUpgrade').map((e) => String(e.target));
+		if (!got.length || got.some((t) => t !== rule)) upgradeRules.push(`${force} → [${got}]`);
+	}
+	if (force === 'special:addRespins')
+		appliedCleared = events.some((e) => e.type === 'cellsCleared' && e.reason === 'applied');
 	for (const event of events) {
 		const payload = declared.get(event.type);
 		if (!payload) outside.push(`event ${event.type}`);
@@ -612,6 +645,17 @@ check(
 	!shapeIssues.length,
 	[...new Set(shapeIssues)].join(' | '),
 );
+check(
+	'6. no preset deals an add-respins or an upgrade',
+	!extraInPresets.length,
+	extraInPresets.join(' | '),
+);
+check(
+	'6. each forced upgrade rule applied as that rule',
+	!upgradeRules.length,
+	upgradeRules.join(' | '),
+);
+check('6. a non-sticky add-respins left the board (cellsCleared applied)', appliedCleared);
 for (const t of [...Object.keys(BASE_BEATS), ...Object.keys(FEATURE_BEATS)]) {
 	check(`6. the cases presented a ${t} through the seed`, ran.has(t));
 }

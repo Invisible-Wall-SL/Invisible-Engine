@@ -42,7 +42,7 @@
 </script>
 
 <script lang="ts">
-	import { Container, createPressHold } from 'pixi-svelte';
+	import { Anchor, Container, createPressHold } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 
@@ -77,6 +77,7 @@
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
 	import { trackComponentMount } from './mountedComponents';
+	import { RESPIN_COUNTER_ANCHOR } from './flightStyle';
 	import {
 		isTapToContinueEnabled,
 		tapSignalOf,
@@ -183,6 +184,10 @@
 	// Count this instance in while it is mounted, so a coded default can step aside for it
 	// (`isComponentMounted` — the respin counter, the pots). Only a resolved, expanding instance counts.
 	$effect(() => (allowed ? untrack(() => trackComponentMount(node.componentId)) : undefined));
+
+	// The flight anchor an authored twin of a coded part registers, as the coded part does — the
+	// respin counter, which an add-respins special's "+N" flies into. Adds no child.
+	const flightAnchor = def?.id === RESPIN_COUNTER_ANCHOR ? RESPIN_COUNTER_ANCHOR : undefined;
 
 	// Param threading (§13.2 / Phase B1+B4.5): resolve the instance's effective
 	// params — def defaults ◁ PER-PROJECT defaults (the B3 sidecar the game
@@ -1094,8 +1099,10 @@
 	{#if visibilitySource}
 		<Container visible={liveVisible}>
 			{@render rendered(def.root)}
+			{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
 		</Container>
 	{:else}
 		{@render rendered(def.root)}
+		{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
 	{/if}
 {/if}

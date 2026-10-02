@@ -1,4 +1,4 @@
-import type { HoldAndWinSpecial, Stickiness } from 'game-config';
+import type { HoldAndWinSpecial, Stickiness, UpgradeTarget } from 'game-config';
 
 import type { Position, RawSymbol, SymbolName } from './types';
 
@@ -24,6 +24,11 @@ export type HoldAndWinCellAmount = HoldAndWinCell & { amount: number };
 
 /** A value that changed. For a jackpot coin `from`/`to` are its factor, for a cash coin its value. */
 export type HoldAndWinCoinChange = Position & { from: number; to: number; jackpot?: string };
+
+/** One coin an upgrade raised: a cash coin's value (`value`, × total bet) or a jackpot coin's tier
+ *  (`jackpot`, one step up the ladder — its factor is kept). */
+export type HoldAndWinUpgradeChange = Position &
+	({ kind: 'value'; from: number; to: number } | { kind: 'jackpot'; from: string; to: string });
 
 /** Why the feature started. A meter cause names the meters in `HoldAndWinEntry.meters`. */
 export type HoldAndWinCause = 'count' | 'pattern' | 'meter' | 'luckySpin' | 'randomMetre' | 'buy';
@@ -115,6 +120,20 @@ export type HoldAndWinEventFields = {
 		activates: HoldAndWinSpecial[];
 	};
 	coinPay: { payer: HoldAndWinCell; value: number; cells: HoldAndWinCoinChange[] };
+	/**
+	 * An add-respins special applied: `added` respins joined the counter, which now reads `left`;
+	 * `total` is the counter's cap after it — the count a reset fills back to (raised by `added` when
+	 * the special raises the cap, else unchanged). The respin's own `respinUpdate` follows and resets
+	 * to `max(total, left)` or decrements from `left`.
+	 */
+	respinsAdded: { cell: HoldAndWinCell; added: number; left: number; total: number };
+	/** An upgrade applied under `target`; `step` is the cash step (× total bet, 0 for a tier). */
+	coinUpgrade: {
+		upgrader: HoldAndWinCell;
+		target: UpgradeTarget;
+		step: number;
+		cells: HoldAndWinUpgradeChange[];
+	};
 	coinBoost: {
 		source: 'special' | 'wheel';
 		booster?: HoldAndWinCell;
@@ -129,7 +148,9 @@ export type HoldAndWinEventFields = {
 		/** The collector's value after collecting, × total bet. */
 		value: number;
 	};
-	cellsCleared: { reason: 'collected'; cells: Position[] };
+	/** `collected` — a streak's collect swept them; `applied` — a non-sticky special left after
+	 *  applying (an add-respins that clears). */
+	cellsCleared: { reason: 'collected' | 'applied'; cells: Position[] };
 	columnComplete: {
 		reel: number;
 		letter: string;
@@ -170,6 +191,8 @@ const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
 	coinsLand: true,
 	mysteryReveal: true,
 	coinPay: true,
+	respinsAdded: true,
+	coinUpgrade: true,
 	coinBoost: true,
 	specialBecomesCoin: true,
 	coinCollect: true,
@@ -254,7 +277,22 @@ const withChanges = (cells: HoldAndWinCell[], changes: HoldAndWinCoinChange[]): 
 		return { ...cell, symbol };
 	});
 
+const withUpgrades = (
+	cells: HoldAndWinCell[],
+	changes: HoldAndWinUpgradeChange[],
+): HoldAndWinCell[] =>
+	cells.map((cell) => {
+		const change = changes.find(samePosition(cell));
+		if (!change) return cell;
+		const symbol =
+			change.kind === 'value'
+				? { ...cell.symbol, value: change.to }
+				: { ...cell.symbol, jackpot: change.to };
+		return { ...cell, symbol };
+	});
+
 const union = <T>(a: T[], b: T[]): T[] => [...a, ...b.filter((item) => !a.includes(item))];
+
 
 const putMeter = (meters: HoldAndWinMeterLevel[], meter: HoldAndWinMeterLevel) => [
 	...meters.filter((m) => m.id !== meter.id),
@@ -320,6 +358,10 @@ export const applyHoldAndWinEvent = (
 		case 'coinPay':
 		case 'coinBoost':
 			return { ...state, cells: withChanges(state.cells, event.cells) };
+		case 'respinsAdded':
+			return { ...state, left: event.left, start: event.total };
+		case 'coinUpgrade':
+			return { ...state, cells: withUpgrades(state.cells, event.cells) };
 		case 'specialBecomesCoin':
 			return { ...state, cells: putCells(state.cells, [event]) };
 		case 'coinCollect': {

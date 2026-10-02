@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';
-	import { Container, getContextParent, Text } from 'pixi-svelte';
+	import { Anchor, Container, getContextParent, Text } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
+	import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
 	import { isComponentMounted } from 'engine-layout/svelte';
 
 	import { boardDimensions } from '../game/gameConfig';
@@ -14,7 +15,8 @@
 	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
 	/**
-	 * THE CODED RESPIN COUNTER — "RESPINS 3" centred above the respin board, pulsing on every reset,
+	 * THE CODED RESPIN COUNTER — "RESPINS 3" centred above the respin board, pulsing on every reset
+	 * and every add-respins landing (it is the `respinCounter` anchor their "+N" flies into),
 	 * and under it the modifiers active in this feature ("PAYER · MULTIPLIER", from the entry and any
 	 * mystery unlock since; a collector the wheel raised reads "DOUBLE COLLECTOR"). The default for a
 	 * project that authored none: it steps aside while an authored `respinCounter` component (fed the
@@ -23,11 +25,12 @@
 	const PULSE_SCALE = 1.35;
 	const pulse = new Tween(1);
 
-	let seenResets = stateRespinBoard.counter.resets;
+	const pulses = () => stateRespinBoard.counter.resets + stateRespinBoard.counter.adds;
+	let seenPulses = pulses();
 	$effect(() => {
-		const resets = stateRespinBoard.counter.resets;
-		if (resets === seenResets) return;
-		seenResets = resets;
+		const count = pulses();
+		if (count === seenPulses) return;
+		seenPulses = count;
 		pulse
 			.set(PULSE_SCALE, { duration: 0 })
 			.then(() => pulse.set(1, { duration: 450, easing: backOut }));
@@ -65,6 +68,7 @@
 
 {#if stateRespinBoard.counter.show && !isComponentMounted('respinCounter')}
 	<Container {x} {y} scale={pulse.current}>
+		<Anchor name={RESPIN_COUNTER_ANCHOR} />
 		<Text
 			anchor={0.5}
 			text={respinCounterText(stateRespinBoard.counter.left, stateRespinBoard.counter.note)}

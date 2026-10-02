@@ -653,7 +653,7 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
 - **Style** — **Font** (the engine builtins plus the project's Font Maker bitmap fonts, the same
   list as Win amount text), **Size** (× the symbol) and **Colour** (a tint over the bitmap font).
   Used for every label that is not a jackpot.
-- **Cash format** — **Show cash as** *Money* (the player's currency, the default) or *× bet*
+- **Cash format** — **Show cash as** _Money_ (the player's currency, the default) or _× bet_
   (`1.5×`); **Decimals** — the fewest printed (a non-zero digit is never cut, so a label can never
   read as a different amount); **Trim trailing zeros** (`$3.00` → `$3`, `$1.50` → `$1.5`).
 - **Jackpots** — one row per jackpot tier in the project's Game Config (MINI / MINOR / MAJOR /
@@ -943,7 +943,8 @@ field over the coded `codedTierFx` ramp for that tier's rank among the config bi
 
 Shown for a **Hold and Win** project (and for any project that already authored flights, so they can
 be cleared). In Hold and Win things fly across the screen: a coin into the total win at the end of the
-feature, coins into a collector, a special into its meter (a pot). This section decides how each of
+feature, coins into a collector, a special into its meter (a pot), an add-respins' respins into the
+respin counter, an upgrade's beam at each coin it raises. This section decides how each of
 those looks and moves. Leave everything alone and the game flies its built-in gold glow.
 
 On the left is the list of **flight kinds**:
@@ -955,6 +956,11 @@ On the left is the list of **flight kinds**:
 - **Into a meter (every meter)** (`toMeter`) — specials into their pots.
 - **Boost beam** (`boostBeam`) — a multiplier (Grand's BOOST star) firing at each coin it boosts,
   during a respin. The coin's value starts counting up when its beam lands.
+- **Into the respin counter** (`toCounter`) — an add-respins special's "+N" flying into the respin
+  counter (the counter's `respinCounter` anchor; without one it lands at the bottom centre of the
+  board).
+- **Upgrade beam** (`upgradeBeam`) — an upgrade special firing at each coin it raises, or at the
+  jackpot coin it steps up a tier, like the boost beam.
 - One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
   can give the gold pot its own head and keep the shared timing. A meter you authored that the Game
@@ -1152,7 +1158,7 @@ that is the art to change rather than the text.
 
 A project whose kind is **Hold and Win** sees the grid and the page a little differently.
 
-**Eight more columns** — the respin feature's beats. Each one, left empty, plays what the game
+**Ten more columns** — the respin feature's beats. Each one, left empty, plays what the game
 played for that moment before the column existed, so a project that binds none of them looks
 exactly as it did:
 
@@ -1160,20 +1166,23 @@ exactly as it did:
 | ------------------ | ---------------------------------------------------------------------------------------------------- | --------- |
 | **Coin idle**      | a held coin (or jackpot, or special) at rest on the respin board                                     | Static    |
 | **Coin land**      | a respin cell's reel stops on the symbol, before anything sticks                                     | Static    |
-| **Coin stick**     | a landed coin sticks — also a mystery or multiplier landing as a coin                                | Land      |
+| **Coin stick**     | a landed coin sticks — also a mystery, multiplier, add-respins or upgrade landing                    | Land      |
 | **Coin collect**   | a coin pulses as a collector takes it, a lit column's coins, or an instant collect on the base board | Win       |
 | **Coin boost**     | a special raising other coins — a payer paying, a multiplier boosting                                | Win       |
-| **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board                               | Win       |
+| **Respins add**    | an add-respins special applying — its "+N" leaving for the respin counter                            | Win       |
+| **Coin upgrade**   | an upgrade special applying — raising every coin, the coins around it, or a jackpot coin a tier      | Win       |
+| **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board; a coin an upgrade stepped up | Win       |
 | **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
 | **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). The win frame
-draws on Coin collect, Coin boost, Jackpot reveal and Fly to meter, as it did when they played
-`Win`. A rolling respin cell plays the symbol's own `Spin`.
+draws on Coin collect, Coin boost, Respins add, Coin upgrade, Jackpot reveal and Fly to meter, as it
+did when they played `Win`. A rolling respin cell plays the symbol's own `Spin`.
 
 **Role chips** — each row head shows the symbol's Hold and Win role(s) as small gold chips
-(`coin`, `jackpot`, `payer`, `collector`, `coinMultiplier`, `mystery`, `meterSpecial`, `blank`),
+(`coin`, `jackpot`, `payer`, `collector`, `coinMultiplier`, `mystery`, `addRespins`, `upgrade`,
+`meterSpecial`, `blank`),
 read live from the project's [Invisible Game Config](game-config.md) dictionary.
 
 **Sections that don't apply are hidden** — **Book symbol VFX**, **Stacked pictures**,

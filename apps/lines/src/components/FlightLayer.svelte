@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { MainContainer } from 'components-layout';
-	import { BoardContainer, FlightView } from 'engine-game';
-	import { Anchor, Container, getContextApp, getContextParent } from 'pixi-svelte';
+	import { BoardContainer, FlightView, SYMBOL_SIZE } from 'engine-game';
+	import { Anchor, Container, getContextApp, getContextParent, Text } from 'pixi-svelte';
 	import { onDestroy } from 'svelte';
 
 	import { bakedEffects, type BookVfxLayer } from '../editor-scenes';
@@ -46,6 +46,15 @@
 	});
 
 	onDestroy(detach);
+
+	/** A head's label (an add-respins "+2"), in board units — scaled by the flight like its head. */
+	const LABEL_STYLE = {
+		fontFamily: 'Arial',
+		fontWeight: 'bold',
+		fontSize: SYMBOL_SIZE * 0.3,
+		fill: 0xffffff,
+		stroke: { color: 0x000000, width: 6 },
+	} as const;
 
 	const hexTint = (hex: string | undefined): number | undefined =>
 		hex ? parseInt(hex.slice(1), 16) : undefined;
@@ -98,6 +107,16 @@
 			>
 				<SymbolLayer layer={art} x={0} y={0} tint={hexTint(flight.headStyle?.tint)} />
 			</Container>
+		{/if}
+		{#if flight.phase === 'flying' && flight.label}
+			<Text
+				x={flight.head.x}
+				y={flight.head.y}
+				anchor={0.5}
+				scale={flight.scale}
+				text={flight.label}
+				style={LABEL_STYLE}
+			/>
 		{/if}
 		{#if flight.phase === 'trailing' && flight.arrivalEffectId && !flight.arrivalDone}
 			<Container x={flight.curve.p3.x} y={flight.curve.p3.y} scale={flight.scale}>

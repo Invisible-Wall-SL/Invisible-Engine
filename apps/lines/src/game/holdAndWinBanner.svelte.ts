@@ -1,7 +1,7 @@
 /**
  * THE HOLD AND WIN BANNER — the coded default for the beats that announce something over the board:
  * the Lucky Spin intro, a random metre, a pot filling, the feature's intro / total / outro, a jackpot
- * celebration and a coin jackpot during the tally. Drawn by `HoldAndWinBanner.svelte`; the copy is
+ * celebration, a coin jackpot during the tally and a jackpot coin an upgrade stepped up a tier. Drawn by `HoldAndWinBanner.svelte`; the copy is
  * the project's Win Text (the metre's name is the Game Config's).
  *
  * One banner at a time: a new one replaces the last, and hiding names the banner it hides, so a beat
@@ -15,6 +15,7 @@ export type HoldAndWinBannerView = {
 		| 'luckySpin'
 		| 'jackpot'
 		| 'coinJackpot'
+		| 'jackpotUpgrade'
 		| 'instantWin'
 		| 'wheelPrize'
 		| 'randomMetre'

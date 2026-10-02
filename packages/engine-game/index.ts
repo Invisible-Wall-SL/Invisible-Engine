@@ -108,6 +108,7 @@ export {
 	type HoldAndWinSnapshot,
 	type HoldAndWinState,
 	type HoldAndWinTally,
+	type HoldAndWinUpgradeChange,
 	type HoldAndWinWheelPrize,
 	isHoldAndWinEvent,
 } from './src/game/holdAndWin';

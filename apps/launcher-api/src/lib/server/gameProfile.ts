@@ -335,6 +335,22 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.config?.holdAndWin?.specials.mystery ? 'Mystery reveal' : null),
 	},
 	{
+		id: 'addRespins',
+		title: 'An add-respins special adds respins to the counter when it lands in a respin.',
+		text: (ctx) => {
+			const a = ctx.config?.holdAndWin?.specials.addRespins;
+			if (!a) return null;
+			const adds = a.values.map((v) => `+${v.value}`).join('/');
+			return `Add respins${adds ? ` (${adds})` : ''}`;
+		},
+	},
+	{
+		id: 'upgrade',
+		title:
+			'An upgrade special raises coins: every coin, the coins around it, or one jackpot coin a tier.',
+		text: (ctx) => (ctx.config?.holdAndWin?.specials.upgrade ? 'Coin upgrade' : null),
+	},
+	{
 		id: 'pots',
 		title:
 			'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',

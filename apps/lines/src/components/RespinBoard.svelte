@@ -3,21 +3,26 @@
 		HoldAndWinCell,
 		HoldAndWinCellAmount,
 		HoldAndWinCoinChange,
+		HoldAndWinUpgradeChange,
 		HoldAndWinJackpotSource,
 		HoldAndWinWheelPrize,
 		Position,
 	} from 'engine-game';
-	import type { HoldAndWinSpecial } from 'game-config';
+	import type { HoldAndWinSpecial, UpgradeTarget } from 'game-config';
 
 	/**
 	 * The Hold and Win respin board's cues — NOTIFICATIONS of a beat that has happened, for authored
 	 * listeners (sound, FX). The beats themselves are `holdAndWinPresentation.ts`, run by the coded
 	 * handlers and by the flow effects (`showRespinBoard`, `spinRespin`, `stickCoins`,
-	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `boostCoins`,
+	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `addRespins`,
+	 * `upgradeCoins`, `boostCoins`,
 	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`,
 	 * `fillMeter`, `playLuckySpinIntro`, `fireRandomMetre`, `lightLetter`, `instantCollect`,
 	 * `spinWheel`); broadcasting a cue does not move the board. `respinCollectStep` fires once per collected coin, as it takes
 	 * off for the collector (its landing is a `flightArrive` with flight `toCollector`).
+	 * `respinAddRespins` fires as an add-respins special applies (its "+N" landing in the counter is a
+	 * `flightArrive` with flight `toCounter`), `respinCoinUpgrade` as an upgrade applies (each beam's
+	 * landing is a `flightArrive` with flight `upgradeBeam`).
 	 *
 	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
 	 * - `potFill` as a meter's specials take off (each landing is a `flightArrive` with flight
@@ -44,6 +49,14 @@
 		| { type: 'respinCoinsLand'; cells: HoldAndWinCell[] }
 		| { type: 'respinCounterUpdate'; left: number; start: number; reset: boolean }
 		| { type: 'respinCoinPay'; payer: HoldAndWinCell; value: number; cells: HoldAndWinCoinChange[] }
+		| { type: 'respinAddRespins'; cell: HoldAndWinCell; added: number; left: number; total: number }
+		| {
+				type: 'respinCoinUpgrade';
+				upgrader: HoldAndWinCell;
+				target: UpgradeTarget;
+				step: number;
+				cells: HoldAndWinUpgradeChange[];
+		  }
 		| {
 				type: 'respinCoinBoost';
 				source: 'special' | 'wheel';

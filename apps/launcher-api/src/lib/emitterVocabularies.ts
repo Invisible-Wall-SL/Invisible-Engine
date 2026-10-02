@@ -516,6 +516,58 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinAddRespins',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'added',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinUpgrade',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'upgrader',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'step',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCoinBoost',
 				group: 'Hold and Win',
 				fields: [
@@ -1039,6 +1091,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'addRespins',
+				group: 'Effect',
+			},
+			{
+				name: 'upgradeCoins',
+				group: 'Effect',
+			},
+			{
 				name: 'boostCoins',
 				group: 'Effect',
 			},
@@ -1307,6 +1367,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinPay',
+			},
+			{
+				type: 'respinsAdded',
+			},
+			{
+				type: 'coinUpgrade',
 			},
 			{
 				type: 'coinBoost',
@@ -1843,6 +1909,58 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinAddRespins',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'added',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinUpgrade',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'upgrader',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'step',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCoinBoost',
 				group: 'Hold and Win',
 				fields: [
@@ -2366,6 +2484,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'addRespins',
+				group: 'Effect',
+			},
+			{
+				name: 'upgradeCoins',
+				group: 'Effect',
+			},
+			{
 				name: 'boostCoins',
 				group: 'Effect',
 			},
@@ -2634,6 +2760,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinPay',
+			},
+			{
+				type: 'respinsAdded',
+			},
+			{
+				type: 'coinUpgrade',
 			},
 			{
 				type: 'coinBoost',
@@ -3170,6 +3302,58 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinAddRespins',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'added',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinUpgrade',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'upgrader',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'step',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCoinBoost',
 				group: 'Hold and Win',
 				fields: [
@@ -3693,6 +3877,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'addRespins',
+				group: 'Effect',
+			},
+			{
+				name: 'upgradeCoins',
+				group: 'Effect',
+			},
+			{
 				name: 'boostCoins',
 				group: 'Effect',
 			},
@@ -3961,6 +4153,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinPay',
+			},
+			{
+				type: 'respinsAdded',
+			},
+			{
+				type: 'coinUpgrade',
 			},
 			{
 				type: 'coinBoost',
@@ -4497,6 +4695,58 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinAddRespins',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'cell',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'added',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'respinCoinUpgrade',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'upgrader',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'target',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'step',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCoinBoost',
 				group: 'Hold and Win',
 				fields: [
@@ -5020,6 +5270,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'addRespins',
+				group: 'Effect',
+			},
+			{
+				name: 'upgradeCoins',
+				group: 'Effect',
+			},
+			{
 				name: 'boostCoins',
 				group: 'Effect',
 			},
@@ -5288,6 +5546,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinPay',
+			},
+			{
+				type: 'respinsAdded',
+			},
+			{
+				type: 'coinUpgrade',
 			},
 			{
 				type: 'coinBoost',

@@ -103,6 +103,8 @@ const HW_TYPES = new Set([
 	'coinsLand',
 	'mysteryReveal',
 	'coinPay',
+	'respinsAdded',
+	'coinUpgrade',
 	'coinBoost',
 	'specialBecomesCoin',
 	'coinCollect',
@@ -177,6 +179,7 @@ const verifyRound = (label: string, events: BookEvent[]) => {
 			// its closing snapshot says 0 left — the mock's own disagreement; the snapshot wins.
 			if (server.left > 0) {
 				check(`${label}: snapshot ${snapshots} — counter`, state.left, server.left);
+				check(`${label}: snapshot ${snapshots} — counter cap`, state.start, server.start);
 			}
 			check(`${label}: snapshot ${snapshots} — banked`, state.banked, server.banked);
 			lastTotal = server.total;
@@ -234,9 +237,18 @@ const CASES: [preset: string, force: string][] = [
 	['collector', 'wheel:extraCollect'],
 	['collector', 'wheel:coinBoost'],
 	['collector', 'chain'],
+	['pots-extra', 'trigger'],
+	['pots-extra', 'special:addRespins'],
+	['pots-extra', 'special:upgrade:all'],
+	['pots-extra', 'special:upgrade:adjacent'],
+	['pots-extra', 'special:upgrade:jackpotTier'],
+	['pots-extra', 'mystery:addRespins'],
+	['pots-extra', 'mystery:upgrade'],
+	['pots-extra', 'chain'],
 ];
 
 const seen = new Set<string>();
+const books = new Map<string, BookEvent[]>();
 for (const [preset, force] of CASES) {
 	const { doc, server, rgsUrl } = await hush(() => startMock(preset, force));
 	const facade = await openTab();
@@ -261,6 +273,7 @@ for (const [preset, force] of CASES) {
 		})) as Answer;
 		return bet.round?.state ?? [];
 	});
+	books.set(`${preset} ${force}`, events);
 	const { triggered, types } = verifyRound(`${preset} ${force}`, events);
 	check(`${preset} ${force}: the forced beat triggers the feature`, triggered, true);
 	for (const t of types) seen.add(t);
@@ -367,6 +380,59 @@ for (const type of HW_TYPES) {
 		2000,
 	);
 	await new Promise<void>((resolve) => hit.server.close(() => resolve()));
+}
+
+// The Phase 11a specials, translated into the contract's shapes.
+{
+	const of = (book: string, type: string): unknown[] =>
+		(books.get(book) ?? []).filter((e) => e.type === type);
+	const added = of('pots-extra special:addRespins', 'respinsAdded')[0] as
+		| {
+				cell: { symbol: { name: string; value?: number } };
+				added: number;
+				left: number;
+				total: number;
+		  }
+		| undefined;
+	check(
+		'respinsAdded: the cell carries its respins as the value',
+		[added?.cell.symbol.name, added?.cell.symbol.value === added?.added],
+		['ADD', true],
+	);
+	check(
+		'respinsAdded: left and total are numbers (the counter after, its cap)',
+		[typeof added?.left, typeof added?.total],
+		['number', 'number'],
+	);
+	check(
+		'a non-sticky add-respins leaves with reason applied',
+		(of('pots-extra special:addRespins', 'cellsCleared') as BookEvent[]).some(
+			(e) => e.reason === 'applied' && (e.cells as unknown[]).length === 1,
+		),
+		true,
+	);
+	for (const rule of ['all', 'adjacent'] as const) {
+		const up = of(`pots-extra special:upgrade:${rule}`, 'coinUpgrade')[0] as
+			| { target: string; step: number; cells: { kind: string; from: number; to: number }[] }
+			| undefined;
+		check(
+			`coinUpgrade ${rule}: value changes, each raised by the step`,
+			[
+				up?.target,
+				(up?.cells.length ?? 0) > 0,
+				up?.cells.every((c) => c.kind === 'value' && Math.abs(c.to - c.from - up.step) < 1e-9),
+			],
+			[rule, true, true],
+		);
+	}
+	const tier = of('pots-extra special:upgrade:jackpotTier', 'coinUpgrade')[0] as
+		| { target: string; step: number; cells: { kind: string; from: string; to: string }[] }
+		| undefined;
+	check(
+		'coinUpgrade jackpotTier: one jackpot coin one tier up, step 0',
+		[tier?.target, tier?.step, tier?.cells.map((c) => [c.kind, c.from, c.to])],
+		['jackpotTier', 0, [['jackpot', 'MINI', 'MINOR']]],
+	);
 }
 
 // A base-game instant collect and a Lucky Spin, which do not open the feature on their own.

@@ -74,6 +74,7 @@ import {
 	presentCoinCollect,
 	presentCoinPay,
 	presentCoinsLand,
+	presentCoinUpgrade,
 	presentColumnComplete,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
@@ -85,6 +86,7 @@ import {
 	presentMysteryReveal,
 	presentRandomMetreTrigger,
 	presentRespinReveal,
+	presentRespinsAdded,
 	presentRespinUpdate,
 	presentSpecialBecomesCoin,
 	presentWheel,
@@ -1257,6 +1259,10 @@ const effects: Record<string, FlowEffect> = {
 	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, fly the tally into the Total Win
 	 *   bar (counting up per coin), then swap back.
 	 * - `payCoins` (`coinPay`) — the payer plays `win`, then every coin's label counts up.
+	 * - `addRespins` (`respinsAdded`) — the add-respins special plays `respinsAdd`, its "+N" flies
+	 *   into the respin counter, which steps up on the arrival.
+	 * - `upgradeCoins` (`coinUpgrade`) — the upgrade plays `coinUpgrade`, beams each coin it raises,
+	 *   then the counts (a jackpot coin steps up a tier).
 	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
 	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
 	 * - `collectCoins` (`coinCollect`) — each coin pulses and flies into the collector, whose label
@@ -1289,6 +1295,8 @@ const effects: Record<string, FlowEffect> = {
 	restoreRespinBoard: beat('holdAndWinState', presentHoldAndWinState),
 	hideRespinBoard: beat('holdAndWinEnd', presentHoldAndWinEnd),
 	payCoins: beat('coinPay', presentCoinPay),
+	addRespins: beat('respinsAdded', presentRespinsAdded),
+	upgradeCoins: beat('coinUpgrade', presentCoinUpgrade),
 	boostCoins: beat('coinBoost', presentCoinBoost),
 	turnSpecialIntoCoin: beat('specialBecomesCoin', presentSpecialBecomesCoin),
 	collectCoins: beat('coinCollect', presentCoinCollect),

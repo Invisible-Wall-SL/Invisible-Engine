@@ -158,25 +158,27 @@ These sections appear only for a **Hold and Win** game. They hold the lines the 
 feature shows. Each row has a live preview on its right. The **Wheel** section appears only
 when the game's config has the pre-feature wheel.
 
-| Placeholder   | Becomes                                                         |
-| ------------- | --------------------------------------------------------------- |
-| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND"                        |
-| `{amount}`    | what the jackpot or the feature paid, in the player's currency  |
-| `{count}`     | a number of respins — the respins left, or the respins awarded  |
-| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"      |
-| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"      |
-| `{pot}`       | a pot's name, e.g. "RED"                                        |
-| `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level |
-| `{max}`       | a pot's top level                                               |
+| Placeholder   | Becomes                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND" (on an upgrade, the tier it rose to) |
+| `{amount}`    | what the jackpot or the feature paid, in the player's currency                |
+| `{count}`     | a number of respins — the respins left, awarded, or added                     |
+| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"                    |
+| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"                    |
+| `{pot}`       | a pot's name, e.g. "RED"                                                      |
+| `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level               |
+| `{max}`       | a pot's top level                                                             |
 
 - **Jackpots.** There is one box per jackpot tier. The tiers are the game's own, from
   [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
   game calls it by its config name. Below the tiers are the jackpot banners: the title
   (`{jackpot} JACKPOT`), the amount under it, the full-board amount
-  (`FULL BOARD  {amount}`) and the small banner over a jackpot coin (`{jackpot}`). For a progressive
-  tier `{amount}` is the live pool the server paid, not its seed.
+  (`FULL BOARD  {amount}`), the small banner over a jackpot coin (`{jackpot}`) and the line
+  when an upgrade steps a jackpot coin up a tier (`{jackpot} UPGRADE`). For a progressive tier
+  `{amount}` is the live pool the server paid, not its seed.
 - **Respins.** The counter (`RESPINS {count}`), the award when the feature starts
-  (`{count} RESPINS`), the reset (`RESPINS RESET`) and the last respin (`LAST RESPIN`).
+  (`{count} RESPINS`), the reset (`RESPINS RESET`), the last respin (`LAST RESPIN`) and
+  the respins an add-respins special adds (`+{count} RESPINS`).
 - **Hold and Win feature.** These boxes hold:
   - the feature total (`BONUS WIN {amount}`);
   - an intro and an outro line, which draw nothing until you write them;
@@ -186,9 +188,11 @@ when the game's config has the pre-feature wheel.
     unlocks (`UNLOCKED: {modifiers}`);
   - a collector the wheel raised, on the counter's second line (`{level} COLLECTOR`);
   - each pot's label over its bar (`{pot} {level}/{max}`);
+  - an upgrade special raising coins (`UPGRADE`);
   - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
-    PAYER, MYSTERY), the collector levels (DOUBLE, TRIPLE; an unnamed level reads
-    ×4) and one box per pot in the config (an unnamed pot reads its id in capitals).
+    PAYER, MYSTERY, ADD RESPINS, UPGRADE), the collector levels (DOUBLE, TRIPLE; an
+    unnamed level reads ×4) and one box per pot in the config (an unnamed pot reads its id
+    in capitals).
 - **Wheel.** The segment labels (`COIN BOOST ×{count}`, `+{count} COLLECT`; a jackpot
   segment reads its tier's caption) and the banner a prize shows (`EVERY COIN ×{count}`,
   `{level} COLLECT`; a jackpot prize has no banner, its jackpot celebration follows).

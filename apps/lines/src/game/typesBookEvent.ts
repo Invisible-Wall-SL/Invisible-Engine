@@ -202,6 +202,14 @@ type BookEventHwMysteryReveal = {
 	type: 'mysteryReveal';
 } & HoldAndWinEventFields['mysteryReveal'];
 type BookEventHwCoinPay = { index: number; type: 'coinPay' } & HoldAndWinEventFields['coinPay'];
+type BookEventHwRespinsAdded = {
+	index: number;
+	type: 'respinsAdded';
+} & HoldAndWinEventFields['respinsAdded'];
+type BookEventHwCoinUpgrade = {
+	index: number;
+	type: 'coinUpgrade';
+} & HoldAndWinEventFields['coinUpgrade'];
 type BookEventHwCoinBoost = {
 	index: number;
 	type: 'coinBoost';
@@ -295,6 +303,8 @@ export type BookEvent =
 	| BookEventHwCoinsLand
 	| BookEventHwMysteryReveal
 	| BookEventHwCoinPay
+	| BookEventHwRespinsAdded
+	| BookEventHwCoinUpgrade
 	| BookEventHwCoinBoost
 	| BookEventHwSpecialBecomesCoin
 	| BookEventHwCoinCollect

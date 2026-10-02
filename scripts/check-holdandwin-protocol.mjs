@@ -10,6 +10,7 @@
 // Why re-derive rather than trust the snapshot: the wire is a swap seam the engine will be built
 // against, so an event that does not tell the whole story of its respin is a bug the client inherits.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 
@@ -18,7 +19,9 @@ import {
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
+	jackpotLadder,
 	normalizeGameConfigDoc,
+	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs } from './mock-rgs-server-holdandwin.mjs';
 import { carrySession } from './mock-rgs-server.mjs';
@@ -37,10 +40,14 @@ const key = (c) => `${c.reel}:${c.row}`;
 
 // ---------- a preset as the launcher hands it over (mockContract.ts) ----------
 
+/** A preset id, a test fixture id (`pots-extra`), or a raw config (a fixture variant). */
+const rawConfig = (preset) =>
+	typeof preset === 'string'
+		? (HOLD_AND_WIN_PRESETS[preset] ?? HOLD_AND_WIN_TEST_FIXTURES[preset])
+		: preset;
+
 const contractFor = (preset) => {
-	const doc = normalizeGameConfigDoc(
-		HOLD_AND_WIN_PRESETS[preset] ?? HOLD_AND_WIN_TEST_FIXTURES[preset],
-	);
+	const doc = normalizeGameConfigDoc(rawConfig(preset));
 	const modes = Object.entries(doc.betModes);
 	return {
 		doc,
@@ -64,10 +71,11 @@ const contractFor = (preset) => {
 
 const boot = async (preset, extra = {}) => {
 	const { doc, opts } = contractFor(preset);
+	const name = typeof preset === 'string' ? preset : preset.gameID;
 	const mock = createMockRgs({
-		label: `hnw-${preset}`,
+		label: `hnw-${name}`,
 		quiet: true,
-		seed: `hnw-${preset}`,
+		seed: `hnw-${name}`,
 		...opts,
 		...extra,
 	});
@@ -114,6 +122,7 @@ const boot = async (preset, extra = {}) => {
 		table: Boolean(opts.betModes),
 		lines: opts.paylines.length,
 		jackpots: Object.fromEntries(block.jackpots.map((j) => [j.name, j.multiplier])),
+		ladder: jackpotLadder(block),
 		rolesOf: (symbol) => roles[symbol]?.roles ?? [],
 	};
 };
@@ -280,8 +289,16 @@ const roundProblems = (g, round, meters) => {
 						? 'multiplier'
 						: e.event === 'coinCollect'
 							? 'collector'
-							: null;
+							: e.event === 'respinsAdded'
+								? 'addRespins'
+								: e.event === 'coinUpgrade'
+									? 'upgrade'
+									: null;
 		const coins = () => [...tracked].filter(([, c]) => isCash(c) || (streak && c.jackpot));
+		// The counter and its cap (what a reset fills to), as the events say they move.
+		let left = start;
+		let cap = start;
+		const tier = (c) => g.ladder.indexOf(c.jackpot);
 
 		const apply = (e) => {
 			const c = e.context;
@@ -355,8 +372,76 @@ const roundProblems = (g, round, meters) => {
 					collector.value = c.value;
 					break;
 				}
+				case 'respinsAdded': {
+					const t = tracked.get(key(c.cell));
+					if (!t || !g.rolesOf(t.symbol).includes('addRespins'))
+						fail(`respinsAdded from ${key(c.cell)}, which holds no add-respins`);
+					else if (c.added !== t.value) fail(`respinsAdded +${c.added}, its cell says ${t.value}`);
+					if (c.left !== left + c.added)
+						fail(`respinsAdded left ${c.left}, expected ${left} + ${c.added}`);
+					const raised = block.specials.addRespins?.raisesCap ? cap + c.added : cap;
+					if (c.total !== raised) fail(`respinsAdded total ${c.total}, expected ${raised}`);
+					left = c.left;
+					cap = c.total;
+					break;
+				}
+				case 'coinUpgrade': {
+					const t = tracked.get(key(c.upgrader));
+					if (!t || !g.rolesOf(t.symbol).includes('upgrade'))
+						fail(`coinUpgrade from ${key(c.upgrader)}, which holds no upgrade`);
+					if (!block.specials.upgrade?.targets.some((x) => x.target === c.target))
+						fail(`coinUpgrade under ${c.target}, which the upgrade does not have`);
+					if (c.target === 'jackpotTier') {
+						if (c.step !== 0) fail(`a tier upgrade with step ${c.step}`);
+						const want = [...tracked.values()]
+							.filter((x) => x.jackpot && tier(x) >= 0 && tier(x) < g.ladder.length - 1)
+							.sort((a, b) => tier(a) - tier(b) || a.reel - b.reel || a.row - b.row)[0];
+						const got = c.cells[0];
+						if (!want) {
+							if (c.cells.length)
+								fail(`a tier upgrade with nothing below the top moved ${key(got)}`);
+						} else if (c.cells.length !== 1 || key(got) !== key(want)) {
+							fail(`tier upgrade took ${c.cells.map(key)}, the lowest tier is ${key(want)}`);
+						} else if (
+							got.fromJackpot !== want.jackpot ||
+							got.jackpot !== g.ladder[tier(want) + 1]
+						) {
+							fail(`tier upgrade ${got.fromJackpot}→${got.jackpot}, board has ${want.jackpot}`);
+						} else want.jackpot = got.jackpot;
+						break;
+					}
+					if (c.step !== (t?.value ?? 0)) fail(`upgrade step ${c.step}, its cell says ${t?.value}`);
+					const near = (x) =>
+						Math.abs(x.reel - c.upgrader.reel) <= 1 &&
+						Math.abs(x.row - c.upgrader.row) <= 1 &&
+						key(x) !== key(c.upgrader);
+					const expectKeys = [...tracked]
+						.filter(([, x]) => isCash(x) && (c.target === 'all' || near(x)))
+						.map(([k]) => k)
+						.sort();
+					const got = c.cells.map(key).sort();
+					if (got.join() !== expectKeys.join())
+						fail(`${c.target} upgrade touched ${got}, expected ${expectKeys}`);
+					for (const cell of c.cells) {
+						const x = tracked.get(key(cell));
+						if (x?.value !== cell.from)
+							fail(`upgrade ${key(cell)} from ${cell.from}, board ${x?.value}`);
+						if (cell.to !== tidy(cell.from + c.step))
+							fail(`upgrade ${key(cell)} +${c.step}≠${cell.to}`);
+						if (x) x.value = cell.to;
+					}
+					break;
+				}
 				case 'cellsCleared':
-					for (const cell of c.cells) tracked.delete(key(cell));
+					for (const cell of c.cells) {
+						if (c.reason === 'applied') {
+							const t = tracked.get(key(cell));
+							if (!t || !g.rolesOf(t.symbol).includes('addRespins'))
+								fail(`${key(cell)} cleared as applied, but it holds no add-respins`);
+							if (block.specials.addRespins?.sticky) fail(`a sticky add-respins left ${key(cell)}`);
+						} else if (c.reason !== 'collected') fail(`cellsCleared reason ${c.reason}`);
+						tracked.delete(key(cell));
+					}
 					break;
 				case 'columnComplete': {
 					const column = [...tracked].filter(([, t]) => t.reel === c.reel);
@@ -406,8 +491,10 @@ const roundProblems = (g, round, meters) => {
 		const enter = baseEvents.findIndex((e) => e.event === 'enterBonus');
 		applyAll(baseEvents.slice(from + 1, enter));
 		compare(baseEvents[enter].context, 'entry');
-		let left = baseEvents[enter].context.left;
+		left = baseEvents[enter].context.left;
 		if (left !== start) fail(`the feature opens with ${left} respins, not ${start}`);
+		if (baseEvents[enter].context.holdAndWin.start !== start)
+			fail(`the feature opens with a cap of ${baseEvents[enter].context.holdAndWin.start}`);
 		applyAll(baseEvents.slice(enter + 1));
 
 		// Each respin.
@@ -454,10 +541,13 @@ const roundProblems = (g, round, meters) => {
 				!endedHere && (block.respins.reset === 'anySpecial' ? landed.length > 0 : newCoin);
 			if (update.reset !== reset)
 				fail(`respin ${played}: reset ${update.reset}, expected ${reset}`);
-			const expectedLeft = endedHere ? 0 : reset ? start : left - 1;
+			// `left` already counts what an add-respins added this respin; a reset never throws it away.
+			const expectedLeft = endedHere ? 0 : reset ? Math.max(cap, left) : left - 1;
 			if (update.left !== expectedLeft)
 				fail(`respin ${played}: ${update.left} left, expected ${expectedLeft}`);
 			if (snap.left !== update.left) fail(`respin ${played}: snapshot left ${snap.left}`);
+			if (update.start !== cap || snap.holdAndWin.start !== cap)
+				fail(`respin ${played}: cap ${update.start}/${snap.holdAndWin.start}, expected ${cap}`);
 			if (update.played !== played || snap.played !== played)
 				fail(`respin ${played}: played ${update.played}`);
 			left = update.left;
@@ -470,7 +560,11 @@ const roundProblems = (g, round, meters) => {
 			} else {
 				const cleared = new Set(
 					events
-						.filter((e) => e.event === 'columnComplete' && e.context.cleared)
+						.filter(
+							(e) =>
+								(e.event === 'columnComplete' && e.context.cleared) ||
+								(e.event === 'cellsCleared' && e.context.reason === 'applied'),
+						)
 						.flatMap((e) => e.context.cells.map(key)),
 				);
 				for (const [k] of heldBefore) {
@@ -526,7 +620,7 @@ const roundProblems = (g, round, meters) => {
 const meterStart = (config) =>
 	Object.fromEntries((config?.holdAndWin.meters ?? []).map((m) => [m.id, m.level]));
 
-for (const preset of HOLD_AND_WIN_PRESET_IDS) {
+for (const preset of [...HOLD_AND_WIN_PRESET_IDS, 'pots-extra']) {
 	const g = await boot(preset);
 	console.log(`${preset}: rounds re-derived from the wire`);
 	const sid = `nat-${preset}`;
@@ -881,6 +975,465 @@ const jackpotsWon = (r, source) =>
 		'the streak: a coin every respin, collected and cleared',
 	);
 	await g.close();
+}
+
+// ---------- 2b. add-respins + upgrade (Phase 11a) on the pots-extra test fixture ----------
+
+/** pots-extra with an edit — a variant the gate deals from, which must still validate clean. */
+const variant = (id, edit) => {
+	const raw = structuredClone(HOLD_AND_WIN_TEST_FIXTURES['pots-extra']);
+	raw.gameID = `pots_extra_${id}`;
+	edit(raw.holdAndWin);
+	const errors = validateGameConfigDoc(normalizeGameConfigDoc(raw)).filter(
+		(i) => i.severity === 'error',
+	);
+	check(!errors.length, `the ${id} variant validates`, errors.map((i) => i.message).join(' | '));
+	return raw;
+};
+const respinUpdateAt = (r, n) => inRespin(r, n, 'respinUpdate')[0];
+const snapshotAt = (r, n) => inRespin(r, n, 'playedBonusSpin')[0]?.holdAndWin;
+const heldAt = (r, n, cell) => snapshotAt(r, n)?.cells.some((c) => key(c) === key(cell));
+const applied = (r, n) =>
+	inRespin(r, n, 'cellsCleared')
+		.filter((c) => c.reason === 'applied')
+		.flatMap((c) => c.cells.map(key));
+
+/**
+ * Break after respin 1 (the beat), reload, replay every stored position, and play on: the replay
+ * must hand back the same answers, its last snapshot (and the server's own state) must hold the
+ * board, `left` and `start` the beat left behind, and the round must still add up.
+ */
+const resumeAfter = async (g, force) => {
+	const sid = `resume-${force}-${Math.random().toString(36).slice(2, 7)}`;
+	const booted = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	const meters = meterStart(booted.events.find((e) => e.event === 'config').context);
+	const opening = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [25, 4] },
+		{ action: 'play', context: `force:${force}` },
+	]);
+	const gid = opening.platform.gameRound?.id;
+	const r2 = gid && (await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=${gid}`, [{ action: 'play' }]));
+	if (!r2 || r2.events.some((e) => e.event === 'gameEnd')) {
+		return check(false, `resume after ${force}`, 'the feature did not stay open past respin 1');
+	}
+	const live = r2.events.find((e) => e.event === 'playedBonusSpin').context.holdAndWin;
+	const config = (await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }])).events.find(
+		(e) => e.event === 'config',
+	);
+	const again0 = await g.post(
+		`/rgs/engine?sid=${sid}&seq=0&gid=${gid}`,
+		config.actions.slice(0, 2),
+	);
+	const again2 = await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=${gid}`, [config.actions[2]]);
+	const replayed = again2.events.find((e) => e.event === 'playedBonusSpin')?.context.holdAndWin;
+	const state = (await g.get(`/state?sid=${sid}`)).round.feature;
+	const picture = (s) =>
+		JSON.stringify([showMap(snapshotMap(s?.cells ?? [])), s?.left, s?.start, s?.banked]);
+	const round = {
+		gid,
+		requests: [
+			{ seq: 0, gid: null },
+			{ seq: 2, gid },
+		],
+		responses: [opening, r2],
+		balanceBefore: 10_000,
+	};
+	let seq = 3;
+	let resp = r2;
+	while (!resp.events.some((e) => e.event === 'gameEnd') && seq < 300) {
+		resp = await g.post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'play' }]);
+		round.requests.push({ seq: seq++, gid });
+		round.responses.push(resp);
+	}
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]);
+	round.requests.push({ seq, gid });
+	round.responses.push(resp);
+	round.balanceAfter = resp.platform.balance;
+	const ok =
+		config.resume === true &&
+		JSON.stringify(again0.events) === JSON.stringify(opening.events) &&
+		JSON.stringify(again2.events) === JSON.stringify(r2.events) &&
+		picture(replayed) === picture(live) &&
+		picture(state) === picture(live) &&
+		verifyRound(g, round, `the round resumed after ${force}`, meters);
+	if (
+		check(ok, `resume after ${force}: replay, snapshot and server state rebuild board/left/start`)
+	)
+		pass(`resume after ${force} — replay, snapshot and server state agree; the round adds up`);
+};
+
+{
+	const g = await boot('pots-extra');
+	console.log('pots-extra (3 Pots + add-respins + upgrade): forced beats');
+	await beat(
+		g,
+		'special:addRespins',
+		(r) => {
+			const add = inRespin(r, 1, 'respinsAdded')[0];
+			return (
+				add?.added >= 1 &&
+				add.left === g.block.respins.start + add.added &&
+				add.total === g.block.respins.start &&
+				// Nothing else landed, so no reset: one off the added-to counter.
+				respinUpdateAt(r, 1).left === add.left - 1 &&
+				respinUpdateAt(r, 1).start === g.block.respins.start &&
+				applied(r, 1).includes(key(add.cell)) &&
+				!heldAt(r, 1, add.cell)
+			);
+		},
+		'adds its respins to the counter (cap unchanged), then clears as applied',
+	);
+	await beat(
+		g,
+		'special:addRespins,chain',
+		(r) => {
+			const add = inRespin(r, 1, 'respinsAdded')[0];
+			const second = respinUpdateAt(r, 2);
+			return (
+				Boolean(add) &&
+				second.reset &&
+				second.left === Math.max(g.block.respins.start, respinUpdateAt(r, 1).left)
+			);
+		},
+		'a later reset fills to max(cap, left) — never throws the added respins away',
+	);
+	for (const rule of ['all', 'adjacent']) {
+		await beat(
+			g,
+			`special:upgrade:${rule}`,
+			(r) => {
+				const up = inRespin(r, 1, 'coinUpgrade')[0];
+				return (
+					up?.target === rule &&
+					up.step > 0 &&
+					up.cells.length > 0 &&
+					up.cells.every((c) => c.to === tidy(c.from + up.step)) &&
+					heldAt(r, 1, up.upgrader) &&
+					!endCells(r).some((c) => key(c) === key(up.upgrader))
+				);
+			},
+			`the ${rule} rule raises the cash coins by its step, and the upgrade stays, worth nothing`,
+		);
+	}
+	await beat(
+		g,
+		'special:upgrade:jackpotTier',
+		(r) => {
+			const up = inRespin(r, 1, 'coinUpgrade')[0];
+			const [cell] = up?.cells ?? [];
+			return (
+				up?.step === 0 &&
+				up.cells.length === 1 &&
+				cell.fromJackpot === g.ladder[0] &&
+				cell.jackpot === g.ladder[1] &&
+				snapshotAt(r, 1).cells.some((c) => key(c) === key(cell) && c.jackpot === g.ladder[1])
+			);
+		},
+		'the jackpotTier rule lands the lowest tier and steps it one tier up',
+	);
+	await beat(
+		g,
+		'special:upgrade',
+		(r) => inRespin(r, 1, 'coinUpgrade').length === 1,
+		'an upgrade with no rule forced draws one',
+	);
+	for (const kind of ['addRespins', 'upgrade']) {
+		const event = kind === 'addRespins' ? 'respinsAdded' : 'coinUpgrade';
+		await beat(
+			g,
+			`mystery:${kind}`,
+			(r) => {
+				const revealed = inRespin(r, 1, 'mysteryReveal')[0]?.cells[0];
+				const names = r.responses[1].events.map((e) => e.event);
+				return (
+					revealed?.becomes === kind &&
+					names.indexOf(event) > names.indexOf('mysteryReveal') &&
+					key(inRespin(r, 1, event)[0]?.[kind === 'upgrade' ? 'upgrader' : 'cell'] ?? {}) ===
+						key(revealed)
+				);
+			},
+			`a mystery reveals the ${kind}, which applies in the same respin (it comes after mystery)`,
+		);
+	}
+	await beat(
+		g,
+		'unlock:upgrade',
+		(r) =>
+			!first(r, 'holdAndWinTrigger').activeModifiers.includes('upgrade') &&
+			inRespin(r, 1, 'mysteryReveal')[0]?.activates.includes('upgrade') &&
+			inRespin(r, 1, 'coinUpgrade').length === 1,
+		'a mystery unlocks the inactive upgrade',
+	);
+	for (const force of [
+		'special:addRespins',
+		'special:upgrade:all',
+		'special:upgrade:adjacent',
+		'special:upgrade:jackpotTier',
+		'mystery:addRespins',
+		'mystery:upgrade',
+	]) {
+		await resumeAfter(g, force);
+	}
+	for (const spec of ['special:upgrade:bogus', 'special:upgrade:']) {
+		const round = await playRound(g, `bad-${spec}`, { force: spec });
+		check(Boolean(round.error), `force ${spec} is refused on pots-extra`, round.error ?? 'dealt');
+	}
+	// How often the natural deal reaches them — the round re-derivation in section 1 checks each one.
+	let natural = { respinsAdded: 0, coinUpgrade: 0 };
+	const meters = Object.fromEntries(g.block.meters.map((m) => [m.id, 0]));
+	for (let i = 0; i < 60; i++) {
+		const round = await playRound(g, 'natural-extra', { force: 'trigger' });
+		verifyRound(g, round, `pots-extra natural round ${i}`, meters);
+		natural = {
+			respinsAdded: natural.respinsAdded + all(round, 'respinsAdded').length,
+			coinUpgrade: natural.coinUpgrade + all(round, 'coinUpgrade').length,
+		};
+	}
+	if (
+		check(
+			natural.respinsAdded > 0 && natural.coinUpgrade > 0,
+			'both specials land in natural respins',
+			JSON.stringify(natural),
+		)
+	)
+		pass(
+			`60 natural features: ${natural.respinsAdded} add-respins, ${natural.coinUpgrade} upgrades`,
+		);
+	await g.close();
+}
+
+{
+	const pots = await boot('pots');
+	for (const spec of [
+		'special:addRespins',
+		'special:upgrade',
+		'mystery:upgrade',
+		'unlock:addRespins',
+	]) {
+		const round = await playRound(pots, `bad-${spec}`, { force: spec });
+		check(Boolean(round.error), `force ${spec} is refused on pots`, round.error ?? 'dealt');
+	}
+	pass('pots (no add-respins, no upgrade) refuses their beats');
+	await pots.close();
+}
+
+{
+	console.log('pots-extra variants: raisesCap, sticky, a tier-only upgrade');
+	const raises = await boot(variant('raises', (b) => (b.specials.addRespins.raisesCap = true)));
+	await beat(
+		raises,
+		'special:addRespins,chain',
+		(r) => {
+			const add = inRespin(r, 1, 'respinsAdded')[0];
+			const cap = raises.block.respins.start + add?.added;
+			return (
+				add?.total === cap &&
+				respinUpdateAt(r, 1).start === cap &&
+				snapshotAt(r, 1).start === cap &&
+				respinUpdateAt(r, 2).reset &&
+				respinUpdateAt(r, 2).left === cap &&
+				respinUpdateAt(r, 2).start === cap
+			);
+		},
+		'raisesCap: the cap rises by the added respins, and a later reset fills to it',
+	);
+	await resumeAfter(raises, 'special:addRespins');
+	await raises.close();
+
+	const sticky = await boot(variant('sticky', (b) => (b.specials.addRespins.sticky = true)));
+	await beat(
+		sticky,
+		'special:addRespins',
+		(r) => {
+			const add = inRespin(r, 1, 'respinsAdded')[0];
+			return (
+				Boolean(add) &&
+				applied(r, 1).length === 0 &&
+				!all(r, 'cellsCleared').some((c) => c.reason === 'applied') &&
+				heldAt(r, 1, add.cell) &&
+				!endCells(r).some((c) => key(c) === key(add.cell))
+			);
+		},
+		'sticky: it stays on the board after applying, worth nothing',
+	);
+	await resumeAfter(sticky, 'special:addRespins');
+	await sticky.close();
+
+	const allOnly = await boot(
+		variant('allonly', (b) => (b.specials.upgrade.targets = [{ target: 'all', weight: 1 }])),
+	);
+	const refused = await playRound(allOnly, 'bad-tier', { force: 'special:upgrade:jackpotTier' });
+	check(
+		Boolean(refused.error),
+		'a rule the upgrade does not have is refused',
+		refused.error ?? 'dealt',
+	);
+	await allOnly.close();
+
+	// Two tiers, only the top one on the coin table, and an upgrade that only climbs tiers (so its
+	// cell carries no step): the forced MINI climbs to GRAND, a GRAND never moves, and an upgrade with
+	// nothing below the top changes nothing.
+	const tierOnly = await boot(
+		variant('tieronly', (b) => {
+			b.jackpots = [
+				{ name: 'MINI', multiplier: 15, fixed: true },
+				{ name: 'GRAND', multiplier: 2000, fixed: true },
+			];
+			b.coins = b.coins
+				.filter((c) => c.kind === 'cash')
+				.concat({ kind: 'jackpot', jackpot: 'GRAND', weight: 2 });
+			b.specials.mystery.reveals = b.specials.mystery.reveals.filter((r) => r.type !== 'jackpot');
+			b.specials.upgrade = {
+				targets: [{ target: 'jackpotTier', weight: 1 }],
+				values: [],
+				landsInBaseGame: false,
+			};
+		}),
+	);
+	await beat(
+		tierOnly,
+		'jackpot:GRAND,special:upgrade:jackpotTier',
+		(r) => {
+			const up = inRespin(r, 1, 'coinUpgrade')[0];
+			const board = r.responses[1].events.find((e) => e.event === 'playedSpin').context.flat();
+			return (
+				board.includes('UPG') &&
+				up?.upgrader.value === undefined &&
+				up.cells.length === 1 &&
+				up.cells[0].fromJackpot === 'MINI' &&
+				up.cells[0].jackpot === 'GRAND' &&
+				!all(r, 'coinUpgrade').some((u) => u.cells.some((c) => c.fromJackpot === 'GRAND'))
+			);
+		},
+		'a step-less upgrade (`UPG`) climbs MINI to the top tier, and never past it',
+	);
+	let idle = 0;
+	const meters = Object.fromEntries(tierOnly.block.meters.map((m) => [m.id, 0]));
+	for (let i = 0; i < 40; i++) {
+		const round = await playRound(tierOnly, 'tier-natural', { force: 'trigger' });
+		verifyRound(tierOnly, round, `tier-only natural round ${i}`, meters);
+		idle += all(round, 'coinUpgrade').filter((u) => !u.cells.length).length;
+	}
+	if (check(idle > 0, 'an upgrade with no tier below the top changes nothing', `${idle} seen`))
+		pass(`tier-only: ${idle} upgrades found nothing below the top and changed nothing`);
+	await tierOnly.close();
+}
+
+// ---------- 2c. parity: the presets deal exactly what main dealt ----------
+
+{
+	console.log('parity: the presets deal byte-identical rounds to main for fixed seeds');
+	// Each digest hashes every answer (events, balance, refusal) of 400 seeded rounds (every 5th
+	// forced to trigger) plus one round per forced beat the preset accepts and its buys. The pinned
+	// values were computed by the SAME routine against a pristine `git show
+	// origin/main:scripts/mock-rgs-server-holdandwin.mjs` (2026-10-02, before Phase 11a); a mock
+	// change that draws the RNG once more on a path these games take, or emits one byte differently,
+	// moves them.
+	const MAIN_DIGESTS = {
+		pots: '6d06e0f666b40a72',
+		classic: '7865bdb92b8da0ba',
+		collector: 'ac54abed6d4e6066',
+	};
+	const SPECS = [
+		'trigger',
+		'special:payer',
+		'special:multiplier',
+		'special:collector',
+		'special:mystery',
+		'mystery:coin',
+		'mystery:jackpot:MINI',
+		'unlock:payer',
+		'unlock:multiplier',
+		'jackpot:MINI',
+		'jackpot:MAJOR',
+		'jackpot:GRAND',
+		'fullBoard',
+		'letter',
+		'letters',
+		'chain',
+		'dead',
+		'lucky',
+		'meter:red',
+		'meter:blue',
+		'trigger:randomMetre',
+		'trigger:pattern',
+		'instant',
+		'wheel:0',
+		'wheel:1',
+		'wheel:2',
+		'wheel:3',
+		'wheel:6',
+		'queuedMode',
+		'special:multiplier,jackpot:MAJOR',
+	];
+	const digest = async (preset, seed, rounds) => {
+		const { opts } = contractFor(preset);
+		const mock = createMockRgs({ quiet: true, seed, ...opts });
+		const hash = createHash('sha256');
+		const call = (sid, seq, gid, body) =>
+			new Promise((resolve) => {
+				const text = JSON.stringify(body);
+				const req = {
+					method: 'POST',
+					headers: {},
+					on(ev, fn) {
+						if (ev === 'data') fn(Buffer.from(text));
+						if (ev === 'end') fn();
+					},
+				};
+				const out = { writeHead() {}, end: (t) => resolve(JSON.parse(t)) };
+				const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+				mock.handle(req, out, new URL(`http://x/rgs/engine?${query}`));
+			});
+		const record = (resp) =>
+			hash.update(JSON.stringify([resp.events, resp.platform?.balance, resp.error ?? null]));
+		const round = async (sid, bet, context) => {
+			let resp = await call(sid, 0, null, [
+				{ action: 'bet', context: bet },
+				{ action: 'play', context },
+			]);
+			record(resp);
+			const gid = resp.platform?.gameRound?.id;
+			if (!gid) return;
+			let seq = 2;
+			const seen = (name) => resp.events.some((e) => e.event === name);
+			const feature = seen('enterBonus');
+			while (feature && !seen('gameEnd') && seq < 300) {
+				resp = await call(sid, seq++, gid, [{ action: 'play' }]);
+				record(resp);
+			}
+			if (!seen('gameRoundOver')) record(await call(sid, seq, gid, [{ action: 'collect' }]));
+		};
+		const base = opts.betModes ? [0, 4] : [opts.paylines.length, 4];
+		record(await call('nat', 0, null, [{ action: 'config' }]));
+		for (let i = 0; i < rounds; i++) await round('nat', base, i % 5 === 0 ? 'force:trigger' : null);
+		for (const spec of SPECS) {
+			if (mock.parseForce(spec).errors) continue;
+			const sid = `beat-${spec}`;
+			record(await call(sid, 0, null, [{ action: 'config' }]));
+			await round(sid, base, `force:${spec}`);
+		}
+		if (opts.betModes) {
+			for (const option of [1, 2]) {
+				record(await call(`buy-${option}`, 0, null, [{ action: 'config' }]));
+				await round(`buy-${option}`, [option, 4], null);
+			}
+		}
+		return hash.digest('hex').slice(0, 16);
+	};
+	let same = 0;
+	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
+		const got = await digest(preset, `parity-${preset}`, 400);
+		if (check(got === MAIN_DIGESTS[preset], `${preset}: dealt as main dealt`, `digest ${got}`))
+			same++;
+	}
+	// The digest must be able to fail: another seed deals another game.
+	check(
+		(await digest('pots', 'parity-other', 400)) !== MAIN_DIGESTS.pots,
+		'the parity digest moves with the deal',
+	);
+	if (same === HOLD_AND_WIN_PRESET_IDS.length)
+		pass('pots / classic / collector: 400 seeded rounds + every beat, byte-identical to main');
 }
 
 // ---------- 3. persistent meters ----------

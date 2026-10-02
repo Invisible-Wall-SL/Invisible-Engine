@@ -41,6 +41,8 @@ const POSITION: TypeRef = { t: 'struct', name: 'Position' };
 const CELL: TypeRef = { t: 'struct', name: 'HoldAndWinCell' };
 const CELL_AMOUNT: TypeRef = { t: 'struct', name: 'HoldAndWinCellAmount' };
 const COIN_CHANGE: TypeRef = { t: 'struct', name: 'HoldAndWinCoinChange' };
+const UPGRADE_CHANGE: TypeRef = { t: 'struct', name: 'HoldAndWinUpgradeChange' };
+const UPGRADE_TARGET: TypeRef = { t: 'enum', name: 'UpgradeTarget' };
 const MYSTERY_CELL: TypeRef = { t: 'struct', name: 'HoldAndWinMysteryCell' };
 const METER_LEVEL: TypeRef = { t: 'struct', name: 'HoldAndWinMeterLevel' };
 const JACKPOT_LEVEL: TypeRef = { t: 'struct', name: 'HoldAndWinJackpotLevel' };
@@ -52,8 +54,8 @@ const JACKPOT_SOURCE: TypeRef = { t: 'enum', name: 'HoldAndWinJackpotSource' };
 const STICKINESS: TypeRef = { t: 'enum', name: 'Stickiness' };
 
 /**
- * The symbols the three presets deal (`game-config` `holdAndWinPresets.ts`): the line symbols, the
- * coin, the jackpot coin, the specials and the blank.
+ * The symbols the three presets and the `pots-extra` test fixture deal (`game-config`
+ * `holdAndWinPresets.ts`): the line symbols, the coin, the jackpot coin, the specials and the blank.
  */
 const HOLD_AND_WIN_SYMBOLS = [
 	'H1',
@@ -71,13 +73,24 @@ const HOLD_AND_WIN_SYMBOLS = [
 	'COLLECT',
 	'MULTI',
 	'MYSTERY',
+	'ADD',
+	'UPG',
 	'BLANK',
 ] as const;
 
 /** `engine-game` `HoldAndWinCause`. */
 export const HOLD_AND_WIN_CAUSES = ['count', 'pattern', 'meter', 'luckySpin', 'randomMetre', 'buy'];
 /** `game-config` `HOLD_AND_WIN_SPECIALS`. */
-export const HOLD_AND_WIN_SPECIAL_KINDS = ['collector', 'multiplier', 'payer', 'mystery'];
+export const HOLD_AND_WIN_SPECIAL_KINDS = [
+	'collector',
+	'multiplier',
+	'payer',
+	'mystery',
+	'addRespins',
+	'upgrade',
+];
+/** `game-config` `UPGRADE_TARGETS`. */
+export const HOLD_AND_WIN_UPGRADE_TARGETS = ['all', 'adjacent', 'jackpotTier'];
 /** `engine-game` `HoldAndWinJackpotSource`. */
 export const HOLD_AND_WIN_JACKPOT_SOURCES = [
 	'coin',
@@ -132,6 +145,17 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 			{ name: 'from', type: FLOAT },
 			{ name: 'to', type: FLOAT },
 			{ name: 'jackpot', type: STRING },
+		],
+	},
+	// `kind` `value`: `from`/`to` are a cash coin's value (× total bet); `jackpot`: its tier names.
+	{
+		name: 'HoldAndWinUpgradeChange',
+		fields: [
+			{ name: 'reel', type: INT },
+			{ name: 'row', type: INT },
+			{ name: 'kind', type: STRING },
+			{ name: 'from', type: STRING },
+			{ name: 'to', type: STRING },
 		],
 	},
 	{
@@ -209,6 +233,7 @@ const ENUMS: TemplateVocabulary['enums'] = [
 	{ name: 'HoldAndWinSpecial', values: HOLD_AND_WIN_SPECIAL_KINDS },
 	{ name: 'HoldAndWinJackpotSource', values: HOLD_AND_WIN_JACKPOT_SOURCES },
 	{ name: 'Stickiness', values: HOLD_AND_WIN_STICKINESS },
+	{ name: 'UpgradeTarget', values: HOLD_AND_WIN_UPGRADE_TARGETS },
 ];
 
 /** The base-game Hold and Win events — they ride on a base spin, so they follow `reveal`. */
@@ -364,6 +389,38 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 		description: 'A payer added its value to every coin on the board.',
 	},
 	{
+		name: 'respinsAdded',
+		payload: [
+			cell('cell', 'The add-respins special.'),
+			{ name: 'added', type: INT, description: 'The respins it added.' },
+			{ name: 'left', type: INT, description: 'Respins left after adding them.' },
+			{
+				name: 'total',
+				type: INT,
+				description: "The counter's cap after it: what a reset fills back to.",
+			},
+		],
+		category: 'book',
+		description:
+			'An add-respins special applied: its respins joined the counter (and, if the game says so, raised what a reset fills back to). Wire it to fly its "+N" to the respin counter.',
+	},
+	{
+		name: 'coinUpgrade',
+		payload: [
+			cell('upgrader', 'The upgrade special.'),
+			{ name: 'target', type: UPGRADE_TARGET, description: 'The rule it applied.' },
+			{
+				name: 'step',
+				type: FLOAT,
+				description: 'What it added to each cash coin, × total bet (0 for a jackpot tier).',
+			},
+			{ name: 'cells', type: list(UPGRADE_CHANGE), description: 'Every coin it raised.' },
+		],
+		category: 'book',
+		description:
+			'An upgrade special applied: every cash coin (`all`), the cash coins around it (`adjacent`) or the lowest jackpot coin one tier up (`jackpotTier`).',
+	},
+	{
 		name: 'coinBoost',
 		payload: [
 			{
@@ -416,11 +473,17 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	{
 		name: 'cellsCleared',
 		payload: [
-			{ name: 'reason', type: STRING, description: 'Why they left (`collected`).' },
+			{
+				name: 'reason',
+				type: STRING,
+				description:
+					'Why they left: `collected` (a streak collect) or `applied` (a special that leaves once applied).',
+			},
 			{ name: 'cells', type: list(POSITION), description: 'The cells that left the board.' },
 		],
 		category: 'book',
-		description: "A streak collector's collected coins leave the board.",
+		description:
+			"A streak collector's collected coins, or a non-sticky add-respins that applied, leave the board.",
 	},
 	{
 		name: 'columnComplete',
@@ -521,6 +584,8 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('setRespinCounter', 'respinUpdate'),
 	beat('restoreRespinBoard', 'holdAndWinState'),
 	beat('payCoins', 'coinPay'),
+	beat('addRespins', 'respinsAdded'),
+	beat('upgradeCoins', 'coinUpgrade'),
 	beat('boostCoins', 'coinBoost'),
 	beat('turnSpecialIntoCoin', 'specialBecomesCoin'),
 	beat('collectCoins', 'coinCollect'),
@@ -607,6 +672,24 @@ const CUES: TemplateVocabulary['cues'] = [
 			{ name: 'payer', type: CELL },
 			{ name: 'value', type: FLOAT },
 			{ name: 'cells', type: list(COIN_CHANGE) },
+		],
+	},
+	{
+		name: 'respinAddRespins',
+		payload: [
+			{ name: 'cell', type: CELL },
+			{ name: 'added', type: INT },
+			{ name: 'left', type: INT },
+			{ name: 'total', type: INT },
+		],
+	},
+	{
+		name: 'respinCoinUpgrade',
+		payload: [
+			{ name: 'upgrader', type: CELL },
+			{ name: 'target', type: UPGRADE_TARGET },
+			{ name: 'step', type: FLOAT },
+			{ name: 'cells', type: list(UPGRADE_CHANGE) },
 		],
 	},
 	{
@@ -773,7 +856,8 @@ const VALUES: TemplateVocabulary['values'] = [
 	{
 		name: 'activeModifiers',
 		type: list(SPECIAL),
-		description: 'The specials active in the feature (payer, multiplier, collector, mystery).',
+		description:
+			'The specials active in the feature (payer, multiplier, collector, mystery, add-respins, upgrade).',
 	},
 	...JACKPOT_TIERS.map((tier) => ({
 		name: `jackpot.${tier}`,

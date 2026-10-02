@@ -43,7 +43,8 @@ export const trimFractionZeros = (text: string, separator: string, keep: number)
  *
  * - a jackpot coin: its tier, and the factor a multiplier gave it (`MINI`, `MINI ×2`);
  * - a multiplier: `×3` — a factor, not money;
- * - a payer: `+$4.00` — what it adds to every coin;
+ * - a payer, or an upgrade: `+$4.00` — what it adds to every coin (an upgrade's cash step);
+ * - an add-respins: `+2` — the respins it adds, not money;
  * - a coin, a collector, anything else with a value: the money it is worth (`$1.50`).
  *
  * `money` formats a multiple of the total bet as the player's currency. Null ⇒ print nothing (no
@@ -64,8 +65,9 @@ export const coinLabelText = (
 	}
 	if (symbol.value === undefined || roles.includes('mystery')) return null;
 	if (roles.includes('coinMultiplier')) return `×${symbol.value}`;
+	if (roles.includes('addRespins')) return `+${symbol.value}`;
 	const cash = cashText(symbol.value, money, format);
-	return roles.includes('payer') ? `+${cash}` : cash;
+	return roles.includes('payer') || roles.includes('upgrade') ? `+${cash}` : cash;
 };
 
 const cashText = (value: number, money: CoinLabelMoney, format?: CoinLabelFormat): string => {

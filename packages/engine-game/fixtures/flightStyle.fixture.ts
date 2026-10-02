@@ -117,9 +117,22 @@ it(
 );
 
 it(
-	'flight keys: the four kinds and toMeter:<id>',
-	['toTotal', 'toCollector', 'boostBeam', 'toMeter', 'toMeter:gold'].map(isFlightKey),
-	[true, true, true, true, true],
+	'flight keys: the six kinds and toMeter:<id>',
+	[
+		'toTotal',
+		'toCollector',
+		'boostBeam',
+		'toCounter',
+		'upgradeBeam',
+		'toMeter',
+		'toMeter:gold',
+	].map(isFlightKey),
+	[true, true, true, true, true, true, true],
+);
+it(
+	'an unauthored toCounter / upgradeBeam flies the coded flight',
+	[resolveFlightStyle(undefined, 'toCounter'), resolveFlightStyle({}, 'upgradeBeam')],
+	[CODED, CODED],
 );
 it(
 	'junk keys are not flight keys',

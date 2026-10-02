@@ -109,8 +109,8 @@ at **Create** (Pots unless you chose another), so the page opens on an authored 
 template.
 
 **Symbols get their role in the Symbols panel**, through their special properties:
-`coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `meterSpecial`,
-`blank`. The Hold and Win section holds the tables for each role, and each special's
+`coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `addRespins`,
+`upgrade`, `meterSpecial`, `blank`. The Hold and Win section holds the tables for each role, and each special's
 card lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold
 and Win role shows its value table in the paytable instead of line pays — it never pays
 on a line.
@@ -134,9 +134,22 @@ The panels:
   to when won), **+ per bet** (what every bet adds, × total bet) and an optional **cap**. The server
   keeps the pool per player and pays it when the tier is won; the jackpot bar shows it live. No preset
   has one — the `pots-progressive` mock fixture exercises it.
-- **Specials** — collector, multiplier, payer, mystery; each switched on separately
-  with its own table. Then the **apply order** for specials landing on the same respin
-  and which are **active at entry**.
+- **Specials** — collector, multiplier, payer, mystery, add respins, upgrade; each
+  switched on separately with its own table. Then the **apply order** for specials
+  landing on the same respin and which are **active at entry**. A mystery can reveal any
+  of the others.
+  - **Add respins** — the respins it adds when it applies (whole numbers, weighted).
+    **Also raises the count a reset fills back to** makes every later reset fill to the
+    higher count too (the respin **cap** — most respins played — is never raised).
+    **Sticky** keeps it on the board afterwards, holding its cell and worth nothing; off,
+    its cell clears once it has added. Plus reels and **lands in the base game** (where
+    it only counts toward a trigger that counts its role).
+  - **Upgrade** — the rules it may apply, each with a weight (one is drawn per landing):
+    **every cash coin** by its step, **the cash coins in the 8 cells around it** by its
+    step, or **the lowest jackpot coin, one tier up** (MINI → MINOR; never past the top
+    tier — needs at least two jackpot tiers). The **step** table is × total bet,
+    decimals allowed; the jackpot-tier rule ignores it. Jackpot coins are never raised
+    by a step. Plus reels and **lands in the base game**.
 - **Meters (pots)** — per meter: the symbol that fills it, max level, the levels where
   it grows, the special a full meter activates. Pot levels are the server's; the game
   only shows them.
