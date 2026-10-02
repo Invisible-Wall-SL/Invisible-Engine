@@ -10,6 +10,7 @@ export * from './src/holdAndWin';
 export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';
 export * from './src/potsOverlay';
+export * from './src/potsOverlayMock';
 export * from './src/potsOverlayPresets';
 export * from './src/addOns';
 export * from './src/modes';
