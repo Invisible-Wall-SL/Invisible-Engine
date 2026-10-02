@@ -91,42 +91,60 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Decisions & findings
 
 - 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
-  `packages/game-config/potsOverlay.fixture.ts` and the kind-gating / signal-scope /
-  hold-and-win-template gates.
+  `packages/game-config/potsOverlay.fixture.ts` (115 assertions) and the kind-gating /
+  signal-scope / hold-and-win-template gates. A code review's five findings were fixed before
+  merge; they are folded in below.
   - **The block** (`packages/game-config/src/potsOverlay.ts`). It is the design's §3.1 shape.
-    `normalizePotsOverlay` is structural: a block with no pot and no drop is no block. A block with
-    pots but no `drops` stores `chance: 0.1, maxPerSpin: 1`, values the validator accepts. A drop
-    entry without a weight weighs 1. The default dropping modes (`['basegame']`) and an every-reel
-    `reels` are not stored.
+    - `normalizePotsOverlay` is structural: a block with no pot and no drop is no block. A pot
+      missing its token or bonus is dropped whole, as a Hold and Win meter is, so the 5a editor
+      must keep draft rows client-side.
+    - A block with pots but no `drops` stores `chance: 0.1, maxPerSpin: 1`. A drop entry without a
+      weight weighs 1.
+    - The default dropping modes (`['basegame']`) are not stored. An empty `reels` or `modes` list is
+      kept as authored and reported by the validator ("No reel can receive a token" / "No mode
+      drops").
   - **Tokens never sit on a strip.** A token on any `paddingReels` strip is an error. A token is
     exempt from the general "in the dictionary but on no strip" warning, but a token with a paytable
     still warns, because it can never pay.
-  - **Weights:** a drop's weight must be above 0. This is stricter than the Hold and Win tables,
-    which allow a 0 entry.
-  - **New warning:** with value coins in the table and `maxPerSpin` below `holdAndWin.trigger.count.min`,
-    dropped coins can never start the feature. The `threePots` preset therefore sets `maxPerSpin` to
-    the trigger's count (6).
+  - **Drops:**
+    - A weight must be above 0, which is stricter than the Hold and Win tables (they allow a 0
+      entry). The chance is in (0, 1].
+    - A dropping mode must play on the `reels`. A respin board, a wheel or `none` has no cell for a
+      token.
+    - Value coins with no `holdAndWin.trigger.count` → warning: they can never start the feature.
+    - Value coins with `maxPerSpin` below `trigger.count.min` → warning. The `threePots` preset
+      therefore sets `maxPerSpin` to the trigger's count (6).
   - **`resolveMeters(doc)`** lists the Hold and Win block's meters first (`source: 'symbol'`, bonus
-    `{mode: 'holdAndWin', activates}`), then the overlay's pots (`source: 'overlay'`). Nothing reads
-    it yet. Phase 4 moves the runtime's `configuredMeters()` onto it, and Phase 5 moves the tools.
-  - **A `holdAndWin` block beside the overlay is the overlay's bonus.** The lines-only rule is
-    skipped. The trigger check counts any of these as a trigger:
-    - a pot routed to `holdAndWin`;
-    - a value-coin drop together with `trigger.count`;
-    - the block's own meters.
-
-    `trigger.count` alone no longer counts. `trigger.pattern`, `luckySpin`, `randomMetre`, `buy` and
-    `instantCollectInBaseGame` (on the collector and the multiplier) are errors there ("not built
-    for an overlay host yet"). The "nothing activates a special" warning counts a pot with
-    `activates`.
+    `{mode: 'holdAndWin', activates}`), then the overlay's pots (`source: 'overlay'`). It returns
+    copies. Nothing reads it yet: Phase 4 moves the runtime's `configuredMeters()` onto it, and
+    Phase 5 moves the tools.
+  - **Bonus or base game: `holdAndWinIsOverlayBonus(doc)`** (`holdAndWin.ts`; it lives there to avoid
+    an import cycle). The data decides, in this one place: with an overlay present, the block is the
+    BONUS when the base game's strips deal no Hold and Win symbol. The base game's strips are found
+    through the mode registry (`gameTypeForMode`). Phases 2–4 must call this helper, never re-derive
+    it.
+    - **As a bonus** (a Book-of or lines host):
+      - The lines-only rule is skipped.
+      - The feature starts only from a pot routed to `holdAndWin`, or from value-coin drops with
+        `trigger.count`. The no-trigger error says exactly that.
+      - `trigger.pattern`, `luckySpin`, `randomMetre`, `buy`, `instantCollectInBaseGame` (on the
+        collector and the multiplier) and symbol-filled `meters` are errors ("not built for an
+        overlay host yet").
+      - A `trigger.count` with no value-coin drop → warning.
+    - **As the base game** (a Hold and Win game that adds an overlay): every rule applies unchanged,
+      and a pot routed to `holdAndWin` is one more trigger. The fixture validates pots-to-free-spins
+      on all three Hold and Win presets clean.
+    - The "nothing activates a special" warning counts a pot with `activates`.
   - **Presets** (`potsOverlayPresets.ts`):
-    - Each preset is `{potsOverlay, tokens, holdAndWin?}`, to be merged in, never a whole-doc reset.
-      Merging is Phase 5a / 6.
+    - `potsOverlayPreset(id)` builds a fresh `{potsOverlay, tokens, holdAndWin?}` on each call, so a
+      game bundle never carries `HOLD_AND_WIN_PRESETS` (checked with a Rollup probe). Merging a preset
+      into a doc is Phase 5a / 6, never a whole-doc reset.
     - `threePots` is built from the 3 Pots meters (red → payer, blue → collector, green →
       multiplier).
-    - `holdAndWinBonus('pots')` gives the paired block, its symbols and its respin strips. It drops
-      `luckySpin`, the block's own meters and the `meterSpecial` tags (red/blue/green would clash
-      with the pot ids), and turns instant collect off.
+    - `holdAndWinBonus(id, host)` gives the paired Hold and Win block, its symbols and its respin
+      strips, cycled to the host's `numReels` (3 Pots on a 6-reel host and the 3×3 Collector on a
+      5-reel host both validate clean). It drops `luckySpin`, the block's meters and the
+      `meterSpecial` tags, and turns instant collect off.
     - `potsToFreeSpins`: one `gold` pot → `{mode: 'freeSpins', spins: 10}`.
   - **`modes.ts`** now exports `HOLD_AND_WIN_MODE` and `GAME_MODE_ID`, the id shape pots share
     because both become anchors and value-source path segments.
@@ -140,10 +158,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       `potFull`, `potActivate`) moved to `pots`.
     - `symbolStatesForKind`, `engineSignalsForKind` and `componentOfferedForKind` take an optional
       config. No consumer passes one yet.
-  - **Parity:** 168 docs (every Hold and Win preset and fixture and every committed default, each
-    under 11 mutations) normalize and validate identically to `HEAD`. `check:holdandwin` (1892
-    facade checks) and `check:freespins` pass unchanged, and the svelte-check ratchet holds
-    (launcher 53, lines 164, engine-layout 291).
+  - **Parity:** 168 docs normalize and validate identically to `main`. They are every Hold and Win
+    preset and fixture plus every committed default, each also under mutations including lucky spin,
+    pattern, random metre and instant collect variants. `check:holdandwin` (1892 facade checks) and
+    `check:freespins` pass unchanged, and the svelte-check ratchet holds (launcher 53, lines 164,
+    engine-layout 291).
 - 2026-10-02 — **Owner request + plan** (session "3 pots overlay mechanic").
   - The request: the 3 Pots mechanic as an optional overlay on any game. Coins appear on top of the
     symbols and fly to pots. A full pot cues a bonus: a classic Hold and Win, or "other games I
@@ -167,8 +186,14 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      `potsOverlay` too. The runtime's `configuredMeters()` must read `resolveMeters`.
    - **Phase 5c:** `packages/engine-flow-v2/src/reference/holdAndWin.ts:936-938` (`unusedByKind`)
      repeats the kind rule as a regex. Make it read the capabilities.
+   - **Phase 2:** decide whether a Hold and Win GAME's own count trigger (an H&W kind that adds an
+     overlay) also counts dropped value coins, or only landed coin symbols. Record it here.
+   - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so
+     keep draft rows client-side until they are complete.
    - **Phase 5d:** tokens are off the strips, so `symbolsInPlay` leaves them out. `/symbols` and the
-     published symbol defaults must add them through `resolveMeters`.
+     published symbol defaults must add them through `resolveMeters`. `symbolStatesForKind` (pinned
+     by `check-symbols-kind-gating.ts`) hides `coinLand` / `coinIdle` / `flyToMeter` from a pots-only
+     host, but design §4 wants those states for the tokens. Gate them on `pots` there.
    - **Phase 6:** merging `holdAndWinBonus()` symbols into a host's dictionary can clash with the
      host's own names (a host that already has a `BONUS` or a `BLANK`). The add-on needs a rename
      map, or must refuse with a clear message.

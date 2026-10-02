@@ -117,11 +117,11 @@ type PotBonus = {
 };
 
 type OverlayDrops = {
-	chance: number; // 0..1: the share of spins in a dropping mode that drop anything
+	chance: number; // (0, 1]: the share of spins in a dropping mode that drop anything
 	maxPerSpin: number; // ≥ 1
 	table: OverlayDropEntry[]; // weighted: what each token is
 	reels?: number[]; // reels a token may land on (0-based); absent ⇒ every reel
-	modes?: string[]; // modes whose spins drop; absent ⇒ ['basegame']
+	modes?: string[]; // `reels`-board modes whose spins drop; absent ⇒ ['basegame']
 };
 
 type OverlayDropEntry =
@@ -143,11 +143,19 @@ Rules:
   - `activates` is valid only with `holdAndWin`.
   - A `{coin}` drop entry needs a `holdAndWin` block. Its `trigger.count` is then the classic "N+
     coins" trigger, counted over the dropped coins.
-- **A `holdAndWin` block in an overlay host is the overlay's bonus, not the base game.** Its
-  lines-only rule (`validateHoldAndWin`: `winModel` must be `lines`) does not apply there, because the
-  host's own mock deals the base game. Its base-board-only options (`pattern`, `luckySpin`,
-  `randomMetre`, `buy`, instant collect) are refused there until a phase builds them for an overlay.
-- **Presets** (`potsOverlay` presets, inserted alone — never a whole-doc reset):
+- **Is the `holdAndWin` block the bonus or the base game?** The data decides, in one helper,
+  `holdAndWinIsOverlayBonus(doc)`, shared by the validator, the mock, the facade and the runtime. The
+  block is the overlay's BONUS when an overlay is present and the base game's strips deal no Hold
+  and Win symbol. That covers a Book-of or lines host.
+  - **As a bonus:** the lines-only rule (`winModel` must be `lines`) does not apply, because the
+    host's own mock deals the base game. The base-board-only options (`pattern`, `luckySpin`,
+    `randomMetre`, `buy`, instant collect, symbol-filled `meters`) are refused until a phase builds
+    them for an overlay.
+  - **A Hold and Win game that adds an overlay** keeps its block as the base game, with every rule,
+    and a pot routed to `holdAndWin` is one more trigger.
+- **Presets** (`potsOverlayPreset(id)`, built on call so game bundles never carry them; merged into
+  the doc, never a whole-doc reset. `holdAndWinBonus(id, host)` gives the paired Hold and Win block,
+  its symbols and its respin strips cycled to the host's reel count):
   - **3 Pots**: red → Hold and Win + payer, blue → + collector, green → + multiplier (the 3 Pots of
     Egypt pots, as overlays).
   - **Pots to free spins**: one pot → `freeSpins`.
