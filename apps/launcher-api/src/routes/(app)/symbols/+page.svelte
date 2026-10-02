@@ -1252,11 +1252,13 @@
 	 *  declares (kept visible so it can be cleared). */
 	const flightRows = $derived.by(() => {
 		const kinds = potsOnly
-			? FLIGHT_KINDS.filter((kind) => kind === 'toMeter' || doc.flights?.[kind])
+			? FLIGHT_KINDS.filter(
+					(kind) => kind === 'toMeter' || kind === flightPick || doc.flights?.[kind],
+				)
 			: FLIGHT_KINDS;
 		const rows: { key: string; label: string; orphan: boolean }[] = kinds.map((kind) => ({
 			key: kind,
-			label: FLIGHT_KIND_LABELS[kind],
+			label: potsOnly && kind === 'toMeter' ? 'Into a pot (every pot)' : FLIGHT_KIND_LABELS[kind],
 			orphan: false,
 		}));
 		const meters = new Set(data.meterIds);
@@ -1267,15 +1269,18 @@
 			const id = key.startsWith(FLIGHT_METER_PREFIX) ? key.slice(FLIGHT_METER_PREFIX.length) : '';
 			if (id && !meters.has(id)) rows.push({ key, label: `Into meter “${id}”`, orphan: true });
 		}
+		// A pots-only host lists only what it authors, so the picked row stays listed while it is
+		// picked: clearing its last field must not move the panel (and a pending head draft) elsewhere.
+		if (potsOnly && flightPick && !rows.some((row) => row.key === flightPick)) {
+			const id = flightPick.slice(FLIGHT_METER_PREFIX.length);
+			rows.push({ key: flightPick, label: `Into meter “${id}”`, orphan: true });
+		}
 		return rows;
 	});
 
-	let flightPick = $state<string>('toTotal');
-	/** The picked flight, or the first row when the pick is not listed (a pots-only host has no
-	 *  `toTotal`). */
-	const flightKey = $derived(
-		flightRows.some((row) => row.key === flightPick) ? flightPick : flightRows[0].key,
-	);
+	let flightPick = $state<string | null>(null);
+	/** The picked flight; before a pick, the first a host has (a pots-only host has no `toTotal`). */
+	const flightKey = $derived(flightPick ?? (potsOnly ? 'toMeter' : 'toTotal'));
 	/** A head whose kind needs an asset that is not picked yet — held here until it is complete,
 	 *  because the normalizer drops an incomplete head and the choice would vanish. */
 	let flightHeadDraft = $state<FlightHead | null>(null);
