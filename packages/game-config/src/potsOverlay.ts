@@ -399,9 +399,22 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	});
 
 	const filled = new Set(d.table.flatMap((e) => (isCoinDrop(e) ? [] : [e.pot])));
+	const dropping = d.modes ?? [BASE_GAME_MODE];
 	overlay.pots.forEach((p, i) => {
 		if (!filled.has(p.id))
 			warning(`pots.${i}`, `No drop fills the ${p.id} pot, so it never fills.`);
+		// A pot whose bonus is a mode it also fills in can refill inside its own bonus and start it
+		// again, round after round, with nothing to end the chain.
+		else if (
+			p.bonus.mode !== BASE_GAME_MODE &&
+			dropping.includes(p.bonus.mode) &&
+			gameModeById(doc, p.bonus.mode)?.board === 'reels'
+		) {
+			warning(
+				`pots.${i}.bonus.mode`,
+				`The ${p.id} pot starts ${p.bonus.mode}, where tokens also drop: it can refill during its own bonus and start it again without end.`,
+			);
+		}
 	});
 
 	return issues;

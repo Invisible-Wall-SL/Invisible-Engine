@@ -6,9 +6,9 @@
 
 **One-line state:** Phases 0–3 merged: the `potsOverlay` Game Config block and the additive
 `kindCapabilities` (#1008), the composed mock (#1013), and the facade plus the engine event contract
-(#1012). The mock deals tokens and pots over the book game, and the facade routes each bonus of an
-overlay host by its key. Nothing draws a token yet (Phase 4). A project without the block, which is
-every project today, plays exactly as before. Next: Phases 4 and 5a–5d.
+(#1012). Phase 4a built (#1015 in review): the runtime draws dropped tokens over the board, flies them
+into the pots, and drains a pot as any bonus it starts begins. A project without the block, which is
+every project today, plays exactly as before. Next: 4b, 5a, 5c, 5d, then 6.
 
 ## How sessions use this file (the hub)
 
@@ -29,20 +29,20 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 
 ## Phase board
 
-| #   | Phase                                                                                                                                                | State                   | Owner session                                        | PR    |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------- | ----- |
-| 0   | Plan + hub                                                                                                                                           | in review               | 3 pots overlay mechanic                              | #1008 |
-| 1   | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs                                    | built, in review        | 3 pots overlay mechanic                              | #1008 |
-| 2   | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged                  | Pots overlay Phase 2 — composed mock                 | #1013 |
-| 3   | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind)                            | merged                  | Pots overlay Phase 3 — facade + event contract       | #1012 |
-| 4   | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume)                                  | not started (needs 3)   | —                                                    | —     |
-| 5a  | `/config` Add-ons section                                                                                                                            | not started (needs 1)   | —                                                    | —     |
-| 5b  | Scene Editor overlay screens + palette/pickers through the capability                                                                                | merged                  | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
-| 5c  | Flow vocabulary composition (editor, publish gate, runtime) + graft                                                                                  | not started (needs 1)   | —                                                    | —     |
-| 5d  | `/symbols` + `/win-text` + Localization through the capability                                                                                       | built, in review        | Pots overlay Phase 5d — Symbols + Win Text           | #1011 |
-| 6   | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end                                                                 | not started (needs 2–5) | —                                                    | —     |
-| 7   | Bonus import from another project (provenance, re-sync, pot → imported mode)                                                                         | not started (needs 6)   | —                                                    | —     |
-| 8   | Partner wire                                                                                                                                         | blocked on partner      | —                                                    | —     |
+| # | Phase | State | Owner session | PR |
+|---|---|---|---|---|
+| 0 | Plan + hub | in review | 3 pots overlay mechanic | #1008 |
+| 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
+| 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
+| 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a built, in review (the per-reel timing option is 4b) | Pots overlay Phase 3 — facade + event contract | #1015 |
+| 5a | `/config` Add-ons section | not started (needs 1) | — | — |
+| 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
+| 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
+| 5d | `/symbols` + `/win-text` + Localization through the capability | built, in review | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
+| 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
+| 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
+| 8 | Partner wire | blocked on partner | — | — |
 
 ## Current state
 
@@ -105,12 +105,115 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     meter's symbol, so a project without the overlay gets no new row. A token row carries a
     `token → <pot>` chip.
   - **Flights:** shown on `pots`. A pots-only host lists `toMeter` and one `toMeter:<id>` row per
-    pot, and the default selection falls back to the first row (it has no `toTotal`).
+    pot, selected first (it has no `toTotal`); the picked row stays listed while it is picked.
   - **Win Text:** Jackpots, Respins, Hold and Win feature and Wheel stay on `holdAndWin` (the kind
     OR the block). A pots-only host gets a "Pots" section instead: `WIN_TEXT_POT_FIELDS` (Pot full,
     Pot label) and one name per pot. `collectWinTextTemplates` takes `pots`. Without an overlay,
     `pots` equals `holdAndWin`, and 120 side-by-side harvests matched `main`.
   - **Profile chip:** "Pots overlay (N pots)" when the block has pots.
+- 2026-10-02 — **Phase 4a runtime, as built** (#1015; the session that built Phase 3). Pinned by
+  `packages/engine-game/src/game/potsOverlay.fixture.ts` (now run by `check:pots-overlay`, with
+  game-config's Phase 1 fixture, which was not run by any gate before) and `check:signal-scope`'s
+  new pots-only case. `code-reviewer`: nothing blocking; its should-fix items are folded in below.
+  - **The token picture** (`engine-game` `applyOverlayEvent`, recorded at the play seam into
+    `apps/lines` `stateOverlay`):
+    - `overlayDrop` puts tokens down.
+    - A pot's `meterUpdate` lifts its own tokens at its `from` cells.
+    - The next base `reveal`, a cascade step, or a `holdAndWinEnd` clears the rest, and so does
+      the next round's spin press (`clearOverlay`, beside `clearWinPresentation`), so no token sits
+      over rolling reels. A value coin that did not fly is gone by the next spin. Hold and Win's
+      dropped coins stay on the base board while its pots drain, then live on the respin board
+      (which covers the reels, tokens and all) until the feature ends.
+    - The record is the timing: an event is recorded as its beat starts. Tokens therefore appear
+      when `overlayDrop` plays (after the board stops) and leave as their fill's flights start.
+  - **The layer:** `OverlayTokens.svelte`, mounted for every game right after `<Board />` (above the
+    symbols, under the win line and the flights) and empty without a token. Each token is a
+    `Symbol` at its cell's seat (`getSymbolSeat`, visible rows), so its art, its states and a value
+    coin's label come from `/symbols`. Hidden while the respin board is up.
+  - **The drop beat** (`overlayPresentation.ts`): `coinLand`, awaited (capped, raced against the
+    slam), then `coinIdle`.
+  - **Pots:** `configuredMeters()` now reads `resolveMeters`, so the coded pots, the
+    `meter.<id>.*` value sources and the flights cover overlay pots. The pot signal family
+    registers when either block is present (`featureComponentSignals(…, holdAndWin, pots)`).
+  - **The drain on any mode a pot starts:** `drainedMeters(event)` names the pots a `freeSpinTrigger`
+    or `modeEnter` with `cause: 'meter'` consumed. The play seam empties them, as Hold and Win's
+    own reducer does for its trigger. The coded `freeSpinTrigger` and `modeEnter` handlers play the
+    same drain beat as Hold and Win (`presentMeterConsume(ids)`) before anything else.
+  - **Resume:** `createBonusSnapshot` no longer replays a `freeSpinTrigger` (or its counter) when a
+    `freeSpinEnd` closed those free spins AND another bonus entered after it (`holdAndWinTrigger` or
+    `modeEnter`). A two-bonus round therefore resumes on that bonus. A round with no later bonus
+    (every plain free-spin game, Borut included) replays exactly as before. The trigger it does
+    replay drops its `meters`, so a resume never re-plays a drain; the pots are restated by
+    `meterLevels`.
+  - **One token per cell** (the last named wins), so a duplicate in a drop cannot break the layer's
+    keyed list. A cascade step (`tumbleBoard`) clears the tokens, like a new board.
+  - **Tokens mount already landing:** the play seam sets `coinLand` as it records the drop, so no
+    frame shows them at rest first. With a flow owning `overlayDrop`, the token's own completion
+    settles it.
+  - **`{meter}` in Win Text's "Pot full"** is the special a full pot activates, as before. For a pot
+    that activates none (it starts free spins or another mode), it is the pot's own name
+    (`potCaption`). A Hold and Win game's meters always activate a special, so their banner is
+    unchanged. The `/win-text` hint says so; its preview still shows the special case.
+  - **Tokens ship** (rule 8): `publish-symbol-defaults.mjs` keeps a symbol that is a pot's token
+    (`resolveMeters`), not only symbols on a strip, so the published symbol defaults carry the
+    token rows. The `/symbols` export never filtered by in-play, so an authored token binding
+    already travels export → bake → pull → register.
+  - **`configuredMeters()`** is resolved once per config object, so a pot's per-frame reads allocate
+    nothing.
+  - **Several modes in one round:** the facade now closes the bonus before at the next one's ENTRY
+    (below), so a pot's stub mode after the host's free spins plays after them, not nested inside:
+    enter freeSpins → exit → enter pickBonus → exit, each reaching `allFinished`.
+  - **The hub's review of #1012, folded in** (no live-game impact; the hub's parity run found 0
+    differences on 15,391 events):
+    - **Resume of free spins → Hold and Win, mid-respins:** `freeSpinsGaveWay` (engine-game,
+      pure) decides; `createBonusSnapshot` skips the ended free spins' trigger and counter. Pinned
+      with the hub's round in `engine-game`'s fixture.
+    - **Bonuses close at the next ENTRY** (`holdAndWinTrigger`, `enterBonus`, a pot's stub
+      `modeEnter`), never at a `spinTrigger`, which the partner may send for a retrigger. A Hold and
+      Win feature followed by free spins leaves the respin board there too.
+    - **The look-ahead resets at each `spinStart`,** so a server that sends a drop after its board's
+      `playedSpin` binds it to that board, not the next.
+    - **A Hold and Win GAME that adds an overlay keeps identity names** (its boot `symbols` lists
+      its Hold and Win symbols; a host whose block is the overlay's bonus does not). The mapping
+      gate reads `POTS_OVERLAY_WIRE`, now defined in the dependency-free `gameMappings.ts`.
+    - **No unknown-symbol warnings** for an overlay host's tokens and respin symbols.
+    - **`potsOverlay.fixture.ts` moved** from `check:holdandwin` to `check:pots-overlay`.
+    - **Validator:** a pot whose bonus is a reels mode it also drops in (free spins with
+      `drops.modes` listing `freeSpins`) warns: it can refill during its own bonus and chain without
+      end.
+  - **The hub's review of #1015, folded in:**
+    - A trigger board between a Hold and Win feature's end and the next bonus is a reel `reveal`,
+      not a `respinReveal`: an overlay host's feature leaves the respin board at its
+      `holdAndWinEnd`, and its total joins the round's win there (pinned in the facade fixture).
+    - Pots a mode entry drains are pinned at their shown level as the drain is recorded
+      (`pinDrainedMeters`), so they do not read empty during the mode's transition and then refill
+      for the drain beat. The beat pins its own; a flow-owned entry's pins go at the next event.
+    - The coded handlers call the drain only when a pot started the entry (no extra await for any
+      other game).
+    - A token whose art reports complete on mount, before its beat is armed, resolves the beat at
+      once instead of waiting out the cap.
+    - `publish-symbol-defaults.mjs` normalizes the config before `resolveMeters` and falls back to
+      no tokens with a warning, so a raw compiled config cannot abort a publish.
+    - `docs/tools/win-text.md` states the `{meter}` rule for a pot that activates no special.
+  - **Real-clock verification** (`game-playtester`, headless shell over a CDP pipe, `--no-sandbox`
+    as root; ~4 fps software rendering, page visible; local mocks only, no R2):
+    - **Borut-style parity**, `main` vs this branch at e817f06, one forced free-spin round on the
+      book mock: both reach idle; all 13 RGS answers byte-identical; the full ordered flow trace
+      (262 lines) identical; the same 39 emitter-event types (one count, `soundScatterCounterIncrease`,
+      varies run to run on either branch at this frame rate); balance $5000 → $4999 → $5023.50 on
+      both, exactly the mock's; only the 4 environmental errors (Typekit, the boot.json 404).
+    - **Overlay, `pot:red` on Phase 2's mock** (threePots on a book host, a throwaway local config):
+      the token drops, the pot fills 0 → 12 and drains, Hold and Win plays its respins, back to
+      idle, money exact, 0 exceptions.
+    - **`pot:red,feature`:** the host's free spins play, end once (outro once), then the pot drains
+      and Hold and Win plays, back to idle, money exact, 0 exceptions.
+    - The earlier "cannot reach idle" was the harness: `win-countup-repro.mjs` looks for
+      `chrome-headless-shell` (the binary here is `headless_shell`), and as root the shell needs
+      `--no-sandbox`. Only the Typekit font fails remotely.
+  - **Parity:** without a drop, the layer is one empty container. Without a meter-caused entry,
+    nothing drains. A game with no `potsOverlay` registers the same signals as before. A legacy
+    resume replays exactly what it did. The svelte-check ratchet holds (lines 164).
+
 - 2026-10-02 — **Phase 3 contract, as built** (session "Pots overlay Phase 3 — facade + event
   contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (75 checks
   on hand-built wire that follows Phase 2's wire doc; it runs in `check:holdandwin`) and new
@@ -188,9 +291,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     and Win presets, a queued second mode, a forced meter trigger): 4,396 book events, 0
     differences. `check:holdandwin` (1892), `check:resume`, `check:freespins`, `check:rgs` and `check:engine-game` pass unchanged. The svelte-check ratchet
     holds (lines 164, engine-game 37, launcher 53). `apps/lines` booted on the local book mock
-    (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. In this
-    container neither branch's presentation reaches idle (swiftshader, remote art unreachable), so
-    the visual pass is left to a real-clock playtest.
+    (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. (Phase 4a's
+    real-clock run later showed the container CAN reach idle: the earlier stalls were the harness —
+    see Phase 4a below.)
 - 2026-10-02 — **Phase 2 mock, as built** (session "Pots overlay Phase 2 — composed mock"). The wire
   is the reference's "Pots overlay" section; `pnpm check:pots-overlay` pins it (in `check:rgs`).
   - **Composition is through a host seam, not an HTTP post-processor.** A pot bonus has to keep open
@@ -366,24 +469,37 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
-0. **Carried into Phase 4 (found in Phase 3):**
-   - **Resume of a two-bonus round** cut off mid-respins: the snapshot before the resume point holds
-     the free spins' `freeSpinTrigger` AND their `freeSpinEnd`. `createBonusSnapshot` replays the
-     last `freeSpinTrigger` whatever follows it, so it would redraw the free-spin intro. Skip it
-     when a later `freeSpinEnd` exists (the mode stack already restores correctly).
-   - Record `overlayDrop` into a token picture at the play seam (`utils.ts` `recordBookEvent`),
-     for the layer, lift-off and resume.
-   - The drain on any mode entry reads `modeEntryMeters(entry)`.
-   - Phase 2 must emit exactly the wire above. Anything that cannot work as specified goes to the
-     hub, not into a silent change.
+0. **Left after Phase 4a (#1015):**
+   - **4b — timing:** tokens pop in after the last reel stops (the default). The authorable
+     "each reel's tokens as it lands" option is not built. It needs a config field (none in the
+     block yet) and a hook on the reel-stop beat.
+   - **4b — the token as the flight head:** a token leaves its cell as its fill's beat starts, and
+     the coded head (or the `toMeter:<id>` style authored in `/symbols`) flies. Drawing the token's
+     own art as the head is not built.
+   - **Phase 5c:** a flow that OWNS `freeSpinTrigger` or `modeEnter` skips the coded handler, so a
+     pot drained by them snaps to empty with no drain beat. The flow needs an action for it, or
+     must call the coded drain.
+   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The
+     add-on seeds placeholder art, so this only bites a hand-made config.
+   - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
+     in the resume snapshot. The following `meterUpdate` still flies from the cell.
+   - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
+     entered the mode (`modes.before`), so the new mode's screens and music are already up. Hold
+     and Win's drain has always worked this way. Moving the drain into a mode hook would put it
+     first. Inside `freeSpinTrigger` it is also unskippable, which Hold and Win's drain is not.
+   - **4b — lift-off vs the flight stagger:** a fill's tokens leave at once, but each flight starts
+     one stagger (70 ms coded) after the last, so the Nth cell sits empty for (N−1)×70 ms. Goes with
+     the token as the flight head.
+   - **4b — owner decision pending: frame over coin, or coin over frame.** Win frames are drawn per
+     cell inside `Symbol.svelte`, under the overlay layer, so a token on a paying cell covers its
+     frame; §3.4 says the layer sits "below the win frames". The hub is asking the owner; nothing is
+     restructured in 4a.
+   - **Human eyes** on token pop-in, lift-off, the flight and the drain with REAL token art (the
+     runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
+     rate (the container renders at ~4 fps).
 
-1. **Merge #1008** (Phases 0–1). Then **Phases 2, 3 and 5a–5d** can start in parallel. Each needs a
-   session; see the Phase board.
+1. **Phases 5a, 5c and 5d** run in parallel; Phase 6 needs them and Phase 4. See the Phase board.
 2. **Carried into later phases (found in Phase 1):**
-   - **Phase 4:** `Game.svelte` registers the feature signals, pots included, only when the config
-     has a `holdAndWin` block (`featureComponentSignals`, `Game.svelte:1644`). On a pots-only host, an
-     authored pot cue would be offered (`pots`) but never fire, so register the pot family under
-     `potsOverlay` too. The runtime's `configuredMeters()` must read `resolveMeters`.
    - **Phase 5c:** `packages/engine-flow-v2/src/reference/holdAndWin.ts:936-938` (`unusedByKind`)
      repeats the kind rule as a regex. Make it read the capabilities.
    - **After Phase 2 (mock):**
@@ -396,11 +512,6 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
        refuses one only after its own feature has ended.
    - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so
      keep draft rows client-side until they are complete.
-   - **Phase 4 / 6 (found in 5d):** `scripts/publish-symbol-defaults.mjs` keeps only symbols on a
-     game's reels, so published defaults drop tokens. `/symbols` lists them from the live config,
-     and their cells live in the symbols doc, but the bake must carry them (rule 8).
-   - **Phase 4 (found in 5d):** "Pot full" (`meterFull`) names `{meter}` as the special a pot
-     activates. For a pot routed to free spins there is none. Decide what it says there.
    - **Phase 5c (found in 5b):** `apps/launcher-api/src/lib/sceneCues.ts` still lists the game-driven
      signals with `engineSignalsForKind(gameType)`, without the add-ons. Once Phase 4 registers the
      pot family on an overlay host, pass the config there too.
@@ -413,6 +524,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
      `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
      `check:all` runs every fixture.
+
+## Phase 8 checklist (partner wire)
+
+- **Retriggers:** the facade closes free spins at the next bonus's entry. If the partner's wire
+  announces a retrigger with an `enterBonus` (it has no `retrigger` event), that would end the free
+  spins early; check their retrigger shape before switching.
 
 ## Owner checklist
 
@@ -433,7 +550,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   "Pots overlay Phase 5d — Symbols + Win Text", agent `invisible-symbols`). Tokens get rows, the
   three token states, a chip and `toMeter:<id>` flights. Win Text gets a Pots section, and
   Localization harvests it. A Hold and Win bonus on any kind gets the full coin sections. The
-  symbols and Win Text guides were updated. Rules under Decisions; follow-ups under Open items.
+  symbols and Win Text guides were updated. Rules under Decisions. Its two follow-ups (tokens in the published defaults, `{meter}` for
+  a pot with no special) were closed by 4a.
+- 2026-10-02 — **Phase 4a: the runtime (#1015).** The token picture and the overlay layer, the drop
+  beat, lift-off as a pot fills, meters through `resolveMeters` and the pot signals for overlay
+  hosts, the drain on any meter-caused mode entry, and the two-bonus resume. 4b (the per-reel
+  timing option, the token as the flight head) and the 5c flow action are under Open items.
 
 - 2026-10-02 — **Phase 3: facade + event contract (#1012, merged).** `overlayDrop` and the mode-entry
   `cause` / `meters` in `engine-game`. The facade under a captured `potsOverlay`: pots seeded at boot

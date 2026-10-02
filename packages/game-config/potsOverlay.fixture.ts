@@ -470,6 +470,14 @@ check(
 	[['error:potsOverlay.drops.modes'], ['error:potsOverlay.drops.modes'], []],
 );
 check(
+	'a pot that starts free spins while tokens drop in free spins can chain without end (a warning)',
+	[
+		overlayIssues(edit(free, (d) => (d.potsOverlay!.drops.modes = ['basegame', 'freeSpins']))),
+		overlayIssues(edit(three, (d) => (d.potsOverlay!.drops.modes = ['basegame', 'freeSpins']))),
+	],
+	[['warning:potsOverlay.pots.0.bonus.mode'], []],
+);
+check(
 	'an authored empty reel list, or mode list, drops nothing',
 	[
 		overlayIssues(edit(three, (d) => (d.potsOverlay!.drops.reels = []))),

@@ -68,11 +68,17 @@ export const featureIntroText = (respins: number) =>
 export const featureOutroText = (amount: string) =>
 	formatWinText(bakedWinText().feature.outro, { amount });
 
-/** A pot that filled, named by what it activates ("PAYER ACTIVATED"). */
-export const meterFullText = (kind: string) =>
-	formatWinText(bakedWinText().feature.meterFull, {
-		meter: specialDisplayName(bakedWinText(), kind),
+/**
+ * A pot that filled, named by the special it activates ("PAYER ACTIVATED"); a pot that activates
+ * none — a pots overlay's pot that starts free spins or another mode — by its own name ("GOLD
+ * ACTIVATED").
+ */
+export const meterFullText = (meterId: string, activates: string | undefined) => {
+	const resolved = bakedWinText();
+	return formatWinText(resolved.feature.meterFull, {
+		meter: activates ? specialDisplayName(resolved, activates) : potCaption(resolved, meterId),
 	});
+};
 
 /** Special names for a toast, joined with ", ". */
 export const modifiersText = (kinds: readonly string[]) => {

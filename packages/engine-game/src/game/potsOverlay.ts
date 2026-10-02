@@ -1,3 +1,5 @@
+import type { HoldAndWinMeterLevel } from './holdAndWin';
+import { modeEntryMeters, modeOpOf } from './modeEvents';
 import type { Position, SymbolName } from './types';
 
 /**
@@ -33,3 +35,100 @@ export type PotsOverlayEventFields = {
  * in its payload ({@link modeEntryMeters}).
  */
 export type ModeEntryCause = { cause?: string; meters?: string[] };
+
+/**
+ * The client's picture of the tokens on the base board — what the overlay layer draws. Written ONLY
+ * at the play seam, from the book (`applyOverlayEvent`); the server stays the source of truth, so
+ * nothing here deals or computes a token.
+ */
+export type OverlayState = { tokens: OverlayDropCell[] };
+
+export const emptyOverlayState = (): OverlayState => ({ tokens: [] });
+
+type LooseEvent = { type: string } & Record<string, unknown>;
+
+const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.row === b.row;
+
+/**
+ * What one book event does to the token picture — state only, no presentation:
+ * - a base board's `reveal` clears it: a new board drops its own tokens, and a token that did not
+ *   fly (a value coin below the trigger count) is gone by the next spin; so does a cascade step
+ *   (`tumbleBoard`), which moves the cells the tokens stood on;
+ * - `overlayDrop` puts its tokens down, one per cell (the last named wins);
+ * - `meterUpdate` lifts the tokens that filled the pot (its `from` cells) — they fly to it;
+ * - `holdAndWinEnd` clears it: the dropped coins were held on the respin board (which covers the reels,
+ *   tokens and all, while it is up), and the base board comes back with the host's own symbols. Not
+ *   at the trigger: the pots drain over the base board first, and its coins must still show.
+ * Every other event leaves it as it is.
+ */
+export const applyOverlayEvent = (
+	state: OverlayState,
+	bookEvent: { type: string },
+): OverlayState => {
+	const event = bookEvent as LooseEvent;
+	switch (event.type) {
+		case 'reveal':
+		case 'tumbleBoard':
+		case 'holdAndWinEnd':
+			return state.tokens.length ? emptyOverlayState() : state;
+		case 'overlayDrop': {
+			const cells = (event.cells as OverlayDropCell[] | undefined) ?? [];
+			return {
+				tokens: cells
+					.filter((cell, i) => !cells.slice(i + 1).some(samePosition(cell)))
+					.map((cell) => ({ ...cell })),
+			};
+		}
+		case 'meterUpdate': {
+			const from = (event.from as Position[] | undefined) ?? [];
+			const lifted = (token: OverlayDropCell) =>
+				token.pot === event.meter && from.some(samePosition(token));
+			return state.tokens.some(lifted)
+				? { tokens: state.tokens.filter((token) => !lifted(token)) }
+				: state;
+		}
+		default:
+			return state;
+	}
+};
+
+/**
+ * The full pots a mode entry DRAINS: any entry with `cause: 'meter'` (a pot started it) names them,
+ * and the server emptied them as it started the mode. `holdAndWinTrigger` is left out: the Hold and
+ * Win reducer already empties its pots (`applyHoldAndWinEvent`). `[]` for every other event.
+ */
+export const drainedMeters = (bookEvent: { type: string }): string[] => {
+	if (bookEvent.type === 'holdAndWinTrigger') return [];
+	const op = modeOpOf(bookEvent);
+	return op?.op === 'enter' && op.cause === 'meter' ? modeEntryMeters(op) : [];
+};
+
+/** The meters with `ids` emptied — what the pots read once their bonus has started. */
+export const drainMeters = (
+	meters: HoldAndWinMeterLevel[],
+	ids: readonly string[],
+): HoldAndWinMeterLevel[] =>
+	ids.length
+		? meters.map((meter) => (ids.includes(meter.id) ? { ...meter, level: 0 } : meter))
+		: meters;
+
+/**
+ * Did the round's free spins END and give way to another bonus before the resume point? A pots
+ * overlay can play the host's free spins and then a pot's Hold and Win (or another mode) in one
+ * round. A resume cut inside the second bonus must not redraw the first: its `freeSpinTrigger` and
+ * counter are not replayed (`createBonusSnapshot`). A round with no later bonus — every plain
+ * free-spin game — answers false and resumes as it always has.
+ */
+export const freeSpinsGaveWay = (bookEvents: readonly { type: string }[]): boolean => {
+	const lastIndexOf = (type: string) => bookEvents.map((event) => event.type).lastIndexOf(type);
+	const triggeredAt = lastIndexOf('freeSpinTrigger');
+	const endedAt = lastIndexOf('freeSpinEnd');
+	return (
+		triggeredAt >= 0 &&
+		endedAt > triggeredAt &&
+		bookEvents.some(
+			(event, at) =>
+				at > endedAt && (event.type === 'holdAndWinTrigger' || event.type === 'modeEnter'),
+		)
+	);
+};

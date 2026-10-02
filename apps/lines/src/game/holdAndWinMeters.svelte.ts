@@ -1,6 +1,6 @@
 import type { HoldAndWinMeterLevel } from 'engine-game';
 import { meterFlightKey } from 'engine-layout';
-import type { HoldAndWinMeter } from 'game-config';
+import { resolveMeters, type ResolvedMeter } from 'game-config';
 import { Tween } from 'svelte/motion';
 
 import { getActiveGameConfig } from './gameConfig';
@@ -16,13 +16,25 @@ import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte
  * flight, a full meter emptying): {@link holdMeterDisplay} pins the drawn level and lets go when the
  * beat ends, exactly as the respin board's labels do (`stateRespinBoard.heldDisplay`).
  *
- * Which pots exist, their size stages and what a full one activates come from the Game Config
- * (`holdAndWin.meters`); a game with none draws nothing and registers nothing.
+ * Which pots exist, their size stages and the bonus a full one starts come from the Game Config,
+ * through `resolveMeters`: a Hold and Win game's symbol-filled meters, then a pots overlay's
+ * token-filled pots (`docs/design/pots-overlay.md` §3.1). A game with neither draws nothing and
+ * registers nothing.
  */
 
-/** The meters the Game Config declares — what the coded pots draw, in order. */
-export const configuredMeters = (): HoldAndWinMeter[] =>
-	getActiveGameConfig().holdAndWin?.meters ?? [];
+const resolvedFor = new WeakMap<object, ResolvedMeter[]>();
+
+/** The meters the Game Config declares — what the coded pots draw, in order. Resolved once per
+ *  config, so a pot's per-frame reads allocate nothing. */
+export const configuredMeters = (): ResolvedMeter[] => {
+	const config = getActiveGameConfig();
+	let meters = resolvedFor.get(config);
+	if (!meters) {
+		meters = resolveMeters(config);
+		resolvedFor.set(config, meters);
+	}
+	return meters;
+};
 
 export const stateMeterDisplay = $state({
 	/** A pot's drawn level while a beat runs, by meter id. */
@@ -43,7 +55,7 @@ export const meterMax = (id: string): number =>
 	recorded(id)?.max ?? configuredMeters().find((meter) => meter.id === id)?.maxLevel ?? 0;
 
 /** How many of `meter`'s size stages a pot at `level` has reached — the step it is drawn at. */
-export const meterStage = (meter: HoldAndWinMeter, level: number): number =>
+export const meterStage = (meter: ResolvedMeter, level: number): number =>
 	meter.sizeStages.filter((stage) => level >= stage).length;
 
 /** What an authored pot drawing meter `id` counts itself in as (`trackComponentMount`). */
@@ -63,6 +75,26 @@ export const holdMeterDisplay = (id: string, level: number): Tween<number> => {
 /** Let the pot read the server's level again — only if `tween` is still the one pinned there. */
 export const releaseMeterDisplay = (id: string, tween: Tween<number>): void => {
 	if (stateMeterDisplay.pinned[id] === tween) delete stateMeterDisplay.pinned[id];
+};
+
+/** The pots a mode entry just drained, pinned at the level they showed. */
+let drainPins: { id: string; tween: Tween<number> }[] = [];
+
+/**
+ * A mode a pot started is recorded — and the pot emptied — BEFORE the mode layer enters it and runs
+ * any authored transition; the drain beat itself plays later, inside the entry's handler. Pin each
+ * drained pot at the level it showed until then, so it does not read empty, then full again, then
+ * drain. Call before the drain is recorded. The beat pins its own and lets these go; a flow that owns
+ * the entry (no drain beat) has them released when the next event is recorded.
+ */
+export const pinDrainedMeters = (ids: readonly string[]): void => {
+	releaseDrainedMeters();
+	drainPins = ids.map((id) => ({ id, tween: holdMeterDisplay(id, meterLevelShown(id)) }));
+};
+
+export const releaseDrainedMeters = (): void => {
+	for (const { id, tween } of drainPins) releaseMeterDisplay(id, tween);
+	drainPins = [];
 };
 
 export const pulseMeter = (id: string): void => {

@@ -11,14 +11,12 @@
  * it, so every game without the block translates exactly as before.
  */
 
+import { POTS_OVERLAY_WIRE } from './gameMappings';
 import type { HoldAndWinMeterLevel } from './holdAndWin';
 
 /** The engine mode a Hold and Win bonus is — `game-config`'s `HOLD_AND_WIN_MODE`, restated because
  *  this package takes no engine dependency. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
-
-/** The only wire this module was written for — `config.potsOverlay.wire`. */
-export const POTS_OVERLAY_WIRE = 1;
 
 /** The `potsOverlay` block of the boot `config` — the fields the translation reads. */
 export type PotsOverlayWireConfig = {

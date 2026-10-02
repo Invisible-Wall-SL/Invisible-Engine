@@ -263,6 +263,12 @@
 		rows: 5,
 	});
 	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
+	/** A pots-only host's pot activates no special, so its `{meter}` is the pot's own name. */
+	const potFullPreview = $derived(
+		formatWinText(resolved.feature.meterFull, {
+			meter: potCaption(resolved, data.meterIds[0] ?? 'red'),
+		}),
+	);
 	/** A pot's `{level}` is its fill, not a collector name, so its row previews with pot values. */
 	const potPreview = $derived(
 		formatWinText(resolved.feature.potLabel, {
@@ -699,7 +705,8 @@
 				<h2>Hold and Win feature</h2>
 				<p class="hint">
 					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
-					<code>{'{meter}'}</code> the special a full pot activates and
+					<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins or
+					another mode reads as its own pot name, below) and
 					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
 					names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
 					outro draw nothing until you write them.
@@ -763,7 +770,8 @@
 				<p class="hint">
 					The pots overlay's lines. <code>{'{pot}'}</code> is a pot's name (below),
 					<code>{'{level}'}</code> its fill and <code>{'{max}'}</code> the level that fills it;
-					<code>{'{meter}'}</code> is what a full pot activates. <em>Pot full</em> is saved and translated,
+					<code>{'{meter}'}</code> in <em>Pot full</em> is the full pot's own name, since a pot here
+					starts free spins or another mode rather than a special. <em>Pot full</em> is saved and translated,
 					and shows once a beat uses it.
 				</p>
 				{#each WIN_TEXT_POT_FIELDS as field (field)}
@@ -775,8 +783,7 @@
 							oninput={(e) => setFeature(field, e.currentTarget.value)}
 						/>
 						<em class="row-preview"
-							>{(field === 'potLabel' ? potPreview : holdAndWinPreview(resolved.feature[field])) ||
-								'—'}</em
+							>{(field === 'potLabel' ? potPreview : potFullPreview) || '—'}</em
 						>
 					</label>
 				{/each}
