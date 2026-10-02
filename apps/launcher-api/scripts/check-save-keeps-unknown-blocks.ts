@@ -6,6 +6,8 @@
  * The gap it closes: an OLDER launcher (a rollback, a rolling deploy) loads a doc a newer one
  * wrote, its reader drops the block it does not know, and the author's next `If-Match` save
  * deleted that block from R2. Symbols could recover it from a backup; win text had no backup.
+ * Win text also keeps a field a newer launcher wrote one level down, inside a family (`toast`,
+ * `jackpots`, …).
  *
  * Runs the REAL `saveSymbolsDoc` / `saveWinTextDoc` / `storedUnknownBlocks`. Only `r2.ts` is
  * replaced, by an in-memory bucket that honours `If-Match` / `If-None-Match` and records every
@@ -435,6 +437,97 @@ check(
 		withoutStamp(stored(winTextKey)),
 		normalizeWinTextDoc(WIN_TEXT),
 	);
+}
+
+// ── Win text families: a field a newer launcher wrote INSIDE `toast`, `jackpots`, … ──────────
+
+const NESTED = { futureField: { mode: 'swirl' }, futureFlag: true };
+
+{
+	const etag = seed(winTextKey, {
+		...WIN_TEXT,
+		toast: { ...WIN_TEXT.toast, ...NESTED },
+		lineMessage: { ...WIN_TEXT.lineMessage, ...NESTED },
+		wheel: NESTED,
+		updatedAt: 'then',
+	});
+	const loaded = normalizeWinTextDoc(stored(winTextKey));
+	check(
+		'win text families: the load drops the unknown fields',
+		'futureFlag' in loaded.toast!,
+		false,
+	);
+	const result = await saveWinTextDoc('c', 'p', { ...loaded, toast: { full: 'WIN' } }, etag);
+	const after = stored(winTextKey);
+	check(
+		'win text families: a family the author edited keeps its unknown fields after the edit',
+		after.toast,
+		{ full: 'WIN', ...NESTED },
+	);
+	check('win text families: a family the author left alone keeps them', after.lineMessage, {
+		...WIN_TEXT.lineMessage,
+		...NESTED,
+	});
+	check('win text families: a family holding only unknown fields is kept', after.wheel, NESTED);
+	check(
+		'win text families: the returned doc omits the kept fields',
+		[result.doc.toast, 'wheel' in result.doc],
+		[{ full: 'WIN' }, false],
+	);
+	check('win text families: updatedAt is written last', Object.keys(after).at(-1), 'updatedAt');
+}
+
+{
+	// The author emptied a family's known fields (dropped, or blanked and pruned): they could not see
+	// its unknown fields, so those are not theirs to delete and come back on their own.
+	const etag = seed(winTextKey, { ...WIN_TEXT, toast: { ...WIN_TEXT.toast, ...NESTED } });
+	const { toast: _toast, ...withoutToast } = normalizeWinTextDoc(stored(winTextKey));
+	await saveWinTextDoc('c', 'p', withoutToast, etag);
+	check(
+		'win text families: emptying a family keeps its unknown fields',
+		stored(winTextKey).toast,
+		NESTED,
+	);
+	const reseeded = seed(winTextKey, { ...WIN_TEXT, toast: { ...WIN_TEXT.toast, ...NESTED } });
+	await saveWinTextDoc('c', 'p', { ...withoutToast, toast: { full: '  ' } }, reseeded);
+	check(
+		'win text families: …and so does blanking it until it is pruned',
+		stored(winTextKey).toast,
+		NESTED,
+	);
+}
+
+{
+	const nested = { ...WIN_TEXT, toast: { ...WIN_TEXT.toast, ...NESTED } };
+	seed(winTextKey, nested);
+	await saveWinTextDoc('c', 'p', WIN_TEXT, undefined);
+	check('win text families: a forced save keeps nothing', stored(winTextKey).toast, WIN_TEXT.toast);
+	seed(winTextKey, nested);
+	check(
+		'win text families: a stale If-Match save still conflicts',
+		await outcome(() => saveWinTextDoc('c', 'p', WIN_TEXT, '"stale"')),
+		'ConflictError',
+	);
+	check(
+		'win text families: …and leaves the stored fields alone',
+		stored(winTextKey).toast,
+		nested.toast,
+	);
+}
+
+{
+	// A newer TAB posting a family field this build does not know: the stored copy wins.
+	const etag = seed(winTextKey, { ...WIN_TEXT, toast: { ...WIN_TEXT.toast, futureFlag: true } });
+	await saveWinTextDoc(
+		'c',
+		'p',
+		{ ...WIN_TEXT, toast: { ...WIN_TEXT.toast, futureFlag: false } },
+		etag,
+	);
+	check('win text families: the stored value is kept over a posted one', stored(winTextKey).toast, {
+		...WIN_TEXT.toast,
+		futureFlag: true,
+	});
 }
 
 console.log();
