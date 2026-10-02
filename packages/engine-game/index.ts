@@ -71,9 +71,15 @@ export {
 	BASE_GAME_TYPE,
 	createModeGameTypeResolver,
 	MODE_EVENT_TYPES,
+	modeEntryMeters,
 	modeOpOf,
 	type ModeOp,
 } from './src/game/modeEvents';
+export {
+	type ModeEntryCause,
+	type OverlayDropCell,
+	type PotsOverlayEventFields,
+} from './src/game/potsOverlay';
 export {
 	createModeController,
 	type ModeController,

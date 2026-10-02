@@ -186,9 +186,13 @@ The wire is invented, like the Hold and Win wire, and documented in the same ref
 (`docs/reference/hold-and-win-wire.md`, a new "Pots overlay" section, written in Phase 2). It is
 rewritten when the partner delivers theirs. Its shape:
 
-- the boot `config` carries `potsOverlay {wire, pots: [{id, level, max}], roles}`;
+- the boot `config` carries `potsOverlay {wire, pots: [{id, token, level, max, sizeStages, bonus}],
+  bonuses: {<spinTrigger.bonus key>: <mode id>}}`;
 - `overlayDrop` follows `playedSpin`, with `meterUpdate` / `meterLevels` as today;
-- the bonus a round enters is named by `spinTrigger.bonus` (the partner's own field).
+- the bonus a round enters is named by `spinTrigger.bonus` (the partner's own field), and a pot's
+  bonus carries `cause: "meter", meters` there;
+- a second bonus in one round arrives as its `spinTrigger` + `enterBonus` where `gameEnd` would
+  have closed the first.
 
 The facade routes `enterBonus` / `playedBonusSpin` by that bonus key **when a `potsOverlay` block was
 captured**. Without the block it keeps today's rule (a captured `holdAndWin` block means every bonus

@@ -221,6 +221,27 @@ const withAmounts = (t: HoldAndWinTranslation, cells: unknown): CellAmount[] =>
 
 type Ctx = Record<string, unknown>;
 
+/** A meter moved — the Hold and Win meters and the pots overlay's pots alike. */
+export const meterUpdateEvent = (ctx: Ctx) => ({
+	type: 'meterUpdate',
+	meter: ctx.meter,
+	level: ctx.level,
+	max: ctx.max,
+	full: Boolean(ctx.full),
+	from: cellsOf(ctx.from),
+	...(ctx.forced ? { forced: true } : {}),
+});
+
+/** Every meter's level, restated after a play. */
+export const meterLevelsEvent = (ctx: Ctx) => ({
+	type: 'meterLevels',
+	meters: ((ctx.meters as HoldAndWinMeterLevel[]) ?? []).map(({ id, level, max }) => ({
+		id,
+		level,
+		max,
+	})),
+});
+
 const isExpansion = (v: unknown): v is { rows: number; maxRows: number } =>
 	typeof v === 'object' &&
 	v !== null &&
@@ -241,22 +262,9 @@ export const translateHoldAndWinEvent = (
 		case 'luckySpin':
 			return { type: 'luckySpin' };
 		case 'meterUpdate':
-			return {
-				type: 'meterUpdate',
-				meter: ctx.meter,
-				level: ctx.level,
-				max: ctx.max,
-				full: Boolean(ctx.full),
-				from: cellsOf(ctx.from),
-				...(ctx.forced ? { forced: true } : {}),
-			};
+			return meterUpdateEvent(ctx);
 		case 'meterLevels':
-			return {
-				type: 'meterLevels',
-				meters: ((ctx.meters as { id: string; level: number; max: number }[]) ?? []).map(
-					({ id, level, max }) => ({ id, level, max }),
-				),
-			};
+			return meterLevelsEvent(ctx);
 		case 'jackpotLevels':
 			return { type: 'jackpotLevels', jackpots: readJackpotLevels(ctx) };
 		case 'coinInstantCollect':
