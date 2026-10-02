@@ -296,6 +296,16 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-02 — **A save also keeps the fields this build does not know INSIDE a family.** The
+  top-level graft (below) left a gap: a field a newer launcher wrote inside `toast`, `jackpots`,
+  `lineMessage`… was dropped by an older launcher's save and, with no backups, lost for good.
+  `saveWinTextDoc` now puts a stored family's unknown fields back into that family
+  (`withUnknownFamilyFields`, same `If-Match`/ETag conditions as the top-level graft), even when
+  the author emptied the family's known fields — they could never see the unknown ones, so that
+  is not a deletion of them. One level only. A known-only doc still saves byte-identically. Gate:
+  `check:save-keeps-unknown-blocks` (win text families). Rule: `docs/conventions/doc-readers.md`
+  "Round-tripping".
+
 - 2026-10-01 — **The seven undrawn Hold and Win templates have draw sites** (Hold and Win Phase 4
   polish, part 2): the respin counter reads `respins.award` as the feature opens (until the first respin rolls),
   `respins.reset` while a reset pulses and `respins.last` at 1 left (an empty one falls back to
@@ -310,8 +320,8 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   launcher. Before an `If-Match` save, `saveWinTextDoc` now reads the stored doc. If its ETag is the
   save's `baseEtag`, it copies every top-level key `winTextDocSchema` does not declare onto the PUT
   (`storedUnknownBlocks`). A create, a forced overwrite or a stale ETag copies nothing. A field a
-  newer launcher adds INSIDE a family (say `jackpots.x`) is still dropped and is NOT recoverable. A
-  known-only doc saves byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule:
+  newer launcher adds INSIDE a family (say `jackpots.x`) was still dropped (kept since 2026-10-02,
+  above). A known-only doc saves byte-identically. Gate: `check:save-keeps-unknown-blocks`. Rule:
   `docs/conventions/doc-readers.md` "Round-tripping".
 
 - 2026-10-01 — **A newer `version` no longer wipes the whole win-text doc.** `version` is the

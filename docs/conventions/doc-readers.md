@@ -192,15 +192,21 @@ the save guard for every field in the table above.
     the blocks.
   - **A symbols backup restore keeps the BACKUP's unknown blocks**, not the live doc's: the
     restore replaces the live doc wholesale.
-  - **Nested unknown keys are still dropped**, because grafting them could resurrect a parent
-    block the author deleted. Symbols can recover them from `/api/editor/symbols/backups`, which
-    keeps the raw replaced bytes. Win text cannot, because it has no backups. So a field a newer
-    launcher adds INSIDE a win-text family is lost on the first save from an older launcher.
-  - **A NEWER tab saving to an older server** keeps the stored copy of an unknown block, not the
-    tab's edit of it: the server drops the posted value and copies the stored one.
-  - **Retiring a top-level field** is now a deliberate act. A key removed from the schema reads as
-    unknown and is carried through every save, so the change that retires it must delete it from
-    the stored docs.
+  - **Win text also keeps unknown fields ONE LEVEL DOWN**, inside a family (`toast`, `jackpots`,
+    `lineMessage`, …), since it has no backups to recover them from (`withUnknownFamilyFields`,
+    same file, same `If-Match`/ETag conditions). They go back into their family after the
+    author's edits, also when the author emptied or blanked the family's known fields and it was
+    pruned away: the author cannot see an unknown field, so clearing what they could see says
+    nothing about it, and a family is a fixed namespace, not an entity whose deletion should take
+    its contents along. Deeper levels and open maps (`winLevels`, `captions`) are not walked.
+  - **Symbols drops nested unknown keys**, because a graft could resurrect an entity the author
+    deleted (a symbol, a state, a layer) along with what it held. They are recoverable from
+    `/api/editor/symbols/backups`, which keeps the raw replaced bytes.
+  - **A NEWER tab saving to an older server** keeps the stored copy of an unknown block or family
+    field, not the tab's edit of it: the server drops the posted value and copies the stored one.
+  - **Retiring a field** is now a deliberate act. A top-level key (or win-text family field)
+    removed from the schema reads as unknown and is carried through every save, so the change that
+    retires it must delete it from the stored docs.
   - **The graft is added after the save's `'reject'` normalize** and is never normalized itself,
     so a newer enum value inside a kept block cannot make every save answer 400.
   - The graft only helps after a rollback to a build that contains it.

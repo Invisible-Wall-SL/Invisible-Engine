@@ -10,7 +10,7 @@ import {
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
-import { storedUnknownBlocks } from './unknownBlocks';
+import { loadedStoredDoc, unknownTopLevelBlocks, withUnknownFamilyFields } from './unknownBlocks';
 
 /**
  * Invisible Win Text doc — the per-project TEMPLATES for every string the game says about a
@@ -269,9 +269,10 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  * loads the whole doc and PUTs the whole doc, so the second save erases the first's work, not
  * just the conflicting cell. `updatedAt` alone can't catch it — it's stamped, never compared.
  *
- * Top-level blocks a newer launcher stored that this build does not know are carried over onto an
- * `If-Match` save ({@link storedUnknownBlocks}) — win text has no backups, so dropping them would
- * lose them for good. The returned doc omits them.
+ * What a newer launcher stored that this build does not know is carried over onto an `If-Match`
+ * save — win text has no backups, so dropping it would lose it for good: the top-level blocks
+ * ({@link unknownTopLevelBlocks}) and the fields inside a family ({@link withUnknownFamilyFields}).
+ * The returned doc omits them.
  */
 export async function saveWinTextDoc(
 	clientKey: string,
@@ -281,11 +282,13 @@ export async function saveWinTextDoc(
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
 	const next = normalizeWinTextDoc(doc, 'reject');
 	const key = winTextDocKey(clientKey, projectKey);
-	const kept = await storedUnknownBlocks(key, winTextDocSchema, baseEtag);
+	const loaded = await loadedStoredDoc(key, baseEtag);
+	const written = withUnknownFamilyFields(winTextDocSchema, loaded, next);
+	const kept = unknownTopLevelBlocks(winTextDocSchema, loaded);
 	const updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
 		key,
-		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
+		JSON.stringify({ ...written, ...kept, updatedAt }, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
