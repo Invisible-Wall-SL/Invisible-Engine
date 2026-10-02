@@ -474,6 +474,15 @@ assert(
 		!ids(mod.getFullSceneSet('holdAndWin', { potIds: [] })).includes('pots'),
 		'an empty pot list drops the pots screen',
 	);
+	{
+		const pots = mod
+			.getFullSceneSet('bookOf', { potsOverlay: true, potIds: ['a', 'b', 'a'] })
+			.scenes.find((scene) => scene.id === 'pots');
+		assert(
+			JSON.stringify(pots?.nodes.map((n) => n.id)) === JSON.stringify(['pot-a', 'pot-b']),
+			'a repeated pot id yields one pot (unique node ids)',
+		);
+	}
 	assert(
 		mod.addOnSceneIds('holdAndWin', { potsOverlay: true, holdAndWin: true }).length === 0,
 		'the holdAndWin kind has no add-on screens',

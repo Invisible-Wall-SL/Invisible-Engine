@@ -211,8 +211,11 @@ const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinO
 
 export function holdAndWinReferenceLayout(
 	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
-	{ maxRows, potIds = POT_METERS }: HoldAndWinTemplateOptions = {},
+	{ maxRows, potIds: rawPotIds = POT_METERS }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
+	// A doc that repeats a meter id fails validation but still loads; one pot per id keeps node ids
+	// unique.
+	const potIds = [...new Set(rawPotIds)];
 	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
 	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
