@@ -23,7 +23,7 @@
  * so a concurrent merge re-reads the winner's entry before writing its own. The
  * standalone script mirrors the same conditional-retry loop.
  */
-import type { HoldAndWinMockInputs } from 'game-config';
+import type { HoldAndWinMockInputs, PotsOverlayMockInputs } from 'game-config';
 
 import {
 	ConflictError,
@@ -335,8 +335,9 @@ export interface TestServerGameEntry {
 		 *  extended mapping reaches (`PIC8`/`PIC9`/`PIC10`) have a price row at all. A symbol absent
 		 *  here falls back to the mock's own table. Scatter additionally needs it because its pricing
 		 *  is by COUNT, which a run-length table cannot express. See `projectSymbolPaytable`.
-		 *  A `book` game's grid carries ONLY this beyond the required shape, in the book vocabulary
-		 *  (`PIC1`…`PIC4`, `ACE`…`TEN`); the book mock owns its board and ignores the rest. */
+		 *  A `book` game's grid carries ONLY this and `potsOverlay` beyond the required shape, this in
+		 *  the book vocabulary (`PIC1`…`PIC4`, `ACE`…`TEN`); the book mock owns its board and ignores
+		 *  the rest. */
 		symbolPaytable?: Record<string, Record<string, number>>;
 		/** The authored scatter pays, count → × total stake (lines-family mock only). */
 		scatterPaytable?: Record<string, number>;
@@ -357,6 +358,9 @@ export interface TestServerGameEntry {
 		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and
 		 *  `betModes`. */
 		holdAndWin?: HoldAndWinMockInputs;
+		/** A `book` game's pots overlay (`potsOverlayMockInputs`), which the mock deals token drops and
+		 *  pot bonuses from beside the book rounds. Present only when the config has the block. */
+		potsOverlay?: PotsOverlayMockInputs;
 	};
 }
 

@@ -6,7 +6,7 @@ import {
 	symbolHoldAndWinRoles,
 	symbolsInPlay,
 } from 'game-config';
-import { configAddOns, configMeterRows } from '$lib/configAddOns';
+import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -89,10 +89,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// purely additive, so a symbol mid-authoring can't vanish.
 	// A pots overlay's tokens are drawn over a cell, never dealt by a strip, so they join the in-play
 	// list here — rows to bind their art to.
-	const addOns = configAddOns(configDoc);
-	const meterRows = configMeterRows(configDoc);
+	const { addOns, potIds } = projectAddOns(configDoc);
+	const tokenPots = overlayTokenPots(configDoc);
 	const inPlayNames = configDoc
-		? [...new Set([...symbolsInPlay(configDoc), ...Object.keys(meterRows.tokens)])]
+		? [...new Set([...symbolsInPlay(configDoc), ...Object.keys(tokenPots)])]
 		: [];
 	const mergedSymbols = { ...baseDefaults.symbols };
 	for (const name of inPlayNames) {
@@ -166,7 +166,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		inPlaySymbols,
 		holdAndWinRoles,
 		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
-		tokenPots: meterRows.tokens,
+		tokenPots,
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
 		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
 		addOns,
@@ -181,6 +181,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// Every meter the Game Config declares (`resolveMeters`: Hold and Win meters, then overlay
 		// pots) — one `toMeter:<id>` row each in the Flights section, so a single pot can fly
 		// differently from the rest.
-		meterIds: meterRows.meterIds,
+		meterIds: potIds ?? [],
 	};
 };

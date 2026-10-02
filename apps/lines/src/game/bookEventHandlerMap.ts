@@ -216,10 +216,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// the intro container on `freeSpinTrigger` and a toast there would never be seen.
 		const scatterCount = bookEvent.positions.length;
 		const freeSpins = bookEvent.totalFs;
+		const award = `${freeSpins} Free ${freeSpins === 1 ? 'Spin' : 'Spins'}`;
+		// A full pot (pots overlay) awarded them, not the scatters — none need have landed.
 		showMessage(
-			`${scatterCount} ${scatterCount === 1 ? 'Scatter' : 'Scatters'} award ${freeSpins} Free ${
-				freeSpins === 1 ? 'Spin' : 'Spins'
-			}`,
+			bookEvent.cause === 'meter'
+				? `A full pot awards ${award}`
+				: `${scatterCount} ${scatterCount === 1 ? 'Scatter' : 'Scatters'} award ${award}`,
 			{ kind: 'info' },
 		);
 
@@ -429,6 +431,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	respinUpdate: presentRespinUpdate,
 	holdAndWinState: presentHoldAndWinState,
 	holdAndWinEnd: presentHoldAndWinEnd,
+
+	// Pots overlay (design §3.2): recorded at the play seam like every event; the tokens are drawn
+	// by the overlay layer (Phase 4), so the coded path has nothing to present yet.
+	overlayDrop: async () => {},
 
 	// The operator platform jackpot (any kind): the coded celebration, then the held win released.
 	platformJackpotWin: presentPlatformJackpotWin,

@@ -298,9 +298,9 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 - 2026-10-02 — **A pots overlay gets a Pots section; a Hold and Win block lights the Hold and Win
   sections on any kind** (Pots overlay Phase 5d). The page and Localization's harvest take the
-  config's add-ons (`$lib/configAddOns.ts`). A `potsOverlay` host without Hold and Win shows
+  config's add-ons (`$lib/addOns.ts`, `projectAddOns`). A `potsOverlay` host without Hold and Win shows
   **Pots**: Pot full and Pot label (`WIN_TEXT_POT_FIELDS`) plus one name per pot; the pot ids now
-  come from every meter (`configMeterRows`, Hold and Win's first, then the overlay's), here and in
+  come from every meter (`projectAddOns().potIds`, Hold and Win's first, then the overlay's), here and in
   the Hold and Win section. `collectWinTextTemplates` gains `options.pots`, harvesting the pot lines
   and names from the resolved doc for such a host. No block ⇒ unchanged. Gate:
   `check:win-text-doc`. Guide: [Pots (pots overlay)](../tools/win-text.md#pots-pots-overlay).

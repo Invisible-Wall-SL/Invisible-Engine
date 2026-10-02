@@ -112,8 +112,11 @@ const reelGridsOf = (doc: LayoutDoc): ReelGridNode[] =>
 		scene.nodes.filter((node): node is ReelGridNode => node.kind === 'reelGrid'),
 	);
 
-/** Template options: an expanding board's `maxRows` (absent ⇒ the board never grows). */
-export type HoldAndWinTemplateOptions = { maxRows?: number };
+/**
+ * Template options: an expanding board's `maxRows` (absent ⇒ the board never grows) and the pots
+ * screen's pots, one Pot Meter per id (absent ⇒ the Pots preset's three; empty ⇒ no pots screen).
+ */
+export type HoldAndWinTemplateOptions = { maxRows?: number; potIds?: readonly string[] };
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
@@ -208,8 +211,11 @@ const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinO
 
 export function holdAndWinReferenceLayout(
 	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
-	{ maxRows }: HoldAndWinTemplateOptions = {},
+	{ maxRows, potIds: rawPotIds = POT_METERS }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
+	// A doc that repeats a meter id fails validation but still loads; one pot per id keeps node ids
+	// unique.
+	const potIds = [...new Set(rawPotIds)];
 	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
 	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
@@ -246,6 +252,22 @@ export function holdAndWinReferenceLayout(
 		place({ dx: 0, dy: 235 }, { dx: 0, dy: 340 }),
 	);
 
+	/** Centred on the board: three pots land at -160 / 0 / +160. */
+	const potDx = (index: number) => (index - (potIds.length - 1) / 2) * 160;
+	const potsScene: Scene = {
+		id: 'pots',
+		name: 'Pots',
+		nodes: potIds.map((meter, index) =>
+			instance(
+				`pot-${meter}`,
+				`Pot (${meter})`,
+				'potMeter',
+				place({ dx: potDx(index), dy: -235 }, { dx: potDx(index), dy: -300 }),
+				{ meter },
+			),
+		),
+	};
+
 	const featureScenes: Scene[] = [
 		{
 			id: 'jackpotBar',
@@ -259,19 +281,7 @@ export function holdAndWinReferenceLayout(
 				),
 			],
 		},
-		{
-			id: 'pots',
-			name: 'Pots',
-			nodes: POT_METERS.map((meter, index) =>
-				instance(
-					`pot-${meter}`,
-					`Pot (${meter})`,
-					'potMeter',
-					place({ dx: (index - 1) * 160, dy: -235 }, { dx: (index - 1) * 160, dy: -300 }),
-					{ meter },
-				),
-			),
-		},
+		...(potIds.length ? [potsScene] : []),
 		modeScene({
 			id: 'respinBackground',
 			name: 'Respin background',

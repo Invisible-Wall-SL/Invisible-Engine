@@ -41,7 +41,7 @@ import {
 	type WinModel,
 } from 'game-config';
 import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
-import { configAddOns } from '../configAddOns';
+import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import { protocolFor } from './mockProtocol';
@@ -250,7 +250,7 @@ function winLineActive(ctx: ProfileContext): boolean {
 
 /** The kind's capabilities with the config's add-ons, as every authoring tool reads them. */
 const capabilitiesOf = (ctx: ProfileContext) =>
-	kindCapabilities(ctx.gameTypeId, configAddOns(ctx.config));
+	kindCapabilities(ctx.gameTypeId, projectAddOns(ctx.config).addOns);
 
 /**
  * The OPTIONAL feature table — "Using: …". One entry per switchable mechanic or presentation

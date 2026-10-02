@@ -13,7 +13,8 @@
  *      `symbolStatesForKind` (the Scene Editor's state pickers) hides the Hold and Win states from
  *      every kind but `holdAndWin`. With an add-on: a `holdAndWin` block shows them all, a
  *      `potsOverlay` block alone only the token's three (`POTS_TOKEN_SYMBOL_STATES`).
- *   3. METER ROWS — `configMeterRows` (the `/symbols` token rows and every `toMeter:<id>` / pot name)
+ *   3. METER ROWS — `projectAddOns` + `overlayTokenPots` (the `/symbols` token rows and every
+ *      `toMeter:<id>` / pot name)
  *      lists nothing new for a config without an overlay, and the overlay's tokens and pots with one.
  *   4. DEFAULTS — `symbolDefaultsFor('holdAndWin')` is its own set, validates, carries every symbol
  *      of every Hold and Win preset (art for all but the blank), and is a strict SUPERSET of the
@@ -33,7 +34,7 @@ import {
 	type KindCapabilityConfig,
 } from 'engine-layout';
 import { HOLD_AND_WIN_PRESETS, potsOverlayPreset, symbolHoldAndWinRoles } from 'game-config';
-import { configAddOns, configMeterRows } from '../src/lib/configAddOns.ts';
+import { overlayTokenPots, projectAddOns } from '../src/lib/addOns.ts';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
 import { visibleStatesFor } from '../src/routes/(app)/symbols/symbols.client.ts';
 
@@ -243,9 +244,13 @@ for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 }
 
 // ── 3. meter rows ───────────────────────────────────────────────────────────────────────────────
+const meterRows = (doc: Parameters<typeof projectAddOns>[0]) => ({
+	meterIds: projectAddOns(doc).potIds ?? [],
+	tokens: overlayTokenPots(doc),
+});
 check(
 	'no config · no add-ons, no meter rows',
-	[configAddOns(null), configMeterRows(null)],
+	[projectAddOns(null).addOns, meterRows(null)],
 	[
 		{ holdAndWin: false, potsOverlay: false },
 		{ meterIds: [], tokens: {} },
@@ -253,22 +258,22 @@ check(
 );
 for (const [presetId, preset] of Object.entries(HOLD_AND_WIN_PRESETS)) {
 	const meterIds = (preset.holdAndWin?.meters ?? []).map((meter) => meter.id);
-	check(`${presetId} · Hold and Win meters only, no token rows`, configMeterRows(preset), {
+	check(`${presetId} · Hold and Win meters only, no token rows`, meterRows(preset), {
 		meterIds,
 		tokens: {},
 	});
-	check(`${presetId} · add-ons`, configAddOns(preset), {
+	check(`${presetId} · add-ons`, projectAddOns(preset).addOns, {
 		holdAndWin: !!preset.holdAndWin,
 		potsOverlay: false,
 	});
 }
 const threePots = potsOverlayPreset('threePots');
 const borutPotsDoc = { potsOverlay: threePots.potsOverlay };
-check('threePots overlay · add-ons', configAddOns(borutPotsDoc), {
+check('threePots overlay · add-ons', projectAddOns(borutPotsDoc).addOns, {
 	holdAndWin: false,
 	potsOverlay: true,
 });
-check('threePots overlay · a token row per pot, every pot a meter', configMeterRows(borutPotsDoc), {
+check('threePots overlay · a token row per pot, every pot a meter', meterRows(borutPotsDoc), {
 	meterIds: ['red', 'blue', 'green'],
 	tokens: { POT_RED: ['red'], POT_BLUE: ['blue'], POT_GREEN: ['green'] },
 });
@@ -278,7 +283,7 @@ const hwWithOverlay = {
 };
 check(
 	'Hold and Win + overlay · the block meters first, then the overlay pot',
-	configMeterRows(hwWithOverlay),
+	meterRows(hwWithOverlay),
 	{
 		meterIds: [...(HOLD_AND_WIN_PRESETS.classic.holdAndWin?.meters ?? []).map((m) => m.id), 'gold'],
 		tokens: { POT_GOLD: ['gold'] },

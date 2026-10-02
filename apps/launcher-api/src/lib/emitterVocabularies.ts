@@ -1551,6 +1551,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'holdAndWinEnd',
 			},
 			{
+				type: 'overlayDrop',
+			},
+			{
 				type: 'modeEnter',
 			},
 			{
@@ -3091,6 +3094,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'holdAndWinEnd',
+			},
+			{
+				type: 'overlayDrop',
 			},
 			{
 				type: 'modeEnter',
@@ -4635,6 +4641,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'holdAndWinEnd',
 			},
 			{
+				type: 'overlayDrop',
+			},
+			{
 				type: 'modeEnter',
 			},
 			{
@@ -6175,6 +6184,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'holdAndWinEnd',
+			},
+			{
+				type: 'overlayDrop',
 			},
 			{
 				type: 'modeEnter',

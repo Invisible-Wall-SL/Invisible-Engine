@@ -14,6 +14,7 @@ import {
 	LOSS_LIMIT_TEXT_OPTIONS,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
+import { projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -156,6 +157,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// template default; `null` (no default at all) ⇒ the reelGrid node keeps its own reels/rows.
 	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
 	const gridDimensions = gridDimensionsOf(gameConfigDoc);
+	const { addOns, potIds } = projectAddOns(gameConfigDoc);
 	// The `win` component authors its per-tier PRESENTATION (spine/animations/duration/sound) from the
 	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
 	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
@@ -270,6 +272,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// A Hold and Win project whose Game Config expands its respin board: the rows it grows to, so
 		// the scaffold, "Add missing screens" and the reserve action make room for them. Null ⇒ none.
 		expansionMaxRows: gameConfigDoc?.holdAndWin?.expansion?.maxRows ?? null,
+		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
+		// and the scene set offer their parts. All false without a config ⇒ the kind's own answers.
+		addOns,
+		// The pots screen's pots (every resolved meter). Null ⇒ the scene set's built-in pots.
+		potIds,
 		// Per-source SAMPLE data for `repeater` placeholders (currently `featureCards` → the config's
 		// non-default bet modes). Empty ⇒ every repeater keeps its fixed fallback sample (parity).
 		repeaterSources,

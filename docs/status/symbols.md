@@ -144,8 +144,8 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 ## Recent changes
 
 - 2026-10-02 — **The page reads the Game Config add-on blocks** (Pots overlay Phase 5d). The kind's
-  capabilities now take the config's add-ons (`$lib/configAddOns.ts`: `configAddOns` for the
-  `holdAndWin` / `potsOverlay` presence flags, `configMeterRows` for the meter ids and each overlay
+  capabilities now take the config's add-ons (`$lib/addOns.ts`: `projectAddOns` for the
+  `holdAndWin` / `potsOverlay` presence flags and the meter ids, `overlayTokenPots` for each overlay
   token → its pots, both read through `resolveMeters`). A project with a `potsOverlay` block, any
   kind: its token symbols join the grid even though no strip deals them, each with a
   `token → <pot id>` chip; the columns gain only Coin land / Coin idle / Fly to meter

@@ -3,7 +3,7 @@ import type { ModePolicy } from './modeStack';
 /**
  * Which book events move the mode stack (`docs/design/hold-and-win.md` §4.5).
  *
- * `modeEnter { mode, cause?, policy?, payload? }` / `modeExit { mode, total? }` are the generic pair.
+ * `modeEnter { mode, cause?, meters?, policy?, payload? }` / `modeExit { mode, total? }` are the generic pair.
  * The feature events that already exist are ALIASES of them, so a Book-of game's free spins become
  * the `freeSpins` mode without its book, its facade or its flow changing:
  *
@@ -54,9 +54,22 @@ const payloadOf = (event: LooseEvent, drop: readonly string[]): Record<string, u
  */
 const modePayloadOf = (event: LooseEvent): Record<string, unknown> => {
 	const nested = event.payload;
-	return typeof nested === 'object' && nested !== null && !Array.isArray(nested)
-		? (nested as Record<string, unknown>)
-		: payloadOf(event, ['mode', 'cause', 'policy']);
+	if (typeof nested !== 'object' || nested === null || Array.isArray(nested))
+		return payloadOf(event, ['mode', 'cause', 'policy']);
+	// A top-level `meters` (the full pots that started it) joins the payload it would otherwise skip.
+	return Array.isArray(event.meters)
+		? { ...(nested as Record<string, unknown>), meters: event.meters }
+		: (nested as Record<string, unknown>);
+};
+
+/**
+ * The full pots that started a mode (`cause: 'meter'`), from its entry's payload — where every entry
+ * event carries them (`holdAndWinTrigger.payload.meters`, `freeSpinTrigger.meters`,
+ * `modeEnter.meters`). `[]` for a mode no pot started.
+ */
+export const modeEntryMeters = (entry: { payload: Record<string, unknown> }): string[] => {
+	const meters = entry.payload.meters;
+	return Array.isArray(meters) ? meters.filter((id): id is string => typeof id === 'string') : [];
 };
 
 /** The book-event types that can move the stack — the snapshot keeps these for a resume. */
@@ -94,7 +107,8 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 				op: 'enter',
 				id: 'freeSpins',
 				policy: 'nest',
-				payload: payloadOf(event, []),
+				cause: text(event.cause),
+				payload: payloadOf(event, ['cause']),
 				legacyGameType: true,
 			};
 		case 'freeSpinEnd':
