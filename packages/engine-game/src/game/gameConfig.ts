@@ -32,6 +32,11 @@ import { SYMBOL_SIZE } from './constants';
 import type { RawSymbol } from './types';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 
+/** The coded ladder's levels, ascending — the ladder of a project that authors no tiers. */
+const CODED_WIN_LEVELS = Object.values(winLevelMap)
+	.map((data) => data.level)
+	.sort((a, b) => a - b);
+
 /**
  * The two SOURCES a game's config can come from. Phase A5 of
  * `docs/design/game-type-templates.md`.
@@ -778,44 +783,43 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	const warnedOffLadder = new Set<number>();
 
 	/**
-	 * The level a book event's `winLevel` PRESENTS at on the active ladder (the authored tiers, else the
-	 * coded `winLevelMap`). A level the ladder has is itself. One it lacks was stamped from another
-	 * ladder — a server on the coded ten against a shorter authored list, or a ladder that changed after
-	 * the book was translated — and takes the highest tier at or below it, or the first tier when it is
+	 * The level a book event's `winLevel` PRESENTS at on the active ladder (`tiers`, else the coded
+	 * `winLevelMap`). A level the ladder has is itself. One it lacks was stamped from another ladder
+	 * (a server on the coded ten against a shorter authored list, or a ladder that changed after the
+	 * book was translated) and takes the highest tier at or below it, or the first tier when it is
 	 * below them all, so a win above the top tier celebrates on the top one. Said once per level.
 	 *
-	 * No number resolves to no tier: a win with no tier mounts no count-up, so the free-spin outro and
-	 * the big win would wait forever for a tap that never arms, the button inert under the celebration
-	 * lock. A non-number is not a level and stays unresolved.
+	 * Placed by level NUMBER, not by win size: two ladders of different lengths do not line up, so a
+	 * level off the ladder can present a tier above or below what its win would earn here. That is
+	 * the price of never freezing. A win with no tier mounts no count-up, so the free-spin outro and
+	 * the big win would wait forever for a tap that never arms, the button inert under the
+	 * celebration lock. A non-number is not a level and stays unresolved.
 	 */
-	function ladderLevel(level: number): number | undefined {
+	function ladderLevel(level: number, tiers: ResolvedWinTier[] | undefined): number | undefined {
 		if (!Number.isFinite(level)) return undefined;
-		const tiers = activeWinLevels();
-		const levels = (
-			tiers ? tiers.map((tier) => tier.level) : Object.values(winLevelMap).map((data) => data.level)
-		).sort((a, b) => a - b);
+		const levels = tiers ? tiers.map((tier) => tier.level) : CODED_WIN_LEVELS;
 		if (levels.includes(level)) return level;
 		const at = levels.filter((l) => l <= level).at(-1) ?? levels[0];
 		if (!warnedOffLadder.has(level)) {
 			warnedOffLadder.add(level);
 			console.warn(
-				`[game-config] win level ${level} is not on this game's ${levels.length}-tier ladder, so it ` +
-					`presents at level ${at}. The RGS and the game disagree about the win tiers.`,
+				`[game-config] win level ${level} is not on this game's ${levels.length}-tier ladder, ` +
+					`so it presents at level ${at}. The RGS and the game disagree about the win tiers.`,
 			);
 		}
 		return at;
 	}
 
 	/**
-	 * The `WinLevelData` for a book event's `winLevel` NUMBER — from the authored tiers when present,
-	 * else the coded `winLevelMap`, at the level {@link ladderLevel} places it. The ONE lookup every win
-	 * consumer routes through (`bookEventHandlerMap`, `flowEffects`, `playBook`), so an authored config's
-	 * tiers drive the presentation.
+	 * The `WinLevelData` for a book event's `winLevel` NUMBER, from the authored tiers when present,
+	 * else the coded `winLevelMap`, at the level {@link ladderLevel} places it. The ONE lookup every
+	 * win consumer routes through (`bookEventHandlerMap`, `flowEffects`, `playBook`), so an authored
+	 * config's tiers drive the presentation.
 	 */
 	function activeWinLevelData(level: number): WinLevelData | undefined {
-		const at = ladderLevel(level);
-		if (at === undefined) return undefined;
 		const tiers = activeWinLevels();
+		const at = ladderLevel(level, tiers);
+		if (at === undefined) return undefined;
 		if (tiers) {
 			const tier = tiers.find((t) => t.level === at);
 			return tier ? withWinPresentation(tierToWinLevelData(tier)) : undefined;
@@ -886,7 +890,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** The escalation chain (as `WinLevelData`) for a winning `level`, or `undefined` when escalation is
 	 *  off / un-authored — the big-win component plays only the single winning tier in that case. */
 	function activeWinLevelChain(level: number): WinLevelData[] | undefined {
-		const at = ladderLevel(level);
+		const at = ladderLevel(level, activeWinLevels());
 		if (at === undefined) return undefined;
 		const chain = resolveWinLevelChain(getActiveGameConfig(), at);
 		return chain?.map((tier) => withWinPresentation(tierToWinLevelData(tier)));

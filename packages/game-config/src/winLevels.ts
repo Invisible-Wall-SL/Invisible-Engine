@@ -100,8 +100,9 @@ export const resolveWinLevel = (doc: GameConfigDoc, betMultiplier: number): numb
 	return level;
 };
 
-/** The `type` of a resolved tier by its `level`, or `undefined` when un-authored / out of range —
- *  the facade's big-win gate keys off `=== 'big'` instead of a magic `level >= 6`. */
+/** The `type` of a resolved tier by its `level`, or `undefined` when un-authored / out of range.
+ *  The engine's big-win gate reads the tier its own lookup places a level at instead
+ *  (`engine-game` `activeWinLevelIsBig`), and the facade keeps its own (`isBigWinLevel`). */
 export const winLevelType = (
 	doc: GameConfigDoc,
 	level: number,
