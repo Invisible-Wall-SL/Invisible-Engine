@@ -100,6 +100,14 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
 gap is closed by the headless real-clock path (2026-09-28, see Current state).
 
 ## Recent changes
+- 2026-10-02 — **The headless real clock runs in a Claude Code cloud container.** The scripts
+  looked only for `chrome-headless-shell`. The cloud image ships `headless_shell` and runs as root,
+  where Chromium needs `--no-sandbox`. Sessions there reported "the game never reaches idle",
+  which was the harness, not the engine (found by pots-overlay Phase 4).
+  `scripts/playtest/headless-shell.mjs` is now the one launch for `win-countup-repro.mjs` and
+  `host-settings-probe.mjs`: either name, the sandbox flag only as root, and the shell's stderr on
+  an early exit. The GPU flags are unchanged; on Windows the play run still reaches idle at 60 fps.
+  The caveat lives in [the headless real clock](../playtest/README.md#the-headless-real-clock).
 - 2026-09-28 — **Live check of #807/#810 on the headless real clock** (#836): `bookofborutremake`
   passes (intro holds and releases on tap, book reveal, two-stage outro tap, idle with credit).
   `test2`–`test6` lost their free-spin intro/outro because they still bind the retired composers;
